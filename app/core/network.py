@@ -1,0 +1,44 @@
+from typing import Any
+
+
+RETRYABLE_NETWORK_MARKERS = (
+    "timeout",
+    "timed out",
+    "readtimeout",
+    "connecttimeout",
+    "net::",
+    "err_name_not_resolved",
+    "name_not_resolved",
+    "dns",
+    "servfail",
+    "could not resolve host",
+    "temporary failure in name resolution",
+    "nodename nor servname provided",
+    "connection reset",
+    "connection aborted",
+    "connection refused",
+    "connection closed",
+    "connection terminated",
+    "socket hang up",
+    "target closed",
+    "browser has been closed",
+    "execution context was destroyed",
+    "page has been closed",
+    "frame was detached",
+    "navigation interrupted",
+    "session closed",
+    "target page, context or browser has been closed",
+    "protocol error",
+    "net::err_connection_reset",
+    "net::err_connection_refused",
+    "net::err_internet_disconnected",
+    "net::err_network_changed",
+    "net::err_timed_out",
+    "ns_error_net_reset",
+    "ns_error_connection_refused",
+)
+
+
+def is_retryable_network_error(error: Any) -> bool:
+    message = str(error or "").lower()
+    return any(marker in message for marker in RETRYABLE_NETWORK_MARKERS)
