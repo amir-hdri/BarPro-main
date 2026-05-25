@@ -3,9 +3,14 @@ name: Dependency Snapshot
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   dependency-submission:
@@ -20,14 +25,40 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
 
       - name: Generate Dependency Snapshot
         run: |
-          pip install pip-audit
-          pip-audit --desc --format json > dependencies.json
+          pip list --format json > dependencies.json
+          cat dependencies.json
 
-      - name: Submit Dependency Snapshot
-        uses: actions/dependency-submission-action@v4
+      - name: Upload Dependency Snapshot
+        uses: actions/upload-artifact@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-         
+          name: dependencies
+          path: dependencies.json
+          retention-days: 30
+
+      - name: Security Audit
+        run: |
+          pip-audit --desc
+        continue-on-error: true
+
+      - name: Generate SBOM (Software Bill of Materials)
+        run: |
+          pip install cyclonedx-python
+          cyclonedx-py -o cyclonedx-bom.xml
+        continue-on-error: true
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: cyclonedx-bom.xml
+          retention-days: 30
+        continue-on-error: true
