@@ -1,0 +1,119 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlanType {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  CAPTCHA_SOLVING
+  WAITING_AUTH
+  RETRY_SCHEDULED
+  SUCCESS
+  FAILED
+  DEAD
+}
+
+enum JobKind {
+  SUBMIT
+  AUTH_REFRESH
+}
+
+enum AuditAction {
+  JOB_CREATED
+  JOB_REQUEUED
+  JOB_DEAD_LETTERED
+  SESSION_REFRESHED
+  PROXY_ROTATED
+  COUNTERS_RESET
+  DAILY_SUMMARY_GENERATED
+}
+
+model Tenant {
+  id          String     @id @default(cuid())
+  name        String
+  plan        PlanType   @default(PRO)
+  apiKey      String     @unique
+  proxyUrl    String
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  drivers     Driver[]
+  jobs        Job[]
+  auditLogs   AuditLog[]
+
+  @@index([isActive])
+}
+
+model Driver {
+  id                String    @id @default(cuid())
+  tenantId          String
+  name              String
+  idCardNumber      String
+  username          String
+  passwordEncrypted String
+  dailyAttempts     Int       @default(0)
+  dailySuccesses    Int       @default(0)
+  proxyAssigned     String
+  lastSessionAt     DateTime?
+  lastAuthAt        DateTime?
+  sessionValid      Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  jobs              Job[]
+
+  @@unique([tenantId, idCardNumber])
+  @@index([tenantId, sessionValid])
+}
+
+model Job {
+  id              String     @id @default(cuid())
+  tenantId        String
+  driverId        String
+  externalRef     String?
+  idempotencyKey  String
+  queueName       String
+  kind            JobKind    @default(SUBMIT)
+  status          JobStatus  @default(PENDING)
+  attempts        Int        @default(0)
+  authAttempts    Int        @default(0)
+  maxAttempts     Int        @default(5)
+  lastError       String?
+  payload         Json
+  completedAt     DateTime?
+  scheduledAt     DateTime   @default(now())
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  tenant          Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  driver          Driver     @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([status, scheduledAt])
+  @@index([tenantId, status, createdAt])
+  @@index([driverId, createdAt])
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  tenantId    String
+  jobId       String?
+  driverId    String?
+  action      AuditAction
+  metadata    Json
+  createdAt   DateTime    @default(now())
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([action, createdAt])
+}

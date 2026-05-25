@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="fa" dir="rtl" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UTCMS Pro Dashboard | داشبورد حرفه‌ای</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%233b82f6'/%3E%3Ctext x='50' y='65' font-size='50' text-anchor='middle' fill='white' font-family='Arial'%3E📦%3C/text%3E%3C/svg%3E">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
+  <link rel="stylesheet" href="/assets/styles.css">
+
+    <style>
+      body {
+        font-family: 'Vazirmatn', sans-serif;
+      }
+      /* Custom Scrollbar for better UI */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.1);
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.25);
+      }
+      /* Ensure glass effect is strong */
+      .glass {
+        background: rgba(15, 23, 42, 0.65);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+      }
+      /* Interactive hover effects for cards */
+      .card-hover {
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .card-hover:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 12px 40px -10px rgba(59, 130, 246, 0.3);
+        border-color: rgba(59, 130, 246, 0.3);
+      }
+    </style>
+</head>
+<body class="antialiased min-h-screen">
+  <div class="flex h-screen overflow-hidden">
+    
+    <!-- Mobile overlay -->
+    <div id="mobile-overlay" class="fixed inset-0 bg-black/50 z-40 hidden lg:hidden" onclick="toggleSidebar()"></div>
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="w-72 flex-shrink-0 border-l border-white/10 glass rounded-none lg:rounded-r-none h-full overflow-y-auto flex flex-col fixed lg:static right-0 z-50 transform translate-x-full lg:translate-x-0 transition-transform duration-300">
+      <div class="p-6 relative">
+          <button id="btn-sidebar-close" class="lg:hidden absolute top-4 left-4 p-2 text-white/50 hover:text-white" onclick="toggleSidebar()">✕</button>
+        <div class="flex items-center gap-4 mb-8 pb-6 border-b border-white/10">
+          <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-2xl shadow-lg">📦</div>
+          <div>
+            <h2 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">UTCMS Pro</h2>
+            <p class="text-xs opacity-70">سامانه هوشمند بارنامه</p>
+          </div>
+        </div>
+
+        <nav class="flex flex-col gap-2">
+          <button class="nav-item active w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm" data-tab="waybill-form">
+            <span class="text-xl">📝</span><span>ثبت بارنامه</span>
+          </button>
+          <button class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm" data-tab="manual-entry">
+            <span class="text-xl">✏️</span><span>ورود دستی</span>
+          </button>
+          <button class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm" data-tab="driver-schedules">
+            <span class="text-xl">⏱️</span><span>زمان‌بندی</span>
+          </button>
+          <button class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm" data-tab="excel-upload">
+            <span class="text-xl">📊</span><span>آپلود اکسل</span>
+          </button>
+          <button class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm" data-tab="map-tools">
+            <span class="text-xl">🗺️</span><span>نقشه و مسیر</span>
+          </button>
+          <button class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm" data-tab="reports-tools">
+            <span class="text-xl">📈</span><span>گزارش‌ها</span>
+          </button>
+          <button class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm" data-tab="management-tools">
+            <span class="text-xl">⚙️</span><span>مدیریت حرفه‌ای</span>
+          </button>
+        </nav>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col h-full overflow-hidden relative">
+      <!-- Topbar -->
+      <header class="glass m-4 lg:m-6 p-4 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4 z-10">
+        <div class="flex items-center gap-4 w-full sm:w-auto">
+          <button class="lg:hidden text-2xl p-2 rounded-lg hover:bg-white/10" onclick="toggleSidebar()" aria-label="نمایش یا مخفی کردن منو">☰</button>
+          <div>
+            <h1 class="text-xl sm:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">داشبورد کنترل بارنامه</h1>
+            <p class="text-xs sm:text-sm opacity-70">مدیریت هوشمند و خودکار صدور بارنامه</p>
+          </div>
+        </div>
+        <div class="flex gap-2 sm:gap-3 w-full sm:w-auto justify-end">
+          <button id="btn-theme-toggle" class="px-3 py-2 sm:px-4 sm:py-2 text-sm rounded-lg border border-white/10 hover:bg-white/5 transition-all" aria-label="تغییر تم روشن/تاریک">🌓</button>
+          <button id="btn-refresh-status" class="px-3 py-2 sm:px-4 sm:py-2 text-sm rounded-lg bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30 transition-all flex items-center gap-2">🔄 <span class="hidden sm:inline">بروزرسانی</span></button>
+          <button id="btn-run-smoke" class="px-3 py-2 sm:px-4 sm:py-2 text-sm rounded-lg bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30 transition-all flex items-center gap-2">✅ <span class="hidden sm:inline">سلامت</span></button>
+        </div>
+      </header>
+
+      <!-- Scrollable Content Area -->
+      <div class="flex-1 overflow-y-auto p-4 lg:p-6 pt-0">
+        <!-- Status Cards -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div class="glass p-5 rounded-2xl text-center card-hover" id="card-health">
+            <h3 class="text-sm opacity-70 mb-2">سلامت سیستم</h3>
+            <div class="text-xl sm:text-2xl font-bold text-blue-400" id="health-status">بررسی...</div>
+          </div>
+          <div class="glass p-5 rounded-2xl text-center card-hover" id="card-ready">
+            <h3 class="text-sm opacity-70 mb-2">آمادگی سرویس</h3>
+            <div class="text-xl sm:text-2xl font-bold text-blue-400" id="ready-status">بررسی...</div>
+          </div>
+          <div class="glass p-5 rounded-2xl text-center card-hover">
+            <h3 class="text-sm opacity-70 mb-2">عملیات فعال</h3>
+            <div class="text-xl sm:text-2xl font-bold text-purple-400" id="active-status">0</div>
+          </div>
+          <div class="glass p-5 rounded-2xl text-center card-hover">
+            <h3 class="text-sm opacity-70 mb-2">صف انتظار</h3>
+            <div class="text-xl sm:text-2xl font-bold text-orange-400" id="queue-status">0</div>
+          </div>
+        </div>
+
+        <!-- Waybill Form Tab -->
+        <section id="tab-waybill-form" class="tab-content active">
+          <div class="glass p-6 sm:p-8 rounded-2xl">
+            <h2 class="text-2xl font-bold text-blue-400 mb-2">📝 ثبت بارنامه جدید</h2>
+            <p class="opacity-70 mb-6 text-sm">اطلاعات بارنامه را وارد کنید. سیستم به صورت خودکار فرآیند صدور را انجام می‌دهد.</p>
+            
+            <form id="waybill-form" class="space-y-4">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium mb-1">نام فرستنده</label>
+                  <input type="text" name="sender_name" required placeholder="نام کامل فرستنده" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">کد ملی فرستنده</label>
+                  <input type="text" name="sender_code" required placeholder="کد ملی ۱۰ رقمی" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium mb-1">نام گیرنده</label>
+                  <input type="text" name="receiver_name" required placeholder="نام کامل گیرنده" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">کد ملی گیرنده</label>
+                  <input type="text" name="receiver_code" required placeholder="کد ملی ۱۰ رقمی" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium mb-1">مبدا</label>
+                  <input type="text" name="origin" required placeholder="شهر مبدا" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">مقصد</label>
+                  <input type="text" name="destination" required placeholder="شهر مقصد" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium mb-1">نوع بار</label>
+                  <input type="text" name="cargo_type" required placeholder="نوع کالا" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">وزن (کیلوگرم)</label>
+                  <input type="number" name="cargo_weight" required placeholder="وزن بار" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium mb-1">شماره پلاک خودرو</label>
+                <input type="text" name="vehicle_plate" required placeholder="مثال: ۱۲ ب ۳۴۵ ایران ۶۷" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+              </div>
+
+              <button type="submit" class="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium py-3 rounded-xl shadow-lg shadow-blue-500/25 transition-all transform hover:-translate-y-0.5 mt-4">
+                🚀 ثبت بارنامه
+              </button>
+            </form>
+            <div id="waybill-result" class="mt-4"></div>
+          </div>
+        </section>
+
+        <!-- Other tabs placeholders styled minimally -->
+
+        <section id="tab-driver-schedules" class="tab-content">
+          <div class="glass p-8 rounded-2xl">
+            <h2 class="text-2xl font-bold text-blue-400 mb-4">⏱️ زمان‌بندی خودکار ثبت بارنامه</h2>
+            <p class="opacity-70 mb-6 text-sm">برنامه‌ریزی برای ثبت خودکار بارنامه در تاریخ و ساعت مشخص.</p>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <!-- Form -->
+              <div>
+                <h3 class="text-lg font-semibold mb-4 border-b border-white/10 pb-2">ایجاد زمان‌بندی جدید</h3>
+                <form id="schedule-form" class="space-y-4">
+                  <div>
+                    <label class="block text-sm font-medium mb-1">راننده</label>
+                    <select name="driver_id" id="schedule-driver-select" required class="w-full form-input rounded-xl px-4 py-3 text-sm bg-slate-800">
+                      <option value="">در حال بارگذاری...</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium mb-1">عنوان برنامه</label>
+                    <input type="text" name="title" required placeholder="مثلاً: بارنامه روزانه تهران" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                  </div>
+                  <div class="grid grid-cols-2 gap-4">
+                    <div>
+                      <label class="block text-sm font-medium mb-1">دوره تناوب</label>
+                      <select name="frequency" required class="w-full form-input rounded-xl px-4 py-3 text-sm bg-slate-800">
+                        <option value="daily">روزانه</option>
+                        <option value="weekly">هفتگی</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium mb-1">ساعت اجرا (HH:MM)</label>
+                      <input type="time" name="run_time" required value="08:00" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                    </div>
+                  </div>
+                  <div class="grid grid-cols-2 gap-4">
+                     <div>
+                      <label class="block text-sm font-medium mb-1">تاریخ شروع (اختیاری)</label>
+                      <input type="date" name="start_date" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left">
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium mb-1">تاریخ پایان (اختیاری)</label>
+                      <input type="date" name="end_date" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left">
+                    </div>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium mb-1">تنظیمات الگو (JSON)</label>
+                    <textarea name="payload_template" rows="4" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left font-mono" dir="ltr" placeholder='{"origin": "تهران", "destination": "اصفهان"}'></textarea>
+                  </div>
+                  <button type="submit" class="w-full px-8 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl transition-colors">
+                    ذخیره زمان‌بندی
+                  </button>
+                </form>
+              </div>
+
+              <!-- List -->
+              <div>
+                 <h3 class="text-lg font-semibold mb-4 border-b border-white/10 pb-2">زمان‌بندی‌های فعال</h3>
+                 <div id="schedules-list" class="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                    <div class="text-center opacity-50 py-4 text-sm">در حال بارگذاری...</div>
+                 </div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <section id="tab-manual-entry" class="tab-content">
+          <div class="glass p-8 rounded-2xl">
+            <h2 class="text-2xl font-bold text-blue-400 mb-4">✏️ ورود دستی بارنامه</h2>
+            <p class="opacity-70 mb-6 text-sm">برای سناریوهای سریع، همین فرم را مستقیماً به endpoint ثبت دستی وصل کرده‌ایم.</p>
+            <button id="btn-manual-submit" class="w-full md:w-auto px-8 py-3 bg-amber-500/20 text-amber-400 rounded-xl border border-amber-500/30 hover:bg-amber-500/30 transition-colors">
+              ارسال نمونه به ثبت دستی
+            </button>
+            <div id="manual-result" class="mt-4"></div>
+          </div>
+        </section>
+
+        <section id="tab-excel-upload" class="tab-content">
+          <div class="glass p-8 rounded-2xl text-center">
+            <h2 class="text-2xl font-bold text-blue-400 mb-4">📊 آپلود و پردازش اکسل</h2>
+            <div class="border-2 border-dashed border-white/20 rounded-xl p-8 hover:border-blue-500/50 transition-colors cursor-pointer" onclick="document.getElementById('excel-file').click()">
+              <div class="text-4xl mb-4">📁</div>
+              <p>برای انتخاب فایل کلیک کنید یا فایل را اینجا رها کنید</p>
+              <input type="file" id="excel-file" class="hidden" accept=".xlsx,.xls">
+            </div>
+            <button id="btn-upload-excel" class="w-full md:w-auto px-8 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl mt-6 transition-colors">📤 آپلود و پردازش</button>
+            <div id="excel-result" class="mt-4"></div>
+          </div>
+        </section>
+
+        <section id="tab-map-tools" class="tab-content">
+           <div class="glass p-8 rounded-2xl">
+             <h2 class="text-2xl font-bold text-blue-400 mb-4">🗺️ انتخاب مبدا و مقصد روی نقشه</h2>
+             <div class="bg-blue-500/10 border border-blue-500/30 p-4 rounded-xl mb-6">
+                💡 راهنما: ابتدا مبدا و سپس مقصد را روی نقشه کلیک کنید
+             </div>
+             <!-- Map container placeholder -->
+             <div id="map-click-surface" class="bg-slate-800 rounded-xl h-[400px] flex items-center justify-center border border-white/10 relative overflow-hidden group cursor-crosshair">
+                <div class="absolute inset-0 bg-blue-500/5 group-hover:bg-blue-500/10 transition-colors"></div>
+                <div class="text-center relative z-10">
+                  <div class="text-5xl mb-2">🗺️</div>
+                  <p class="text-white/70">نقشه در حال بارگذاری...</p>
+                </div>
+             </div>
+             <div class="grid grid-cols-3 gap-4 mt-6">
+               <button id="btn-select-origin" class="bg-blue-500/20 text-blue-400 py-2 rounded-lg border border-blue-500/30">📍 مبدا</button>
+               <button id="btn-select-destination" class="bg-orange-500/20 text-orange-400 py-2 rounded-lg border border-orange-500/30">🏁 مقصد</button>
+               <button id="btn-clear-selection" class="bg-red-500/20 text-red-400 py-2 rounded-lg border border-red-500/30">🗑️ پاک کردن</button>
+             </div>
+             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+               <div id="origin-display" class="rounded-xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm">
+                 <div class="font-medium text-blue-300 mb-1">مختصات مبدا</div>
+                 <div id="origin-card" class="opacity-80">
+                   <div id="origin-display-value">هنوز انتخاب نشده است</div>
+                 </div>
+               </div>
+               <div id="destination-display" class="rounded-xl border border-orange-500/20 bg-orange-500/10 p-4 text-sm">
+                 <div class="font-medium text-orange-300 mb-1">مختصات مقصد</div>
+                 <div id="destination-card" class="opacity-80">
+                   <div id="destination-display-value">هنوز انتخاب نشده است</div>
+                 </div>
+               </div>
+             </div>
+             <div id="map-selection-status" class="mt-4 text-sm opacity-80">حالت انتخاب: مبدا</div>
+           </div>
+        </section>
+
+                <section id="tab-reports-tools" class="tab-content">
+          <div class="glass p-8 rounded-2xl">
+             <h2 class="text-2xl font-bold text-blue-400 mb-4">📈 گزارش‌ها و آمار</h2>
+             <p class="opacity-70 mb-6 text-sm">بارگیری خلاصه گزارش‌ها از سیستم‌های مدیریت و کلاینت.</p>
+
+             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div class="border border-white/10 rounded-xl p-4 bg-slate-900/50">
+                    <h3 class="text-lg font-bold text-blue-300 mb-2">گزارش‌های ادمین (کلی)</h3>
+                    <div class="flex flex-col gap-2">
+                        <button id="btn-admin-summary" class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm">خلاصه کاربران</button>
+                        <button id="btn-admin-failure" class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm">تحلیل شکست‌ها</button>
+                        <div class="flex gap-2">
+                            <input type="number" id="admin-client-id" placeholder="Client ID" class="w-full px-3 py-2 bg-slate-800 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500">
+                            <button id="btn-admin-client-detail" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-sm whitespace-nowrap">جزئیات مشتری</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="border border-white/10 rounded-xl p-4 bg-slate-900/50">
+                    <h3 class="text-lg font-bold text-green-300 mb-2">گزارش‌های کاربر (کلاینت)</h3>
+                    <div class="flex flex-col gap-2">
+                        <button id="btn-user-dashboard" class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm">داشبورد آماری</button>
+                        <button id="btn-user-drivers" class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm">عملکرد رانندگان</button>
+                        <button id="btn-user-waybills" class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm">تاریخچه بارنامه‌ها</button>
+                        <button id="btn-user-errors" class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm">جزئیات خطاها</button>
+                    </div>
+                </div>
+             </div>
+
+             <pre id="reports-result" class="hidden rounded-xl border border-white/10 bg-slate-950/50 p-4 text-left text-xs overflow-x-auto h-96" dir="ltr"></pre>
+          </div>
+        </section>
+
+                <section id="tab-management-tools" class="tab-content">
+          <div class="glass p-8 rounded-2xl">
+             <h2 class="text-2xl font-bold text-blue-400 mb-4">⚙️ مدیریت حرفه‌ای</h2>
+             <p class="opacity-70 mb-6 text-sm">پنل مدیریت یکپارچه ربات‌ها و زمان‌بندی</p>
+
+             <!-- Statistics Grid -->
+             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+               <div class="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 text-center">
+                 <div class="text-sm opacity-70">مشتریان</div>
+                 <div id="management-summary-customers" class="text-2xl font-bold">0</div>
+               </div>
+               <div class="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 text-center">
+                 <div class="text-sm opacity-70">مسیرها</div>
+                 <div id="management-summary-routes" class="text-2xl font-bold">0</div>
+               </div>
+               <div class="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 text-center">
+                 <div class="text-sm opacity-70">اکانت‌ها</div>
+                 <div id="management-summary-accounts" class="text-2xl font-bold">0</div>
+               </div>
+               <div class="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 text-center">
+                 <div class="text-sm opacity-70">صف کلی</div>
+                 <div id="management-summary-queue" class="text-2xl font-bold">0</div>
+               </div>
+
+               <div class="bg-green-500/10 p-4 rounded-xl border border-green-500/20 text-center">
+                 <div class="text-sm opacity-70">اکانت‌های فعال</div>
+                 <div id="management-summary-active-accounts" class="text-2xl font-bold">0</div>
+               </div>
+               <div class="bg-yellow-500/10 p-4 rounded-xl border border-yellow-500/20 text-center">
+                 <div class="text-sm opacity-70">نیازمند OTP</div>
+                 <div id="management-summary-otp-accounts" class="text-2xl font-bold">0</div>
+               </div>
+               <div class="bg-purple-500/10 p-4 rounded-xl border border-purple-500/20 text-center">
+                 <div class="text-sm opacity-70">سشن‌های آماده</div>
+                 <div id="management-summary-session-ready" class="text-2xl font-bold">0</div>
+               </div>
+               <div class="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 text-center">
+                 <div class="text-sm opacity-70">صف لوکال</div>
+                 <div id="management-summary-local-queue" class="text-2xl font-bold">0</div>
+               </div>
+             </div>
+
+             <!-- Actions Grid -->
+             <div class="flex flex-wrap gap-2 mb-8">
+               <button id="btn-management-refresh-summary" class="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg">🔄 بروزرسانی</button>
+               <button id="btn-management-diagnostics" class="px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg">🧪 عیب‌یابی</button>
+               <button id="btn-management-list-accounts" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg">📋 لیست اکانت‌ها</button>
+               <button id="btn-management-list-queue" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg">📋 لیست صف</button>
+             </div>
+
+             <!-- Diagnostics Results -->
+             <div id="management-diagnostics-list" class="mb-8 hidden">
+                <pre class="bg-slate-900 p-4 rounded-xl border border-slate-700 text-xs overflow-x-auto text-left" dir="ltr"></pre>
+             </div>
+
+             <!-- Excel Upload -->
+             <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 mb-8">
+               <h3 class="text-lg font-bold mb-4">آپلود گروهی اکسل</h3>
+               <div class="flex gap-4">
+                 <input type="file" id="management-excel-file" class="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-500 file:text-white hover:file:bg-blue-600">
+                 <button id="btn-management-import-excel" class="px-6 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg whitespace-nowrap">📤 پردازش</button>
+               </div>
+               <div id="management-import-results" class="mt-4 text-sm"></div>
+             </div>
+
+             <!-- The rest of the required hidden inputs/buttons to satisfy the management.js listeners without throwing errors if the UI is minimal -->
+             <div class="hidden">
+                <input id="management-customer-key"><input id="management-customer-name">
+                <button id="btn-management-save-customer"></button><button id="btn-management-list-customers"></button>
+                <input id="management-route-key"><input id="management-route-name"><input id="management-route-origin-province"><input id="management-route-origin-city"><input id="management-route-destination-province"><input id="management-route-destination-city"><input id="management-route-origin-lat"><input id="management-route-origin-lng"><input id="management-route-destination-lat"><input id="management-route-destination-lng"><input id="management-route-distance"><input id="management-route-duration"><input id="management-route-enabled" type="checkbox"><input id="management-route-recommended" type="checkbox">
+                <button id="btn-management-save-route"></button><button id="btn-management-list-routes"></button><button id="btn-management-copy-route-from-map"></button>
+                <input id="management-account-name"><input id="management-account-owner"><input id="management-account-title"><input id="management-account-phone"><input id="management-account-national-code"><input id="management-account-route-key"><select id="management-account-status"></select><select id="management-account-platform"></select><input id="management-account-current-submit"><input id="management-account-target-submit"><input id="management-account-time-interval"><input id="management-account-last-success"><input id="management-account-start-shipping"><input id="management-account-otp-needed" type="checkbox"><textarea id="management-account-driver-data"></textarea><textarea id="management-account-truck-data"></textarea><input id="management-account-valid-location" type="checkbox"><input id="management-account-two-way" type="checkbox">
+                <button id="btn-management-save-account"></button><button id="btn-management-fill-queue-from-account"></button><button id="btn-management-warm-session"></button><button id="btn-management-bootstrap-current"></button>
+                <input id="management-queue-account-name"><input id="management-queue-route-key"><input id="management-queue-owner">
+                <button id="btn-management-create-queue"></button><button id="btn-management-queue-current"></button>
+                <input id="management-dispatch-queue-id">
+                <button id="btn-management-dispatch-queue"></button><button id="btn-management-list-logs"></button>
+                <div id="management-summary-imported-queue"></div>
+             </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <script src="/assets/app.js"></script>
+  <script src="/assets/management.js"></script>
+</body>
+</html>

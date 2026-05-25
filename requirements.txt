@@ -1,0 +1,27 @@
+playwright
+fastapi
+uvicorn
+pydantic
+aiohttp
+numpy
+Pillow
+opencv-python-headless
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+httpx
+sqlmodel>=0.0.38
+asyncpg
+aiosqlite
+celery
+redis
+prometheus-client
+psycopg2-binary
+alembic
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-otlp-proto-grpc
+openpyxl
+python-multipart
+cryptography
+bcrypt
+python-jose[cryptography]

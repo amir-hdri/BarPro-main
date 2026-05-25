@@ -1,0 +1,16 @@
+[Unit]
+Description=UTCMS Automation Bot
+After=network.target
+
+[Service]
+Type=simple
+User=utcms
+WorkingDirectory=/opt/utcms-automation
+EnvironmentFile=/opt/utcms-automation/.env
+ExecStart=/usr/bin/docker compose up --build
+ExecStop=/usr/bin/docker compose down
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

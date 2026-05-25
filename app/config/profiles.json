@@ -1,0 +1,161 @@
+{
+  "version": "1.0",
+  "created_at": "2026-04-15T01:22:15.830640",
+  "profiles": [
+    {
+      "name": "chrome_windows_124",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "platform": "Win32",
+      "platform_version": "10.0",
+      "language": "en-US",
+      "languages": [
+        "en-US",
+        "en"
+      ],
+      "timezone": "America/New_York",
+      "screen": {
+        "width": 1920,
+        "height": 1080,
+        "pixel_ratio": 1.0
+      },
+      "hardware_concurrency": 8,
+      "device_memory": 8
+    },
+    {
+      "name": "chrome_windows_124_en_uk",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "platform": "Win32",
+      "platform_version": "10.0",
+      "language": "en-GB",
+      "languages": [
+        "en-GB",
+        "en-US",
+        "en"
+      ],
+      "timezone": "Europe/London",
+      "screen": {
+        "width": 1366,
+        "height": 768,
+        "pixel_ratio": 1.0
+      },
+      "hardware_concurrency": 4,
+      "device_memory": 4
+    },
+    {
+      "name": "chrome_mac_m1",
+      "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "platform": "MacIntel",
+      "platform_version": "10.15.7",
+      "language": "en-US",
+      "languages": [
+        "en-US",
+        "en"
+      ],
+      "timezone": "America/Los_Angeles",
+      "screen": {
+        "width": 2560,
+        "height": 1440,
+        "pixel_ratio": 2.0
+      },
+      "hardware_concurrency": 8,
+      "device_memory": 16
+    },
+    {
+      "name": "chrome_mac_apple_silicon",
+      "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+      "platform": "MacIntel",
+      "platform_version": "14.0",
+      "language": "fa-IR",
+      "languages": [
+        "fa-IR",
+        "fa",
+        "en-US",
+        "en"
+      ],
+      "timezone": "Asia/Tehran",
+      "screen": {
+        "width": 1920,
+        "height": 1080,
+        "pixel_ratio": 2.0
+      },
+      "hardware_concurrency": 8,
+      "device_memory": 16
+    },
+    {
+      "name": "firefox_windows_125",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+      "platform": "Win32",
+      "platform_version": "10.0",
+      "language": "en-US",
+      "languages": [
+        "en-US",
+        "en"
+      ],
+      "timezone": "America/Chicago",
+      "screen": {
+        "width": 1920,
+        "height": 1080,
+        "pixel_ratio": 1.5
+      },
+      "hardware_concurrency": 12,
+      "device_memory": 8
+    },
+    {
+      "name": "edge_chromium_windows",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+      "platform": "Win32",
+      "platform_version": "10.0",
+      "language": "en-US",
+      "languages": [
+        "en-US"
+      ],
+      "timezone": "America/New_York",
+      "screen": {
+        "width": 1440,
+        "height": 900,
+        "pixel_ratio": 1.5
+      },
+      "hardware_concurrency": 8,
+      "device_memory": 16
+    },
+    {
+      "name": "chrome_linux",
+      "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "platform": "Linux x86_64",
+      "platform_version": "",
+      "language": "en-US",
+      "languages": [
+        "en-US",
+        "en"
+      ],
+      "timezone": "Europe/Berlin",
+      "screen": {
+        "width": 1920,
+        "height": 1080,
+        "pixel_ratio": 1.0
+      },
+      "hardware_concurrency": 8,
+      "device_memory": 8
+    },
+    {
+      "name": "chrome_tablet",
+      "user_agent": "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "platform": "iPad",
+      "platform_version": "17.0",
+      "language": "en-US",
+      "languages": [
+        "en-US",
+        "en"
+      ],
+      "timezone": "America/Los_Angeles",
+      "screen": {
+        "width": 1024,
+        "height": 768,
+        "pixel_ratio": 2.0
+      },
+      "hardware_concurrency": 4,
+      "device_memory": 4,
+      "max_touch_points": 5
+    }
+  ]
+}
