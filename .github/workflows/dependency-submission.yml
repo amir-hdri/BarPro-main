@@ -27,7 +27,7 @@ jobs:
           pip-audit --desc --format json > dependencies.json
 
       - name: Submit Dependency Snapshot
-        uses: github/dependency-submission-action@v3
+        uses: actions/dependency-submission-action@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          snapshot: dependencies.json
+         
