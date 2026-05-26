@@ -241,6 +241,56 @@ def test_create_telemetry_event():
     # Should be valid according to schema
     TelemetryEventSchema(**event)
 
+
+def test_create_telemetry_event_full_args():
+    event = create_telemetry_event(
+        event_type="full_test",
+        workflow_id="wf-1",
+        session_id="sess-1",
+        driver_id="drv-1",
+        waybill_id="wb-1",
+        step_name="step-1",
+        duration_ms=150.5,
+        status="failure",
+        error_code="E001",
+        error_message="Test error",
+        metadata={"key": "val"}
+    )
+    assert event["event_type"] == "full_test"
+    assert event["workflow_id"] == "wf-1"
+    assert event["session_id"] == "sess-1"
+    assert event["driver_id"] == "drv-1"
+    assert event["waybill_id"] == "wb-1"
+    assert event["step_name"] == "step-1"
+    assert event["duration_ms"] == 150.5
+    assert event["status"] == "failure"
+    assert event["error_code"] == "E001"
+    assert event["error_message"] == "Test error"
+    assert event["metadata"] == {"key": "val"}
+    TelemetryEventSchema(**event)
+
+def test_create_telemetry_event_default_metadata():
+    event = create_telemetry_event(
+        event_type="test_event",
+        status="success"
+    )
+    assert event["metadata"] == {}
+    TelemetryEventSchema(**event)
+
+def test_create_telemetry_event_invalid_status():
+    with pytest.raises(ValidationError):
+        create_telemetry_event(
+            event_type="test_event",
+            status="invalid_status"
+        )
+
+def test_create_telemetry_event_negative_duration():
+    with pytest.raises(ValidationError):
+        create_telemetry_event(
+            event_type="test_event",
+            duration_ms=-10.0
+        )
+
 def test_create_workflow_state():
     state = create_workflow_state(
         workflow_id="wf-123",

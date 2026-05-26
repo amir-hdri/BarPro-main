@@ -1,20 +1,13 @@
-fix(frontend): comprehensive resolution of frontend bugs and technical debt
+🧪 [testing] Improve coverage for create_telemetry_event
 
-1. **Duplicate Imports**:
-   - Removed duplicated imports in `apps/web/src/app/page.tsx` and `apps/web/src/app/history/page.tsx`.
-   - Setup `eslint-plugin-unused-imports` in `package.json` and `.eslintrc.json` (replacing `eslint.config.mjs`) to detect unused/duplicate imports.
-   - Fixed missing `</main>` closing tag in `apps/web/src/app/auth/page.tsx` during linting.
-2. **Lockfile Conflict & Engine Requirements**:
-   - Deleted `apps/web/package-lock.json` keeping `yarn.lock` as the single lockfile.
-   - Added `engines` object in `package.json` to enforce `node >=18.17.0` and `yarn >= 1.22.0`.
-   - Removed `.npmrc` since it pointed to a registry that was timing out.
-3. **Zod Schema Mismatch**:
-   - Removed `.default("active")` from `status` field in `CreateClientModal.tsx` to match the non-optional string expected by `react-hook-form`.
-4. **Missing Data Interface**:
-   - Added `driver_name?: string;` to `WaybillJob` interface in `apps/web/src/lib/types.ts`.
-5. **Infinite Loop Risk in useEffect**:
-   - Replaced `[role]` with `[client?.role]` in the `useEffect` dependencies inside `apps/web/src/app/page.tsx` to stabilize the data fetching logic.
-6. **Next.js Config Turbopack Error**:
-   - Removed the `turbopack` key from `apps/web/next.config.mjs` to prevent the unrecognized key warning.
-7. **Startup Script Port Conflict**:
-   - Added `fuser -k 3000/tcp || true` inside `scripts/start_system.sh` to forcefully free port 3000 before the frontend attempts to bind to it, preventing orphan processes from failing the script.
+🎯 **What:** The testing gap addressed
+The create_telemetry_event helper function in app/schemas/enterprise_reporting.py lacked comprehensive tests for optional arguments and schema validation edges, like incorrect statuses or negative execution duration.
+
+📊 **Coverage:** What scenarios are now tested
+- Added test_create_telemetry_event_full_args to ensure all optional parameters correctly populate the dictionary.
+- Added test_create_telemetry_event_default_metadata to verify the metadata dictionary fallbacks to empty correctly.
+- Added test_create_telemetry_event_invalid_status to ensure schema validation fails for a bad status.
+- Added test_create_telemetry_event_negative_duration to ensure schema validation fails for negative durations.
+
+✨ **Result:** The improvement in test coverage
+We now thoroughly validate edge conditions and all optional parameters inside the telemetry schema parsing layer. Tests verify pydantic.ValidationError is triggered cleanly on schema violations.
