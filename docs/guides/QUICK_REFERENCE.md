@@ -30,9 +30,9 @@ await apply_enterprise_stealth(page)
 ### 2. Human-Like Typing
 
 ```python
-from app.automation.human_interaction import human_type, TypingProfile
+from app.automation.human_interaction import human_type, TypingProfile, HumanTypeConfig
 
-await human_type(page, "#username", "admin", profile=TypingProfile.AVERAGE)
+await human_type(page, "#username", "admin", config=HumanTypeConfig(profile=TypingProfile.AVERAGE))
 ```
 
 ### 3. Resilient Retry

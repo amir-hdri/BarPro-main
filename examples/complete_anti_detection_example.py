@@ -166,7 +166,7 @@ async def example_4_human_behavior():
     logger.info("Example 4: Human Behavior Simulation")
     logger.info("=" * 60)
 
-    from app.automation import click_with_human_movement, human_type, wait_like_human
+    from app.automation import click_with_human_movement, human_type, wait_like_human, HumanTypeConfig
 
     browser_manager = BrowserManager()
 
@@ -190,7 +190,7 @@ async def example_4_human_behavior():
             page=page,
             selector="input[name='username']",
             text="testuser",
-            add_typos=False,
+            config=HumanTypeConfig(add_typos=False),
         )
 
         # Add delay between fields

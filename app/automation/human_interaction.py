@@ -29,16 +29,25 @@ class TypingProfile:
     PROFESSIONAL = {"min_delay": 0.02, "max_delay": 0.08, "name": "professional"}
 
 
+
+from dataclasses import dataclass, field
+
+@dataclass
+class HumanTypeConfig:
+    """Configuration for human-like typing."""
+    profile: Dict[str, float] = field(default_factory=lambda: TypingProfile.AVERAGE)
+    add_typos: bool = False
+    typo_chance: float = 0.02
+    pause_on_punctuation: bool = True
+    pause_on_capitals: bool = True
+    random_hesitation: bool = True
+
+
 async def human_type(
     page: Page,
     selector: str,
     text: str,
-    profile: Dict[str, float] = TypingProfile.AVERAGE,
-    add_typos: bool = False,
-    typo_chance: float = 0.02,
-    pause_on_punctuation: bool = True,
-    pause_on_capitals: bool = True,
-    random_hesitation: bool = True,
+    config: Optional[HumanTypeConfig] = None,
 ) -> None:
     """
     Type text with realistic human-like delays and patterns.
@@ -47,28 +56,25 @@ async def human_type(
         page: Playwright page instance
         selector: Target element selector
         text: Text to type
-        profile: Typing speed profile
-        add_typos: Simulate occasional typos and corrections
-        typo_chance: Probability of making a typo (0-1)
-        pause_on_punctuation: Add longer delays for punctuation
-        pause_on_capitals: Add delays for shift+capital letters
-        random_hesitation: Add random hesitation pauses
+        config: Configuration for human-like typing delays and patterns
     """
+    config = config or HumanTypeConfig()
+
     element = await page.wait_for_selector(selector, state="visible", timeout=10000)
     await element.click()
     
     # Initial pause before typing (human thinks before typing)
     await asyncio.sleep(random.uniform(0.2, 0.6))
     
-    min_delay = profile["min_delay"]
-    max_delay = profile["max_delay"]
+    min_delay = config.profile["min_delay"]
+    max_delay = config.profile["max_delay"]
     
     i = 0
     while i < len(text):
         char = text[i]
         
         # Check for typo simulation
-        if add_typos and random.random() < typo_chance and char.isalpha():
+        if config.add_typos and random.random() < config.typo_chance and char.isalpha():
             # Type wrong character, then backspace and correct
             wrong_char = _generate_wrong_char(char)
             await element.press(wrong_char)
@@ -85,7 +91,7 @@ async def human_type(
             # Normal typing with variable delays
             delay = _calculate_typing_delay(
                 char, min_delay, max_delay,
-                pause_on_punctuation, pause_on_capitals, random_hesitation
+                config.pause_on_punctuation, config.pause_on_capitals, config.random_hesitation
             )
             await element.press(char)
             await asyncio.sleep(delay)
@@ -488,7 +494,8 @@ async def type_with_human_delays(
     }
     
     profile = profiles.get(speed, TypingProfile.AVERAGE)
-    await human_type(page, selector, text, profile=profile)
+    config = HumanTypeConfig(profile=profile)
+    await human_type(page, selector, text, config=config)
 
 
 async def click_with_human_movement(

@@ -19,6 +19,7 @@ from app.automation.human_interaction import (
     HumanTiming,
     MouseMovementEngine,
     TypingProfile,
+    HumanTypeConfig,
     click_with_human_movement,
     human_type,
 )
@@ -183,8 +184,7 @@ class EnterpriseLogin:
             page,
             "#username",
             username,
-            profile=TypingProfile.AVERAGE,
-            add_typos=False,
+            config=HumanTypeConfig(profile=TypingProfile.AVERAGE, add_typos=False),
         )
         await HumanTiming.action_delay("form_fill")
 
@@ -193,8 +193,7 @@ class EnterpriseLogin:
             page,
             "#password",
             password,
-            profile=TypingProfile.HUNT_AND_PECK,
-            add_typos=False,
+            config=HumanTypeConfig(profile=TypingProfile.HUNT_AND_PECK, add_typos=False),
         )
         await HumanTiming.action_delay("form_fill")
 
@@ -360,7 +359,7 @@ class EnterpriseWaybillCreator:
                     self.page,
                     selector,
                     value,
-                    profile=TypingProfile.AVERAGE,
+                    config=HumanTypeConfig(profile=TypingProfile.AVERAGE),
                 )
                 await HumanTiming.action_delay("form_fill")
 
@@ -378,7 +377,7 @@ class EnterpriseWaybillCreator:
                     self.page,
                     selector,
                     value,
-                    profile=TypingProfile.AVERAGE,
+                    config=HumanTypeConfig(profile=TypingProfile.AVERAGE),
                 )
                 await HumanTiming.action_delay("form_fill")
 

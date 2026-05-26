@@ -71,6 +71,7 @@ from .human_interaction import (
     type_with_human_delays,
     MouseMovementEngine,
     TypingProfile,
+    HumanTypeConfig,
     HumanBehaviorSimulator,
     HumanTiming,
 )
@@ -145,6 +146,7 @@ __all__ = [
     "type_with_human_delays",
     "MouseMovementEngine",
     "TypingProfile",
+    "HumanTypeConfig",
     "HumanBehaviorSimulator",
     "HumanTiming",
     

@@ -185,6 +185,7 @@ from app.automation import (
     wait_like_human,
     TypingProfile,
     HumanTiming,
+    HumanTypeConfig,
 )
 
 # Human-like typing with delays
@@ -192,8 +193,7 @@ await human_type(
     page=page,
     selector="input[name='username']",
     text="testuser",
-    profile=TypingProfile.AVERAGE,
-    add_typos=False,
+    config=HumanTypeConfig(profile=TypingProfile.AVERAGE, add_typos=False),
 )
 
 # Human-like mouse movement
