@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -17,9 +16,9 @@ class GeoCoordinateModel(BaseModel):
 class LocationModel(BaseModel):
     province: str
     city: str
-    district: Optional[str] = None
+    district: str | None = None
     address: str
-    coordinates: Optional[GeoCoordinateModel] = None
+    coordinates: GeoCoordinateModel | None = None
 
 
 class SenderModel(BaseModel):
@@ -33,26 +32,26 @@ class ReceiverModel(BaseModel):
     name: str = Field(..., description="نام گیرنده")
     phone: str = Field(..., description="تلفن گیرنده")
     address: str = Field(..., description="آدرس گیرنده")
-    national_code: Optional[str] = Field(None, description="کد ملی گیرنده")
+    national_code: str | None = Field(None, description="کد ملی گیرنده")
 
 
 class CargoModel(BaseModel):
-    type: Optional[str] = Field(None, description="نوع کالا")
-    weight: Union[str, int, float] = Field(..., description="وزن کالا")
-    count: Union[str, int] = Field(default="1", description="تعداد کالا")
-    description: Optional[str] = Field(None, description="توضیحات کالا")
+    type: str | None = Field(None, description="نوع کالا")
+    weight: str | int | float = Field(..., description="وزن کالا")
+    count: str | int = Field(default="1", description="تعداد کالا")
+    description: str | None = Field(None, description="توضیحات کالا")
 
 
 class VehicleModel(BaseModel):
-    driver_national_code: Optional[str] = Field(None, description="کد ملی راننده")
-    driver_phone: Optional[str] = Field(None, description="تلفن راننده")
-    plate: Optional[str] = Field(None, description="پلاک خودرو")
-    type: Optional[str] = Field(None, description="نوع خودرو")
+    driver_national_code: str | None = Field(None, description="کد ملی راننده")
+    driver_phone: str | None = Field(None, description="تلفن راننده")
+    plate: str | None = Field(None, description="پلاک خودرو")
+    type: str | None = Field(None, description="نوع خودرو")
 
 
 class FinancialModel(BaseModel):
-    cost: Optional[Union[str, int, float]] = Field(None, description="هزینه حمل")
-    payment_method: Optional[str] = Field(None, description="روش پرداخت")
+    cost: str | int | float | None = Field(None, description="هزینه حمل")
+    payment_method: str | None = Field(None, description="روش پرداخت")
 
 
 class UTCMSLoginModel(BaseModel):
@@ -65,19 +64,19 @@ class UTCMSLoginModel(BaseModel):
 
 
 class ShippingOptionsModel(BaseModel):
-    two_way: Optional[bool] = Field(default=False, description="ثبت دو طرفه (رفت و برگشت)")
-    time_limit: Optional[int] = Field(default=None, description="محدودیت زمانی ثبت (دقیقه)")
-    end_shipping: Optional[str] = Field(default=None, description="تاریخ/زمان پایان حمل")
-    otp: Optional[str] = Field(default=None, description="کد OTP در صورت نیاز به احراز هویت دو مرحله‌ای")
+    two_way: bool | None = Field(default=False, description="ثبت دو طرفه (رفت و برگشت)")
+    time_limit: int | None = Field(default=None, description="محدودیت زمانی ثبت (دقیقه)")
+    end_shipping: str | None = Field(default=None, description="تاریخ/زمان پایان حمل")
+    otp: str | None = Field(default=None, description="کد OTP در صورت نیاز به احراز هویت دو مرحله‌ای")
 
 
 class WaybillMapRequest(BaseModel):
-    session_id: Optional[str] = None
-    correlation_id: Optional[str] = None
-    batch_id: Optional[str] = None
+    session_id: str | None = None
+    correlation_id: str | None = None
+    batch_id: str | None = None
     priority: int = Field(default=5, ge=0, le=9)
     operation_mode: OperationMode = Field(default=OperationMode.SAFE)
-    utcms_auth: Optional[UTCMSLoginModel] = Field(
+    utcms_auth: UTCMSLoginModel | None = Field(
         default=None,
         description="در صورت ارسال، لاگین با اطلاعات همین درخواست انجام می‌شود",
     )
@@ -88,4 +87,4 @@ class WaybillMapRequest(BaseModel):
     cargo: CargoModel
     vehicle: VehicleModel
     financial: FinancialModel
-    shipping_options: Optional[ShippingOptionsModel] = Field(default=None, description="گزینه‌های اضافی حمل")
+    shipping_options: ShippingOptionsModel | None = Field(default=None, description="گزینه‌های اضافی حمل")

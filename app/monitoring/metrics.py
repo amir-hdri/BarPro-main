@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import time
-from collections import Counter as CollectionsCounter, deque
+from collections import Counter as CollectionsCounter
+from collections import deque
 from threading import Lock
-from typing import Any, Dict
+from typing import Any
 
 try:
     from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
@@ -270,11 +271,11 @@ def export_metrics() -> bytes:
     return generate_latest()
 
 
-def summarize_queue_depth(snapshot: Dict[str, int]) -> int:
+def summarize_queue_depth(snapshot: dict[str, int]) -> int:
     return int(snapshot.get("queued", 0)) + int(snapshot.get("retrying", 0))
 
 
-def get_captcha_runtime_snapshot(window_size: int = 50) -> Dict[str, Any]:
+def get_captcha_runtime_snapshot(window_size: int = 50) -> dict[str, Any]:
     normalized_window = max(5, min(200, int(window_size or 50)))
 
     with _CAPTCHA_RUNTIME_LOCK:

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -18,12 +17,12 @@ class DriverRuntimeStateResponse(BaseModel):
     client_id: int
     state: str
     session_version: int
-    last_auth_at: Optional[datetime] = None
-    session_expires_at: Optional[datetime] = None
-    next_retry_at: Optional[datetime] = None
-    paused_until: Optional[datetime] = None
-    proxy_key: Optional[str] = None
-    last_error_code: Optional[str] = None
+    last_auth_at: datetime | None = None
+    session_expires_at: datetime | None = None
+    next_retry_at: datetime | None = None
+    paused_until: datetime | None = None
+    proxy_key: str | None = None
+    last_error_code: str | None = None
     counters: DriverCounterSnapshotResponse
 
 

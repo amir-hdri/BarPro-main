@@ -1,5 +1,7 @@
 import string
+
 from app.core.secrets_manager import generate_secure_secret
+
 
 def test_generate_secure_secret_length():
     """Test that generate_secure_secret creates a string of the requested length."""

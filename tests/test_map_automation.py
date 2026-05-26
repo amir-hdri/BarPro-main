@@ -1,14 +1,15 @@
+import os
+import sys
 import unittest
 from unittest.mock import AsyncMock, patch
-import sys
-import os
 
 # Add app to path
 sys.path.append(os.getcwd())
 
-from app.automation.map_controller import MapController, GeoCoordinate
 from app.automation.location_selector import LocationSelector
+from app.automation.map_controller import GeoCoordinate, MapController
 from app.core.exceptions import LocationSelectionError
+
 
 class TestMapAutomation(unittest.IsolatedAsyncioTestCase):
     async def test_detect_google_map(self):

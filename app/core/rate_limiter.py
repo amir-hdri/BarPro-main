@@ -3,7 +3,6 @@
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Dict, Optional
 
 from fastapi import HTTPException, Request, Response
 
@@ -34,14 +33,14 @@ class RateLimitState:
     remaining: int
     limit: int
     reset_at: float
-    retry_after: Optional[float] = None
+    retry_after: float | None = None
 
 
 class InMemoryRateLimiter:
     """In-memory sliding window rate limiter for single-process mode."""
 
     def __init__(self):
-        self._requests: Dict[str, list[float]] = {}
+        self._requests: dict[str, list[float]] = {}
         self._lock = asyncio.Lock()
 
     async def check(self, key: str, config: RateLimitConfig) -> RateLimitState:
@@ -95,7 +94,7 @@ class RedisRateLimiter:
 
     def __init__(self, redis_url: str):
         self._redis_url = redis_url
-        self._redis: Optional[aioredis.Redis] = None
+        self._redis: aioredis.Redis | None = None
         self._lock = asyncio.Lock()
 
     async def _get_redis(self) -> aioredis.Redis:
@@ -164,7 +163,7 @@ class RateLimiter:
 
     def __init__(self):
         self._backend = None
-        self._rules: Dict[str, RateLimitConfig] = {}
+        self._rules: dict[str, RateLimitConfig] = {}
         self._setup_backend()
 
     def _setup_backend(self):
@@ -234,7 +233,7 @@ async def rate_limit_dependency(
 
     try:
         state = await rate_limiter.check(rule, client_ip)
-    except Exception as exc:
+    except Exception:
         # Fail open - allow request if rate limiter fails
         return RateLimitState(
             remaining=999,

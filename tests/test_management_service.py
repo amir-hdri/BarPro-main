@@ -6,8 +6,6 @@ from unittest.mock import AsyncMock, patch
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
 
-
-
 from app.schemas.management import (
     ManagedAccountUpsertRequest,
     ManagedQueueCreateRequest,
@@ -15,7 +13,17 @@ from app.schemas.management import (
     ManagementBootstrapRequest,
     ManagementExcelImportOptions,
 )
-from app.schemas.waybill import (CargoModel, FinancialModel, GeoCoordinateModel, LocationModel, ReceiverModel, SenderModel, UTCMSLoginModel, VehicleModel, WaybillMapRequest)
+from app.schemas.waybill import (
+    CargoModel,
+    FinancialModel,
+    GeoCoordinateModel,
+    LocationModel,
+    ReceiverModel,
+    SenderModel,
+    UTCMSLoginModel,
+    VehicleModel,
+    WaybillMapRequest,
+)
 from app.services.management_service import management_service
 from scripts.generate_waybill_excel_template import generate_template
 
@@ -336,10 +344,11 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["event_history"][0]["event"], "created")
 
     async def test_upsert_customer_creates_new_record(self):
-        from app.schemas.management import ManagedCustomerUpsertRequest
-        from app.models_management import ManagedCustomer
-        from sqlmodel import select
         from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlmodel import select
+
+        from app.models_management import ManagedCustomer
+        from app.schemas.management import ManagedCustomerUpsertRequest
 
         request = ManagedCustomerUpsertRequest(
             source_system="test_system",
@@ -373,10 +382,11 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(record.bot_running, True)
 
     async def test_upsert_customer_updates_existing_record(self):
-        from app.schemas.management import ManagedCustomerUpsertRequest
-        from app.models_management import ManagedCustomer
-        from sqlmodel import select
         from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlmodel import select
+
+        from app.models_management import ManagedCustomer
+        from app.schemas.management import ManagedCustomerUpsertRequest
 
         # Create initial record
         async with AsyncSession(self.engine) as session:

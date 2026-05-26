@@ -1,6 +1,6 @@
 """Multi-tenant waybill bot powered by the project's self-healing automation stack."""
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 from playwright.async_api import BrowserContext, Page
 
@@ -24,8 +24,8 @@ class WaybillAutomationBot:
     def __init__(self, page: Page, context: BrowserContext):
         self.page = page
         self.context = context
-        self.last_error: Optional[str] = None
-        self.last_state: Optional[str] = None
+        self.last_error: str | None = None
+        self.last_state: str | None = None
         self.authenticator = UTCMSAuthenticator(page, context)
         self.manager = EnhancedWaybillManager(page, context)
 
@@ -33,11 +33,11 @@ class WaybillAutomationBot:
         self,
         username: str,
         password: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         job_id: str,
         client_id: int,
-    ) -> Dict[str, Any]:
-        result: Dict[str, Any] = {
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {
             "job_id": job_id,
             "client_id": client_id,
             "status": TaskStatus.PENDING.value,

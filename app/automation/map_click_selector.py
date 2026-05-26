@@ -5,8 +5,8 @@
 
 import asyncio
 import logging
-from typing import Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Any
 
 from playwright.async_api import Page
 
@@ -20,16 +20,16 @@ class ClickLocation:
     longitude: float
     pixel_x: int
     pixel_y: int
-    address: Optional[str] = None
-    label: Optional[str] = None  # 'origin' or 'destination'
+    address: str | None = None
+    label: str | None = None  # 'origin' or 'destination'
 
 
 @dataclass
 class ClickSelection:
     """نتیجه انتخاب با کلیک"""
-    origin: Optional[ClickLocation] = None
-    destination: Optional[ClickLocation] = None
-    map_bounds: Optional[Dict[str, float]] = None
+    origin: ClickLocation | None = None
+    destination: ClickLocation | None = None
+    map_bounds: dict[str, float] | None = None
     selection_complete: bool = False
 
 
@@ -157,16 +157,16 @@ class MapClickSelector:
                     return true;
                 }
             """)
-            
+
             self._map_initialized = True
             logger.info("map_click_mode_initialized")
             return True
-            
+
         except Exception as e:
             logger.error(f"failed_to_initialize_map_click_mode: {e}")
             return False
 
-    async def get_map_bounds(self) -> Optional[Dict[str, float]]:
+    async def get_map_bounds(self) -> dict[str, float] | None:
         """
         دریافت محدوده فعلی نقشه
         
@@ -221,14 +221,14 @@ class MapClickSelector:
                     return null;
                 }
             """)
-            
+
             return bounds
-            
+
         except Exception as e:
             logger.error(f"failed_to_get_map_bounds: {e}")
             return None
 
-    async def wait_for_user_click(self, timeout_ms: int = 60000) -> Optional[ClickLocation]:
+    async def wait_for_user_click(self, timeout_ms: int = 60000) -> ClickLocation | None:
         """
         انتظار برای کلیک کاربر روی نقشه
         
@@ -374,7 +374,7 @@ class MapClickSelector:
                     }
                 }
             """)
-            
+
             self.selection = ClickSelection()
             logger.info("markers_cleared")
             return True
@@ -383,7 +383,7 @@ class MapClickSelector:
             logger.error(f"error_clearing_markers: {e}")
             return False
 
-    async def select_origin_by_click(self, timeout_ms: int = 60000) -> Optional[ClickLocation]:
+    async def select_origin_by_click(self, timeout_ms: int = 60000) -> ClickLocation | None:
         """
         انتخاب مبدا با کلیک کاربر
         
@@ -394,7 +394,7 @@ class MapClickSelector:
             ClickLocation نقطه انتخاب شده
         """
         logger.info("waiting_for_user_to_select_origin")
-        
+
         # نمایش پیام به کاربر
         await self.page.evaluate("""
             () => {
@@ -426,13 +426,13 @@ class MapClickSelector:
         """)
 
         location = await self.wait_for_user_click(timeout_ms)
-        
+
         if location:
             location.label = 'origin'
             self.selection.origin = location
             await self.add_marker_to_map(location.latitude, location.longitude, 'origin')
             logger.info(f"origin_selected: ({location.latitude}, {location.longitude})")
-            
+
             # نمایش پیام موفقیت
             await self.page.evaluate("""
                 () => {
@@ -458,10 +458,10 @@ class MapClickSelector:
                     setTimeout(() => notification.remove(), 3000);
                 }
             """)
-        
+
         return location
 
-    async def select_destination_by_click(self, timeout_ms: int = 60000) -> Optional[ClickLocation]:
+    async def select_destination_by_click(self, timeout_ms: int = 60000) -> ClickLocation | None:
         """
         انتخاب مقصد با کلیک کاربر
         
@@ -472,7 +472,7 @@ class MapClickSelector:
             ClickLocation نقطه انتخاب شده
         """
         logger.info("waiting_for_user_to_select_destination")
-        
+
         # نمایش پیام به کاربر
         await self.page.evaluate("""
             () => {
@@ -504,13 +504,13 @@ class MapClickSelector:
         """)
 
         location = await self.wait_for_user_click(timeout_ms)
-        
+
         if location:
             location.label = 'destination'
             self.selection.destination = location
             await self.add_marker_to_map(location.latitude, location.longitude, 'destination')
             logger.info(f"destination_selected: ({location.latitude}, {location.longitude})")
-            
+
             # نمایش پیام موفقیت
             await self.page.evaluate("""
                 () => {
@@ -536,7 +536,7 @@ class MapClickSelector:
                     setTimeout(() => notification.remove(), 3000);
                 }
             """)
-        
+
         return location
 
     async def select_both_locations_by_click(
@@ -556,34 +556,34 @@ class MapClickSelector:
         """
         # پاک کردن انتخاب‌های قبلی
         await self.clear_markers()
-        
+
         # انتخاب مبدا
         origin = await self.select_origin_by_click(origin_timeout)
         if not origin:
             logger.warning("origin_selection_failed_or_timeout")
             return self.selection
-        
+
         # مکث کوتاه
         await asyncio.sleep(1)
-        
+
         # انتخاب مقصد
         destination = await self.select_destination_by_click(destination_timeout)
         if not destination:
             logger.warning("destination_selection_failed_or_timeout")
             return self.selection
-        
+
         self.selection.selection_complete = True
         self.selection.map_bounds = await self.get_map_bounds()
-        
+
         logger.info(
             f"both_locations_selected: "
             f"origin=({origin.latitude}, {origin.longitude}), "
             f"destination=({destination.latitude}, {destination.longitude})"
         )
-        
+
         return self.selection
 
-    def get_selection_result(self) -> Dict[str, Any]:
+    def get_selection_result(self) -> dict[str, Any]:
         """
         دریافت نتیجه انتخاب به صورت دیکشنری
         
@@ -595,26 +595,26 @@ class MapClickSelector:
             "destination": None,
             "complete": self.selection.selection_complete
         }
-        
+
         if self.selection.origin:
             result["origin"] = {
                 "lat": self.selection.origin.latitude,
                 "lng": self.selection.origin.longitude,
                 "address": self.selection.origin.address
             }
-        
+
         if self.selection.destination:
             result["destination"] = {
                 "lat": self.selection.destination.latitude,
                 "lng": self.selection.destination.longitude,
                 "address": self.selection.destination.address
             }
-        
+
         return result
 
 
 # Singleton instance
-_map_click_selector: Optional[MapClickSelector] = None
+_map_click_selector: MapClickSelector | None = None
 
 
 def get_map_click_selector(page: Page) -> MapClickSelector:

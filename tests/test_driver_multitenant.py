@@ -1,13 +1,14 @@
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 from fastapi import status
-from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
-from app.main import app
 from app.auth_multitenant import get_current_client
-from app.models_multitenant import Client, Driver
 from app.core.database import get_session
+from app.main import app
+from app.models_multitenant import Client, Driver
+
 
 @pytest.fixture
 def test_client():

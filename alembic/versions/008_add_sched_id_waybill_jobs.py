@@ -5,8 +5,8 @@ Revises: 007_add_multi_level_system
 Create Date: 2025-05-02 12:00:00.000000
 
 """
+
 from alembic import op
-import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '008_add_sched_id_waybill_jobs'

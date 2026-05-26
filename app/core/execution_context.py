@@ -1,8 +1,6 @@
 import contextvars
 import uuid
 from dataclasses import dataclass
-from typing import Optional
-
 
 correlation_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("correlation_id", default="-")
 task_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("task_id", default="-")
@@ -34,11 +32,11 @@ def generate_correlation_id() -> str:
 
 
 def bind_execution_context(
-    correlation_id: Optional[str] = None,
-    task_id: Optional[str] = None,
-    tenant_id: Optional[str] = None,
-    batch_id: Optional[str] = None,
-    worker_id: Optional[str] = None,
+    correlation_id: str | None = None,
+    task_id: str | None = None,
+    tenant_id: str | None = None,
+    batch_id: str | None = None,
+    worker_id: str | None = None,
 ) -> ExecutionContextTokens:
     return ExecutionContextTokens(
         correlation_id=correlation_id_ctx.set((correlation_id or "-").strip() or "-"),

@@ -15,9 +15,7 @@ import hashlib
 import json
 import logging
 import threading
-import warnings
 from pathlib import Path
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -361,7 +359,7 @@ def _load_or_train_model() -> MiniMLP:
 
 
 _model_lock = threading.Lock()
-_cached_model: Optional[MiniMLP] = None
+_cached_model: MiniMLP | None = None
 
 
 def get_model() -> MiniMLP:

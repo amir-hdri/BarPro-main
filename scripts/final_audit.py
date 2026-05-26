@@ -20,21 +20,21 @@ files_to_check = [
 for filepath in files_to_check:
     if not os.path.exists(filepath):
         continue
-    
-    with open(filepath, 'r') as f:
+
+    with open(filepath) as f:
         content = f.read()
-    
+
     issues = []
     lines = content.split('\n')
-    
+
     todos = [l.strip() for l in lines if 'TODO' in l or 'FIXME' in l or 'HACK' in l]
     if todos:
         issues.append(f'TODOs/FIXMEs: {len(todos)}')
-    
+
     prints = [l.strip() for l in lines if l.strip().startswith('print(')]
     if prints:
         issues.append(f'Print statements: {len(prints)}')
-    
+
     print(f'  [{"WARN" if issues else "OK"}] {filepath}')
     if issues:
         for issue in issues:
@@ -46,7 +46,7 @@ print('  PIPELINE EXECUTION ORDER VERIFICATION')
 print('='*70)
 print()
 
-with open('app/main.py', 'r') as f:
+with open('app/main.py') as f:
     main_content = f.read()
 
 pipeline_steps = [
@@ -111,7 +111,7 @@ for root, dirs, files in os.walk('app'):
         if f.endswith('.py') or f.endswith('.js') or f.endswith('.html') or f.endswith('.css'):
             filepath = os.path.join(root, f)
             total_files += 1
-            with open(filepath, 'r', encoding='utf-8', errors='ignore') as file:
+            with open(filepath, encoding='utf-8', errors='ignore') as file:
                 total_lines += len(file.readlines())
 
 print(f'  Total source files: {total_files}')

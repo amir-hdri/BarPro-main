@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import Tuple
 
 from fastapi import HTTPException
 
@@ -19,7 +18,7 @@ class ErrorCategory(str, Enum):
     UNKNOWN_AUTOMATION_ERROR = "UNKNOWN_AUTOMATION_ERROR"
 
 
-def classify_exception(error: Exception) -> Tuple[ErrorCategory, bool]:
+def classify_exception(error: Exception) -> tuple[ErrorCategory, bool]:
     text = str(error).lower()
 
     if isinstance(error, HTTPException):

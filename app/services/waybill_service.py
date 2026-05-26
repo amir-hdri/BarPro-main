@@ -3,7 +3,7 @@ import logging
 import random
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import HTTPException
 
@@ -14,12 +14,11 @@ from app.automation.traffic_control import waybill_traffic_controller
 from app.core.artifacts import failure_artifact_service
 from app.core.config import utcms_config
 from app.core.error_taxonomy import classify_exception
-from app.core.execution_context import bind_execution_context, generate_correlation_id, reset_execution_context
 from app.core.exceptions import WaybillError
+from app.core.execution_context import bind_execution_context, generate_correlation_id, reset_execution_context
 from app.core.network import is_retryable_network_error
-from app.services.session_vault import session_vault
 from app.schemas.waybill import OperationMode, WaybillMapRequest
-
+from app.services.session_vault import session_vault
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ async def _goto_with_retry(page, url: str, wait_until: str = "domcontentloaded")
     attempts = max(1, utcms_config.PAGE_GOTO_MAX_RETRIES + 1)
     base_delay = max(0.1, utcms_config.PAGE_GOTO_RETRY_BASE_SECONDS)
     jitter = max(0.0, utcms_config.PAGE_GOTO_RETRY_JITTER_SECONDS)
-    last_error: Optional[Exception] = None
+    last_error: Exception | None = None
 
     for attempt in range(1, attempts + 1):
         try:
@@ -65,7 +64,7 @@ def _is_retryable_exception(error: Exception) -> bool:
 
 
 class WaybillService:
-    async def create_waybill_with_map(self, request: WaybillMapRequest) -> Dict[str, Any]:
+    async def create_waybill_with_map(self, request: WaybillMapRequest) -> dict[str, Any]:
         request_id = str(uuid.uuid4())
         correlation_id = (request.correlation_id or generate_correlation_id()).strip()
         batch_id = (request.batch_id or request.session_id or correlation_id).strip()
@@ -99,7 +98,7 @@ class WaybillService:
             max_attempts = max(1, utcms_config.WAYBILL_MAX_RETRIES + 1)
 
             for attempt in range(1, max_attempts + 1):
-                internal_session_id: Optional[str] = None
+                internal_session_id: str | None = None
                 page = None
                 started_at = time.perf_counter()
 
@@ -133,8 +132,8 @@ class WaybillService:
                         is_logged_in = await auth._is_logged_in()
 
                         if not is_logged_in:
-                            username = ((request_auth.username if request_auth else "")).strip()
-                            password = ((request_auth.password if request_auth else "")).strip()
+                            username = (request_auth.username if request_auth else "").strip()
+                            password = (request_auth.password if request_auth else "").strip()
 
                             if not username or not password:
                                 raise HTTPException(
@@ -309,7 +308,7 @@ class WaybillService:
         return str(operation_mode)
 
     @staticmethod
-    def _build_preflight_summary(request: WaybillMapRequest) -> Dict[str, Any]:
+    def _build_preflight_summary(request: WaybillMapRequest) -> dict[str, Any]:
         shipping_options = request.shipping_options
         request_auth = request.utcms_auth
 
@@ -344,7 +343,7 @@ class WaybillService:
             "ready_for_live_submit": len(missing_requirements) == 0,
         }
 
-    async def detect_map(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+    async def detect_map(self, session_id: str | None = None) -> dict[str, Any]:
         request_id = str(uuid.uuid4())
 
         from app.automation.auth import UTCMSAuthenticator
@@ -354,7 +353,7 @@ class WaybillService:
 
         await browser_manager.initialize()
 
-        internal_session_id: Optional[str] = None
+        internal_session_id: str | None = None
         page = None
         try:
             proxy_info = await get_proxy_rotator().get_next()
@@ -435,7 +434,7 @@ class WaybillService:
                     )
 
     @staticmethod
-    def _build_waybill_payload(request: WaybillMapRequest) -> Dict[str, Any]:
+    def _build_waybill_payload(request: WaybillMapRequest) -> dict[str, Any]:
         payload = {
             "sender": request.sender.model_dump(),
             "receiver": request.receiver.model_dump(),
@@ -454,12 +453,12 @@ class WaybillService:
         request_id: str,
         correlation_id: str,
         mode: str,
-        manager_result: Dict[str, Any],
-        auth_state_key: Optional[str] = None,
+        manager_result: dict[str, Any],
+        auth_state_key: str | None = None,
         session_reused: bool = False,
-        preflight: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        response: Dict[str, Any] = {
+        preflight: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        response: dict[str, Any] = {
             "success": bool(manager_result.get("success", True)),
             "request_id": request_id,
             "correlation_id": correlation_id,

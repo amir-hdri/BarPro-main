@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Stealth utilities — masks all Playwright/automation indicators.
 Drop-in replacement; all original public names preserved.
@@ -7,13 +6,12 @@ Uses common stealth scripts to avoid duplication.
 
 import asyncio
 import random
-from typing import Dict
+
 from playwright.async_api import Page
 
 from app.automation.stealth_common import (
     build_core_stealth_script,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fingerprint pools (kept for backward compatibility)
@@ -42,7 +40,7 @@ _WEBGL = [
 ]
 
 
-def _pick_fingerprint() -> Dict:
+def _pick_fingerprint() -> dict:
     """Pick a random fingerprint configuration."""
     ua = random.choice(_UA_POOL)
     return {
@@ -54,7 +52,7 @@ def _pick_fingerprint() -> Dict:
     }
 
 
-def _build_init_script(fp: Dict) -> str:
+def _build_init_script(fp: dict) -> str:
     """
     Build stealth initialization script.
     Uses common script from stealth_common module.
