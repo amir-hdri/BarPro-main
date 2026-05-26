@@ -230,8 +230,11 @@ class EvidenceCollector:
             
             html_content = await page.content()
             
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(html_content)
+            def _write_html():
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(html_content)
+
+            await asyncio.to_thread(_write_html)
             
             file_size = file_path.stat().st_size if file_path.exists() else None
             
@@ -284,8 +287,11 @@ class EvidenceCollector:
                 }
             """)
             
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(console_logs, f, indent=2, ensure_ascii=False)
+            def _write_console():
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(console_logs, f, indent=2, ensure_ascii=False)
+
+            await asyncio.to_thread(_write_console)
             
             return Evidence(
                 evidence_id=f"console_{workflow_id}_{timestamp}",
@@ -346,8 +352,11 @@ class EvidenceCollector:
                 """),
             }
             
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(metadata, f, indent=2, ensure_ascii=False)
+            def _write_metadata():
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+            await asyncio.to_thread(_write_metadata)
             
             file_size = file_path.stat().st_size if file_path.exists() else None
             
