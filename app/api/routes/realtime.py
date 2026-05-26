@@ -1,5 +1,4 @@
 import asyncio
-from typing import List, Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -11,11 +10,11 @@ router = APIRouter(tags=["realtime"])
 @router.websocket("/ws/waybill")
 async def waybill_events_socket(
     websocket: WebSocket,
-    task_id: Optional[str] = None,
-    batch_id: Optional[str] = None,
-    correlation_id: Optional[str] = None,
+    task_id: str | None = None,
+    batch_id: str | None = None,
+    correlation_id: str | None = None,
 ):
-    channels: List[str] = ["all"]
+    channels: list[str] = ["all"]
     if task_id:
         channels.append(f"task_id:{task_id}")
     if batch_id:

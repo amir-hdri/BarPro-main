@@ -1,21 +1,22 @@
-import pytest
-from pydantic import ValidationError
 from unittest.mock import patch
 
+import pytest
+from pydantic import ValidationError
+
 from app.schemas.enterprise_reporting import (
-    TelemetryEventSchema,
-    WorkflowStepSchema,
-    WorkflowStateSchema,
-    EvidenceSchema,
-    ClientReportSummarySchema,
-    ClientReportSchema,
-    WorkerHealthSchema,
-    BrowserResourceSchema,
-    SystemHealthSchema,
     AuditLogEntrySchema,
+    BrowserResourceSchema,
+    ClientReportSchema,
+    ClientReportSummarySchema,
+    EvidenceSchema,
+    SystemHealthSchema,
+    TelemetryEventSchema,
+    WorkerHealthSchema,
+    WorkflowStateSchema,
+    WorkflowStepSchema,
+    create_client_report,
     create_telemetry_event,
     create_workflow_state,
-    create_client_report,
 )
 
 # --- TelemetryEventSchema Tests ---

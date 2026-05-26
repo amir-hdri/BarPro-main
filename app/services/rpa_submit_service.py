@@ -5,16 +5,17 @@ import hashlib
 import json
 import logging
 import time
-from datetime import datetime, timezone, timedelta
-from typing import Any, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import httpx
 from playwright.async_api import BrowserContext, Page
 from sqlmodel import select
 
+from app.automation.auth import UTCMSAuthenticator
 from app.automation.browser import browser_manager
-from app.automation.proxy_rotator import get_proxy_rotator
 from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload
+from app.automation.proxy_rotator import get_proxy_rotator
 from app.automation.waybill_enhanced import EnhancedWaybillManager
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
@@ -31,8 +32,13 @@ from app.models_rpa import (
     WaybillAttempt,
 )
 from app.rpa.contracts import SessionBundle, SubmitClassification, SubmitExecutionResult, SubmitOutcome
-from app.automation.auth import UTCMSAuthenticator
-from app.rpa.event_taxonomy import DRIVER_LIMIT_REACHED, SESSION_EXPIRED, SUBMIT_DELAYED, SUBMIT_FAILED, SUBMIT_SUCCEEDED
+from app.rpa.event_taxonomy import (
+    DRIVER_LIMIT_REACHED,
+    SESSION_EXPIRED,
+    SUBMIT_DELAYED,
+    SUBMIT_FAILED,
+    SUBMIT_SUCCEEDED,
+)
 from app.services.rpa_run_isolation import prepare_live_run_isolation
 from app.services.rpa_runtime_service import rpa_runtime
 
@@ -88,7 +94,7 @@ class RPAHttpSubmitService:
         job_id: str,
         page: Page,
         context: BrowserContext,
-        session_bundle: Optional[SessionBundle] = None,
+        session_bundle: SessionBundle | None = None,
     ) -> SubmitExecutionResult:
         return await self._process_job(
             client_id,
@@ -102,9 +108,9 @@ class RPAHttpSubmitService:
         self,
         client_id: int,
         job_id: str,
-        live_page: Optional[Page] = None,
-        live_context: Optional[BrowserContext] = None,
-        session_bundle_override: Optional[SessionBundle] = None,
+        live_page: Page | None = None,
+        live_context: BrowserContext | None = None,
+        session_bundle_override: SessionBundle | None = None,
     ) -> SubmitExecutionResult:
         session = async_session_factory()
         try:
@@ -139,7 +145,7 @@ class RPAHttpSubmitService:
 
             payload = json.loads(job.payload_json)
             job.status = TaskStatus.IN_PROGRESS.value
-            job.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            job.updated_at = datetime.now(UTC).replace(tzinfo=None)
             driver.runtime_status = DriverStatus.READY.value
             runtime_state.state = DriverRuntimeStateValue.SUBMITTING.value
             await session.commit()
@@ -185,17 +191,17 @@ class RPAHttpSubmitService:
                     },
                     ensure_ascii=False,
                 )
-                job.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                job.finished_at = datetime.now(UTC).replace(tzinfo=None)
                 job.submit_after = None
                 job.next_retry_at = None
                 job.last_error = None
                 job.error_category = None
                 job.terminal_reason = classification.reason_code
                 job.celery_task_id = None
-                job.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                job.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 runtime_state.state = DriverRuntimeStateValue.READY.value
                 runtime_state.next_retry_at = None
-                runtime_state.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 driver.runtime_status = DriverStatus.READY.value
                 driver.last_error_code = None
                 await self._record_event(session, client_id, job.driver_id, job.job_id, SUBMIT_SUCCEEDED, {"reason": classification.reason_code})
@@ -206,11 +212,11 @@ class RPAHttpSubmitService:
                 job.status = TaskStatus.WAITING_RETRY.value
                 job.error_category = _map_error_category(classification.outcome, classification.reason_code)
                 job.last_error = classification.message or classification.reason_code
-                job.next_retry_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
+                job.next_retry_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
                 job.submit_after = job.next_retry_at
                 job.finished_at = None
                 job.celery_task_id = None
-                job.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                job.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 job.result_json = json.dumps(
                     {
                         "status": "waiting_retry",
@@ -224,7 +230,7 @@ class RPAHttpSubmitService:
                 )
                 runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
                 runtime_state.next_retry_at = job.next_retry_at
-                runtime_state.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 driver.runtime_status = DriverStatus.WAITING_RETRY.value
                 driver.last_error_code = classification.reason_code
                 if classification.outcome == SubmitOutcome.RATE_LIMITED:
@@ -234,12 +240,12 @@ class RPAHttpSubmitService:
                 job.status = TaskStatus.NEEDS_REVIEW.value if classification.outcome == SubmitOutcome.VALIDATION_ERROR else TaskStatus.FAILED.value
                 job.error_category = _map_error_category(classification.outcome, classification.reason_code)
                 job.last_error = classification.message or classification.reason_code
-                job.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                job.finished_at = datetime.now(UTC).replace(tzinfo=None)
                 job.submit_after = None
                 job.next_retry_at = None
                 job.terminal_reason = classification.reason_code
                 job.celery_task_id = None
-                job.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                job.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 job.result_json = json.dumps(
                     {
                         "status": job.status,
@@ -252,7 +258,7 @@ class RPAHttpSubmitService:
                 )
                 runtime_state.state = DriverRuntimeStateValue.READY.value
                 runtime_state.next_retry_at = None
-                runtime_state.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 driver.runtime_status = DriverStatus.READY.value
                 driver.last_error_code = classification.reason_code
                 await self._record_event(session, client_id, job.driver_id, job.job_id, SUBMIT_FAILED, {"reason": classification.reason_code})
@@ -276,11 +282,11 @@ class RPAHttpSubmitService:
         job.status = TaskStatus.WAITING_AUTH.value
         job.error_category = "utcms_login_error"
         job.last_error = reason
-        job.submit_after = datetime.now(timezone.utc).replace(tzinfo=None)
+        job.submit_after = datetime.now(UTC).replace(tzinfo=None)
         job.next_retry_at = None
         job.finished_at = None
         job.celery_task_id = None
-        job.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        job.updated_at = datetime.now(UTC).replace(tzinfo=None)
         job.result_json = json.dumps(
             {
                 "status": "waiting_auth",
@@ -291,7 +297,7 @@ class RPAHttpSubmitService:
         )
         runtime_state.state = DriverRuntimeStateValue.AUTH_REQUIRED.value
         runtime_state.next_retry_at = None
-        runtime_state.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
         driver.runtime_status = DriverStatus.AUTH_REQUIRED.value
         driver.last_error_code = reason
         await self._record_event(session, job.client_id, driver.id, job.job_id, SESSION_EXPIRED, {"reason": reason})
@@ -388,7 +394,7 @@ class RPAHttpSubmitService:
         payload: dict[str, Any],
         prior_error: str,
         require_auth_check: bool,
-        start_time: Optional[float] = None,
+        start_time: float | None = None,
     ) -> SubmitExecutionResult:
         start = start_time or time.perf_counter()
         if require_auth_check:
@@ -438,14 +444,14 @@ class RPAHttpSubmitService:
         reason = "daily_success_limit_reached" if success_limit else "daily_attempt_limit_reached"
         job.status = TaskStatus.DAILY_LIMIT_REACHED.value
         job.terminal_reason = reason
-        job.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        job.finished_at = datetime.now(UTC).replace(tzinfo=None)
         job.submit_after = None
         job.next_retry_at = None
         job.celery_task_id = None
-        job.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        job.updated_at = datetime.now(UTC).replace(tzinfo=None)
         runtime_state.state = DriverRuntimeStateValue.DAILY_SUCCESS_LIMIT_REACHED.value if success_limit else DriverRuntimeStateValue.DAILY_ATTEMPT_LIMIT_REACHED.value
         runtime_state.next_retry_at = None
-        runtime_state.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
         driver.runtime_status = DriverStatus.DAILY_LIMIT_REACHED.value
         driver.last_error_code = reason
         await self._record_event(session, job.client_id, driver.id, job.job_id, DRIVER_LIMIT_REACHED, {"reason": reason, "attempts": counter.attempts, "successes": counter.successes})
@@ -499,14 +505,14 @@ class RPAHttpSubmitService:
             session.add(counter)
         counter.attempts = snapshot.attempts
         counter.successes = snapshot.successes
-        counter.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        counter.updated_at = datetime.now(UTC).replace(tzinfo=None)
         if snapshot.attempts:
-            counter.last_attempt_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            counter.last_attempt_at = datetime.now(UTC).replace(tzinfo=None)
         if snapshot.successes:
-            counter.last_success_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            counter.last_success_at = datetime.now(UTC).replace(tzinfo=None)
         return counter
 
-    async def _record_event(self, session, client_id: int, driver_id: int, job_id: Optional[str], event_type: str, payload: dict) -> None:
+    async def _record_event(self, session, client_id: int, driver_id: int, job_id: str | None, event_type: str, payload: dict) -> None:
         session.add(
             DomainEvent(
                 event_id=f"evt_{hashlib.sha256(f'{event_type}:{job_id}:{time.time()}'.encode()).hexdigest()[:24]}",
@@ -539,7 +545,7 @@ def classify_submit_response(status_code: int, body: str) -> SubmitClassificatio
 
 
 
-def build_job_idempotency_key(client_id: int, driver_id: int, payload: dict[str, Any], supplied: Optional[str] = None) -> str:
+def build_job_idempotency_key(client_id: int, driver_id: int, payload: dict[str, Any], supplied: str | None = None) -> str:
     if supplied and supplied.strip():
         candidate = supplied.strip()
         scoped = f"tenant:{client_id}:{candidate}"

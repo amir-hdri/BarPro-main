@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -6,9 +6,6 @@ import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel, select
-from unittest.mock import AsyncMock, patch
-
-
 
 from app.core.business_time import business_date_str
 from app.models_multitenant import Client, Driver, TaskSource, TaskStatus, WaybillJob
@@ -83,8 +80,8 @@ async def test_phase1_scheduler_routes_job_to_auth_then_submit():
             SessionBundle(
                 cookies=[{"name": "sessionid", "value": "abc"}],
                 user_agent="ua",
-                issued_at=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
-                expires_at=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+                issued_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
+                expires_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
                 session_version=1,
             ),
         )
@@ -326,8 +323,8 @@ async def test_phase1_auth_success_dispatches_submit_for_resume_job():
 
 
     async def fake_followup_dispatch(client_id, job_id, page, context, session_bundle):
+        from app.models_multitenant import TaskStatus, WaybillJob
         from app.services.rpa_submit_service import SubmitOutcome
-        from app.models_multitenant import WaybillJob, TaskStatus
 
         async with async_session() as session:
             job = (
@@ -415,7 +412,7 @@ def test_phase1_supplied_idempotency_key_is_tenant_scoped():
 
 
 def test_phase1_business_date_uses_tehran_calendar_day():
-    utc_time = datetime(2025, 1, 1, 20, 45, tzinfo=timezone.utc)
+    utc_time = datetime(2025, 1, 1, 20, 45, tzinfo=UTC)
     assert business_date_str(utc_time) == "2025-01-02"
 
 

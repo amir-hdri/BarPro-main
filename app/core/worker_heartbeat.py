@@ -3,7 +3,6 @@ import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,7 @@ class WorkerLease:
 
 class WorkerHeartbeatRegistry:
     def __init__(self) -> None:
-        self._leases: Dict[str, WorkerLease] = {}
+        self._leases: dict[str, WorkerLease] = {}
         self._lock = threading.Lock()
 
     def start(self, task_id: str, worker_id: str, correlation_id: str, batch_id: str) -> None:
@@ -38,7 +37,7 @@ class WorkerHeartbeatRegistry:
                 last_heartbeat_at=now,
             )
 
-    def beat(self, task_id: str, *, status: Optional[str] = None, current_step: Optional[str] = None) -> None:
+    def beat(self, task_id: str, *, status: str | None = None, current_step: str | None = None) -> None:
         with self._lock:
             lease = self._leases.get(task_id)
             if not lease:
@@ -57,7 +56,7 @@ class WorkerHeartbeatRegistry:
             lease.status = status
             lease.last_heartbeat_at = time.time()
 
-    def snapshot(self) -> Dict[str, Dict[str, float | str]]:
+    def snapshot(self) -> dict[str, dict[str, float | str]]:
         with self._lock:
             return {
                 task_id: {
@@ -72,7 +71,7 @@ class WorkerHeartbeatRegistry:
                 for task_id, lease in self._leases.items()
             }
 
-    def detect_stalled(self, timeout_seconds: float) -> Dict[str, Dict[str, float | str]]:
+    def detect_stalled(self, timeout_seconds: float) -> dict[str, dict[str, float | str]]:
         now = time.time()
         with self._lock:
             stalled = {

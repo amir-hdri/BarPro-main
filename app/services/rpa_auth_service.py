@@ -3,8 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 from sqlmodel import select
 
@@ -15,7 +14,7 @@ from app.automation.proxy_rotator import get_proxy_rotator
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.models_multitenant import Driver, DriverStatus, TaskStatus, WaybillJob
-from app.models_rpa import DriverRuntimeState, DriverRuntimeStateValue, DriverSessionMetadata, DomainEvent
+from app.models_rpa import DomainEvent, DriverRuntimeState, DriverRuntimeStateValue, DriverSessionMetadata
 from app.rpa.contracts import AuthResult, SessionBundle
 from app.rpa.event_taxonomy import AUTH_FAILED, AUTH_SUCCEEDED
 from app.services.rpa_runtime_service import rpa_runtime
@@ -26,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class RPAAuthService:
-    async def authenticate_driver(self, client_id: int, driver_id: int, reason: str, resume_job_id: Optional[str] = None) -> AuthResult:
+    async def authenticate_driver(self, client_id: int, driver_id: int, reason: str, resume_job_id: str | None = None) -> AuthResult:
         lock_key = rpa_runtime.auth_lock_key(client_id, driver_id)
         if not await rpa_runtime.acquire_lock(lock_key, utcms_config.RPA_LOCK_TTL_SECONDS):
             return AuthResult(ok=False, session_bundle=None, reason_code="auth_in_progress", message="Authentication already in progress")
@@ -41,7 +40,7 @@ class RPAAuthService:
 
             runtime_state = await self._get_or_create_runtime_state(session, client_id, driver_id)
             runtime_state.state = DriverRuntimeStateValue.AUTH_IN_PROGRESS.value
-            runtime_state.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
             await session.commit()
 
             auth_state_path = session_vault.auth_state_path_for_account(
@@ -65,11 +64,11 @@ class RPAAuthService:
                 return AuthResult(ok=False, session_bundle=None, reason_code="login_failed", message=message)
 
             cookies = await context.cookies()
-            expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=utcms_config.RPA_SESSION_TTL_SECONDS)
+            expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=utcms_config.RPA_SESSION_TTL_SECONDS)
             bundle = SessionBundle(
                 cookies=cookies,
                 user_agent=await page.evaluate("() => navigator.userAgent"),
-                issued_at=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+                issued_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
                 expires_at=expires_at.isoformat(),
                 session_version=runtime_state.session_version + 1,
                 proxy_key=runtime_state.proxy_key,
@@ -83,17 +82,17 @@ class RPAAuthService:
             metadata.user_agent = bundle.user_agent
             metadata.expires_at = expires_at
             metadata.last_auth_result = "success"
-            metadata.last_auth_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            metadata.last_auth_at = datetime.now(UTC).replace(tzinfo=None)
             metadata.proxy_key = runtime_state.proxy_key
-            metadata.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            metadata.updated_at = datetime.now(UTC).replace(tzinfo=None)
 
             runtime_state.state = DriverRuntimeStateValue.READY.value
             runtime_state.session_version = bundle.session_version
-            runtime_state.last_auth_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            runtime_state.last_auth_at = datetime.now(UTC).replace(tzinfo=None)
             runtime_state.session_expires_at = expires_at
             runtime_state.last_error_code = None
             runtime_state.next_retry_at = None
-            runtime_state.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
 
             driver.runtime_status = DriverStatus.READY.value
             driver.last_auth_at = runtime_state.last_auth_at
@@ -114,7 +113,7 @@ class RPAAuthService:
                 statement = select(WaybillJob).where(WaybillJob.job_id == resume_job_id, WaybillJob.client_id == client_id)
                 job = (await session.exec(statement)).first()
                 if job and job.status == TaskStatus.WAITING_AUTH.value:
-                    now = datetime.now(timezone.utc).replace(tzinfo=None)
+                    now = datetime.now(UTC).replace(tzinfo=None)
                     job.status = TaskStatus.QUEUED.value
                     job.submit_after = now
                     job.next_retry_at = None
@@ -172,11 +171,11 @@ class RPAAuthService:
             await rpa_runtime.release_lock(lock_key)
 
     async def _mark_auth_failure(self, session, driver: Driver, runtime_state: DriverRuntimeState, message: str) -> None:
-        retry_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
+        retry_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
         runtime_state.state = DriverRuntimeStateValue.ERROR_REVIEW.value if "selector" in message.lower() else DriverRuntimeStateValue.AUTH_REQUIRED.value
         runtime_state.last_error_code = "login_failed"
         runtime_state.next_retry_at = retry_at
-        runtime_state.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
         driver.runtime_status = runtime_state.state
         driver.last_error_code = "login_failed"
         await self._record_event(
@@ -193,12 +192,12 @@ class RPAAuthService:
         self,
         session,
         client_id: int,
-        resume_job_id: Optional[str],
+        resume_job_id: str | None,
         message: str,
     ) -> None:
         if not resume_job_id:
             return
-        retry_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
+        retry_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
         job = (
             await session.exec(
                 select(WaybillJob).where(
@@ -215,7 +214,7 @@ class RPAAuthService:
         job.next_retry_at = retry_at
         job.submit_after = retry_at
         job.celery_task_id = None
-        job.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        job.updated_at = datetime.now(UTC).replace(tzinfo=None)
         session.add(job)
         await session.commit()
 
@@ -235,10 +234,10 @@ class RPAAuthService:
             await session.flush()
         return item
 
-    async def _record_event(self, session, client_id: int, driver_id: int, job_id: Optional[str], event_type: str, payload: dict) -> None:
+    async def _record_event(self, session, client_id: int, driver_id: int, job_id: str | None, event_type: str, payload: dict) -> None:
         session.add(
             DomainEvent(
-                event_id=f"evt_{datetime.now(timezone.utc).replace(tzinfo=None).timestamp():.6f}_{driver_id}",
+                event_id=f"evt_{datetime.now(UTC).replace(tzinfo=None).timestamp():.6f}_{driver_id}",
                 event_type=event_type,
                 client_id=client_id,
                 driver_id=driver_id,

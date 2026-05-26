@@ -1,5 +1,4 @@
-from datetime import date, datetime, timezone
-from typing import Optional
+from datetime import UTC, date, datetime
 
 from sqlalchemy import Column, DateTime, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
@@ -9,7 +8,7 @@ class BotStats(SQLModel, table=True):
     __tablename__ = "botstats"
     """مدل آمار روزانه عملکرد ربات"""
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     report_date: date = Field(index=True, unique=True)
 
     total_requests: int = Field(default=0)
@@ -33,35 +32,35 @@ class WaybillTask(SQLModel, table=True):
         UniqueConstraint("idempotency_key", name="uq_waybill_task_idempotency_key"),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     task_id: str = Field(index=True)
     idempotency_key: str = Field(index=True)
     status: str = Field(default="queued", index=True)
 
     payload_json: str = Field(default="{}", sa_column=Column(Text, nullable=False))
-    result_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-    last_error: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-    error_category: Optional[str] = Field(default=None, index=True)
+    result_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    last_error: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    error_category: str | None = Field(default=None, index=True)
 
     attempt_count: int = Field(default=0)
     max_retries: int = Field(default=0)
     retryable: bool = Field(default=False)
-    celery_task_id: Optional[str] = Field(default=None, index=True)
-    worker_id: Optional[str] = Field(default=None, index=True)
+    celery_task_id: str | None = Field(default=None, index=True)
+    worker_id: str | None = Field(default=None, index=True)
 
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
-    started_at: Optional[datetime] = Field(
+    started_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )
-    finished_at: Optional[datetime] = Field(
+    finished_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )

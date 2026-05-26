@@ -2,18 +2,18 @@ import asyncio
 import json
 import random
 import time
-from typing import Any, Dict
+from typing import Any
 
 import httpx
 from fastapi import HTTPException
 
-from app.core.config import utcms_config
 from app.core.circuit_breaker import AsyncCircuitBreaker, CircuitOpenError
+from app.core.config import utcms_config
 from app.core.network import is_retryable_network_error
 from app.monitoring.metrics import set_circuit_breaker_state
+from app.schemas.itmb_ws import WS01InsertBOLRequest
 from app.services.itmb_baseinfo_service import itmb_baseinfo_service
 from app.services.itmb_common import build_hashed_value, resolve_itmb_auth
-from app.schemas.itmb_ws import WS01InsertBOLRequest
 
 
 class ITMBWSService:
@@ -48,7 +48,7 @@ class ITMBWSService:
         return text
 
     @staticmethod
-    def _parse_error(result_text: str) -> Dict[str, Any] | None:
+    def _parse_error(result_text: str) -> dict[str, Any] | None:
         try:
             parsed = json.loads(result_text)
         except json.JSONDecodeError:
@@ -64,7 +64,7 @@ class ITMBWSService:
         jitter = random.uniform(0, 0.4)
         return (base * (2 ** max(0, attempt_index - 1))) + jitter
 
-    async def insert_bol(self, request: WS01InsertBOLRequest) -> Dict[str, Any]:
+    async def insert_bol(self, request: WS01InsertBOLRequest) -> dict[str, Any]:
         try:
             await self._circuit_breaker.allow_request()
         except CircuitOpenError as exc:
@@ -178,7 +178,7 @@ class ITMBWSService:
         snapshot = await self._circuit_breaker.snapshot()
         set_circuit_breaker_state(snapshot.state)
 
-    async def circuit_status(self) -> Dict[str, Any]:
+    async def circuit_status(self) -> dict[str, Any]:
         snapshot = await self._circuit_breaker.snapshot()
         return {
             "state": snapshot.state,

@@ -1,7 +1,6 @@
 """Phase 1 operational models for multi-tenant RPA orchestration."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum as PyEnum
-from typing import Optional
 
 from sqlalchemy import Column, DateTime, Index, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
@@ -47,20 +46,20 @@ class DriverRuntimeState(SQLModel, table=True):
         Index("idx_driver_runtime_states_next_retry_at", "next_retry_at"),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     client_id: int = Field(foreign_key="clients.id", index=True)
     driver_id: int = Field(foreign_key="drivers.id", index=True)
     state: str = Field(default=DriverRuntimeStateValue.ACTIVE.value, max_length=64, index=True)
     session_version: int = Field(default=0)
-    last_auth_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
-    session_expires_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
-    next_retry_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
-    paused_until: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
-    proxy_key: Optional[str] = Field(default=None, max_length=128, index=True)
-    last_error_code: Optional[str] = Field(default=None, max_length=64, index=True)
-    last_error_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
+    last_auth_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    session_expires_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    next_retry_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    paused_until: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    proxy_key: str | None = Field(default=None, max_length=128, index=True)
+    last_error_code: str | None = Field(default=None, max_length=64, index=True)
+    last_error_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
 
 
 class DriverDailyCounter(SQLModel, table=True):
@@ -70,15 +69,15 @@ class DriverDailyCounter(SQLModel, table=True):
         Index("idx_driver_daily_counters_client_date", "client_id", "business_date"),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     business_date: str = Field(max_length=16, index=True)
     client_id: int = Field(foreign_key="clients.id", index=True)
     driver_id: int = Field(foreign_key="drivers.id", index=True)
     attempts: int = Field(default=0)
     successes: int = Field(default=0)
-    last_attempt_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
-    last_success_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
+    last_attempt_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    last_success_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
 
 
 class DriverSessionMetadata(SQLModel, table=True):
@@ -88,18 +87,18 @@ class DriverSessionMetadata(SQLModel, table=True):
         Index("idx_driver_session_metadata_client_driver", "client_id", "driver_id"),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     client_id: int = Field(foreign_key="clients.id", index=True)
     driver_id: int = Field(foreign_key="drivers.id", index=True)
     session_version: int = Field(default=0)
-    auth_state_path: Optional[str] = Field(default=None, max_length=512)
-    user_agent: Optional[str] = Field(default=None, max_length=512)
-    csrf_token: Optional[str] = Field(default=None, max_length=512)
-    expires_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
-    last_auth_result: Optional[str] = Field(default=None, max_length=64)
-    last_auth_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
-    proxy_key: Optional[str] = Field(default=None, max_length=128)
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
+    auth_state_path: str | None = Field(default=None, max_length=512)
+    user_agent: str | None = Field(default=None, max_length=512)
+    csrf_token: str | None = Field(default=None, max_length=512)
+    expires_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    last_auth_result: str | None = Field(default=None, max_length=64)
+    last_auth_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    proxy_key: str | None = Field(default=None, max_length=128)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
 
 
 class WaybillAttempt(SQLModel, table=True):
@@ -111,7 +110,7 @@ class WaybillAttempt(SQLModel, table=True):
         Index("idx_waybill_attempts_result", "result"),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     attempt_id: str = Field(max_length=64, index=True)
     job_id: str = Field(max_length=100, index=True)
     client_id: int = Field(foreign_key="clients.id", index=True)
@@ -119,13 +118,13 @@ class WaybillAttempt(SQLModel, table=True):
     attempt_no: int = Field(default=1)
     attempt_type: str = Field(default=AttemptType.SUBMIT.value, max_length=32)
     result: str = Field(default=AttemptResult.UNKNOWN_ERROR.value, max_length=64, index=True)
-    http_status: Optional[int] = Field(default=None)
-    reason_code: Optional[str] = Field(default=None, max_length=64, index=True)
-    latency_ms: Optional[int] = Field(default=None)
+    http_status: int | None = Field(default=None)
+    reason_code: str | None = Field(default=None, max_length=64, index=True)
+    latency_ms: int | None = Field(default=None)
     session_version: int = Field(default=0)
-    proxy_key: Optional[str] = Field(default=None, max_length=128)
-    response_excerpt: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
+    proxy_key: str | None = Field(default=None, max_length=128)
+    response_excerpt: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
 
 
 class DomainEvent(SQLModel, table=True):
@@ -135,15 +134,15 @@ class DomainEvent(SQLModel, table=True):
         Index("idx_domain_events_type_created", "event_type", "created_at"),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     event_id: str = Field(max_length=64, index=True)
     event_type: str = Field(max_length=64, index=True)
     client_id: int = Field(foreign_key="clients.id", index=True)
-    driver_id: Optional[int] = Field(default=None, foreign_key="drivers.id", index=True)
-    job_id: Optional[str] = Field(default=None, max_length=100, index=True)
+    driver_id: int | None = Field(default=None, foreign_key="drivers.id", index=True)
+    job_id: str | None = Field(default=None, max_length=100, index=True)
     payload_json: str = Field(default="{}", sa_column=Column(Text, nullable=False))
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
-    processed_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
+    processed_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
 
 
 class ProxyEndpoint(SQLModel, table=True):
@@ -153,15 +152,15 @@ class ProxyEndpoint(SQLModel, table=True):
         Index("idx_proxy_endpoints_health", "client_id", "is_active", "is_healthy"),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     client_id: int = Field(foreign_key="clients.id", index=True)
     proxy_key: str = Field(max_length=128, index=True)
     endpoint_url: str = Field(max_length=512)
     is_active: bool = Field(default=True)
     is_healthy: bool = Field(default=True)
     consecutive_failures: int = Field(default=0)
-    last_success_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
-    last_failure_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
-    cooldown_until: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
-    notes: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
+    last_success_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    last_failure_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    cooldown_until: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    notes: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))

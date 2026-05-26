@@ -6,9 +6,9 @@ import logging
 import os
 import random
 import re
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable, Optional
 
 from playwright.async_api import BrowserContext, Page
 
@@ -17,14 +17,14 @@ from app.automation.selectors import AuthSelectors
 from app.bot.captcha.interceptor import CaptchaInterceptor, CaptchaSolveStatus
 from app.bot.core.smart_locator import SmartLocator, SmartLocatorError
 from app.core.config import utcms_config
+from app.core.network import is_retryable_network_error
+from app.core.utils import resolve_maybe_awaitable
 from app.monitoring.metrics import (
     track_captcha_attempt,
     track_captcha_failure,
     track_captcha_submit_retry,
     track_captcha_success,
 )
-from app.core.network import is_retryable_network_error
-from app.core.utils import resolve_maybe_awaitable
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class UTCMSAuthenticator:
     def __init__(self, page: Page, context: BrowserContext):
         self.page = page
         self.context = context
-        self.last_error: Optional[str] = None
+        self.last_error: str | None = None
         self.last_state: str = "failed"
         self.smart_locator = SmartLocator()
         self.captcha_interceptor = CaptchaInterceptor(
@@ -88,7 +88,7 @@ class UTCMSAuthenticator:
         attempts = max(1, utcms_config.PAGE_GOTO_MAX_RETRIES + 1)
         base_delay = max(0.1, utcms_config.PAGE_GOTO_RETRY_BASE_SECONDS)
         jitter = max(0.0, utcms_config.PAGE_GOTO_RETRY_JITTER_SECONDS)
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         for attempt in range(1, attempts + 1):
             try:
@@ -135,7 +135,7 @@ class UTCMSAuthenticator:
             )
         )
 
-    def _candidate_login_urls(self, override_login_url: Optional[str] = None) -> list[str]:
+    def _candidate_login_urls(self, override_login_url: str | None = None) -> list[str]:
         base_url = utcms_config.BASE_URL.rstrip("/")
         candidates = []
         if override_login_url:
@@ -154,7 +154,7 @@ class UTCMSAuthenticator:
         selectors: Iterable[str],
         visible: bool = False,
         timeout: int = 3000,
-    ) -> Optional[str]:
+    ) -> str | None:
         for selector in selectors:
             try:
                 locator = await self.smart_locator.locate(self.page, [selector], timeout=timeout)
@@ -296,7 +296,7 @@ class UTCMSAuthenticator:
             return False
         return await self._has_auth_cookie()
 
-    async def _extract_login_error(self) -> Optional[str]:
+    async def _extract_login_error(self) -> str | None:
         for selector in AuthSelectors.LOGIN_ERROR_SELECTORS:
             try:
                 element = await self.smart_locator.locate(self.page, [selector], timeout=600)
@@ -379,7 +379,7 @@ class UTCMSAuthenticator:
 
         return False
 
-    async def _extract_captcha_image_base64(self, captcha_selector: Optional[str] = None) -> Optional[str]:
+    async def _extract_captcha_image_base64(self, captcha_selector: str | None = None) -> str | None:
         input_box = None
         if captcha_selector:
             try:
@@ -432,7 +432,7 @@ class UTCMSAuthenticator:
         return 1.0 <= aspect_ratio <= 5.5
 
     @staticmethod
-    def _captcha_image_score(box: dict, input_box: Optional[dict], selector: str) -> float:
+    def _captcha_image_score(box: dict, input_box: dict | None, selector: str) -> float:
         width = float(box.get("width") or 0)
         height = float(box.get("height") or 0)
         score = 200.0 - abs(width - 110.0) - abs(height - 40.0)
@@ -457,9 +457,9 @@ class UTCMSAuthenticator:
         phase: str,
         attempt: int | None,
         stage: str,
-        provider: Optional[str] = None,
-        solution: Optional[str] = None,
-        error: Optional[str] = None,
+        provider: str | None = None,
+        solution: str | None = None,
+        error: str | None = None,
     ) -> None:
         if not utcms_config.CAPTCHA_DEBUG_SAVE_IMAGES or not image_base64:
             return
@@ -468,7 +468,7 @@ class UTCMSAuthenticator:
         except (ValueError, binascii.Error):
             return
 
-        timestamp = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y%m%d-%H%M%S-%f")
+        timestamp = datetime.now(UTC).replace(tzinfo=None).strftime("%Y%m%d-%H%M%S-%f")
         safe_phase = re.sub(r"[^a-zA-Z0-9_-]+", "_", phase or "login")
         safe_stage = re.sub(r"[^a-zA-Z0-9_-]+", "_", stage or "capture")
         debug_dir = Path(utcms_config.CAPTCHA_DEBUG_DIR)
@@ -482,7 +482,7 @@ class UTCMSAuthenticator:
         meta_path.write_text(
             json.dumps(
                 {
-                    "saved_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
+                    "saved_at": datetime.now(UTC).replace(tzinfo=None).isoformat() + "Z",
                     "phase": phase,
                     "attempt": attempt,
                     "stage": stage,
@@ -504,7 +504,7 @@ class UTCMSAuthenticator:
     async def _save_login_debug_snapshot(self, stage: str) -> None:
         if not utcms_config.CAPTCHA_DEBUG_SAVE_IMAGES:
             return
-        timestamp = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y%m%d-%H%M%S-%f")
+        timestamp = datetime.now(UTC).replace(tzinfo=None).strftime("%Y%m%d-%H%M%S-%f")
         safe_stage = re.sub(r"[^a-zA-Z0-9_-]+", "_", stage or "login")
         debug_dir = Path(utcms_config.CAPTCHA_DEBUG_DIR)
         debug_dir.mkdir(parents=True, exist_ok=True)
@@ -530,7 +530,7 @@ class UTCMSAuthenticator:
         meta_path.write_text(
             json.dumps(
                 {
-                    "saved_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
+                    "saved_at": datetime.now(UTC).replace(tzinfo=None).isoformat() + "Z",
                     "stage": stage,
                     "url": await self._current_url(),
                     "last_error": self.last_error,
@@ -543,7 +543,7 @@ class UTCMSAuthenticator:
             )
         )
 
-    def _normalize_captcha_solution(self, value: Optional[str]) -> Optional[str]:
+    def _normalize_captcha_solution(self, value: str | None) -> str | None:
         if value is None:
             return None
 
@@ -604,10 +604,10 @@ class UTCMSAuthenticator:
 
     async def _solve_captcha_with_provider(
         self,
-        captcha_selector: Optional[str] = None,
+        captcha_selector: str | None = None,
         phase: str = "login",
         attempt: int | None = None,
-    ) -> Optional[str]:
+    ) -> str | None:
         started_at = asyncio.get_running_loop().time()
         track_captcha_attempt("provider", phase=phase, attempt=attempt)
         provider = get_captcha_provider()
@@ -702,7 +702,7 @@ class UTCMSAuthenticator:
                 return fallback_value
         return None
 
-    def _hint_candidates_from_text(self, raw_text: Optional[str]) -> list[str]:
+    def _hint_candidates_from_text(self, raw_text: str | None) -> list[str]:
         text = (raw_text or "").strip()
         if not text:
             return []
@@ -838,7 +838,7 @@ class UTCMSAuthenticator:
 
         return unique
 
-    async def _solve_math_captcha(self, phase: str = "login", attempt: int | None = None) -> Optional[str]:
+    async def _solve_math_captcha(self, phase: str = "login", attempt: int | None = None) -> str | None:
         started_at = asyncio.get_running_loop().time()
         track_captcha_attempt("math", phase=phase, attempt=attempt)
         hints = await self._extract_math_captcha_hints()
@@ -853,7 +853,7 @@ class UTCMSAuthenticator:
             return None
 
         min_confidence = self._captcha_math_min_confidence()
-        best_value: Optional[str] = None
+        best_value: str | None = None
         best_confidence = 0.0
 
         for hint in hints:
@@ -915,7 +915,7 @@ class UTCMSAuthenticator:
         return "provider_first"
 
     @staticmethod
-    def _is_captcha_related_error(text: Optional[str]) -> bool:
+    def _is_captcha_related_error(text: str | None) -> bool:
         value = (text or "").lower()
         return any(
             marker in value
@@ -931,7 +931,7 @@ class UTCMSAuthenticator:
         )
 
     @staticmethod
-    def _is_credential_related_error(text: Optional[str]) -> bool:
+    def _is_credential_related_error(text: str | None) -> bool:
         value = (text or "").lower()
         return any(
             marker in value
@@ -1209,7 +1209,7 @@ class UTCMSAuthenticator:
         await self._save_login_debug_snapshot("submit_failed")
         return False
 
-    async def _consume_ajax_login_response(self, ajax_response_task) -> Optional[bool]:
+    async def _consume_ajax_login_response(self, ajax_response_task) -> bool | None:
         if not ajax_response_task:
             return None
 
@@ -1262,7 +1262,7 @@ class UTCMSAuthenticator:
         await self._save_login_debug_snapshot("ajax_success_not_verified")
         return False
 
-    async def login(self, username: str, password: str, login_url: Optional[str] = None) -> bool:
+    async def login(self, username: str, password: str, login_url: str | None = None) -> bool:
         self.last_error = None
         self.last_state = "failed"
         navigation_errors: list[tuple[str, Exception]] = []

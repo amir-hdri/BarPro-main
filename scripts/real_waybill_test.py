@@ -1,10 +1,10 @@
 """Real waybill creation test with full monitoring."""
 import asyncio
+import json
 import sys
 import time
-import json
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -13,13 +13,13 @@ from playwright.async_api import async_playwright
 
 class WaybillMonitor:
     """Monitor waybill creation process."""
-    
+
     def __init__(self):
         self.events = []
         self.start_time = time.time()
         self.current_step = 0
         self.total_steps = 8
-        
+
     def log_event(self, event_type, data):
         """Log an event with timestamp."""
         elapsed = time.time() - self.start_time
@@ -30,11 +30,11 @@ class WaybillMonitor:
             "data": data
         }
         self.events.append(event)
-        
+
         # Print to console
         icon = self._get_icon(event_type)
         print(f"{icon} [{elapsed:6.2f}s] {event_type}: {self._format_data(data)}")
-    
+
     def _get_icon(self, event_type):
         icons = {
             "start": "🚀",
@@ -49,19 +49,19 @@ class WaybillMonitor:
             "submit": "📤"
         }
         return icons.get(event_type, "•")
-    
+
     def _format_data(self, data):
         if isinstance(data, dict):
             return ", ".join(f"{k}={v}" for k, v in data.items())
         return str(data)
-    
+
     def progress(self):
         """Show progress bar."""
         filled = int((self.current_step / self.total_steps) * 40)
         bar = "█" * filled + "░" * (40 - filled)
         percent = (self.current_step / self.total_steps) * 100
         print(f"\n[{bar}] {percent:.0f}% ({self.current_step}/{self.total_steps})")
-    
+
     def summary(self):
         """Print summary."""
         elapsed = time.time() - self.start_time
@@ -71,7 +71,7 @@ class WaybillMonitor:
         print(f"⏱️  زمان کل: {elapsed:.2f} ثانیه")
         print(f"📋 تعداد events: {len(self.events)}")
         print(f"✅ مراحل تکمیل شده: {self.current_step}/{self.total_steps}")
-        
+
         # Save to file
         log_file = Path(__file__).parent.parent / "logs" / f"waybill_test_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         log_file.parent.mkdir(exist_ok=True)
@@ -82,25 +82,25 @@ class WaybillMonitor:
 
 async def real_waybill_test():
     """Test real waybill creation with monitoring."""
-    
+
     monitor = WaybillMonitor()
-    
+
     print("=" * 80)
     print("🚀 ثبت واقعی بارنامه با پایش کامل")
     print("=" * 80)
-    
+
     # Check credentials
     from app.core.config import utcms_config
-    
+
     if not utcms_config.UTCMS_USERNAME or not utcms_config.UTCMS_PASSWORD:
         print("\n❌ خطا: اطلاعات ورود تنظیم نشده است")
         print("لطفاً در فایل .env تنظیم کنید:")
         print("  UTCMS_USERNAME=your_username")
         print("  UTCMS_PASSWORD=your_password")
         return {"success": False, "error": "Missing credentials"}
-    
+
     monitor.log_event("info", {"message": "Credentials found"})
-    
+
     # Sample data
     waybill_data = {
         "sender": {
@@ -139,39 +139,39 @@ async def real_waybill_test():
             "freight": 4500000
         }
     }
-    
+
     monitor.log_event("info", {
         "sender": waybill_data["sender"]["name"],
         "receiver": waybill_data["receiver"]["name"],
         "route": f"{waybill_data['origin']['city']} → {waybill_data['destination']['city']}"
     })
-    
+
     try:
         monitor.log_event("start", {"message": "Launching browser"})
-        
+
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=False,
                 args=['--start-maximized']
             )
-            
+
             context = await browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
                 locale='fa-IR'
             )
-            
+
             page = await context.new_page()
             monitor.log_event("success", {"message": "Browser ready"})
-            
+
             # Import manager
             from app.automation.waybill_enhanced import EnhancedWaybillManager
-            
+
             manager = EnhancedWaybillManager(page, context)
             monitor.log_event("success", {"message": "Manager initialized"})
-            
+
             # Hook into manager to monitor events
             original_log_pill = manager._log_pill_transition
-            
+
             async def monitored_log_pill(*args, **kwargs):
                 monitor.current_step += 1
                 monitor.progress()
@@ -181,20 +181,20 @@ async def real_waybill_test():
                     "button": kwargs.get("button_text", "N/A")
                 })
                 return await original_log_pill(*args, **kwargs)
-            
+
             manager._log_pill_transition = monitored_log_pill
-            
+
             # Start creation
             monitor.log_event("start", {"message": "Starting waybill creation"})
-            
+
             result = await manager.create_waybill_with_map(waybill_data)
-            
+
             if result.get('success'):
                 monitor.log_event("success", {
                     "tracking_code": result.get('tracking_code', 'N/A'),
                     "document_id": result.get('document_id', 'N/A')
                 })
-                
+
                 if result.get('route'):
                     route = result['route']
                     monitor.log_event("info", {
@@ -205,31 +205,31 @@ async def real_waybill_test():
                 monitor.log_event("error", {
                     "error": result.get('error', 'Unknown error')
                 })
-            
+
             # Selector inventory
             if hasattr(manager, '_selector_inventory'):
                 inventory = manager._selector_inventory
                 filled = sum(1 for item in inventory.values() if item.get('status') == 'filled')
                 fallback = sum(1 for item in inventory.values() if item.get('status') == 'fallback-only')
                 failed = sum(1 for item in inventory.values() if item.get('status') in ('unsupported', 'failed'))
-                
+
                 monitor.log_event("info", {
                     "total_fields": len(inventory),
                     "filled": filled,
                     "fallback": fallback,
                     "failed": failed
                 })
-            
+
             monitor.log_event("info", {"message": "Waiting 5s to view result"})
             await asyncio.sleep(5)
-            
+
             await browser.close()
             monitor.log_event("success", {"message": "Browser closed"})
-            
+
             monitor.summary()
-            
+
             return result
-            
+
     except Exception as e:
         monitor.log_event("error", {
             "exception": type(e).__name__,
@@ -249,14 +249,14 @@ def main():
     print("  2. دسترسی به سیستم UTCMS دارید")
     print("  3. داده‌های تست صحیح هستند")
     print("\nآیا ادامه می‌دهید؟ (yes/no): ", end="")
-    
+
     response = input().strip().lower()
     if response not in ['yes', 'y']:
         print("❌ لغو شد")
         return
-    
+
     result = asyncio.run(real_waybill_test())
-    
+
     if result.get('success'):
         print("\n✅ ثبت بارنامه موفق بود!")
         sys.exit(0)

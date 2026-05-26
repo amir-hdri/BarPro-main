@@ -2,8 +2,7 @@ import asyncio
 from unittest.mock import patch
 
 from app.automation import captcha as captcha_module
-from app.automation.captcha import get_captcha_provider
-from app.automation.captcha import CompositeCaptchaProvider
+from app.automation.captcha import CompositeCaptchaProvider, get_captcha_provider
 
 
 def _reset_provider_cache() -> None:

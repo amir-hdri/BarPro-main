@@ -1,0 +1,4 @@
+1. Improve `_fill_input_like` in `app/automation/location_selector.py` to use a more robust React/Vue bypass (Native property setter bypass).
+2. Improve `_inject_coordinates_via_js` in `app/automation/location_selector.py` with the same React/Vue bypass technique.
+3. Add broader logic in `_fill_coordinate_hidden_fields` to find inputs without relying strictly on the exact prefix if there are generic hidden lat/lng inputs that might be active.
+4. Run tests and pre-commit checks.

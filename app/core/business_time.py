@@ -1,7 +1,7 @@
 """Timezone-aware business date helpers for Tehran reset rules."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from app.core.config import utcms_config
@@ -12,7 +12,7 @@ def business_tz() -> ZoneInfo:
 
 
 def now_utc() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def now_in_business_tz() -> datetime:
@@ -22,14 +22,14 @@ def now_in_business_tz() -> datetime:
 def business_date_str(at: datetime | None = None) -> str:
     current = at or now_utc()
     if current.tzinfo is None:
-        current = current.replace(tzinfo=timezone.utc)
+        current = current.replace(tzinfo=UTC)
     return current.astimezone(business_tz()).date().isoformat()
 
 
 def business_midnight_utc(at: datetime | None = None) -> datetime:
     current = at or now_utc()
     if current.tzinfo is None:
-        current = current.replace(tzinfo=timezone.utc)
+        current = current.replace(tzinfo=UTC)
     localized = current.astimezone(business_tz())
     midnight = localized.replace(hour=0, minute=0, second=0, microsecond=0)
-    return midnight.astimezone(timezone.utc)
+    return midnight.astimezone(UTC)

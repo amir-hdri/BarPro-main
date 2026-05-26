@@ -4,9 +4,8 @@ import logging
 import os
 import time
 import uuid
-from datetime import datetime, timezone
 from contextlib import asynccontextmanager
-from typing import Dict, Optional, Tuple
+from datetime import UTC, datetime
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
@@ -26,7 +25,7 @@ class BrowserResourceGuard:
     def __init__(self, max_age_seconds: int = 300, max_pages: int = 5):
         self.max_age_seconds = max_age_seconds
         self.max_pages = max_pages
-        self._resources: Dict[str, dict] = {}
+        self._resources: dict[str, dict] = {}
         self._lock = asyncio.Lock()
 
     async def register(self, resource_id: str, context: BrowserContext):
@@ -63,7 +62,7 @@ class BrowserResourceGuard:
             for resource_id, info in self._resources.items():
                 age = now - info["created_at"]
                 idle_time = now - info["last_accessed"]
-                
+
                 if (
                     age > self.max_age_seconds
                     or idle_time > self.max_age_seconds / 2
@@ -95,7 +94,7 @@ class BrowserResourceGuard:
 
         return cleaned
 
-    def get_stats(self) -> Dict[str, any]:
+    def get_stats(self) -> dict[str, any]:
         """Get resource usage statistics."""
         now = time.time()
         return {
@@ -117,10 +116,10 @@ class BrowserManager:
 
     def __init__(self):
         self.playwright = None
-        self.browser: Optional[Browser] = None
-        self._contexts: Dict[str, BrowserContext] = {}
+        self.browser: Browser | None = None
+        self._contexts: dict[str, BrowserContext] = {}
         self._pooled_sessions: set[str] = set()
-        self._pool: Optional[BrowserPool] = None
+        self._pool: BrowserPool | None = None
         self._state_lock = asyncio.Lock()
         self._init_lock = asyncio.Lock()
         self._resource_guard = BrowserResourceGuard(
@@ -235,11 +234,11 @@ class BrowserManager:
 
             return await self._try_local_home_launch(launch_options, first_error)
 
-    def _build_context_args(self, auth_state_path: Optional[str] = None, proxy_dict: Optional[dict] = None) -> dict:
+    def _build_context_args(self, auth_state_path: str | None = None, proxy_dict: dict | None = None) -> dict:
         # Use random user agent and viewport for anti-detection
         user_agent = get_random_user_agent()
         viewport = get_random_viewport()
-        
+
         context_args = {
             "user_agent": user_agent,
             "viewport": viewport,
@@ -266,12 +265,12 @@ class BrowserManager:
                 "Upgrade-Insecure-Requests": "1",
             },
         }
-        
+
         # Add anti-detection launch args
         if hasattr(self, 'browser') and self.browser:
             # These are set at launch time, but we document them here
             pass
-        
+
 
         if proxy_dict:
             context_args["proxy"] = proxy_dict
@@ -282,7 +281,7 @@ class BrowserManager:
                 context_args["storage_state"] = effective_auth_state_path
         return context_args
 
-    async def create_context(self, auth_state_path: Optional[str] = None, proxy_dict: Optional[dict] = None) -> Tuple[str, BrowserContext]:
+    async def create_context(self, auth_state_path: str | None = None, proxy_dict: dict | None = None) -> tuple[str, BrowserContext]:
         """Create a new browser context with a secure session ID"""
         if not self.browser:
             await self.initialize()
@@ -294,13 +293,13 @@ class BrowserManager:
         else:
             context = await self.browser.new_context(**self._build_context_args(auth_state_path=auth_state_path, proxy_dict=proxy_dict))
         self._contexts[session_id] = context
-        
+
         # Register with resource guard
         await self._resource_guard.register(session_id, context)
-        
+
         return session_id, context
 
-    async def save_auth_state(self, context: BrowserContext, auth_state_path: Optional[str] = None):
+    async def save_auth_state(self, context: BrowserContext, auth_state_path: str | None = None):
         """Persist current authenticated state for future sessions."""
         if not utcms_config.USE_PERSISTENT_AUTH_STATE:
             return
@@ -323,18 +322,18 @@ class BrowserManager:
         """Close a specific browser context"""
         if session_id in self._contexts:
             context = self._contexts[session_id]
-            
+
             # Record success in pool if healthy
             if self._pool and session_id not in self._pooled_sessions:
                 self._pool.record_success(context)
-            
+
             if session_id in self._pooled_sessions and self._pool is not None:
                 await self._pool.release(context)
                 self._pooled_sessions.discard(session_id)
             else:
                 await context.close()
             del self._contexts[session_id]
-            
+
             # Unregister from resource guard
             await self._resource_guard.unregister(session_id)
 
@@ -350,7 +349,7 @@ class BrowserManager:
             try:
                 page._telemetry_console_messages.append(  # type: ignore[attr-defined]
                     {
-                        "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+                        "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat(),
                         "type": message.type,
                         "text": message.text,
                     }
@@ -363,7 +362,7 @@ class BrowserManager:
             try:
                 page._telemetry_network_events.append(  # type: ignore[attr-defined]
                     {
-                        "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+                        "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat(),
                         "kind": "request",
                         "method": request.method,
                         "url": request.url,
@@ -377,7 +376,7 @@ class BrowserManager:
             try:
                 page._telemetry_network_events.append(  # type: ignore[attr-defined]
                     {
-                        "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+                        "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat(),
                         "kind": "response",
                         "status": response.status,
                         "url": response.url,
@@ -502,7 +501,7 @@ class BrowserManager:
         """Public method to clean up stale browser resources."""
         return await self._resource_guard.cleanup_stale_resources(self)
 
-    def get_resource_stats(self) -> Dict[str, any]:
+    def get_resource_stats(self) -> dict[str, any]:
         """Get browser resource usage statistics."""
         return {
             "active_contexts": len(self._contexts),
@@ -515,7 +514,7 @@ browser_manager = BrowserManager()
 
 
 @asynccontextmanager
-async def managed_browser_session(auth_state_path: Optional[str] = None, proxy_dict: Optional[dict] = None):
+async def managed_browser_session(auth_state_path: str | None = None, proxy_dict: dict | None = None):
     """Context manager for safe browser session lifecycle with automatic cleanup."""
     session_id = None
     context = None
@@ -535,7 +534,7 @@ async def managed_browser_session(auth_state_path: Optional[str] = None, proxy_d
 
 
 @asynccontextmanager
-async def managed_page(auth_state_path: Optional[str] = None):
+async def managed_page(auth_state_path: str | None = None):
     """Context manager for safe page lifecycle with automatic cleanup."""
     async with managed_browser_session(auth_state_path=auth_state_path) as (session_id, context):
         page = await browser_manager.new_page(context)
@@ -560,14 +559,14 @@ class PageInteractor:
     async def safe_click(self, selector: str, wait_for_navigation: bool = False, timeout: int = 5000):
         """Click an element safely with human-like mouse movement"""
         try:
-            from app.automation.stealth import human_like_mouse_movement, add_random_delay
-            
+            from app.automation.stealth import add_random_delay, human_like_mouse_movement
+
             # Move mouse to element like a human
             try:
                 await human_like_mouse_movement(self.page, selector)
             except Exception:
                 pass  # Fallback to normal click if movement fails
-            
+
             element = await self.page.wait_for_selector(selector, state="visible", timeout=timeout)
             if element:
                 if wait_for_navigation:
@@ -588,8 +587,8 @@ class PageInteractor:
     async def safe_fill(self, selector: str, value: str, timeout: int = 5000, human_like: bool = True):
         """Fill an input safely with optional human-like typing"""
         try:
-            from app.automation.stealth import human_like_typing, add_random_delay
-            
+            from app.automation.stealth import add_random_delay, human_like_typing
+
             element = await self.page.wait_for_selector(selector, state="visible", timeout=timeout)
             if element:
                 if human_like:

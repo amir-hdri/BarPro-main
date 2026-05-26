@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class SubmitOutcome(str, Enum):
@@ -21,12 +21,12 @@ class SubmitOutcome(str, Enum):
 class SessionBundle:
     cookies: list[dict[str, Any]] = field(default_factory=list)
     user_agent: str = ""
-    csrf_token: Optional[str] = None
-    hidden_form_state: Dict[str, str] = field(default_factory=dict)
-    issued_at: Optional[str] = None
-    expires_at: Optional[str] = None
+    csrf_token: str | None = None
+    hidden_form_state: dict[str, str] = field(default_factory=dict)
+    issued_at: str | None = None
+    expires_at: str | None = None
     session_version: int = 0
-    proxy_key: Optional[str] = None
+    proxy_key: str | None = None
 
 
 @dataclass(slots=True)
@@ -34,25 +34,25 @@ class SubmitClassification:
     outcome: SubmitOutcome
     reason_code: str
     retryable: bool
-    http_status: Optional[int] = None
-    message: Optional[str] = None
-    response_excerpt: Optional[str] = None
+    http_status: int | None = None
+    message: str | None = None
+    response_excerpt: str | None = None
 
 
 @dataclass(slots=True)
 class SubmitExecutionResult:
     classification: SubmitClassification
     latency_ms: int
-    raw_payload: Dict[str, Any] = field(default_factory=dict)
+    raw_payload: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
 class AuthResult:
     ok: bool
-    session_bundle: Optional[SessionBundle]
+    session_bundle: SessionBundle | None
     reason_code: str
-    message: Optional[str] = None
-    expires_at: Optional[datetime] = None
+    message: str | None = None
+    expires_at: datetime | None = None
 
 
 @dataclass(slots=True)
