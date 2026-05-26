@@ -438,7 +438,7 @@ class LocationSelector:
         # ۵. نقشه با مختصات
         map_result = {"success": False, "error": "بدون مختصات"}
         if coordinates and coordinates.get("lat") is not None and coordinates.get("lng") is not None:
-            map_result = await self._try_map_selection(location_data, prefix)
+            map_result = await self._try_map_selection(location_data, prefix, selectors=selectors)
             if map_result["success"]:
                 if inferred_coordinates:
                     map_result["method"] = "map_geocoded"
@@ -594,10 +594,81 @@ class LocationSelector:
         except Exception as e:
             return {"success": False, "method": "explicit_coords", "error": str(e)}
 
+    async def _get_form_state(self, selectors: Dict[str, List[str]], prefix: str) -> Dict[str, str]:
+        """
+        دریافت وضعیت فعلی فیلدهای فرم (استان، شهر، آدرس و مختصات پنهان)
+        """
+        state = {}
+
+        # 1. خواندن فیلدهای استان، شهر، منطقه، آدرس
+        for field_name in ["province", "city", "district", "address"]:
+            if field_name in selectors and selectors[field_name]:
+                for selector in selectors[field_name]:
+                    try:
+                        element = await self.page.query_selector(selector)
+                        if element:
+                            tag_name = await element.evaluate("el => el.tagName.toLowerCase()")
+                            if tag_name in ["input", "textarea"]:
+                                value = await element.input_value()
+                            else:
+                                # For select elements, get the text of the selected option
+                                value = await element.evaluate("""el => {
+                                    if (el.selectedIndex >= 0) {
+                                        const option = el.options[el.selectedIndex];
+                                        return option.value ? option.text : '';
+                                    }
+                                    return '';
+                                }""")
+
+                            if value and value.strip():
+                                state[field_name] = value.strip()
+                                break
+                    except Exception:
+                        continue
+
+        # 2. خواندن hidden fields مربوط به مختصات
+        hidden_lat_selectors = [
+            f'input[name="{prefix}Lat"]',
+            f'input[name="{prefix}Latitude"]',
+            f'input[id="{prefix.lower()}_lat"]',
+            f'input[name*="Coordinate"][name*="{prefix.lower()}"][name*="Lat"]',
+        ]
+        hidden_lng_selectors = [
+            f'input[name="{prefix}Lng"]',
+            f'input[name="{prefix}Longitude"]',
+            f'input[id="{prefix.lower()}_lng"]',
+            f'input[name*="Coordinate"][name*="{prefix.lower()}"][name*="Lng"]',
+        ]
+
+        for selector in hidden_lat_selectors:
+            try:
+                element = await self.page.query_selector(selector)
+                if element:
+                    value = await element.input_value()
+                    if value and value.strip():
+                        state["lat"] = value.strip()
+                        break
+            except Exception:
+                continue
+
+        for selector in hidden_lng_selectors:
+            try:
+                element = await self.page.query_selector(selector)
+                if element:
+                    value = await element.input_value()
+                    if value and value.strip():
+                        state["lng"] = value.strip()
+                        break
+            except Exception:
+                continue
+
+        return state
+
     async def _try_map_selection(
         self,
         location_data: Dict[str, Any],
-        prefix: str
+        prefix: str,
+        selectors: Optional[Dict[str, List[str]]] = None
     ) -> Dict[str, Any]:
         """تلاش برای انتخاب مکان با استفاده از نقشه"""
 
@@ -618,6 +689,8 @@ class LocationSelector:
                 address=location_data.get("address"),
             )
 
+            before_state = await self._get_form_state(selectors, prefix) if selectors else {}
+
             selected = await self.map_controller.select_on_map(
                 selector=None,
                 location=location,
@@ -632,6 +705,32 @@ class LocationSelector:
                 }
 
             await self.map_controller.wait_for_map_idle()
+
+            # بررسی تاثیر کلیک روی نقشه
+            if selectors:
+                after_state = await self._get_form_state(selectors, prefix)
+
+                # بررسی اینکه آیا تغییری در فرم ایجاد شده یا نه
+                # اگر state قبل و بعد کاملا یکسان باشند (یا هر دو خالی)، کلیک روی نقشه اثری نداشته است
+
+                has_changes = False
+                for key, val in after_state.items():
+                    if val and val != before_state.get(key):
+                        has_changes = True
+                        break
+
+                # همچنین اگر فقط lat و lng در after_state باشند و قبل از آن نبوده باشند تغییر محسوب می‌شود
+                if not has_changes and not after_state:
+                     # Both states are empty, so definitely no changes
+                     has_changes = False
+
+                if not has_changes and after_state == before_state:
+                    logger.warning("map_click_had_no_effect_on_form", extra={"extra_fields": {"prefix": prefix}})
+                    return {
+                        "success": False,
+                        "method": "map",
+                        "error": "کلیک روی نقشه تاثیری در فرم نداشت (فیلدها تغییر نکردند)",
+                    }
 
             return {
                 "success": True,
