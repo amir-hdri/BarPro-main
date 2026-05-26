@@ -454,7 +454,7 @@ class MapController:
         await self.wait_for_route_calculation()
 
         # استخراج اطلاعات مسیر
-        route_info = await self._extract_route_info()
+        route_info = await self.extract_route_info()
 
         return MapSelection(
             origin=origin,
@@ -464,7 +464,7 @@ class MapController:
             route_polyline=route_info.get('polyline')
         )
 
-    async def _extract_route_info(self) -> Dict[str, Any]:
+    async def extract_route_info(self) -> Dict[str, Any]:
         """استخراج اطلاعات مسیر از نقشه"""
 
         # تلاش برای استخراج از Google Maps
