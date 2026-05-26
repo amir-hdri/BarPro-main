@@ -633,7 +633,34 @@ class LocationSelector:
 
             await self.map_controller.wait_for_map_idle()
 
+            # بررسی اینکه آیا بعد از کلیک روی نقشه، فیلدهای استان/شهر/آدرس پر شده‌اند یا نه
+            # اگر پر نشده باشند، یعنی کلیک نقشه به درستی اعمال نشده است
+            await asyncio.sleep(1) # وقفه کوتاه برای اطمینان از به‌روزرسانی DOM
+
+            is_filled = await self.page.evaluate(f'''
+                () => {{
+                    const prefix = "{prefix}";
+                    const province = document.querySelector(`select[name*="${{prefix}}Province"], select[id*="${{prefix}}Province"], select[name*="State"]`);
+                    const city = document.querySelector(`select[name*="${{prefix}}City"], select[id*="${{prefix}}City"]`);
+                    const address = document.querySelector(`textarea[name*="${{prefix}}Address"], textarea[id*="${{prefix}}Address"], input[name*="${{prefix}}Address"]`);
+
+                    const pVal = province ? province.value : "";
+                    const cVal = city ? city.value : "";
+                    const aVal = address ? address.value : "";
+
+                    return (pVal !== "" || cVal !== "" || aVal !== "");
+                }}
+            ''')
+
+            if not is_filled:
+                return {
+                    "success": False,
+                    "method": "map",
+                    "error": "انتخاب روی نقشه انجام شد اما فیلدها پر نشدند (نیاز به روش جایگزین)",
+                }
+
             return {
+
                 "success": True,
                 "method": "map",
                 "coordinates": {
