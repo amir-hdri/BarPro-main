@@ -1,6 +1,5 @@
 from typing import Any
 
-
 RETRYABLE_NETWORK_MARKERS = (
     "timeout",
     "timed out",

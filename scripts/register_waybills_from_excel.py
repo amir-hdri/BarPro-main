@@ -5,12 +5,12 @@ import json
 import re
 import sys
 import time
-import zipfile
 import xml.etree.ElementTree as ET
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import HTTPException
 
@@ -18,10 +18,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from app.core.config import utcms_config
 from app.schemas.itmb_ws import WS01InsertBOLRequest
 from app.services.itmb_ws_service import itmb_ws_service
-from app.core.config import utcms_config
-
 
 XML_NS = {
     "a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
@@ -34,10 +33,10 @@ class RunItem:
     row_index: int
     status: str
     message: str
-    trace_code: Optional[str] = None
-    err_code: Optional[Any] = None
-    detail: Optional[Any] = None
-    payload_excerpt: Optional[Dict[str, Any]] = None
+    trace_code: str | None = None
+    err_code: Any | None = None
+    detail: Any | None = None
+    payload_excerpt: dict[str, Any] | None = None
 
 
 HEADER_ALIASES = {
@@ -114,7 +113,7 @@ def _cell_to_col_index(cell_ref: str) -> int:
     return index - 1
 
 
-def read_xlsx(path: Path, sheet_name: Optional[str] = None) -> List[List[str]]:
+def read_xlsx(path: Path, sheet_name: str | None = None) -> list[list[str]]:
     with zipfile.ZipFile(path) as archive:
         workbook = ET.fromstring(archive.read("xl/workbook.xml"))
         sheets = workbook.find("a:sheets", XML_NS)
@@ -140,7 +139,7 @@ def read_xlsx(path: Path, sheet_name: Optional[str] = None) -> List[List[str]]:
         if not target.startswith("xl/"):
             target = f"xl/{target}"
 
-        shared_strings: List[str] = []
+        shared_strings: list[str] = []
         if "xl/sharedStrings.xml" in archive.namelist():
             shared_root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
             for item in shared_root.findall("a:si", XML_NS):
@@ -150,9 +149,9 @@ def read_xlsx(path: Path, sheet_name: Optional[str] = None) -> List[List[str]]:
         sheet_root = ET.fromstring(archive.read(target))
         row_nodes = sheet_root.findall(".//a:sheetData/a:row", XML_NS)
 
-        rows: List[List[str]] = []
+        rows: list[list[str]] = []
         for row_node in row_nodes:
-            values_by_index: Dict[int, str] = {}
+            values_by_index: dict[int, str] = {}
             for cell in row_node.findall("a:c", XML_NS):
                 ref = cell.attrib.get("r", "")
                 index = _cell_to_col_index(ref)
@@ -199,7 +198,7 @@ def normalize_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def split_name(name: str) -> tuple[str, Optional[str], int]:
+def split_name(name: str) -> tuple[str, str | None, int]:
     parts = [part for part in str(name or "").strip().split() if part]
     if not parts:
         return "Unknown", None, 2
@@ -218,8 +217,8 @@ def parse_packing_code(value: str) -> int:
     return 1
 
 
-def to_header_map(header_row: List[str]) -> Dict[str, int]:
-    result: Dict[str, int] = {}
+def to_header_map(header_row: list[str]) -> dict[str, int]:
+    result: dict[str, int] = {}
     for key, expected_headers in HEADER_ALIASES.items():
         result[key] = -1
         for index, actual_header in enumerate(header_row):
@@ -229,17 +228,17 @@ def to_header_map(header_row: List[str]) -> Dict[str, int]:
     return result
 
 
-def get_cell(row: List[str], index: int) -> str:
+def get_cell(row: list[str], index: int) -> str:
     if index < 0 or index >= len(row):
         return ""
     return str(row[index]).strip()
 
 
 def build_ws_payload(
-    row: List[str],
-    header_map: Dict[str, int],
+    row: list[str],
+    header_map: dict[str, int],
     serial_seed: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     plate_last_two = normalize_int(get_cell(row, header_map["plate_last_two"]), default=10)
     plate_three = normalize_int(get_cell(row, header_map["plate_three"]), default=100)
     plate_first_two = normalize_int(get_cell(row, header_map["plate_first_two"]), default=10)
@@ -360,8 +359,8 @@ def build_ws_payload(
     }
 
 
-async def submit_payload(payload: Dict[str, Any], retries: int) -> Dict[str, Any]:
-    last_exc: Optional[Exception] = None
+async def submit_payload(payload: dict[str, Any], retries: int) -> dict[str, Any]:
+    last_exc: Exception | None = None
     for attempt in range(1, max(1, retries) + 1):
         try:
             req = WS01InsertBOLRequest.model_validate(payload)
@@ -394,7 +393,7 @@ async def run(
     retries: int,
     output_json: Path,
     dry_run: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     ensure_ready_for_live()
     rows = read_xlsx(excel_path)
     if len(rows) < 2:
@@ -405,7 +404,7 @@ async def run(
     if max_rows > 0:
         data_rows = data_rows[:max_rows]
 
-    run_items: List[RunItem] = []
+    run_items: list[RunItem] = []
     serial_seed = int(datetime.utcnow().timestamp())
 
     for offset, row in enumerate(data_rows, start=2):

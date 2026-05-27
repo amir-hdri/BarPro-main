@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
+from app.core.logging import monitoring_extra
 from app.models_multitenant import TaskStatus, WaybillJob
 from app.models_rpa import DriverRuntimeState, DriverRuntimeStateValue
-from app.core.logging import monitoring_extra
 from app.services.rpa_runtime_service import rpa_runtime
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ async def prepare_live_run_isolation(
     client_id: int,
     driver_id: int,
     job: WaybillJob,
-    runtime_state: Optional[DriverRuntimeState] = None,
+    runtime_state: DriverRuntimeState | None = None,
 ) -> dict[str, Any]:
     """Clear stale queue/lock markers before an inline/live submit run."""
     released_locks: list[str] = []
@@ -38,7 +38,7 @@ async def prepare_live_run_isolation(
         "runtime_state": runtime_state.state if runtime_state else None,
     }
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     job.celery_task_id = None
     job.worker_id = None
     job.started_at = None

@@ -5,9 +5,10 @@ Revises: 006_add_performance_indexes
 Create Date: 2025-05-01 20:30:00.000000
 
 """
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = '007_add_multi_level_system'
@@ -35,7 +36,7 @@ def upgrade() -> None:
     )
     op.create_index('idx_super_admins_username', 'super_admins', ['username'])
     op.create_index('idx_super_admins_email', 'super_admins', ['email'])
-    
+
     # 2. Create subscription_plans table
     op.create_table(
         'subscription_plans',
@@ -55,7 +56,7 @@ def upgrade() -> None:
         sa.Column('updated_at', sa.TIMESTAMP(), server_default=sa.text('now()'), nullable=False),
         sa.PrimaryKeyConstraint('id')
     )
-    
+
     # 3. Add new columns to clients table
     op.add_column('clients', sa.Column('username', sa.String(length=50), nullable=True))
     op.add_column('clients', sa.Column('full_name', sa.String(length=255), nullable=True))
@@ -66,21 +67,21 @@ def upgrade() -> None:
     op.add_column('clients', sa.Column('subscription_start_date', sa.TIMESTAMP(), nullable=True))
     op.add_column('clients', sa.Column('subscription_end_date', sa.TIMESTAMP(), nullable=True))
     op.add_column('clients', sa.Column('created_by_admin_id', sa.Integer(), nullable=True))
-    
+
     # Update existing clients with username from client_code
     op.execute("UPDATE clients SET username = client_code WHERE username IS NULL")
     op.execute("UPDATE clients SET full_name = name WHERE full_name IS NULL")
-    
+
     # Make username NOT NULL after populating
     op.alter_column('clients', 'username', nullable=False)
     op.alter_column('clients', 'full_name', nullable=False)
-    
+
     # Create unique constraint and indexes
     op.create_unique_constraint('uq_clients_username', 'clients', ['username'])
     op.create_index('idx_clients_username', 'clients', ['username'])
     op.create_foreign_key('fk_clients_subscription_plan', 'clients', 'subscription_plans', ['subscription_plan_id'], ['id'])
     op.create_foreign_key('fk_clients_created_by_admin', 'clients', 'super_admins', ['created_by_admin_id'], ['id'])
-    
+
     # 4. Add new columns to drivers table
     op.add_column('drivers', sa.Column('vehicle_plate', sa.String(length=20), nullable=True))
     op.add_column('drivers', sa.Column('vehicle_type', sa.String(length=50), nullable=True))
@@ -92,12 +93,12 @@ def upgrade() -> None:
     op.add_column('drivers', sa.Column('failed_waybills', sa.Integer(), server_default='0', nullable=True))
     op.add_column('drivers', sa.Column('last_waybill_at', sa.TIMESTAMP(), nullable=True))
     op.add_column('drivers', sa.Column('last_error_message', sa.Text(), nullable=True))
-    
+
     # Create indexes
-    op.create_index('idx_drivers_auto_schedule', 'drivers', ['auto_schedule_enabled'], 
+    op.create_index('idx_drivers_auto_schedule', 'drivers', ['auto_schedule_enabled'],
                     postgresql_where=sa.text('auto_schedule_enabled = true'))
     op.create_index('idx_drivers_vehicle_plate', 'drivers', ['client_id', 'vehicle_plate'])
-    
+
     # 5. Create driver_schedules table
     op.create_table(
         'driver_schedules',
@@ -121,13 +122,13 @@ def upgrade() -> None:
     op.create_index('idx_schedules_driver_id', 'driver_schedules', ['driver_id'])
     op.create_index('idx_schedules_next_run', 'driver_schedules', ['next_run_at'],
                     postgresql_where=sa.text('is_active = true'))
-    
+
     # 6. Add new columns to waybill_jobs table
     op.add_column('waybill_jobs', sa.Column('scheduled_by', sa.String(length=20), server_default='manual', nullable=True))
     op.add_column('waybill_jobs', sa.Column('schedule_id', sa.Integer(), nullable=True))
     op.create_foreign_key('fk_waybill_jobs_schedule', 'waybill_jobs', 'driver_schedules', ['schedule_id'], ['id'])
     op.create_index('idx_waybill_jobs_scheduled_by', 'waybill_jobs', ['scheduled_by'])
-    
+
     # 7. Create activity_logs table
     op.create_table(
         'activity_logs',
@@ -147,7 +148,7 @@ def upgrade() -> None:
     op.create_index('idx_activity_user', 'activity_logs', ['user_type', 'user_id'])
     op.create_index('idx_activity_created', 'activity_logs', ['created_at'])
     op.create_index('idx_activity_action', 'activity_logs', ['action'])
-    
+
     # 8. Insert default subscription plans
     op.execute("""
         INSERT INTO subscription_plans (name, name_fa, price_monthly, price_yearly, max_drivers, max_concurrent_tasks, max_daily_tasks, features)
@@ -156,7 +157,7 @@ def upgrade() -> None:
             ('Pro', 'حرفه‌ای', 1500000, 15000000, 20, 5, 200, '{"support": "priority", "api_access": true}'::jsonb),
             ('Enterprise', 'سازمانی', 5000000, 50000000, 100, 20, 1000, '{"support": "24/7", "api_access": true, "custom_features": true}'::jsonb)
     """)
-    
+
     # 9. Insert default super admin (password: admin123)
     op.execute("""
         INSERT INTO super_admins (username, email, hashed_password, full_name)
@@ -171,9 +172,9 @@ def downgrade() -> None:
     op.drop_constraint('fk_waybill_jobs_schedule', 'waybill_jobs', type_='foreignkey')
     op.drop_column('waybill_jobs', 'schedule_id')
     op.drop_column('waybill_jobs', 'scheduled_by')
-    
+
     op.drop_table('driver_schedules')
-    
+
     op.drop_index('idx_drivers_vehicle_plate', 'drivers')
     op.drop_index('idx_drivers_auto_schedule', 'drivers')
     op.drop_column('drivers', 'last_error_message')
@@ -186,7 +187,7 @@ def downgrade() -> None:
     op.drop_column('drivers', 'vehicle_model')
     op.drop_column('drivers', 'vehicle_type')
     op.drop_column('drivers', 'vehicle_plate')
-    
+
     op.drop_constraint('fk_clients_created_by_admin', 'clients', type_='foreignkey')
     op.drop_constraint('fk_clients_subscription_plan', 'clients', type_='foreignkey')
     op.drop_index('idx_clients_username', 'clients')
@@ -200,6 +201,6 @@ def downgrade() -> None:
     op.drop_column('clients', 'company_name')
     op.drop_column('clients', 'full_name')
     op.drop_column('clients', 'username')
-    
+
     op.drop_table('subscription_plans')
     op.drop_table('super_admins')

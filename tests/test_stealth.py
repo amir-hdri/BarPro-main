@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from app.automation.stealth import get_random_user_agent, _UA_POOL
+from app.automation.stealth import _UA_POOL, get_random_user_agent
 
 
 def test_get_random_user_agent():

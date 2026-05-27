@@ -4,8 +4,9 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Iterable
+from collections.abc import Iterable
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -15,7 +16,7 @@ from app.core.database import async_session_factory
 from app.models_multitenant import TaskStatus, WaybillJob, WaybillTaskLog
 from app.models_rpa import DomainEvent
 from app.rpa.contracts import SchedulerDecision
-from app.rpa.event_taxonomy import JOB_DISPATCHED, JOB_DISPATCH_FAILED, JOB_DISPATCH_SKIPPED
+from app.rpa.event_taxonomy import JOB_DISPATCH_FAILED, JOB_DISPATCH_SKIPPED, JOB_DISPATCHED
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ class RPADispatchService:
             )
             job.status = TaskStatus.QUEUED.value
             job.submit_after = requested_at
-            job.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            job.updated_at = datetime.now(UTC).replace(tzinfo=None)
             job.celery_task_id = getattr(result, "id", None)
             session.add(job)
             await self._record_dispatch_state(
@@ -114,7 +115,7 @@ class RPADispatchService:
                     session=session,
                     job=job,
                     queue_name=decision.queue_name,
-                    requested_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                    requested_at=datetime.now(UTC).replace(tzinfo=None),
                     reason=decision.reason,
                     source="scheduler",
                 )
@@ -174,7 +175,7 @@ class RPADispatchService:
         try:
             result = celery_app.send_task(task_name, args=args, queue=queue_name)
             job.celery_task_id = getattr(result, "id", None)
-            job.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            job.updated_at = datetime.now(UTC).replace(tzinfo=None)
             session.add(job)
             await self._record_dispatch_state(
                 session,

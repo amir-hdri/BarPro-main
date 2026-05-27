@@ -7,14 +7,14 @@ Provides endpoints for the master admin to:
 - View failure analysis across all tenants
 """
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.database import get_session
 from app.auth_multitenant import get_current_admin
+from app.core.database import get_session
 from app.models_multitenant import Client, Driver, DriverPlate, WaybillJob
 from app.schemas.admin import DriverReportFilter
 from app.services.admin_reporting_service import admin_reporting_service
@@ -30,10 +30,10 @@ router = APIRouter(prefix="/admin/reports", tags=["admin-reports"])
 async def get_clients_summary(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    date_from: str | None = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: str | None = Query(None, description="End date (YYYY-MM-DD)"),
     session: AsyncSession = Depends(get_session),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get summary statistics for all clients."""
     return await admin_reporting_service.client_summary(
         page=page,
@@ -51,7 +51,7 @@ async def get_clients_summary(
 async def get_driver_report(
     filters: DriverReportFilter = Depends(),
     session: AsyncSession = Depends(get_session),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get detailed driver/waybill report with filters."""
     return await admin_reporting_service.driver_report(filters=filters)
 
@@ -62,11 +62,11 @@ async def get_driver_report(
     dependencies=[Depends(get_current_admin)],
 )
 async def get_failure_analysis(
-    client_id: Optional[int] = Query(None, description="Filter by client"),
-    date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    client_id: int | None = Query(None, description="Filter by client"),
+    date_from: str | None = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: str | None = Query(None, description="End date (YYYY-MM-DD)"),
     session: AsyncSession = Depends(get_session),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Analyze failures across all tenants or a specific client."""
     return await admin_reporting_service.failure_analysis(
         client_id=client_id,
@@ -82,10 +82,10 @@ async def get_failure_analysis(
 )
 async def get_client_detail(
     client_id: int,
-    date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    date_from: str | None = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: str | None = Query(None, description="End date (YYYY-MM-DD)"),
     session: AsyncSession = Depends(get_session),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get detailed report for a specific client."""
     client = await session.get(Client, client_id)
     if not client:

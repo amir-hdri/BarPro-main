@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Comprehensive Anti-Detection Integration Tests
 ================================================
@@ -10,9 +9,10 @@ Tests for complete anti-detection system including:
 - Human behavior
 """
 
-import pytest
 import os
 import sys
+
+import pytest
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -123,7 +123,7 @@ class TestProxyRotator:
 
     def test_proxy_rotator_creation(self):
         """Test ProxyRotator initialization"""
-        from app.automation.proxy_rotator import ProxyRotator, ProxyConfig
+        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
 
         rotator = ProxyRotator(
             cooldown=5.0,
@@ -135,7 +135,7 @@ class TestProxyRotator:
 
     def test_proxy_rotator_load_from_list(self):
         """Test loading proxies from list"""
-        from app.automation.proxy_rotator import ProxyRotator, ProxyConfig
+        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
 
         rotator = ProxyRotator()
         urls = [
@@ -152,7 +152,7 @@ class TestProxyRotator:
 
     def test_proxy_rotator_load_from_file(self, tmp_path):
         """Test loading proxies from file"""
-        from app.automation.proxy_rotator import ProxyRotator, ProxyConfig
+        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
 
         # Create test file
         proxy_file = tmp_path / "proxies.txt"
@@ -167,10 +167,9 @@ class TestProxyRotator:
     @pytest.mark.asyncio
     async def test_proxy_rotator_get_next(self):
         """Test getting next proxy"""
-        from app.automation.proxy_rotator import ProxyRotator, ProxyConfig
+        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
 
         rotator = ProxyRotator(cooldown=0)  # No cooldown for testing
-        from app.automation.proxy_rotator import ProxyConfig
 
         rotator.add_proxy(ProxyConfig(url="http://proxy1.com:8080"))
         rotator.add_proxy(ProxyConfig(url="http://proxy2.com:3128"))
@@ -181,7 +180,7 @@ class TestProxyRotator:
 
     def test_proxy_rotator_stats(self):
         """Test proxy statistics"""
-        from app.automation.proxy_rotator import ProxyRotator, ProxyConfig
+        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
 
         rotator = ProxyRotator()
         rotator.add_proxy(ProxyConfig(url="http://proxy1.com:8080"))
@@ -324,9 +323,7 @@ class TestHumanInteraction:
     @pytest.mark.asyncio
     async def test_typing_delay_calculation(self):
         """Test typing delay calculation"""
-        from app.automation.human_interaction import (
-            _calculate_typing_delay,
-        )
+        from app.automation.human_interaction import _calculate_typing_delay
 
         # Test base delay
         delay = _calculate_typing_delay(
@@ -343,9 +340,7 @@ class TestHumanInteraction:
     @pytest.mark.asyncio
     async def test_punctuation_delay(self):
         """Test punctuation causes longer delays"""
-        from app.automation.human_interaction import (
-            _calculate_typing_delay,
-        )
+        from app.automation.human_interaction import _calculate_typing_delay
 
         base_delay = _calculate_typing_delay(
             char="a",
@@ -438,9 +433,9 @@ class TestIntegration:
     @pytest.mark.asyncio
     async def test_complete_request_workflow(self):
         """Test complete request workflow: config -> proxy -> headers"""
-        from app.automation.config import USER_AGENT_PROFILES, SCREEN_PRESETS
-        from app.automation.proxy_rotator import ProxyRotator, ProxyConfig
+        from app.automation.config import SCREEN_PRESETS, USER_AGENT_PROFILES
         from app.automation.header_builder import HeaderBuilder
+        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
 
         # 1. Select random profile
         profile = USER_AGENT_PROFILES[0]
@@ -471,14 +466,9 @@ class TestIntegration:
 
     def test_config_file_persistence(self, tmp_path):
         """Test that config can be saved and loaded"""
-        from app.automation.config import (
-            save_profiles,
-            load_profiles,
-            ensure_config_dir,
-        )
+        from app.automation.config import load_profiles, save_profiles
 
-        config_dir = tmp_path / "config"
-        ensure_config_dir = lambda: None  # Override
+        tmp_path / "config"
 
         # Save profiles
         filepath = save_profiles([{"name": "test", "user_agent": "Test"}], filename="test_profiles.json")
@@ -497,7 +487,7 @@ class TestEdgeCases:
 
     def test_empty_proxy_list(self):
         """Test handling empty proxy list"""
-        from app.automation.proxy_rotator import ProxyRotator, ProxyConfig
+        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
 
         rotator = ProxyRotator()
         # No proxies added
@@ -509,7 +499,7 @@ class TestEdgeCases:
 
     def test_all_proxies_failed(self):
         """Test when all proxies have failed"""
-        from app.automation.proxy_rotator import ProxyRotator, ProxyConfig, ProxyInfo
+        from app.automation.proxy_rotator import ProxyConfig, ProxyInfo, ProxyRotator
 
         rotator = ProxyRotator(cooldown=0, max_fail_count=1)
 

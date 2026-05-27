@@ -3,8 +3,9 @@ import asyncio
 import functools
 import logging
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager, contextmanager
-from typing import Any, Callable, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ async def async_timer(operation_name: str, log_level: int = logging.INFO):
         )
 
 
-def measure_time(func: Optional[Callable] = None, *, operation_name: Optional[str] = None):
+def measure_time(func: Callable | None = None, *, operation_name: str | None = None):
     """
     Decorator to measure function execution time.
     
@@ -66,20 +67,20 @@ def measure_time(func: Optional[Callable] = None, *, operation_name: Optional[st
     """
     def decorator(f: Callable) -> Callable:
         name = operation_name or f.__name__
-        
+
         @functools.wraps(f)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             with timer(name):
                 return f(*args, **kwargs)
-        
+
         return wrapper
-    
+
     if func is None:
         return decorator
     return decorator(func)
 
 
-def measure_async_time(func: Optional[Callable] = None, *, operation_name: Optional[str] = None):
+def measure_async_time(func: Callable | None = None, *, operation_name: str | None = None):
     """
     Decorator to measure async function execution time.
     
@@ -90,14 +91,14 @@ def measure_async_time(func: Optional[Callable] = None, *, operation_name: Optio
     """
     def decorator(f: Callable) -> Callable:
         name = operation_name or f.__name__
-        
+
         @functools.wraps(f)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             async with async_timer(name):
                 return await f(*args, **kwargs)
-        
+
         return wrapper
-    
+
     if func is None:
         return decorator
     return decorator(func)
@@ -105,12 +106,12 @@ def measure_async_time(func: Optional[Callable] = None, *, operation_name: Optio
 
 class PerformanceMonitor:
     """Monitor and track performance metrics."""
-    
+
     def __init__(self):
         self._metrics = {}
         self._lock = asyncio.Lock()
-    
-    async def record_metric(self, name: str, value: float, tags: Optional[dict] = None):
+
+    async def record_metric(self, name: str, value: float, tags: dict | None = None):
         """Record a performance metric."""
         async with self._lock:
             if name not in self._metrics:
@@ -121,19 +122,19 @@ class PerformanceMonitor:
                     "max": float("-inf"),
                     "avg": 0.0,
                 }
-            
+
             metric = self._metrics[name]
             metric["count"] += 1
             metric["total"] += value
             metric["min"] = min(metric["min"], value)
             metric["max"] = max(metric["max"], value)
             metric["avg"] = metric["total"] / metric["count"]
-    
+
     async def get_metrics(self) -> dict:
         """Get all recorded metrics."""
         async with self._lock:
             return dict(self._metrics)
-    
+
     async def reset_metrics(self):
         """Reset all metrics."""
         async with self._lock:
@@ -157,7 +158,7 @@ def log_slow_operation(threshold_ms: float = 1000):
             start = time.perf_counter()
             result = await func(*args, **kwargs)
             elapsed_ms = (time.perf_counter() - start) * 1000
-            
+
             if elapsed_ms > threshold_ms:
                 logger.warning(
                     f"Slow operation detected: {func.__name__}",
@@ -169,16 +170,16 @@ def log_slow_operation(threshold_ms: float = 1000):
                         }
                     },
                 )
-            
+
             await performance_monitor.record_metric(func.__name__, elapsed_ms)
             return result
-        
+
         @functools.wraps(func)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             start = time.perf_counter()
             result = func(*args, **kwargs)
             elapsed_ms = (time.perf_counter() - start) * 1000
-            
+
             if elapsed_ms > threshold_ms:
                 logger.warning(
                     f"Slow operation detected: {func.__name__}",
@@ -190,11 +191,11 @@ def log_slow_operation(threshold_ms: float = 1000):
                         }
                     },
                 )
-            
+
             return result
-        
+
         if asyncio.iscoroutinefunction(func):
             return async_wrapper
         return sync_wrapper
-    
+
     return decorator

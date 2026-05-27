@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Check which tables exist in database."""
 import os
+
 import psycopg2
+
 
 def check_tables():
     """Check existing tables."""
@@ -12,7 +14,7 @@ def check_tables():
         user=os.getenv("POSTGRES_USER", "postgres"),
         password=os.getenv("POSTGRES_PASSWORD", "postgres")
     )
-    
+
     try:
         cursor = conn.cursor()
         cursor.execute("""
@@ -21,12 +23,12 @@ def check_tables():
             WHERE table_schema = 'public' 
             ORDER BY table_name
         """)
-        
+
         tables = cursor.fetchall()
         print("📊 Existing tables:")
         for table in tables:
             print(f"  - {table[0]}")
-            
+
     finally:
         conn.close()
 

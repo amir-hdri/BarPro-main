@@ -2,14 +2,16 @@
 Tests for shipping_options end-to-end pipeline, dry_run validation summary,
 _check_checkbox_with_fallback, and _check_account_eligibility.
 """
-import sys
 import os
+import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from app.automation.waybill_enhanced import EnhancedWaybillManager
+from app.core.exceptions import WaybillError
 from app.schemas.waybill import (
     CargoModel,
     FinancialModel,
@@ -23,9 +25,6 @@ from app.schemas.waybill import (
     WaybillMapRequest,
 )
 from app.services.waybill_service import WaybillService
-from app.automation.waybill_enhanced import EnhancedWaybillManager
-from app.core.exceptions import WaybillError
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -7,8 +7,8 @@ import io
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 import openpyxl
 from fastapi import HTTPException, UploadFile, status
@@ -130,10 +130,10 @@ class ExcelUploadService:
             session.add(batch)
             await session.flush()
 
-            valid_rows: List[Tuple[int, Dict[str, Any]]] = []
+            valid_rows: list[tuple[int, dict[str, Any]]] = []
             invalid_rows = 0
-            errors: List[dict] = []
-            jobs_created: List[WaybillJobResponse] = []
+            errors: list[dict] = []
+            jobs_created: list[WaybillJobResponse] = []
 
             for row_idx, row in enumerate(data_rows, start=2):
                 try:
@@ -189,7 +189,7 @@ class ExcelUploadService:
             batch.invalid_rows = invalid_rows + (len(valid_rows) - len(jobs_created))
             batch.status = "completed"
             batch.errors_json = json.dumps(errors, ensure_ascii=False) if errors else None
-            batch.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            batch.completed_at = datetime.now(UTC).replace(tzinfo=None)
 
             await session.commit()
             await session.refresh(batch)
@@ -215,9 +215,9 @@ class ExcelUploadService:
             workbook.close()
 
     @staticmethod
-    def _map_columns(headers: List[str]) -> Optional[Dict[str, int]]:
+    def _map_columns(headers: list[str]) -> dict[str, int] | None:
         """Map Excel headers to expected column names."""
-        mapping: Dict[str, int] = {}
+        mapping: dict[str, int] = {}
         headers_lower = [h.lower().strip() for h in headers]
 
         for expected_col, aliases in ExcelUploadService.REQUIRED_COLUMNS.items():
@@ -234,7 +234,7 @@ class ExcelUploadService:
         return mapping
 
     @staticmethod
-    def _find_alias_index(headers_lower: List[str], aliases: List[str]) -> Optional[int]:
+    def _find_alias_index(headers_lower: list[str], aliases: list[str]) -> int | None:
         for alias in aliases:
             alias_lower = alias.lower()
             if alias_lower in headers_lower:
@@ -242,15 +242,15 @@ class ExcelUploadService:
         return None
 
     @staticmethod
-    def _parse_row(row: Tuple[Any, ...], column_mapping: Dict[str, int]) -> Dict[str, Any]:
+    def _parse_row(row: tuple[Any, ...], column_mapping: dict[str, int]) -> dict[str, Any]:
         """Parse a row into a payload dictionary."""
-        payload: Dict[str, Any] = {}
+        payload: dict[str, Any] = {}
         for field_name, index in column_mapping.items():
             payload[field_name] = row[index] if index < len(row) else None
         return payload
 
     @staticmethod
-    def _validate_payload(payload: Dict[str, Any]) -> List[str]:
+    def _validate_payload(payload: dict[str, Any]) -> list[str]:
         """Validate a parsed payload."""
         errors = []
 
@@ -274,7 +274,7 @@ class ExcelUploadService:
     @staticmethod
     async def _create_job_from_row(
         client: Client,
-        payload_dict: Dict[str, Any],
+        payload_dict: dict[str, Any],
         session: AsyncSession,
         batch_id: str,
         max_retries: int = 3,
@@ -355,7 +355,7 @@ class ExcelUploadService:
             if j.status in [TaskStatus.SUCCESS.value, TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value]
         )
 
-        errors: List[dict] = []
+        errors: list[dict] = []
         if batch.errors_json:
             try:
                 parsed = json.loads(batch.errors_json)

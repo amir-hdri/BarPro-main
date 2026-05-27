@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -23,7 +23,7 @@ class EnqueueWaybillResponse(BaseModel):
     status: TaskStatus
     queued: bool = True
     reused: bool = False
-    celery_task_id: Optional[str] = None
+    celery_task_id: str | None = None
 
 
 class WaybillTaskStatusResponse(BaseModel):
@@ -35,16 +35,16 @@ class WaybillTaskStatusResponse(BaseModel):
     attempt_count: int = 0
     max_retries: int = 0
     retryable: bool = False
-    celery_task_id: Optional[str] = None
-    worker_id: Optional[str] = None
-    error_category: Optional[str] = None
-    last_error: Optional[str] = None
-    result: Optional[Dict[str, Any]] = None
-    next_retry_at: Optional[datetime] = None
+    celery_task_id: str | None = None
+    worker_id: str | None = None
+    error_category: str | None = None
+    last_error: str | None = None
+    result: dict[str, Any] | None = None
+    next_retry_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
-    started_at: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
 
 
 class QueueSnapshotResponse(BaseModel):

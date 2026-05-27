@@ -11,8 +11,7 @@ Provides endpoints for:
 All endpoints enforce tenant isolation - clients can only access their own data.
 """
 import logging
-from datetime import datetime, timezone, time, timedelta
-from typing import Optional
+from datetime import UTC, datetime, time, timedelta
 
 from fastapi import APIRouter, Body, Depends, UploadFile, status
 from fastapi.security import HTTPBearer
@@ -103,8 +102,8 @@ async def login_master_admin(request: AdminLoginRequest):
 
 @router.get("/admin/clients", response_model=list[ClientResponse])
 async def list_clients_for_admin(
-    q: Optional[str] = None,
-    status_filter: Optional[str] = None,
+    q: str | None = None,
+    status_filter: str | None = None,
     page: int = 1,
     page_size: int = 20,
     admin=Depends(get_current_admin),
@@ -158,8 +157,8 @@ async def delete_client_for_admin(
 
 @alias_router.get("/admin/clients", response_model=list[ClientResponse])
 async def list_clients_for_admin_alias(
-    q: Optional[str] = None,
-    status_filter: Optional[str] = None,
+    q: str | None = None,
+    status_filter: str | None = None,
     page: int = 1,
     page_size: int = 20,
     admin=Depends(get_current_admin),
@@ -255,7 +254,7 @@ async def create_driver(
 
 @router.get("/drivers", response_model=list[DriverResponse])
 async def list_drivers(
-    status_filter: Optional[str] = None,
+    status_filter: str | None = None,
     page: int = 1,
     page_size: int = 20,
     client: Client = Depends(get_current_client),
@@ -318,7 +317,7 @@ async def create_plate(
 
 @router.get("/plates", response_model=list[PlateResponse])
 async def list_plates(
-    driver_id: Optional[int] = None,
+    driver_id: int | None = None,
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ):
@@ -356,7 +355,7 @@ async def create_driver_schedule(
 
 @router.get("/driver-schedules", response_model=list[DriverScheduleResponse])
 async def list_driver_schedules(
-    driver_id: Optional[int] = None,
+    driver_id: int | None = None,
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ):
@@ -410,10 +409,10 @@ async def create_waybill_job(
 
 @router.get("/waybill-jobs", response_model=TaskListResponse)
 async def list_waybill_jobs(
-    status: Optional[str] = None,
-    driver_id: Optional[int] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
+    status: str | None = None,
+    driver_id: int | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     page: int = 1,
     page_size: int = 20,
     client: Client = Depends(get_current_client),
@@ -470,10 +469,10 @@ async def get_waybill_job(
 @router.get("/waybill-jobs/{job_id}/timeline", response_model=TaskTimelineResponse)
 async def get_waybill_job_timeline(
     job_id: str,
-    phase: Optional[str] = None,
-    event_type: Optional[str] = None,
-    source: Optional[str] = None,
-    q: Optional[str] = None,
+    phase: str | None = None,
+    event_type: str | None = None,
+    source: str | None = None,
+    q: str | None = None,
     include_payload: bool = True,
     page: int = 1,
     page_size: int = 50,
@@ -566,7 +565,7 @@ async def get_daily_summary(
     Uses func.date(created_at) for SQLite/PostgreSQL compatibility.
     """
     days = max(1, min(days, 90))
-    today = datetime.now(timezone.utc).replace(tzinfo=None).date()
+    today = datetime.now(UTC).replace(tzinfo=None).date()
     start_date = today - timedelta(days=days - 1)
 
     stmt = (

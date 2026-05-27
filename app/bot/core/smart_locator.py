@@ -4,14 +4,19 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from functools import wraps
-from typing import Any, Awaitable, Callable, Optional, Sequence, TypeVar
+from typing import Any, TypeVar
 
 from playwright.async_api import (
     Error as PlaywrightError,
+)
+from playwright.async_api import (
     Locator,
     Page,
+)
+from playwright.async_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
@@ -48,7 +53,7 @@ def auto_retry(
             attempts = getattr(policy, "max_attempts", max_attempts)
             delay = max(0.05, getattr(policy, "initial_delay_seconds", initial_delay_seconds))
             multiplier = max(1.0, getattr(policy, "backoff_multiplier", backoff_multiplier))
-            last_error: Optional[Exception] = None
+            last_error: Exception | None = None
 
             for attempt in range(1, attempts + 1):
                 try:
