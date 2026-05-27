@@ -21,10 +21,22 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class ProxyConfig:
+    """Configuration for adding a new proxy."""
+
+    url: str
+    protocol: str = "http"
+    country: str | None = None
+    city: str | None = None
+    tags: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ProxyInfo:
     """
     Comprehensive proxy information with health tracking.
     """
+
     url: str
     protocol: str = "http"
     username: str | None = None
@@ -128,7 +140,6 @@ class ProxyInfo:
         if self.total_requests > 0:
             self.success_rate = (self.successful_requests / self.total_requests) * 100.0
 
-
     def to_playwright_proxy(self) -> dict[str, Any]:
         """Get proxy dictionary format for Playwright"""
         proxy_dict = {"server": f"{self.protocol}://{self.url.split('://')[-1]}"}
@@ -138,7 +149,6 @@ class ProxyInfo:
         return proxy_dict
 
     def to_dict(self) -> dict[str, Any]:
-
         """Convert to dictionary"""
         return asdict(self)
 
@@ -151,15 +161,6 @@ class ProxyInfo:
 class ProxyRotator:
     """
     Advanced proxy rotator with health monitoring and intelligent selection.
-    
-    Features:
-    - Automatic health checking
-    - Latency tracking
-    - Success rate monitoring
-    - Country/region filtering
-    - Intelligent rotation based on health score
-    - Cooldown management
-    - Persistent state (optional)
     """
 
     def __init__(
@@ -172,18 +173,6 @@ class ProxyRotator:
         min_success_rate: float = 70.0,
         max_fail_count: int = 3,
     ):
-        """
-        Initialize proxy rotator.
-        
-        Args:
-            cooldown: Minimum seconds between uses of same proxy
-            health_check_interval: Seconds between automatic health checks
-            max_health_check_attempts: Number of attempts for health check
-            test_url: URL to test proxy connectivity
-            timeout: Timeout for health check in seconds
-            min_success_rate: Minimum success rate to consider proxy healthy
-            max_fail_count: Maximum consecutive failures before marking unhealthy
-        """
         self.proxies: list[ProxyInfo] = []
         self.cooldown = cooldown
         self.health_check_interval = health_check_interval
@@ -202,22 +191,13 @@ class ProxyRotator:
         logger.info(f"ProxyRotator initialized with {len(self.proxies)} proxies")
 
     def load_from_list(self, proxy_urls: list[str]) -> int:
-        """
-        Load proxies from URL list.
-        
-        Args:
-            proxy_urls: List of proxy URLs (with or without credentials)
-            
-        Returns:
-            Number of proxies loaded
-        """
+        """Load proxies from URL list."""
         loaded = 0
         for url in proxy_urls:
             url = url.strip()
-            if not url or url.startswith('#'):
+            if not url or url.startswith("#"):
                 continue
 
-            # Detect protocol
             if "socks5://" in url:
                 protocol = "socks5"
             elif "socks4://" in url:
@@ -225,12 +205,10 @@ class ProxyRotator:
             else:
                 protocol = "http"
 
-            # Attempt to extract auth
             username = None
             password = None
             clean_url = url
 
-            # e.g., http://user:pass@1.2.3.4:8080
             if "@" in url:
                 parts = url.split("@")
                 clean_url = f"{protocol}://{parts[1]}" if "://" in url else parts[1]
@@ -252,18 +230,9 @@ class ProxyRotator:
         return loaded
 
     def load_from_file(self, filepath: str, encoding: str = "utf-8") -> int:
-        """
-        Load proxies from file (one per line).
-        
-        Args:
-            filepath: Path to proxy list file
-            encoding: File encoding
-            
-        Returns:
-            Number of proxies loaded
-        """
+        """Load proxies from file (one per line)."""
         try:
-            with open(filepath, encoding=encoding) as f:
+            with open(filepath, "r", encoding=encoding) as f:
                 lines = f.readlines()
             return self.load_from_list(lines)
         except Exception as e:
@@ -271,20 +240,10 @@ class ProxyRotator:
             return 0
 
     def load_from_json(self, data: dict[str, Any]) -> int:
-        """
-        Load proxies from JSON data.
-        
-        Args:
-            data: JSON data with proxy information
-            
-        Returns:
-            Number of proxies loaded
-        """
+        """Load proxies from JSON data."""
         loaded = 0
 
-        # Handle different JSON formats
         if "proxies" in data:
-            # Format: {"proxies": [...]}
             for proxy_data in data["proxies"]:
                 if isinstance(proxy_data, str):
                     self.load_from_list([proxy_data])
@@ -293,7 +252,6 @@ class ProxyRotator:
                     self.proxies.append(proxy)
                     loaded += 1
         elif "proxy_list" in data:
-            # Format: {"proxy_list": [...]}
             for proxy_data in data["proxy_list"]:
                 if isinstance(proxy_data, str):
                     self.load_from_list([proxy_data])
@@ -302,7 +260,6 @@ class ProxyRotator:
                     self.proxies.append(proxy)
                     loaded += 1
         else:
-            # Assume it's a list
             for item in data:
                 if isinstance(item, str):
                     self.load_from_list([item])
@@ -314,76 +271,41 @@ class ProxyRotator:
         logger.info(f"Loaded {loaded} proxies from JSON")
         return loaded
 
-    def add_proxy(
-        self,
-        url: str,
-        protocol: str = "http",
-        country: str = None,
-        city: str = None,
-        tags: list[str] = None,
-    ) -> ProxyInfo:
-        """
-        Add a single proxy.
-        
-        Args:
-            url: Proxy URL
-            protocol: Protocol (http, https, socks4, socks5)
-            country: Country code
-            city: City name
-            tags: List of tags
-            
-        Returns:
-            Created ProxyInfo object
-        """
+    def add_proxy(self, config: ProxyConfig) -> ProxyInfo:
+        """Add a single proxy using ProxyConfig."""
         proxy = ProxyInfo(
-            url=url,
-            protocol=protocol,
-            country=country,
-            city=city,
-            tags=tags or [],
+            url=config.url,
+            protocol=config.protocol,
+            country=config.country,
+            city=config.city,
+            tags=config.tags or [],
         )
         self.proxies.append(proxy)
-        logger.debug(f"Added proxy: {url[:50]}...")
+        logger.debug(f"Added proxy: {config.url[:50]}...")
         return proxy
 
     async def get_next(
         self,
-        country: str = None,
-        tags: list[str] = None,
+        country: str | None = None,
+        tags: list[str] | None = None,
         exclude_failed: bool = True,
         prefer_low_latency: bool = True,
     ) -> ProxyInfo | None:
-        """
-        Get next available proxy based on health score.
-        
-        Args:
-            country: Filter by country code
-            tags: Required tags (all must be present)
-            exclude_failed: Exclude proxies with high fail count
-            prefer_low_latency: Prefer proxies with lower latency
-            
-        Returns:
-            ProxyInfo object or None if no proxy available
-        """
+        """Get next available proxy based on health score."""
         async with self._lock:
             now = time.time()
 
-            # Filter proxies
             available = []
             for proxy in self.proxies:
-                # Skip if not healthy
-                if not proxy.is_healthy:
+                if exclude_failed and not proxy.is_healthy:
                     continue
 
-                # Skip if in cooldown
                 if (now - proxy.last_used) < self.cooldown:
                     continue
 
-                # Filter by country
                 if country and proxy.country != country:
                     continue
 
-                # Filter by tags
                 if tags and not all(tag in proxy.tags for tag in tags):
                     continue
 
@@ -393,27 +315,22 @@ class ProxyRotator:
                 logger.debug("No available proxies")
                 return None
 
-            # Sort by health score (and optionally by latency)
-            def sort_key(proxy):
-                score = proxy.health_score
+            def sort_key(p):
+                score = p.health_score
                 if prefer_low_latency:
-                    score -= proxy.avg_latency * 2  # Lower latency = higher score
+                    score -= p.avg_latency * 2
                 return score
 
             available.sort(key=sort_key, reverse=True)
 
-            # Select best proxy (weighted random for variety)
-            # Top 3 proxies have higher chance of being selected
             if len(available) >= 3:
                 top_proxies = available[:3]
                 chosen = random.choice(top_proxies)
             else:
                 chosen = available[0]
 
-            # Update last used time
             chosen.last_used = now
 
-            # Callback for proxy usage
             if self._on_proxy_used:
                 try:
                     await self._on_proxy_used(chosen)
@@ -424,19 +341,10 @@ class ProxyRotator:
             return chosen
 
     async def health_check(self, proxy: ProxyInfo) -> bool:
-        """
-        Perform health check on a single proxy.
-        
-        Args:
-            proxy: Proxy to check
-            
-        Returns:
-            True if proxy is healthy, False otherwise
-        """
+        """Perform health check on a single proxy."""
         start_time = time.time()
 
         try:
-            # Try multiple test URLs
             test_urls = [
                 self.test_url,
                 "https://api.ipify.org?format=json",
@@ -455,19 +363,14 @@ class ProxyRotator:
                                 proxy.record_success(latency)
                                 proxy.last_health_check = time.time()
 
-                                # Extract IP info
                                 try:
                                     data = await response.json()
-                                    if 'ip' in data:
+                                    if "ip" in data:
                                         logger.debug(
-                                            f"Proxy OK: {proxy.url[:40]}... "
-                                            f"IP: {data['ip']} ({latency:.2f}s)"
+                                            f"Proxy OK: {proxy.url[:40]}... IP: {data['ip']} ({latency:.2f}s)"
                                         )
                                 except Exception:
-                                    logger.debug(
-                                        f"Proxy OK: {proxy.url[:40]}... "
-                                        f"({latency:.2f}s)"
-                                    )
+                                    logger.debug(f"Proxy OK: {proxy.url[:40]}... ({latency:.2f}s)")
 
                                 return True
                 except ClientError:
@@ -475,25 +378,18 @@ class ProxyRotator:
                 except Exception:
                     continue
 
-            # All URLs failed
             proxy.record_failure("All test URLs failed")
             return False
 
-        except TimeoutError:
+        except asyncio.TimeoutError:
             proxy.record_failure("Timeout")
             return False
-
         except Exception as e:
             proxy.record_failure(str(e))
             return False
 
     async def check_all(self) -> dict[str, int]:
-        """
-        Run health check on all proxies.
-        
-        Returns:
-            Dictionary with health statistics
-        """
+        """Run health check on all proxies."""
         logger.info(f"Running health check on {len(self.proxies)} proxies...")
 
         start_time = time.time()
@@ -504,8 +400,7 @@ class ProxyRotator:
             "checked": 0,
         }
 
-        # Run health checks in parallel (limited concurrency)
-        semaphore = asyncio.Semaphore(10)  # Max 10 concurrent checks
+        semaphore = asyncio.Semaphore(10)
 
         async def check_with_semaphore(proxy):
             async with semaphore:
@@ -525,21 +420,12 @@ class ProxyRotator:
         await asyncio.gather(*tasks, return_exceptions=True)
 
         elapsed = time.time() - start_time
-        logger.info(
-            f"Health check complete: "
-            f"{results['healthy']}/{results['total']} healthy "
-            f"({elapsed:.1f}s)"
-        )
+        logger.info(f"Health check complete: {results['healthy']}/{results['total']} healthy ({elapsed:.1f}s)")
 
         return results
 
     async def start_auto_health_check(self, interval: float = None):
-        """
-        Start automatic background health checking.
-        
-        Args:
-            interval: Seconds between health checks (uses default if None)
-        """
+        """Start automatic background health checking."""
         if self._running:
             logger.warning("Health check already running")
             return
@@ -569,26 +455,18 @@ class ProxyRotator:
         logger.info("Stopped automatic health checking")
 
     def get_stats(self) -> dict[str, Any]:
-        """
-        Get comprehensive proxy statistics.
-        
-        Returns:
-            Dictionary with proxy pool statistics
-        """
+        """Get comprehensive proxy statistics."""
         total = len(self.proxies)
         healthy = sum(1 for p in self.proxies if p.is_healthy)
         failed = sum(1 for p in self.proxies if p.fail_count >= self.max_fail_count)
 
-        avg_latency = (
-            sum(p.avg_latency for p in self.proxies if p.avg_latency > 0) /
-            max(1, sum(1 for p in self.proxies if p.avg_latency > 0))
+        avg_latency = sum(p.avg_latency for p in self.proxies if p.avg_latency > 0) / max(
+            1, sum(1 for p in self.proxies if p.avg_latency > 0)
         )
 
         total_requests = sum(p.total_requests for p in self.proxies)
         total_success = sum(p.successful_requests for p in self.proxies)
-        overall_success_rate = (
-            (total_success / total_requests * 100.0) if total_requests > 0 else 0.0
-        )
+        overall_success_rate = (total_success / total_requests * 100.0) if total_requests > 0 else 0.0
 
         return {
             "total_proxies": total,
@@ -612,37 +490,22 @@ class ProxyRotator:
         }
 
     def save_to_file(self, filepath: str, encoding: str = "utf-8"):
-        """
-        Save proxy state to JSON file.
-        
-        Args:
-            filepath: Output file path
-            encoding: File encoding
-        """
+        """Save proxy state to JSON file."""
         data = {
             "version": "1.0",
             "updated_at": datetime.now().isoformat(),
             "proxies": [p.to_dict() for p in self.proxies],
         }
 
-        with open(filepath, 'w', encoding=encoding) as f:
+        with open(filepath, "w", encoding=encoding) as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
         logger.info(f"Saved {len(self.proxies)} proxies to {filepath}")
 
-    def load_from_file_state(self, filepath: str, encoding: str = "utf-8"):
-        """
-        Load proxy state from JSON file.
-        
-        Args:
-            filepath: Input file path
-            encoding: File encoding
-            
-        Returns:
-            Number of proxies loaded
-        """
+    def load_from_file_state(self, filepath: str, encoding: str = "utf-8") -> int:
+        """Load proxy state from JSON file."""
         try:
-            with open(filepath, encoding=encoding) as f:
+            with open(filepath, "r", encoding=encoding) as f:
                 data = json.load(f)
 
             if "proxies" in data:
@@ -680,24 +543,14 @@ class ProxyRotator:
 # CONVENIENCE FUNCTIONS
 # ============================================================================
 
+
 async def test_proxy(proxy_url: str, timeout: float = 10.0) -> bool:
-    """
-    Quick proxy test.
-    
-    Args:
-        proxy_url: Proxy URL to test
-        timeout: Timeout in seconds
-        
-    Returns:
-        True if proxy is working
-    """
+    """Quick proxy test."""
     try:
         async with ClientSession(timeout=ClientTimeout(total=timeout)) as session:
-            # Auto-detect protocol
             protocol = "socks5" if "socks5://" in proxy_url else "http"
             proxy_str = proxy_url
 
-            # Add protocol if missing
             if not proxy_str.startswith(("http://", "https://", "socks4://", "socks5://")):
                 proxy_str = f"http://{proxy_str}"
 
