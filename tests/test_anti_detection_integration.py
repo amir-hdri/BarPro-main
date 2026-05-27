@@ -24,6 +24,7 @@ class TestConfigProfiles:
     def test_user_agent_profiles_exist(self):
         """Test that user agent profiles are loaded"""
         from app.automation.config import USER_AGENT_PROFILES
+
         assert len(USER_AGENT_PROFILES) > 0, "User agent profiles should exist"
 
         # Verify structure
@@ -35,6 +36,7 @@ class TestConfigProfiles:
     def test_gpu_profiles_exist(self):
         """Test that GPU profiles are loaded"""
         from app.automation.config import GPU_PROFILES
+
         assert len(GPU_PROFILES) > 0, "GPU profiles should exist"
 
         for gpu in GPU_PROFILES:
@@ -44,6 +46,7 @@ class TestConfigProfiles:
     def test_screen_presets_exist(self):
         """Test that screen presets are loaded"""
         from app.automation.config import SCREEN_PRESETS
+
         assert len(SCREEN_PRESETS) > 0, "Screen presets should exist"
 
         for preset in SCREEN_PRESETS:
@@ -53,13 +56,13 @@ class TestConfigProfiles:
     def test_timezone_profiles_exist(self):
         """Test that timezone profiles are loaded"""
         from app.automation.config import TIMEZONE_PROFILES
+
         assert len(TIMEZONE_PROFILES) > 0, "Timezone profiles should exist"
 
         # Verify they are valid timezone names
         valid_prefixes = ["America/", "Europe/", "Asia/", "Australia/", "Africa/", "Pacific/"]
         for tz in TIMEZONE_PROFILES:
-            assert any(tz.startswith(prefix) for prefix in valid_prefixes), \
-                f"Invalid timezone: {tz}"
+            assert any(tz.startswith(prefix) for prefix in valid_prefixes), f"Invalid timezone: {tz}"
 
     def test_browser_profile_dataclass(self):
         """Test BrowserProfile dataclass"""
@@ -120,7 +123,7 @@ class TestProxyRotator:
 
     def test_proxy_rotator_creation(self):
         """Test ProxyRotator initialization"""
-        from app.automation.proxy_rotator import ProxyRotator
+        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
 
         rotator = ProxyRotator(
             cooldown=5.0,
@@ -132,7 +135,7 @@ class TestProxyRotator:
 
     def test_proxy_rotator_load_from_list(self):
         """Test loading proxies from list"""
-        from app.automation.proxy_rotator import ProxyRotator
+        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
 
         rotator = ProxyRotator()
         urls = [
@@ -149,16 +152,11 @@ class TestProxyRotator:
 
     def test_proxy_rotator_load_from_file(self, tmp_path):
         """Test loading proxies from file"""
-        from app.automation.proxy_rotator import ProxyRotator
+        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
 
         # Create test file
         proxy_file = tmp_path / "proxies.txt"
-        proxy_file.write_text(
-            "# Comment line\n"
-            "http://proxy1.com:8080\n"
-            "\n"
-            "http://proxy2.com:3128\n"
-        )
+        proxy_file.write_text("# Comment line\n" "http://proxy1.com:8080\n" "\n" "http://proxy2.com:3128\n")
 
         rotator = ProxyRotator()
         loaded = rotator.load_from_file(str(proxy_file))
@@ -169,11 +167,12 @@ class TestProxyRotator:
     @pytest.mark.asyncio
     async def test_proxy_rotator_get_next(self):
         """Test getting next proxy"""
-        from app.automation.proxy_rotator import ProxyRotator
+        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
 
         rotator = ProxyRotator(cooldown=0)  # No cooldown for testing
-        rotator.add_proxy("http://proxy1.com:8080")
-        rotator.add_proxy("http://proxy2.com:3128")
+
+        rotator.add_proxy(ProxyConfig(url="http://proxy1.com:8080"))
+        rotator.add_proxy(ProxyConfig(url="http://proxy2.com:3128"))
 
         proxy = await rotator.get_next()
         assert proxy is not None
@@ -181,10 +180,10 @@ class TestProxyRotator:
 
     def test_proxy_rotator_stats(self):
         """Test proxy statistics"""
-        from app.automation.proxy_rotator import ProxyRotator
+        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
 
         rotator = ProxyRotator()
-        rotator.add_proxy("http://proxy1.com:8080")
+        rotator.add_proxy(ProxyConfig(url="http://proxy1.com:8080"))
 
         proxy = rotator.proxies[0]
         proxy.record_success(1.5, 1024)
@@ -324,9 +323,7 @@ class TestHumanInteraction:
     @pytest.mark.asyncio
     async def test_typing_delay_calculation(self):
         """Test typing delay calculation"""
-        from app.automation.human_interaction import (
-            _calculate_typing_delay,
-        )
+        from app.automation.human_interaction import _calculate_typing_delay
 
         # Test base delay
         delay = _calculate_typing_delay(
@@ -343,9 +340,7 @@ class TestHumanInteraction:
     @pytest.mark.asyncio
     async def test_punctuation_delay(self):
         """Test punctuation causes longer delays"""
-        from app.automation.human_interaction import (
-            _calculate_typing_delay,
-        )
+        from app.automation.human_interaction import _calculate_typing_delay
 
         base_delay = _calculate_typing_delay(
             char="a",
@@ -440,7 +435,7 @@ class TestIntegration:
         """Test complete request workflow: config -> proxy -> headers"""
         from app.automation.config import SCREEN_PRESETS, USER_AGENT_PROFILES
         from app.automation.header_builder import HeaderBuilder
-        from app.automation.proxy_rotator import ProxyRotator
+        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
 
         # 1. Select random profile
         profile = USER_AGENT_PROFILES[0]
@@ -448,7 +443,7 @@ class TestIntegration:
 
         # 2. Create proxy
         rotator = ProxyRotator(cooldown=0)
-        rotator.add_proxy("http://test-proxy.com:8080")
+        rotator.add_proxy(ProxyConfig(url="http://test-proxy.com:8080"))
 
         # 3. Build headers
         builder = HeaderBuilder()
@@ -471,20 +466,12 @@ class TestIntegration:
 
     def test_config_file_persistence(self, tmp_path):
         """Test that config can be saved and loaded"""
-        from app.automation.config import (
-            ensure_config_dir,
-            load_profiles,
-            save_profiles,
-        )
+        from app.automation.config import load_profiles, save_profiles
 
-        config_dir = tmp_path / "config"
-        ensure_config_dir = lambda: None  # Override
+        tmp_path / "config"
 
         # Save profiles
-        filepath = save_profiles(
-            [{"name": "test", "user_agent": "Test"}],
-            filename="test_profiles.json"
-        )
+        filepath = save_profiles([{"name": "test", "user_agent": "Test"}], filename="test_profiles.json")
 
         # Verify file exists
         assert os.path.exists(filepath)
@@ -500,18 +487,19 @@ class TestEdgeCases:
 
     def test_empty_proxy_list(self):
         """Test handling empty proxy list"""
-        from app.automation.proxy_rotator import ProxyRotator
+        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
 
         rotator = ProxyRotator()
         # No proxies added
 
         import asyncio
-        proxy = asyncio.get_event_loop().run_until_complete(rotator.get_next())
+
+        proxy = asyncio.run(rotator.get_next())
         assert proxy is None
 
     def test_all_proxies_failed(self):
         """Test when all proxies have failed"""
-        from app.automation.proxy_rotator import ProxyInfo, ProxyRotator
+        from app.automation.proxy_rotator import ProxyConfig, ProxyInfo, ProxyRotator
 
         rotator = ProxyRotator(cooldown=0, max_fail_count=1)
 
@@ -522,7 +510,8 @@ class TestEdgeCases:
         rotator.proxies.append(proxy)
 
         import asyncio
-        result = asyncio.get_event_loop().run_until_complete(rotator.get_next())
+
+        result = asyncio.run(rotator.get_next())
         assert result is None  # Should be unhealthy
 
     def test_invalid_user_agent(self):

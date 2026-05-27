@@ -1457,16 +1457,32 @@ class EnhancedWaybillManager:
             if (origin_result.get("coordinates") and
                 dest_result.get("coordinates")):
 
-                route_info = await self.route_calculator.calculate_distance(
-                    GeoCoordinate(
-                        latitude=origin_result["coordinates"]["lat"],
-                        longitude=origin_result["coordinates"]["lng"]
-                    ),
-                    GeoCoordinate(
-                        latitude=dest_result["coordinates"]["lat"],
-                        longitude=dest_result["coordinates"]["lng"]
+                # تلاش برای استخراج مسیر از روی نقشه UI
+                try:
+                    await self.map_controller.wait_for_route_calculation(timeout=2000)
+                    map_route_info = await self.map_controller.extract_route_info()
+                    if map_route_info and map_route_info.get("distance"):
+                        route_info = {
+                            "distance": map_route_info.get("distance"),
+                            "duration": map_route_info.get("duration"),
+                            "polyline": map_route_info.get("polyline"),
+                            "method": "map_extracted"
+                        }
+                except Exception as e:
+                    logger.debug(f"استخراج مسیر از نقشه شکست خورد: {e}")
+
+                # محاسبه دستی مسیر در صورت عدم وجود در نقشه
+                if not route_info:
+                    route_info = await self.route_calculator.calculate_distance(
+                        GeoCoordinate(
+                            latitude=origin_result["coordinates"]["lat"],
+                            longitude=origin_result["coordinates"]["lng"]
+                        ),
+                        GeoCoordinate(
+                            latitude=dest_result["coordinates"]["lat"],
+                            longitude=dest_result["coordinates"]["lng"]
+                        )
                     )
-                )
 
             # پر کردن اطلاعات مالی
             await self._fill_financial_info(data.get("financial", {}))
