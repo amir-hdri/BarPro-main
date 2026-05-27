@@ -764,8 +764,14 @@ class ResilientWorkflow:
             try:
                 html_path = f"evidence/dom_{evidence_id}.html"
                 html_content = await self.page.content()
-                with open(html_path, 'w', encoding='utf-8') as f:
-                    f.write(html_content)
+
+                def _write_html():
+                    with open(html_path, 'w', encoding='utf-8') as f:
+                        f.write(html_content)
+
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, _write_html)
+
                 evidence["html_path"] = html_path
             except Exception as e:
                 evidence["html_error"] = str(e)
