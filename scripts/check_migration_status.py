@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Check migration status."""
 import os
+
 import psycopg2
+
 
 def check_status():
     """Check migration version and indexes."""
@@ -12,15 +14,15 @@ def check_status():
         user=os.getenv("POSTGRES_USER", "postgres"),
         password=os.getenv("POSTGRES_PASSWORD", "postgres")
     )
-    
+
     try:
         cursor = conn.cursor()
-        
+
         # Check version
         cursor.execute("SELECT version_num FROM alembic_version")
         version = cursor.fetchone()[0]
         print(f"📌 Current migration version: {version}")
-        
+
         # Check indexes
         cursor.execute("""
             SELECT indexname 
@@ -29,12 +31,12 @@ def check_status():
             AND indexname LIKE 'idx_%'
             ORDER BY indexname
         """)
-        
+
         indexes = cursor.fetchall()
         print(f"\n📊 Performance indexes ({len(indexes)}):")
         for idx in indexes:
             print(f"  ✓ {idx[0]}")
-            
+
     finally:
         conn.close()
 

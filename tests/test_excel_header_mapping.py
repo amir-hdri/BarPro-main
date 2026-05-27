@@ -3,7 +3,6 @@ import pytest
 from scripts.register_waybills_from_excel import build_ws_payload, to_header_map
 from scripts.register_waybills_web_from_excel import ReverseGeoResolver, _build_request
 
-
 DESCRIPTIVE_HEADERS = [
     "ردیف",
     "پلاک ملی: دو رقم آخر پلاک\nمنطقه آزاد: کد منطقه آزاد",

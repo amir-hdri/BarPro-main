@@ -1,21 +1,22 @@
-import pytest
-from pydantic import ValidationError
 from unittest.mock import patch
 
+import pytest
+from pydantic import ValidationError
+
 from app.schemas.enterprise_reporting import (
-    TelemetryEventSchema,
-    WorkflowStepSchema,
-    WorkflowStateSchema,
-    EvidenceSchema,
-    ClientReportSummarySchema,
-    ClientReportSchema,
-    WorkerHealthSchema,
-    BrowserResourceSchema,
-    SystemHealthSchema,
     AuditLogEntrySchema,
+    BrowserResourceSchema,
+    ClientReportSchema,
+    ClientReportSummarySchema,
+    EvidenceSchema,
+    SystemHealthSchema,
+    TelemetryEventSchema,
+    WorkerHealthSchema,
+    WorkflowStateSchema,
+    WorkflowStepSchema,
+    create_client_report,
     create_telemetry_event,
     create_workflow_state,
-    create_client_report,
 )
 
 # --- TelemetryEventSchema Tests ---
@@ -251,6 +252,41 @@ def test_create_workflow_state():
     assert state["workflow_name"] == "Test Workflow"
     assert state["status"] == "in_progress"
     assert state["started_at"] is not None
+    # Should be valid according to schema
+    WorkflowStateSchema(**state)
+
+def test_create_workflow_state_default_pending():
+    state = create_workflow_state(
+        workflow_id="wf-124",
+        workflow_name="Test Workflow 2",
+    )
+    assert state["workflow_id"] == "wf-124"
+    assert state["workflow_name"] == "Test Workflow 2"
+    assert state["status"] == "pending"
+    assert state["started_at"] is None
+    assert state["steps"] == []
+    assert state["metadata"] == {}
+    # Should be valid according to schema
+    WorkflowStateSchema(**state)
+
+def test_create_workflow_state_with_all_fields():
+    state = create_workflow_state(
+        workflow_id="wf-125",
+        workflow_name="Test Workflow 3",
+        status="failed",
+        steps=[{"step_name": "login", "step_id": "step-1", "status": "completed"}],
+        error_code="LOGIN_FAILED",
+        error_message="Invalid credentials",
+        metadata={"attempt": 3}
+    )
+    assert state["workflow_id"] == "wf-125"
+    assert state["workflow_name"] == "Test Workflow 3"
+    assert state["status"] == "failed"
+    assert state["started_at"] is not None
+    assert state["steps"] == [{"step_name": "login", "step_id": "step-1", "status": "completed"}]
+    assert state["error_code"] == "LOGIN_FAILED"
+    assert state["error_message"] == "Invalid credentials"
+    assert state["metadata"] == {"attempt": 3}
     # Should be valid according to schema
     WorkflowStateSchema(**state)
 

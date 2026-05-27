@@ -4,13 +4,11 @@ Multi-tenant database schema for UTCMS Automation SaaS.
 This module defines the complete relational schema ensuring strict tenant isolation.
 Each client has isolated access to their own drivers and waybill tasks.
 """
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum as PyEnum
-from typing import Optional
 
 from sqlalchemy import Boolean, Column, DateTime, Index, Integer, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
-
 
 # ==================== ENUMS ====================
 
@@ -83,11 +81,11 @@ class Client(SQLModel, table=True):
         Index("idx_clients_created_at", "created_at"),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     client_code: str = Field(max_length=50, index=True, unique=True)
     name: str = Field(max_length=255)
     email: str = Field(max_length=255, index=True)
-    phone: Optional[str] = Field(default=None, max_length=20)
+    phone: str | None = Field(default=None, max_length=20)
     hashed_password: str = Field(max_length=255)
     status: str = Field(default=ClientStatus.ACTIVE.value, max_length=20, index=True)
     access_level: str = Field(default="standard", max_length=50)
@@ -96,27 +94,27 @@ class Client(SQLModel, table=True):
     # These columns exist in the DB schema and must be non-null.
     username: str = Field(max_length=255, sa_column=Column(Text, nullable=False))
     full_name: str = Field(max_length=255, sa_column=Column(Text, nullable=False))
-    
+
     # Subscription & limits
     max_drivers: int = Field(default=10)
     max_plates: int = Field(default=20)
     max_concurrent_tasks: int = Field(default=2)
     max_daily_tasks: int = Field(default=100)
-    
+
     # Metadata
-    metadata_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-    notes: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-    
+    metadata_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    notes: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+
     # Timestamps
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
-    last_login_at: Optional[datetime] = Field(
+    last_login_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )
@@ -135,43 +133,43 @@ class Driver(SQLModel, table=True):
         Index("idx_drivers_national_code", "driver_national_code"),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     client_id: int = Field(foreign_key="clients.id", index=True)
-    
+
     # Driver identity
     driver_national_code: str = Field(max_length=10, index=True)
     full_name: str = Field(max_length=255)
-    phone: Optional[str] = Field(default=None, max_length=20)
-    license_number: Optional[str] = Field(default=None, max_length=50)
-    
+    phone: str | None = Field(default=None, max_length=20)
+    license_number: str | None = Field(default=None, max_length=50)
+
     # UTCMS credentials (encrypted at rest)
     utcms_username: str = Field(max_length=100)
     utcms_password_encrypted: str = Field(sa_column=Column(Text, nullable=False))
-    
+
     # Default waybill information (stored as JSON)
-    default_payload_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-    
+    default_payload_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+
     # Status & metadata
     status: str = Field(default=DriverStatus.ACTIVE.value, max_length=20, index=True)
-    metadata_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    metadata_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     runtime_status: str = Field(default=DriverStatus.ACTIVE.value, max_length=40, index=True)
-    last_auth_at: Optional[datetime] = Field(
+    last_auth_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )
-    last_session_expires_at: Optional[datetime] = Field(
+    last_session_expires_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )
-    last_error_code: Optional[str] = Field(default=None, max_length=64, index=True)
-    
+    last_error_code: str | None = Field(default=None, max_length=64, index=True)
+
     # Timestamps
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
 
@@ -186,19 +184,19 @@ class DriverPlate(SQLModel, table=True):
         Index("idx_driver_plates_status", "status"),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     client_id: int = Field(foreign_key="clients.id", index=True)
     driver_id: int = Field(foreign_key="drivers.id", index=True)
     plate_number: str = Field(max_length=20, index=True)
-    vehicle_type: Optional[str] = Field(default=None, max_length=100)
+    vehicle_type: str | None = Field(default=None, max_length=100)
     status: str = Field(default=DriverStatus.ACTIVE.value, max_length=20, index=True)
-    notes: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    notes: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
 
@@ -212,35 +210,35 @@ class DriverSchedule(SQLModel, table=True):
         Index("idx_driver_schedules_is_active", "is_active"),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     client_id: int = Field(foreign_key="clients.id", index=True)
     driver_id: int = Field(foreign_key="drivers.id", index=True)
     title: str = Field(max_length=255)
     frequency: str = Field(default=ScheduleFrequency.DAILY.value, max_length=20)
     run_time: str = Field(default="08:00", max_length=5)
-    run_times_csv: Optional[str] = Field(default=None, max_length=256)
-    weekdays_csv: Optional[str] = Field(default=None, max_length=32)
-    specific_dates_csv: Optional[str] = Field(default=None, max_length=1024)
-    start_date: Optional[str] = Field(default=None, max_length=10)
-    end_date: Optional[str] = Field(default=None, max_length=10)
+    run_times_csv: str | None = Field(default=None, max_length=256)
+    weekdays_csv: str | None = Field(default=None, max_length=32)
+    specific_dates_csv: str | None = Field(default=None, max_length=1024)
+    start_date: str | None = Field(default=None, max_length=10)
+    end_date: str | None = Field(default=None, max_length=10)
     timezone: str = Field(default="Asia/Tehran", max_length=64)
     payload_template_json: str = Field(sa_column=Column(Text, nullable=False))
     is_active: bool = Field(default=True, sa_column=Column(Boolean, nullable=False, default=True))
-    last_run_at: Optional[datetime] = Field(
+    last_run_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )
-    next_run_at: Optional[datetime] = Field(
+    next_run_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )
-    last_run_signature: Optional[str] = Field(default=None, max_length=64, index=True)
+    last_run_signature: str | None = Field(default=None, max_length=64, index=True)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
 
@@ -261,63 +259,63 @@ class WaybillJob(SQLModel, table=True):
         Index("idx_waybill_jobs_celery_task_id", "celery_task_id"),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     job_id: str = Field(max_length=100, index=True, unique=True)
     idempotency_key: str = Field(max_length=100, index=True, unique=True)
-    
+
     # Tenant isolation
     client_id: int = Field(foreign_key="clients.id", index=True)
-    driver_id: Optional[int] = Field(default=None, foreign_key="drivers.id", index=True)
-    
+    driver_id: int | None = Field(default=None, foreign_key="drivers.id", index=True)
+
     # Task metadata
     status: str = Field(default=TaskStatus.PENDING.value, max_length=20, index=True)
     source: str = Field(default=TaskSource.MANUAL.value, max_length=20)
-    
+
     # Waybill data (JSON payload)
     payload_json: str = Field(sa_column=Column(Text, nullable=False))
-    result_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-    correlation_id: Optional[str] = Field(default=None, max_length=128, index=True)
-    business_date: Optional[str] = Field(default=None, max_length=16, index=True)
+    result_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    correlation_id: str | None = Field(default=None, max_length=128, index=True)
+    business_date: str | None = Field(default=None, max_length=16, index=True)
     priority: int = Field(default=5, index=True)
-    next_retry_at: Optional[datetime] = Field(
+    next_retry_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )
-    submit_after: Optional[datetime] = Field(
+    submit_after: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )
-    terminal_reason: Optional[str] = Field(default=None, max_length=64, index=True)
-    
+    terminal_reason: str | None = Field(default=None, max_length=64, index=True)
+
     # Schedule tracking
-    schedule_id: Optional[int] = Field(default=None, sa_column=Column(Integer, nullable=True))
+    schedule_id: int | None = Field(default=None, sa_column=Column(Integer, nullable=True))
     scheduled_by: str = Field(default="manual", max_length=20)
-    
+
     # Error tracking
-    last_error: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-    error_category: Optional[str] = Field(default=None, max_length=50, index=True)
-    
+    last_error: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    error_category: str | None = Field(default=None, max_length=50, index=True)
+
     # Retry logic
     attempt_count: int = Field(default=0)
     max_retries: int = Field(default=3)
     retryable: bool = Field(default=False)
-    celery_task_id: Optional[str] = Field(default=None, max_length=100, index=True)
-    worker_id: Optional[str] = Field(default=None, max_length=100)
-    
+    celery_task_id: str | None = Field(default=None, max_length=100, index=True)
+    worker_id: str | None = Field(default=None, max_length=100)
+
     # Timestamps
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
-    started_at: Optional[datetime] = Field(
+    started_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )
-    finished_at: Optional[datetime] = Field(
+    finished_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )
@@ -334,19 +332,19 @@ class WaybillTaskLog(SQLModel, table=True):
         Index("idx_waybill_task_logs_created_at", "created_at"),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     job_id: str = Field(max_length=100, index=True)
     client_id: int = Field(foreign_key="clients.id", index=True)
-    
+
     # Log entry
     step: str = Field(max_length=100)  # e.g., "login", "captcha", "form_fill", "submit"
     status: str = Field(max_length=20)  # "success", "failed", "retry"
-    message: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-    details_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-    
+    message: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    details_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+
     # Timestamp
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
 
@@ -362,26 +360,26 @@ class UploadBatch(SQLModel, table=True):
         Index("idx_upload_batches_created_at", "created_at"),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     batch_id: str = Field(max_length=100, index=True, unique=True)
     client_id: int = Field(foreign_key="clients.id", index=True)
-    
+
     # Upload metadata
     original_filename: str = Field(max_length=255)
     total_rows: int = Field(default=0)
     valid_rows: int = Field(default=0)
     invalid_rows: int = Field(default=0)
-    
+
     # Processing status
     status: str = Field(default="processing", max_length=20)
-    errors_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-    
+    errors_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+
     # Timestamps
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
-    completed_at: Optional[datetime] = Field(
+    completed_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )

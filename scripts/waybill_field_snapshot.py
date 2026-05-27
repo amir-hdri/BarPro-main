@@ -16,9 +16,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 from pathlib import Path
 from typing import Any
-import sys
 
 from playwright.async_api import async_playwright
 

@@ -13,17 +13,17 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth_multitenant import decrypt_driver_password
 from app.automation.browser import browser_manager, managed_browser_session
+from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload
 from app.automation.proxy_rotator import get_proxy_rotator
 from app.automation.waybill_bot_multitenant import WaybillAutomationBot
-from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.models_multitenant import (
@@ -52,10 +52,10 @@ RETRY_MAX_DELAY = 120  # seconds
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
-def _resolve_run_times(schedule: DriverSchedule) -> List[str]:
+def _resolve_run_times(schedule: DriverSchedule) -> list[str]:
     if schedule.run_times_csv:
         parts = [p.strip() for p in schedule.run_times_csv.split(",") if p.strip()]
         if parts:
@@ -63,10 +63,10 @@ def _resolve_run_times(schedule: DriverSchedule) -> List[str]:
     return [schedule.run_time] if schedule.run_time else ["08:00"]
 
 
-def _parse_weekdays_csv(raw: Optional[str]) -> List[int]:
+def _parse_weekdays_csv(raw: str | None) -> list[int]:
     if not raw:
         return []
-    result: List[int] = []
+    result: list[int] = []
     for token in raw.split(","):
         token = token.strip()
         if token.isdigit():
@@ -76,13 +76,13 @@ def _parse_weekdays_csv(raw: Optional[str]) -> List[int]:
     return sorted(set(result))
 
 
-def _parse_csv_list(raw: Optional[str]) -> List[str]:
+def _parse_csv_list(raw: str | None) -> list[str]:
     if not raw:
         return []
     return [p.strip() for p in raw.split(",") if p.strip()]
 
 
-def _safe_json(raw: Optional[str]) -> dict:
+def _safe_json(raw: str | None) -> dict:
     if not raw:
         return {}
     try:
@@ -139,7 +139,7 @@ async def _execute_single_job(
     job: WaybillJob,
     session: AsyncSession,
     attempt: int = 1,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Execute a single waybill job with retry logic."""
     payload_data = _safe_json(job.payload_json)
     normalized = build_enhanced_waybill_payload(payload_data)
@@ -216,12 +216,12 @@ async def _execute_single_job(
                 pass
 
 
-def _is_retryable(result: Dict[str, Any]) -> bool:
+def _is_retryable(result: dict[str, Any]) -> bool:
     error_cat = str(result.get("error_category", "")).strip().lower()
     return error_cat in ("login_failed", "captcha_failed", "network_error", "system_or_network_error", "auth_expired")
 
 
-async def evaluate_and_run_schedules() -> Dict[str, Any]:
+async def evaluate_and_run_schedules() -> dict[str, Any]:
     """
     Main entry point: evaluate all active schedules across all tenants
     and execute due ones.
@@ -276,7 +276,7 @@ async def evaluate_and_run_schedules() -> Dict[str, Any]:
     return summary
 
 
-async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSchedule) -> Dict[str, Any]:
+async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSchedule) -> dict[str, Any]:
     """Evaluate a single schedule and create/execute jobs for due timeslots."""
     now = _utcnow()
     today = now.date()
@@ -415,7 +415,7 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
     }
 
 
-async def retry_failed_scheduled_jobs() -> Dict[str, Any]:
+async def retry_failed_scheduled_jobs() -> dict[str, Any]:
     """
     Retry scheduled jobs that are in WAITING_RETRY or have retryable failures.
 
@@ -501,7 +501,7 @@ async def retry_failed_scheduled_jobs() -> Dict[str, Any]:
     return summary
 
 
-async def clear_expired_waiting_jobs() -> Dict[str, Any]:
+async def clear_expired_waiting_jobs() -> dict[str, Any]:
     """
     Clear jobs that have been WAITING_RETRY for too long (e.g., > 24 hours)
     without making progress. Mark them for review.

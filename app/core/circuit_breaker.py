@@ -1,7 +1,6 @@
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 
 class CircuitOpenError(Exception):
@@ -32,7 +31,7 @@ class AsyncCircuitBreaker:
 
         self._state = "closed"
         self._failure_count = 0
-        self._opened_at: Optional[float] = None
+        self._opened_at: float | None = None
         self._half_open_inflight = 0
         self._lock = asyncio.Lock()
 

@@ -5,8 +5,8 @@ import asyncio
 import atexit
 import logging
 
-from app.services.rpa_dispatch_service import rpa_dispatch_service
 from app.services.rpa_auth_service import rpa_auth_service
+from app.services.rpa_dispatch_service import rpa_dispatch_service
 from app.services.rpa_submit_service import rpa_submit_service
 from app.workers.celery_app import celery_app
 
@@ -67,11 +67,10 @@ if celery_app is not None:
 
 # ==================== SCHEDULED WAYBILL EXECUTION TASKS ====================
 from app.services.scheduled_waybill_executor import (
+    clear_expired_waiting_jobs,
     evaluate_and_run_schedules,
     retry_failed_scheduled_jobs,
-    clear_expired_waiting_jobs,
 )
-
 
 if celery_app is not None:
     @celery_app.task(

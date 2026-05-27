@@ -2,14 +2,13 @@ import asyncio
 import base64
 import binascii
 import logging
-from typing import Optional
 
 import cv2
 import numpy as np
 
 from app.automation.captcha.base import CaptchaProvider, CaptchaResult
 from app.automation.captcha.engine import captcha_engine
-from app.automation.captcha.neural_net import predict_chars_batch, _IMG_SIZE
+from app.automation.captcha.neural_net import _IMG_SIZE, predict_chars_batch
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +34,9 @@ class LocalOcrCaptchaProvider(CaptchaProvider):
         if image is None:
             return CaptchaResult(solved=False, provider="local_ocr", error="invalid_image")
 
-        best_text: Optional[str] = None
+        best_text: str | None = None
         best_score = -1.0
-        best_answer: Optional[str] = None
+        best_answer: str | None = None
 
         for binary_variant in self._binarize_variants(image):
             for components in self._segment_variants(binary_variant):
@@ -95,7 +94,7 @@ class LocalOcrCaptchaProvider(CaptchaProvider):
         )
 
     @staticmethod
-    def _decode_image(image_base64: str) -> Optional[np.ndarray]:
+    def _decode_image(image_base64: str) -> np.ndarray | None:
         try:
             image_bytes = base64.b64decode(image_base64, validate=True)
         except (ValueError, binascii.Error):

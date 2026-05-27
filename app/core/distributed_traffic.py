@@ -6,7 +6,6 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Optional
 
 from app.core.config import utcms_config
 
@@ -49,7 +48,7 @@ class DistributedSemaphore:
     async def acquire(self, timeout: float = 30.0) -> bool:
         """Acquire a slot in the distributed semaphore."""
         start_time = time.time()
-        
+
         while time.time() - start_time < timeout:
             try:
                 # Use Redis Lua script for atomic check-and-set
@@ -139,9 +138,9 @@ class DistributedTrafficController:
     """Traffic controller with distributed semaphore support."""
 
     def __init__(self):
-        self._redis: Optional[aioredis.Redis] = None
-        self._semaphore: Optional[DistributedSemaphore] = None
-        self._local_semaphore: Optional[asyncio.Semaphore] = None
+        self._redis: aioredis.Redis | None = None
+        self._semaphore: DistributedSemaphore | None = None
+        self._local_semaphore: asyncio.Semaphore | None = None
         self._lock = asyncio.Lock()
         self._next_allowed_at = 0.0
         self._blocked_until = 0.0
@@ -157,14 +156,14 @@ class DistributedTrafficController:
                     decode_responses=True,
                 )
                 await self._redis.ping()
-                
+
                 self._semaphore = DistributedSemaphore(
                     self._redis,
                     name="waybill",
                     max_concurrent=utcms_config.WAYBILL_MAX_CONCURRENT,
                 )
                 self._is_distributed = True
-                
+
                 logger.info(
                     "distributed_traffic_controller_initialized",
                     extra={
@@ -184,7 +183,7 @@ class DistributedTrafficController:
         # Fallback to local semaphore
         self._local_semaphore = asyncio.Semaphore(max(1, utcms_config.WAYBILL_MAX_CONCURRENT))
         self._is_distributed = False
-        
+
         logger.info(
             "local_traffic_controller_initialized",
             extra={"extra_fields": {"max_concurrent": utcms_config.WAYBILL_MAX_CONCURRENT}},
@@ -213,7 +212,7 @@ class DistributedTrafficController:
                 raise TimeoutError("Failed to acquire distributed semaphore")
         elif self._local_semaphore:
             await self._local_semaphore.acquire()
-        
+
         await self._wait_for_pacing()
 
     async def release(self, mode: str = "safe"):
@@ -237,7 +236,7 @@ class DistributedTrafficController:
         """Get current traffic snapshot."""
         loop = asyncio.get_running_loop()
         now = loop.time()
-        
+
         active_count = 0
         if self._is_distributed and self._semaphore:
             active_count = await self._semaphore.get_active_count()

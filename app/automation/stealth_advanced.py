@@ -8,9 +8,9 @@ Implements multi-layered stealth for Cloudflare, Imperva, and custom WAFs.
 import asyncio
 import random
 import time
-from typing import Optional, Dict, Any
-from playwright.async_api import Page
+from typing import Any
 
+from playwright.async_api import Page
 
 # ============================================================================
 # ENHANCED USER AGENT & FINGERPRINT POOLS
@@ -444,7 +444,7 @@ WAF_BYPASS_SCRIPT = """
 
 class StealthConfig:
     """Configuration for stealth behavior."""
-    
+
     def __init__(
         self,
         enable_core_stealth: bool = True,
@@ -466,8 +466,8 @@ class StealthConfig:
 
 async def apply_enterprise_stealth(
     page: Page,
-    config: Optional[StealthConfig] = None
-) -> Dict[str, bool]:
+    config: StealthConfig | None = None
+) -> dict[str, bool]:
     """
     Apply comprehensive stealth modifications to hide all automation indicators.
     This is the enterprise-grade replacement for the basic apply_stealth_mode.
@@ -481,18 +481,18 @@ async def apply_enterprise_stealth(
     """
     if config is None:
         config = StealthConfig()
-    
+
     applied = {}
-    
+
     try:
         # 1. Core stealth (always first)
         if config.enable_core_stealth:
             try:
                 await page.add_init_script(STEALTH_CORE_SCRIPT)
                 applied['core_stealth'] = True
-            except Exception as e:
+            except Exception:
                 applied['core_stealth'] = False
-        
+
         # 2. WebGL spoof
         if config.enable_webgl_spoof:
             try:
@@ -505,37 +505,39 @@ async def apply_enterprise_stealth(
                     fingerprint['unmasked_renderer']
                 )
                 applied['webgl_spoof'] = True
-            except Exception as e:
+            except Exception:
                 applied['webgl_spoof'] = False
-        
+
         # 3. Canvas noise
         if config.enable_canvas_noise:
             try:
                 await page.add_init_script(CANVAS_NOISE_SCRIPT)
                 applied['canvas_noise'] = True
-            except Exception as e:
+            except Exception:
                 applied['canvas_noise'] = False
-        
+
         # 4. Audio spoof
         if config.enable_audio_spoof:
             try:
                 await page.add_init_script(AUDIO_SPOOF_SCRIPT)
                 applied['audio_spoof'] = True
-            except Exception as e:
+            except Exception:
                 applied['audio_spoof'] = False
-        
+
         # 5. WAF bypass
         if config.enable_waf_bypass:
             try:
                 await page.add_init_script(WAF_BYPASS_SCRIPT)
                 applied['waf_bypass'] = True
-            except Exception as e:
+            except Exception:
                 applied['waf_bypass'] = False
 
         # 6. CDP leak patches (critical — must run after all other scripts)
         try:
             from app.automation.stealth_cdp_patches import (
-                CDP_LEAK_PATCH_SCRIPT, TLS_FINGERPRINT_PATCH, ADVANCED_TIMING_PATCH
+                ADVANCED_TIMING_PATCH,
+                CDP_LEAK_PATCH_SCRIPT,
+                TLS_FINGERPRINT_PATCH,
             )
             await page.add_init_script(CDP_LEAK_PATCH_SCRIPT)
             await page.add_init_script(TLS_FINGERPRINT_PATCH)
@@ -543,13 +545,13 @@ async def apply_enterprise_stealth(
             applied['cdp_patches'] = True
         except Exception:
             applied['cdp_patches'] = False
-        
+
         # 7. Set realistic viewport and user agent
         if config.randomize_fingerprints:
             try:
                 screen_preset = random.choice(SCREEN_PRESETS)
                 locale_preset = random.choice(LOCALE_PRESETS)
-                
+
                 # These are set at context creation time, but we can override some via JS
                 await page.add_init_script(f"""
                     Object.defineProperty(screen, 'width', {{ get: () => {screen_preset['width']} }});
@@ -560,13 +562,13 @@ async def apply_enterprise_stealth(
                     Object.defineProperty(screen, 'pixelDepth', {{ get: () => {screen_preset['pixel_depth']} }});
                 """)
                 applied['screen_spoof'] = True
-            except Exception as e:
+            except Exception:
                 applied['screen_spoof'] = False
-        
-    except Exception as e:
+
+    except Exception:
         # Log error but don't fail the entire operation
         pass
-    
+
     return applied
 
 
@@ -686,16 +688,16 @@ def get_random_user_agent(browser_type: str = "chrome_windows") -> str:
     return random.choice(pool)
 
 
-def get_random_screen_preset() -> Dict[str, int]:
+def get_random_screen_preset() -> dict[str, int]:
     """Get a random screen configuration."""
     return random.choice(SCREEN_PRESETS)
 
 
-def get_random_locale_preset() -> Dict[str, Any]:
+def get_random_locale_preset() -> dict[str, Any]:
     """Get a random locale and timezone configuration."""
     return random.choice(LOCALE_PRESETS)
 
 
-def get_random_webgl_fingerprint() -> Dict[str, str]:
+def get_random_webgl_fingerprint() -> dict[str, str]:
     """Get a random WebGL fingerprint configuration."""
     return random.choice(WEBGL_FINGERPRINTS)

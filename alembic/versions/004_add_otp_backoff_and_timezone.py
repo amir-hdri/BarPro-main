@@ -4,9 +4,9 @@ Revision ID: 004_otp_backoff_tz
 Revises: 003_waybill_job_corr_id
 Create Date: 2026-04-11
 """
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision = "004_otp_backoff_tz"
 down_revision = "003_waybill_job_corr_id"

@@ -10,7 +10,7 @@ Provides:
 """
 import logging
 from collections import defaultdict
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import case, func
@@ -532,7 +532,7 @@ class UserReportingService:
         # Use DB aggregation to prevent memory issues with thousands of jobs
         failed_statuses = [TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.NEEDS_REVIEW.value]
         pending_statuses = [TaskStatus.PENDING.value, TaskStatus.QUEUED.value, TaskStatus.IN_PROGRESS.value]
-        today = datetime.now(timezone.utc).replace(tzinfo=None).date()
+        today = datetime.now(UTC).replace(tzinfo=None).date()
         today_start = datetime.combine(today, datetime.min.time())
 
         agg_stmt = (

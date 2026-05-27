@@ -4,9 +4,9 @@ Revision ID: 003_waybill_job_corr_id
 Revises: 002_phase1_rpa_backend
 Create Date: 2026-04-09
 """
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision = "003_waybill_job_corr_id"
 down_revision = "002_phase1_rpa_backend"

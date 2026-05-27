@@ -1,13 +1,14 @@
+import os
+import sys
 import unittest
 from unittest.mock import AsyncMock, patch
-import sys
-import os
 
 # Add app to path
 sys.path.append(os.getcwd())
 
-from app.automation.map_controller import MapController, GeoCoordinate, MapSelection
+from app.automation.map_controller import GeoCoordinate, MapController, MapSelection
 from app.core.exceptions import MapInteractionError
+
 
 class TestMapController(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

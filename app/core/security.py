@@ -1,14 +1,12 @@
 import hmac
-from typing import Optional
 
-from fastapi import HTTPException, Request
 import jwt
-from jwt.exceptions import InvalidTokenError
+from fastapi import HTTPException, Request
 
 from app.core.config import utcms_config
 
 
-def _extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
+def _extract_bearer_token(authorization: str | None) -> str | None:
     if not authorization:
         return None
     parts = authorization.strip().split(" ", 1)
@@ -21,7 +19,7 @@ def _extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
     return token or None
 
 
-def _is_api_key_valid(api_key: Optional[str]) -> bool:
+def _is_api_key_valid(api_key: str | None) -> bool:
     configured = utcms_config.API_KEY.strip()
     if not configured:
         return False
@@ -30,7 +28,7 @@ def _is_api_key_valid(api_key: Optional[str]) -> bool:
     return hmac.compare_digest(api_key.strip(), configured)
 
 
-def _is_jwt_valid(token: Optional[str]) -> bool:
+def _is_jwt_valid(token: str | None) -> bool:
     if not token:
         return False
     secret = utcms_config.JWT_SECRET.strip()

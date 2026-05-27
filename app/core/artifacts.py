@@ -1,8 +1,8 @@
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from app.core.config import utcms_config
 from app.core.execution_context import get_execution_context
@@ -21,12 +21,12 @@ class FailureArtifactService:
         self,
         page: Any = None,
         *,
-        error: Optional[Exception] = None,
+        error: Exception | None = None,
         stage: str,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Optional[str]]:
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, str | None]:
         context = get_execution_context()
-        timestamp = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y%m%dT%H%M%S%fZ")
+        timestamp = datetime.now(UTC).replace(tzinfo=None).strftime("%Y%m%dT%H%M%S%fZ")
         bundle_dir = (
             self.base_dir
             / context.tenant_id
@@ -46,7 +46,7 @@ class FailureArtifactService:
         }
 
         payload = {
-            "captured_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+            "captured_at": datetime.now(UTC).replace(tzinfo=None).isoformat(),
             "stage": stage,
             "error": str(error) if error else None,
             "context": context.__dict__,

@@ -7,8 +7,7 @@ Each client can only access their own drivers and waybill tasks.
 import hashlib
 import logging
 import secrets
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 from fastapi import Depends, HTTPException, status
@@ -75,26 +74,27 @@ def encrypt_driver_password(plain_password: str) -> str:
     # For automation purposes, we store a reversible encryption
     # In production, use proper encryption like Fernet
     from cryptography.fernet import Fernet
-    
+
     # Derive a key from a master encryption key
     master_key = utcms_config.DRIVER_ENCRYPTION_KEY.encode("utf-8")
     key = hashlib.sha256(master_key).digest()
     from base64 import urlsafe_b64encode
     fernet = Fernet(urlsafe_b64encode(key[:32]))
-    
+
     return fernet.encrypt(plain_password.encode("utf-8")).decode("utf-8")
 
 
 def decrypt_driver_password(encrypted_password: str) -> str:
     """Decrypt driver's UTCMS password."""
-    from cryptography.fernet import Fernet
-    from base64 import urlsafe_b64encode
     import hashlib
-    
+    from base64 import urlsafe_b64encode
+
+    from cryptography.fernet import Fernet
+
     master_key = utcms_config.DRIVER_ENCRYPTION_KEY.encode("utf-8")
     key = hashlib.sha256(master_key).digest()
     fernet = Fernet(urlsafe_b64encode(key[:32]))
-    
+
     return fernet.decrypt(encrypted_password.encode("utf-8")).decode("utf-8")
 
 
@@ -103,20 +103,20 @@ def create_access_token(
     client_code: str,
     email: str,
     role: str = "client",
-    expires_delta: Optional[timedelta] = None,
+    expires_delta: timedelta | None = None,
 ) -> str:
     """Create a JWT access token."""
     if expires_delta:
-        expire = datetime.now(timezone.utc).replace(tzinfo=None) + expires_delta
+        expire = datetime.now(UTC).replace(tzinfo=None) + expires_delta
     else:
-        expire = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=utcms_config.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=utcms_config.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
 
     to_encode = {
         "sub": str(client_id),  # JWT sub must be string
         "client_code": client_code,
         "email": email,
         "role": role,
-        "iat": datetime.now(timezone.utc).replace(tzinfo=None),
+        "iat": datetime.now(UTC).replace(tzinfo=None),
         "exp": expire,
     }
 

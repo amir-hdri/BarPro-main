@@ -15,9 +15,7 @@ import hashlib
 import json
 import logging
 import threading
-import warnings
 from pathlib import Path
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -110,8 +108,20 @@ class MiniMLP:
 
 
 
-def _train_model(model_wrapper: MiniMLP, images: np.ndarray, labels: np.ndarray,
-                 epochs: int = 35, batch_size: int = 128, lr: float = 0.002) -> None:
+
+@dataclass
+class TrainingConfig:
+    epochs: int = 35
+    batch_size: int = 128
+    lr: float = 0.002
+
+
+def _train_model(
+    model_wrapper: MiniMLP,
+    images: np.ndarray,
+    labels: np.ndarray,
+    config: TrainingConfig = TrainingConfig(),
+) -> None:
     net = model_wrapper._model
     net.train()
 
@@ -122,9 +132,9 @@ def _train_model(model_wrapper: MiniMLP, images: np.ndarray, labels: np.ndarray,
     dataset_x = torch.from_numpy(imgs_4d.astype(np.float32)).to(_DEVICE)
     dataset_y = torch.from_numpy(labels.astype(np.int64)).to(_DEVICE)
 
-    optimizer = torch.optim.Adam(net.parameters(), lr=lr, weight_decay=1e-4)
+    optimizer = torch.optim.Adam(net.parameters(), lr=config.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=epochs, eta_min=1e-5
+        optimizer, T_max=config.epochs, eta_min=1e-5
     )
     label_smooth = 0.05
     criterion = nn.CrossEntropyLoss(label_smoothing=label_smooth)
@@ -132,11 +142,11 @@ def _train_model(model_wrapper: MiniMLP, images: np.ndarray, labels: np.ndarray,
     best_acc = 0.0
     best_state = None
 
-    for epoch in range(epochs):
+    for epoch in range(config.epochs):
         indices = torch.randperm(num_samples, device=_DEVICE)
         net.train()
-        for start in range(0, num_samples, batch_size):
-            batch_idx = indices[start:start + batch_size]
+        for start in range(0, num_samples, config.batch_size):
+            batch_idx = indices[start:start + config.batch_size]
             bx = dataset_x[batch_idx]
             by = dataset_y[batch_idx]
 
@@ -346,7 +356,12 @@ def _load_or_train_model() -> MiniMLP:
     logger.info("neural_captcha_training_start")
     images, labels = _generate_training_data(num_per_class=500)
     model = MiniMLP()
-    _train_model(model, images, labels, epochs=35, batch_size=128, lr=0.002)
+    _train_model(
+        model,
+        images,
+        labels,
+        config=TrainingConfig(epochs=35, batch_size=128, lr=0.002)
+    )
 
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -361,7 +376,7 @@ def _load_or_train_model() -> MiniMLP:
 
 
 _model_lock = threading.Lock()
-_cached_model: Optional[MiniMLP] = None
+_cached_model: MiniMLP | None = None
 
 
 def get_model() -> MiniMLP:

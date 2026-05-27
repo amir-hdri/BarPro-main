@@ -1,19 +1,17 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from app.core.config import utcms_config
 
 try:
     from celery import Celery
-    from celery.schedules import schedule, crontab
+    from celery.schedules import crontab, schedule
 except Exception:
     Celery = None  # type: ignore
     schedule = None  # type: ignore
     crontab = None  # type: ignore
 
 
-def _build_celery() -> Optional["Celery"]:
+def _build_celery() -> Celery | None:
     if Celery is None:
         return None
 

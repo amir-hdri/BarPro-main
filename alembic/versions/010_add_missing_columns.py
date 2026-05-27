@@ -10,8 +10,9 @@ Fixes:
    — migration 007 created (schedule_type, schedule_time, schedule_days, waybill_template, ...)
    — SQLModel expects (client_id, title, frequency, run_time, run_times_csv, payload_template_json, ...)
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = '010_add_missing_columns'
 down_revision = '009_add_access_level'
