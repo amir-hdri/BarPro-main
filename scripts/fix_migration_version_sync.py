@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Fix alembic version in database using psycopg2."""
-import psycopg2
 import os
+
+import psycopg2
+
 
 def fix_version():
     """Update the alembic version from old to new format."""
@@ -12,15 +14,15 @@ def fix_version():
         user=os.getenv("POSTGRES_USER", "postgres"),
         password=os.getenv("POSTGRES_PASSWORD", "postgres")
     )
-    
+
     try:
         cursor = conn.cursor()
-        
+
         # Check current version
         cursor.execute("SELECT version_num FROM alembic_version")
         current = cursor.fetchone()[0]
         print(f"Current version: {current}")
-        
+
         if current == "005_constraint_conflicts":
             cursor.execute(
                 "UPDATE alembic_version SET version_num = '005_fix_constraint_conflicts' WHERE version_num = '005_constraint_conflicts'"
@@ -29,7 +31,7 @@ def fix_version():
             print("✅ Updated version to: 005_fix_constraint_conflicts")
         else:
             print(f"Version is already: {current}")
-            
+
     finally:
         conn.close()
 

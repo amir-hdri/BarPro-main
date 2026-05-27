@@ -3,8 +3,8 @@
 import asyncio
 from collections import deque
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional
 from statistics import mean, median
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,7 @@ from sqlmodel import select
 from app.core.config import utcms_config
 from app.core.database import engine
 from app.models_legacy import BotStats
+
 # Compat: models package moved BotStats to models.py
 from app.monitoring.metrics import track_waybill_failure, track_waybill_request, track_waybill_success
 
@@ -82,8 +83,8 @@ class ReportService:
         self,
         mode: str,
         event: str,
-        latency_ms: Optional[float] = None,
-        category: Optional[str] = None,
+        latency_ms: float | None = None,
+        category: str | None = None,
     ) -> None:
         normalized_mode = "full" if mode == "full" else "safe"
 
@@ -111,17 +112,17 @@ class ReportService:
         await self._record_mode_event(mode=mode, event="requests")
         await self._update_today_stats(lambda stats: setattr(stats, "total_requests", stats.total_requests + 1))
 
-    async def record_success(self, mode: str = "safe", latency_ms: Optional[float] = None):
+    async def record_success(self, mode: str = "safe", latency_ms: float | None = None):
         track_waybill_success(mode)
         await self._record_mode_event(mode=mode, event="success", latency_ms=latency_ms)
-        
+
         # Track success time for trends
         self._success_times.append({
             "timestamp": datetime.now().isoformat(),
             "mode": mode,
             "latency": latency_ms
         })
-        
+
         await self._update_today_stats(
             lambda stats: setattr(stats, "successful_waybills", stats.successful_waybills + 1)
         )
@@ -129,7 +130,7 @@ class ReportService:
     async def record_failure(self, mode: str = "safe", category: str = "unknown", details: str = ""):
         track_waybill_failure(mode, category)
         await self._record_mode_event(mode=mode, event="failure", category=category)
-        
+
         # Track error details
         if details:
             self._error_details.append({
@@ -138,7 +139,7 @@ class ReportService:
                 "category": category,
                 "details": details[:200]  # Limit to 200 chars
             })
-        
+
         await self._update_today_stats(
             lambda stats: setattr(stats, "failed_attempts", stats.failed_attempts + 1)
         )
@@ -160,7 +161,7 @@ class ReportService:
 
         await self._update_today_stats(_updater)
 
-    async def get_summary(self) -> Dict[str, Any]:
+    async def get_summary(self) -> dict[str, Any]:
         """دریافت خلاصه جامع آمار با تحلیل روند"""
         async with AsyncSession(engine) as session:
             statement = select(BotStats)
@@ -184,7 +185,7 @@ class ReportService:
             async with self._op_lock:
                 latencies = list(self._latency_samples)
                 recent_errors = list(self._error_details)[-10:]  # Last 10 errors
-            
+
             # Calculate performance metrics
             performance = {
                 "avg_latency_ms": round(mean(latencies), 2) if latencies else 0,
@@ -197,7 +198,7 @@ class ReportService:
 
             # Calculate hourly trend (last 24 hours)
             hourly_trend = self._calculate_hourly_trend()
-            
+
             # Calculate daily trend (last 7 days)
             daily_trend = await self._calculate_daily_trend(all_stats)
 
@@ -218,7 +219,7 @@ class ReportService:
                 },
             }
 
-    async def get_daily_report(self) -> Dict[str, Any]:
+    async def get_daily_report(self) -> dict[str, Any]:
         async with AsyncSession(engine) as session:
             statement = select(BotStats).order_by(BotStats.report_date)
             result = await session.execute(statement)
@@ -229,7 +230,7 @@ class ReportService:
                 day_str = stat.report_date.isoformat()
                 total = stat.successful_waybills + stat.failed_attempts
                 success_rate = (stat.successful_waybills / max(1, total)) * 100 if total > 0 else 0
-                
+
                 daily_stats[day_str] = {
                     "success": stat.successful_waybills,
                     "fail": stat.failed_attempts,
@@ -242,7 +243,7 @@ class ReportService:
                 }
             return daily_stats
 
-    async def get_operational_report(self) -> Dict[str, Any]:
+    async def get_operational_report(self) -> dict[str, Any]:
         async with self._op_lock:
             latencies = list(self._latency_samples)
             mode_counters = {
@@ -280,12 +281,12 @@ class ReportService:
             "total_tracked": len(latencies),
         }
 
-    async def get_error_analysis(self) -> Dict[str, Any]:
+    async def get_error_analysis(self) -> dict[str, Any]:
         """تحلیل خطاهای رخ داده با جزئیات"""
         async with self._op_lock:
             error_categories = self._error_categories.copy()
             error_details = list(self._error_details)
-        
+
         # Group errors by category
         errors_by_category = {}
         for error in error_details:
@@ -298,7 +299,7 @@ class ReportService:
             errors_by_category[category]["count"] += 1
             if len(errors_by_category[category]["examples"]) < 5:
                 errors_by_category[category]["examples"].append(error)
-        
+
         # Calculate error rate by hour
         hourly_errors = {}
         for error in error_details:
@@ -306,7 +307,7 @@ class ReportService:
             if hour not in hourly_errors:
                 hourly_errors[hour] = 0
             hourly_errors[hour] += 1
-        
+
         return {
             "total_errors": len(error_details),
             "by_category": errors_by_category,
@@ -315,12 +316,12 @@ class ReportService:
             "most_recent": error_details[-10:] if error_details else []
         }
 
-    async def get_performance_dashboard(self) -> Dict[str, Any]:
+    async def get_performance_dashboard(self) -> dict[str, Any]:
         """داشبورد عملکرد با معیارهای کلیدی"""
         async with self._op_lock:
             latencies = list(self._latency_samples)
             success_times = list(self._success_times)
-        
+
         # Calculate requests per minute (last 10 minutes)
         now = datetime.now()
         recent_window = now - timedelta(minutes=10)
@@ -329,7 +330,7 @@ class ReportService:
             if datetime.fromisoformat(s["timestamp"]) > recent_window
         ]
         rpm = len(recent_requests) / 10.0
-        
+
         return {
             "requests_per_minute": round(rpm, 2),
             "avg_response_time_ms": round(mean(latencies), 2) if latencies else 0,
@@ -339,7 +340,7 @@ class ReportService:
             "uptime_hours": self._calculate_uptime_hours(),
         }
 
-    def get_mode_counters(self) -> Dict[str, Dict[str, int]]:
+    def get_mode_counters(self) -> dict[str, dict[str, int]]:
         return {
             mode: values.copy()
             for mode, values in self._mode_counters.items()
@@ -352,7 +353,7 @@ class ReportService:
         rate = (success / total) * 100
         return f"{rate:.1f}%"
 
-    def _calculate_success_rate_percent(self, success_times: List[dict]) -> float:
+    def _calculate_success_rate_percent(self, success_times: list[dict]) -> float:
         if not success_times:
             return 0.0
         # This is a simplified calculation
@@ -363,10 +364,10 @@ class ReportService:
         # Simplified - in production, track actual start time
         return 24.0  # Placeholder
 
-    def _calculate_hourly_trend(self) -> List[Dict[str, Any]]:
+    def _calculate_hourly_trend(self) -> list[dict[str, Any]]:
         """محاسبه روند ساعتی"""
         hourly_data = {}
-        
+
         for sample in self._hourly_samples:
             hour = sample["hour"]
             if hour not in hourly_data:
@@ -377,7 +378,7 @@ class ReportService:
                 }
             hourly_data[hour]["count"] += 1
             hourly_data[hour]["total_latency"] += sample["latency"]
-        
+
         # Calculate averages
         result = []
         for hour, data in sorted(hourly_data.items())[-24:]:  # Last 24 hours
@@ -386,10 +387,10 @@ class ReportService:
                 "count": data["count"],
                 "avg_latency": round(data["total_latency"] / data["count"], 2) if data["count"] > 0 else 0
             })
-        
+
         return result
 
-    async def _calculate_daily_trend(self, all_stats: List[BotStats]) -> List[Dict[str, Any]]:
+    async def _calculate_daily_trend(self, all_stats: list[BotStats]) -> list[dict[str, Any]]:
         """محاسبه روند روزانه"""
         trend = []
         for stat in sorted(all_stats, key=lambda x: x.report_date)[-7:]:  # Last 7 days
@@ -403,11 +404,11 @@ class ReportService:
             })
         return trend
 
-    def _calculate_success_trend(self, success_times: List[dict]) -> List[Dict[str, Any]]:
+    def _calculate_success_trend(self, success_times: list[dict]) -> list[dict[str, Any]]:
         """محاسبه روند موفقیت در زمان"""
         if not success_times:
             return []
-        
+
         # Group by hour
         hourly_counts = {}
         for item in success_times:
@@ -415,7 +416,7 @@ class ReportService:
             if hour not in hourly_counts:
                 hourly_counts[hour] = 0
             hourly_counts[hour] += 1
-        
+
         return [
             {"hour": hour, "count": count}
             for hour, count in sorted(hourly_counts.items())[-24:]

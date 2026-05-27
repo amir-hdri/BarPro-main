@@ -1,5 +1,6 @@
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
+
 
 class ScriptLoader:
     """Helper class to load JavaScript files."""
@@ -7,7 +8,7 @@ class ScriptLoader:
     BASE_DIR = Path(__file__).parent / "js"
 
     @classmethod
-    @lru_cache(maxsize=None)
+    @cache
     def load(cls, script_name: str) -> str:
         """
         Loads a JavaScript file content by name (without extension).
@@ -17,7 +18,7 @@ class ScriptLoader:
         if not file_path.exists():
             raise FileNotFoundError(f"Script {script_name}.js not found at {file_path}")
 
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             return f.read()
 
 # Global instance for easy access

@@ -1,10 +1,12 @@
-import pytest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
-from app.services.multitenant_service import ClientService
+import pytest
+
 from app.models_multitenant import Client
 from app.schemas.multitenant import ClientResponse
+from app.services.multitenant_service import ClientService
+
 
 @pytest.mark.asyncio
 async def test_get_client_profile_success():
@@ -19,7 +21,7 @@ async def test_get_client_profile_success():
         max_plates=10,
         max_concurrent_tasks=2,
         max_daily_tasks=100,
-        created_at=datetime.now(timezone.utc).replace(tzinfo=None)
+        created_at=datetime.now(UTC).replace(tzinfo=None)
     )
 
     mock_session = AsyncMock()
@@ -37,8 +39,8 @@ async def test_get_client_profile_success():
             max_plates=10,
             max_concurrent_tasks=2,
             max_daily_tasks=100,
-            created_at=datetime.now(timezone.utc).replace(tzinfo=None),
-            last_login_at=datetime.now(timezone.utc).replace(tzinfo=None)
+            created_at=datetime.now(UTC).replace(tzinfo=None),
+            last_login_at=datetime.now(UTC).replace(tzinfo=None)
         )
 
         result = await ClientService.get_client_profile(mock_client, mock_session)

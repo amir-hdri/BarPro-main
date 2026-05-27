@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict
 import json
 import time
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from dataclasses import asdict
+from datetime import UTC, datetime, timedelta
 
 from app.core.business_time import business_date_str
 from app.core.config import utcms_config
@@ -46,7 +45,7 @@ class RPADistributedRuntime:
     async def _get_redis(self):
         return await redis_manager.get()
 
-    async def _set_value(self, key: str, value: str, ttl_seconds: Optional[int] = None) -> None:
+    async def _set_value(self, key: str, value: str, ttl_seconds: int | None = None) -> None:
         redis = await self._get_redis()
         if redis is not None:
             await redis.set(key, value, ex=ttl_seconds)
@@ -55,7 +54,7 @@ class RPADistributedRuntime:
         async with self._lock:
             self._memory[key] = (value, expires_at)
 
-    async def _get_value(self, key: str) -> Optional[str]:
+    async def _get_value(self, key: str) -> str | None:
         redis = await self._get_redis()
         if redis is not None:
             return await redis.get(key)
@@ -100,7 +99,7 @@ class RPADistributedRuntime:
             ttl_seconds=utcms_config.RPA_SESSION_TTL_SECONDS,
         )
 
-    async def get_session(self, client_id: int, driver_id: int) -> Optional[SessionBundle]:
+    async def get_session(self, client_id: int, driver_id: int) -> SessionBundle | None:
         raw = await self._get_value(self.session_key(client_id, driver_id))
         if not raw:
             return None
@@ -109,20 +108,20 @@ class RPADistributedRuntime:
     async def delete_session(self, client_id: int, driver_id: int) -> None:
         await self._delete_value(self.session_key(client_id, driver_id))
 
-    async def increment_attempt(self, client_id: int, driver_id: int, at: Optional[datetime] = None) -> int:
+    async def increment_attempt(self, client_id: int, driver_id: int, at: datetime | None = None) -> int:
         return await self._increment_counter(self.counter_attempts_key(client_id, driver_id, business_date_str(at)))
 
-    async def increment_success(self, client_id: int, driver_id: int, at: Optional[datetime] = None) -> int:
+    async def increment_success(self, client_id: int, driver_id: int, at: datetime | None = None) -> int:
         return await self._increment_counter(self.counter_successes_key(client_id, driver_id, business_date_str(at)))
 
-    async def counter_snapshot(self, client_id: int, driver_id: int, at: Optional[datetime] = None) -> RuntimeCounterSnapshot:
+    async def counter_snapshot(self, client_id: int, driver_id: int, at: datetime | None = None) -> RuntimeCounterSnapshot:
         date_key = business_date_str(at)
         attempts = int(await self._get_value(self.counter_attempts_key(client_id, driver_id, date_key)) or 0)
         successes = int(await self._get_value(self.counter_successes_key(client_id, driver_id, date_key)) or 0)
         return RuntimeCounterSnapshot(business_date=date_key, attempts=attempts, successes=successes)
 
     async def apply_cooldown(self, scope: str, scope_id: str, ttl_seconds: int) -> None:
-        payload = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        payload = datetime.now(UTC).replace(tzinfo=None).isoformat()
         await self._set_value(self.cooldown_key(scope, scope_id), payload, ttl_seconds=ttl_seconds)
 
     async def cooldown_active(self, scope: str, scope_id: str) -> bool:

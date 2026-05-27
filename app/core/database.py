@@ -40,13 +40,13 @@ def _get_alembic_config() -> Config:
     """Get Alembic configuration with current database URL."""
     project_root = Path(__file__).resolve().parent.parent.parent
     alembic_ini_path = project_root / "alembic.ini"
-    
+
     if not alembic_ini_path.exists():
         raise FileNotFoundError(
             f"Alembic configuration not found at {alembic_ini_path}. "
             "Run 'alembic init alembic' to initialize migrations."
         )
-    
+
     alembic_cfg = Config(str(alembic_ini_path))
     alembic_cfg.set_main_option("sqlalchemy.url", utcms_config.DATABASE_URL)
     return alembic_cfg

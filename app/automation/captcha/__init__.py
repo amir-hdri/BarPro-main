@@ -11,11 +11,11 @@ from app.automation.captcha.local_ocr import LocalOcrCaptchaProvider
 from app.core.config import utcms_config
 
 _provider_lock = Lock()
-_cached_provider: Optional[CaptchaProvider] = None
-_cached_signature: Optional[tuple] = None
+_cached_provider: CaptchaProvider | None = None
+_cached_signature: tuple | None = None
 
 
-def _close_provider_async(provider: Optional[CaptchaProvider]) -> None:
+def _close_provider_async(provider: CaptchaProvider | None) -> None:
     if not provider:
         return
     close = getattr(provider, "aclose", None)
@@ -42,7 +42,7 @@ class CompositeCaptchaProvider(CaptchaProvider):
         return last_result
 
 
-def _build_provider(provider_name: str) -> Optional[CaptchaProvider]:
+def _build_provider(provider_name: str) -> CaptchaProvider | None:
     if provider_name == "cnn":
         return CnnCaptchaProvider()
     if provider_name == "local_ocr":
@@ -60,7 +60,7 @@ def _build_provider(provider_name: str) -> Optional[CaptchaProvider]:
     return None
 
 
-def get_captcha_provider() -> Optional[CaptchaProvider]:
+def get_captcha_provider() -> CaptchaProvider | None:
     global _cached_provider, _cached_signature
     provider = utcms_config.CAPTCHA_PROVIDER
     if provider in ("off", "none", "disabled", ""):

@@ -4,12 +4,13 @@
 """
 
 import asyncio
-from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
+from typing import Any
+
 from playwright.async_api import Page
 
-from app.core.exceptions import MapInteractionError
 from app.automation.script_loader import script_loader
+from app.core.exceptions import MapInteractionError
 
 
 @dataclass
@@ -17,9 +18,9 @@ class GeoCoordinate:
     """مختصات جغرافیایی"""
     latitude: float
     longitude: float
-    address: Optional[str] = None
+    address: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "lat": self.latitude,
             "lng": self.longitude,
@@ -32,9 +33,9 @@ class MapSelection:
     """نتیجه انتخاب روی نقشه"""
     origin: GeoCoordinate
     destination: GeoCoordinate
-    distance_km: Optional[float] = None
-    duration_min: Optional[float] = None
-    route_polyline: Optional[str] = None
+    distance_km: float | None = None
+    duration_min: float | None = None
+    route_polyline: str | None = None
 
 
 class MapController:
@@ -55,9 +56,9 @@ class MapController:
     def __init__(self, page: Page):
         self.page = page
         self.map_type = None
-        self.map_selector: Optional[str] = None
+        self.map_selector: str | None = None
 
-    async def detect_map_type(self) -> Optional[str]:
+    async def detect_map_type(self) -> str | None:
         """
         تشخیص نوع نقشه مورد استفاده
 
@@ -117,16 +118,16 @@ class MapController:
 
         return None
 
-    async def _resolve_map_selector(self, preferred_selector: Optional[str] = None) -> Optional[str]:
+    async def _resolve_map_selector(self, preferred_selector: str | None = None) -> str | None:
         """Resolve a usable map selector with runtime discovery fallback."""
-        selector_candidates: List[str] = []
+        selector_candidates: list[str] = []
         if preferred_selector:
             selector_candidates.append(preferred_selector)
         if self.map_selector:
             selector_candidates.append(self.map_selector)
         selector_candidates.extend(self.MAP_CONTAINER_SELECTORS)
 
-        unique_candidates: List[str] = []
+        unique_candidates: list[str] = []
         for selector in selector_candidates:
             if selector and selector not in unique_candidates:
                 unique_candidates.append(selector)
@@ -144,9 +145,9 @@ class MapController:
 
     async def select_on_map(
         self,
-        selector: Optional[str],
+        selector: str | None,
         location: GeoCoordinate,
-        search_input_selector: Optional[str] = None
+        search_input_selector: str | None = None
     ) -> bool:
         """
         انتخاب یک مکان روی نقشه
@@ -189,8 +190,8 @@ class MapController:
     async def _select_google_maps(
         self,
         location: GeoCoordinate,
-        search_input_selector: Optional[str] = None,
-        map_selector: Optional[str] = None,
+        search_input_selector: str | None = None,
+        map_selector: str | None = None,
     ) -> bool:
         """انتخاب مکان روی Google Maps"""
 
@@ -267,8 +268,8 @@ class MapController:
     async def _select_mapbox(
         self,
         location: GeoCoordinate,
-        search_input_selector: Optional[str] = None,
-        map_selector: Optional[str] = None,
+        search_input_selector: str | None = None,
+        map_selector: str | None = None,
     ) -> bool:
         """انتخاب مکان روی Mapbox"""
         script = script_loader.load("mapbox_select")
@@ -409,8 +410,8 @@ class MapController:
         self,
         origin: GeoCoordinate,
         destination: GeoCoordinate,
-        origin_input_selector: Optional[str] = None,
-        dest_input_selector: Optional[str] = None
+        origin_input_selector: str | None = None,
+        dest_input_selector: str | None = None
     ) -> MapSelection:
         """
         تنظیم مبدا و مقصد روی نقشه و دریافت اطلاعات مسیر
@@ -454,7 +455,7 @@ class MapController:
         await self.wait_for_route_calculation()
 
         # استخراج اطلاعات مسیر
-        route_info = await self._extract_route_info()
+        route_info = await self.extract_route_info()
 
         return MapSelection(
             origin=origin,
@@ -464,7 +465,7 @@ class MapController:
             route_polyline=route_info.get('polyline')
         )
 
-    async def _extract_route_info(self) -> Dict[str, Any]:
+    async def extract_route_info(self) -> dict[str, Any]:
         """استخراج اطلاعات مسیر از نقشه"""
 
         # تلاش برای استخراج از Google Maps
@@ -476,7 +477,7 @@ class MapController:
         script = script_loader.load("extract_route_info_generic")
         return await self.page.evaluate(script)
 
-    async def search_address(self, query: str, input_selector: str) -> List[Dict[str, Any]]:
+    async def search_address(self, query: str, input_selector: str) -> list[dict[str, Any]]:
         """
         جستجوی آدرس و بازگرداندن پیشنهادات
 
@@ -497,7 +498,7 @@ class MapController:
         script = script_loader.load("extract_suggestions")
         return await self.page.evaluate(script)
 
-    async def get_current_map_center(self) -> Optional[GeoCoordinate]:
+    async def get_current_map_center(self) -> GeoCoordinate | None:
         """دریافت مختصات فعلی مرکز نقشه"""
         script = script_loader.load("get_map_center")
         result = await self.page.evaluate(script)

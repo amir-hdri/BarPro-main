@@ -47,11 +47,6 @@ from app.core.telemetry import (
     report_generator,
     telemetry_collector,
 )
-from app.automation.resource_optimizer import (
-    OptimizedBrowserPool,
-    MemoryTracker,
-)
-from app.core.exceptions import AuthenticationError
 
 logger = logging.getLogger(__name__)
 

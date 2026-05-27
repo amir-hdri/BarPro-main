@@ -6,9 +6,7 @@ All services enforce tenant isolation - clients can only access their own data.
 import json
 import logging
 import uuid
-from datetime import date
-from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Tuple
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlmodel import col, select
@@ -42,9 +40,6 @@ from app.rpa.event_taxonomy import (
     timeline_phase_for,
     timeline_title_for,
 )
-from app.services.rpa_dispatch_service import rpa_dispatch_service
-from app.services.rpa_runtime_service import rpa_runtime
-from app.services.rpa_scheduler_service import rpa_scheduler_service
 from app.schemas.multitenant import (
     AdminClientUpdateRequest,
     AdminLoginRequest,
@@ -72,11 +67,14 @@ from app.schemas.multitenant import (
     WaybillJobResponse,
     WaybillRetryRequest,
 )
+from app.services.rpa_dispatch_service import rpa_dispatch_service
+from app.services.rpa_runtime_service import rpa_runtime
+from app.services.rpa_scheduler_service import rpa_scheduler_service
 
 logger = logging.getLogger(__name__)
 
 
-def _safe_json_payload(raw: Optional[str]) -> Optional[dict]:
+def _safe_json_payload(raw: str | None) -> dict | None:
     if not raw:
         return None
     try:
@@ -121,7 +119,7 @@ def _timeline_matches_query(entry: TaskTimelineEntry, query: TaskTimelineQuery) 
     return True
 
 
-def _parse_weekdays_csv(raw: Optional[str]) -> list[int]:
+def _parse_weekdays_csv(raw: str | None) -> list[int]:
     if not raw:
         return []
     output: list[int] = []
@@ -134,20 +132,20 @@ def _parse_weekdays_csv(raw: Optional[str]) -> list[int]:
     return sorted(set(output))
 
 
-def _build_weekdays_csv(values: Optional[list[int]]) -> Optional[str]:
+def _build_weekdays_csv(values: list[int] | None) -> str | None:
     if not values:
         return None
     normalized = sorted({int(item) for item in values if 0 <= int(item) <= 6})
     return ",".join(str(item) for item in normalized) if normalized else None
 
 
-def _parse_csv_list(raw: Optional[str]) -> list[str]:
+def _parse_csv_list(raw: str | None) -> list[str]:
     if not raw:
         return []
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-def _build_csv_list(values: Optional[list[str]]) -> Optional[str]:
+def _build_csv_list(values: list[str] | None) -> str | None:
     if not values:
         return None
     normalized = [item.strip() for item in values if item and item.strip()]
@@ -231,7 +229,7 @@ class ClientService:
             )
 
         # Update last login time
-        client.last_login_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        client.last_login_at = datetime.now(UTC).replace(tzinfo=None)
         await session.commit()
 
         # Create JWT token
@@ -290,7 +288,7 @@ class ClientService:
         session: AsyncSession,
     ) -> ClientStatsResponse:
         """Get client dashboard statistics."""
-        today = datetime.now(timezone.utc).replace(tzinfo=None).date()
+        today = datetime.now(UTC).replace(tzinfo=None).date()
         today_start = datetime.combine(today, datetime.min.time())
 
         # Count drivers
@@ -348,11 +346,11 @@ class ClientService:
     async def list_clients(
         session: AsyncSession,
         *,
-        q: Optional[str] = None,
-        status_filter: Optional[str] = None,
+        q: str | None = None,
+        status_filter: str | None = None,
         page: int = 1,
         page_size: int = 20,
-    ) -> List[ClientResponse]:
+    ) -> list[ClientResponse]:
         """List tenant accounts for master admin operations with search and pagination."""
         statement = select(Client)
         if status_filter:
@@ -399,7 +397,7 @@ class ClientService:
         if request.password:
             client.hashed_password = hash_password(request.password)
 
-        client.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        client.updated_at = datetime.now(UTC).replace(tzinfo=None)
         session.add(client)
         await session.commit()
         await session.refresh(client)
@@ -487,16 +485,16 @@ class DriverService:
     async def list_drivers(
         client: Client,
         session: AsyncSession,
-        status_filter: Optional[str] = None,
+        status_filter: str | None = None,
         page: int = 1,
         page_size: int = 20,
-    ) -> List[DriverResponse]:
+    ) -> list[DriverResponse]:
         """List all drivers for the client."""
         statement = select(Driver).where(Driver.client_id == client.id)
         if status_filter:
             statement = statement.where(Driver.status == status_filter)
         statement = statement.offset((page - 1) * page_size).limit(page_size)
-        
+
         result = await session.exec(statement)
         drivers = result.all()
 
@@ -568,11 +566,11 @@ class DriverService:
         update_data = request.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             if field == "utcms_password" and value:
-                setattr(driver, "utcms_password_encrypted", encrypt_driver_password(value))
+                driver.utcms_password_encrypted = encrypt_driver_password(value)
             elif field != "utcms_password":
                 setattr(driver, field, value)
 
-        driver.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        driver.updated_at = datetime.now(UTC).replace(tzinfo=None)
         session.add(driver)
         await session.commit()
         await session.refresh(driver)
@@ -616,7 +614,7 @@ class DriverService:
         client: Client,
         driver_id: int,
         session: AsyncSession,
-    ) -> Tuple[str, str]:
+    ) -> tuple[str, str]:
         """Get driver's UTCMS credentials (decrypted) for RPA bot."""
         driver = await session.get(Driver, driver_id)
         if not driver:
@@ -674,7 +672,7 @@ class PlateService:
         return PlateResponse.model_validate(plate)
 
     @staticmethod
-    async def list_plates(client: Client, session: AsyncSession, driver_id: Optional[int] = None) -> List[PlateResponse]:
+    async def list_plates(client: Client, session: AsyncSession, driver_id: int | None = None) -> list[PlateResponse]:
         statement = select(DriverPlate).where(DriverPlate.client_id == client.id)
         if driver_id:
             statement = statement.where(DriverPlate.driver_id == driver_id)
@@ -692,7 +690,7 @@ class PlateService:
         update_data = request.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(plate, field, value)
-        plate.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        plate.updated_at = datetime.now(UTC).replace(tzinfo=None)
         session.add(plate)
         await session.commit()
         await session.refresh(plate)
@@ -761,7 +759,7 @@ class DriverScheduleService:
         return DriverScheduleService._schedule_response(schedule)
 
     @staticmethod
-    async def list_schedules(client: Client, session: AsyncSession, driver_id: Optional[int] = None) -> List[DriverScheduleResponse]:
+    async def list_schedules(client: Client, session: AsyncSession, driver_id: int | None = None) -> list[DriverScheduleResponse]:
         statement = select(DriverSchedule).where(DriverSchedule.client_id == client.id)
         if driver_id:
             statement = statement.where(DriverSchedule.driver_id == driver_id)
@@ -792,7 +790,7 @@ class DriverScheduleService:
             item.payload_template_json = json.dumps(payload.pop("payload_template") or {}, ensure_ascii=False)
         for field, value in payload.items():
             setattr(item, field, value)
-        item.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        item.updated_at = datetime.now(UTC).replace(tzinfo=None)
         session.add(item)
         await session.commit()
         await session.refresh(item)
@@ -809,7 +807,7 @@ class DriverScheduleService:
 
     @staticmethod
     async def run_due_schedules(client: Client, session: AsyncSession) -> dict:
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         today = now.date()
         current_hhmm = now.strftime("%H:%M")
         schedules = (
@@ -953,7 +951,7 @@ class WaybillJobService:
         # Get paginated results
         statement = statement.order_by(col(WaybillJob.created_at).desc())
         statement = statement.offset((filters.page - 1) * filters.page_size).limit(filters.page_size)
-        
+
         result = await session.exec(statement)
         jobs = result.all()
 
@@ -994,7 +992,7 @@ class WaybillJobService:
         client: Client,
         job_id: str,
         session: AsyncSession,
-        request: Optional[WaybillRetryRequest] = None,
+        request: WaybillRetryRequest | None = None,
     ) -> WaybillJobResponse:
         """Manually retry or requeue a job with optional payload overrides."""
         statement = select(WaybillJob).where(
@@ -1017,7 +1015,7 @@ class WaybillJobService:
             )
 
         retry_request = request or WaybillRetryRequest()
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         event_payload: dict[str, object] = {
             "requested_at": now.isoformat(),
             "dispatch_now": retry_request.dispatch_now,
@@ -1107,7 +1105,7 @@ class WaybillJobService:
         client: Client,
         job_id: str,
         session: AsyncSession,
-        filters: Optional[TaskTimelineQuery] = None,
+        filters: TaskTimelineQuery | None = None,
     ) -> TaskTimelineResponse:
         """Get a merged timeline of domain events and task logs for a job."""
         query = filters or TaskTimelineQuery()
@@ -1233,8 +1231,8 @@ class WaybillJobService:
         client_id: int,
         step: str,
         status: str,
-        message: Optional[str] = None,
-        details_json: Optional[str] = None,
+        message: str | None = None,
+        details_json: str | None = None,
     ) -> None:
         """Add a log entry for a job."""
         log = WaybillTaskLog(

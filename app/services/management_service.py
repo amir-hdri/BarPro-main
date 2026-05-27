@@ -1,12 +1,12 @@
 import hashlib
 import json
-import os
 import math
+import os
 import tempfile
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,12 +29,12 @@ from app.queue.queue_manager import queue_manager
 from app.realtime.events import event_hub
 from app.schemas.management import (
     ManagedAccountUpsertRequest,
-    ManagementBootstrapRequest,
-    ManagementExcelImportOptions,
     ManagedCustomerUpsertRequest,
     ManagedQueueCreateRequest,
     ManagedQueueDispatchRequest,
     ManagedRouteUpsertRequest,
+    ManagementBootstrapRequest,
+    ManagementExcelImportOptions,
 )
 from app.services.session_vault import session_vault
 from app.services.task_service import task_service
@@ -46,7 +46,7 @@ def _safe_json_dump(value: Any) -> str:
     return json.dumps(value if value is not None else {}, ensure_ascii=False)
 
 
-def _safe_json_load(raw: Optional[str]) -> Any:
+def _safe_json_load(raw: str | None) -> Any:
     if not raw:
         return None
     try:
@@ -55,7 +55,7 @@ def _safe_json_load(raw: Optional[str]) -> Any:
         return None
 
 
-def _to_bool(value: Any) -> Optional[bool]:
+def _to_bool(value: Any) -> bool | None:
     if value is None:
         return None
     if isinstance(value, bool):
@@ -70,7 +70,7 @@ def _to_bool(value: Any) -> Optional[bool]:
     return None
 
 
-def _parse_location_details(raw_value: Any) -> Dict[str, Any]:
+def _parse_location_details(raw_value: Any) -> dict[str, Any]:
     if raw_value is None:
         return {}
     if isinstance(raw_value, dict):
@@ -87,7 +87,7 @@ def _parse_location_details(raw_value: Any) -> Dict[str, Any]:
         return {}
 
 
-def _extract_coordinates(details: Dict[str, Any]) -> tuple[Optional[float], Optional[float]]:
+def _extract_coordinates(details: dict[str, Any]) -> tuple[float | None, float | None]:
     geom = details.get("geom") or {}
     coords = geom.get("coordinates") if isinstance(geom, dict) else None
     if isinstance(coords, list) and len(coords) >= 2:
@@ -98,7 +98,7 @@ def _extract_coordinates(details: Dict[str, Any]) -> tuple[Optional[float], Opti
     return None, None
 
 
-def _build_route_key(source: Dict[str, Any], destination: Dict[str, Any], fallback_name: Optional[str] = None) -> str:
+def _build_route_key(source: dict[str, Any], destination: dict[str, Any], fallback_name: str | None = None) -> str:
     seed = {
         "fallback_name": fallback_name or "",
         "source": {
@@ -118,14 +118,14 @@ def _build_route_key(source: Dict[str, Any], destination: Dict[str, Any], fallba
     return f"route-{digest}"
 
 
-def _slug_text(value: Optional[str], fallback: str) -> str:
+def _slug_text(value: str | None, fallback: str) -> str:
     text = (value or "").strip()
     if not text:
         return fallback
     return text.replace(" ", "-")
 
 
-def _location_to_management_details(location: Any) -> Dict[str, Any]:
+def _location_to_management_details(location: Any) -> dict[str, Any]:
     coordinates = getattr(location, "coordinates", None)
     lng = getattr(coordinates, "lng", None) if coordinates else None
     lat = getattr(coordinates, "lat", None) if coordinates else None
@@ -156,11 +156,11 @@ def _normalize_operation_mode(value: Any) -> str:
 
 
 def _estimate_route_metrics(
-    origin_lat: Optional[float],
-    origin_lng: Optional[float],
-    destination_lat: Optional[float],
-    destination_lng: Optional[float],
-) -> tuple[Optional[float], Optional[float]]:
+    origin_lat: float | None,
+    origin_lng: float | None,
+    destination_lat: float | None,
+    destination_lng: float | None,
+) -> tuple[float | None, float | None]:
     if None in {origin_lat, origin_lng, destination_lat, destination_lng}:
         return None, None
     lat1 = math.radians(float(origin_lat))
@@ -178,7 +178,7 @@ def _estimate_route_metrics(
 
 class ManagementService:
     @staticmethod
-    def _extract_account_auth_details(raw_payload: Any) -> Dict[str, Optional[str]]:
+    def _extract_account_auth_details(raw_payload: Any) -> dict[str, str | None]:
         payload = raw_payload
         if isinstance(raw_payload, str):
             payload = _safe_json_load(raw_payload) or {}
@@ -202,9 +202,9 @@ class ManagementService:
     def _account_auth_state_path(
         cls,
         *,
-        external_name: Optional[str] = None,
-        national_code: Optional[str] = None,
-        phone_number: Optional[str] = None,
+        external_name: str | None = None,
+        national_code: str | None = None,
+        phone_number: str | None = None,
         raw_payload: Any = None,
     ) -> str:
         auth_details = cls._extract_account_auth_details(raw_payload)
@@ -215,7 +215,7 @@ class ManagementService:
         )
 
     @staticmethod
-    def _account_has_session_state(account: Dict[str, Any]) -> bool:
+    def _account_has_session_state(account: dict[str, Any]) -> bool:
         path = ManagementService._account_auth_state_path(
             external_name=account.get("external_name"),
             national_code=account.get("national_code"),
@@ -224,7 +224,7 @@ class ManagementService:
         )
         return session_vault.auth_state_exists(path)
 
-    async def upsert_customer(self, request: ManagedCustomerUpsertRequest) -> Dict[str, Any]:
+    async def upsert_customer(self, request: ManagedCustomerUpsertRequest) -> dict[str, Any]:
         async with AsyncSession(engine) as session:
             statement = select(ManagedCustomer).where(
                 ManagedCustomer.source_system == request.source_system,
@@ -246,13 +246,13 @@ class ManagementService:
             record.two_way = request.two_way
             record.remaining_duration = request.remaining_duration
             record.raw_json = _safe_json_dump(request.raw)
-            record.synced_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            record.synced_at = datetime.now(UTC).replace(tzinfo=None)
             session.add(record)
             await session.commit()
             await session.refresh(record)
             return self._customer_to_dict(record)
 
-    async def upsert_route(self, request: ManagedRouteUpsertRequest) -> Dict[str, Any]:
+    async def upsert_route(self, request: ManagedRouteUpsertRequest) -> dict[str, Any]:
         async with AsyncSession(engine) as session:
             statement = select(ManagedRoute).where(
                 ManagedRoute.source_system == request.source_system,
@@ -269,13 +269,13 @@ class ManagementService:
                     continue
                 setattr(record, field, getattr(request, field))
             record.raw_json = _safe_json_dump(request.raw)
-            record.synced_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            record.synced_at = datetime.now(UTC).replace(tzinfo=None)
             session.add(record)
             await session.commit()
             await session.refresh(record)
             return self._route_to_dict(record)
 
-    async def upsert_account(self, request: ManagedAccountUpsertRequest) -> Dict[str, Any]:
+    async def upsert_account(self, request: ManagedAccountUpsertRequest) -> dict[str, Any]:
         async with AsyncSession(engine) as session:
             statement = select(ManagedAccount).where(
                 ManagedAccount.source_system == request.source_system,
@@ -312,28 +312,28 @@ class ManagementService:
             record.payment_details_json = data["payment_details_json"]
             record.flags_json = _safe_json_dump(data["flags"])
             record.raw_json = _safe_json_dump(data["raw"])
-            record.synced_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            record.synced_at = datetime.now(UTC).replace(tzinfo=None)
             session.add(record)
             await session.commit()
             await session.refresh(record)
             return self._account_to_dict(record)
 
-    async def list_customers(self) -> list[Dict[str, Any]]:
+    async def list_customers(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
             rows = (await session.execute(select(ManagedCustomer).order_by(ManagedCustomer.synced_at.desc()))).scalars().all()
             return [self._customer_to_dict(row) for row in rows]
 
-    async def list_routes(self) -> list[Dict[str, Any]]:
+    async def list_routes(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
             rows = (await session.execute(select(ManagedRoute).order_by(ManagedRoute.synced_at.desc()))).scalars().all()
             return [self._route_to_dict(row) for row in rows]
 
-    async def list_accounts(self) -> list[Dict[str, Any]]:
+    async def list_accounts(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
             rows = (await session.execute(select(ManagedAccount).order_by(ManagedAccount.synced_at.desc()))).scalars().all()
             return [self._account_to_dict(row) for row in rows]
 
-    async def warm_account_session(self, account_external_name: str) -> Dict[str, Any]:
+    async def warm_account_session(self, account_external_name: str) -> dict[str, Any]:
         async with AsyncSession(engine) as session:
             statement = select(ManagedAccount).where(ManagedAccount.external_name == account_external_name)
             record = (await session.execute(statement)).scalars().first()
@@ -355,7 +355,7 @@ class ManagementService:
             raw_payload=raw_payload,
         )
 
-        internal_session_id: Optional[str] = None
+        internal_session_id: str | None = None
         try:
             await browser_manager.initialize()
             proxy_info = await get_proxy_rotator().get_next()
@@ -387,12 +387,12 @@ class ManagementService:
             if internal_session_id:
                 await browser_manager.close_context(internal_session_id)
 
-    async def list_queue(self) -> list[Dict[str, Any]]:
+    async def list_queue(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
             rows = (await session.execute(select(ManagedQueueItem).order_by(ManagedQueueItem.updated_at.desc()))).scalars().all()
             return [self._queue_to_dict(row) for row in rows]
 
-    async def summary(self) -> Dict[str, Any]:
+    async def summary(self) -> dict[str, Any]:
         customers = await self.list_customers()
         routes = await self.list_routes()
         accounts = await self.list_accounts()
@@ -413,7 +413,7 @@ class ManagementService:
             "external_synced_items_count": imported_queue_count,
         }
 
-    async def diagnostics(self) -> Dict[str, Any]:
+    async def diagnostics(self) -> dict[str, Any]:
         customers = await self.list_customers()
         routes = await self.list_routes()
         accounts = await self.list_accounts()
@@ -498,11 +498,11 @@ class ManagementService:
         return candidate
 
     @classmethod
-    def _list_artifacts_for_task(cls, task_id: str) -> list[Dict[str, Any]]:
+    def _list_artifacts_for_task(cls, task_id: str) -> list[dict[str, Any]]:
         root = cls._artifact_root()
         if not root.exists():
             return []
-        files: list[Dict[str, Any]] = []
+        files: list[dict[str, Any]] = []
         for path in sorted(root.glob(f"**/{task_id}/**/*")):
             if not path.is_file():
                 continue
@@ -519,7 +519,7 @@ class ManagementService:
         files.sort(key=lambda item: item["modified_at"], reverse=True)
         return files
 
-    async def operator_dashboard(self) -> Dict[str, Any]:
+    async def operator_dashboard(self) -> dict[str, Any]:
         summary = await self.summary()
         queue_snapshot = await task_service.queue_snapshot()
         recent_tasks = await task_service.list_tasks(limit=12)
@@ -538,7 +538,7 @@ class ManagementService:
             "recent_events": event_hub.history()[-20:],
         }
 
-    async def operator_tasks(self, limit: int = 50) -> Dict[str, Any]:
+    async def operator_tasks(self, limit: int = 50) -> dict[str, Any]:
         tasks = await task_service.list_tasks(limit=limit)
         enriched = []
         for task in tasks:
@@ -547,7 +547,7 @@ class ManagementService:
             enriched.append(row)
         return {"tasks": enriched, "count": len(enriched)}
 
-    async def operator_artifacts(self, task_id: str) -> Dict[str, Any]:
+    async def operator_artifacts(self, task_id: str) -> dict[str, Any]:
         task = await task_service.get_task_status(task_id)
         return {
             "task": task,
@@ -555,7 +555,7 @@ class ManagementService:
             "event_history": event_hub.history(task_id=task_id),
         }
 
-    async def read_artifact_content(self, relative_path: str) -> Dict[str, Any]:
+    async def read_artifact_content(self, relative_path: str) -> dict[str, Any]:
         target = self._safe_artifact_path(relative_path)
         if not target.exists() or not target.is_file():
             raise HTTPException(status_code=404, detail="artifact not found")
@@ -569,7 +569,7 @@ class ManagementService:
             }
         raise HTTPException(status_code=400, detail="artifact preview is only available for text-based files")
 
-    async def create_queue_item(self, request: ManagedQueueCreateRequest) -> Dict[str, Any]:
+    async def create_queue_item(self, request: ManagedQueueCreateRequest) -> dict[str, Any]:
         queue_item_id = str(uuid.uuid4())
         payload_json = request.waybill_payload.model_dump_json() if request.waybill_payload else None
         operation_mode = _normalize_operation_mode(request.operation_mode)
@@ -593,7 +593,7 @@ class ManagementService:
             await session.refresh(record)
             return self._queue_to_dict(record)
 
-    async def bootstrap_local_scenario(self, request: ManagementBootstrapRequest) -> Dict[str, Any]:
+    async def bootstrap_local_scenario(self, request: ManagementBootstrapRequest) -> dict[str, Any]:
         payload = request.waybill_payload
         customer_external_key = request.customer_external_key or request.bot_owner or "local-operations"
         customer_name = request.customer_name or request.bot_owner or "Local Operations"
@@ -752,7 +752,7 @@ class ManagementService:
             "queue_item": queue_item,
         }
 
-    async def import_excel_workbook(self, content: bytes, filename: str, options: ManagementExcelImportOptions) -> Dict[str, Any]:
+    async def import_excel_workbook(self, content: bytes, filename: str, options: ManagementExcelImportOptions) -> dict[str, Any]:
         suffix = os.path.splitext(filename or "")[1] or ".xlsx"
         temp_path = None
         geo_resolver = ReverseGeoResolver(enabled=options.reverse_geo_enabled)
@@ -846,7 +846,7 @@ class ManagementService:
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
 
-    async def dispatch_queue_item(self, queue_item_id: str, request: ManagedQueueDispatchRequest) -> Dict[str, Any]:
+    async def dispatch_queue_item(self, queue_item_id: str, request: ManagedQueueDispatchRequest) -> dict[str, Any]:
         async with AsyncSession(engine) as session:
             statement = select(ManagedQueueItem).where(ManagedQueueItem.queue_item_id == queue_item_id)
             record = (await session.execute(statement)).scalars().first()
@@ -876,7 +876,7 @@ class ManagementService:
                         "account_external_name": account_record.external_name,
                     }
                 )
-                record.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                record.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 session.add(record)
                 await session.commit()
                 await session.refresh(record)
@@ -903,7 +903,7 @@ class ManagementService:
                         "warm_session": warm_session_result,
                     }
                 )
-                record.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                record.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 session.add(record)
                 await session.commit()
                 raise
@@ -917,15 +917,15 @@ class ManagementService:
                     "auth_strategy": "session-first" if request.warm_session_first else "direct-enqueue",
                 }
             )
-            record.dispatched_at = datetime.now(timezone.utc).replace(tzinfo=None)
-            record.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            record.dispatched_at = datetime.now(UTC).replace(tzinfo=None)
+            record.updated_at = datetime.now(UTC).replace(tzinfo=None)
             session.add(record)
             await session.commit()
             await session.refresh(record)
             return self._queue_to_dict(record)
 
 
-    async def get_sync_logs(self) -> list[Dict[str, Any]]:
+    async def get_sync_logs(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
             rows = (await session.execute(select(ManagedSyncLog).order_by(ManagedSyncLog.created_at.desc()))).scalars().all()
             return [
@@ -946,8 +946,8 @@ class ManagementService:
         source_system: str,
         sync_type: str,
         status: str,
-        summary: Dict[str, Any],
-        error_text: Optional[str] = None,
+        summary: dict[str, Any],
+        error_text: str | None = None,
     ) -> None:
         async with AsyncSession(engine) as session:
             log_record = ManagedSyncLog(
@@ -961,7 +961,7 @@ class ManagementService:
             await session.commit()
 
     @staticmethod
-    def _customer_to_dict(record: ManagedCustomer) -> Dict[str, Any]:
+    def _customer_to_dict(record: ManagedCustomer) -> dict[str, Any]:
         return {
             "id": record.id,
             "source_system": record.source_system,
@@ -979,7 +979,7 @@ class ManagementService:
         }
 
     @staticmethod
-    def _route_to_dict(record: ManagedRoute) -> Dict[str, Any]:
+    def _route_to_dict(record: ManagedRoute) -> dict[str, Any]:
         return {
             "id": record.id,
             "source_system": record.source_system,
@@ -1007,7 +1007,7 @@ class ManagementService:
         }
 
     @staticmethod
-    def _account_to_dict(record: ManagedAccount) -> Dict[str, Any]:
+    def _account_to_dict(record: ManagedAccount) -> dict[str, Any]:
         raw = _safe_json_load(record.raw_json)
         auth_details = ManagementService._extract_account_auth_details(raw)
         session_state_path = ManagementService._account_auth_state_path(
@@ -1052,7 +1052,7 @@ class ManagementService:
         }
 
     @staticmethod
-    def _queue_to_dict(record: ManagedQueueItem) -> Dict[str, Any]:
+    def _queue_to_dict(record: ManagedQueueItem) -> dict[str, Any]:
         return {
             "id": record.id,
             "queue_item_id": record.queue_item_id,

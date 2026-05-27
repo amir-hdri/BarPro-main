@@ -1,10 +1,13 @@
+from datetime import timedelta
+
 import pytest
 from httpx import AsyncClient
 from sqlmodel import Session
+
+from app.auth_multitenant import create_access_token
 from app.main import app
 from app.models_multitenant import Client, ClientStatus
-from app.auth_multitenant import create_access_token
-from datetime import timedelta
+
 
 @pytest.mark.asyncio
 async def test_driver_limit(db_session: Session):

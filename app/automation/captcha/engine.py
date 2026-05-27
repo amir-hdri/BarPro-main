@@ -1,7 +1,5 @@
 import re
 from dataclasses import dataclass
-from typing import Optional
-
 
 _DIGIT_TRANSLATION = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 _WORD_OPERATORS = {
@@ -19,15 +17,15 @@ _WORD_OPERATORS = {
 
 @dataclass(frozen=True)
 class CaptchaSolveDecision:
-    value: Optional[str]
+    value: str | None
     confidence: float
-    strategy: Optional[str] = None
+    strategy: str | None = None
 
 
 class CaptchaEngine:
     """Parses math-like captcha hints extracted from the login page."""
 
-    def solve_text(self, captcha_hint: str) -> Optional[str]:
+    def solve_text(self, captcha_hint: str) -> str | None:
         decision = self.solve_text_with_confidence(captcha_hint)
         if decision.value is not None:
             return decision.value
@@ -79,7 +77,7 @@ class CaptchaEngine:
         return " ".join(normalized.split())
 
     @staticmethod
-    def _extract_expression(normalized: str) -> Optional[tuple[str, str, str]]:
+    def _extract_expression(normalized: str) -> tuple[str, str, str] | None:
         match = re.search(r"(-?\d+)\s*([+\-*/x])\s*(-?\d+)", normalized)
         if not match:
             return None

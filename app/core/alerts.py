@@ -1,7 +1,7 @@
 import json
 import logging
 import urllib.request
-from typing import Any, Dict
+from typing import Any
 
 from app.core.config import utcms_config
 
@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class AlertManager:
-    def emit(self, severity: str, title: str, payload: Dict[str, Any]) -> None:
+    def emit(self, severity: str, title: str, payload: dict[str, Any]) -> None:
         message = {
             "severity": severity,
             "title": title,

@@ -1,8 +1,8 @@
 import asyncio
 import logging
+import os
 import time
 import uuid
-import os
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
@@ -12,14 +12,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import admin_reporting, itmb_ws, management, multitenant, realtime, reports, rpa_phase1, system, ui, user_reporting, waybill_map, waybill_entry
+from app.api.routes import (
+    admin_reporting,
+    itmb_ws,
+    management,
+    multitenant,
+    realtime,
+    reports,
+    rpa_phase1,
+    system,
+    ui,
+    user_reporting,
+    waybill_entry,
+    waybill_map,
+)
 from app.automation.browser import browser_manager
 from app.automation.captcha import barname_ml_solver
-from app.core.config import AUTO_GENERATED_SECRETS, utcms_config
 from app.automation.proxy_rotator import get_proxy_rotator
+from app.core.config import AUTO_GENERATED_SECRETS, utcms_config
 from app.core.database import init_db
-from app.core.execution_context import bind_execution_context, reset_execution_context
 from app.core.exceptions import UTCMSException
+from app.core.execution_context import bind_execution_context, reset_execution_context
 from app.core.logging import configure_logging, reset_request_id, set_request_id
 from app.core.rate_limiter import add_rate_limit_headers, rate_limiter
 from app.core.tracing import setup_tracing, shutdown_tracing, trace_span
@@ -61,7 +74,7 @@ async def lifespan(app: FastAPI):
             "secrets_auto_generated",
             extra={"extra_fields": {"count": len(AUTO_GENERATED_SECRETS)}},
         )
-    
+
 
     # 1. Secrets initialization: initialize_secrets
     # Initialize Proxy Rotator from environment or file if configured
@@ -88,18 +101,18 @@ async def lifespan(app: FastAPI):
             "captcha_cnn_unavailable",
             extra={"extra_fields": {"model_path": str(barname_ml_solver.model_path)}},
         )
-    
+
     # Initialize distributed traffic controller
     from app.core.distributed_traffic import distributed_traffic_controller
     from app.core.recovery import recovery_manager
     await distributed_traffic_controller.initialize()
     watchdog_task = asyncio.create_task(recovery_manager.watchdog_loop())
-    
+
     # Initialize database
     await init_db()
-    
+
     yield
-    
+
     # Cleanup
     watchdog_task.cancel()
     await asyncio.gather(watchdog_task, return_exceptions=True)
@@ -247,7 +260,7 @@ async def general_exception_handler(request: Request, exc: Exception):
             }
         },
     )
-    
+
     return JSONResponse(
         status_code=500,
         content={

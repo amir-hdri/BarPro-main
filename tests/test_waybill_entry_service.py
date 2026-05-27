@@ -1,11 +1,12 @@
 from app.services.waybill_entry_service import (
+    clean_text,
+    format_plate,
     normalize_digits,
     normalize_float,
     normalize_int,
-    clean_text,
     normalize_phone,
-    format_plate,
 )
+
 
 def test_normalize_digits():
     assert normalize_digits("123") == "123"

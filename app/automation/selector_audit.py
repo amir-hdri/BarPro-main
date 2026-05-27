@@ -4,14 +4,14 @@ Analyzes selector usage patterns and suggests optimizations.
 """
 
 from collections import defaultdict
-from typing import Any, Dict, List
+from typing import Any
 
 
 class SelectorAudit:
     """Audit selector usage and suggest improvements."""
 
     def __init__(self):
-        self.usage_stats: Dict[str, Dict[str, Any]] = defaultdict(lambda: {"success": 0, "failure": 0, "fields": set()})
+        self.usage_stats: dict[str, dict[str, Any]] = defaultdict(lambda: {"success": 0, "failure": 0, "fields": set()})
 
     def record_usage(
         self,
@@ -27,7 +27,7 @@ class SelectorAudit:
             stats["failure"] += 1
         stats["fields"].add(field)
 
-    def analyze(self) -> Dict[str, Any]:
+    def analyze(self) -> dict[str, Any]:
         """Analyze selector patterns and return recommendations."""
         recommendations = {
             "weak_selectors": [],
@@ -64,7 +64,7 @@ class SelectorAudit:
 
         return recommendations
 
-    def suggest_selector_improvements(self, field_name: str, selectors: List[str]) -> List[str]:
+    def suggest_selector_improvements(self, field_name: str, selectors: list[str]) -> list[str]:
         """Suggest improved selector order based on historical success."""
         scored = []
         for selector in selectors:
@@ -169,7 +169,7 @@ CARGO_SELECTORS = {
 }
 
 
-def normalize_selectors() -> Dict[str, Dict[str, List[str]]]:
+def normalize_selectors() -> dict[str, dict[str, list[str]]]:
     """Return normalized selector mappings."""
     return {
         "sender": SENDER_SELECTORS,

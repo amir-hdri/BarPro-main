@@ -1,17 +1,17 @@
 import hashlib
 import json
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.core.config import utcms_config
 from app.core.alerts import alert_manager
-from app.core.execution_context import generate_correlation_id
+from app.core.config import utcms_config
 from app.core.database import engine
+from app.core.execution_context import generate_correlation_id
 from app.models_legacy import WaybillTask
 from app.monitoring.metrics import set_queue_depth, summarize_queue_depth, track_task_status
 from app.realtime.events import event_hub
@@ -20,7 +20,7 @@ from app.schemas.task import TaskStatus
 
 class WaybillTaskService:
     @staticmethod
-    def build_idempotency_key(payload: Dict[str, Any], provided: Optional[str] = None) -> str:
+    def build_idempotency_key(payload: dict[str, Any], provided: str | None = None) -> str:
         if provided is not None:
             candidate = str(provided).strip()
             if candidate:
@@ -35,10 +35,10 @@ class WaybillTaskService:
 
     async def create_or_get_task(
         self,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         idempotency_key: str,
-        max_retries: Optional[int] = None,
-    ) -> Tuple[WaybillTask, bool]:
+        max_retries: int | None = None,
+    ) -> tuple[WaybillTask, bool]:
         retries = utcms_config.CELERY_MAX_RETRIES if max_retries is None else max_retries
         payload.setdefault("correlation_id", generate_correlation_id())
         payload.setdefault("batch_id", payload.get("session_id") or payload["correlation_id"])
@@ -81,13 +81,13 @@ class WaybillTaskService:
                 task,
                 {
                     "celery_task_id": celery_task_id,
-                    "updated_at": datetime.now(timezone.utc).replace(tzinfo=None),
+                    "updated_at": datetime.now(UTC).replace(tzinfo=None),
                 },
             ),
         )
         await self._emit_task_event(task_id, "dispatched")
 
-    async def mark_processing(self, task_id: str, worker_id: Optional[str], attempt_count: int) -> None:
+    async def mark_processing(self, task_id: str, worker_id: str | None, attempt_count: int) -> None:
         await self._update_task(
             task_id,
             lambda task: self._apply_updates(
@@ -96,8 +96,8 @@ class WaybillTaskService:
                     "status": TaskStatus.PROCESSING.value,
                     "worker_id": worker_id,
                     "attempt_count": max(1, attempt_count),
-                    "started_at": task.started_at or datetime.now(timezone.utc).replace(tzinfo=None),
-                    "updated_at": datetime.now(timezone.utc).replace(tzinfo=None),
+                    "started_at": task.started_at or datetime.now(UTC).replace(tzinfo=None),
+                    "updated_at": datetime.now(UTC).replace(tzinfo=None),
                 },
             ),
             metric_status=TaskStatus.PROCESSING.value,
@@ -121,14 +121,14 @@ class WaybillTaskService:
                     "error_category": category,
                     "retryable": True,
                     "attempt_count": max(1, attempt_count),
-                    "updated_at": datetime.now(timezone.utc).replace(tzinfo=None),
+                    "updated_at": datetime.now(UTC).replace(tzinfo=None),
                 },
             ),
             metric_status=TaskStatus.RETRYING.value,
         )
         await self._emit_task_event(task_id, TaskStatus.RETRYING.value)
 
-    async def mark_success(self, task_id: str, result: Dict[str, Any], attempt_count: int) -> None:
+    async def mark_success(self, task_id: str, result: dict[str, Any], attempt_count: int) -> None:
         await self._update_task(
             task_id,
             lambda task: self._apply_updates(
@@ -139,8 +139,8 @@ class WaybillTaskService:
                     "last_error": None,
                     "retryable": False,
                     "attempt_count": max(1, attempt_count),
-                    "finished_at": datetime.now(timezone.utc).replace(tzinfo=None),
-                    "updated_at": datetime.now(timezone.utc).replace(tzinfo=None),
+                    "finished_at": datetime.now(UTC).replace(tzinfo=None),
+                    "updated_at": datetime.now(UTC).replace(tzinfo=None),
                 },
             ),
             metric_status=TaskStatus.SUCCEEDED.value,
@@ -167,8 +167,8 @@ class WaybillTaskService:
                     "error_category": category,
                     "retryable": bool(retryable),
                     "attempt_count": max(1, attempt_count),
-                    "finished_at": datetime.now(timezone.utc).replace(tzinfo=None),
-                    "updated_at": datetime.now(timezone.utc).replace(tzinfo=None),
+                    "finished_at": datetime.now(UTC).replace(tzinfo=None),
+                    "updated_at": datetime.now(UTC).replace(tzinfo=None),
                 },
             ),
             metric_status=next_status,
@@ -189,7 +189,7 @@ class WaybillTaskService:
                 },
             )
 
-    async def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
+    async def get_task_status(self, task_id: str) -> dict[str, Any] | None:
         async with AsyncSession(engine) as session:
             statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
             result = await session.execute(statement)
@@ -198,7 +198,7 @@ class WaybillTaskService:
                 return None
             return self._to_public_dict(task)
 
-    async def get_payload(self, task_id: str) -> Optional[Dict[str, Any]]:
+    async def get_payload(self, task_id: str) -> dict[str, Any] | None:
         async with AsyncSession(engine) as session:
             statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
             result = await session.execute(statement)
@@ -207,7 +207,7 @@ class WaybillTaskService:
                 return None
             return self._safe_json_load(task.payload_json)
 
-    async def queue_snapshot(self) -> Dict[str, int]:
+    async def queue_snapshot(self) -> dict[str, int]:
         async with AsyncSession(engine) as session:
             all_tasks = (await session.execute(select(WaybillTask.status))).all()
             counters = {
@@ -231,19 +231,19 @@ class WaybillTaskService:
                 "dead_letter": counters[TaskStatus.DEAD_LETTER.value],
             }
 
-    async def list_tasks(self, limit: int = 50) -> list[Dict[str, Any]]:
+    async def list_tasks(self, limit: int = 50) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
             statement = select(WaybillTask).order_by(WaybillTask.updated_at.desc()).limit(max(1, min(500, int(limit))))
             result = await session.execute(statement)
             tasks = result.scalars().all()
             return [self._to_public_dict(task) for task in tasks]
 
-    async def _find_by_idempotency_key(self, session: AsyncSession, key: str) -> Optional[WaybillTask]:
+    async def _find_by_idempotency_key(self, session: AsyncSession, key: str) -> WaybillTask | None:
         statement = select(WaybillTask).where(WaybillTask.idempotency_key == key)
         result = await session.execute(statement)
         return result.scalars().first()
 
-    async def _update_task(self, task_id: str, updater, metric_status: Optional[str] = None) -> None:
+    async def _update_task(self, task_id: str, updater, metric_status: str | None = None) -> None:
         async with AsyncSession(engine) as session:
             statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
             result = await session.execute(statement)
@@ -263,7 +263,7 @@ class WaybillTaskService:
         set_queue_depth(summarize_queue_depth(snapshot))
 
     @staticmethod
-    def _safe_json_load(raw: Optional[str]) -> Optional[Dict[str, Any]]:
+    def _safe_json_load(raw: str | None) -> dict[str, Any] | None:
         if not raw:
             return None
         try:
@@ -273,11 +273,11 @@ class WaybillTaskService:
             return None
 
     @staticmethod
-    def _apply_updates(task: WaybillTask, updates: Dict[str, Any]) -> None:
+    def _apply_updates(task: WaybillTask, updates: dict[str, Any]) -> None:
         for key, value in updates.items():
             setattr(task, key, value)
 
-    def _to_public_dict(self, task: WaybillTask) -> Dict[str, Any]:
+    def _to_public_dict(self, task: WaybillTask) -> dict[str, Any]:
         return {
             "task_id": task.task_id,
             "idempotency_key": task.idempotency_key,
