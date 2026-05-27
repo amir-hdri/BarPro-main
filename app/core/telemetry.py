@@ -10,13 +10,12 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from playwright.async_api import Page
-
 
 # ============================================================================
 # EVIDENCE COLLECTOR
@@ -40,12 +39,12 @@ class Evidence:
     timestamp: str
     workflow_id: str
     step_name: str
-    file_path: Optional[str] = None
-    file_size_bytes: Optional[int] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    error: Optional[str] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
+    file_path: str | None = None
+    file_size_bytes: int | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "evidence_id": self.evidence_id,
             "evidence_type": self.evidence_type.value,
@@ -64,7 +63,7 @@ class EvidenceCollector:
     Automatically captures evidence on failure for debugging.
     Stores screenshots, HTML dumps, and metadata in organized structure.
     """
-    
+
     def __init__(
         self,
         base_dir: str = "evidence",
@@ -76,15 +75,15 @@ class EvidenceCollector:
         self.max_evidence_per_workflow = max_evidence_per_workflow
         self.retention_days = retention_days
         self.auto_cleanup = auto_cleanup
-        self._evidence_log: List[Evidence] = []
-        self._workflow_counts: Dict[str, int] = {}
-        
+        self._evidence_log: list[Evidence] = []
+        self._workflow_counts: dict[str, int] = {}
+
         # Create base directory
         self.base_dir.mkdir(parents=True, exist_ok=True)
         (self.base_dir / "screenshots").mkdir(exist_ok=True)
         (self.base_dir / "html_dumps").mkdir(exist_ok=True)
         (self.base_dir / "metadata").mkdir(exist_ok=True)
-    
+
     async def capture_failure_evidence(
         self,
         page: Page,
@@ -92,7 +91,7 @@ class EvidenceCollector:
         step_name: str,
         error_code: str,
         error_message: str,
-    ) -> List[Evidence]:
+    ) -> list[Evidence]:
         """
         Capture comprehensive evidence when a step fails.
         
@@ -107,8 +106,8 @@ class EvidenceCollector:
             List of captured evidence objects
         """
         evidence_list = []
-        timestamp = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y%m%d_%H%M%S")
-        
+        timestamp = datetime.now(UTC).replace(tzinfo=None).strftime("%Y%m%d_%H%M%S")
+
         # Check evidence limit
         current_count = self._workflow_counts.get(workflow_id, 0)
         if current_count >= self.max_evidence_per_workflow:
@@ -123,38 +122,38 @@ class EvidenceCollector:
                 }
             )
             return evidence_list
-        
+
         # 1. Capture full-page screenshot
         screenshot_evidence = await self._capture_screenshot(
             page, workflow_id, step_name, timestamp, error_code
         )
         if screenshot_evidence:
             evidence_list.append(screenshot_evidence)
-        
+
         # 2. Capture HTML DOM dump
         html_evidence = await self._capture_html_dump(
             page, workflow_id, step_name, timestamp, error_code
         )
         if html_evidence:
             evidence_list.append(html_evidence)
-        
+
         # 3. Capture console logs
         console_evidence = await self._capture_console_logs(
             page, workflow_id, step_name, timestamp, error_code
         )
         if console_evidence:
             evidence_list.append(console_evidence)
-        
+
         # 4. Capture page metadata
         metadata_evidence = await self._capture_metadata(
             page, workflow_id, step_name, timestamp, error_code, error_message
         )
         if metadata_evidence:
             evidence_list.append(metadata_evidence)
-        
+
         # Update workflow count
         self._workflow_counts[workflow_id] = current_count + len(evidence_list)
-        
+
         # Log evidence collection
         if evidence_list:
             logging.info(
@@ -168,10 +167,10 @@ class EvidenceCollector:
                     }
                 }
             )
-        
+
         self._evidence_log.extend(evidence_list)
         return evidence_list
-    
+
     async def _capture_screenshot(
         self,
         page: Page,
@@ -179,20 +178,20 @@ class EvidenceCollector:
         step_name: str,
         timestamp: str,
         error_code: str,
-    ) -> Optional[Evidence]:
+    ) -> Evidence | None:
         """Capture full-page screenshot."""
         try:
             filename = f"{workflow_id}_{step_name}_{timestamp}.png"
             file_path = self.base_dir / "screenshots" / filename
-            
+
             await page.screenshot(
                 path=str(file_path),
                 full_page=True,
                 type="png",
             )
-            
+
             file_size = file_path.stat().st_size if file_path.exists() else None
-            
+
             return Evidence(
                 evidence_id=f"screenshot_{workflow_id}_{timestamp}",
                 evidence_type=EvidenceType.SCREENSHOT,
@@ -207,14 +206,14 @@ class EvidenceCollector:
                     "error_code": error_code,
                 }
             )
-            
+
         except Exception as e:
             logging.warning(
                 "screenshot_capture_failed",
                 extra={"extra_fields": {"error": str(e)}}
             )
             return None
-    
+
     async def _capture_html_dump(
         self,
         page: Page,
@@ -222,19 +221,19 @@ class EvidenceCollector:
         step_name: str,
         timestamp: str,
         error_code: str,
-    ) -> Optional[Evidence]:
+    ) -> Evidence | None:
         """Capture full HTML DOM."""
         try:
             filename = f"{workflow_id}_{step_name}_{timestamp}.html"
             file_path = self.base_dir / "html_dumps" / filename
-            
+
             html_content = await page.content()
-            
+
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(html_content)
-            
+
             file_size = file_path.stat().st_size if file_path.exists() else None
-            
+
             return Evidence(
                 evidence_id=f"html_{workflow_id}_{timestamp}",
                 evidence_type=EvidenceType.HTML_DUMP,
@@ -250,14 +249,14 @@ class EvidenceCollector:
                     "html_length": len(html_content),
                 }
             )
-            
+
         except Exception as e:
             logging.warning(
                 "html_dump_capture_failed",
                 extra={"extra_fields": {"error": str(e)}}
             )
             return None
-    
+
     async def _capture_console_logs(
         self,
         page: Page,
@@ -265,12 +264,12 @@ class EvidenceCollector:
         step_name: str,
         timestamp: str,
         error_code: str,
-    ) -> Optional[Evidence]:
+    ) -> Evidence | None:
         """Capture console logs from page."""
         try:
             filename = f"{workflow_id}_{step_name}_{timestamp}_console.json"
             file_path = self.base_dir / "metadata" / filename
-            
+
             # Evaluate to get recent console errors
             console_logs = await page.evaluate("""
                 () => {
@@ -283,10 +282,10 @@ class EvidenceCollector:
                     };
                 }
             """)
-            
+
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(console_logs, f, indent=2, ensure_ascii=False)
-            
+
             return Evidence(
                 evidence_id=f"console_{workflow_id}_{timestamp}",
                 evidence_type=EvidenceType.CONSOLE_LOG,
@@ -298,10 +297,10 @@ class EvidenceCollector:
                     "error_code": error_code,
                 }
             )
-            
-        except Exception as e:
+
+        except Exception:
             return None
-    
+
     async def _capture_metadata(
         self,
         page: Page,
@@ -310,12 +309,12 @@ class EvidenceCollector:
         timestamp: str,
         error_code: str,
         error_message: str,
-    ) -> Optional[Evidence]:
+    ) -> Evidence | None:
         """Capture page metadata as evidence."""
         try:
             filename = f"{workflow_id}_{step_name}_{timestamp}_meta.json"
             file_path = self.base_dir / "metadata" / filename
-            
+
             metadata = {
                 "url": await page.url(),
                 "title": await page.title(),
@@ -345,12 +344,12 @@ class EvidenceCollector:
                     }
                 """),
             }
-            
+
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(metadata, f, indent=2, ensure_ascii=False)
-            
+
             file_size = file_path.stat().st_size if file_path.exists() else None
-            
+
             return Evidence(
                 evidence_id=f"metadata_{workflow_id}_{timestamp}",
                 evidence_type=EvidenceType.STATE_SNAPSHOT,
@@ -361,23 +360,23 @@ class EvidenceCollector:
                 file_size_bytes=file_size,
                 metadata=metadata,
             )
-            
-        except Exception as e:
+
+        except Exception:
             return None
-    
+
     def cleanup_old_evidence(self) -> int:
         """Remove evidence older than retention period."""
         if not self.auto_cleanup:
             return 0
-        
+
         cleaned = 0
         cutoff_time = time.time() - (self.retention_days * 86400)
-        
+
         for subdir in ["screenshots", "html_dumps", "metadata"]:
             dir_path = self.base_dir / subdir
             if not dir_path.exists():
                 continue
-            
+
             for file_path in dir_path.iterdir():
                 if file_path.stat().st_mtime < cutoff_time:
                     try:
@@ -385,29 +384,29 @@ class EvidenceCollector:
                         cleaned += 1
                     except Exception:
                         pass
-        
+
         return cleaned
-    
-    def get_evidence_for_workflow(self, workflow_id: str) -> List[Dict[str, Any]]:
+
+    def get_evidence_for_workflow(self, workflow_id: str) -> list[dict[str, Any]]:
         """Get all evidence for a specific workflow."""
         return [
             e.to_dict()
             for e in self._evidence_log
             if e.workflow_id == workflow_id
         ]
-    
-    def get_storage_usage(self) -> Dict[str, Any]:
+
+    def get_storage_usage(self) -> dict[str, Any]:
         """Get evidence storage usage statistics."""
         total_size = 0
         file_count = 0
-        
+
         for subdir in ["screenshots", "html_dumps", "metadata"]:
             dir_path = self.base_dir / subdir
             if dir_path.exists():
                 for file_path in dir_path.iterdir():
                     total_size += file_path.stat().st_size
                     file_count += 1
-        
+
         return {
             "total_size_bytes": total_size,
             "total_size_mb": round(total_size / (1024 * 1024), 2),
@@ -435,18 +434,18 @@ class TelemetryEvent:
     event_id: str
     event_type: str
     timestamp: str
-    workflow_id: Optional[str] = None
-    session_id: Optional[str] = None
-    driver_id: Optional[str] = None
-    waybill_id: Optional[str] = None
-    step_name: Optional[str] = None
-    duration_ms: Optional[float] = None
+    workflow_id: str | None = None
+    session_id: str | None = None
+    driver_id: str | None = None
+    waybill_id: str | None = None
+    step_name: str | None = None
+    duration_ms: float | None = None
     status: str = "success"
-    error_code: Optional[str] = None
-    error_message: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
+    error_code: str | None = None
+    error_message: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "event_id": self.event_id,
             "event_type": self.event_type,
@@ -469,7 +468,7 @@ class TelemetryCollector:
     Collects and manages comprehensive telemetry data.
     Provides structured logging and client-facing reports.
     """
-    
+
     def __init__(
         self,
         telemetry_level: TelemetryLevel = TelemetryLevel.DETAILED,
@@ -479,24 +478,24 @@ class TelemetryCollector:
         self.telemetry_level = telemetry_level
         self.max_events_buffer = max_events_buffer
         self.flush_interval_seconds = flush_interval_seconds
-        self._events: List[TelemetryEvent] = []
-        self._workflow_sessions: Dict[str, List[TelemetryEvent]] = {}
+        self._events: list[TelemetryEvent] = []
+        self._workflow_sessions: dict[str, list[TelemetryEvent]] = {}
         self._lock = asyncio.Lock()
         self._last_flush = time.time()
-    
+
     async def record_event(
         self,
         event_type: str,
-        workflow_id: Optional[str] = None,
-        session_id: Optional[str] = None,
-        driver_id: Optional[str] = None,
-        waybill_id: Optional[str] = None,
-        step_name: Optional[str] = None,
-        duration_ms: Optional[float] = None,
+        workflow_id: str | None = None,
+        session_id: str | None = None,
+        driver_id: str | None = None,
+        waybill_id: str | None = None,
+        step_name: str | None = None,
+        duration_ms: float | None = None,
         status: str = "success",
-        error_code: Optional[str] = None,
-        error_message: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> TelemetryEvent:
         """
         Record a telemetry event.
@@ -518,11 +517,11 @@ class TelemetryCollector:
             Created telemetry event
         """
         import uuid
-        
+
         event = TelemetryEvent(
             event_id=str(uuid.uuid4()),
             event_type=event_type,
-            timestamp=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+            timestamp=datetime.now(UTC).replace(tzinfo=None).isoformat(),
             workflow_id=workflow_id,
             session_id=session_id,
             driver_id=driver_id,
@@ -534,20 +533,20 @@ class TelemetryCollector:
             error_message=error_message,
             metadata=metadata or {},
         )
-        
+
         async with self._lock:
             self._events.append(event)
-            
+
             # Index by workflow
             if workflow_id:
                 if workflow_id not in self._workflow_sessions:
                     self._workflow_sessions[workflow_id] = []
                 self._workflow_sessions[workflow_id].append(event)
-            
+
             # Auto-flush if buffer is full
             if len(self._events) >= self.max_events_buffer:
                 await self._flush_old_events()
-        
+
         # Log event at appropriate level
         if status == "failure" and error_code:
             logging.error(
@@ -572,15 +571,15 @@ class TelemetryCollector:
                     }
                 }
             )
-        
+
         return event
-    
+
     async def record_step_start(
         self,
         workflow_id: str,
         step_name: str,
-        session_id: Optional[str] = None,
-        driver_id: Optional[str] = None,
+        session_id: str | None = None,
+        driver_id: str | None = None,
     ) -> TelemetryEvent:
         """Record the start of a workflow step."""
         return await self.record_event(
@@ -592,15 +591,15 @@ class TelemetryCollector:
             status="in_progress",
             metadata={"action": "step_started"},
         )
-    
+
     async def record_step_complete(
         self,
         workflow_id: str,
         step_name: str,
         duration_ms: float,
-        session_id: Optional[str] = None,
-        driver_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        session_id: str | None = None,
+        driver_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> TelemetryEvent:
         """Record successful completion of a workflow step."""
         return await self.record_event(
@@ -613,17 +612,17 @@ class TelemetryCollector:
             status="success",
             metadata=metadata or {},
         )
-    
+
     async def record_step_failure(
         self,
         workflow_id: str,
         step_name: str,
         error_code: str,
         error_message: str,
-        duration_ms: Optional[float] = None,
-        session_id: Optional[str] = None,
-        driver_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        duration_ms: float | None = None,
+        session_id: str | None = None,
+        driver_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> TelemetryEvent:
         """Record failure of a workflow step."""
         return await self.record_event(
@@ -638,23 +637,23 @@ class TelemetryCollector:
             error_message=error_message,
             metadata=metadata or {},
         )
-    
-    async def get_workflow_telemetry(self, workflow_id: str) -> List[Dict[str, Any]]:
+
+    async def get_workflow_telemetry(self, workflow_id: str) -> list[dict[str, Any]]:
         """Get all telemetry events for a workflow."""
         async with self._lock:
             events = self._workflow_sessions.get(workflow_id, [])
             return [e.to_dict() for e in events]
-    
-    async def get_performance_summary(self) -> Dict[str, Any]:
+
+    async def get_performance_summary(self) -> dict[str, Any]:
         """Get performance summary from recent telemetry."""
         async with self._lock:
             recent_events = self._events[-1000:]
-        
+
         successful = [e for e in recent_events if e.status == "success" and e.duration_ms]
         failed = [e for e in recent_events if e.status == "failure"]
-        
+
         durations = [e.duration_ms for e in successful if e.duration_ms]
-        
+
         return {
             "total_events": len(recent_events),
             "successful_events": len(successful),
@@ -666,7 +665,7 @@ class TelemetryCollector:
             "events_by_type": self._count_by_type(recent_events),
             "errors_by_code": self._count_by_error_code(failed),
         }
-    
+
     async def flush(self) -> int:
         """Flush all buffered events (for persistence or export)."""
         async with self._lock:
@@ -675,22 +674,22 @@ class TelemetryCollector:
             self._workflow_sessions.clear()
             self._last_flush = time.time()
             return count
-    
+
     async def _flush_old_events(self) -> None:
         """Remove oldest events if buffer is full."""
         # Keep only the most recent events
         if len(self._events) > self.max_events_buffer:
             self._events = self._events[-self.max_events_buffer:]
-    
+
     @staticmethod
-    def _count_by_type(events: List[TelemetryEvent]) -> Dict[str, int]:
+    def _count_by_type(events: list[TelemetryEvent]) -> dict[str, int]:
         counts = {}
         for event in events:
             counts[event.event_type] = counts.get(event.event_type, 0) + 1
         return counts
-    
+
     @staticmethod
-    def _count_by_error_code(events: List[TelemetryEvent]) -> Dict[str, int]:
+    def _count_by_error_code(events: list[TelemetryEvent]) -> dict[str, int]:
         counts = {}
         for event in events:
             if event.error_code:
@@ -707,7 +706,7 @@ class ClientReportGenerator:
     Generates client-facing reports with user-friendly language
     and detailed technical information for debugging.
     """
-    
+
     # User-friendly error messages
     FRIENDLY_ERROR_MESSAGES = {
         "AUTH_INVALID_CREDENTIALS": "Invalid username or password. Please check your credentials.",
@@ -727,7 +726,7 @@ class ClientReportGenerator:
         "RATE_LIMITED": "Too many requests. Please wait before trying again.",
         "PERMISSION_DENIED": "Your account does not have permission for this action.",
     }
-    
+
     # Severity levels for client display
     ERROR_SEVERITY = {
         "AUTH_INVALID_CREDENTIALS": "warning",
@@ -747,14 +746,14 @@ class ClientReportGenerator:
         "RATE_LIMITED": "warning",
         "PERMISSION_DENIED": "error",
     }
-    
+
     @classmethod
     def generate_client_report(
         cls,
-        workflow_state: Dict[str, Any],
-        telemetry_events: Optional[List[Dict[str, Any]]] = None,
-        evidence: Optional[List[Dict[str, Any]]] = None,
-    ) -> Dict[str, Any]:
+        workflow_state: dict[str, Any],
+        telemetry_events: list[dict[str, Any]] | None = None,
+        evidence: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         """
         Generate a comprehensive client-facing report.
         
@@ -769,21 +768,21 @@ class ClientReportGenerator:
         # Determine overall status
         status = workflow_state.get("status", "unknown")
         is_success = status == "completed"
-        
+
         # Get error information
         error_code = workflow_state.get("error_code")
         error_message = workflow_state.get("error_message", "")
-        
+
         # Generate user-friendly message
         friendly_message = cls._get_friendly_message(error_code, error_message, is_success)
         severity = cls.ERROR_SEVERITY.get(error_code, "unknown") if error_code else "info"
-        
+
         # Build step-by-step breakdown
         steps = []
         for step in workflow_state.get("steps", []):
             step_status = step.get("status", "unknown")
             step_error = step.get("error_code")
-            
+
             steps.append({
                 "step_name": step.get("step_name", "Unknown Step"),
                 "status": step_status,
@@ -795,16 +794,16 @@ class ClientReportGenerator:
                 ) if step_error else None,
                 "severity": cls.ERROR_SEVERITY.get(step_error, "unknown") if step_error else None,
             })
-        
+
         # Calculate performance metrics
         completed_steps = [s for s in steps if s["status"] == "completed"]
         total_duration = sum(s["duration_ms"] or 0 for s in completed_steps)
         avg_duration = total_duration / len(completed_steps) if completed_steps else 0
-        
+
         # Build report
         report = {
             "report_id": workflow_state.get("workflow_id", "unknown"),
-            "generated_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+            "generated_at": datetime.now(UTC).replace(tzinfo=None).isoformat(),
             "overall_status": "success" if is_success else "failed",
             "summary": {
                 "message": friendly_message,
@@ -826,34 +825,34 @@ class ClientReportGenerator:
             "evidence_count": len(evidence) if evidence else 0,
             "evidence": evidence or [],
         }
-        
+
         # Add telemetry summary if available
         if telemetry_events:
             report["telemetry_summary"] = {
                 "total_events": len(telemetry_events),
                 "events_by_type": cls._count_events_by_type(telemetry_events),
             }
-        
+
         return report
-    
+
     @classmethod
     def _get_friendly_message(
         cls,
-        error_code: Optional[str],
+        error_code: str | None,
         technical_message: str = "",
         is_success: bool = True,
     ) -> str:
         """Get user-friendly error message."""
         if is_success:
             return "Operation completed successfully."
-        
+
         if error_code and error_code in cls.FRIENDLY_ERROR_MESSAGES:
             return cls.FRIENDLY_ERROR_MESSAGES[error_code]
-        
+
         return f"An error occurred: {technical_message or 'Unknown error'}"
-    
+
     @classmethod
-    def _get_recommended_action(cls, error_code: Optional[str]) -> str:
+    def _get_recommended_action(cls, error_code: str | None) -> str:
         """Get recommended action for error."""
         actions = {
             "AUTH_INVALID_CREDENTIALS": "Verify your username and password are correct.",
@@ -874,9 +873,9 @@ class ClientReportGenerator:
             "PERMISSION_DENIED": "Contact your administrator for access.",
         }
         return actions.get(error_code, "Contact support if the issue persists.")
-    
+
     @staticmethod
-    def _count_events_by_type(events: List[Dict[str, Any]]) -> Dict[str, int]:
+    def _count_events_by_type(events: list[dict[str, Any]]) -> dict[str, int]:
         counts = {}
         for event in events:
             event_type = event.get("event_type", "unknown")

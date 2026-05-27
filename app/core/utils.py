@@ -1,6 +1,7 @@
 import inspect
 from typing import Any
 
+
 async def resolve_maybe_awaitable(value: Any) -> Any:
     """Resolve values that may be wrapped by AsyncMock/awaitable objects."""
     resolved = value

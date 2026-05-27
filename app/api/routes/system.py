@@ -1,5 +1,5 @@
-import logging
 import asyncio
+import logging
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Query
@@ -7,8 +7,8 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from app.automation.captcha import barname_ml_solver, captcha_engine
 from app.automation.browser import browser_manager
+from app.automation.captcha import barname_ml_solver, captcha_engine
 from app.core.config import utcms_config
 from app.core.database import engine
 from app.core.recovery import recovery_manager
@@ -21,9 +21,9 @@ from app.monitoring.metrics import (
     summarize_queue_depth,
 )
 from app.realtime.events import event_hub
-from app.services.task_service import task_service
 from app.services.itmb_baseinfo_service import itmb_baseinfo_service
 from app.services.itmb_ws_service import itmb_ws_service
+from app.services.task_service import task_service
 from app.workers.celery_app import celery_app, is_celery_available
 
 logger = logging.getLogger(__name__)

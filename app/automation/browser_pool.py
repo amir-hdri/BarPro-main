@@ -2,9 +2,10 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from playwright.async_api import Browser, BrowserContext
+
 from app.automation.proxy_rotator import get_proxy_rotator
 
 logger = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ class BrowserHealthStatus:
     """Health status of a browser context."""
     context_id: str
     is_healthy: bool
-    last_used_at: Optional[float] = None
+    last_used_at: float | None = None
     error_count: int = 0
     success_count: int = 0
     pages_open: int = 0
@@ -31,7 +32,7 @@ class BrowserPoolHealth:
     total_errors: int
     total_successes: int
     pool_utilization: float
-    context_details: List[BrowserHealthStatus] = field(default_factory=list)
+    context_details: list[BrowserHealthStatus] = field(default_factory=list)
 
 
 class BrowserPool:
@@ -39,13 +40,13 @@ class BrowserPool:
         self.size = max(1, int(size))
         self._queue: asyncio.Queue[BrowserContext] = asyncio.Queue()
         self._started = False
-        self._context_health: Dict[str, BrowserHealthStatus] = {}
+        self._context_health: dict[str, BrowserHealthStatus] = {}
         self._context_counter = 0
         self._health_check_interval = 60  # seconds
         self._last_health_check = 0
         self._lock = asyncio.Lock()
 
-    async def start(self, browser: Browser, context_args: Optional[Dict[str, Any]] = None) -> None:
+    async def start(self, browser: Browser, context_args: dict[str, Any] | None = None) -> None:
         if self._started:
             return
         context_args = context_args or {}
@@ -81,7 +82,7 @@ class BrowserPool:
 
     async def release(self, context: BrowserContext) -> None:
         context_id = getattr(context, "_pool_context_id", None)
-        
+
         try:
             for page in context.pages:
                 if page.is_closed():
@@ -92,11 +93,11 @@ class BrowserPool:
                 "browser_pool_page_close_failed",
                 extra={"extra_fields": {"context_id": context_id, "error": str(exc)}},
             )
-        
+
         # Update health on release
         if context_id and context_id in self._context_health:
             self._context_health[context_id].pages_open = 0
-        
+
         await self._queue.put(context)
 
     async def close(self) -> None:
@@ -122,16 +123,16 @@ class BrowserPool:
 
             # Check available contexts in queue
             available = self._queue.qsize()
-            
+
             for context_id, health in self._context_health.items():
                 total_errors += health.error_count
                 total_successes += health.success_count
-                
+
                 if health.is_healthy:
                     healthy_count += 1
                 else:
                     unhealthy_count += 1
-                
+
                 context_details.append(health)
 
             total_contexts = len(self._context_health)
@@ -164,7 +165,7 @@ class BrowserPool:
         if context_id and context_id in self._context_health:
             self._context_health[context_id].error_count += 1
             self._context_health[context_id].pages_open = len(context.pages)
-            
+
             # Mark as unhealthy if error count exceeds threshold
             if self._context_health[context_id].error_count >= 3:
                 self._context_health[context_id].is_healthy = False
@@ -173,16 +174,16 @@ class BrowserPool:
                     extra={"extra_fields": {"context_id": context_id, "error": error}},
                 )
 
-    async def heal_unhealthy_contexts(self, browser: Browser, context_args: Optional[Dict[str, Any]] = None) -> int:
+    async def heal_unhealthy_contexts(self, browser: Browser, context_args: dict[str, Any] | None = None) -> int:
         """Recreate unhealthy browser contexts."""
         healed_count = 0
         context_args = context_args or {}
-        
+
         unhealthy_ids = [
             ctx_id for ctx_id, health in self._context_health.items()
             if not health.is_healthy
         ]
-        
+
         for ctx_id in unhealthy_ids:
             try:
                 # Create new context with new proxy
@@ -193,7 +194,7 @@ class BrowserPool:
                 new_context = await browser.new_context(**ctx_args_copy)
                 self._context_counter += 1
                 new_id = f"ctx_{self._context_counter}"
-                
+
                 # Update health tracking
                 del self._context_health[ctx_id]
                 self._context_health[new_id] = BrowserHealthStatus(
@@ -201,11 +202,11 @@ class BrowserPool:
                     is_healthy=True,
                 )
                 new_context._pool_context_id = new_id
-                
+
                 # Add to queue
                 await self._queue.put(new_context)
                 healed_count += 1
-                
+
                 logger.info(
                     "browser_context_healed",
                     extra={"extra_fields": {"old_id": ctx_id, "new_id": new_id}},
@@ -215,10 +216,10 @@ class BrowserPool:
                     "browser_context_heal_failed",
                     extra={"extra_fields": {"old_id": ctx_id, "error": str(exc)}},
                 )
-        
+
         return healed_count
 
-    def get_health_status(self) -> Dict[str, Any]:
+    def get_health_status(self) -> dict[str, Any]:
         """Get health status as a dictionary for API responses."""
         return {
             "pool_size": self.size,

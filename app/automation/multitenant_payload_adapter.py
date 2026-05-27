@@ -1,8 +1,7 @@
 """Adapters that map the compact multi-tenant job payload into the full waybill schema."""
 from __future__ import annotations
 
-from typing import Any, Dict
-
+from typing import Any
 
 PLACEHOLDER_VALUES = {":x:", ":x", "x", "X", "", "-", "null", "None", "none"}
 
@@ -31,7 +30,7 @@ def _first_value(*values: Any) -> Any:
     return None
 
 
-def build_enhanced_waybill_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Normalize the multi-tenant payload for EnhancedWaybillManager.
 
     The multi-tenant API stores a compact payload focused on route/cargo/vehicle.

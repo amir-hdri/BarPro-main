@@ -5,7 +5,6 @@ import logging
 import secrets
 import string
 from pathlib import Path
-from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -53,15 +52,15 @@ class SecretsManager:
 
     def __init__(self, env_file: str = ".env"):
         self.env_file = Path(env_file)
-        self._secrets: Dict[str, str] = {}
+        self._secrets: dict[str, str] = {}
 
-    def check_and_generate_secrets(self) -> Dict[str, str]:
+    def check_and_generate_secrets(self) -> dict[str, str]:
         """Check for required secrets and generate if missing."""
         generated = {}
-        
+
         # Read current env
         current_env = self._read_env_file()
-        
+
         # Check API_KEY
         api_key = current_env.get("API_KEY", "").strip()
         if not api_key or api_key.startswith("change-me"):
@@ -129,7 +128,7 @@ class SecretsManager:
                 new_password = generated["POSTGRES_PASSWORD"]
                 db_url = db_url.replace("change-me-postgres-password", new_password)
                 generated["DATABASE_URL"] = db_url
-                
+
                 dsn = current_env.get("POSTGRES_DSN", "")
                 if "change-me-postgres-password" in dsn:
                     dsn = dsn.replace("change-me-postgres-password", new_password)
@@ -138,7 +137,7 @@ class SecretsManager:
         self._secrets = generated
         return generated
 
-    def apply_secrets_to_env(self, generated: Optional[Dict[str, str]] = None) -> bool:
+    def apply_secrets_to_env(self, generated: dict[str, str] | None = None) -> bool:
         """Apply generated secrets to .env file."""
         secrets_to_apply = generated or self._secrets
         if not secrets_to_apply:
@@ -174,7 +173,7 @@ class SecretsManager:
 
             # Write back
             self.env_file.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
-            
+
             logger.info(
                 "secrets_applied_to_env",
                 extra={
@@ -193,7 +192,7 @@ class SecretsManager:
             )
             return False
 
-    def _read_env_file(self) -> Dict[str, str]:
+    def _read_env_file(self) -> dict[str, str]:
         """Read and parse .env file."""
         env = {}
         if not self.env_file.exists():
@@ -208,10 +207,10 @@ class SecretsManager:
 
         return env
 
-    def get_security_report(self) -> Dict[str, any]:
+    def get_security_report(self) -> dict[str, any]:
         """Generate a security report."""
         current_env = self._read_env_file()
-        
+
         return {
             "api_key_configured": bool(
                 current_env.get("API_KEY", "").strip()
@@ -238,7 +237,7 @@ class SecretsManager:
 secrets_manager = SecretsManager()
 
 
-def initialize_secrets(auto_generate: bool = True) -> Dict[str, str]:
+def initialize_secrets(auto_generate: bool = True) -> dict[str, str]:
     """Initialize secrets with optional auto-generation."""
     if auto_generate:
         generated = secrets_manager.check_and_generate_secrets()

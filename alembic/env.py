@@ -15,29 +15,6 @@ from alembic import context
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.core.config import utcms_config  # noqa: E402
-from app.models_legacy import BotStats, WaybillTask  # noqa: E402
-
-from app.models.admin import (  # noqa: E402
-    SuperAdmin,
-    SubscriptionPlan,
-    AdminDriverSchedule,
-    ActivityLog,
-)
-from app.models_multitenant import (  # noqa: E402
-    Client,
-    Driver,
-    WaybillJob,
-    WaybillTaskLog,
-    UploadBatch,
-)
-from app.models_rpa import (  # noqa: E402
-    DomainEvent,
-    DriverDailyCounter,
-    DriverRuntimeState,
-    DriverSessionMetadata,
-    ProxyEndpoint,
-    WaybillAttempt,
-)
 
 # Alembic Config object
 config = context.config

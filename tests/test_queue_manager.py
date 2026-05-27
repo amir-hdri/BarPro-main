@@ -5,8 +5,6 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
 
-
-
 from app.queue.queue_manager import WaybillQueueManager
 from app.schemas.waybill import WaybillMapRequest
 

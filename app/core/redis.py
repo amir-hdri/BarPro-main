@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
 
 from app.core.config import utcms_config
 
@@ -25,7 +24,7 @@ def _build_redis_kwargs() -> dict:
 
 class RedisConnectionManager:
     def __init__(self) -> None:
-        self._redis: Optional["aioredis.Redis"] = None
+        self._redis: aioredis.Redis | None = None
         self._lock = asyncio.Lock()
 
     async def get(self):

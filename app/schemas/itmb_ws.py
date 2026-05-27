@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -39,8 +39,8 @@ class BOLGoodCnt(BaseModel):
     Value: float = Field(..., gt=0)
     PackingTypeID: int = Field(..., gt=0)
     GoodtypeID: int = Field(..., gt=0)
-    Description: Optional[str] = None
-    Image: Optional[bytes] = None
+    Description: str | None = None
+    Image: bytes | None = None
 
 
 class BOLCnt(BaseModel):
@@ -50,27 +50,27 @@ class BOLCnt(BaseModel):
     PlaqueSN: int = Field(..., ge=10, le=99)
     PlaqueType: str
     DriverNationalCode: str = Field(..., min_length=10, max_length=10)
-    SecondDriverNationalCode: Optional[str] = Field(default=None, min_length=10, max_length=10)
+    SecondDriverNationalCode: str | None = Field(default=None, min_length=10, max_length=10)
     OWNERNATIONALID: str
 
     SenderType: int = Field(..., ge=1, le=2)
     SenderName: str
-    SenderLastName: Optional[str] = None
-    SenderNationalID: Optional[str] = Field(default=None, min_length=10, max_length=10)
-    SenderMobile: Optional[str] = None
-    SenderPhoneNo: Optional[str] = None
-    SenderPostalCode: Optional[str] = None
-    SenderCityCode: Optional[str] = None
+    SenderLastName: str | None = None
+    SenderNationalID: str | None = Field(default=None, min_length=10, max_length=10)
+    SenderMobile: str | None = None
+    SenderPhoneNo: str | None = None
+    SenderPostalCode: str | None = None
+    SenderCityCode: str | None = None
     SenderAddress: str
 
     RecieverType: int = Field(..., ge=1, le=2)
     RecieverName: str
-    RecieverLastName: Optional[str] = None
-    RecieverNationalID: Optional[str] = Field(default=None, min_length=10, max_length=10)
-    RecieverMobile: Optional[str] = None
-    RecieverPhoneNo: Optional[str] = None
-    RecieverPostalCode: Optional[str] = None
-    RecieverCityCode: Optional[str] = None
+    RecieverLastName: str | None = None
+    RecieverNationalID: str | None = Field(default=None, min_length=10, max_length=10)
+    RecieverMobile: str | None = None
+    RecieverPhoneNo: str | None = None
+    RecieverPostalCode: str | None = None
+    RecieverCityCode: str | None = None
     RecieverAddress: str
 
     Freightage: int = Field(default=0, ge=0)
@@ -82,26 +82,26 @@ class BOLCnt(BaseModel):
     TotalAmountPayment: int = Field(..., ge=0)
     InsuranceCosts: int = Field(default=0, ge=0)
 
-    Description: Optional[str] = None
+    Description: str | None = None
     SerialNo: int = Field(..., gt=0)
     IssuerNaCode: str = Field(..., min_length=10, max_length=10)
-    IssuerMobile: Optional[str] = None
+    IssuerMobile: str | None = None
     IssueDate: int = Field(..., ge=0, description="Unix timestamp")
 
-    LoadingPlacePostalCode: Optional[str] = None
-    LoadingPlaceCityCode: Optional[str] = None
+    LoadingPlacePostalCode: str | None = None
+    LoadingPlaceCityCode: str | None = None
     LoadingPlaceAddress: str
-    OffLoadingPlacePostalCode: Optional[str] = None
-    OffLoadingPlaceCityCode: Optional[str] = None
+    OffLoadingPlacePostalCode: str | None = None
+    OffLoadingPlaceCityCode: str | None = None
     OffLoadingPlaceAddress: str
-    LoadingPlaceCountieCode: Optional[str] = None
-    OffLoadingPlaceCountieCode: Optional[str] = None
-    OriginLattitude: Optional[float] = None
-    OriginLongitude: Optional[float] = None
-    DestinationLattitude: Optional[float] = None
-    DestinationLongitude: Optional[float] = None
+    LoadingPlaceCountieCode: str | None = None
+    OffLoadingPlaceCountieCode: str | None = None
+    OriginLattitude: float | None = None
+    OriginLongitude: float | None = None
+    DestinationLattitude: float | None = None
+    DestinationLongitude: float | None = None
 
-    Goods: List[BOLGoodCnt] = Field(..., min_length=1)
+    Goods: list[BOLGoodCnt] = Field(..., min_length=1)
 
     @field_validator("PlaqueID")
     @classmethod
@@ -119,7 +119,7 @@ class BOLCnt(BaseModel):
         mode="before",
     )
     @classmethod
-    def validate_national_codes(cls, value: Optional[str]) -> Optional[str]:
+    def validate_national_codes(cls, value: str | None) -> str | None:
         if value is None:
             return value
         if not value.isdigit() or len(value) != 10:
@@ -134,7 +134,7 @@ class BOLCnt(BaseModel):
         mode="before",
     )
     @classmethod
-    def validate_postal_codes(cls, value: Optional[str]) -> Optional[str]:
+    def validate_postal_codes(cls, value: str | None) -> str | None:
         if value is None or value == "":
             return None
         if not value.isdigit() or len(value) != 10:
@@ -174,17 +174,17 @@ class BOLCnt(BaseModel):
 class WS01InsertBOLRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    CompanyCode: Optional[str] = None
-    ServicePassword: Optional[str] = None
-    Salt: Optional[int] = None
-    HashedValue: Optional[str] = None
+    CompanyCode: str | None = None
+    ServicePassword: str | None = None
+    Salt: int | None = None
+    HashedValue: str | None = None
     bol: BOLCnt
-    InsertTime: Optional[int] = Field(default=None, ge=0, description="Unix timestamp")
+    InsertTime: int | None = Field(default=None, ge=0, description="Unix timestamp")
     InsertPosition: GPSCnt
 
     @field_validator("HashedValue")
     @classmethod
-    def validate_hashed_value(cls, value: Optional[str]) -> Optional[str]:
+    def validate_hashed_value(cls, value: str | None) -> str | None:
         if value is None:
             return None
         cleaned = value.strip()
@@ -199,4 +199,4 @@ class WS01InsertBOLResponse(BaseModel):
     success: bool
     bol_trace_code: str
     used_salt: int
-    baseinfo_validation: Dict[str, Any] = Field(default_factory=dict)
+    baseinfo_validation: dict[str, Any] = Field(default_factory=dict)

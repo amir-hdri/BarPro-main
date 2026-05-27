@@ -1,29 +1,30 @@
+import os
+import sys
 import unittest
 from unittest.mock import AsyncMock, patch
-import sys
-import os
 
 # Add app to path
 sys.path.append(os.getcwd())
 
 from app.automation.waybill_enhanced import EnhancedWaybillManager
-from app.core.exceptions import WaybillError
 from app.core.config import utcms_config
+from app.core.exceptions import WaybillError
+
 
 class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         """Setup lightweight mocks for fast, isolated tests."""
         self.mock_page = self._create_mock_page()
         self.mock_context = AsyncMock()
-        
+
         # Use patch.object for cleaner teardown
         self.patches = []
         self._setup_patches()
-        
+
         # Initialize manager with mocked dependencies
         self.manager = EnhancedWaybillManager(self.mock_page, self.mock_context)
         self._configure_manager_mocks()
-    
+
     def _create_mock_page(self):
         """Create a reusable mock page with common methods."""
         mock = AsyncMock()
@@ -34,7 +35,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         mock.wait_for_selector = AsyncMock()
         mock.wait_for_timeout = AsyncMock()
         return mock
-    
+
     def _setup_patches(self):
         """Setup all patches in one place for easier management."""
         patch_targets = [
@@ -43,23 +44,23 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
             ('app.automation.waybill_enhanced.LocationSelector', 'mock_location_selector'),
             ('app.automation.waybill_enhanced.RouteCalculator', 'mock_route_calculator'),
         ]
-        
+
         for target, attr_name in patch_targets:
             patcher = patch(target)
             self.patches.append(patcher)
             mock_class = patcher.start()
             mock_instance = mock_class.return_value
             setattr(self, attr_name, mock_instance)
-    
+
     def _configure_manager_mocks(self):
         """Configure common mock behaviors."""
         self.mock_interactor.safe_fill = AsyncMock(return_value=True)
         self.mock_interactor.safe_click = AsyncMock(return_value=True)
         self.mock_interactor.screenshot = AsyncMock()
-        
+
         self.mock_location_selector.select_location = AsyncMock()
         self.mock_route_calculator.calculate_distance = AsyncMock()
-        
+
         self.manager._handle_submit_captcha_if_present = AsyncMock()
         self.manager.smart_locator = AsyncMock()
         self.manager.smart_locator.locate = AsyncMock()

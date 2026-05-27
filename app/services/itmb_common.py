@@ -1,6 +1,5 @@
 import hashlib
 import random
-from typing import Optional, Tuple
 
 from fastapi import HTTPException
 
@@ -13,11 +12,11 @@ def build_hashed_value(company_code: str, salt: int, service_password: str) -> s
 
 
 def resolve_itmb_auth(
-    company_code: Optional[str],
-    service_password: Optional[str],
-    salt: Optional[int] = None,
-    hashed_value: Optional[str] = None,
-) -> Tuple[str, int, str]:
+    company_code: str | None,
+    service_password: str | None,
+    salt: int | None = None,
+    hashed_value: str | None = None,
+) -> tuple[str, int, str]:
     resolved_company_code = (company_code or utcms_config.ITMBOL_COMPANY_CODE).strip()
     if not resolved_company_code:
         raise HTTPException(status_code=400, detail="CompanyCode تنظیم نشده است")

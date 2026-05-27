@@ -3,7 +3,7 @@
 import logging
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import UploadFile
 
@@ -99,64 +99,64 @@ class ExcelWaybillParser:
         "sender_address": ["آدرس فرستنده", "sender_address"],
         "sender_lat": ["lat فرستنده", "عرض جغرافیایی فرستنده", "sender_lat"],
         "sender_lng": ["long فرستنده", "طول جغرافیایی فرستنده", "sender_lng"],
-        
+
         "receiver_name": ["نام گیرنده", "گیرنده", "receiver_name"],
         "receiver_national_code": ["کد ملی گیرنده", "receiver_national_code"],
         "receiver_phone": ["موبایل گیرنده", "تلفن گیرنده", "receiver_phone", "receiver_mobile"],
         "receiver_address": ["آدرس گیرنده", "receiver_address"],
         "receiver_lat": ["lat گیرنده", "عرض جغرافیایی گیرنده", "receiver_lat"],
         "receiver_lng": ["long گیرنده", "طول جغرافیایی گیرنده", "receiver_lng"],
-        
+
         "origin_province": ["استان مبدأ", "استان مبدا", "origin_province"],
         "origin_city": ["شهر مبدأ", "شهر مبدا", "origin_city"],
         "origin_district": ["منطقه مبدأ", "منطقه مبدا", "origin_district"],
         "origin_address": ["آدرس مبدأ", "origin_address"],
         "origin_lat": ["lat مبدأ", "lat مبدا", "origin_lat"],
         "origin_lng": ["long مبدأ", "long مبدا", "origin_lng"],
-        
+
         "destination_province": ["استان مقصد", "destination_province"],
         "destination_city": ["شهر مقصد", "destination_city"],
         "destination_district": ["منطقه مقصد", "destination_district"],
         "destination_address": ["آدرس مقصد", "destination_address"],
         "destination_lat": ["lat مقصد", "destination_lat"],
         "destination_lng": ["long مقصد", "destination_lng"],
-        
+
         "cargo_type": ["نوع کالا", "cargo_type"],
         "cargo_weight": ["وزن بار (تن)", "وزن کالا", "cargo_weight", "weight_ton"],
         "cargo_count": ["تعداد بار", "تعداد کالا", "cargo_count"],
         "cargo_description": ["توضیحات کالا", "cargo_description"],
-        
+
         "driver_national_code": ["کد ملی راننده", "driver_national_code"],
         "driver_phone": ["تلفن راننده", "driver_phone"],
         "plate_first_two": ["پلاک ملی: دو رقم اول پلاک", "plate_first_two"],
         "plate_letter": ["پلاک ملی: حرف پلاک", "plate_letter"],
         "plate_three": ["پلاک ملی: سه رقم پلاک", "plate_three"],
         "plate_last_two": ["پلاک ملی: دو رقم آخر پلاک", "plate_last_two"],
-        
+
         "cost": ["هزینه حمل", "cost", "freight_cost"],
         "payment_method": ["روش پرداخت", "payment_method"],
-        
+
         "account_username": ["نام کاربری اکانت ثبت", "account_username", "username"],
         "account_password": ["رمز عبور اکانت ثبت", "account_password", "password"],
     }
 
     @classmethod
-    def parse_header_row(cls, headers: List[str]) -> Dict[str, int]:
+    def parse_header_row(cls, headers: list[str]) -> dict[str, int]:
         """Parse header row and map columns to fields."""
         column_map = {}
         for col_idx, header in enumerate(headers):
             header_normalized = clean_text(header).replace("\u200c", " ")
-            
+
             for field, possible_names in cls.HEADER_MAPPING.items():
                 for name in possible_names:
                     if header_normalized == name or header_normalized.lower() == name.lower():
                         column_map[field] = col_idx
                         break
-        
+
         return column_map
 
     @classmethod
-    def get_cell(cls, row: List[str], column_map: Dict[str, int], field: str, default: str = "") -> str:
+    def get_cell(cls, row: list[str], column_map: dict[str, int], field: str, default: str = "") -> str:
         """Get cell value from row using column map."""
         col_idx = column_map.get(field)
         if col_idx is None or col_idx >= len(row):
@@ -166,10 +166,10 @@ class ExcelWaybillParser:
     @classmethod
     def row_to_waybill_request(
         cls,
-        row: List[str],
-        column_map: Dict[str, int],
+        row: list[str],
+        column_map: dict[str, int],
         operation_mode: OperationMode = OperationMode.SAFE,
-    ) -> Optional[WaybillMapRequest]:
+    ) -> WaybillMapRequest | None:
         """Convert Excel row to WaybillMapRequest."""
         try:
             # Extract sender info
@@ -177,10 +177,10 @@ class ExcelWaybillParser:
             sender_national_code = cls.get_cell(row, column_map, "sender_national_code")
             sender_phone = cls.get_cell(row, column_map, "sender_phone")
             sender_address = cls.get_cell(row, column_map, "sender_address")
-            
+
             if not sender_name or not sender_national_code:
                 return None
-            
+
             sender = SenderModel(
                 name=sender_name,
                 phone=normalize_phone(sender_phone),
@@ -193,7 +193,7 @@ class ExcelWaybillParser:
             receiver_national_code = cls.get_cell(row, column_map, "receiver_national_code")
             receiver_phone = cls.get_cell(row, column_map, "receiver_phone")
             receiver_address = cls.get_cell(row, column_map, "receiver_address")
-            
+
             receiver = ReceiverModel(
                 name=receiver_name,
                 phone=normalize_phone(receiver_phone),
@@ -208,11 +208,11 @@ class ExcelWaybillParser:
             origin_address = cls.get_cell(row, column_map, "origin_address")
             origin_lat = normalize_float(cls.get_cell(row, column_map, "origin_lat"))
             origin_lng = normalize_float(cls.get_cell(row, column_map, "origin_lng"))
-            
+
             origin_coords = None
             if origin_lat and origin_lng:
                 origin_coords = GeoCoordinateModel(lat=origin_lat, lng=origin_lng)
-            
+
             origin = LocationModel(
                 province=origin_province,
                 city=origin_city,
@@ -228,11 +228,11 @@ class ExcelWaybillParser:
             destination_address = cls.get_cell(row, column_map, "destination_address")
             dest_lat = normalize_float(cls.get_cell(row, column_map, "destination_lat"))
             dest_lng = normalize_float(cls.get_cell(row, column_map, "destination_lng"))
-            
+
             dest_coords = None
             if dest_lat and dest_lng:
                 dest_coords = GeoCoordinateModel(lat=dest_lat, lng=dest_lng)
-            
+
             destination = LocationModel(
                 province=destination_province,
                 city=destination_city,
@@ -246,7 +246,7 @@ class ExcelWaybillParser:
             cargo_weight = normalize_float(cls.get_cell(row, column_map, "cargo_weight"), default=1.0)
             cargo_count = normalize_int(cls.get_cell(row, column_map, "cargo_count"), default=1)
             cargo_description = cls.get_cell(row, column_map, "cargo_description")
-            
+
             cargo = CargoModel(
                 type=cargo_type if cargo_type else None,
                 weight=cargo_weight,
@@ -261,11 +261,11 @@ class ExcelWaybillParser:
             plate_letter = cls.get_cell(row, column_map, "plate_letter")
             plate_three = cls.get_cell(row, column_map, "plate_three")
             plate_last_two = cls.get_cell(row, column_map, "plate_last_two")
-            
+
             plate = None
             if plate_first_two or plate_letter or plate_three or plate_last_two:
                 plate = format_plate(plate_first_two, plate_letter, plate_three, plate_last_two)
-            
+
             vehicle = VehicleModel(
                 driver_national_code=normalize_digits(driver_national_code) if driver_national_code else None,
                 driver_phone=normalize_phone(driver_phone) if driver_phone else None,
@@ -276,7 +276,7 @@ class ExcelWaybillParser:
             # Extract financial
             cost = cls.get_cell(row, column_map, "cost")
             payment_method = cls.get_cell(row, column_map, "payment_method")
-            
+
             financial = FinancialModel(
                 cost=normalize_float(cost) if cost else None,
                 payment_method=payment_method if payment_method else None,
@@ -285,7 +285,7 @@ class ExcelWaybillParser:
             # Extract auth credentials
             account_username = cls.get_cell(row, column_map, "account_username")
             account_password = cls.get_cell(row, column_map, "account_password")
-            
+
             utcms_auth = None
             if account_username and account_password:
                 utcms_auth = UTCMSLoginModel(
@@ -318,7 +318,7 @@ class ManualWaybillService:
     """Service for manual waybill entry validation and processing."""
 
     @staticmethod
-    def validate_manual_entry(request: WaybillMapRequest) -> Dict[str, Any]:
+    def validate_manual_entry(request: WaybillMapRequest) -> dict[str, Any]:
         """Validate manual entry and return validation summary."""
         errors = []
         warnings = []
@@ -382,19 +382,19 @@ class ManualWaybillService:
         if request.sender.phone: count += 1
         if request.sender.national_code: count += 1
         if request.sender.address: count += 1
-        
+
         if request.receiver.name: count += 1
         if request.receiver.phone: count += 1
         if request.receiver.address: count += 1
-        
+
         if request.origin.province: count += 1
         if request.origin.city: count += 1
         if request.origin.address: count += 1
-        
+
         if request.destination.province: count += 1
         if request.destination.city: count += 1
         if request.destination.address: count += 1
-        
+
         if request.cargo.weight: count += 1
         if request.vehicle.driver_national_code: count += 1
         if request.vehicle.plate: count += 1
@@ -416,12 +416,12 @@ class ExcelWaybillService:
         self,
         file: UploadFile,
         operation_mode: OperationMode = OperationMode.SAFE,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Parse uploaded Excel file and return waybill requests."""
         try:
             # Read file content
             content = await file.read()
-            
+
             # Save to temp file for parsing
             temp_dir = Path("tmp")
             temp_dir.mkdir(exist_ok=True)
@@ -430,7 +430,7 @@ class ExcelWaybillService:
 
             # Parse using existing Excel reader
             from scripts.register_waybills_from_excel import read_xlsx
-            
+
             rows = read_xlsx(temp_file)
             if not rows or len(rows) < 2:
                 return {
@@ -442,7 +442,7 @@ class ExcelWaybillService:
             # Parse headers
             headers = rows[0]
             column_map = self.parser.parse_header_row(headers)
-            
+
             # Parse data rows
             waybills = []
             errors = []
@@ -500,11 +500,11 @@ class ExcelWaybillService:
         file: UploadFile,
         operation_mode: OperationMode = OperationMode.SAFE,
         skip_invalid: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Parse and process all waybills from Excel file."""
         # First parse the file
         parse_result = await self.parse_excel_file(file, operation_mode)
-        
+
         if not parse_result["success"]:
             return parse_result
 
@@ -516,7 +516,7 @@ class ExcelWaybillService:
         for item in parse_result["waybills"]:
             try:
                 waybill: WaybillMapRequest = item["waybill"]
-                
+
                 # Check if live submit is allowed
                 if operation_mode == OperationMode.FULL and not utcms_config.ALLOW_LIVE_SUBMIT:
                     if skip_invalid:

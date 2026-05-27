@@ -6,7 +6,7 @@ waybill_selector_inventory_audit) to:
 2. Real-time event hub for UI display
 """
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 from app.monitoring.metrics import (
     WAYBILL_FAILURES,
@@ -33,11 +33,11 @@ class MonitoringEventBridge:
     async def emit(
         self,
         event_type: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         *,
-        task_id: Optional[str] = None,
-        correlation_id: Optional[str] = None,
-        tags: Optional[Dict[str, str]] = None,
+        task_id: str | None = None,
+        correlation_id: str | None = None,
+        tags: dict[str, str] | None = None,
     ) -> None:
         """Emit a monitoring event to metrics and timeline."""
         handler = self._event_handlers.get(event_type)
@@ -52,11 +52,11 @@ class MonitoringEventBridge:
             tags=tags,
         )
 
-    def _handle_pill_trace(self, payload: Dict[str, Any], tags: Dict[str, str]) -> None:
+    def _handle_pill_trace(self, payload: dict[str, Any], tags: dict[str, str]) -> None:
         """Handle waybill pill transition events."""
         pill = payload.get("pill", "unknown")
         transition_success = payload.get("transition_success", False)
-        
+
         logger.info(
             "pill_transition",
             extra={
@@ -69,13 +69,13 @@ class MonitoringEventBridge:
             },
         )
 
-    def _handle_selector_audit(self, payload: Dict[str, Any], tags: Dict[str, str]) -> None:
+    def _handle_selector_audit(self, payload: dict[str, Any], tags: dict[str, str]) -> None:
         """Handle selector inventory audit events."""
         items = payload.get("items", [])
-        
+
         filled_count = sum(1 for item in items if item.get("status") == "filled")
         failed_count = sum(1 for item in items if item.get("status") in ("unsupported", "failed"))
-        
+
         logger.info(
             "selector_audit_summary",
             extra={
@@ -87,17 +87,17 @@ class MonitoringEventBridge:
             },
         )
 
-    def _handle_waybill_started(self, payload: Dict[str, Any], tags: Dict[str, str]) -> None:
+    def _handle_waybill_started(self, payload: dict[str, Any], tags: dict[str, str]) -> None:
         """Handle waybill creation start."""
         mode = tags.get("mode", "unknown")
         WAYBILL_REQUESTS.labels(mode=mode).inc()
 
-    def _handle_waybill_success(self, payload: Dict[str, Any], tags: Dict[str, str]) -> None:
+    def _handle_waybill_success(self, payload: dict[str, Any], tags: dict[str, str]) -> None:
         """Handle waybill creation success."""
         mode = tags.get("mode", "unknown")
         WAYBILL_SUCCESSES.labels(mode=mode).inc()
 
-    def _handle_waybill_failed(self, payload: Dict[str, Any], tags: Dict[str, str]) -> None:
+    def _handle_waybill_failed(self, payload: dict[str, Any], tags: dict[str, str]) -> None:
         """Handle waybill creation failure."""
         mode = tags.get("mode", "unknown")
         category = tags.get("error_category", "unknown")
@@ -106,10 +106,10 @@ class MonitoringEventBridge:
     async def _publish_to_timeline(
         self,
         event_type: str,
-        payload: Dict[str, Any],
-        task_id: Optional[str],
-        correlation_id: Optional[str],
-        tags: Optional[Dict[str, str]],
+        payload: dict[str, Any],
+        task_id: str | None,
+        correlation_id: str | None,
+        tags: dict[str, str] | None,
     ) -> None:
         """Publish event to real-time timeline."""
         try:

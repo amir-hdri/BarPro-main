@@ -1,13 +1,14 @@
-import unittest
-from unittest.mock import AsyncMock, patch, MagicMock
-import sys
 import os
+import sys
+import unittest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # Add app to path
 sys.path.append(os.getcwd())
 
 from app.automation.browser import BrowserManager
 from app.core.config import utcms_config
+
 
 class TestBrowserManager(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

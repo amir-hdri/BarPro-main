@@ -1,11 +1,11 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import HTTPException
 
 from app.core.config import utcms_config
-from app.core.execution_context import generate_correlation_id
 from app.core.error_taxonomy import classify_exception
 from app.core.exceptions import WaybillError
+from app.core.execution_context import generate_correlation_id
 from app.core.network import is_retryable_network_error
 from app.schemas.task import EnqueueWaybillResponse, TaskStatus
 from app.schemas.waybill import WaybillMapRequest
@@ -18,7 +18,7 @@ class WaybillQueueManager:
     async def enqueue_waybill(
         self,
         request: WaybillMapRequest,
-        idempotency_key: Optional[str] = None,
+        idempotency_key: str | None = None,
     ) -> EnqueueWaybillResponse:
         payload = request.model_dump()
         payload["correlation_id"] = (payload.get("correlation_id") or generate_correlation_id()).strip()
@@ -139,10 +139,10 @@ class WaybillQueueManager:
             return "form", False
         return "unknown", False
 
-    async def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
+    async def get_task_status(self, task_id: str) -> dict[str, Any] | None:
         return await task_service.get_task_status(task_id)
 
-    async def snapshot(self) -> Dict[str, int]:
+    async def snapshot(self) -> dict[str, int]:
         return await task_service.queue_snapshot()
 
 

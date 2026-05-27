@@ -9,7 +9,7 @@ Provides endpoints for each client to view:
 - Driver performance summaries
 - Dashboard statistics
 """
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/user/reports", tags=["user-reports"])
 async def get_driver_list_with_status(
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Get all drivers with their status, jobs, schedules, and plates."""
     return await user_reporting_service.driver_list_with_status(client, session)
 
@@ -39,15 +39,15 @@ async def get_driver_list_with_status(
     summary="تاریخچه بارنامه‌ها",
 )
 async def get_waybill_history(
-    driver_id: Optional[int] = Query(None, description="Filter by driver"),
-    status: Optional[str] = Query(None, description="Filter by status"),
-    date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    driver_id: int | None = Query(None, description="Filter by driver"),
+    status: str | None = Query(None, description="Filter by status"),
+    date_from: str | None = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: str | None = Query(None, description="End date (YYYY-MM-DD)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get waybill history with filtering and pagination."""
     return await user_reporting_service.waybill_history(
         client=client,
@@ -66,13 +66,13 @@ async def get_waybill_history(
     summary="جزئیات خطاها",
 )
 async def get_error_details(
-    driver_id: Optional[int] = Query(None, description="Filter by driver"),
-    date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    driver_id: int | None = Query(None, description="Filter by driver"),
+    date_from: str | None = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: str | None = Query(None, description="End date (YYYY-MM-DD)"),
     limit: int = Query(100, ge=1, le=500),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Get error details with execution steps for failed jobs."""
     return await user_reporting_service.error_details(
         client=client,
@@ -91,7 +91,7 @@ async def get_error_details(
 async def get_scheduled_execution_history(
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get scheduled execution history and status."""
     return await user_reporting_service.scheduled_execution_history(client, session)
 
@@ -103,7 +103,7 @@ async def get_scheduled_execution_history(
 async def get_driver_performance(
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Get per-driver performance summary."""
     return await user_reporting_service.driver_performance(client, session)
 
@@ -115,6 +115,6 @@ async def get_driver_performance(
 async def get_dashboard_stats(
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get dashboard statistics summary."""
     return await user_reporting_service.dashboard_stats(client, session)

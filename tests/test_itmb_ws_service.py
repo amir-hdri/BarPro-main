@@ -66,7 +66,7 @@ def _sample_payload():
 
 
 def test_build_hashed_value_matches_sha512_uppercase():
-    expected = hashlib.sha512("COMP112345pass".encode("utf-8")).hexdigest().upper()
+    expected = hashlib.sha512(b"COMP112345pass").hexdigest().upper()
     assert ITMBWSService.build_hashed_value("COMP1", 12345, "pass") == expected
 
 

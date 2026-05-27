@@ -4,10 +4,10 @@ import base64
 import binascii
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import cv2
 import numpy as np
+
 from app.automation.captcha.advanced_preprocessor import AdvancedPreprocessor
 from app.automation.captcha.advanced_segmentation import AdvancedSegmentation
 
@@ -281,12 +281,12 @@ class BarnameMlCaptchaSolver:
         label = max(scores, key=scores.get)
         return label, float(scores[label])
 
-    def solve_image(self, image: np.ndarray) -> Optional[MlMathCaptchaCandidate]:
+    def solve_image(self, image: np.ndarray) -> MlMathCaptchaCandidate | None:
         self._ensure_loaded()
         if not self._available:
             return None
 
-        best_candidate: Optional[MlMathCaptchaCandidate] = None
+        best_candidate: MlMathCaptchaCandidate | None = None
         allowed_by_position = (tuple(VALUE_MAP.keys()), ("plus",), tuple(VALUE_MAP.keys()))
 
         for symbols in self._segment_variants(image):
@@ -320,7 +320,7 @@ class BarnameMlCaptchaSolver:
 
         return best_candidate
 
-    def solve_base64(self, image_base64: str) -> Optional[MlMathCaptchaCandidate]:
+    def solve_base64(self, image_base64: str) -> MlMathCaptchaCandidate | None:
         if not image_base64 or not str(image_base64).strip():
             return None
         try:

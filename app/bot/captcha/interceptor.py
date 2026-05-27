@@ -4,9 +4,9 @@ from __future__ import annotations
 import base64
 import logging
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Sequence
 
 import aiohttp
 from playwright.async_api import Locator, Page
@@ -28,10 +28,10 @@ class CaptchaSolveStatus(str, Enum):
 @dataclass(slots=True)
 class CaptchaSolveResult:
     status: CaptchaSolveStatus
-    solution: Optional[str] = None
+    solution: str | None = None
     provider: str = "mock_solver"
-    error: Optional[str] = None
-    selector_used: Optional[str] = None
+    error: str | None = None
+    selector_used: str | None = None
 
 
 @dataclass(slots=True)
@@ -46,7 +46,7 @@ class SolverCircuitBreaker:
     def __init__(self, config: CircuitBreakerConfig | None = None) -> None:
         self._config = config or CircuitBreakerConfig()
         self._failure_count = 0
-        self._opened_at_monotonic: Optional[float] = None
+        self._opened_at_monotonic: float | None = None
 
     def allow_request(self) -> bool:
         if self._opened_at_monotonic is None:
@@ -101,7 +101,7 @@ class CaptchaInterceptor:
         *,
         image_selectors: Sequence[str] = AuthSelectors.CAPTCHA_IMAGE_SELECTORS,
         timeout_ms: int = 1500,
-    ) -> Optional[Locator]:
+    ) -> Locator | None:
         """Return captcha image locator if present, otherwise None."""
         try:
             locator = await self.smart_locator.locate(page, list(image_selectors), timeout=timeout_ms)
@@ -109,7 +109,7 @@ class CaptchaInterceptor:
         except Exception:
             return None
 
-    async def capture_captcha_base64(self, page: Page, captcha_locator: Locator) -> Optional[str]:
+    async def capture_captcha_base64(self, page: Page, captcha_locator: Locator) -> str | None:
         """Capture captcha without depending on full-page screenshot/font loading."""
         overall_started_at = time.perf_counter()
         try:
@@ -343,7 +343,7 @@ class CaptchaInterceptor:
     async def _request_solver(self, image_base64: str) -> str:
         """Call external mock solver with retries and strict timeout."""
         timeout = aiohttp.ClientTimeout(total=self.request_timeout_seconds)
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         for attempt in range(1, self.solver_retries + 1):
             try:
