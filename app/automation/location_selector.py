@@ -9,7 +9,6 @@ from typing import Any
 from playwright.async_api import Page
 
 from app.automation.map_controller import GeoCoordinate, MapController
-from app.automation.script_loader import script_loader
 from app.automation.selectors import LocationSelectors
 from app.core.exceptions import LocationSelectionError
 from app.core.logging import monitoring_extra
@@ -335,19 +334,6 @@ class LocationSelector:
         """
         انتخاب مکان با استفاده از بهترین روش موجود
         اولویت: ۱. مختصات صریح (کلیک کاربر) ۲. نقشه ۳. منوی کشویی ۴. ورودی متنی
-
-        Args:
-            location_data: {
-                "province": "تهران",
-                "city": "تهران",
-                "district": "منطقه ۱",
-                "address": "خیابان آزادی",
-                "coordinates": {"lat": 35.6892, "lng": 51.3890}
-            }
-            origin: True برای مبدا، False برای مقصد
-
-        Returns:
-            نتیجه انتخاب همراه با روش استفاده شده
         """
         prefix = "Origin" if origin else "Destination"
         logger.info(
@@ -377,7 +363,7 @@ class LocationSelector:
             "error": "skipped_by_runtime",
             "runtime": dropdown_runtime,
         }
-        # ۲. انتخاب از آدرس‌های ذخیره‌شده / علاقه‌مندی اگر موجود باشد
+        
         favorite_result = await self._try_favorite_address_selection(location_data, prefix)
         if favorite_result["success"]:
             return favorite_result
@@ -387,7 +373,6 @@ class LocationSelector:
             extra={"extra_fields": {"prefix": prefix, "error": favorite_result.get("error")}},
         )
 
-        # ۳. نقشه با جستجوی داخلی
         map_search_result = {"success": False, "error": "Not attempted"}
         if not coordinates or coordinates.get("lat") is None or coordinates.get("lng") is None:
             map_search_result = await self._try_internal_map_search(location_data, prefix)
@@ -399,7 +384,6 @@ class LocationSelector:
                 extra={"extra_fields": {"prefix": prefix, "error": map_search_result.get("error")}},
             )
 
-        # ۵.۵ Dropdown Selection (if earlier methods failed)
         if not coordinates or coordinates.get("lat") is None or coordinates.get("lng") is None:
             if dropdown_runtime.get("viable"):
                 dropdown_result = await self._try_dropdown_selection(location_data, prefix, selectors=selectors)
@@ -425,11 +409,10 @@ class LocationSelector:
                     "coordinates": inferred_coordinates,
                 }
                 logger.info(
-            "location_geocoded_for_fallback",
+                    "location_geocoded_for_fallback",
                     extra={"extra_fields": {"prefix": prefix, "location_data": location_data}},
                 )
 
-        # ۴. اگر مختصات صریح داریم، hidden/map fallback
         explicit_coords_result = {"success": False, "error": "بدون مختصات"}
         if coordinates and coordinates.get("lat") is not None and coordinates.get("lng") is not None:
             explicit_coords_result = await self._try_explicit_coordinates(location_data, prefix)
@@ -440,7 +423,6 @@ class LocationSelector:
                 extra={"extra_fields": {"prefix": prefix, "error": explicit_coords_result.get("error")}},
             )
 
-        # ۵. نقشه با مختصات
         map_result = {"success": False, "error": "بدون مختصات"}
         if coordinates and coordinates.get("lat") is not None and coordinates.get("lng") is not None:
             map_result = await self._try_map_selection(location_data, prefix, selectors=selectors)
@@ -453,7 +435,6 @@ class LocationSelector:
                 extra={"extra_fields": {"prefix": prefix, "error": map_result.get("error")}},
             )
 
-        # ۶. Fallback نهایی: Dropdown اگر تا اینجا نیامده بود
         if (coordinates and coordinates.get("lat") is not None and coordinates.get("lng") is not None) and not inferred_coordinates:
             if dropdown_runtime.get("viable"):
                 dropdown_result = await self._try_dropdown_selection(location_data, prefix, selectors=selectors)
@@ -469,7 +450,6 @@ class LocationSelector:
                     extra={"extra_fields": {"prefix": prefix, "runtime": dropdown_runtime}},
                 )
 
-        # ۷. Fallback نهایی: ورودی متنی
         text_result = await self._try_text_input(location_data, prefix)
         if text_result["success"]:
             return text_result
@@ -484,9 +464,7 @@ class LocationSelector:
         )
 
     async def _fill_coordinate_hidden_fields(self, lat: float, lng: float, prefix: str) -> bool:
-        """
-        تلاش برای یافتن و پر کردن hidden fields مربوط به مختصات
-        """
+        """تلاش برای یافتن و پر کردن hidden fields مربوط به مختصات"""
         hidden_selectors = [
             f'input[name="{prefix}Lat"]',
             f'input[name="{prefix}Lng"]',
@@ -515,16 +493,13 @@ class LocationSelector:
         return lat_filled and lng_filled
 
     async def _inject_coordinates_via_js(self, lat: float, lng: float, prefix: str) -> bool:
-        """
-        تلاش برای تزریق مستقیم مختصات به inputهای مخفی از طریق JavaScript
-        """
+        """تلاش برای تزریق مستقیم مختصات به inputهای مخفی از طریق JavaScript"""
         injection_script = f"""
         () => {{
             const lat = {lat};
             const lng = {lng};
             const prefix = "{prefix.lower()}";
 
-            // جستجو برای input های hidden
             const inputs = document.querySelectorAll('input[type="hidden"]');
             let found = false;
 
@@ -566,19 +541,11 @@ class LocationSelector:
             return found;
         }}
         """
-
         injected = await self.page.evaluate(injection_script)
         return bool(injected)
 
-    async def _try_explicit_coordinates(
-        self,
-        location_data: dict[str, Any],
-        prefix: str
-    ) -> dict[str, Any]:
-        """
-        تلاش برای استفاده مستقیم از مختصات با پر کردن hidden fields
-        یا injection مختصات به فرم UTCMS
-        """
+    async def _try_explicit_coordinates(self, location_data: dict[str, Any], prefix: str) -> dict[str, Any]:
+        """تلاش برای استفاده مستقیم از مختصات با پر کردن hidden fields یا تزریق JS"""
         coordinates = location_data.get("coordinates")
         if not coordinates:
             return {"success": False, "method": "explicit_coords", "error": "مختصات موجود نیست"}
@@ -590,7 +557,6 @@ class LocationSelector:
             if lat is None or lng is None:
                 return {"success": False, "method": "explicit_coords", "error": "مختصات ناقص"}
 
-            # ۱. تلاش برای یافتن hidden fields مربوط به مختصات
             if await self._fill_coordinate_hidden_fields(lat, lng, prefix):
                 return {
                     "success": True,
@@ -598,7 +564,6 @@ class LocationSelector:
                     "coordinates": {"lat": lat, "lng": lng},
                 }
 
-            # ۲. اگر hidden fields نبود، تلاش برای injection با JavaScript
             if await self._inject_coordinates_via_js(lat, lng, prefix):
                 return {
                     "success": True,
@@ -611,17 +576,13 @@ class LocationSelector:
                 "method": "explicit_coords",
                 "error": "hidden fields برای مختصات یافت نشد",
             }
-
         except Exception as e:
             return {"success": False, "method": "explicit_coords", "error": str(e)}
 
-    async def _get_form_state(self, selectors: Dict[str, List[str]], prefix: str) -> Dict[str, str]:
-        """
-        دریافت وضعیت فعلی فیلدهای فرم (استان، شهر، آدرس و مختصات پنهان)
-        """
+    async def _get_form_state(self, selectors: dict[str, list[str]], prefix: str) -> dict[str, str]:
+        """دریافت وضعیت فعلی فیلدهای فرم (استان، شهر، آدرس و مختصات پنهان)"""
         state = {}
 
-        # 1. خواندن فیلدهای استان، شهر، منطقه، آدرس
         for field_name in ["province", "city", "district", "address"]:
             if field_name in selectors and selectors[field_name]:
                 for selector in selectors[field_name]:
@@ -632,7 +593,6 @@ class LocationSelector:
                             if tag_name in ["input", "textarea"]:
                                 value = await element.input_value()
                             else:
-                                # For select elements, get the text of the selected option
                                 value = await element.evaluate("""el => {
                                     if (el.selectedIndex >= 0) {
                                         const option = el.options[el.selectedIndex];
@@ -647,7 +607,6 @@ class LocationSelector:
                     except Exception:
                         continue
 
-        # 2. خواندن hidden fields مربوط به مختصات
         hidden_lat_selectors = [
             f'input[name="{prefix}Lat"]',
             f'input[name="{prefix}Latitude"]',
@@ -688,13 +647,11 @@ class LocationSelector:
     async def _try_map_selection(
         self,
         location_data: dict[str, Any],
-        prefix: str
+        prefix: str,
+        selectors: dict[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """تلاش برای انتخاب مکان با استفاده از نقشه"""
-
-        # تشخیص وجود نقشه
         map_type = await self.map_controller.detect_map_type()
-
         if not map_type:
             return {"success": False, "method": "map", "error": "نقشه‌ای یافت نشد"}
 
@@ -726,12 +683,8 @@ class LocationSelector:
 
             await self.map_controller.wait_for_map_idle()
 
-            # بررسی تاثیر کلیک روی نقشه
             if selectors:
                 after_state = await self._get_form_state(selectors, prefix)
-
-                # بررسی اینکه آیا تغییری در فرم ایجاد شده یا نه
-                # اگر state قبل و بعد کاملا یکسان باشند (یا هر دو خالی)، کلیک روی نقشه اثری نداشته است
 
                 has_changes = False
                 for key, val in after_state.items():
@@ -739,9 +692,7 @@ class LocationSelector:
                         has_changes = True
                         break
 
-                # همچنین اگر فقط lat و lng در after_state باشند و قبل از آن نبوده باشند تغییر محسوب می‌شود
                 if not has_changes and not after_state:
-                     # Both states are empty, so definitely no changes
                      has_changes = False
 
                 if not has_changes and after_state == before_state:
@@ -761,7 +712,6 @@ class LocationSelector:
                 },
                 "map_type": map_type,
             }
-
         except Exception as e:
             return {"success": False, "method": "map", "error": str(e)}
 
@@ -772,15 +722,10 @@ class LocationSelector:
         *,
         selectors: dict[str, list[str]] | None = None,
     ) -> dict[str, Any]:
-        """
-        تلاش برای انتخاب آبشاری
-        استان ← شهر ← منطقه
-        """
-
+        """تلاش برای انتخاب آبشاری (استان ← شهر ← منطقه)"""
         try:
             await self._ensure_location_tab_active(prefix)
 
-            # الگوهای انتخابگر رایج (نسخه‌های مختلف UTCMS)
             selectors = selectors or {
                 "province": self._build_formatted_selectors(
                     LocationSelectors.PROVINCE_TEMPLATES,
@@ -800,7 +745,6 @@ class LocationSelector:
             for selector in selectors["province"][:3]:
                 await self._log_select_diagnostics(selector, f"{prefix} province", str(location_data.get("province", "")))
 
-            # انتخاب استان
             province_selectors = selectors["province"]
             province_selected = await self._select_from_options(
                 province_selectors,
@@ -826,7 +770,6 @@ class LocationSelector:
             for selector in selectors["city"][:3]:
                 await self._log_select_diagnostics(selector, f"{prefix} city", str(location_data.get("city", "")))
 
-            # انتخاب شهر
             city_selectors = selectors["city"]
             city_selected = await self._select_from_options(
                 city_selectors,
@@ -845,14 +788,12 @@ class LocationSelector:
                 timeout_ms=5000,
             )
 
-            # انتخاب منطقه (اختیاری)
             district_selectors = selectors["district"]
             await self._select_from_options(
                 district_selectors,
                 location_data.get("district", "")
             )
 
-            # پر کردن آدرس متنی اگر وجود داشته باشد
             address_selectors = self._build_formatted_selectors(
                 LocationSelectors.ADDRESS_TEMPLATES,
                 prefix=prefix,
@@ -883,7 +824,6 @@ class LocationSelector:
                 "city": location_data.get("city"),
                 "district": location_data.get("district")
             }
-
         except Exception as e:
             return {"success": False, "method": "dropdown", "error": str(e)}
 
@@ -993,11 +933,7 @@ class LocationSelector:
             await asyncio.sleep(0.25)
         return None
 
-    async def _try_internal_map_search(
-        self,
-        location_data: dict[str, Any],
-        prefix: str,
-    ) -> dict[str, Any]:
+    async def _try_internal_map_search(self, location_data: dict[str, Any], prefix: str) -> dict[str, Any]:
         try:
             await self._ensure_location_tab_active(prefix)
             map_city_id = "MapCity" if prefix == "Origin" else "MapCity2"
@@ -1035,23 +971,16 @@ class LocationSelector:
         except Exception as exc:
             return {"success": False, "method": "map_search", "error": str(exc)}
 
-    async def _try_text_input(
-        self,
-        location_data: dict[str, Any],
-        prefix: str
-    ) -> dict[str, Any]:
+    async def _try_text_input(self, location_data: dict[str, Any], prefix: str) -> dict[str, Any]:
         """تلاش برای ورودی متنی با تکمیل خودکار"""
-
         try:
-            # یافتن ورودی تکمیل خودکار (input/select)
             input_selectors = self._build_formatted_selectors(
                 LocationSelectors.INPUT_TEMPLATES,
                 prefix=prefix,
                 extra_aliases=["2"],
             )
 
-            search_text = f"{location_data.get('city', '')} {location_data.get('address', '')}"
-            search_text = search_text.strip()
+            search_text = f"{location_data.get('city', '')} {location_data.get('address', '')}".strip()
             city = (location_data.get("city") or "").strip()
 
             for selector in input_selectors:
@@ -1066,13 +995,9 @@ class LocationSelector:
                             continue
 
                     await asyncio.sleep(0.5)
-
-                    # انتظار برای تکمیل خودکار
                     await asyncio.sleep(1)
 
-                    # کلیک روی اولین پیشنهاد
                     suggestion_selectors = LocationSelectors.SUGGESTION_SELECTORS
-
                     for sugg_selector in suggestion_selectors:
                         sugg = await self.page.query_selector(sugg_selector)
                         if sugg:
@@ -1082,7 +1007,6 @@ class LocationSelector:
                                 "method": "autocomplete",
                                 "search": search_text
                             }
-
                 except Exception:
                     continue
 
@@ -1091,7 +1015,6 @@ class LocationSelector:
                 "method": "autocomplete",
                 "error": "هیچ پیشنهادی یافت نشد"
             }
-
         except Exception as e:
             return {"success": False, "method": "autocomplete", "error": str(e)}
 
@@ -1122,11 +1045,7 @@ class LocationSelector:
 
         return best_value
 
-    async def _select_from_options(
-        self,
-        selectors: list[str],
-        value: str
-    ) -> bool:
+    async def _select_from_options(self, selectors: list[str], value: str) -> bool:
         """انتخاب گزینه از منوی کشویی بر اساس متن یا مقدار"""
         if not value:
             return False
@@ -1136,7 +1055,6 @@ class LocationSelector:
 
         for selector in selectors:
             try:
-                # بررسی وجود عنصر
                 element = await self.page.query_selector(selector)
                 if not element:
                     continue
@@ -1153,7 +1071,6 @@ class LocationSelector:
                 except Exception:
                     pass
 
-                # دریافت تمام گزینه‌ها
                 raw_options = await self._read_select_options(selector)
                 if not raw_options:
                     continue
@@ -1181,7 +1098,6 @@ class LocationSelector:
                         }
                     },
                 )
-
             except Exception:
                 continue
 
@@ -1209,9 +1125,7 @@ class LocationSelector:
         return None
 
     async def _geocode_address(self, location_data: dict[str, Any]) -> dict[str, float] | None:
-        """
-        تبدیل آدرس به مختصات با استفاده از سرویس خارجی
-        """
+        """تبدیل آدرس به مختصات با استفاده از سرویس خارجی"""
         import aiohttp
 
         province = str(location_data.get("province", "") or "").strip()
@@ -1225,12 +1139,9 @@ class LocationSelector:
         candidates = [candidate for candidate in candidates if candidate]
 
         try:
-            # استفاده از Nominatim (OpenStreetMap)
             async with aiohttp.ClientSession() as session:
                 url = "https://nominatim.openstreetmap.org/search"
-                headers = {
-                    "User-Agent": "UTCMS-Automation/1.0"
-                }
+                headers = {"User-Agent": "UTCMS-Automation/1.0"}
 
                 for candidate in candidates:
                     params = {
@@ -1255,10 +1166,7 @@ class LocationSelector:
         return None
 
     async def _reverse_geocode(self, lat: float, lng: float) -> dict[str, str] | None:
-        """
-        تبدیل مختصات به آدرس (استان، شهر، منطقه)
-        برای پر کردن خودکار فیلدها از روی نقطه کلیک شده
-        """
+        """تبدیل مختصات به آدرس (استان، شهر، منطقه) برای پر کردن خودکار فیلدها"""
         import aiohttp
 
         try:
@@ -1271,16 +1179,13 @@ class LocationSelector:
                     "accept-language": "fa",
                     "zoom": 10,
                 }
-                headers = {
-                    "User-Agent": "UTCMS-Automation/1.0"
-                }
+                headers = {"User-Agent": "UTCMS-Automation/1.0"}
 
                 async with session.get(url, params=params, headers=headers, timeout=5) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         address = data.get("address", {})
 
-                        # استخراج استان
                         province = (
                             address.get("state") or
                             address.get("province") or
@@ -1288,7 +1193,6 @@ class LocationSelector:
                             ""
                         )
 
-                        # استخراج شهر
                         city = (
                             address.get("city") or
                             address.get("town") or
@@ -1297,7 +1201,6 @@ class LocationSelector:
                             ""
                         )
 
-                        # استخراج منطقه
                         district = (
                             address.get("suburb") or
                             address.get("district") or
@@ -1314,7 +1217,6 @@ class LocationSelector:
                             result["district"] = district
 
                         return result if result else None
-
         except Exception as e:
             logger.warning(
                 "reverse_geocoding_failed",
@@ -1330,17 +1232,9 @@ class RouteCalculator:
     def __init__(self, page: Page):
         self.page = page
 
-    async def calculate_distance(
-        self,
-        origin: GeoCoordinate,
-        destination: GeoCoordinate
-    ) -> dict[str, Any]:
-        """
-        محاسبه مسافت و زمان بین دو نقطه
-
-        استفاده از جاوااسکریپت برای محاسبه یا استخراج از صفحه
-        """
-
+    async def calculate_distance(self, origin: GeoCoordinate, destination: GeoCoordinate) -> dict[str, Any]:
+        """محاسبه مسافت و زمان بین دو نقطه"""
+        from app.automation.script_loader import script_loader
         script = script_loader.load("calculate_distance")
 
         try:
@@ -1352,14 +1246,9 @@ class RouteCalculator:
             })
             return result or {}
         except Exception:
-            # محاسبه با استفاده از پایتون
             return self._calculate_haversine(origin, destination)
 
-    def _calculate_haversine(
-        self,
-        origin: GeoCoordinate,
-        destination: GeoCoordinate
-    ) -> dict[str, Any]:
+    def _calculate_haversine(self, origin: GeoCoordinate, destination: GeoCoordinate) -> dict[str, Any]:
         """محاسبه فاصله با استفاده از فرمول هاورسین"""
         import math
 
@@ -1376,7 +1265,6 @@ class RouteCalculator:
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
         distance = R * c
 
-        # تخمین زمان
         duration_min = (distance / 60) * 60  # فرض ۶۰ کیلومتر بر ساعت
 
         return {
