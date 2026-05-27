@@ -692,10 +692,8 @@ class LocationSelector:
                         has_changes = True
                         break
 
-                if not has_changes and not after_state:
-                     has_changes = False
-
-                if not has_changes and after_state == before_state:
+                # If after_state is empty, no changes occurred, so we skip the comparison
+                if not has_changes and after_state and after_state == before_state:
                     logger.warning("map_click_had_no_effect_on_form", extra={"extra_fields": {"prefix": prefix}})
                     return {
                         "success": False,
