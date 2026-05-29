@@ -19,6 +19,7 @@ import threading
 from pathlib import Path
 
 import cv2
+from dataclasses import dataclass
 import numpy as np
 import torch
 import torch.nn as nn
