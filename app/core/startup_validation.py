@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 def validate_environment() -> tuple[bool, list[str]]:
     """
     Validate critical environment variables are set.
-    
+
     Returns:
         Tuple of (is_valid, list_of_errors)
     """
@@ -56,10 +56,15 @@ def validate_environment() -> tuple[bool, list[str]]:
     if utcms_user or utcms_pass:
         warnings.append("Global UTCMS_USERNAME/UTCMS_PASSWORD are legacy-only; prefer per-driver credentials in the database")
 
-    master_user = os.getenv("MASTER_ADMIN_USERNAME", "master_bar")
     master_pass = os.getenv("MASTER_ADMIN_PASSWORD", "master_bar")
-    if master_user == "master_bar" and master_pass == "master_bar":
-        warnings.append("MASTER_ADMIN is using default credentials; change MASTER_ADMIN_USERNAME/MASTER_ADMIN_PASSWORD before production")
+
+    insecure_passwords = ["master_bar", "admin", "Amir123", "password", "123456", "admin123"]
+    if master_pass in insecure_passwords:
+        is_prod = os.getenv("NODE_ENV", "").lower() == "production" or os.getenv("ENVIRONMENT", "").lower() == "production"
+        if is_prod:
+            errors.append("MASTER_ADMIN_PASSWORD is set to an insecure default value. This is a critical security risk. Change it before running in production.")
+        else:
+            warnings.append("MASTER_ADMIN_PASSWORD is using default credentials; change it before production")
 
     # Production settings
     allow_live = os.getenv("ALLOW_LIVE_SUBMIT", "false").lower()
