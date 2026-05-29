@@ -455,7 +455,10 @@ class MapController:
         await self.wait_for_route_calculation()
 
         # استخراج اطلاعات مسیر
-        route_info = await self.extract_route_info()
+        # اگر تست‌ها/Mockها متد را به‌صورت sync شیء برگردانند، اینجا await اضافی خطا ایجاد می‌کند.
+        route_info = self.extract_route_info()
+        if asyncio.iscoroutine(route_info):
+            route_info = await route_info
 
         return MapSelection(
             origin=origin,
