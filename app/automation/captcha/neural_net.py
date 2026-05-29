@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 """
 PyTorch CNN-based captcha character recogniser — v11 high-accuracy edition.
 
