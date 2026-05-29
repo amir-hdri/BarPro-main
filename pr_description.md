@@ -1,14 +1,12 @@
-💡 **What:**
-Optimized the `_capture_evidence` method in `app/core/resilience.py` to eliminate synchronous, blocking file I/O operations when saving HTML DOM dumps.
-Instead of using a standard `open()` write block which pauses the event loop, I extracted the file writing into a helper function and executed it via `await asyncio.get_running_loop().run_in_executor()`.
+🔒 Fix Hardcoded Default Postgres Password in Configuration
 
-🎯 **Why:**
-Writing out large DOM content directly in an async function (without asynchronous I/O primitives) blocks the asyncio event loop. By pushing this file I/O work to a thread pool executor, we prevent the event loop from stalling, improving the application's overall responsiveness and the performance of concurrent tasks.
+🎯 **What:**
+The codebase contained a hardcoded default Postgres password ('postgres') and Redis password ('change_me') in the `.env` file, as well as hardcoded fallback passwords in multiple config files (`docker-compose.node-backend.yml`, `apps/backend/.env.example`, `alembic.ini`, and `scripts/fix_migration_version.py`).
 
-📊 **Measured Improvement:**
-I created a benchmark script `test_benchmark2.py` locally that simulated a heavy HTML DOM dump (approx 10MB) to measure event loop delay (latency) when executing 50 consecutive writes alongside an event-loop monitor task.
+⚠️ **Risk:**
+Using default hardcoded passwords like 'postgres' poses a severe security risk. If a database using this default password gets exposed, it allows unauthorized attackers root access to all data, leading to data breaches and potential compromise of the entire system.
 
-Results:
-*   Max blocking delay (Baseline): 0.0405s
-*   Max async delay (Optimized): 0.0027s
-*   **Improvement: 93.21% reduced latency in the event loop during writes.**
+🛡️ **Solution:**
+- Replaced the hardcoded passwords in `.env` with securely generated random cryptographic strings.
+- Replaced the hardcoded 'postgres' password in configuration templates (`apps/backend/.env.example`, `alembic.ini`, `scripts/fix_migration_version.py`) with a placeholder (`<your_secure_password>`).
+- Updated `docker-compose.node-backend.yml` to use environment variable interpolation (`${POSTGRES_PASSWORD}`) instead of the hardcoded default password.
