@@ -457,12 +457,22 @@ class MapController:
         # استخراج اطلاعات مسیر
         # اگر تست‌ها/Mockها متد را به‌صورت sync شیء برگردانند، اینجا await اضافی خطا ایجاد می‌کند.
 
+        # برای سازگاری با تست‌ها، اگر مقدارهای برگشتی await نشوند، آن‌ها را resolve می‌کنیم.
+        async def _resolve_value(v):
+            if asyncio.iscoroutine(v):
+                return await v
+            return v
+
+        distance_km = await _resolve_value(route_info.get('distance'))
+        duration_min = await _resolve_value(route_info.get('duration'))
+        route_polyline = await _resolve_value(route_info.get('polyline'))
+
         return MapSelection(
             origin=origin,
             destination=destination,
-            distance_km=route_info.get('distance'),
-            duration_min=route_info.get('duration'),
-            route_polyline=route_info.get('polyline')
+            distance_km=distance_km,
+            duration_min=duration_min,
+            route_polyline=route_polyline,
         )
 
     async def extract_route_info(self) -> dict[str, Any]:
