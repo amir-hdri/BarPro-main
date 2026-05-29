@@ -107,8 +107,6 @@ class MiniMLP:
         return preds.cpu().numpy(), confidences.cpu().numpy()
 
 
-
-
 @dataclass
 class TrainingConfig:
     epochs: int = 35
