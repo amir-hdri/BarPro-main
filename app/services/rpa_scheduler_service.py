@@ -5,8 +5,8 @@ import json
 import logging
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlmodel import col, select
 
@@ -17,28 +17,28 @@ from app.models_multitenant import Driver, DriverStatus, TaskSource, TaskStatus,
 from app.models_rpa import DomainEvent, DriverDailyCounter, DriverRuntimeState, DriverRuntimeStateValue
 from app.rpa.contracts import SchedulerDecision
 from app.rpa.event_taxonomy import DRIVER_LIMIT_REACHED, JOB_CREATED, JOB_QUEUED_AUTH, JOB_QUEUED_SUBMIT
-from app.services.rpa_submit_service import build_job_idempotency_key
 from app.services.rpa_runtime_service import rpa_runtime
+from app.services.rpa_submit_service import build_job_idempotency_key
 
 logger = logging.getLogger(__name__)
 
 
 def _utcnow_naive() -> datetime:
     """Return a naive UTC timestamp for database columns stored without timezone."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
-def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
+def _as_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     # Convert offset-aware to naive UTC for comparison
     if value.tzinfo is not None:
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value.astimezone(UTC).replace(tzinfo=None)
     return value
 
 
 class RPASchedulerService:
-    async def create_job(self, client_id: int, driver: Driver, payload: dict[str, Any], source: TaskSource, max_retries: int, priority: int = 5, correlation_id: Optional[str] = None, idempotency_key: Optional[str] = None) -> WaybillJob:
+    async def create_job(self, client_id: int, driver: Driver, payload: dict[str, Any], source: TaskSource, max_retries: int, priority: int = 5, correlation_id: str | None = None, idempotency_key: str | None = None) -> WaybillJob:
         session = async_session_factory()
         try:
             normalized_key = build_job_idempotency_key(client_id, driver.id, payload, supplied=idempotency_key)
@@ -95,7 +95,7 @@ class RPASchedulerService:
             tenant_counts: dict[int, int] = defaultdict(int)
             tenant_limit = max(1, utcms_config.RPA_SCHEDULER_TENANT_SLICE)
             batch_limit = max(1, utcms_config.RPA_SCHEDULER_BATCH_SIZE)
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            now = datetime.now(UTC).replace(tzinfo=None)
 
             for job, driver in jobs:
                 if len(decisions) >= batch_limit:
@@ -205,7 +205,7 @@ class RPASchedulerService:
         row.successes = successes
         row.updated_at = _utcnow_naive()
 
-    async def _record_event(self, session, client_id: int, driver_id: int, job_id: Optional[str], event_type: str, payload: dict[str, Any]) -> None:
+    async def _record_event(self, session, client_id: int, driver_id: int, job_id: str | None, event_type: str, payload: dict[str, Any]) -> None:
         session.add(
             DomainEvent(
                 event_id=f"evt_{uuid.uuid4().hex[:24]}",

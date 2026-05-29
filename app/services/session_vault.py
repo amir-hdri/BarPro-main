@@ -1,7 +1,6 @@
 import os
 import re
 from pathlib import Path
-from typing import Optional
 
 from app.core.config import utcms_config
 
@@ -18,9 +17,9 @@ class SessionVault:
 
     def build_account_key(
         self,
-        username: Optional[str] = None,
-        national_code: Optional[str] = None,
-        fallback: Optional[str] = None,
+        username: str | None = None,
+        national_code: str | None = None,
+        fallback: str | None = None,
     ) -> str:
         for candidate in (username, national_code, fallback):
             if candidate and str(candidate).strip():
@@ -29,9 +28,9 @@ class SessionVault:
 
     def auth_state_path_for_account(
         self,
-        username: Optional[str] = None,
-        national_code: Optional[str] = None,
-        fallback: Optional[str] = None,
+        username: str | None = None,
+        national_code: str | None = None,
+        fallback: str | None = None,
     ) -> str:
         account_key = self.build_account_key(username=username, national_code=national_code, fallback=fallback)
         suffix = self._base_path.suffix or ".json"
@@ -42,7 +41,7 @@ class SessionVault:
     def default_auth_state_path(self) -> str:
         return str(Path(utcms_config.AUTH_STATE_PATH))
 
-    def auth_state_exists(self, path: Optional[str]) -> bool:
+    def auth_state_exists(self, path: str | None) -> bool:
         if not path:
             return False
         return os.path.exists(path)
@@ -51,7 +50,7 @@ class SessionVault:
         directory = Path(path).parent
         directory.mkdir(parents=True, exist_ok=True)
 
-    def delete_auth_state(self, path: Optional[str]) -> None:
+    def delete_auth_state(self, path: str | None) -> None:
         if not path:
             return
         try:

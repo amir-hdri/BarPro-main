@@ -1,12 +1,9 @@
-# -*- coding: utf-8 -*-
 """
 Common Stealth Utilities
 ========================
 Shared stealth scripts and utilities used by both stealth.py and stealth_advanced.py
 to avoid code duplication.
 """
-
-from typing import Dict
 
 
 # ============================================================================
@@ -163,7 +160,7 @@ def build_core_stealth_script(
 # UTILITY FUNCTIONS
 # ============================================================================
 
-def pick_random_fingerprint() -> Dict:
+def pick_random_fingerprint() -> dict:
     """
     Pick a random fingerprint configuration.
     

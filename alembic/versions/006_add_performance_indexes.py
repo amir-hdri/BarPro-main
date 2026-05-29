@@ -4,8 +4,9 @@ Revision ID: 006_add_performance_indexes
 Revises: 005_fix_constraint_conflicts
 Create Date: 2025-05-01 12:00:00.000000
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = '006_add_performance_indexes'
 down_revision = '005_fix_constraint_conflicts'
@@ -15,7 +16,7 @@ depends_on = None
 
 def upgrade():
     """Add composite indexes for common query patterns."""
-    
+
     # WaybillTask: Common query pattern (status + created_at for queue processing)
     op.create_index(
         'idx_waybilltask_status_created',
@@ -23,7 +24,7 @@ def upgrade():
         ['status', 'created_at'],
         unique=False
     )
-    
+
     # WaybillTask: Worker assignment queries
     op.create_index(
         'idx_waybilltask_worker_status',
@@ -31,7 +32,7 @@ def upgrade():
         ['worker_id', 'status'],
         unique=False
     )
-    
+
     # WaybillTask: Retry logic queries
     op.create_index(
         'idx_waybilltask_retryable_attempt',
@@ -39,7 +40,7 @@ def upgrade():
         ['retryable', 'attempt_count'],
         unique=False
     )
-    
+
     # WaybillJob (multitenant): Client-specific queries
     op.create_index(
         'idx_waybilljob_client_status',
@@ -48,7 +49,7 @@ def upgrade():
         unique=False,
         postgresql_where=sa.text("status IN ('pending', 'queued', 'in_progress')")
     )
-    
+
     # WaybillJob: Driver assignment queries
     op.create_index(
         'idx_waybilljob_driver_status',
@@ -56,7 +57,7 @@ def upgrade():
         ['driver_id', 'status'],
         unique=False
     )
-    
+
     # WaybillJob: Time-based queries for monitoring
     op.create_index(
         'idx_waybilljob_created_status',
@@ -64,7 +65,7 @@ def upgrade():
         ['created_at', 'status'],
         unique=False
     )
-    
+
     # DomainEvent: Event log queries by client and time
     op.create_index(
         'idx_domainevent_client_timestamp',
@@ -72,7 +73,7 @@ def upgrade():
         ['client_id', 'created_at'],
         unique=False
     )
-    
+
     # DomainEvent: Event type filtering
     op.create_index(
         'idx_domainevent_event_type',
@@ -80,7 +81,7 @@ def upgrade():
         ['event_type'],
         unique=False
     )
-    
+
     # DriverRuntimeState: Active driver queries
     op.create_index(
         'idx_driverruntimestate_state',

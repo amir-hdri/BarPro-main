@@ -1,7 +1,9 @@
-from fastapi.testclient import TestClient
-from unittest.mock import patch, AsyncMock
-from app.main import app
+from unittest.mock import AsyncMock, patch
+
 import pytest
+from fastapi.testclient import TestClient
+
+from app.main import app
 
 client = TestClient(app)
 
@@ -15,11 +17,11 @@ async def test_detect_map_leaks_sensitive_info():
     sensitive_info = "SENSITIVE_DB_INFO: connection string exposed"
 
     # Mock browser_manager.create_context to raise an exception with sensitive info
-    with patch("app.api.routes.waybill_map.browser_manager.create_context", new_callable=AsyncMock) as mock_create_context:
+    with patch("app.automation.browser_manager.create_context", new_callable=AsyncMock) as mock_create_context:
         mock_create_context.side_effect = Exception(sensitive_info)
 
         # We also need to mock initialize since it's called before create_context
-        with patch("app.api.routes.waybill_map.browser_manager.initialize", new_callable=AsyncMock), \
+        with patch("app.automation.browser_manager.initialize", new_callable=AsyncMock), \
              patch("app.core.config.utcms_config.API_AUTH_MODE", "off"):
 
             response = client.post("/waybill/detect-map?session_id=test_session")
@@ -84,10 +86,10 @@ async def test_create_waybill_leaks_sensitive_info():
     }
 
     # Mock browser_manager.create_context
-    with patch("app.api.routes.waybill_map.browser_manager.create_context", new_callable=AsyncMock) as mock_create_context:
+    with patch("app.automation.browser_manager.create_context", new_callable=AsyncMock) as mock_create_context:
         mock_create_context.side_effect = Exception(sensitive_info)
 
-        with patch("app.api.routes.waybill_map.browser_manager.initialize", new_callable=AsyncMock), \
+        with patch("app.automation.browser_manager.initialize", new_callable=AsyncMock), \
              patch("app.core.config.utcms_config.API_AUTH_MODE", "off"):
              # We also need to mock report_service because it's called before the browser logic
             with patch("app.api.routes.waybill_map.report_service.record_request", new_callable=AsyncMock):

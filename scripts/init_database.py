@@ -4,21 +4,21 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
- 
+
  # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
- 
+
+from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+
 from alembic import command
-from alembic.config import Config
- 
 from app.core.config import utcms_config
- 
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
- 
- 
+
+
 async def check_database_exists() -> bool:
      """Check if database has any tables."""
      engine = create_async_engine(utcms_config.DATABASE_URL, echo=False)
@@ -35,8 +35,8 @@ async def check_database_exists() -> bool:
          return False
      finally:
          await engine.dispose()
- 
- 
+
+
 async def check_alembic_version() -> str | None:
      """Get current alembic version."""
      engine = create_async_engine(utcms_config.DATABASE_URL, echo=False)
@@ -51,24 +51,24 @@ async def check_alembic_version() -> str | None:
          return None
      finally:
          await engine.dispose()
- 
- 
+
+
 def run_migrations():
      """Run Alembic migrations."""
      project_root = Path(__file__).resolve().parent.parent
      alembic_ini_path = project_root / "alembic.ini"
-     
+
      if not alembic_ini_path.exists():
          raise FileNotFoundError(f"alembic.ini not found at {alembic_ini_path}")
-     
+
      alembic_cfg = Config(str(alembic_ini_path))
      alembic_cfg.set_main_option("sqlalchemy.url", utcms_config.DATABASE_URL)
-     
+
      logger.info("Running migrations...")
      command.upgrade(alembic_cfg, "head")
      logger.info("✅ Migrations completed successfully")
- 
- 
+
+
 async def main():
     """Main initialization logic."""
     logger.info("🔄 Starting database initialization...")
@@ -101,8 +101,8 @@ async def main():
         logger.error(f"❌ Database initialization failed: {e}")
         logger.error("💡 Try: scripts/reset_database.sh to reset and retry")
         return 1
- 
- 
+
+
 if __name__ == "__main__":
      exit_code = asyncio.run(main())
      sys.exit(exit_code)

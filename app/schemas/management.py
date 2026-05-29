@@ -1,114 +1,113 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 from app.schemas.waybill import WaybillMapRequest
 
 
-
 class ManagedCustomerUpsertRequest(BaseModel):
     source_system: str = Field(default="local")
     external_key: str
     full_name: str
-    wallet: Optional[str] = None
-    driver_limit: Optional[int] = None
-    bot_running: Optional[bool] = None
-    bot_running_barname: Optional[bool] = None
-    auto_stop: Optional[bool] = None
-    two_way: Optional[bool] = None
-    remaining_duration: Optional[float] = None
-    raw: Dict[str, Any] = Field(default_factory=dict)
+    wallet: str | None = None
+    driver_limit: int | None = None
+    bot_running: bool | None = None
+    bot_running_barname: bool | None = None
+    auto_stop: bool | None = None
+    two_way: bool | None = None
+    remaining_duration: float | None = None
+    raw: dict[str, Any] = Field(default_factory=dict)
 
 
 class ManagedRouteUpsertRequest(BaseModel):
     source_system: str = Field(default="local")
     route_key: str
-    name: Optional[str] = None
-    origin_label: Optional[str] = None
-    origin_province: Optional[str] = None
-    origin_city: Optional[str] = None
-    origin_address: Optional[str] = None
-    origin_lat: Optional[float] = None
-    origin_lng: Optional[float] = None
-    destination_label: Optional[str] = None
-    destination_province: Optional[str] = None
-    destination_city: Optional[str] = None
-    destination_address: Optional[str] = None
-    destination_lat: Optional[float] = None
-    destination_lng: Optional[float] = None
-    distance_km: Optional[float] = None
-    duration_minutes: Optional[float] = None
-    same_province: Optional[bool] = None
-    recommended: Optional[bool] = None
+    name: str | None = None
+    origin_label: str | None = None
+    origin_province: str | None = None
+    origin_city: str | None = None
+    origin_address: str | None = None
+    origin_lat: float | None = None
+    origin_lng: float | None = None
+    destination_label: str | None = None
+    destination_province: str | None = None
+    destination_city: str | None = None
+    destination_address: str | None = None
+    destination_lat: float | None = None
+    destination_lng: float | None = None
+    distance_km: float | None = None
+    duration_minutes: float | None = None
+    same_province: bool | None = None
+    recommended: bool | None = None
     enabled: bool = True
-    raw: Dict[str, Any] = Field(default_factory=dict)
+    raw: dict[str, Any] = Field(default_factory=dict)
 
 
 class ManagedAccountUpsertRequest(BaseModel):
     source_system: str = Field(default="local")
     external_name: str
-    bot_owner: Optional[str] = None
-    title: Optional[str] = None
-    phone_number: Optional[str] = None
-    national_code: Optional[str] = None
-    platform: Optional[str] = None
-    status: Optional[str] = None
-    route_key: Optional[str] = None
-    otp_needed: Optional[bool] = None
-    has_account_is_enabled: Optional[bool] = None
-    has_driver_data: Optional[bool] = None
-    has_truck_data: Optional[bool] = None
-    has_valid_location: Optional[bool] = None
-    start_shipping: Optional[bool] = None
-    two_way: Optional[bool] = None
-    custom_current_submit: Optional[int] = None
-    custom_target_submit: Optional[int] = None
-    time_interval: Optional[int] = None
-    last_success: Optional[str] = None
-    source_details_json: Optional[str] = None
-    destination_detail_json: Optional[str] = None
-    mobile_info_json: Optional[str] = None
-    payment_details_json: Optional[str] = None
-    flags: Dict[str, Any] = Field(default_factory=dict)
-    raw: Dict[str, Any] = Field(default_factory=dict)
+    bot_owner: str | None = None
+    title: str | None = None
+    phone_number: str | None = None
+    national_code: str | None = None
+    platform: str | None = None
+    status: str | None = None
+    route_key: str | None = None
+    otp_needed: bool | None = None
+    has_account_is_enabled: bool | None = None
+    has_driver_data: bool | None = None
+    has_truck_data: bool | None = None
+    has_valid_location: bool | None = None
+    start_shipping: bool | None = None
+    two_way: bool | None = None
+    custom_current_submit: int | None = None
+    custom_target_submit: int | None = None
+    time_interval: int | None = None
+    last_success: str | None = None
+    source_details_json: str | None = None
+    destination_detail_json: str | None = None
+    mobile_info_json: str | None = None
+    payment_details_json: str | None = None
+    flags: dict[str, Any] = Field(default_factory=dict)
+    raw: dict[str, Any] = Field(default_factory=dict)
 
 
 class ManagedQueueCreateRequest(BaseModel):
     source_system: str = Field(default="local")
-    account_external_name: Optional[str] = None
-    route_key: Optional[str] = None
-    bot_owner: Optional[str] = None
+    account_external_name: str | None = None
+    route_key: str | None = None
+    bot_owner: str | None = None
     operation_mode: str = Field(default="safe")
     priority: int = Field(default=100)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    waybill_payload: Optional[WaybillMapRequest] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    waybill_payload: WaybillMapRequest | None = None
 
 
 class ManagedQueueDispatchRequest(BaseModel):
-    idempotency_key: Optional[str] = None
+    idempotency_key: str | None = None
     warm_session_first: bool = True
     allow_otp_pending: bool = False
 
 
 class ManagementBootstrapRequest(BaseModel):
     source_system: str = Field(default="local")
-    customer_external_key: Optional[str] = None
-    customer_name: Optional[str] = None
-    bot_owner: Optional[str] = None
-    wallet: Optional[str] = None
-    driver_limit: Optional[int] = None
-    account_external_name: Optional[str] = None
-    account_title: Optional[str] = None
-    account_phone_number: Optional[str] = None
-    account_national_code: Optional[str] = None
+    customer_external_key: str | None = None
+    customer_name: str | None = None
+    bot_owner: str | None = None
+    wallet: str | None = None
+    driver_limit: int | None = None
+    account_external_name: str | None = None
+    account_title: str | None = None
+    account_phone_number: str | None = None
+    account_national_code: str | None = None
     platform: str = Field(default="Barname")
-    status: Optional[str] = Field(default="Ready")
-    otp_needed: Optional[bool] = None
+    status: str | None = Field(default="Ready")
+    otp_needed: bool | None = None
     start_shipping: bool = True
-    two_way: Optional[bool] = None
-    custom_current_submit: Optional[int] = None
-    custom_target_submit: Optional[int] = None
-    time_interval: Optional[int] = None
+    two_way: bool | None = None
+    custom_current_submit: int | None = None
+    custom_target_submit: int | None = None
+    time_interval: int | None = None
     priority: int = Field(default=100)
     create_queue: bool = True
     waybill_payload: WaybillMapRequest
@@ -116,11 +115,11 @@ class ManagementBootstrapRequest(BaseModel):
 
 class ManagementExcelImportOptions(BaseModel):
     source_system: str = Field(default="local")
-    customer_external_key: Optional[str] = Field(default="excel-import")
-    customer_name: Optional[str] = Field(default="Excel Import")
-    bot_owner: Optional[str] = None
-    wallet: Optional[str] = None
-    driver_limit: Optional[int] = None
+    customer_external_key: str | None = Field(default="excel-import")
+    customer_name: str | None = Field(default="Excel Import")
+    bot_owner: str | None = None
+    wallet: str | None = None
+    driver_limit: int | None = None
     platform: str = Field(default="Barname")
     operation_mode: str = Field(default="safe")
     login_url: str = Field(default="https://barname.utcms.ir/Barname/Account/Login")
@@ -130,4 +129,4 @@ class ManagementExcelImportOptions(BaseModel):
     default_province: str = Field(default="تهران")
     default_city: str = Field(default="تهران")
     priority: int = Field(default=100)
-    time_interval: Optional[int] = None
+    time_interval: int | None = None

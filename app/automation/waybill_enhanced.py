@@ -9,21 +9,22 @@ import logging
 import random
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 from urllib.parse import urljoin
-from playwright.async_api import Page, BrowserContext
 
+from playwright.async_api import BrowserContext, Page
+
+from app.automation.browser import PageInteractor
 from app.automation.captcha import captcha_engine, get_captcha_provider
+from app.automation.location_selector import LocationSelector, RouteCalculator
+from app.automation.map_controller import GeoCoordinate, MapController
+from app.automation.selectors import AuthSelectors
 from app.bot.core.smart_locator import SmartLocator
 from app.core.config import utcms_config
 from app.core.exceptions import WaybillError
 from app.core.logging import monitoring_extra
 from app.core.network import is_retryable_network_error
 from app.core.utils import resolve_maybe_awaitable
-from app.automation.browser import PageInteractor
-from app.automation.map_controller import MapController, GeoCoordinate
-from app.automation.selectors import AuthSelectors
-from app.automation.location_selector import LocationSelector, RouteCalculator
 from app.monitoring import track_captcha_attempt, track_captcha_failure, track_captcha_success
 from app.monitoring.event_bridge import monitoring_bridge
 
@@ -73,7 +74,7 @@ class EnhancedWaybillManager:
         self.location_selector = LocationSelector(page)
         self.route_calculator = RouteCalculator(page)
         self._active_pill = "bootstrap"
-        self._selector_inventory: Dict[str, Dict[str, Any]] = {}
+        self._selector_inventory: dict[str, dict[str, Any]] = {}
 
     def _pill_name(self, step_index: int) -> str:
         return self._pill_names.get(step_index, f"pill_{step_index}")
@@ -103,7 +104,7 @@ class EnhancedWaybillManager:
         except Exception:
             return ""
 
-    async def _read_button_text(self, selector: Optional[str], fallback_text: str = "") -> str:
+    async def _read_button_text(self, selector: str | None, fallback_text: str = "") -> str:
         if not selector:
             return fallback_text
         try:
@@ -122,9 +123,9 @@ class EnhancedWaybillManager:
         field_label: str,
         selectors: list[str],
         status: str,
-        selector_used: Optional[str] = None,
+        selector_used: str | None = None,
         value: Any = None,
-        pill: Optional[str] = None,
+        pill: str | None = None,
     ) -> None:
         pill_name = pill or self._active_pill
         key = f"{pill_name}:{field_label}"
@@ -137,8 +138,8 @@ class EnhancedWaybillManager:
             "value_summary": self._summarize_field_value(value),
         }
 
-    def _pill_field_summary(self, pill_name: str) -> Dict[str, Dict[str, str]]:
-        summary: Dict[str, Dict[str, str]] = {}
+    def _pill_field_summary(self, pill_name: str) -> dict[str, dict[str, str]]:
+        summary: dict[str, dict[str, str]] = {}
         for item in self._selector_inventory.values():
             if item.get("pill") != pill_name:
                 continue
@@ -154,7 +155,7 @@ class EnhancedWaybillManager:
         *,
         current_step: int,
         target_step: int,
-        clicked_selector: Optional[str],
+        clicked_selector: str | None,
         button_text: str,
         transition_success: bool,
     ) -> None:
@@ -162,7 +163,7 @@ class EnhancedWaybillManager:
         active_pane = await self._detect_active_pane()
         field_values_summary = self._pill_field_summary(pill_name)
         target_pill = self._pill_name(target_step)
-        
+
         payload = {
             "pill": pill_name,
             "active_pane": active_pane,
@@ -172,7 +173,7 @@ class EnhancedWaybillManager:
             "target_pill": target_pill,
             "field_values_summary": field_values_summary,
         }
-        
+
         logger.info(
             "waybill_pill_trace",
             extra=monitoring_extra(
@@ -189,7 +190,7 @@ class EnhancedWaybillManager:
                 field_values_summary=field_values_summary,
             ),
         )
-        
+
         await monitoring_bridge.emit(
             "waybill_pill_trace",
             payload,
@@ -199,7 +200,7 @@ class EnhancedWaybillManager:
     def _log_selector_inventory_audit(self) -> None:
         audit = sorted(self._selector_inventory.values(), key=lambda item: (str(item.get("pill")), str(item.get("field"))))
         payload = {"items": audit}
-        
+
         logger.info(
             "waybill_selector_inventory_audit",
             extra=monitoring_extra(
@@ -211,7 +212,7 @@ class EnhancedWaybillManager:
                 item_count=len(audit),
             ),
         )
-        
+
         import asyncio
         try:
             loop = asyncio.get_event_loop()
@@ -293,7 +294,7 @@ class EnhancedWaybillManager:
         return cls._digits_only(value)
 
     @staticmethod
-    def _split_cargo_type_and_packaging(value: Any) -> tuple[str, Optional[str]]:
+    def _split_cargo_type_and_packaging(value: Any) -> tuple[str, str | None]:
         raw = str(value or "").strip()
         if not raw:
             return "", None
@@ -305,7 +306,7 @@ class EnhancedWaybillManager:
         return parts[0], parts[1]
 
     @classmethod
-    def _parse_plate(cls, value: Any) -> Optional[dict[str, str]]:
+    def _parse_plate(cls, value: Any) -> dict[str, str] | None:
         compact = re.sub(r"[\s\-_/()]+", "", str(value or ""))
         compact = cls._to_english_digits(compact).replace("ايران", "ایران")
         match = cls._plate_pattern.match(compact)
@@ -544,7 +545,7 @@ class EnhancedWaybillManager:
         selectors,
         *,
         timeout_ms: int = 6000,
-    ) -> Optional[str]:
+    ) -> str | None:
         deadline = asyncio.get_running_loop().time() + max(0.5, timeout_ms / 1000)
         while asyncio.get_running_loop().time() < deadline:
             for selector in selectors:
@@ -819,8 +820,8 @@ class EnhancedWaybillManager:
 
     async def _try_click_next_visible_text(
         self, current_step: int, target_step: int, pane_selector: str, exact_next_text: str
-    ) -> tuple[bool, Optional[str], str]:
-        clicked_selector: Optional[str] = None
+    ) -> tuple[bool, str | None, str]:
+        clicked_selector: str | None = None
         button_text = ""
         try:
             clicked_visible_text_button = await self.page.evaluate(
@@ -874,7 +875,7 @@ class EnhancedWaybillManager:
 
     async def _try_click_next_scoped_selectors(
         self, current_step: int, target_step: int, pane_selector: str, selectors: list[str], label: str
-    ) -> tuple[bool, Optional[str], str]:
+    ) -> tuple[bool, str | None, str]:
         scoped_selectors: list[str] = []
         for selector in selectors:
             scoped_selectors.append(selector)
@@ -915,7 +916,7 @@ class EnhancedWaybillManager:
 
     async def _try_click_next_fallback_selectors(
         self, current_step: int, target_step: int, label: str
-    ) -> tuple[bool, Optional[str], str]:
+    ) -> tuple[bool, str | None, str]:
         for selector in [
             f'button[data-to="#pills-{target_step}-tab"]',
             f'#GoLVL{target_step}',
@@ -1052,7 +1053,7 @@ class EnhancedWaybillManager:
         except Exception:
             return None
 
-    async def _consume_json_response(self, response_task, timeout_seconds: float = 15.0) -> Optional[Dict[str, Any]]:
+    async def _consume_json_response(self, response_task, timeout_seconds: float = 15.0) -> dict[str, Any] | None:
         if not response_task:
             return None
 
@@ -1091,7 +1092,7 @@ class EnhancedWaybillManager:
             await asyncio.sleep(max(1.0, fallback_sleep_seconds))
 
     @staticmethod
-    def _parse_register_submit_payload(payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    def _parse_register_submit_payload(payload: dict[str, Any] | None) -> dict[str, Any] | None:
         if not isinstance(payload, dict):
             return None
 
@@ -1119,7 +1120,7 @@ class EnhancedWaybillManager:
         }
 
     @staticmethod
-    def _parse_otp_submit_payload(payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    def _parse_otp_submit_payload(payload: dict[str, Any] | None) -> dict[str, Any] | None:
         if not isinstance(payload, dict):
             return None
 
@@ -1134,7 +1135,7 @@ class EnhancedWaybillManager:
             "payload": payload,
         }
 
-    async def _fetch_tracking_code_by_document_id(self, document_id: Any) -> Optional[str]:
+    async def _fetch_tracking_code_by_document_id(self, document_id: Any) -> str | None:
         if not document_id:
             return None
 
@@ -1206,11 +1207,11 @@ class EnhancedWaybillManager:
         )
         return False
 
-    async def _goto_with_retry(self, url: str, wait_until: Optional[str] = None) -> None:
+    async def _goto_with_retry(self, url: str, wait_until: str | None = None) -> None:
         attempts = max(1, utcms_config.PAGE_GOTO_MAX_RETRIES + 1)
         base_delay = max(0.1, utcms_config.PAGE_GOTO_RETRY_BASE_SECONDS)
         jitter = max(0.0, utcms_config.PAGE_GOTO_RETRY_JITTER_SECONDS)
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         for attempt in range(1, attempts + 1):
             try:
@@ -1232,9 +1233,9 @@ class EnhancedWaybillManager:
 
     async def create_waybill_with_map(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         dry_run: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         ایجاد بارنامه با انتخاب مکان از طریق نقشه یا منوی کشویی
 
@@ -1456,16 +1457,32 @@ class EnhancedWaybillManager:
             if (origin_result.get("coordinates") and
                 dest_result.get("coordinates")):
 
-                route_info = await self.route_calculator.calculate_distance(
-                    GeoCoordinate(
-                        latitude=origin_result["coordinates"]["lat"],
-                        longitude=origin_result["coordinates"]["lng"]
-                    ),
-                    GeoCoordinate(
-                        latitude=dest_result["coordinates"]["lat"],
-                        longitude=dest_result["coordinates"]["lng"]
+                # تلاش برای استخراج مسیر از روی نقشه UI
+                try:
+                    await self.map_controller.wait_for_route_calculation(timeout=2000)
+                    map_route_info = await self.map_controller.extract_route_info()
+                    if map_route_info and map_route_info.get("distance"):
+                        route_info = {
+                            "distance": map_route_info.get("distance"),
+                            "duration": map_route_info.get("duration"),
+                            "polyline": map_route_info.get("polyline"),
+                            "method": "map_extracted"
+                        }
+                except Exception as e:
+                    logger.debug(f"استخراج مسیر از نقشه شکست خورد: {e}")
+
+                # محاسبه دستی مسیر در صورت عدم وجود در نقشه
+                if not route_info:
+                    route_info = await self.route_calculator.calculate_distance(
+                        GeoCoordinate(
+                            latitude=origin_result["coordinates"]["lat"],
+                            longitude=origin_result["coordinates"]["lng"]
+                        ),
+                        GeoCoordinate(
+                            latitude=dest_result["coordinates"]["lat"],
+                            longitude=dest_result["coordinates"]["lng"]
+                        )
                     )
-                )
 
             # پر کردن اطلاعات مالی
             await self._fill_financial_info(data.get("financial", {}))
@@ -1796,7 +1813,7 @@ class EnhancedWaybillManager:
                 continue
         return False
 
-    async def _fill_sender_info(self, sender: Dict[str, str]):
+    async def _fill_sender_info(self, sender: dict[str, str]):
         """پر کردن اطلاعات فرستنده"""
         await self._select_dropdown_with_fallback(
             [
@@ -1890,7 +1907,7 @@ class EnhancedWaybillManager:
         )
         await asyncio.sleep(0.3)
 
-    async def _fill_receiver_info(self, receiver: Dict[str, str]):
+    async def _fill_receiver_info(self, receiver: dict[str, str]):
         """پر کردن اطلاعات گیرنده"""
         await self._select_dropdown_with_fallback(
             [
@@ -1983,7 +2000,7 @@ class EnhancedWaybillManager:
         )
         await asyncio.sleep(0.3)
 
-    async def _fill_cargo_info(self, cargo: Dict[str, Any]):
+    async def _fill_cargo_info(self, cargo: dict[str, Any]):
         """پر کردن اطلاعات کالا"""
         await self._wait_for_step_marker(4, ['#txtLoadsValue', '#btnAddLoad'], timeout_ms=8000)
 
@@ -2096,7 +2113,7 @@ class EnhancedWaybillManager:
             )
             await self._log_select_options('#PelakComboTajmi', 'tajmi_plate')
 
-    async def _fill_vehicle_plate(self, vehicle: Dict[str, str], plate_parts: Optional[Dict[str, str]], tajmi_mode: bool) -> None:
+    async def _fill_vehicle_plate(self, vehicle: dict[str, str], plate_parts: dict[str, str] | None, tajmi_mode: bool) -> None:
         """پر کردن پلاک خودرو"""
         if plate_parts:
             selected_tajmi = False
@@ -2286,7 +2303,7 @@ class EnhancedWaybillManager:
                 required=False,
             )
 
-    async def _fill_vehicle_info(self, vehicle: Dict[str, str]):
+    async def _fill_vehicle_info(self, vehicle: dict[str, str]):
         """پر کردن اطلاعات ناوگان"""
         await self._wait_for_step_marker(3, ['#txtDriverSearch', '#PelakComboTajmi', '#btnGoLVL4'], timeout_ms=8000)
         tajmi_mode = await self._element_exists('#PelakComboTajmi')
@@ -2315,7 +2332,7 @@ class EnhancedWaybillManager:
 
         await self._fill_vehicle_type(vehicle.get("type", ""))
 
-    async def _fill_financial_info(self, financial: Dict[str, Any]):
+    async def _fill_financial_info(self, financial: dict[str, Any]):
         """پر کردن اطلاعات مالی"""
         if financial.get("cost"):
             await self._fill_with_fallback(
@@ -2640,7 +2657,7 @@ class EnhancedWaybillManager:
 
         return False
 
-    async def _detect_otp_required(self, submit_state: Optional[Dict[str, Any]] = None) -> bool:
+    async def _detect_otp_required(self, submit_state: dict[str, Any] | None = None) -> bool:
         """تشخیص نیاز به OTP پس از ارسال فرم"""
         if isinstance(submit_state, dict) and "is_otp_needed" in submit_state:
             return bool(submit_state.get("is_otp_needed"))
@@ -2707,9 +2724,9 @@ class EnhancedWaybillManager:
 
     async def _handle_otp_if_required(
         self,
-        otp_value: Optional[str] = None,
-        submit_state: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        otp_value: str | None = None,
+        submit_state: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """
         مدیریت OTP در صورت نیاز.
         اگر otp_value داده شده باشد آن را وارد می‌کند؛ در غیر این صورت منتظر ورود دستی می‌ماند.
@@ -2810,7 +2827,7 @@ class EnhancedWaybillManager:
 
         raise WaybillError("OTP در بازه زمانی مجاز وارد نشد")
 
-    async def _submit_waybill(self, otp_value: Optional[str] = None) -> Dict[str, Any]:
+    async def _submit_waybill(self, otp_value: str | None = None) -> dict[str, Any]:
         """ثبت فرم بارنامه (با پشتیبانی OTP و captcha + Self-Healing)"""
 
         # ── Self-Healing wrapper for critical interactions ──
@@ -2960,7 +2977,7 @@ class EnhancedWaybillManager:
         except Exception:
             pass
 
-    async def _check_otp_after_submit(self) -> Optional[Dict[str, Any]]:
+    async def _check_otp_after_submit(self) -> dict[str, Any] | None:
         """
         Detect OTP modal after submit. If found, gracefully exit and return OTP_BACKOFF status.
         The worker will calculate T_now + 60 minutes and update the DB.
@@ -2999,7 +3016,7 @@ class EnhancedWaybillManager:
             # TimeoutError → OTP modal NOT detected → submission was successful
             return None
 
-    def _normalize_captcha_solution(self, value: Optional[str]) -> Optional[str]:
+    def _normalize_captcha_solution(self, value: str | None) -> str | None:
         if value is None:
             return None
 
@@ -3029,7 +3046,7 @@ class EnhancedWaybillManager:
     def _captcha_math_min_confidence(self) -> float:
         return max(0.0, min(1.0, float(utcms_config.CAPTCHA_MATH_MIN_CONFIDENCE)))
 
-    def _hint_candidates_from_text(self, raw_text: Optional[str]) -> list[str]:
+    def _hint_candidates_from_text(self, raw_text: str | None) -> list[str]:
         text = (raw_text or "").strip()
         if not text:
             return []
@@ -3115,7 +3132,7 @@ class EnhancedWaybillManager:
 
         return unique
 
-    async def _extract_captcha_image_base64(self) -> Optional[str]:
+    async def _extract_captcha_image_base64(self) -> str | None:
         for selector in AuthSelectors.CAPTCHA_IMAGE_SELECTORS:
             try:
                 element = await self.smart_locator.locate(self.page, [selector], timeout=800)
@@ -3126,7 +3143,7 @@ class EnhancedWaybillManager:
                 continue
         return None
 
-    async def _solve_submit_math_captcha(self, captcha_selector: str) -> Optional[str]:
+    async def _solve_submit_math_captcha(self, captcha_selector: str) -> str | None:
         started_at = asyncio.get_running_loop().time()
         track_captcha_attempt("math", phase="submit")
         hints = await self._extract_submit_captcha_hints(captcha_selector)
@@ -3173,7 +3190,7 @@ class EnhancedWaybillManager:
         )
         return None
 
-    async def _solve_submit_captcha_with_provider(self, captcha_selector: str) -> Optional[str]:
+    async def _solve_submit_captcha_with_provider(self, captcha_selector: str) -> str | None:
         started_at = asyncio.get_running_loop().time()
         track_captcha_attempt("provider", phase="submit")
         provider = get_captcha_provider()
@@ -3479,7 +3496,7 @@ class EnhancedWaybillManager:
         "err_cant_shipping": "امکان ثبت حمل وجود ندارد",
     }
 
-    async def _extract_form_errors(self) -> Optional[str]:
+    async def _extract_form_errors(self) -> str | None:
         """استخراج خطاهای اعتبارسنجی فرم (شامل کدهای خطای UTCMS)."""
         error_selectors = [
             ".validation-summary-errors li",
@@ -3519,7 +3536,7 @@ class EnhancedWaybillManager:
 
         return None
 
-    async def _extract_tracking_code(self, document_id: Optional[Any] = None) -> Optional[str]:
+    async def _extract_tracking_code(self, document_id: Any | None = None) -> str | None:
         """استخراج کد رهگیری از صفحه"""
         import re
 

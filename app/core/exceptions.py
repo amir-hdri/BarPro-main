@@ -1,7 +1,7 @@
 """Structured error codes for UTCMS automation errors."""
 
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class ErrorCode(str, Enum):
@@ -63,7 +63,7 @@ class UTCMSException(Exception):
         message: str,
         error_code: ErrorCode = ErrorCode.INTERNAL_ERROR,
         status_code: int = 500,
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
         retryable: bool = False,
     ):
         super().__init__(message)
@@ -72,7 +72,7 @@ class UTCMSException(Exception):
         self.details = details or {}
         self.retryable = retryable
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert exception to structured dict."""
         return {
             "error": self.error_code.value,
@@ -85,7 +85,7 @@ class UTCMSException(Exception):
 class MapInteractionError(UTCMSException):
     """Raised when interaction with the map fails."""
 
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(
             message=message,
             error_code=ErrorCode.WB_MAP_INTERACTION_FAILED,
@@ -97,7 +97,7 @@ class MapInteractionError(UTCMSException):
 class LocationSelectionError(UTCMSException):
     """Raised when location selection fails (all methods)."""
 
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(
             message=message,
             error_code=ErrorCode.WB_LOCATION_SELECTION_FAILED,
@@ -114,7 +114,7 @@ class WaybillError(UTCMSException):
         message: str,
         error_code: ErrorCode = ErrorCode.WB_FORM_ERROR,
         status_code: int = 400,
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
         retryable: bool = False,
     ):
         super().__init__(
@@ -133,7 +133,7 @@ class AuthenticationError(UTCMSException):
         self,
         message: str,
         error_code: ErrorCode = ErrorCode.AUTH_INVALID_CREDENTIALS,
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ):
         super().__init__(
             message=message,
@@ -150,7 +150,7 @@ class NetworkError(UTCMSException):
         self,
         message: str,
         error_code: ErrorCode = ErrorCode.NET_SERVICE_UNAVAILABLE,
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
         retryable: bool = True,
     ):
         super().__init__(
@@ -169,7 +169,7 @@ class QueueError(UTCMSException):
         self,
         message: str,
         error_code: ErrorCode = ErrorCode.Q_TASK_NOT_FOUND,
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ):
         super().__init__(
             message=message,
@@ -186,7 +186,7 @@ class BrowserError(UTCMSException):
         self,
         message: str,
         error_code: ErrorCode = ErrorCode.BR_LAUNCH_FAILED,
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ):
         super().__init__(
             message=message,

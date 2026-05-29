@@ -3,7 +3,7 @@ import json
 import logging
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.execution_context import get_execution_context
@@ -109,7 +109,7 @@ class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload = {
             "schema_version": MONITORING_SCHEMA_VERSION,
-            "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+            "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": sanitize(record.getMessage()),

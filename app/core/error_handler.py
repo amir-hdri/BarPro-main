@@ -1,12 +1,12 @@
 """Enhanced error handling utilities."""
 import logging
-
 import traceback
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, Optional, Type, TypeVar, Dict
+from typing import Any, TypeVar
 
 from app.core.alerts import alert_manager
-from app.core.error_taxonomy import classify_exception, ErrorCategory
+from app.core.error_taxonomy import ErrorCategory, classify_exception
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ class ErrorReporter:
     """Centralized error reporting and alerting system."""
 
     @classmethod
-    def report(cls, exception: Exception, context: Optional[Dict[str, Any]] = None, severity: str = "error"):
+    def report(cls, exception: Exception, context: dict[str, Any] | None = None, severity: str = "error"):
         category, retryable = classify_exception(exception)
 
         error_data = {
@@ -56,11 +56,11 @@ class ErrorReporter:
 def safe_execute(
     func: Callable[..., T],
     *args: Any,
-    default: Optional[T] = None,
+    default: T | None = None,
     log_error: bool = True,
-    error_message: Optional[str] = None,
+    error_message: str | None = None,
     **kwargs: Any,
-) -> Optional[T]:
+) -> T | None:
     """
     Safely execute a function and return default value on error.
     
@@ -96,7 +96,7 @@ def safe_execute(
 
 def retry_on_exception(
     max_attempts: int = 3,
-    exceptions: tuple[Type[Exception], ...] = (Exception,),
+    exceptions: tuple[type[Exception], ...] = (Exception,),
     delay: float = 1.0,
     backoff: float = 2.0,
     log_attempts: bool = True,
@@ -115,16 +115,16 @@ def retry_on_exception(
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             import time
-            
+
             current_delay = delay
             last_exception = None
-            
+
             for attempt in range(1, max_attempts + 1):
                 try:
                     return func(*args, **kwargs)
                 except exceptions as e:
                     last_exception = e
-                    
+
                     if attempt == max_attempts:
                         if log_attempts:
                             logger.error(
@@ -139,7 +139,7 @@ def retry_on_exception(
                                 exc_info=True,
                             )
                         raise
-                    
+
                     if log_attempts:
                         logger.warning(
                             f"Attempt {attempt}/{max_attempts} failed for {func.__name__}, retrying in {current_delay}s",
@@ -153,19 +153,19 @@ def retry_on_exception(
                                 }
                             },
                         )
-                    
+
                     time.sleep(current_delay)
                     current_delay *= backoff
-            
+
             raise last_exception
-        
+
         return wrapper
     return decorator
 
 
 async def async_retry_on_exception(
     max_attempts: int = 3,
-    exceptions: tuple[Type[Exception], ...] = (Exception,),
+    exceptions: tuple[type[Exception], ...] = (Exception,),
     delay: float = 1.0,
     backoff: float = 2.0,
     log_attempts: bool = True,
@@ -184,16 +184,16 @@ async def async_retry_on_exception(
         @wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             import asyncio
-            
+
             current_delay = delay
             last_exception = None
-            
+
             for attempt in range(1, max_attempts + 1):
                 try:
                     return await func(*args, **kwargs)
                 except exceptions as e:
                     last_exception = e
-                    
+
                     if attempt == max_attempts:
                         if log_attempts:
                             logger.error(
@@ -208,7 +208,7 @@ async def async_retry_on_exception(
                                 exc_info=True,
                             )
                         raise
-                    
+
                     if log_attempts:
                         logger.warning(
                             f"Attempt {attempt}/{max_attempts} failed for {func.__name__}, retrying in {current_delay}s",
@@ -222,12 +222,12 @@ async def async_retry_on_exception(
                                 }
                             },
                         )
-                    
+
                     await asyncio.sleep(current_delay)
                     current_delay *= backoff
-            
+
             raise last_exception
-        
+
         return wrapper
     return decorator
 
@@ -236,7 +236,7 @@ def log_exception_context(
     logger_instance: logging.Logger,
     message: str,
     exception: Exception,
-    extra_context: Optional[dict] = None,
+    extra_context: dict | None = None,
 ) -> None:
     """
     Log exception with full context and traceback, and report via centralized system.
@@ -252,9 +252,9 @@ def log_exception_context(
         "error_message": str(exception),
         "traceback": traceback.format_exc(),
     }
-    
+
     if extra_context:
         context.update(extra_context)
-    
+
     # Use the centralized error reporter
     ErrorReporter.report(exception, context=context)

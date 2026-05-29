@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import aiohttp
 from fastapi import HTTPException
@@ -40,12 +40,12 @@ class RunItem:
     message: str
     mode: str
     attempt_count: int
-    request_id: Optional[str] = None
-    tracking_code: Optional[str] = None
-    duration_seconds: Optional[float] = None
-    detail: Optional[Any] = None
-    artifacts: Optional[List[str]] = None
-    payload_excerpt: Optional[Dict[str, Any]] = None
+    request_id: str | None = None
+    tracking_code: str | None = None
+    duration_seconds: float | None = None
+    detail: Any | None = None
+    artifacts: list[str] | None = None
+    payload_excerpt: dict[str, Any] | None = None
 
 
 def _clean_text(value: Any) -> str:
@@ -85,8 +85,8 @@ class ReverseGeoResolver:
         self.enabled = enabled
         self.timeout_seconds = max(2.0, timeout_seconds)
         self.min_interval_seconds = max(0.0, min_interval_seconds)
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._cache: Dict[Tuple[float, float], Dict[str, str]] = {}
+        self._session: aiohttp.ClientSession | None = None
+        self._cache: dict[tuple[float, float], dict[str, str]] = {}
         self._last_call_at = 0.0
 
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -99,7 +99,7 @@ class ReverseGeoResolver:
         if self._session and not self._session.closed:
             await self._session.close()
 
-    async def resolve(self, lat: float, lng: float) -> Optional[Dict[str, str]]:
+    async def resolve(self, lat: float, lng: float) -> dict[str, str] | None:
         if not self.enabled:
             return None
 
@@ -165,22 +165,22 @@ class ReverseGeoResolver:
         return result
 
 
-def _build_credentials(row: List[str], header_map: Dict[str, int]) -> Tuple[str, str]:
+def _build_credentials(row: list[str], header_map: dict[str, int]) -> tuple[str, str]:
     username = normalize_digits(get_cell(row, header_map["account_username"]))
     password = _clean_text(get_cell(row, header_map["account_password"]))
     return username, password
 
 
 async def _build_request(
-    row: List[str],
-    header_map: Dict[str, int],
+    row: list[str],
+    header_map: dict[str, int],
     operation_mode: str,
     login_url: str,
     include_auth: bool,
     geo_resolver: ReverseGeoResolver,
     default_province: str,
     default_city: str,
-) -> Tuple[WaybillMapRequest, Dict[str, Any], Tuple[str, str]]:
+) -> tuple[WaybillMapRequest, dict[str, Any], tuple[str, str]]:
     username, password = _build_credentials(row, header_map)
 
     sender_name = _clean_text(get_cell(row, header_map["sender_name"])) or "فرستنده"
@@ -241,7 +241,7 @@ async def _build_request(
     # cargo type: prefer human-readable name for web form dropdown; fall back to GOOD-<id>
     cargo_type_label = good_type_name or f"GOOD-{good_type_id}"
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "operation_mode": operation_mode,
         "sender": {
             "name": sender_name,
@@ -291,7 +291,7 @@ async def _build_request(
         payload["receiver"]["national_code"] = receiver_national_code[:10].zfill(10)
 
     # shipping_options from excel columns
-    shipping_opts: Dict[str, Any] = {}
+    shipping_opts: dict[str, Any] = {}
     if trip_minutes and trip_minutes > 0:
         shipping_opts["time_limit"] = trip_minutes
     if end_shipping_date:
@@ -332,12 +332,12 @@ def _detail_text(detail: Any) -> str:
     return str(detail)
 
 
-def _collect_failure_artifacts(row_index: int, artifacts_dir: Path) -> List[str]:
+def _collect_failure_artifacts(row_index: int, artifacts_dir: Path) -> list[str]:
     files_to_capture = [
         Path("waybill_map_error.png"),
         Path("waybill_notfound_snapshot.html"),
     ]
-    copied: List[str] = []
+    copied: list[str] = []
 
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -358,9 +358,9 @@ def _collect_failure_artifacts(row_index: int, artifacts_dir: Path) -> List[str]
 async def _submit_with_retries(
     request_model: WaybillMapRequest,
     retries: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     attempts = max(1, retries)
-    last_error: Optional[Exception] = None
+    last_error: Exception | None = None
 
     for attempt in range(1, attempts + 1):
         try:
@@ -397,7 +397,7 @@ async def run(
     default_city: str,
     captcha_auto_only: bool,
     captcha_auto_attempts: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     await init_db()
     utcms_config.ALLOW_LIVE_SUBMIT = bool(live_submit)
     utcms_config.CAPTCHA_AUTO_ONLY = bool(captcha_auto_only)
@@ -414,10 +414,10 @@ async def run(
         data_rows = data_rows[:max_rows]
 
     geo_resolver = ReverseGeoResolver(enabled=reverse_geocode)
-    run_items: List[RunItem] = []
+    run_items: list[RunItem] = []
     mode = "full" if live_submit else "safe"
 
-    last_success_credential: Optional[Tuple[str, str]] = None
+    last_success_credential: tuple[str, str] | None = None
     started_at = datetime.utcnow().isoformat() + "Z"
 
     try:
@@ -471,8 +471,8 @@ async def run(
                 continue
 
             submit_attempt = 0
-            result_payload: Optional[Dict[str, Any]] = None
-            failure_message: Optional[str] = None
+            result_payload: dict[str, Any] | None = None
+            failure_message: str | None = None
             failure_detail: Any = None
 
             while submit_attempt < max(1, retries):

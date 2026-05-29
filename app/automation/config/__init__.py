@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Configuration profiles for Anti-Detection system
 ================================================
@@ -8,9 +7,9 @@ including user agents, fingerprints, proxy settings, and behavior patterns.
 
 import json
 import os
-from dataclasses import dataclass, asdict, field
-from typing import Dict, List, Optional, Any
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -23,8 +22,8 @@ class ScreenFingerprint:
     avail_width: int = 1920
     avail_height: int = 1040
     available_color_depth: int = 24
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -36,8 +35,8 @@ class WebGLFingerprint:
     version: str = "WebGL 1.0"
     unmasked_vendor: str = ""
     unmasked_renderer: str = ""
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -49,20 +48,20 @@ class BrowserProfile:
     platform: str = ""
     platform_version: str = ""
     language: str = "en-US"
-    languages: List[str] = field(default_factory=lambda: ["en-US", "en"])
+    languages: list[str] = field(default_factory=lambda: ["en-US", "en"])
     timezone: str = "America/New_York"
     screen: ScreenFingerprint = field(default_factory=ScreenFingerprint)
     webgl: WebGLFingerprint = field(default_factory=WebGLFingerprint)
     hardware_concurrency: int = 8
     device_memory: int = 8
     max_touch_points: int = 0
-    do_not_track: Optional[str] = None
+    do_not_track: str | None = None
     device_pixel_ratio: float = 1.0
     cookie_enabled: bool = True
     local_storage_enabled: bool = True
     session_storage_enabled: bool = True
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         # Convert nested dataclasses to dicts
         if hasattr(self.screen, 'to_dict'):
@@ -70,7 +69,7 @@ class BrowserProfile:
         if hasattr(self.webgl, 'to_dict'):
             data['webgl'] = self.webgl.to_dict()
         return data
-    
+
     def fingerprint_hash(self) -> str:
         """Generate unique hash for fingerprint identification"""
         import hashlib
@@ -248,17 +247,17 @@ SCREEN_PRESETS = [
     {"width": 1440, "height": 900, "avail_width": 1440, "avail_height": 860, "color_depth": 24, "pixel_ratio": 1.0},
     {"width": 1536, "height": 864, "avail_width": 1536, "avail_height": 824, "color_depth": 24, "pixel_ratio": 1.25},
     {"width": 1680, "height": 1050, "avail_width": 1680, "avail_height": 1010, "color_depth": 24, "pixel_ratio": 1.0},
-    
+
     # Desktop resolutions
     {"width": 1920, "height": 1080, "avail_width": 1920, "avail_height": 1040, "color_depth": 24, "pixel_ratio": 1.0},
     {"width": 1920, "height": 1200, "avail_width": 1920, "avail_height": 1160, "color_depth": 24, "pixel_ratio": 1.0},
     {"width": 2560, "height": 1440, "avail_width": 2560, "avail_height": 1400, "color_depth": 24, "pixel_ratio": 1.0},
     {"width": 3440, "height": 1440, "avail_width": 3440, "avail_height": 1400, "color_depth": 24, "pixel_ratio": 1.0},
-    
+
     # 4K and high DPI
     {"width": 3840, "height": 2160, "avail_width": 3840, "avail_height": 2100, "color_depth": 24, "pixel_ratio": 1.5},
     {"width": 2880, "height": 1800, "avail_width": 2880, "avail_height": 1760, "color_depth": 24, "pixel_ratio": 2.0},
-    
+
     # Common tablet resolutions
     {"width": 1024, "height": 768, "avail_width": 1024, "avail_height": 728, "color_depth": 24, "pixel_ratio": 2.0},
     {"width": 1080, "height": 1920, "avail_width": 1080, "avail_height": 1880, "color_depth": 24, "pixel_ratio": 2.0},
@@ -329,7 +328,7 @@ def ensure_config_dir():
     os.makedirs(CONFIG_DIR, exist_ok=True)
 
 
-def save_profiles(profiles: List[Dict], filename: str = "profiles.json"):
+def save_profiles(profiles: list[dict], filename: str = "profiles.json"):
     """Save browser profiles to JSON file"""
     ensure_config_dir()
     filepath = os.path.join(CONFIG_DIR, filename)
@@ -342,18 +341,18 @@ def save_profiles(profiles: List[Dict], filename: str = "profiles.json"):
     return filepath
 
 
-def load_profiles(filename: str = "profiles.json") -> Dict:
+def load_profiles(filename: str = "profiles.json") -> dict:
     """Load browser profiles from JSON file"""
     filepath = os.path.join(CONFIG_DIR, filename)
     if not os.path.exists(filepath):
         # Return default profiles if file doesn't exist
         return {"profiles": USER_AGENT_PROFILES}
-    
-    with open(filepath, 'r', encoding='utf-8') as f:
+
+    with open(filepath, encoding='utf-8') as f:
         return json.load(f)
 
 
-def save_gpus(gpu_profiles: List[Dict], filename: str = "gpus.json"):
+def save_gpus(gpu_profiles: list[dict], filename: str = "gpus.json"):
     """Save GPU profiles to JSON file"""
     ensure_config_dir()
     filepath = os.path.join(CONFIG_DIR, filename)
@@ -366,13 +365,13 @@ def save_gpus(gpu_profiles: List[Dict], filename: str = "gpus.json"):
     return filepath
 
 
-def load_gpus(filename: str = "gpus.json") -> Dict:
+def load_gpus(filename: str = "gpus.json") -> dict:
     """Load GPU profiles from JSON file"""
     filepath = os.path.join(CONFIG_DIR, filename)
     if not os.path.exists(filepath):
         return {"gpus": GPU_PROFILES}
-    
-    with open(filepath, 'r', encoding='utf-8') as f:
+
+    with open(filepath, encoding='utf-8') as f:
         return json.load(f)
 
 
@@ -383,13 +382,13 @@ def load_gpus(filename: str = "gpus.json") -> Dict:
 def init_config_files():
     """Initialize config files with default profiles"""
     ensure_config_dir()
-    
+
     # Save profiles
     save_profiles(USER_AGENT_PROFILES)
-    
+
     # Save GPUs
     save_gpus(GPU_PROFILES)
-    
+
     return True
 
 

@@ -1,3 +1,4 @@
+from app.schemas.task import EnqueueWaybillResponse, QueueSnapshotResponse, TaskStatus, WaybillTaskStatusResponse
 from app.schemas.waybill import (
     CargoModel,
     FinancialModel,
@@ -11,7 +12,6 @@ from app.schemas.waybill import (
     VehicleModel,
     WaybillMapRequest,
 )
-from app.schemas.task import EnqueueWaybillResponse, QueueSnapshotResponse, TaskStatus, WaybillTaskStatusResponse
 
 __all__ = [
     "GeoCoordinateModel",
