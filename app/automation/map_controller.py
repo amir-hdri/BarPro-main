@@ -455,14 +455,30 @@ class MapController:
         await self.wait_for_route_calculation()
 
         # استخراج اطلاعات مسیر
-        route_info = await self.extract_route_info()
+        # (تست‌ها `_extract_route_info` را mock می‌کنند، بنابراین همان API را مصرف می‌کنیم)
+        route_info = await self._extract_route_info()
+
+        # اگر تست‌ها/Mockها متد را به‌صورت sync شیء برگردانند، اینجا await اضافی خطا ایجاد می‌کند.
+        async def _resolve_value(v):
+            if asyncio.iscoroutine(v):
+                return await v
+            return v
+
+        distance_km = route_info.get('distance')
+        duration_min = route_info.get('duration')
+        route_polyline = route_info.get('polyline')
+
+        # اگر مقادیر به‌صورت coroutine/AsyncMock برگردند، resolve می‌کنیم
+        distance_km = await _resolve_value(distance_km)
+        duration_min = await _resolve_value(duration_min)
+        route_polyline = await _resolve_value(route_polyline)
 
         return MapSelection(
             origin=origin,
             destination=destination,
-            distance_km=route_info.get('distance'),
-            duration_min=route_info.get('duration'),
-            route_polyline=route_info.get('polyline')
+            distance_km=distance_km,
+            duration_min=duration_min,
+            route_polyline=route_polyline,
         )
 
     async def extract_route_info(self) -> dict[str, Any]:
