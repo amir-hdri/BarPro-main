@@ -1,10 +1,12 @@
-🔒 [security fix: Remove hardcoded MASTER_ADMIN_PASSWORD]
+🔒 Fix Hardcoded Default Postgres Password in Configuration
 
 🎯 **What:**
-Removed the hardcoded `MASTER_ADMIN_USERNAME` and `MASTER_ADMIN_PASSWORD` from the `.env` file.
+The codebase contained a hardcoded default Postgres password ('postgres') and Redis password ('change_me') in the `.env` file, as well as hardcoded fallback passwords in multiple config files (`docker-compose.node-backend.yml`, `apps/backend/.env.example`, `alembic.ini`, and `scripts/fix_migration_version.py`).
 
 ⚠️ **Risk:**
-The `.env` file contained default hardcoded credentials for the master admin (`MASTER_ADMIN_PASSWORD=Amir123`). This posed a significant security risk, as anyone with access to the source code or `.env` file could exploit these default credentials to gain full administrative access to the system, bypassing intended authentication mechanisms.
+Using default hardcoded passwords like 'postgres' poses a severe security risk. If a database using this default password gets exposed, it allows unauthorized attackers root access to all data, leading to data breaches and potential compromise of the entire system.
 
 🛡️ **Solution:**
-Removed the credentials completely from the root `.env` file. The application is already designed to use a secure fallback and explicitly warns administrators if default credentials are not overridden in production. By removing the hardcoded values, we ensure that proper configuration is required rather than accidentally exposing insecure defaults.
+- Replaced the hardcoded passwords in `.env` with securely generated random cryptographic strings.
+- Replaced the hardcoded 'postgres' password in configuration templates (`apps/backend/.env.example`, `alembic.ini`, `scripts/fix_migration_version.py`) with a placeholder (`<your_secure_password>`).
+- Updated `docker-compose.node-backend.yml` to use environment variable interpolation (`${POSTGRES_PASSWORD}`) instead of the hardcoded default password.
