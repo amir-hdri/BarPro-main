@@ -1,14 +1,10 @@
-💡 **What:**
-Optimized the `_capture_evidence` method in `app/core/resilience.py` to eliminate synchronous, blocking file I/O operations when saving HTML DOM dumps.
-Instead of using a standard `open()` write block which pauses the event loop, I extracted the file writing into a helper function and executed it via `await asyncio.get_running_loop().run_in_executor()`.
+🔒 [security fix: Remove hardcoded MASTER_ADMIN_PASSWORD]
 
-🎯 **Why:**
-Writing out large DOM content directly in an async function (without asynchronous I/O primitives) blocks the asyncio event loop. By pushing this file I/O work to a thread pool executor, we prevent the event loop from stalling, improving the application's overall responsiveness and the performance of concurrent tasks.
+🎯 **What:**
+Removed the hardcoded `MASTER_ADMIN_USERNAME` and `MASTER_ADMIN_PASSWORD` from the `.env` file.
 
-📊 **Measured Improvement:**
-I created a benchmark script `test_benchmark2.py` locally that simulated a heavy HTML DOM dump (approx 10MB) to measure event loop delay (latency) when executing 50 consecutive writes alongside an event-loop monitor task.
+⚠️ **Risk:**
+The `.env` file contained default hardcoded credentials for the master admin (`MASTER_ADMIN_PASSWORD=Amir123`). This posed a significant security risk, as anyone with access to the source code or `.env` file could exploit these default credentials to gain full administrative access to the system, bypassing intended authentication mechanisms.
 
-Results:
-*   Max blocking delay (Baseline): 0.0405s
-*   Max async delay (Optimized): 0.0027s
-*   **Improvement: 93.21% reduced latency in the event loop during writes.**
+🛡️ **Solution:**
+Removed the credentials completely from the root `.env` file. The application is already designed to use a secure fallback and explicitly warns administrators if default credentials are not overridden in production. By removing the hardcoded values, we ensure that proper configuration is required rather than accidentally exposing insecure defaults.
