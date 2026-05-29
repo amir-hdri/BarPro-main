@@ -11,7 +11,7 @@ export default function AuthPage() {
   const router = useRouter();
   const [mode, setMode] = useState<'login' | 'admin'>('login');
   const [login, setLogin] = useState({ email: '', password: '' });
-  const [adminLogin, setAdminLogin] = useState({ username: 'master_bar', password: 'master_bar' });
+  const [adminLogin, setAdminLogin] = useState({ username: '', password: '' });
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
