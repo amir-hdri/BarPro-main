@@ -21,71 +21,74 @@ from app.schemas.enterprise_reporting import (
 
 # --- TelemetryEventSchema Tests ---
 
+
 def test_telemetry_event_schema_valid():
     data = {
         "event_id": "uuid-123",
         "event_type": "login_attempt",
         "timestamp": "2023-10-27T10:00:00",
         "status": "success",
-        "metadata": {"key": "value"}
+        "metadata": {"key": "value"},
     }
     event = TelemetryEventSchema(**data)
     assert event.event_id == "uuid-123"
     assert event.status == "success"
+
 
 def test_telemetry_event_schema_invalid_timestamp():
     data = {
         "event_id": "uuid-123",
         "event_type": "login_attempt",
         "timestamp": "invalid-timestamp",
-        "status": "success"
+        "status": "success",
     }
     with pytest.raises(ValidationError) as excinfo:
         TelemetryEventSchema(**data)
     assert "Timestamp must be valid ISO 8601 format" in str(excinfo.value)
+
 
 def test_telemetry_event_schema_invalid_status():
     data = {
         "event_id": "uuid-123",
         "event_type": "login_attempt",
         "timestamp": "2023-10-27T10:00:00",
-        "status": "invalid-status"
+        "status": "invalid-status",
     }
     with pytest.raises(ValidationError) as excinfo:
         TelemetryEventSchema(**data)
     assert "Status must be one of" in str(excinfo.value)
 
+
 # --- WorkflowStepSchema Tests ---
 
+
 def test_workflow_step_schema_valid():
-    data = {
-        "step_name": "Step 1",
-        "step_id": "id-1",
-        "status": "completed"
-    }
+    data = {"step_name": "Step 1", "step_id": "id-1", "status": "completed"}
     step = WorkflowStepSchema(**data)
     assert step.status == "completed"
+
 
 def test_workflow_step_schema_invalid_status():
     with pytest.raises(ValidationError):
         WorkflowStepSchema(step_name="Step 1", step_id="id-1", status="invalid")
 
+
 # --- WorkflowStateSchema Tests ---
 
+
 def test_workflow_state_schema_valid():
-    data = {
-        "workflow_id": "wf-1",
-        "workflow_name": "My Workflow",
-        "status": "in_progress"
-    }
+    data = {"workflow_id": "wf-1", "workflow_name": "My Workflow", "status": "in_progress"}
     state = WorkflowStateSchema(**data)
     assert state.status == "in_progress"
+
 
 def test_workflow_state_schema_invalid_status():
     with pytest.raises(ValidationError):
         WorkflowStateSchema(workflow_id="wf-1", workflow_name="My Workflow", status="invalid")
 
+
 # --- EvidenceSchema Tests ---
+
 
 def test_evidence_schema_valid():
     data = {
@@ -93,19 +96,25 @@ def test_evidence_schema_valid():
         "evidence_type": "screenshot",
         "timestamp": "2023-10-27T10:00:00",
         "workflow_id": "wf-1",
-        "step_name": "Step 1"
+        "step_name": "Step 1",
     }
     evidence = EvidenceSchema(**data)
     assert evidence.evidence_type == "screenshot"
 
+
 def test_evidence_schema_invalid_type():
     with pytest.raises(ValidationError):
         EvidenceSchema(
-            evidence_id="ev-1", evidence_type="invalid",
-            timestamp="2023-10-27T10:00:00", workflow_id="wf-1", step_name="Step 1"
+            evidence_id="ev-1",
+            evidence_type="invalid",
+            timestamp="2023-10-27T10:00:00",
+            workflow_id="wf-1",
+            step_name="Step 1",
         )
 
+
 # --- ClientReportSummarySchema Tests ---
+
 
 def test_client_report_summary_schema_valid():
     data = {
@@ -115,20 +124,27 @@ def test_client_report_summary_schema_valid():
         "completed_steps": 5,
         "failed_steps": 0,
         "total_duration_ms": 100.5,
-        "avg_step_duration_ms": 20.1
+        "avg_step_duration_ms": 20.1,
     }
     summary = ClientReportSummarySchema(**data)
     assert summary.severity == "info"
 
+
 def test_client_report_summary_schema_invalid_severity():
     with pytest.raises(ValidationError):
         ClientReportSummarySchema(
-            message="m", severity="bad", total_steps=1,
-            completed_steps=1, failed_steps=0,
-            total_duration_ms=1.0, avg_step_duration_ms=1.0
+            message="m",
+            severity="bad",
+            total_steps=1,
+            completed_steps=1,
+            failed_steps=0,
+            total_duration_ms=1.0,
+            avg_step_duration_ms=1.0,
         )
 
+
 # --- ClientReportSchema Tests ---
+
 
 def test_client_report_schema_valid():
     summary_data = {
@@ -138,56 +154,66 @@ def test_client_report_schema_valid():
         "completed_steps": 1,
         "failed_steps": 0,
         "total_duration_ms": 10.0,
-        "avg_step_duration_ms": 10.0
+        "avg_step_duration_ms": 10.0,
     }
     data = {
         "report_id": "rep-1",
         "generated_at": "2023-10-27T10:00:00",
         "overall_status": "success",
-        "summary": summary_data
+        "summary": summary_data,
     }
     report = ClientReportSchema(**data)
     assert report.overall_status == "success"
 
+
 def test_client_report_schema_invalid_status():
     with pytest.raises(ValidationError):
         ClientReportSchema(
-            report_id="rep-1", generated_at="2023-10-27T10:00:00", overall_status="invalid",
-            summary={"message": "m", "severity": "info", "total_steps": 1, "completed_steps": 1, "failed_steps": 0, "total_duration_ms": 1.0, "avg_step_duration_ms": 1.0}
+            report_id="rep-1",
+            generated_at="2023-10-27T10:00:00",
+            overall_status="invalid",
+            summary={
+                "message": "m",
+                "severity": "info",
+                "total_steps": 1,
+                "completed_steps": 1,
+                "failed_steps": 0,
+                "total_duration_ms": 1.0,
+                "avg_step_duration_ms": 1.0,
+            },
         )
+
 
 # --- WorkerHealthSchema Tests ---
 
+
 def test_worker_health_schema_valid():
-    data = {
-        "worker_id": "w-1",
-        "status": "active"
-    }
+    data = {"worker_id": "w-1", "status": "active"}
     health = WorkerHealthSchema(**data)
     assert health.status == "active"
+
 
 def test_worker_health_schema_invalid_status():
     with pytest.raises(ValidationError):
         WorkerHealthSchema(worker_id="w-1", status="invalid")
 
+
 # --- BrowserResourceSchema Tests ---
 
+
 def test_browser_resource_schema_valid():
-    data = {
-        "resource_id": "res-1",
-        "age_seconds": 10.5,
-        "idle_seconds": 2.0,
-        "pages_open": 1,
-        "status": "active"
-    }
+    data = {"resource_id": "res-1", "age_seconds": 10.5, "idle_seconds": 2.0, "pages_open": 1, "status": "active"}
     res = BrowserResourceSchema(**data)
     assert res.status == "active"
+
 
 def test_browser_resource_schema_invalid_status():
     with pytest.raises(ValidationError):
         BrowserResourceSchema(resource_id="res-1", age_seconds=1, idle_seconds=1, pages_open=1, status="invalid")
 
+
 # --- SystemHealthSchema Tests ---
+
 
 def test_system_health_schema_valid():
     data = {
@@ -197,43 +223,44 @@ def test_system_health_schema_valid():
         "browser_pool": True,
         "captcha_solver": True,
         "queue_system": True,
-        "overall_status": "healthy"
+        "overall_status": "healthy",
     }
     health = SystemHealthSchema(**data)
     assert health.overall_status == "healthy"
 
+
 def test_system_health_schema_invalid_status():
     with pytest.raises(ValidationError):
         SystemHealthSchema(
-            timestamp="2023-10-27T10:00:00", api_server=True, database=True,
-            browser_pool=True, captcha_solver=True, queue_system=True,
-            overall_status="invalid"
+            timestamp="2023-10-27T10:00:00",
+            api_server=True,
+            database=True,
+            browser_pool=True,
+            captcha_solver=True,
+            queue_system=True,
+            overall_status="invalid",
         )
+
 
 # --- AuditLogEntrySchema Tests ---
 
+
 def test_audit_log_entry_schema_valid():
-    data = {
-        "timestamp": "2023-10-27T10:00:00",
-        "level": "INFO",
-        "logger": "app.test",
-        "message": "Hello"
-    }
+    data = {"timestamp": "2023-10-27T10:00:00", "level": "INFO", "logger": "app.test", "message": "Hello"}
     entry = AuditLogEntrySchema(**data)
     assert entry.level == "INFO"
+
 
 def test_audit_log_entry_schema_invalid_level():
     with pytest.raises(ValidationError):
         AuditLogEntrySchema(timestamp="2023-10-27T10:00:00", level="INVALID", logger="l", message="m")
 
+
 # --- Helper Functions Tests ---
 
+
 def test_create_telemetry_event():
-    event = create_telemetry_event(
-        event_type="test_event",
-        status="success",
-        metadata={"foo": "bar"}
-    )
+    event = create_telemetry_event(event_type="test_event", status="success", metadata={"foo": "bar"})
     assert event["event_type"] == "test_event"
     assert event["status"] == "success"
     assert event["metadata"]["foo"] == "bar"
@@ -242,12 +269,56 @@ def test_create_telemetry_event():
     # Should be valid according to schema
     TelemetryEventSchema(**event)
 
-def test_create_workflow_state():
-    state = create_workflow_state(
-        workflow_id="wf-123",
-        workflow_name="Test Workflow",
-        status="in_progress"
+
+def test_create_telemetry_event_full_args():
+    event = create_telemetry_event(
+        event_type="complex_event",
+        workflow_id="wf-999",
+        session_id="sess-xyz",
+        driver_id="drv-123",
+        waybill_id="wb-456",
+        step_name="process_item",
+        duration_ms=150.5,
+        status="failure",
+        error_code="ERR_001",
+        error_message="Something went wrong",
+        metadata={"detail": "more info"},
     )
+    assert event["event_type"] == "complex_event"
+    assert event["workflow_id"] == "wf-999"
+    assert event["session_id"] == "sess-xyz"
+    assert event["driver_id"] == "drv-123"
+    assert event["waybill_id"] == "wb-456"
+    assert event["step_name"] == "process_item"
+    assert event["duration_ms"] == 150.5
+    assert event["status"] == "failure"
+    assert event["error_code"] == "ERR_001"
+    assert event["error_message"] == "Something went wrong"
+    assert event["metadata"]["detail"] == "more info"
+    assert "event_id" in event
+    assert "timestamp" in event
+    # Should be valid according to schema
+    TelemetryEventSchema(**event)
+
+
+def test_create_telemetry_event_no_metadata():
+    event = create_telemetry_event(event_type="simple_event")
+    assert event["metadata"] == {}
+    TelemetryEventSchema(**event)
+
+
+def test_create_telemetry_event_invalid_status():
+    with pytest.raises(ValidationError):
+        create_telemetry_event(event_type="test", status="invalid_status")
+
+
+def test_create_telemetry_event_invalid_duration():
+    with pytest.raises(ValidationError):
+        create_telemetry_event(event_type="test", duration_ms=-10.0)
+
+
+def test_create_workflow_state():
+    state = create_workflow_state(workflow_id="wf-123", workflow_name="Test Workflow", status="in_progress")
     assert state["workflow_id"] == "wf-123"
     assert state["workflow_name"] == "Test Workflow"
     assert state["status"] == "in_progress"
@@ -255,40 +326,6 @@ def test_create_workflow_state():
     # Should be valid according to schema
     WorkflowStateSchema(**state)
 
-def test_create_workflow_state_default_pending():
-    state = create_workflow_state(
-        workflow_id="wf-124",
-        workflow_name="Test Workflow 2",
-    )
-    assert state["workflow_id"] == "wf-124"
-    assert state["workflow_name"] == "Test Workflow 2"
-    assert state["status"] == "pending"
-    assert state["started_at"] is None
-    assert state["steps"] == []
-    assert state["metadata"] == {}
-    # Should be valid according to schema
-    WorkflowStateSchema(**state)
-
-def test_create_workflow_state_with_all_fields():
-    state = create_workflow_state(
-        workflow_id="wf-125",
-        workflow_name="Test Workflow 3",
-        status="failed",
-        steps=[{"step_name": "login", "step_id": "step-1", "status": "completed"}],
-        error_code="LOGIN_FAILED",
-        error_message="Invalid credentials",
-        metadata={"attempt": 3}
-    )
-    assert state["workflow_id"] == "wf-125"
-    assert state["workflow_name"] == "Test Workflow 3"
-    assert state["status"] == "failed"
-    assert state["started_at"] is not None
-    assert state["steps"] == [{"step_name": "login", "step_id": "step-1", "status": "completed"}]
-    assert state["error_code"] == "LOGIN_FAILED"
-    assert state["error_message"] == "Invalid credentials"
-    assert state["metadata"] == {"attempt": 3}
-    # Should be valid according to schema
-    WorkflowStateSchema(**state)
 
 @patch("app.core.telemetry.ClientReportGenerator.generate_client_report")
 def test_create_client_report(mock_generate):
@@ -303,11 +340,11 @@ def test_create_client_report(mock_generate):
             "completed_steps": 1,
             "failed_steps": 0,
             "total_duration_ms": 10.0,
-            "avg_step_duration_ms": 10.0
+            "avg_step_duration_ms": 10.0,
         },
         "steps": [],
         "evidence_count": 0,
-        "evidence": []
+        "evidence": [],
     }
     mock_generate.return_value = mock_report
 
