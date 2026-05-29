@@ -10,3 +10,5 @@ __pycache__/
 output/
 venv/
 __pycache__/
+
+.env

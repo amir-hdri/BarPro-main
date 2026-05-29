@@ -1,14 +1,12 @@
-💡 **What:**
-Optimized the `_capture_evidence` method in `app/core/resilience.py` to eliminate synchronous, blocking file I/O operations when saving HTML DOM dumps.
-Instead of using a standard `open()` write block which pauses the event loop, I extracted the file writing into a helper function and executed it via `await asyncio.get_running_loop().run_in_executor()`.
+🔒 Fix security vulnerability: Remove hardcoded .env file
 
-🎯 **Why:**
-Writing out large DOM content directly in an async function (without asynchronous I/O primitives) blocks the asyncio event loop. By pushing this file I/O work to a thread pool executor, we prevent the event loop from stalling, improving the application's overall responsiveness and the performance of concurrent tasks.
+🎯 **What:** The `.env` file with hardcoded sensitive credentials (API_KEY, JWT_SECRET, DRIVER_ENCRYPTION_KEY, POSTGRES_PASSWORD, etc) was being tracked by Git.
 
-📊 **Measured Improvement:**
-I created a benchmark script `test_benchmark2.py` locally that simulated a heavy HTML DOM dump (approx 10MB) to measure event loop delay (latency) when executing 50 consecutive writes alongside an event-loop monitor task.
+⚠️ **Risk:** Anyone with access to the repository could read these sensitive values and compromise the application or its components. Exposing API keys and database passwords in source control is a significant security risk.
 
-Results:
-*   Max blocking delay (Baseline): 0.0405s
-*   Max async delay (Optimized): 0.0027s
-*   **Improvement: 93.21% reduced latency in the event loop during writes.**
+🛡️ **Solution:**
+- Removed the `.env` file from Git tracking using `git rm --cached .env`.
+- Added `.env` to `.gitignore` to prevent accidental commits in the future.
+- Created a `.env.example` file with placeholder variables to serve as a template for developers to create their own local `.env` files without exposing real secrets.
+
+Note: There are test failures in the test suite that are caused by a mix of dependency issues (`pydantic[email]` missing) and broken module imports (`AttributeError: module 'app.api.routes.waybill_map' has no attribute 'browser_manager'`). The test issues have been identified but kept intact since they are unrelated to this specific vulnerability fix which focuses only on the configuration files.
