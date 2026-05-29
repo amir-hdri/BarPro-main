@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from typing import Dict
 
 from app.core.alerts import alert_manager
 from app.core.config import utcms_config
@@ -12,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class RecoveryManager:
-    async def recover_stalled_tasks(self) -> Dict[str, Dict[str, float | str]]:
+    async def recover_stalled_tasks(self) -> dict[str, dict[str, float | str]]:
         stalled = worker_heartbeat_registry.detect_stalled(utcms_config.WORKER_STALL_TIMEOUT_SECONDS)
         for task_id, payload in stalled.items():
             task_status = await task_service.get_task_status(task_id)

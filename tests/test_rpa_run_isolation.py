@@ -1,7 +1,7 @@
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from unittest.mock import AsyncMock, patch
 
 from app.models_multitenant import TaskStatus, WaybillJob
 from app.models_rpa import DriverRuntimeState, DriverRuntimeStateValue
@@ -13,7 +13,7 @@ from app.services.rpa_runtime_service import rpa_runtime
 async def test_prepare_live_run_isolation_clears_locks_and_job_state():
     client_id = 101
     driver_id = 202
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     job = WaybillJob(
         job_id="job-live-1",
         idempotency_key="idem-live-1",

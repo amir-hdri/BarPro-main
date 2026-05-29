@@ -241,7 +241,7 @@ async def example_5_complete_workflow():
     builder = get_header_builder()
 
     # 2. Setup proxy (optional)
-    # rotator.add_proxy("http://your-proxy.com:8080")
+    # rotator.add_proxy(ProxyConfig(url="http://your-proxy.com:8080"))
 
     # 3. Initialize browser
     await browser_manager.initialize()

@@ -11,9 +11,9 @@ from scripts.real_waybill_test import real_waybill_test
 def main():
     """Run waybill test automatically."""
     print("\n🚀 شروع تست اتوماتیک ثبت بارنامه...")
-    
+
     result = asyncio.run(real_waybill_test())
-    
+
     if result.get('success'):
         print("\n✅ ثبت بارنامه موفق بود!")
         sys.exit(0)

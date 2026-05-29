@@ -2,7 +2,6 @@
 
 import logging
 from contextlib import contextmanager
-from typing import Optional
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -16,8 +15,8 @@ from app.core.execution_context import get_execution_context
 
 logger = logging.getLogger(__name__)
 
-_tracer_provider: Optional[TracerProvider] = None
-_tracer: Optional[trace.Tracer] = None
+_tracer_provider: TracerProvider | None = None
+_tracer: trace.Tracer | None = None
 
 
 def setup_tracing(service_name: str = "utcms-automation") -> None:
@@ -88,7 +87,7 @@ def record_span_error(span: Span, error: Exception) -> None:
     span.record_exception(error)
 
 
-def get_current_span() -> Optional[Span]:
+def get_current_span() -> Span | None:
     """Get the current active span."""
     return trace.get_current_span()
 

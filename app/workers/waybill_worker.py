@@ -10,8 +10,8 @@ This worker:
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from celery import Task
 from sqlmodel import select
@@ -30,7 +30,13 @@ from app.models_multitenant import (
     WaybillTaskLog,
 )
 from app.models_rpa import DomainEvent, DriverRuntimeState, DriverRuntimeStateValue
-from app.rpa.event_taxonomy import JOB_EXECUTION_FAILED, JOB_EXECUTION_STARTED, JOB_EXECUTION_SUCCEEDED, JOB_RETRY_SCHEDULED, OTP_DETECTED
+from app.rpa.event_taxonomy import (
+    JOB_EXECUTION_FAILED,
+    JOB_EXECUTION_STARTED,
+    JOB_EXECUTION_SUCCEEDED,
+    JOB_RETRY_SCHEDULED,
+    OTP_DETECTED,
+)
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -38,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 def _utcnow_naive() -> datetime:
     """Return a naive UTC timestamp for database columns stored without timezone."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 async def _close_page_quickly(page) -> None:
@@ -89,10 +95,10 @@ def process_waybill_job(self, job_id: str):
         loop.close()
 
 
-async def _execute_job(task, job_id: str) -> Dict[str, Any]:
+async def _execute_job(task, job_id: str) -> dict[str, Any]:
     """Execute a waybill job with full lifecycle management."""
     session = async_session_factory()
-    job: Optional[WaybillJob] = None
+    job: WaybillJob | None = None
 
     try:
         statement = select(WaybillJob).where(WaybillJob.job_id == job_id)
@@ -111,7 +117,7 @@ async def _execute_job(task, job_id: str) -> Dict[str, Any]:
         job.worker_id = task.request.hostname
         job.submit_after = None
         runtime_state.state = DriverRuntimeStateValue.SUBMITTING.value
-        runtime_state.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
         await session.commit()
 
         await _add_job_log(
@@ -168,7 +174,7 @@ async def _execute_job(task, job_id: str) -> Dict[str, Any]:
                     job.finished_at = now
                     runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
                     runtime_state.next_retry_at = retry_at
-                    runtime_state.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
                     await session.commit()
 
                     await _add_job_log(
@@ -202,7 +208,7 @@ async def _execute_job(task, job_id: str) -> Dict[str, Any]:
                     job.next_retry_at = None
                     runtime_state.state = DriverRuntimeStateValue.READY.value
                     runtime_state.next_retry_at = None
-                    runtime_state.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
                     await session.commit()
 
                     await _add_job_log(
@@ -255,7 +261,7 @@ async def _execute_job(task, job_id: str) -> Dict[str, Any]:
                     job.finished_at = None
                     runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
                     runtime_state.next_retry_at = retry_at
-                    runtime_state.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
                     await session.commit()
 
                     await _add_job_log(
@@ -297,7 +303,7 @@ async def _execute_job(task, job_id: str) -> Dict[str, Any]:
                 job.next_retry_at = None
                 runtime_state.state = DriverRuntimeStateValue.READY.value
                 runtime_state.next_retry_at = None
-                runtime_state.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 await session.commit()
 
                 await _add_job_log(
@@ -334,7 +340,7 @@ async def _execute_job(task, job_id: str) -> Dict[str, Any]:
                 job.error_category = "execution_error"
                 job.finished_at = _utcnow_naive()
                 runtime_state.state = DriverRuntimeStateValue.ERROR_REVIEW.value
-                runtime_state.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 await session.commit()
                 await _record_event(
                     session=session,
@@ -352,7 +358,7 @@ async def _execute_job(task, job_id: str) -> Dict[str, Any]:
         await session.close()
 
 
-def _is_retryable(result: Dict[str, Any]) -> bool:
+def _is_retryable(result: dict[str, Any]) -> bool:
     """Determine if a failed job should be retried."""
     error_category = str(result.get("error_category", "")).strip().lower()
     status_hint = str(result.get("status", "")).strip().lower().replace("_", "").replace("-", "")
@@ -370,7 +376,7 @@ def _is_retryable(result: Dict[str, Any]) -> bool:
 async def _get_or_create_runtime_state(
     session: AsyncSession,
     client_id: int,
-    driver_id: Optional[int],
+    driver_id: int | None,
 ) -> DriverRuntimeState:
     if driver_id is None:
         raise ValueError("driver_id is required for runtime state")
@@ -413,15 +419,15 @@ async def _update_job_status(
 async def _record_event(
     session: AsyncSession,
     client_id: int,
-    driver_id: Optional[int],
-    job_id: Optional[str],
+    driver_id: int | None,
+    job_id: str | None,
     event_type: str,
     payload: dict[str, Any],
 ) -> None:
     if driver_id is None:
         return
     event = DomainEvent(
-        event_id=f"evt_{datetime.now(timezone.utc).replace(tzinfo=None).timestamp():.6f}_{driver_id}_{event_type.replace('.', '_')}",
+        event_id=f"evt_{datetime.now(UTC).replace(tzinfo=None).timestamp():.6f}_{driver_id}_{event_type.replace('.', '_')}",
         event_type=event_type,
         client_id=client_id,
         driver_id=driver_id,

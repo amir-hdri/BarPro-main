@@ -1,7 +1,7 @@
 import argparse
 import statistics
-import time
 import sys
+import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -9,7 +9,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.automation.captcha.barname_ml_solver import barname_ml_solver
-
 
 SAMPLES = [
     # These should be base64-encoded images for CNN benchmark
@@ -31,15 +30,15 @@ def run_benchmark(iterations: int) -> dict:
             image_path = Path(image_file)
             if not image_path.exists():
                 continue
-            
+
             with open(image_path, "rb") as f:
                 image_b64 = base64.b64encode(f.read()).decode()
-            
+
             started = time.perf_counter()
             result = barname_ml_solver.solve_base64(image_b64)
             elapsed = (time.perf_counter() - started) * 1e6
             latencies_us.append(elapsed)
-            
+
             if result and result.answer == expected:
                 correct += 1
 

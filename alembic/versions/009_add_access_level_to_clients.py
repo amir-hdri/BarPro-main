@@ -5,9 +5,10 @@ Revises: 008_add_sched_id_waybill_jobs
 Create Date: 2025-05-04 22:30:00.000000
 
 """
-from alembic import op
 import sqlalchemy as sa
 import sqlmodel
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = '009_add_access_level'

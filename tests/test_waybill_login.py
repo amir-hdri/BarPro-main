@@ -1,18 +1,21 @@
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 from fastapi import HTTPException
+
 from app.api.routes.waybill_map import (
-    create_waybill_with_map,
-    WaybillMapRequest,
-    LocationModel,
-    GeoCoordinateModel,
-    SenderModel,
-    ReceiverModel,
     CargoModel,
-    VehicleModel,
     FinancialModel,
+    GeoCoordinateModel,
+    LocationModel,
+    ReceiverModel,
+    SenderModel,
     UTCMSLoginModel,
+    VehicleModel,
+    WaybillMapRequest,
+    create_waybill_with_map,
 )
+
 
 def create_mock_request():
     return WaybillMapRequest(

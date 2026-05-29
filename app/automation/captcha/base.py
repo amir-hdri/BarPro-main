@@ -1,14 +1,13 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class CaptchaResult:
     solved: bool
     provider: str
-    value: Optional[str] = None
-    error: Optional[str] = None
+    value: str | None = None
+    error: str | None = None
 
 
 class CaptchaProvider(ABC):

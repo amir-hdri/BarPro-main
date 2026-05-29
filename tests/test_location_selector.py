@@ -1,12 +1,13 @@
+import os
+import sys
 import unittest
 from unittest.mock import AsyncMock, patch
-import sys
-import os
 
 # Add app to path
 sys.path.append(os.getcwd())
 
 from app.automation.location_selector import LocationSelector
+
 
 class TestLocationSelector(unittest.IsolatedAsyncioTestCase):
     async def test_assess_dropdown_runtime_skips_when_only_undefined_options_exist(self):

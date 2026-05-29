@@ -2,12 +2,14 @@ import asyncio
 import os
 import sys
 from unittest.mock import AsyncMock, patch
+
 from fastapi.testclient import TestClient
 
 # Add project root to path
 sys.path.append(os.getcwd())
 
 from app.main import app
+
 
 async def run_smoke_test():
     print("Starting smoke test simulation...")

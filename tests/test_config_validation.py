@@ -7,7 +7,7 @@ from app.core.startup_validation import validate_environment
 
 class TestConfigValidation:
     """Test configuration validation."""
-    
+
     def test_validate_with_all_required_vars(self):
         """Test validation passes with all required variables."""
         with patch.dict(os.environ, {
@@ -19,7 +19,7 @@ class TestConfigValidation:
             is_valid, errors = validate_environment()
             assert is_valid is True
             assert len(errors) == 0
-    
+
     def test_validate_missing_jwt_secret(self):
         """Test validation fails without JWT_SECRET."""
         with patch.dict(os.environ, {
@@ -28,7 +28,7 @@ class TestConfigValidation:
             is_valid, errors = validate_environment()
             assert is_valid is False
             assert any("JWT_SECRET" in error for error in errors)
-    
+
     def test_validate_missing_encryption_key(self):
         """Test validation fails without DRIVER_ENCRYPTION_KEY."""
         with patch.dict(os.environ, {
@@ -37,7 +37,7 @@ class TestConfigValidation:
             is_valid, errors = validate_environment()
             assert is_valid is False
             assert any("DRIVER_ENCRYPTION_KEY" in error for error in errors)
-    
+
     def test_validate_weak_default_secrets(self):
         """Test validation fails with weak default secrets."""
         with patch.dict(os.environ, {

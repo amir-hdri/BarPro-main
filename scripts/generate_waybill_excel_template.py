@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import zipfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List
 from xml.sax.saxutils import escape
-
 
 DATA_HEADERS = [
     "ردیف",
@@ -159,7 +158,7 @@ def _xml_escape(value: str) -> str:
 
 class SharedStrings:
     def __init__(self) -> None:
-        self.items: List[str] = []
+        self.items: list[str] = []
         self.index_by_value: dict[str, int] = {}
 
     def add(self, value: str) -> int:
@@ -191,11 +190,11 @@ def _sheet_xml(
     rtl: bool = True,
     auto_filter: str | None = None,
 ) -> str:
-    row_xml_parts: List[str] = []
+    row_xml_parts: list[str] = []
     max_col = 0
 
     for row_number, row in enumerate(rows, start=1):
-        cells_xml: List[str] = []
+        cells_xml: list[str] = []
         row_values = list(row)
         max_col = max(max_col, len(row_values))
         for col_number, value in enumerate(row_values, start=1):

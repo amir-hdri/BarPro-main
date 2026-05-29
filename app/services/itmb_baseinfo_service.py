@@ -1,8 +1,9 @@
 import base64
 import json
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Optional
+from typing import Any
 
 import httpx
 from fastapi import HTTPException
@@ -28,13 +29,13 @@ class ITMBBaseInfoService:
     }
 
     def __init__(self) -> None:
-        self._cache: Dict[str, BaseInfoCacheEntry] = {}
+        self._cache: dict[str, BaseInfoCacheEntry] = {}
 
     @staticmethod
     def _now() -> int:
         return int(time.time())
 
-    def _is_stale(self, entry: Optional[BaseInfoCacheEntry]) -> bool:
+    def _is_stale(self, entry: BaseInfoCacheEntry | None) -> bool:
         if entry is None:
             return True
         ttl = max(60, utcms_config.ITMBOL_BASEINFO_CACHE_TTL_SECONDS)
@@ -68,8 +69,8 @@ class ITMBBaseInfoService:
     async def _fetch_method(
         self,
         method_name: str,
-        company_code: Optional[str] = None,
-        service_password: Optional[str] = None,
+        company_code: str | None = None,
+        service_password: str | None = None,
     ) -> Any:
         resolved_company_code, salt, hashed_value = resolve_itmb_auth(
             company_code=company_code,
@@ -89,10 +90,10 @@ class ITMBBaseInfoService:
 
     async def refresh_all(
         self,
-        company_code: Optional[str] = None,
-        service_password: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        refreshed: Dict[str, Any] = {}
+        company_code: str | None = None,
+        service_password: str | None = None,
+    ) -> dict[str, Any]:
+        refreshed: dict[str, Any] = {}
         fetched_at = self._now()
         for cache_key, method_name in self.REFERENCE_METHODS.items():
             data = await self._fetch_method(
@@ -108,9 +109,9 @@ class ITMBBaseInfoService:
             "summary": refreshed,
         }
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         now = self._now()
-        status_map: Dict[str, Any] = {}
+        status_map: dict[str, Any] = {}
         for key in self.REFERENCE_METHODS:
             entry = self._cache.get(key)
             if not entry:
@@ -126,7 +127,7 @@ class ITMBBaseInfoService:
         return status_map
 
     @staticmethod
-    def _summarize_data(value: Any) -> Dict[str, Any]:
+    def _summarize_data(value: Any) -> dict[str, Any]:
         if isinstance(value, list):
             return {"type": "list", "count": len(value)}
         if isinstance(value, dict):
@@ -135,8 +136,8 @@ class ITMBBaseInfoService:
 
     async def ensure_fresh(
         self,
-        company_code: Optional[str] = None,
-        service_password: Optional[str] = None,
+        company_code: str | None = None,
+        service_password: str | None = None,
     ) -> None:
         need_refresh = any(self._is_stale(self._cache.get(key)) for key in self.REFERENCE_METHODS)
         if need_refresh:
@@ -147,9 +148,9 @@ class ITMBBaseInfoService:
 
     async def probe_connection(
         self,
-        company_code: Optional[str] = None,
-        service_password: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        company_code: str | None = None,
+        service_password: str | None = None,
+    ) -> dict[str, Any]:
         plate_types = await self._fetch_method(
             method_name=self.REFERENCE_METHODS["plate_types"],
             company_code=company_code,
@@ -178,9 +179,9 @@ class ITMBBaseInfoService:
     async def validate_bol_references(
         self,
         bol: BOLCnt,
-        company_code: Optional[str] = None,
-        service_password: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        company_code: str | None = None,
+        service_password: str | None = None,
+    ) -> dict[str, Any]:
         if not utcms_config.ITMBOL_VALIDATE_BASEINFO:
             return {"validated": False, "reason": "baseinfo_validation_disabled"}
 
