@@ -209,6 +209,7 @@ class ClientService:
                 break  # Exit loop if successful
             except Exception as e:
                 await session.rollback()  # Rollback on error
+                # If it's the last attempt, raise the appropriate error
                 if attempt == max_retries - 1:  # Last attempt
                     # If it's a network error, return appropriate status
                     if is_retryable_network_error(e):
@@ -221,6 +222,7 @@ class ClientService:
                             status_code=status.HTTP_400_BAD_REQUEST,
                             detail=f"Failed to register client: {str(e)}"
                         )
+                # Only continue retrying if it's a network-related error
                 if not is_retryable_network_error(e):
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
