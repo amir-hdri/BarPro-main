@@ -226,21 +226,21 @@ class ClientService:
                         logger.error(f"Failed to register client due to network error after {max_retries} attempts: {str(e)}")
                         raise HTTPException(
                             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail=f"Service temporarily unavailable due to network issues. Please try again later."
-                        )
+                            detail="Service temporarily unavailable due to network issues. Please try again later."
+                        ) from e
                     else:
                         logger.error(f"Failed to register client: {str(e)}")
                         raise HTTPException(
                             status_code=status.HTTP_400_BAD_REQUEST,
                             detail=f"Failed to register client: {str(e)}"
-                        )
+                        ) from e
                 # Only continue retrying if it's a network-related error
                 if not is_retryable_network_error(e):
                     logger.error(f"Non-network error during client registration: {str(e)}")
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=f"Failed to register client: {str(e)}"
-                    )
+                    ) from e
                 # Wait before retry with exponential backoff
                 logger.warning(f"Retrying client registration after network error (attempt {attempt + 1}): {str(e)}")
                 await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
