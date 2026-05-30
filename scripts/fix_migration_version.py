@@ -8,7 +8,7 @@ import asyncpg
 
 async def fix_version():
     """Update the alembic version from old to new format."""
-    db_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/utcms_rpa")
+    db_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:<your_secure_password>@127.0.0.1:5432/utcms_rpa")
 
     # Convert asyncpg URL format
     db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")

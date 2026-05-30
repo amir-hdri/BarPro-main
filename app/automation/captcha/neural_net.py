@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 """
 PyTorch CNN-based captcha character recogniser — v11 high-accuracy edition.
 
@@ -19,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
+from dataclasses import dataclass
 import numpy as np
 import torch
 import torch.nn as nn
