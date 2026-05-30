@@ -109,7 +109,16 @@ async def lifespan(app: FastAPI):
     watchdog_task = asyncio.create_task(recovery_manager.watchdog_loop())
 
     # Initialize database
-    await init_db()
+    try:
+        await init_db()
+        logger.info("database_initialized")
+    except Exception as exc:
+        logger.critical(
+            "database_initialization_failed",
+            extra={"extra_fields": {"error": str(exc)}},
+            exc_info=True,
+        )
+        raise RuntimeError("Database initialization failed during application startup") from exc
 
     yield
 
@@ -143,7 +152,7 @@ app.add_middleware(
     allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"] if os.getenv("ENVIRONMENT", "").lower() != "production" else ["Authorization", "Content-Type", "X-API-Key", "X-Request-ID", utcms_config.TRACE_HEADER_NAME],
+    allow_headers=["*"] if os.getenv("ENVIRONMENT", "development").lower() != "production" else ["Authorization", "Content-Type", "X-API-Key", "X-Request-ID", utcms_config.TRACE_HEADER_NAME],
 )
 
 

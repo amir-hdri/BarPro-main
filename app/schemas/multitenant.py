@@ -65,6 +65,23 @@ class ClientRegisterRequest(BaseModel):
     max_drivers: int | None = Field(default=10, ge=1, le=10000)
     max_plates: int | None = Field(default=20, ge=1, le=20000)
     access_level: str | None = Field(default="standard", max_length=50)
+    status: str | None = Field(default="active", max_length=20)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def validate_status(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip().lower()
+        return normalized or None
+
+    @field_validator("access_level", mode="before")
+    @classmethod
+    def validate_access_level(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip().lower()
+        return normalized or None
 
 
 class ClientResponse(BaseModel):
@@ -104,6 +121,22 @@ class AdminClientUpdateRequest(BaseModel):
     max_concurrent_tasks: int | None = Field(None, ge=1, le=1000)
     max_daily_tasks: int | None = Field(None, ge=1, le=100000)
     access_level: str | None = Field(None, max_length=50)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def validate_status(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip().lower()
+        return normalized or None
+
+    @field_validator("access_level", mode="before")
+    @classmethod
+    def validate_access_level(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip().lower()
+        return normalized or None
 
 
 # ==================== DRIVER SCHEMAS ====================

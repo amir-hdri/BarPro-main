@@ -6,14 +6,15 @@ import { X, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 
 const schema = z.object({
-  client_code: z.string().min(1, "کد مشتری الزامی است"),
-  name: z.string().min(1, "نام الزامی است"),
-  email: z.string().email("ایمیل نامعتبر است"),
-  phone: z.string().optional(),
-  password: z.string().min(6, "رمز عبور حداقل ۶ کاراکتر باشد"),
-  max_drivers: z.coerce.number().min(0),
-  max_plates: z.coerce.number().min(0),
-  status: z.string(),
+  client_code: z.string().trim().min(1, "کد مشتری الزامی است"),
+  name: z.string().trim().min(1, "نام الزامی است"),
+  email: z.string().trim().email("ایمیل نامعتبر است"),
+  phone: z.string().trim().optional().or(z.literal("")),
+  password: z.string().min(8, "رمز عبور حداقل ۸ کاراکتر باشد"),
+  max_drivers: z.coerce.number().int().min(1),
+  max_plates: z.coerce.number().int().min(1),
+  status: z.enum(["active", "inactive"]),
+  access_level: z.enum(["standard", "premium", "enterprise"]),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -39,6 +40,7 @@ export function CreateClientModal({
     resolver: zodResolver(schema),
     defaultValues: {
       status: "active",
+      access_level: "standard",
       max_drivers: 10,
       max_plates: 10,
     },
@@ -49,7 +51,14 @@ export function CreateClientModal({
   async function onSubmit(data: FormValues) {
     setLoading(true);
     setError(null);
-    const res = await api.post("/api/v1/admin/clients", data);
+    const payload = {
+      ...data,
+      phone: data.phone?.trim() || undefined,
+      client_code: data.client_code.trim(),
+      name: data.name.trim(),
+      email: data.email.trim(),
+    };
+    const res = await api.post("/api/v1/admin/clients", payload);
     setLoading(false);
     if (!res.success) {
       setError(res.error || "خطا در ایجاد کاربر");
@@ -155,15 +164,28 @@ export function CreateClientModal({
             </div>
           </div>
 
-          <div>
-            <label className="mb-1 block text-sm text-slate-300">وضعیت</label>
-            <select
-              {...register("status")}
-              className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-2.5 text-slate-100 outline-none focus:border-cyan-500"
-            >
-              <option value="active">فعال</option>
-              <option value="inactive">غیرفعال</option>
-            </select>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm text-slate-300">وضعیت</label>
+              <select
+                {...register("status")}
+                className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-2.5 text-slate-100 outline-none focus:border-cyan-500"
+              >
+                <option value="active">فعال</option>
+                <option value="inactive">غیرفعال</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm text-slate-300">سطح دسترسی</label>
+              <select
+                {...register("access_level")}
+                className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-2.5 text-slate-100 outline-none focus:border-cyan-500"
+              >
+                <option value="standard">استاندارد</option>
+                <option value="premium">پریمیوم</option>
+                <option value="enterprise">سازمانی</option>
+              </select>
+            </div>
           </div>
 
           <div className="mt-6 flex justify-end gap-3">

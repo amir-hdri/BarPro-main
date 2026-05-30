@@ -172,6 +172,16 @@ class ClientService:
         session: AsyncSession,
     ) -> ClientResponse:
         """Register a new client."""
+        status_value = (request.status or ClientStatus.ACTIVE.value).strip().lower()
+        access_level_value = (request.access_level or "standard").strip().lower()
+
+        # Validate status if provided
+        if status_value not in [value.value for value in ClientStatus]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status. Valid statuses are: {[value.value for value in ClientStatus]}"
+            )
+
         # Check if email or client_code already exists
         existing = await session.exec(
             select(Client).where(
@@ -193,8 +203,8 @@ class ClientService:
             username=request.client_code,          # fill the mandatory column
             full_name=request.name,                # fill the mandatory column
             hashed_password=hash_password(request.password),
-            status=ClientStatus.ACTIVE.value,
-            access_level=request.access_level or "standard",
+            status=status_value,
+            access_level=access_level_value,
             max_drivers=request.max_drivers or 10,
             max_plates=request.max_plates or 20,
         )
@@ -213,22 +223,26 @@ class ClientService:
                 if attempt == max_retries - 1:  # Last attempt
                     # If it's a network error, return appropriate status
                     if is_retryable_network_error(e):
+                        logger.error(f"Failed to register client due to network error after {max_retries} attempts: {str(e)}")
                         raise HTTPException(
                             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail=f"Failed to register client due to network error after {max_retries} attempts: {str(e)}"
+                            detail=f"Service temporarily unavailable due to network issues. Please try again later."
                         )
                     else:
+                        logger.error(f"Failed to register client: {str(e)}")
                         raise HTTPException(
                             status_code=status.HTTP_400_BAD_REQUEST,
                             detail=f"Failed to register client: {str(e)}"
                         )
                 # Only continue retrying if it's a network-related error
                 if not is_retryable_network_error(e):
+                    logger.error(f"Non-network error during client registration: {str(e)}")
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=f"Failed to register client: {str(e)}"
                     )
                 # Wait before retry with exponential backoff
+                logger.warning(f"Retrying client registration after network error (attempt {attempt + 1}): {str(e)}")
                 await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
 
         logger.info('audit_client_registered', extra={'extra_fields': {'client_id': client.id, 'client_code': client.client_code, 'email': client.email}})

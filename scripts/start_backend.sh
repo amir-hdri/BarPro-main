@@ -18,7 +18,7 @@ if [ ! -d "$VENV_DIR" ]; then
         echo "✅ استفاده از محیط مجازی فعال کنونی: $VIRTUAL_ENV"
     else
         echo "❌ هیچ محیط مجازی پیدا نشد. لطفاً آن را ایجاد کنید"
-        kill -INT $$ 2>/dev/null
+        exit 1
     fi
 else
     if [ -z "$VIRTUAL_ENV" ]; then
@@ -45,14 +45,17 @@ echo "✅ Docker containers در حال اجرا هستند"
 echo "🔍 بررسی متغیرهای محیطی..."
 if [ -f ".env" ]; then
     echo "✅ فایل .env یافت شد"
-    export $(grep -v '^#' .env | xargs)
+    set -a && source .env && set +a
 else
     echo "⚠️  فایل .env یافت نشد، از مقادیر پیش‌فرض استفاده می‌شود"
 fi
 
-# Set default values if not set in .env
-export DATABASE_URL="postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@127.0.0.1:5432/utcms_rpa"
+# Set default values if not already defined in .env
+export DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@127.0.0.1:5432/utcms_rpa}"
 export REDIS_URL="${REDIS_URL:-redis://:_Ll7-cZKf4b_l0oJ0UIJAMJ3C7Y3B-JS@127.0.0.1:6379/0}"
+
+echo "🔍 اجرای migrations دیتابیس..."
+alembic upgrade head
 
 echo "🔍 تست اتصال به دیتابیس..."
 # Get clean db url for testing (remove +asyncpg)
