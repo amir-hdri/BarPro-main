@@ -3,6 +3,7 @@ Multi-tenant services for managing clients, drivers, and waybill jobs.
 
 All services enforce tenant isolation - clients can only access their own data.
 """
+import asyncio
 import json
 import logging
 import uuid
@@ -21,6 +22,7 @@ from app.auth_multitenant import (
     verify_password,
     verify_tenant_ownership,
 )
+from app.core.network import is_retryable_network_error
 from app.models_multitenant import (
     Client,
     ClientStatus,
@@ -197,9 +199,35 @@ class ClientService:
             max_plates=request.max_plates or 20,
         )
 
-        session.add(client)
-        await session.commit()
-        await session.refresh(client)
+        # Add retry logic for database operations to handle network errors
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                session.add(client)
+                await session.commit()
+                await session.refresh(client)
+                break  # Exit loop if successful
+            except Exception as e:
+                await session.rollback()  # Rollback on error
+                if attempt == max_retries - 1:  # Last attempt
+                    # If it's a network error, return appropriate status
+                    if is_retryable_network_error(e):
+                        raise HTTPException(
+                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail=f"Failed to register client due to network error after {max_retries} attempts: {str(e)}"
+                        )
+                    else:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Failed to register client: {str(e)}"
+                        )
+                if not is_retryable_network_error(e):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Failed to register client: {str(e)}"
+                    )
+                # Wait before retry with exponential backoff
+                await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
 
         logger.info('audit_client_registered', extra={'extra_fields': {'client_id': client.id, 'client_code': client.client_code, 'email': client.email}})
 
