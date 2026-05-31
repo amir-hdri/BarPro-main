@@ -55,6 +55,8 @@ cd apps/web && npm install && cd ../..
 
 ## 🛠️ دستورات مدیریتی مهم
 
+> **📌 راهنمای دیتابیس:** برای جزئیات بروزرسانی و نگهداری دیتابیس به [راهنمای دیتابیس](docs/guides/DATABASE_GUIDE_FA.md) مراجعه کنید.
+
 ```bash
 ./scripts/start_system.sh       # اجرای کامل سیستم (Docker + Migrations)
 ./scripts/check_health.sh        # بررسی سلامت تمامی لایه‌ها (DB, Redis, API)
