@@ -33,11 +33,27 @@ def _first_value(*values: Any) -> Any:
 def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Normalize the multi-tenant payload for EnhancedWaybillManager.
 
-    The multi-tenant API stores a compact payload focused on route/cargo/vehicle.
-    The enhanced manager expects the richer `WaybillMapRequest`-style structure.
-    This adapter fills missing sections from `metadata_json` and safe defaults so the
-    self-healing manager can be integrated without breaking existing callers.
+    The multi-tenant API stores either a compact payload or a full nested one.
+    This adapter ensures we always return the richer `WaybillMapRequest`-style structure.
     """
+    # If it's already a nested payload (from the new manual form), use it as base
+    if "sender" in payload and isinstance(payload["sender"], dict):
+        # Ensure it has all required sections for the manager
+        base = {
+            "sender": payload.get("sender", {}),
+            "receiver": payload.get("receiver", {}),
+            "origin": payload.get("origin", {}),
+            "destination": payload.get("destination", {}),
+            "cargo": payload.get("cargo", {}),
+            "vehicle": payload.get("vehicle", {}),
+            "financial": payload.get("financial", {}),
+            "shipping_options": payload.get("shipping_options", {}),
+        }
+        # If there's an outer driver_national_code, sync it to vehicle
+        if payload.get("driver_national_code") and not base["vehicle"].get("driver_national_code"):
+            base["vehicle"]["driver_national_code"] = payload["driver_national_code"]
+        return base
+
     metadata = payload.get("metadata_json") if isinstance(payload.get("metadata_json"), dict) else {}
     sender_meta = _metadata_section(metadata, "sender")
     receiver_meta = _metadata_section(metadata, "receiver")

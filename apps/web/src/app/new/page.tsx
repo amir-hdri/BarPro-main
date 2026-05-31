@@ -233,7 +233,7 @@ export default function NewWaybillPage() {
     };
 
     setSubmitting(true);
-    const response = await api.post<WaybillJob>("/waybill-jobs", {
+    const response = await api.post<WaybillJob>("/api/v1/waybill-jobs", {
       driver_national_code: parsed.data.driver_national_code,
       payload,
       max_retries: 3,

@@ -7,6 +7,16 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.waybill import (
+    CargoModel,
+    FinancialModel,
+    LocationModel,
+    ReceiverModel,
+    SenderModel,
+    ShippingOptionsModel,
+    VehicleModel,
+)
+
 PERSIAN_PLATE_LETTERS = "اآبپتثجچحخدذرزژسشصضطظعغفقکگلمنوهی"
 PLATE_PATTERN = re.compile(rf"^\d{{2}}[{PERSIAN_PLATE_LETTERS}]\d{{3}}ایران\d{{2}}$")
 
@@ -285,7 +295,7 @@ class DriverScheduleResponse(BaseModel):
 # ==================== WAYBILL JOB SCHEMAS ====================
 
 class WaybillPayload(BaseModel):
-    """Waybill data for a single job."""
+    """Waybill data for a single job (Flat/Compact version)."""
     # Driver info
     driver_national_code: str = Field(..., max_length=10)
 
@@ -334,10 +344,22 @@ class WaybillPayload(BaseModel):
         return normalized
 
 
+class WaybillNestedPayload(BaseModel):
+    """Rich nested waybill data matching the frontend and WaybillMapRequest."""
+    sender: SenderModel
+    receiver: ReceiverModel
+    origin: LocationModel
+    destination: LocationModel
+    cargo: CargoModel
+    vehicle: VehicleModel
+    financial: FinancialModel
+    shipping_options: ShippingOptionsModel | None = None
+
+
 class WaybillJobCreateRequest(BaseModel):
     """Create a single waybill job (manual form)."""
     driver_national_code: str = Field(..., max_length=10)
-    payload: WaybillPayload
+    payload: WaybillPayload | WaybillNestedPayload
     max_retries: int = Field(default=3, ge=0, le=10)
     idempotency_key: str | None = Field(default=None, max_length=200)
     correlation_id: str | None = Field(default=None, max_length=128)
