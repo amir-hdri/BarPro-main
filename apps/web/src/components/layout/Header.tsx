@@ -13,39 +13,40 @@ interface HeaderProps {
 
 export function Header({ client, role, onLogout, onOpenMenu }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-30 mb-6 flex items-center justify-between rounded-[28px] border border-white/10 bg-white/70 px-4 py-4 shadow-lg shadow-slate-900/5 backdrop-blur md:px-6">
-      <div className="flex items-center gap-3">
+    <header className="sticky top-0 z-30 mb-8 flex items-center justify-between rounded-[32px] border border-white/20 bg-white/80 px-6 py-5 shadow-xl shadow-slate-900/5 backdrop-blur-xl">
+      <div className="flex items-center gap-4">
         <button
           type="button"
           onClick={onOpenMenu}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-700 xl:hidden"
+          className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-100 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 xl:hidden"
         >
           <Bars3Icon className="h-6 w-6" />
         </button>
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Automation Console</p>
-          <h2 className="text-lg font-semibold text-slate-900">وضعیت زنده عملیات بارنامه</h2>
+          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Live Operation</p>
+          <h2 className="text-xl font-black tracking-tight text-slate-900">کنسول مدیریتی باربر</h2>
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="hidden rounded-2xl bg-slate-900 px-4 py-3 text-right text-white md:block">
-          <p className="text-sm font-medium">{client?.name || 'مهمان'}</p>
-          <p className="text-xs text-slate-300">
-            {client ? `${role === 'master_admin' ? 'ادمین اصلی' : 'مشتری'} • ${client.email}` : 'برای کار با پنل وارد شوید'}
+      <div className="flex items-center gap-4">
+        <div className="hidden flex-col items-end rounded-[22px] bg-slate-950 px-5 py-3 text-white shadow-lg shadow-slate-950/20 md:flex">
+          <p className="text-xs font-black tracking-wide">{client?.name || 'مهمان'}</p>
+          <p className="mt-0.5 text-[10px] font-bold text-cyan-400 opacity-80">
+            {client ? `${role === 'master_admin' ? 'مدیر ارشد' : 'پنل مشتری'} • ${client.email}` : 'احراز هویت نشده'}
           </p>
         </div>
         {client && (
           <button
             type="button"
             onClick={onLogout}
-            className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 transition hover:bg-rose-100"
+            className="group inline-flex h-12 items-center gap-2 rounded-2xl border border-rose-100 bg-rose-50 px-5 text-sm font-bold text-rose-600 transition-all hover:bg-rose-600 hover:text-white hover:shadow-lg hover:shadow-rose-600/20"
           >
-            <ArrowLeftOnRectangleIcon className="h-5 w-5" />
-            خروج
+            <ArrowLeftOnRectangleIcon className="h-5 w-5 transition-transform group-hover:-translate-x-1" />
+            <span className="hidden sm:inline">خروج</span>
           </button>
         )}
       </div>
     </header>
   );
 }
+

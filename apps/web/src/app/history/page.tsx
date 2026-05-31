@@ -8,6 +8,7 @@ import { useSession } from '@/hooks/useSession';
 import { api } from '@/lib/api';
 import { formatDateTime, statusLabel, statusTone, toPersianDigits } from '@/lib/format';
 import type { JobTimelineResponse, WaybillJob, WaybillTaskListResponse } from '@/lib/types';
+import { ClockIcon, Activity, ListChecks } from 'lucide-react';
 
 export default function HistoryPage() {
   const { client } = useSession();
@@ -61,20 +62,28 @@ export default function HistoryPage() {
   return (
     <AppShell>
       <AuthGuard requiredRole="client">
-        <section className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-          <div className="rounded-[32px] border border-white/20 bg-white/75 p-6 shadow-lg shadow-slate-900/5 backdrop-blur">
-            <div className="flex items-center justify-between">
+        <section className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
+          <div className="rounded-[40px] border border-slate-200 bg-white p-8 shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-50 pb-6">
               <div>
-                <h1 className="text-2xl font-semibold text-slate-950">پیگیری کارها</h1>
-                <p className="mt-1 text-sm text-slate-500">صف فعلی، خطاها و وضعیت اجرای هر ماموریت</p>
+                <h1 className="text-2xl font-black text-slate-900">پیگیری عملیات</h1>
+                <p className="mt-1 text-sm text-slate-500">مشاهده صف، خطاها و روند پیشرفت هر ماموریت</p>
               </div>
-              <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">{toPersianDigits(jobs.length)} مورد</span>
+              <span className="rounded-full bg-slate-900 px-4 py-1.5 text-xs font-bold text-white shadow-lg shadow-slate-900/10">
+                {toPersianDigits(jobs.length)} مورد
+              </span>
             </div>
 
             {loading ? (
-              <div className="mt-6 space-y-3">{[1, 2, 3, 4].map((item) => <div key={item} className="h-24 animate-pulse rounded-3xl bg-slate-100" />)}</div>
+              <div className="mt-6 space-y-4">
+                {[1, 2, 3, 4].map((item) => (
+                  <div key={item} className="h-28 animate-pulse rounded-[28px] bg-slate-50" />
+                ))}
+              </div>
             ) : jobs.length === 0 ? (
-              <div className="mt-6 rounded-3xl border border-dashed border-slate-200 px-5 py-8 text-sm text-slate-500">هنوز ماموریتی برای نمایش وجود ندارد.</div>
+              <div className="mt-10 flex flex-col items-center justify-center rounded-[32px] border-2 border-dashed border-slate-100 py-16">
+                <p className="text-sm font-medium text-slate-400">هنوز ماموریتی برای نمایش وجود ندارد.</p>
+              </div>
             ) : (
               <div className="mt-6 space-y-3">
                 {jobs.map((job) => (
@@ -83,65 +92,89 @@ export default function HistoryPage() {
                     type="button"
                     onClick={() => setSelectedJobId(job.job_id)}
                     className={[
-                      'w-full rounded-3xl border px-5 py-4 text-right transition',
-                      selectedJobId === job.job_id ? 'border-cyan-300 bg-cyan-50' : 'border-slate-100 bg-slate-50 hover:border-slate-200',
+                      'group w-full rounded-[28px] border p-5 text-right transition-all duration-200',
+                      selectedJobId === job.job_id 
+                        ? 'border-cyan-200 bg-cyan-50 shadow-md' 
+                        : 'border-slate-50 bg-slate-50/50 hover:border-slate-200 hover:bg-white hover:shadow-sm',
                     ].join(' ')}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <p className="font-semibold text-slate-900">#{job.job_id}</p>
-                        <p className="mt-1 text-sm text-slate-500">شروع: {formatDateTime(job.started_at || job.created_at)}</p>
+                        <p className="font-black text-slate-900 group-hover:text-cyan-600">#{job.job_id}</p>
+                        <p className="mt-0.5 text-xs font-medium text-slate-400">ایجاد در {formatDateTime(job.created_at)}</p>
                       </div>
-                      <span className={['rounded-full px-3 py-1 text-xs font-semibold', statusTone(job.status)].join(' ')}>{statusLabel(job.status)}</span>
+                      <span className={['rounded-xl px-4 py-2 text-xs font-bold shadow-sm', statusTone(job.status)].join(' ')}>
+                        {statusLabel(job.status)}
+                      </span>
                     </div>
-                    <div className="mt-3 grid gap-2 text-sm text-slate-600 md:grid-cols-2">
-                      <span>آخرین بروزرسانی: {formatDateTime(job.updated_at)}</span>
-                      <span>تعداد تلاش: {toPersianDigits(job.attempt_count)} از {toPersianDigits(job.max_retries)}</span>
+                    <div className="mt-4 flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      <div className="flex items-center gap-2">
+                        <span>بروزرسانی:</span>
+                        <span className="text-slate-600">{formatDateTime(job.updated_at)}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span>تلاش:</span>
+                        <span className="text-slate-600">{toPersianDigits(job.attempt_count)} از {toPersianDigits(job.max_retries)}</span>
+                      </div>
                     </div>
-                    <div className="mt-2 grid gap-2 text-xs text-slate-500 md:grid-cols-2">
-                      <span>دسته خطا: {job.error_category ? statusLabel(job.error_category) : '-'}</span>
-                      <span>کد علت نهایی: {job.terminal_reason || '-'}</span>
-                    </div>
-                    {job.last_error && <p className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{job.last_error}</p>}
                   </button>
                 ))}
               </div>
             )}
 
-            {error && <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
-          </div>
-
-          <div className="rounded-[32px] border border-white/20 bg-slate-950 p-6 text-white shadow-2xl shadow-slate-900/20">
-            <h2 className="text-2xl font-semibold">تایم‌لاین اجرایی</h2>
-            <p className="mt-2 text-sm text-slate-300">برای هر job، رویدادها و لاگ‌های یکپارچه نشان داده می‌شود.</p>
-
-            {!selectedJobId ? (
-              <div className="mt-6 rounded-3xl border border-white/10 px-5 py-8 text-sm text-slate-300">یکی از کارها را از ستون سمت راست انتخاب کنید.</div>
-            ) : timelineLoading ? (
-              <div className="mt-6 space-y-3">{[1, 2, 3].map((item) => <div key={item} className="h-20 animate-pulse rounded-3xl bg-white/10" />)}</div>
-            ) : !timeline || timeline.entries.length === 0 ? (
-              <div className="mt-6 rounded-3xl border border-white/10 px-5 py-8 text-sm text-slate-300">هنوز رویدادی برای این کار ثبت نشده است.</div>
-            ) : (
-              <div className="mt-6 space-y-3">
-                {timeline.entries.map((entry) => (
-                  <article key={entry.entry_id} className="rounded-3xl border border-white/10 bg-white/5 p-5">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-white">{entry.title}</p>
-                        <p className="mt-1 text-sm text-slate-300">{formatDateTime(entry.created_at)}</p>
-                      </div>
-                      {entry.status && <span className={['rounded-full px-3 py-1 text-xs font-semibold', statusTone(entry.status)].join(' ')}>{statusLabel(entry.status)}</span>}
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-400">
-                      <span>فاز: {entry.phase || '-'}</span>
-                      <span>منبع: {entry.source}</span>
-                      <span>نوع رویداد: {entry.event_type}</span>
-                    </div>
-                    {entry.message && <p className="mt-3 text-sm leading-6 text-slate-200">{entry.message}</p>}
-                  </article>
-                ))}
+            {error && (
+              <div className="mt-6 rounded-2xl bg-rose-50 p-4 text-sm font-bold text-rose-700 shadow-sm shadow-rose-100">
+                {error}
               </div>
             )}
+          </div>
+
+          <div className="relative overflow-hidden rounded-[40px] border border-slate-200 bg-slate-950 p-8 text-white shadow-2xl shadow-slate-900/10">
+            <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-cyan-500/10 blur-[80px]"></div>
+            
+            <div className="relative z-10">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/20">
+                  <Activity className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">تایم‌لاین اجرایی</h2>
+                  <p className="text-xs font-medium text-slate-400">رهگیری لحظه‌ای گام‌های عملیاتی ربات</p>
+                </div>
+              </div>
+
+              {!selectedJobId ? (
+                <div className="mt-10 flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-white/5 py-20 text-center">
+                  <ListChecks className="h-12 w-12 text-slate-600" />
+                  <p className="mt-4 text-sm font-medium text-slate-400">برای مشاهده جزئیات، یکی از ماموریت‌ها را انتخاب کنید.</p>
+                </div>
+              ) : timelineLoading ? (
+                <div className="mt-10 space-y-4">
+                  {[1, 2, 3].map((item) => (
+                    <div key={item} className="h-24 animate-pulse rounded-3xl bg-white/5" />
+                  ))}
+                </div>
+              ) : !timeline || timeline.entries.length === 0 ? (
+                <div className="mt-10 flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-white/5 py-20 text-center">
+                  <p className="text-sm font-medium text-slate-400">هنوز رویدادی برای این ماموریت ثبت نشده است.</p>
+                </div>
+              ) : (
+                <div className="mt-10 space-y-4">
+                  {timeline.entries.map((entry) => (
+                    <article key={entry.entry_id} className="group relative rounded-3xl border border-white/10 bg-white/5 p-6 transition-all hover:bg-white/10">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`h-2 w-2 rounded-full ${entry.status === 'success' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.5)]'}`}></div>
+                          <h4 className="text-sm font-bold text-slate-200">{entry.step_label || entry.step}</h4>
+                        </div>
+                        <time className="text-[10px] font-bold tracking-widest text-slate-500">{formatDateTime(entry.timestamp)}</time>
+                      </div>
+                      <p className="mt-3 text-sm leading-relaxed text-slate-400">{entry.message}</p>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </section>
       </AuthGuard>
