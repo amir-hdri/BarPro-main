@@ -28,7 +28,14 @@ async def test_phase1_scheduler_routes_job_to_auth_then_submit():
         await conn.run_sync(SQLModel.metadata.create_all)
 
     async with async_session() as session:
-        client = Client(client_code="tenant-a", name="Tenant A", email="a@example.com", hashed_password="hash")
+        client = Client(
+            client_code="tenant-a", 
+            name="Tenant A", 
+            email="a@example.com", 
+            hashed_password="hash",
+            username="tenant_a",
+            full_name="Tenant A Admin"
+        )
         session.add(client)
         await session.commit()
         await session.refresh(client)
@@ -102,7 +109,14 @@ async def test_phase1_scheduler_respects_daily_attempt_cap():
         await conn.run_sync(SQLModel.metadata.create_all)
 
     async with async_session() as session:
-        client = Client(client_code="tenant-b", name="Tenant B", email="b@example.com", hashed_password="hash")
+        client = Client(
+            client_code="tenant-b", 
+            name="Tenant B", 
+            email="b@example.com", 
+            hashed_password="hash",
+            username="tenant_b",
+            full_name="Tenant B Admin"
+        )
         session.add(client)
         await session.commit()
         await session.refresh(client)
@@ -145,7 +159,14 @@ async def test_phase1_scheduler_does_not_stick_job_during_tenant_cooldown():
         await conn.run_sync(SQLModel.metadata.create_all)
 
     async with async_session() as session:
-        client = Client(client_code="tenant-c", name="Tenant C", email="c@example.com", hashed_password="hash")
+        client = Client(
+            client_code="tenant-c", 
+            name="Tenant C", 
+            email="c@example.com", 
+            hashed_password="hash",
+            username="tenant_c",
+            full_name="Tenant C Admin"
+        )
         session.add(client)
         await session.commit()
         await session.refresh(client)
@@ -187,7 +208,14 @@ async def test_phase1_scheduler_preview_has_no_side_effects():
         await conn.run_sync(SQLModel.metadata.create_all)
 
     async with async_session() as session:
-        client = Client(client_code="tenant-preview", name="Tenant Preview", email="preview@example.com", hashed_password="hash")
+        client = Client(
+            client_code="tenant-preview", 
+            name="Tenant Preview", 
+            email="preview@example.com", 
+            hashed_password="hash", 
+            username="tenant_preview", 
+            full_name="Tenant Preview Admin"
+        )
         session.add(client)
         await session.commit()
         await session.refresh(client)
@@ -229,7 +257,14 @@ async def test_phase1_dispatch_due_jobs_enqueues_auth_task_and_persists_task_id(
         await conn.run_sync(SQLModel.metadata.create_all)
 
     async with async_session() as session:
-        client = Client(client_code="tenant-dispatch", name="Tenant Dispatch", email="dispatch@example.com", hashed_password="hash")
+        client = Client(
+            client_code="tenant-dispatch", 
+            name="Tenant Dispatch", 
+            email="dispatch@example.com", 
+            hashed_password="hash",
+            username="tenant_dispatch",
+            full_name="Tenant Dispatch Admin"
+        )
         session.add(client)
         await session.commit()
         await session.refresh(client)
@@ -280,7 +315,14 @@ async def test_phase1_auth_success_dispatches_submit_for_resume_job():
         await conn.run_sync(SQLModel.metadata.create_all)
 
     async with async_session() as session:
-        client = Client(client_code="tenant-auth-flow", name="Tenant Auth Flow", email="authflow@example.com", hashed_password="hash")
+        client = Client(
+            client_code="tenant-auth-flow", 
+            name="Tenant Auth Flow", 
+            email="authflow@example.com", 
+            hashed_password="hash", 
+            username="tenant_auth_flow", 
+            full_name="Tenant Auth Flow Admin"
+        )
         session.add(client)
         await session.commit()
         await session.refresh(client)
@@ -356,11 +398,6 @@ async def test_phase1_auth_success_dispatches_submit_for_resume_job():
             driver_message="success",
             business_date="2025-01-01"
         )
-
-
-
-
-
 
     with patch("app.services.rpa_auth_service.async_session_factory", new=async_session), patch(
         "app.services.rpa_runtime_service.redis_manager.get", new=AsyncMock(return_value=None)

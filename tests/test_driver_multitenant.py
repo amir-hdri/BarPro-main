@@ -25,7 +25,7 @@ def test_create_driver_success(test_client):
 
     # Needs to be a mock object but not necessarily AsyncMock for sync methods like add
     mock_session = MagicMock()
-    mock_session.exec = MagicMock()
+    mock_session.exec = AsyncMock()
     mock_session.commit = AsyncMock()
 
     # Mock for existing drivers count -> returns 0
@@ -84,14 +84,13 @@ def test_create_driver_limit_reached(test_client):
     )
 
     mock_session = MagicMock()
-    mock_session.exec = MagicMock()
+    mock_session.exec = AsyncMock()
     mock_session.commit = AsyncMock()
 
-    # Mock for existing drivers count -> returns 1
+    # Mock for existing drivers count
     mock_existing_drivers = MagicMock()
     mock_existing_drivers.all.return_value = [Driver()]
-
-    mock_session.exec.side_effect = [mock_existing_drivers]
+    mock_session.exec.return_value = mock_existing_drivers
 
     app.dependency_overrides[get_current_client] = lambda: mock_client
     app.dependency_overrides[get_session] = lambda: mock_session
@@ -107,7 +106,7 @@ def test_create_driver_limit_reached(test_client):
     response = test_client.post("/api/v1/drivers", json=payload)
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert "limit reached" in response.json()["detail"].lower()
+    assert "limit reached" in response.json()["message"].lower()
 
     mock_session.add.assert_not_called()
     mock_session.commit.assert_not_called()
@@ -124,10 +123,10 @@ def test_create_driver_duplicate_national_code(test_client):
     )
 
     mock_session = MagicMock()
-    mock_session.exec = MagicMock()
+    mock_session.exec = AsyncMock()
     mock_session.commit = AsyncMock()
 
-    # Mock for existing drivers count -> returns 0
+    # Mock for existing drivers count
     mock_existing_drivers = MagicMock()
     mock_existing_drivers.all.return_value = []
 
@@ -154,7 +153,7 @@ def test_create_driver_duplicate_national_code(test_client):
     response = test_client.post("/api/v1/drivers", json=payload)
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert "already exists" in response.json()["detail"].lower()
+    assert "already exists" in response.json()["message"].lower()
 
     mock_session.add.assert_not_called()
     mock_session.commit.assert_not_called()
@@ -171,7 +170,7 @@ def test_list_drivers_success(test_client):
     )
 
     mock_session = MagicMock()
-    mock_session.exec = MagicMock()
+    mock_session.exec = AsyncMock()
 
     mock_driver = Driver(
         id=1,
@@ -213,7 +212,7 @@ def test_list_drivers_with_status_filter(test_client):
     )
 
     mock_session = MagicMock()
-    mock_session.exec = MagicMock()
+    mock_session.exec = AsyncMock()
 
     mock_driver = Driver(
         id=1,
