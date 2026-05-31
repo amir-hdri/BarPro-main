@@ -12,6 +12,7 @@ const withPWA = withPWAInit({
   buildExcludes: [/middleware-manifest\.json$/],
   scope: "/",
   sw: "service-worker.js",
+  reloadOnOnline: true,
 });
 
 const __filename = fileURLToPath(import.meta.url);
