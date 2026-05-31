@@ -165,9 +165,9 @@ export default function HistoryPage() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <div className={`h-2 w-2 rounded-full ${entry.status === 'success' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.5)]'}`}></div>
-                          <h4 className="text-sm font-bold text-slate-200">{entry.step_label || entry.step}</h4>
+                          <h4 className="text-sm font-bold text-slate-200">{entry.title || entry.event_type}</h4>
                         </div>
-                        <time className="text-[10px] font-bold tracking-widest text-slate-500">{formatDateTime(entry.timestamp)}</time>
+                        <time className="text-[10px] font-bold tracking-widest text-slate-500">{formatDateTime(entry.created_at)}</time>
                       </div>
                       <p className="mt-3 text-sm leading-relaxed text-slate-400">{entry.message}</p>
                     </article>

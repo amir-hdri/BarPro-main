@@ -25,6 +25,7 @@ import type {
   WaybillJob,
   WaybillTaskListResponse,
 } from "@/lib/types";
+import { Zap, ShieldCheck, BarChart3, Clock as ClockIconLucide } from 'lucide-react';
 
 const emptyStats: ClientStats = {
   client_id: 0,
