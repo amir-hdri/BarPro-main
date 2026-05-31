@@ -442,9 +442,42 @@ class ClientService:
             client.hashed_password = hash_password(request.password)
 
         client.updated_at = datetime.now(UTC).replace(tzinfo=None)
-        session.add(client)
-        await session.commit()
-        await session.refresh(client)
+        
+        # Add retry logic for database operations to handle network errors
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                session.add(client)
+                await session.commit()
+                await session.refresh(client)
+                break  # Exit loop if successful
+            except Exception as e:
+                await session.rollback()  # Rollback on error
+                # If it's the last attempt, raise the appropriate error
+                if attempt == max_retries - 1:  # Last attempt
+                    # If it's a network error, return appropriate status
+                    if is_retryable_network_error(e):
+                        logger.error(f"Failed to update client due to network error after {max_retries} attempts: {str(e)}")
+                        raise HTTPException(
+                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="Service temporarily unavailable due to network issues. Please try again later."
+                        ) from e
+                    else:
+                        logger.error(f"Failed to update client: {str(e)}")
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Failed to update client: {str(e)}"
+                        ) from e
+                # Only continue retrying if it's a network-related error
+                if not is_retryable_network_error(e):
+                    logger.error(f"Non-network error during client update: {str(e)}")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Failed to update client: {str(e)}"
+                    ) from e
+                # Wait before retry with exponential backoff
+                logger.warning(f"Retrying client update after network error (attempt {attempt + 1}): {str(e)}")
+                await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
 
         logger.info('audit_client_updated', extra={'extra_fields': {'client_id': client.id, 'client_code': client.client_code}})
         return ClientResponse.model_validate(client)
@@ -457,8 +490,41 @@ class ClientService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
 
         logger.info('audit_client_deleted', extra={'extra_fields': {'client_id': client.id, 'client_code': client.client_code}})
-        await session.delete(client)
-        await session.commit()
+        
+        # Add retry logic for database operations to handle network errors
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                await session.delete(client)
+                await session.commit()
+                break  # Exit loop if successful
+            except Exception as e:
+                await session.rollback()  # Rollback on error
+                # If it's the last attempt, raise the appropriate error
+                if attempt == max_retries - 1:  # Last attempt
+                    # If it's a network error, return appropriate status
+                    if is_retryable_network_error(e):
+                        logger.error(f"Failed to delete client due to network error after {max_retries} attempts: {str(e)}")
+                        raise HTTPException(
+                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="Service temporarily unavailable due to network issues. Please try again later."
+                        ) from e
+                    else:
+                        logger.error(f"Failed to delete client: {str(e)}")
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Failed to delete client: {str(e)}"
+                        ) from e
+                # Only continue retrying if it's a network-related error
+                if not is_retryable_network_error(e):
+                    logger.error(f"Non-network error during client deletion: {str(e)}")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Failed to delete client: {str(e)}"
+                    ) from e
+                # Wait before retry with exponential backoff
+                logger.warning(f"Retrying client deletion after network error (attempt {attempt + 1}): {str(e)}")
+                await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
 
 
 # ==================== DRIVER SERVICE ====================
@@ -508,9 +574,41 @@ class DriverService:
             status=DriverStatus.ACTIVE.value,
         )
 
-        session.add(driver)
-        await session.commit()
-        await session.refresh(driver)
+        # Add retry logic for database operations to handle network errors
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                session.add(driver)
+                await session.commit()
+                await session.refresh(driver)
+                break  # Exit loop if successful
+            except Exception as e:
+                await session.rollback()  # Rollback on error
+                # If it's the last attempt, raise the appropriate error
+                if attempt == max_retries - 1:  # Last attempt
+                    # If it's a network error, return appropriate status
+                    if is_retryable_network_error(e):
+                        logger.error(f"Failed to create driver due to network error after {max_retries} attempts: {str(e)}")
+                        raise HTTPException(
+                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="Service temporarily unavailable due to network issues. Please try again later."
+                        ) from e
+                    else:
+                        logger.error(f"Failed to create driver: {str(e)}")
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Failed to create driver: {str(e)}"
+                        ) from e
+                # Only continue retrying if it's a network-related error
+                if not is_retryable_network_error(e):
+                    logger.error(f"Non-network error during driver creation: {str(e)}")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Failed to create driver: {str(e)}"
+                    ) from e
+                # Wait before retry with exponential backoff
+                logger.warning(f"Retrying driver creation after network error (attempt {attempt + 1}): {str(e)}")
+                await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
 
         return DriverResponse(
             id=driver.id,
@@ -615,9 +713,42 @@ class DriverService:
                 setattr(driver, field, value)
 
         driver.updated_at = datetime.now(UTC).replace(tzinfo=None)
-        session.add(driver)
-        await session.commit()
-        await session.refresh(driver)
+        
+        # Add retry logic for database operations to handle network errors
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                session.add(driver)
+                await session.commit()
+                await session.refresh(driver)
+                break  # Exit loop if successful
+            except Exception as e:
+                await session.rollback()  # Rollback on error
+                # If it's the last attempt, raise the appropriate error
+                if attempt == max_retries - 1:  # Last attempt
+                    # If it's a network error, return appropriate status
+                    if is_retryable_network_error(e):
+                        logger.error(f"Failed to update driver due to network error after {max_retries} attempts: {str(e)}")
+                        raise HTTPException(
+                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="Service temporarily unavailable due to network issues. Please try again later."
+                        ) from e
+                    else:
+                        logger.error(f"Failed to update driver: {str(e)}")
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Failed to update driver: {str(e)}"
+                        ) from e
+                # Only continue retrying if it's a network-related error
+                if not is_retryable_network_error(e):
+                    logger.error(f"Non-network error during driver update: {str(e)}")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Failed to update driver: {str(e)}"
+                    ) from e
+                # Wait before retry with exponential backoff
+                logger.warning(f"Retrying driver update after network error (attempt {attempt + 1}): {str(e)}")
+                await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
 
         return DriverResponse(
             id=driver.id,
@@ -649,9 +780,40 @@ class DriverService:
         # Verify tenant ownership
         verify_tenant_ownership(client, driver, Driver)
 
-        await session.delete(driver)
-        await session.commit()
-        return True
+        # Add retry logic for database operations to handle network errors
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                await session.delete(driver)
+                await session.commit()
+                return True  # Exit loop if successful
+            except Exception as e:
+                await session.rollback()  # Rollback on error
+                # If it's the last attempt, raise the appropriate error
+                if attempt == max_retries - 1:  # Last attempt
+                    # If it's a network error, return appropriate status
+                    if is_retryable_network_error(e):
+                        logger.error(f"Failed to delete driver due to network error after {max_retries} attempts: {str(e)}")
+                        raise HTTPException(
+                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="Service temporarily unavailable due to network issues. Please try again later."
+                        ) from e
+                    else:
+                        logger.error(f"Failed to delete driver: {str(e)}")
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Failed to delete driver: {str(e)}"
+                        ) from e
+                # Only continue retrying if it's a network-related error
+                if not is_retryable_network_error(e):
+                    logger.error(f"Non-network error during driver deletion: {str(e)}")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Failed to delete driver: {str(e)}"
+                    ) from e
+                # Wait before retry with exponential backoff
+                logger.warning(f"Retrying driver deletion after network error (attempt {attempt + 1}): {str(e)}")
+                await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
 
     @staticmethod
     async def get_driver_credentials(
