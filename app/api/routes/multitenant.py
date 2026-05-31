@@ -437,7 +437,7 @@ async def list_waybill_jobs(
 @router.post("/waybill-jobs/{job_id}/retry", response_model=WaybillJobResponse)
 async def retry_waybill_job(
     job_id: str,
-    request: WaybillRetryRequest = Body(default_factory=WaybillRetryRequest),
+    request: WaybillRetryRequest = Body(default=WaybillRetryRequest()),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ):
@@ -448,7 +448,7 @@ async def retry_waybill_job(
 @router.post("/waybill-jobs/{job_id}/requeue", response_model=WaybillJobResponse)
 async def requeue_waybill_job(
     job_id: str,
-    request: WaybillRetryRequest = Body(default_factory=WaybillRetryRequest),
+    request: WaybillRetryRequest = Body(default=WaybillRetryRequest()),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ):

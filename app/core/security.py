@@ -1,6 +1,6 @@
 import hmac
 
-import jwt
+from jose import JWTError, jwt
 from fastapi import HTTPException, Request
 
 from app.core.config import utcms_config

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { PlusIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, UserCircleIcon } from '@heroicons/react/24/outline';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
@@ -219,71 +219,115 @@ export default function DriversPage() {
   return (
     <AppShell>
       <AuthGuard requiredRole="client">
-        <section className="grid gap-6">
-          <form onSubmit={handleSubmit} className="rounded-[32px] border border-white/20 bg-slate-950 p-6 text-white shadow-2xl shadow-slate-900/20">
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-cyan-400/20 p-3 text-cyan-300">
-                <PlusIcon className="h-6 w-6" />
+        <section className="flex flex-col gap-10">
+          <form onSubmit={handleSubmit} className="relative overflow-hidden rounded-[40px] border border-slate-200 bg-slate-950 px-8 py-10 text-white shadow-2xl shadow-slate-900/10">
+            <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-cyan-500/10 blur-[80px]"></div>
+            
+            <div className="relative z-10">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/20">
+                  <PlusIcon className="h-6 w-6" />
+                </div>
+                <div>
+                  <h1 className="text-2xl font-black">ثبت راننده جدید</h1>
+                  <p className="mt-1 text-sm text-slate-400">اطلاعات هویتی و دسترسی‌های مورد نیاز برای اتوماسیون</p>
+                </div>
               </div>
-              <div>
-                <h1 className="text-2xl font-semibold">افزودن راننده جدید</h1>
-                <p className="mt-1 text-sm text-slate-300">اطلاعات هویتی و دسترسی UTCMS را کامل وارد کنید.</p>
+
+              <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                <Input label="نام و نام خانوادگی" value={form.full_name} onChange={(value) => setForm((current) => ({ ...current, full_name: value }))} required />
+                <Input label="کد ملی (۱۰ رقم)" value={form.driver_national_code} onChange={(value) => setForm((current) => ({ ...current, driver_national_code: value }))} required />
+                <Input label="شماره همراه" value={form.phone || ''} onChange={(value) => setForm((current) => ({ ...current, phone: value }))} />
+                <Input label="شماره گواهینامه" value={form.license_number || ''} onChange={(value) => setForm((current) => ({ ...current, license_number: value }))} />
+                <Input label="نام کاربری UTCMS" value={form.utcms_username} onChange={(value) => setForm((current) => ({ ...current, utcms_username: value }))} required />
+                <Input label="رمز عبور UTCMS" type="password" value={form.utcms_password} onChange={(value) => setForm((current) => ({ ...current, utcms_password: value }))} required />
               </div>
-            </div>
 
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
-              <Input label="نام و نام خانوادگی" value={form.full_name} onChange={(value) => setForm((current) => ({ ...current, full_name: value }))} required />
-              <Input label="کد ملی" value={form.driver_national_code} onChange={(value) => setForm((current) => ({ ...current, driver_national_code: value }))} required />
-              <Input label="تلفن" value={form.phone || ''} onChange={(value) => setForm((current) => ({ ...current, phone: value }))} />
-              <Input label="شماره گواهینامه" value={form.license_number || ''} onChange={(value) => setForm((current) => ({ ...current, license_number: value }))} />
-              <Input label="نام کاربری UTCMS" value={form.utcms_username} onChange={(value) => setForm((current) => ({ ...current, utcms_username: value }))} required />
-              <Input label="رمز UTCMS" type="password" value={form.utcms_password} onChange={(value) => setForm((current) => ({ ...current, utcms_password: value }))} required />
+              <div className="mt-10 flex justify-end">
+                <button type="submit" disabled={saving} className="min-w-[200px] rounded-2xl bg-cyan-400 px-8 py-4 text-sm font-black text-slate-950 shadow-xl shadow-cyan-400/20 transition hover:bg-cyan-300 active:scale-[0.98] disabled:opacity-60">
+                  {saving ? 'در حال ذخیره...' : 'افزودن به لیست'}
+                </button>
+              </div>
+              {error && (
+                <div className="mt-6 animate-in fade-in slide-in-from-top-2 rounded-2xl bg-rose-500/10 p-4 text-sm font-bold text-rose-200 ring-1 ring-rose-500/20">
+                  {error}
+                </div>
+              )}
             </div>
-
-            <button type="submit" disabled={saving} className="mt-6 w-full rounded-2xl bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-60">
-              {saving ? 'در حال ذخیره...' : 'ثبت راننده'}
-            </button>
-            {error && <p className="mt-4 rounded-2xl bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>}
           </form>
 
-          <section className="rounded-[32px] border border-white/20 bg-white/75 p-6 shadow-lg shadow-slate-900/5 backdrop-blur">
-            <div className="flex items-center justify-between">
+          <div className="rounded-[40px] border border-slate-200 bg-white p-8 shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-50 pb-6">
               <div>
-                <h2 className="text-2xl font-semibold text-slate-950">رانندگان ثبت‌شده</h2>
-                <p className="mt-1 text-sm text-slate-500">وضعیت عملیاتی، زمان احراز هویت و خطاهای اخیر</p>
+                <h2 className="text-xl font-bold text-slate-900">رانندگان ناوگان</h2>
+                <p className="mt-1 text-sm text-slate-500">لیست تمامی رانندگان احراز هویت شده و وضعیت فعالیت آن‌ها</p>
               </div>
-              <button type="button" onClick={() => void loadDrivers()} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
-                بروزرسانی
+              <button type="button" onClick={() => void loadDrivers()} className="inline-flex items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 px-5 py-2.5 text-xs font-bold text-slate-600 transition hover:bg-white hover:shadow-sm">
+                بروزرسانی لیست
               </button>
             </div>
 
             {loading ? (
-              <div className="mt-6 space-y-3">
-                {[1, 2, 3].map((item) => <div key={item} className="h-24 animate-pulse rounded-3xl bg-slate-100" />)}
+              <div className="mt-8 space-y-4">
+                {[1, 2, 3].map((item) => <div key={item} className="h-32 animate-pulse rounded-[32px] bg-slate-50" />)}
               </div>
             ) : drivers.length === 0 ? (
-              <div className="mt-6 rounded-3xl border border-dashed border-slate-200 px-5 py-8 text-sm text-slate-500">برای این مشتری هنوز راننده‌ای ثبت نشده است.</div>
+              <div className="mt-12 flex flex-col items-center justify-center rounded-[32px] border-2 border-dashed border-slate-100 py-20">
+                <p className="text-sm font-medium text-slate-400">هنوز راننده‌ای در سامانه ثبت نشده است.</p>
+              </div>
             ) : (
-              <div className="mt-6 space-y-4">
+              <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-1">
                 {drivers.map((driver) => (
-                  <article key={driver.id} className="rounded-3xl border border-slate-100 bg-slate-50 p-5">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <h3 className="text-lg font-semibold text-slate-950">{driver.full_name}</h3>
-                        <p className="mt-1 text-sm text-slate-500">{driver.driver_national_code} - {driver.phone || 'بدون تلفن'}</p>
+                  <article key={driver.id} className="group relative rounded-[32px] border border-slate-50 bg-slate-50/50 p-6 transition-all hover:border-cyan-100 hover:bg-white hover:shadow-md">
+                    <div className="flex flex-wrap items-start justify-between gap-6">
+                      <div className="flex items-center gap-5">
+                        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm transition-colors group-hover:text-cyan-500">
+                          <UserCircleIcon className="h-8 w-8" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-black text-slate-900 group-hover:text-cyan-600">{driver.full_name}</h3>
+                          <div className="mt-1 flex items-center gap-3 text-xs font-bold text-slate-400">
+                            <span>{driver.driver_national_code}</span>
+                            <span className="h-1 w-1 rounded-full bg-slate-300"></span>
+                            <span>{driver.phone || 'فاقد شماره همراه'}</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <span className={['rounded-full px-3 py-1 text-xs font-semibold', statusTone(driver.status)].join(' ')}>{statusLabel(driver.status)}</span>
-                        {driver.runtime_status && <span className={['rounded-full px-3 py-1 text-xs font-semibold', statusTone(driver.runtime_status)].join(' ')}>{statusLabel(driver.runtime_status)}</span>}
+                      
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className={['inline-flex items-center rounded-xl px-4 py-2 text-xs font-bold shadow-sm', statusTone(driver.status)].join(' ')}>
+                          {statusLabel(driver.status)}
+                        </span>
+                        {driver.runtime_status && (
+                          <span className={['inline-flex items-center rounded-xl px-4 py-2 text-xs font-bold shadow-sm', statusTone(driver.runtime_status)].join(' ')}>
+                            {statusLabel(driver.runtime_status)}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                      <Detail label="نام کاربری UTCMS" value={driver.utcms_username} />
-                      <Detail label="آخرین احراز هویت" value={formatDateTime(driver.last_auth_at)} />
-                      <Detail label="انقضای نشست" value={formatDateTime(driver.last_session_expires_at)} />
+
+                    <div className="mt-8 grid gap-4 sm:grid-cols-3">
+                      <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">شناسه UTCMS</p>
+                        <p className="mt-1 text-sm font-bold text-slate-700">{driver.utcms_username}</p>
+                      </div>
+                      <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">آخرین فعالیت</p>
+                        <p className="mt-1 text-sm font-bold text-slate-700">{formatDateTime(driver.last_auth_at) || 'ثبت نشده'}</p>
+                      </div>
+                      <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">اعتبار نشست</p>
+                        <p className="mt-1 text-sm font-bold text-slate-700">{formatDateTime(driver.last_session_expires_at) || 'نامشخص'}</p>
+                      </div>
                     </div>
-                    {driver.last_error_code && <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">خطای اخیر: {driver.last_error_code}</p>}
-                    <div className="mt-4 flex flex-wrap gap-2">
+
+                    {driver.last_error_code && (
+                      <div className="mt-6 rounded-2xl bg-rose-50 p-4 text-xs font-bold text-rose-700 shadow-sm shadow-rose-100/50">
+                        آخرین خطا: {driver.last_error_code}
+                      </div>
+                    )}
+
+                    <div className="mt-8 flex justify-end gap-3 border-t border-slate-50 pt-6">
                       <button
                         type="button"
                         onClick={() =>
@@ -298,19 +342,24 @@ export default function DriversPage() {
                             },
                           })
                         }
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700"
+                        className="rounded-xl border border-slate-100 bg-white px-5 py-2.5 text-xs font-bold text-slate-600 transition hover:bg-slate-50"
                       >
-                        ویرایش
+                        ویرایش اطلاعات
                       </button>
-                      <button type="button" onClick={() => void handleDriverDelete(driver.id)} className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                        حذف
+                      <button 
+                        type="button" 
+                        onClick={() => void handleDriverDelete(driver.id)} 
+                        className="rounded-xl border border-rose-100 bg-rose-50 px-5 py-2.5 text-xs font-bold text-rose-600 transition hover:bg-rose-600 hover:text-white"
+                      >
+                        حذف راننده
                       </button>
                     </div>
                   </article>
                 ))}
               </div>
             )}
-          </section>
+          </div>
+
 
           {editDriver && (
             <form onSubmit={handleDriverUpdate} className="rounded-[32px] border border-white/20 bg-white p-6 shadow-lg">

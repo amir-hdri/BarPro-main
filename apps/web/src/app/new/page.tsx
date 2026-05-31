@@ -254,18 +254,21 @@ export default function NewWaybillPage() {
       router.refresh();
     }, 1200);
   };
-
-  return (
-    <AppShell>
-      <AuthGuard requiredRole="client">
-        <section className="grid gap-6 xl:grid-cols-[0.78fr_1.22fr]">
-          <aside className="space-y-6">
-            <div className="rounded-[32px] border border-white/20 bg-slate-950 p-6 text-white shadow-2xl shadow-slate-900/20">
-              <h1 className="text-2xl font-semibold">ثبت ماموریت جدید</h1>
-              <p className="mt-3 text-sm leading-7 text-slate-300">
-                این فرم به endpoint واقعی `waybill-jobs` متصل است و اطلاعات پس
-                از اعتبارسنجی Zod مستقیما در صف بک‌اند ثبت می‌شود.
+return (
+  <AppShell>
+    <AuthGuard requiredRole="client">
+      <section className="grid gap-8 xl:grid-cols-[0.78fr_1.22fr]">
+        <aside className="space-y-6">
+          <div className="relative overflow-hidden rounded-[40px] border border-slate-200 bg-slate-950 p-8 text-white shadow-2xl shadow-slate-900/10">
+            <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-cyan-500/10 blur-[80px]"></div>
+            <div className="relative z-10">
+              <h1 className="text-3xl font-black">ثبت ماموریت</h1>
+              <p className="mt-4 text-base leading-relaxed text-slate-400">
+                درج اطلاعات دقیق ناوگان و محموله جهت پردازش هوشمند توسط ربات‌های اتوماسیون.
               </p>
+            </div>
+          </div>
+
               <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
                 <p className="font-medium text-white">راننده انتخاب‌شده</p>
                 {loadingDrivers ? (
