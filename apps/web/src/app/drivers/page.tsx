@@ -5,6 +5,7 @@ import { PlusIcon, UserCircleIcon } from '@heroicons/react/24/outline';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
+import { PlateInput } from '@/components/PlateInput';
 import { api } from '@/lib/api';
 import { formatDateTime, statusLabel, statusTone } from '@/lib/format';
 import { useSession } from "@/hooks/useSession";
@@ -390,7 +391,10 @@ export default function DriversPage() {
                     {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.full_name}</option>)}
                   </select>
                 </label>
-                <Input label="پلاک" value={plateForm.plate_number} onChange={(value) => setPlateForm((current) => ({ ...current, plate_number: value }))} required />
+                <label className="text-sm font-medium text-slate-700">
+                  <span className="mb-2 block">پلاک <span className="mr-1 text-rose-600">*</span></span>
+                  <PlateInput value={plateForm.plate_number} onChange={(value) => setPlateForm((current) => ({ ...current, plate_number: value }))} />
+                </label>
                 <Input label="نوع خودرو" value={plateForm.vehicle_type || ''} onChange={(value) => setPlateForm((current) => ({ ...current, vehicle_type: value }))} />
                 <Input label="یادداشت" value={plateForm.notes || ''} onChange={(value) => setPlateForm((current) => ({ ...current, notes: value }))} />
               </div>

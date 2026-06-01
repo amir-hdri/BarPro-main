@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { AuthGuard } from "@/components/layout/AuthGuard";
+import { PlateInput } from "@/components/PlateInput";
 import { api } from "@/lib/api";
 import { canonicalizePlate, normalizeDigits } from "@/lib/plate";
 import { toPersianDigits } from "@/lib/format";
@@ -330,17 +331,11 @@ export default function NewWaybillPage() {
               <Field
                 label="پلاک خودرو"
                 error={errors.plate_number}
-                hint="فرمت: ۱۲ب۳۴۵ایران۶۷"
                 required
               >
-                <input
-                  dir="ltr"
-                  className="field"
-                  placeholder="12ب345ایران67"
+                <PlateInput
                   value={form.plate_number}
-                  onChange={(event) =>
-                    handleChange("plate_number", event.target.value)
-                  }
+                  onChange={(val) => handleChange("plate_number", val)}
                 />
               </Field>
 
