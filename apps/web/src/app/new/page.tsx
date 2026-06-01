@@ -254,39 +254,37 @@ export default function NewWaybillPage() {
       router.refresh();
     }, 1200);
   };
-return (
-  <AppShell>
-    <AuthGuard requiredRole="client">
-      <section className="grid gap-8 xl:grid-cols-[0.78fr_1.22fr]">
-        <aside className="space-y-6">
-          <div className="relative overflow-hidden rounded-[40px] border border-slate-200 bg-slate-950 p-8 text-white shadow-2xl shadow-slate-900/10">
-            <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-cyan-500/10 blur-[80px]"></div>
-            <div className="relative z-10">
-              <h1 className="text-3xl font-black">ثبت ماموریت</h1>
-              <p className="mt-4 text-base leading-relaxed text-slate-400">
-                درج اطلاعات دقیق ناوگان و محموله جهت پردازش هوشمند توسط ربات‌های اتوماسیون.
-              </p>
-            </div>
-          </div>
 
-              <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-                <p className="font-medium text-white">راننده انتخاب‌شده</p>
-                {loadingDrivers ? (
-                  <p className="mt-2">در حال بارگذاری...</p>
-                ) : selectedDriver ? (
-                  <div className="mt-2 space-y-1">
-                    <p>{selectedDriver.full_name}</p>
-                    <p className="text-slate-400">
-                      {selectedDriver.driver_national_code} -{" "}
-                      {selectedDriver.utcms_username}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="mt-2 text-amber-200">
-                    ابتدا یک راننده ثبت کنید.
-                  </p>
-                )}
+  return (
+    <AppShell>
+      <AuthGuard requiredRole="client">
+        <section className="grid gap-8 xl:grid-cols-[0.78fr_1.22fr]">
+          <aside className="space-y-6">
+            <div className="relative overflow-hidden rounded-[40px] border border-slate-200 bg-slate-950 p-8 text-white shadow-2xl shadow-slate-900/10">
+              <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-cyan-500/10 blur-[80px]"></div>
+              <div className="relative z-10">
+                <h1 className="text-3xl font-black">ثبت ماموریت</h1>
+                <p className="mt-4 text-base leading-relaxed text-slate-400">
+                  درج اطلاعات دقیق ناوگان و محموله جهت پردازش هوشمند توسط ربات‌های اتوماسیون.
+                </p>
               </div>
+            </div>
+
+            <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+              <p className="font-medium text-white">راننده انتخاب‌شده</p>
+              {loadingDrivers ? (
+                <p className="mt-2">در حال بارگذاری...</p>
+              ) : selectedDriver ? (
+                <div className="mt-2 space-y-1">
+                  <p>{selectedDriver.full_name}</p>
+                  <p className="text-slate-400">
+                    {selectedDriver.driver_national_code} -{" "}
+                    {selectedDriver.utcms_username}
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-2 text-amber-200">ابتدا یک راننده ثبت کنید.</p>
+              )}
             </div>
 
             <div className="rounded-[32px] border border-white/20 bg-white/80 p-6 shadow-lg shadow-slate-900/5 backdrop-blur">
@@ -297,8 +295,7 @@ return (
                 <p>۱. راننده باید قبلا در بخش رانندگان ایجاد شده باشد.</p>
                 <p>۲. مبدا و مقصد به صورت متنی و واضح ثبت شوند.</p>
                 <p>
-                  ۳. در صورت نیاز به OTP بعدی، وضعیت کار در تاریخچه قابل مشاهده
-                  است.
+                  ۳. در صورت نیاز به OTP بعدی، وضعیت کار در تاریخچه قابل مشاهده است.
                 </p>
               </div>
             </div>
@@ -329,6 +326,7 @@ return (
                   ))}
                 </select>
               </Field>
+
               <Field
                 label="پلاک خودرو"
                 error={errors.plate_number}
@@ -345,6 +343,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="شهر مبدا" error={errors.origin} required>
                 <input
                   className="field"
@@ -354,6 +353,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="استان مبدا" error={errors.origin_province} required>
                 <input
                   className="field"
@@ -363,6 +363,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="آدرس مبدا" error={errors.origin_address} required>
                 <input
                   className="field"
@@ -372,6 +373,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="ناحیه مبدا" error={errors.origin_district}>
                 <input
                   className="field"
@@ -381,6 +383,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="شهر مقصد" error={errors.destination} required>
                 <input
                   className="field"
@@ -390,6 +393,7 @@ return (
                   }
                 />
               </Field>
+
               <Field
                 label="استان مقصد"
                 error={errors.destination_province}
@@ -403,6 +407,7 @@ return (
                   }
                 />
               </Field>
+
               <Field
                 label="آدرس مقصد"
                 error={errors.destination_address}
@@ -416,6 +421,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="ناحیه مقصد" error={errors.destination_district}>
                 <input
                   className="field"
@@ -425,6 +431,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="نام فرستنده" error={errors.sender_name} required>
                 <input
                   className="field"
@@ -434,6 +441,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="تلفن فرستنده" error={errors.sender_phone} required>
                 <input
                   dir="ltr"
@@ -445,6 +453,7 @@ return (
                   }
                 />
               </Field>
+
               <Field
                 label="کد ملی فرستنده"
                 error={errors.sender_national_code}
@@ -459,6 +468,7 @@ return (
                   }
                 />
               </Field>
+
               <Field
                 label="آدرس فرستنده"
                 error={errors.sender_address}
@@ -472,6 +482,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="نام گیرنده" error={errors.receiver_name} required>
                 <input
                   className="field"
@@ -481,6 +492,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="تلفن گیرنده" error={errors.receiver_phone} required>
                 <input
                   dir="ltr"
@@ -492,6 +504,7 @@ return (
                   }
                 />
               </Field>
+
               <Field
                 label="کد ملی گیرنده"
                 error={errors.receiver_national_code}
@@ -506,6 +519,7 @@ return (
                   }
                 />
               </Field>
+
               <Field
                 label="آدرس گیرنده"
                 error={errors.receiver_address}
@@ -519,6 +533,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="نوع بار" error={errors.cargo_type} required>
                 <input
                   className="field"
@@ -528,6 +543,7 @@ return (
                   }
                 />
               </Field>
+
               <Field
                 label="وزن بار"
                 error={errors.cargo_weight}
@@ -543,6 +559,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="تعداد" error={errors.cargo_count} required>
                 <input
                   dir="ltr"
@@ -553,6 +570,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="ارزش بار" error={errors.cargo_value} required>
                 <input
                   dir="ltr"
@@ -563,6 +581,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="نوع خودرو" error={errors.vehicle_type} required>
                 <input
                   className="field"
@@ -572,6 +591,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="تلفن راننده" error={errors.driver_phone} required>
                 <input
                   dir="ltr"
@@ -583,6 +603,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="هزینه حمل" error={errors.financial_cost} required>
                 <input
                   dir="ltr"
@@ -593,6 +614,7 @@ return (
                   }
                 />
               </Field>
+
               <Field
                 label="روش پرداخت"
                 error={errors.financial_payment_method}
@@ -606,6 +628,7 @@ return (
                   }
                 />
               </Field>
+
               <Field
                 label="مهلت زمانی"
                 error={errors.shipping_time_limit}
@@ -620,6 +643,7 @@ return (
                   }
                 />
               </Field>
+
               <Field
                 label="شماره بارنامه"
                 error={errors.waybill_number}
@@ -646,6 +670,7 @@ return (
                   }
                 />
               </Field>
+
               <Field label="توضیحات" error={errors.notes} required>
                 <textarea
                   className="field min-h-24"
@@ -655,6 +680,7 @@ return (
                   }
                 />
               </Field>
+
               <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
                 <input
                   type="checkbox"
@@ -672,6 +698,7 @@ return (
                 پس از ثبت، کار در صف قرار می‌گیرد و از صفحه پیگیری می‌توانید
                 وضعیت را مشاهده کنید.
               </p>
+
               <button
                 type="submit"
                 disabled={submitting || drivers.length === 0}
@@ -688,6 +715,7 @@ return (
                 {serverError}
               </p>
             )}
+
             {serverMessage && (
               <p className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
                 {serverMessage}
