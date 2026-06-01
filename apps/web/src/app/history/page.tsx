@@ -18,27 +18,41 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function loadJobs() {
-      if (client?.role === 'master_admin') { setLoading?.(false); return; }
-      setLoading(true);
-      const response = await api.get<WaybillTaskListResponse>('/api/v1/waybill-jobs', { page: '1', page_size: '25' });
+  async function loadJobs() {
+    if (client?.role === 'master_admin') { setLoading?.(false); return; }
+    setLoading(true);
+    const response = await api.get<WaybillTaskListResponse>('/api/v1/waybill-jobs', { page: '1', page_size: '25' });
 
-      if (!response.success || !response.data) {
-        setError(response.error || 'تاریخچه کارها بارگذاری نشد');
-        setLoading(false);
-        return;
-      }
-
-      setJobs(response.data.tasks);
-      setSelectedJobId(response.data.tasks[0]?.job_id || null);
-      setError(null);
+    if (!response.success || !response.data) {
+      setError(response.error || 'تاریخچه کارها بارگذاری نشد');
       setLoading(false);
+      return;
     }
 
+    setJobs(response.data.tasks);
+    if (!selectedJobId) {
+      setSelectedJobId(response.data.tasks[0]?.job_id || null);
+    }
+    setError(null);
+    setLoading(false);
+  }
+
+  useEffect(() => {
     loadJobs();
   }, [client?.role]);
+
+  async function handleRetry(jobId: string) {
+    setRetryingJobId(jobId);
+    const response = await api.post(`/api/v1/waybill-jobs/${jobId}/retry`, { dispatch_now: true });
+    setRetryingJobId(null);
+    if (response.success) {
+      await loadJobs();
+    } else {
+      alert(response.error || 'تلاش مجدد ناموفق بود');
+    }
+  }
 
   useEffect(() => {
     async function loadTimeline(jobId: string) {
@@ -103,10 +117,26 @@ export default function HistoryPage() {
                         <p className="font-black text-slate-900 group-hover:text-cyan-600">#{job.job_id}</p>
                         <p className="mt-0.5 text-xs font-medium text-slate-400">ایجاد در {formatDateTime(job.created_at)}</p>
                       </div>
-                      <span className={['rounded-xl px-4 py-2 text-xs font-bold shadow-sm', statusTone(job.status)].join(' ')}>
-                        {statusLabel(job.status)}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {(job.status === 'failed' || job.status === 'needs_review') && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); void handleRetry(job.job_id); }}
+                            disabled={retryingJobId === job.job_id}
+                            className="rounded-lg bg-cyan-500 px-3 py-1.5 text-[10px] font-bold text-white shadow-sm transition hover:bg-cyan-600 disabled:opacity-50"
+                          >
+                            {retryingJobId === job.job_id ? '...' : 'تلاش مجدد'}
+                          </button>
+                        )}
+                        <span className={['rounded-xl px-4 py-2 text-xs font-bold shadow-sm', statusTone(job.status)].join(' ')}>
+                          {statusLabel(job.status)}
+                        </span>
+                      </div>
                     </div>
+                    {job.last_error && (
+                      <div className="mt-3 rounded-xl bg-rose-50/50 p-3 text-[11px] font-medium text-rose-600 border border-rose-100/50">
+                        <span className="font-bold">علت خطا:</span> {job.last_error}
+                      </div>
+                    )}
                     <div className="mt-4 flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-400">
                       <div className="flex items-center gap-2">
                         <span>بروزرسانی:</span>

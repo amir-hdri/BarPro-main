@@ -1804,6 +1804,12 @@ class EnhancedWaybillManager:
             "text=خطا در سامانه",
             "text=متاسفانه در هنگام پردازش درخواست شما خطایی رخ داده است",
             "text=ورود مجدد به سامانه",
+            "text=Access Denied",
+            "text=فقط با آی‌پی ایران",
+            "text=دسترسی شما مسدود",
+            "text=آی پی شما",
+            "text=IP address is blocked",
+            "text=Not Found",
         )
         for marker in not_found_markers:
             try:
@@ -1815,18 +1821,26 @@ class EnhancedWaybillManager:
 
     async def _fill_sender_info(self, sender: dict[str, str]):
         """پر کردن اطلاعات فرستنده"""
+        await self._wait_for_loading_overlays_to_disappear()
+        
+        # نوع فرستنده برای حقیقی/حقوقی
         await self._select_dropdown_with_fallback(
             [
                 'select[name="senderSelectType"]',
                 'select[id="senderSelectType"]',
+                'select[name*="Sender" i][name*="Type" i]',
+                'select[name*="Person" i][name*="Type" i]',
+                'select:has-text("حقیقی")',
             ],
             "حقیقی",
             "نوع فرستنده",
-            required=False,
+            required=True,
         )
+        
+        # بعد از انتخاب نوع فرستنده، ممکن است فیلدهای نام و نام خانوادگی ظاهر شوند
         await self._wait_until_any_visible(
-            ['#txtSenderFirstName', '#txtSenderLastName', '#txtSenderOfficeName'],
-            timeout_ms=3000,
+            ['#txtSenderFirstName', '#txtSenderLastName', '#txtSenderOfficeName', '#txtSenderMobile'],
+            timeout_ms=4000,
         )
 
         sender_name = (sender.get("name") or "").strip()
@@ -1861,6 +1875,7 @@ class EnhancedWaybillManager:
             ],
             sender_first,
             "نام فرستنده",
+            required=bool(sender_first),
         )
         await self._fill_with_fallback(
             [
@@ -1869,7 +1884,10 @@ class EnhancedWaybillManager:
             ],
             sender_last,
             "نام خانوادگی فرستنده",
+            required=bool(sender_last),
         )
+
+        sender_phone = sender.get("phone", "")
         await self._fill_verified_text_field(
             [
                 'input[name="txtSenderMobile"]',
@@ -1878,13 +1896,16 @@ class EnhancedWaybillManager:
                 'input[id="SenderPhone"]',
                 'input[name*="sender" i][name*="phone" i]',
                 'input[id*="sender" i][id*="phone" i]',
+                'input[name*="mobile" i]',
             ],
-            self._normalize_mobile(sender.get("phone", "")),
+            self._normalize_mobile(sender_phone),
             "تلفن فرستنده",
-            required=False,
+            required=bool(sender_phone),
             normalizer=self._normalize_mobile,
             prefer_type=True,
         )
+        
+        sender_national = sender.get("national_code", "")
         await self._fill_verified_text_field(
             [
                 'input[name="txtSenderNationalCode"]',
@@ -1895,9 +1916,9 @@ class EnhancedWaybillManager:
                 'input[id="NationalCode"]',
                 'input[name*="sender" i][name*="national" i]',
             ],
-            self._normalize_national_code(sender.get("national_code", "")),
+            self._normalize_national_code(sender_national),
             "کد ملی فرستنده",
-            required=False,
+            required=bool(sender_national),
             normalizer=self._normalize_national_code,
         )
         await self.interactor.safe_click(
@@ -1909,18 +1930,23 @@ class EnhancedWaybillManager:
 
     async def _fill_receiver_info(self, receiver: dict[str, str]):
         """پر کردن اطلاعات گیرنده"""
+        await self._wait_for_loading_overlays_to_disappear()
+
         await self._select_dropdown_with_fallback(
             [
                 'select[name="receiverSelectType"]',
                 'select[id="receiverSelectType"]',
+                'select[name*="Receiver" i][name*="Type" i]',
+                'select[name*="Person" i][name*="Type" i]',
+                'select:has-text("حقیقی")',
             ],
             "حقیقی",
             "نوع گیرنده",
-            required=False,
+            required=True,
         )
         await self._wait_until_any_visible(
-            ['#txtReceiverFirstName', '#txtReceiverLastName', '#txtReceiverOfficeName'],
-            timeout_ms=3000,
+            ['#txtReceiverFirstName', '#txtReceiverLastName', '#txtReceiverOfficeName', '#txtReceiverMobile'],
+            timeout_ms=4000,
         )
 
         receiver_name = (receiver.get("name") or "").strip()
@@ -1955,6 +1981,7 @@ class EnhancedWaybillManager:
             ],
             receiver_first,
             "نام گیرنده",
+            required=bool(receiver_first),
         )
         await self._fill_with_fallback(
             [
@@ -1963,7 +1990,10 @@ class EnhancedWaybillManager:
             ],
             receiver_last,
             "نام خانوادگی گیرنده",
+            required=bool(receiver_last),
         )
+
+        receiver_phone = receiver.get("phone", "")
         await self._fill_verified_text_field(
             [
                 'input[name="txtReceiverMobile"]',
@@ -1972,27 +2002,30 @@ class EnhancedWaybillManager:
                 'input[id="ReceiverPhone"]',
                 'input[name*="receiver" i][name*="phone" i]',
                 'input[id*="receiver" i][id*="phone" i]',
+                'input[name*="mobile" i]',
             ],
-            self._normalize_mobile(receiver.get("phone", "")),
+            self._normalize_mobile(receiver_phone),
             "تلفن گیرنده",
-            required=False,
+            required=bool(receiver_phone),
             normalizer=self._normalize_mobile,
             prefer_type=True,
         )
-        if receiver.get("national_code"):
-            await self._fill_verified_text_field(
-                [
-                    'input[name="txtReceiverNationalCode"]',
-                    'input[id="txtReceiverNationalCode"]',
-                    'input[name="ReceiverNationalCode"]',
-                    'input[id="ReceiverNationalCode"]',
-                    'input[name*="receiver" i][name*="national" i]',
-                ],
-                self._normalize_national_code(receiver.get("national_code", "")),
-                "کد ملی گیرنده",
-                required=False,
-                normalizer=self._normalize_national_code,
-            )
+
+        receiver_national = receiver.get("national_code", "")
+        await self._fill_verified_text_field(
+            [
+                'input[name="txtReceiverNationalCode"]',
+                'input[id="txtReceiverNationalCode"]',
+                'input[name="ReceiverNationalCode"]',
+                'input[id="ReceiverNationalCode"]',
+                'input[name="NationalCode"]',
+                'input[name*="receiver" i][name*="national" i]',
+            ],
+            self._normalize_national_code(receiver_national),
+            "کد ملی گیرنده",
+            required=bool(receiver_national),
+            normalizer=self._normalize_national_code,
+        )
         await self.interactor.safe_click(
             '#btnGoLVL3, #GoLVL3, button:has-text("مرحله بعد")',
             wait_for_navigation=False,
@@ -2002,6 +2035,7 @@ class EnhancedWaybillManager:
 
     async def _fill_cargo_info(self, cargo: dict[str, Any]):
         """پر کردن اطلاعات کالا"""
+        await self._wait_for_loading_overlays_to_disappear()
         await self._wait_for_step_marker(4, ['#txtLoadsValue', '#btnAddLoad'], timeout_ms=8000)
 
         cargo_name, packaging_hint = self._split_cargo_type_and_packaging(cargo.get("type"))
@@ -2016,7 +2050,7 @@ class EnhancedWaybillManager:
                 ],
                 cargo_name or str(cargo["type"]),
                 "نام کالا",
-                required=False,
+                required=True,
                 prefer_type=True,
             )
             hidden_selected = cargo_name or str(cargo["type"])
@@ -2037,9 +2071,10 @@ class EnhancedWaybillManager:
                 ],
                 str(packaging_value),
                 "نوع بسته بندی",
-                required=False,
+                required=True,
             )
 
+        weight_val = cargo.get("weight")
         await self._fill_with_fallback(
             [
                 'input[name="CargoWeight"]',
@@ -2048,10 +2083,11 @@ class EnhancedWaybillManager:
                 'input[id="txtWeight"]',
                 'input[name*="cargo" i][name*="weight" i]',
             ],
-            self._normalize_number_text(cargo.get("weight", ""), allow_decimal=True),
+            self._normalize_number_text(weight_val, allow_decimal=True),
             "وزن کالا",
-            required=False,
+            required=bool(weight_val),
         )
+        count_val = cargo.get("count")
         await self._fill_with_fallback(
             [
                 'input[name="CargoCount"]',
@@ -2060,10 +2096,11 @@ class EnhancedWaybillManager:
                 'input[id="txtBoxNum"]',
                 'input[name*="cargo" i][name*="count" i]',
             ],
-            self._normalize_number_text(cargo.get("count", "1")),
+            self._normalize_number_text(count_val or "1"),
             "تعداد کالا",
-            required=False,
+            required=bool(count_val),
         )
+        desc_val = cargo.get("description")
         await self._fill_with_fallback(
             [
                 'textarea[name="CargoDescription"]',
@@ -2073,7 +2110,7 @@ class EnhancedWaybillManager:
                 'textarea[id="txtLoadDetail"]',
                 'textarea[name*="cargo" i][name*="description" i]',
             ],
-            cargo.get("description", ""),
+            desc_val or "",
             "توضیحات کالا",
             required=False,
         )
@@ -2083,17 +2120,19 @@ class EnhancedWaybillManager:
                 "button:has-text('ثبت کالای جدید')",
             ],
             "ثبت کالای جدید",
-            required=False,
+            required=True,
         )
         await self._wait_for_non_empty_value(['#gridfullLoaddata tr td', '#gridfullLoaddata tr'], timeout_ms=8000)
+        
+        value_val = cargo.get("value")
         await self._fill_with_fallback(
             [
                 'input[name="txtLoadsValue"]',
                 'input[id="txtLoadsValue"]',
             ],
-            self._normalize_number_text(cargo.get("value", "")),
+            self._normalize_number_text(value_val or ""),
             "ارزش تقریبی بار",
-            required=False,
+            required=bool(value_val),
         )
 
     async def _handle_tajmi_initialization(self) -> None:
@@ -2249,6 +2288,7 @@ class EnhancedWaybillManager:
 
     async def _fill_fallback_driver_info(self, driver_code: str, driver_phone: str) -> None:
         """ثبت اطلاعات راننده در حالت عادی یا در صورت شکست حالت تجمیعی"""
+        await self._wait_for_loading_overlays_to_disappear()
         if driver_code:
             await self._fill_verified_text_field(
                 [
@@ -2260,7 +2300,7 @@ class EnhancedWaybillManager:
                 ],
                 driver_code,
                 "کد ملی راننده",
-                required=False,
+                required=True,
                 normalizer=self._normalize_national_code,
                 prefer_type=True,
             )
@@ -2268,26 +2308,27 @@ class EnhancedWaybillManager:
                 await self._click_with_fallback(
                     ['#btnShowDetailsDriver'],
                     "مشاهده مشخصات راننده",
-                    required=False,
+                    required=True,
                 )
             elif await self._is_element_visible('#driversearch'):
                 await self._click_with_fallback(
                     ['#driversearch'],
                     "جستجوی راننده",
-                    required=False,
+                    required=True,
                 )
 
-        await self._fill_verified_text_field(
-            [
-                'input[name="DriverPhone"]',
-                'input[id="DriverPhone"]',
-                'input[name*="driver" i][name*="phone" i]',
-            ],
-            driver_phone,
-            "تلفن راننده",
-            required=False,
-            normalizer=self._normalize_mobile,
-        )
+        if driver_phone:
+            await self._fill_verified_text_field(
+                [
+                    'input[name="DriverPhone"]',
+                    'input[id="DriverPhone"]',
+                    'input[name*="driver" i][name*="phone" i]',
+                ],
+                driver_phone,
+                "تلفن راننده",
+                required=True,
+                normalizer=self._normalize_mobile,
+            )
 
     async def _fill_vehicle_type(self, vehicle_type: str) -> None:
         """ثبت نوع ناوگان"""
@@ -2300,11 +2341,12 @@ class EnhancedWaybillManager:
                 ],
                 vehicle_type,
                 "نوع ناوگان",
-                required=False,
+                required=True,
             )
 
     async def _fill_vehicle_info(self, vehicle: dict[str, str]):
         """پر کردن اطلاعات ناوگان"""
+        await self._wait_for_loading_overlays_to_disappear()
         await self._wait_for_step_marker(3, ['#txtDriverSearch', '#PelakComboTajmi', '#btnGoLVL4'], timeout_ms=8000)
         tajmi_mode = await self._element_exists('#PelakComboTajmi')
 
@@ -2334,6 +2376,7 @@ class EnhancedWaybillManager:
 
     async def _fill_financial_info(self, financial: dict[str, Any]):
         """پر کردن اطلاعات مالی"""
+        await self._wait_for_loading_overlays_to_disappear()
         if financial.get("cost"):
             await self._fill_with_fallback(
                 [
@@ -2350,7 +2393,7 @@ class EnhancedWaybillManager:
                 ],
                 self._normalize_number_text(financial["cost"]),
                 "هزینه حمل",
-                required=False,
+                required=True,
             )
 
         current_time = datetime.now().strftime("%H:%M")
@@ -2385,7 +2428,7 @@ class EnhancedWaybillManager:
                     ],
                     str(financial["payment_method"]),
                     "روش پرداخت",
-                    required=False,
+                    required=True,
                 )
 
     async def _check_checkbox_with_fallback(
@@ -2956,6 +2999,42 @@ class EnhancedWaybillManager:
             "tracking_code": tracking_code,
             "url": await self._current_url(),
         }
+
+    async def _wait_for_loading_overlays_to_disappear(self, timeout_ms: int = 15000) -> None:
+        """Wait for Iranian government style 'لطفا صبر کنید' or other loading masks to disappear."""
+        loading_selectors = [
+            ".loading",
+            ".spinner",
+            ".k-loading-mask",
+            ".k-loading-image",
+            ".k-loading-color",
+            "div:has-text('لطفا صبر کنید')",
+            "div:has-text('در حال بارگذاری')",
+            "#loading-box",
+            ".loading-overlay",
+            "div.modal-backdrop",
+            ".blockUI",
+            ".blockMsg",
+            ".blockPage",
+        ]
+        
+        deadline = asyncio.get_running_loop().time() + (timeout_ms / 1000)
+        while asyncio.get_running_loop().time() < deadline:
+            found_any = False
+            for selector in loading_selectors:
+                try:
+                    # Use a fast check
+                    handle = await self.page.query_selector(selector)
+                    if handle and await handle.is_visible():
+                        found_any = True
+                        break
+                except Exception:
+                    continue
+            
+            if not found_any:
+                return
+            
+            await asyncio.sleep(0.25)
 
     async def _close_blocking_overlays(self) -> None:
         """Attempt to close blocking overlays (modals, popups, backdrops)."""

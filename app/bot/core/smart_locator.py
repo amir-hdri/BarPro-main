@@ -176,7 +176,7 @@ class SmartLocator:
                     "error": str(exc),
                 }
                 failures.append(failure)
-                self._logger.warning(
+                self._logger.debug(
                     "smart_locator_selector_failed",
                     extra={
                         "extra_fields": {

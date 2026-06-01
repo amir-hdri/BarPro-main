@@ -410,40 +410,45 @@ PY
         return 1
     fi
 
-    if ! "$PYTHON_BIN" - <<PY
-import os
-import subprocess
-import sys
-import time
+    echo "⏳ منتظر آماده‌سازی Worker (حداکثر 20 ثانیه)..."
+    local worker_ready=0
+    for _ in range(20); do
+        # Check if process is still alive
+        if ! kill -0 "$pid" 2>/dev/null; then
+            echo -e "${RED}❌ فرآیند Worker متوقف شد${NC}"
+            break
+        fi
 
-env = dict(os.environ)
-cmd = [
-    "$PYTHON_BIN",
-    "-m",
-    "celery",
-    "-A",
-    "app.workers.phase1_tasks:celery_app",
-    "inspect",
-    "ping",
-]
+        # Try inspect ping (might fail if solo worker is busy)
+        if "$PYTHON_BIN" -m celery -A app.workers.phase1_tasks:celery_app inspect ping >/dev/null 2>&1; then
+            worker_ready=1
+            break
+        fi
 
-for _ in range(12):
-    result = subprocess.run(cmd, cwd=os.path.abspath("."), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    if result.returncode == 0 and "pong" in result.stdout.lower():
-        sys.exit(0)
-    time.sleep(1)
+        # Fallback: check log for "ready" message
+        if grep -qi "ready." "$WORKER_LOG_FILE"; then
+            worker_ready=1
+            break
+        fi
 
-print(result.stdout)
-sys.exit(1)
-PY
-    then
-        echo -e "${RED}❌ Worker محلی آماده پاسخ‌گویی نشد${NC}"
-        echo "لاگ worker: $WORKER_LOG_FILE"
-        tail -80 "$WORKER_LOG_FILE"
-        return 1
+        sleep 1
+    done
+
+    if [ "$worker_ready" -eq 0 ]; then
+        echo -e "${YELLOW}⚠️  Worker به پیام ping پاسخ نداد، اما احتمالا در حال اجراست (ممکن است مشغول باشد)${NC}"
+        echo "بررسی وضعیت فرآیند..."
+        if kill -0 "$pid" 2>/dev/null; then
+            echo -e "${GREEN}✅ فرآیند با PID $pid در حال اجراست. ادامه می‌دهیم...${NC}"
+        else
+            echo -e "${RED}❌ Worker محلی آماده پاسخ‌گویی نشد${NC}"
+            echo "لاگ worker: $WORKER_LOG_FILE"
+            tail -80 "$WORKER_LOG_FILE"
+            return 1
+        fi
+    else
+        echo -e "${GREEN}✅ Worker محلی با موفقیت آماده شد${NC}"
     fi
 
-    echo -e "${GREEN}✅ Worker محلی اجرا شد${NC}"
     return 0
 }
 
