@@ -412,7 +412,7 @@ PY
 
     echo "⏳ منتظر آماده‌سازی Worker (حداکثر 20 ثانیه)..."
     local worker_ready=0
-    for _ in range(20); do
+    for i in {1..20}; do
         # Check if process is still alive
         if ! kill -0 "$pid" 2>/dev/null; then
             echo -e "${RED}❌ فرآیند Worker متوقف شد${NC}"
