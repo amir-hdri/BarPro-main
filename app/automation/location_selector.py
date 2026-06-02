@@ -93,6 +93,7 @@ class LocationSelector:
 
         try:
             await self.page.fill(selector, value)
+            await self.page.eval_on_selector(selector, "el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); }")
             return True
         except Exception:
             pass
@@ -102,6 +103,7 @@ class LocationSelector:
             if await locator.count() == 0:
                 return False
             await locator.fill(value)
+            await locator.evaluate("el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); }")
             return True
         except Exception:
             pass
@@ -121,6 +123,7 @@ class LocationSelector:
                         }
                         el.dispatchEvent(new Event('input', { bubbles: true }));
                         el.dispatchEvent(new Event('change', { bubbles: true }));
+                        el.dispatchEvent(new Event('keyup', { bubbles: true }));
                         return true;
                     }
                     return false;
@@ -1057,34 +1060,38 @@ class LocationSelector:
                 if not element:
                     continue
 
+                success = False
                 try:
                     await self.page.select_option(selector, label=value_text)
-                    return True
+                    success = True
                 except Exception:
-                    pass
-
-                try:
-                    await self.page.select_option(selector, value=value_text)
-                    return True
-                except Exception:
-                    pass
-
-                raw_options = await self._read_select_options(selector)
-                if not raw_options:
-                    continue
-
-                best_value = self._find_best_option_match(raw_options, normalized_target)
-
-                if best_value:
                     try:
-                        await self.page.select_option(selector, value=best_value)
-                        return True
+                        await self.page.select_option(selector, value=value_text)
+                        success = True
                     except Exception:
-                        try:
-                            await self.page.select_option(selector, label=best_value)
-                            return True
-                        except Exception:
-                            pass
+                        raw_options = await self._read_select_options(selector)
+                        if raw_options:
+                            best_value = self._find_best_option_match(raw_options, normalized_target)
+                            if best_value:
+                                try:
+                                    await self.page.select_option(selector, value=best_value)
+                                    success = True
+                                except Exception:
+                                    try:
+                                        await self.page.select_option(selector, label=best_value)
+                                        success = True
+                                    except Exception:
+                                        pass
+
+                if success:
+                    try:
+                        await self.page.eval_on_selector(
+                            selector,
+                            "el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); }"
+                        )
+                    except Exception:
+                        pass
+                    return True
 
                 logger.info(
                     "location_option_match_failed",
@@ -1092,7 +1099,6 @@ class LocationSelector:
                         "extra_fields": {
                             "selector": selector,
                             "target": value_text,
-                            "available_options": raw_options[:20],
                         }
                     },
                 )
