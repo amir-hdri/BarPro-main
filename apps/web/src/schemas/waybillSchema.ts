@@ -34,11 +34,11 @@ export const waybillSchema = z.object({
     .string()
     .transform((value) => canonicalizePlate(value))
     .refine((value) => isValidIranPlate(value), "فرمت پلاک باید به صورت ۱۲ب۳۴۵ایران۶۷ باشد"),
-  waybill_number: requiredText(1, "شماره بارنامه الزامی است", 100, "شماره بارنامه حداکثر ۱۰۰ حرف مجاز است"),
+  waybill_number: optionalText(100, "شماره بارنامه حداکثر ۱۰۰ حرف مجاز است"),
   cargo_type: requiredText(2, "نوع بار الزامی است", 100, "نوع بار حداکثر ۱۰۰ حرف مجاز است"),
   cargo_weight: numericText("وزن بار الزامی است", "وزن بار باید عددی بزرگ‌تر از صفر باشد", 20, "وزن بار حداکثر ۲۰ کاراکتر مجاز است"),
   cargo_count: numericText("تعداد کالا الزامی است", "تعداد کالا باید عددی بزرگ‌تر از صفر باشد", 20, "تعداد کالا حداکثر ۲۰ حرف مجاز است"),
-  cargo_description: requiredText(1, "شرح بار الزامی است", 1000, "شرح بار حداکثر ۱۰۰۰ حرف مجاز است"),
+  cargo_description: optionalText(1000, "شرح بار حداکثر ۱۰۰۰ حرف مجاز است"),
   cargo_value: numericText("ارزش بار الزامی است", "ارزش بار باید عددی بزرگ‌تر از صفر باشد", 50, "ارزش بار حداکثر ۵۰ حرف مجاز است"),
   vehicle_type: requiredText(2, "نوع وسیله الزامی است", 100, "نوع وسیله حداکثر ۱۰۰ حرف مجاز است"),
   driver_phone: z.string().transform((value) => digitsOnly(value)).refine((value) => /^09\d{9}$/.test(value), "تلفن راننده باید با ۰۹ شروع شود و ۱۱ رقم باشد"),
@@ -51,12 +51,12 @@ export const waybillSchema = z.object({
   receiver_national_code: z.string().transform((value) => digitsOnly(value)).refine((value) => /^\d{10}$/.test(value), "کد ملی گیرنده باید دقیقاً ۱۰ رقم باشد"),
   receiver_address: requiredText(5, "آدرس گیرنده الزامی است", 500, "آدرس گیرنده حداکثر ۵۰۰ حرف مجاز است"),
   financial_cost: numericText("هزینه حمل الزامی است", "هزینه حمل باید عددی بزرگ‌تر از صفر باشد", 50, "هزینه حمل حداکثر ۵۰ حرف مجاز است"),
-  financial_payment_method: requiredText(1, "روش پرداخت الزامی است", 50, "روش پرداخت حداکثر ۵۰ حرف مجاز است"),
+  financial_payment_method: optionalText(50, "روش پرداخت حداکثر ۵۰ حرف مجاز است"),
   shipping_two_way: z.boolean().default(false),
   shipping_time_limit: z.string().trim().min(1, "مهلت زمانی الزامی است").max(50, "مهلت زمانی حداکثر ۵۰ حرف مجاز است"),
   shipping_end_shipping: optionalText(100, "زمان پایان حمل حداکثر ۱۰۰ حرف مجاز است"),
   shipping_otp: optionalText(20, "OTP حداکثر ۲۰ حرف مجاز است"),
-  notes: requiredText(1, "توضیحات الزامی است", 500, "توضیحات حداکثر ۵۰۰ حرف مجاز است"),
+  notes: optionalText(500, "توضیحات حداکثر ۵۰۰ حرف مجاز است"),
 });
 
 export type WaybillFormValues = z.input<typeof waybillSchema>;

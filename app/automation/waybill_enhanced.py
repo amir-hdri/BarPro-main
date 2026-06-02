@@ -455,7 +455,14 @@ class EnhancedWaybillManager:
                 await locator.type(str(value), delay=60)
             else:
                 await locator.fill(str(value))
-            await asyncio.sleep(0.2)
+            
+            # Explicitly trigger events for formValidation plugin found in UTCMS source
+            try:
+                await locator.evaluate("el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); }")
+            except Exception:
+                pass
+
+            await asyncio.sleep(0.05) # Reduced from 0.2
             current = await self._locator_current_value(locator)
             normalized_current = normalizer(current) if callable(normalizer) else current
             if normalized_current == expected:
@@ -1824,22 +1831,31 @@ class EnhancedWaybillManager:
         await self._wait_for_loading_overlays_to_disappear()
         
         # نوع فرستنده برای حقیقی/حقوقی
+        # Value 1 = حقیقی, Value 2 = حقوقی according to hagigihogugiTemplate.js
+        sender_type_selectors = [
+            'select[name="senderSelectType"]',
+            'select[id="senderSelectType"]',
+        ]
+        
         await self._select_dropdown_with_fallback(
-            [
-                'select[name="senderSelectType"]',
-                'select[id="senderSelectType"]',
-                'select[name*="Sender" i][name*="Type" i]',
-                'select[name*="Person" i][name*="Type" i]',
-                'select:has-text("حقیقی")',
-            ],
-            "حقیقی",
+            sender_type_selectors,
+            "1", # Explicitly try value '1' first for real person
             "نوع فرستنده",
             required=True,
         )
         
+        # Trigger change to reveal name fields
+        try:
+            await self.page.eval_on_selector(
+                sender_type_selectors[0], 
+                "el => { el.dispatchEvent(new Event('change', { bubbles: true })); }"
+            )
+        except Exception:
+            pass
+
         # بعد از انتخاب نوع فرستنده، ممکن است فیلدهای نام و نام خانوادگی ظاهر شوند
         await self._wait_until_any_visible(
-            ['#txtSenderFirstName', '#txtSenderLastName', '#txtSenderOfficeName', '#txtSenderMobile'],
+            ['#txtSenderFirstName', '#txtSenderLastName', '#txtSenderMobile'],
             timeout_ms=4000,
         )
 
@@ -1851,33 +1867,16 @@ class EnhancedWaybillManager:
             sender_first = parts[0]
             sender_last = parts[1] if len(parts) > 1 else parts[0]
 
-        if sender_name:
-            await self._fill_with_fallback(
-                [
-                    'input[name="txtSenderOfficeName"]',
-                    'input[id="txtSenderOfficeName"]',
-                ],
-                sender_name,
-                "نام دفتر فرستنده",
-                required=False,
-            )
-            await self.interactor.safe_fill('input[name="SenderName"]', sender_name)
-
-        await self._fill_with_fallback(
+        await self._fill_verified_text_field(
             [
                 'input[id="txtSenderFirstName"]',
                 'input[name="txtSenderFirstName"]',
-                'input[id="SenderName"]',
-                'input[name="SenderName"]',
-                'input[name*="sender" i][name*="name" i]',
-                'input[id*="sender" i][id*="name" i]',
-                'input[name*="consignor" i]',
             ],
             sender_first,
             "نام فرستنده",
             required=bool(sender_first),
         )
-        await self._fill_with_fallback(
+        await self._fill_verified_text_field(
             [
                 'input[id="txtSenderLastName"]',
                 'input[name="txtSenderLastName"]',
@@ -1892,11 +1891,6 @@ class EnhancedWaybillManager:
             [
                 'input[name="txtSenderMobile"]',
                 'input[id="txtSenderMobile"]',
-                'input[name="SenderPhone"]',
-                'input[id="SenderPhone"]',
-                'input[name*="sender" i][name*="phone" i]',
-                'input[id*="sender" i][id*="phone" i]',
-                'input[name*="mobile" i]',
             ],
             self._normalize_mobile(sender_phone),
             "تلفن فرستنده",
@@ -1905,47 +1899,45 @@ class EnhancedWaybillManager:
             prefer_type=True,
         )
         
-        sender_national = sender.get("national_code", "")
-        await self._fill_verified_text_field(
-            [
-                'input[name="txtSenderNationalCode"]',
-                'input[id="txtSenderNationalCode"]',
-                'input[name="SenderNationalCode"]',
-                'input[name="NationalCode"]',
-                'input[id="SenderNationalCode"]',
-                'input[id="NationalCode"]',
-                'input[name*="sender" i][name*="national" i]',
-            ],
-            self._normalize_national_code(sender_national),
-            "کد ملی فرستنده",
-            required=bool(sender_national),
-            normalizer=self._normalize_national_code,
-        )
+        # Click Next and check for validation errors
         await self.interactor.safe_click(
-            '#btnGoLVL2, #GoLVL2, button:has-text("مرحله بعد")',
+            '#btnGoLVL2',
             wait_for_navigation=False,
             timeout=2500,
         )
-        await asyncio.sleep(0.3)
+        
+        # Check for error toasts that might prevent moving to next step
+        await asyncio.sleep(0.3) # Reduced from 0.8
+        form_errors = await self._extract_form_errors()
+        if form_errors:
+            logger.error("sender_form_validation_failed", extra={"extra_fields": {"errors": form_errors}})
+            # We don't raise here yet, but we're stuck if the active pill doesn't change.
 
     async def _fill_receiver_info(self, receiver: dict[str, str]):
         """پر کردن اطلاعات گیرنده"""
         await self._wait_for_loading_overlays_to_disappear()
 
+        receiver_type_selectors = [
+            'select[name="receiverSelectType"]',
+            'select[id="receiverSelectType"]',
+        ]
         await self._select_dropdown_with_fallback(
-            [
-                'select[name="receiverSelectType"]',
-                'select[id="receiverSelectType"]',
-                'select[name*="Receiver" i][name*="Type" i]',
-                'select[name*="Person" i][name*="Type" i]',
-                'select:has-text("حقیقی")',
-            ],
-            "حقیقی",
+            receiver_type_selectors,
+            "1", # Value 1 = حقیقی
             "نوع گیرنده",
             required=True,
         )
+        # Trigger change
+        try:
+            await self.page.eval_on_selector(
+                receiver_type_selectors[0], 
+                "el => { el.dispatchEvent(new Event('change', { bubbles: true })); }"
+            )
+        except Exception:
+            pass
+
         await self._wait_until_any_visible(
-            ['#txtReceiverFirstName', '#txtReceiverLastName', '#txtReceiverOfficeName', '#txtReceiverMobile'],
+            ['#txtReceiverFirstName', '#txtReceiverLastName', '#txtReceiverMobile'],
             timeout_ms=4000,
         )
 
@@ -1957,33 +1949,16 @@ class EnhancedWaybillManager:
             receiver_first = parts[0]
             receiver_last = parts[1] if len(parts) > 1 else parts[0]
 
-        if receiver_name:
-            await self._fill_with_fallback(
-                [
-                    'input[name="txtReceiverOfficeName"]',
-                    'input[id="txtReceiverOfficeName"]',
-                ],
-                receiver_name,
-                "نام دفتر گیرنده",
-                required=False,
-            )
-            await self.interactor.safe_fill('input[name="ReceiverName"]', receiver_name)
-
-        await self._fill_with_fallback(
+        await self._fill_verified_text_field(
             [
                 'input[id="txtReceiverFirstName"]',
                 'input[name="txtReceiverFirstName"]',
-                'input[id="ReceiverName"]',
-                'input[name="ReceiverName"]',
-                'input[name*="receiver" i][name*="name" i]',
-                'input[id*="receiver" i][id*="name" i]',
-                'input[name*="consignee" i]',
             ],
             receiver_first,
             "نام گیرنده",
             required=bool(receiver_first),
         )
-        await self._fill_with_fallback(
+        await self._fill_verified_text_field(
             [
                 'input[id="txtReceiverLastName"]',
                 'input[name="txtReceiverLastName"]',
@@ -1998,11 +1973,6 @@ class EnhancedWaybillManager:
             [
                 'input[name="txtReceiverMobile"]',
                 'input[id="txtReceiverMobile"]',
-                'input[name="ReceiverPhone"]',
-                'input[id="ReceiverPhone"]',
-                'input[name*="receiver" i][name*="phone" i]',
-                'input[id*="receiver" i][id*="phone" i]',
-                'input[name*="mobile" i]',
             ],
             self._normalize_mobile(receiver_phone),
             "تلفن گیرنده",
@@ -2011,26 +1981,15 @@ class EnhancedWaybillManager:
             prefer_type=True,
         )
 
-        receiver_national = receiver.get("national_code", "")
-        await self._fill_verified_text_field(
-            [
-                'input[name="txtReceiverNationalCode"]',
-                'input[id="txtReceiverNationalCode"]',
-                'input[name="ReceiverNationalCode"]',
-                'input[id="ReceiverNationalCode"]',
-                'input[name="NationalCode"]',
-                'input[name*="receiver" i][name*="national" i]',
-            ],
-            self._normalize_national_code(receiver_national),
-            "کد ملی گیرنده",
-            required=bool(receiver_national),
-            normalizer=self._normalize_national_code,
-        )
         await self.interactor.safe_click(
-            '#btnGoLVL3, #GoLVL3, button:has-text("مرحله بعد")',
+            '#btnGoLVL3',
             wait_for_navigation=False,
             timeout=2500,
         )
+        await asyncio.sleep(0.3)
+        form_errors = await self._extract_form_errors()
+        if form_errors:
+            logger.error("receiver_form_validation_failed", extra={"extra_fields": {"errors": form_errors}})
         await asyncio.sleep(0.3)
 
     async def _fill_cargo_info(self, cargo: dict[str, Any]):
@@ -2046,16 +2005,16 @@ class EnhancedWaybillManager:
                 [
                     'input[id="txtLoadName"]',
                     'input[name="txtLoadName"]',
-                    'input[name*="load" i][name*="name" i]',
                 ],
                 cargo_name or str(cargo["type"]),
                 "نام کالا",
                 required=True,
                 prefer_type=True,
             )
+            # Use JS to set the hidden value if autocomplete fails
             hidden_selected = cargo_name or str(cargo["type"])
             try:
-                await self._set_value_with_js('#selecteditme', hidden_selected)
+                await self.page.eval_on_selector('#selecteditme', f"el => {{ el.value = '{hidden_selected}'; el.dispatchEvent(new Event('change', {{ bubbles: true }})); }}")
             except Exception:
                 pass
 
@@ -2065,9 +2024,6 @@ class EnhancedWaybillManager:
                 [
                     'select[name="ddBoxType"]',
                     'select[id="ddBoxType"]',
-                    'select[name="CargoType"]',
-                    'select[id="CargoType"]',
-                    'select[name*="cargo" i][name*="type" i]',
                 ],
                 str(packaging_value),
                 "نوع بسته بندی",
@@ -2075,40 +2031,33 @@ class EnhancedWaybillManager:
             )
 
         weight_val = cargo.get("weight")
-        await self._fill_with_fallback(
+        await self._fill_verified_text_field(
             [
                 'input[name="CargoWeight"]',
                 'input[id="CargoWeight"]',
                 'input[name="txtWeight"]',
-                'input[id="txtWeight"]',
-                'input[name*="cargo" i][name*="weight" i]',
             ],
             self._normalize_number_text(weight_val, allow_decimal=True),
             "وزن کالا",
             required=bool(weight_val),
         )
         count_val = cargo.get("count")
-        await self._fill_with_fallback(
+        await self._fill_verified_text_field(
             [
                 'input[name="CargoCount"]',
                 'input[id="CargoCount"]',
                 'input[name="txtBoxNum"]',
-                'input[id="txtBoxNum"]',
-                'input[name*="cargo" i][name*="count" i]',
             ],
             self._normalize_number_text(count_val or "1"),
             "تعداد کالا",
             required=bool(count_val),
         )
         desc_val = cargo.get("description")
-        await self._fill_with_fallback(
+        await self._fill_verified_text_field(
             [
                 'textarea[name="CargoDescription"]',
-                'input[name="CargoDescription"]',
                 'textarea[id="CargoDescription"]',
                 'textarea[name="txtLoadDetail"]',
-                'textarea[id="txtLoadDetail"]',
-                'textarea[name*="cargo" i][name*="description" i]',
             ],
             desc_val or "",
             "توضیحات کالا",
@@ -2125,7 +2074,7 @@ class EnhancedWaybillManager:
         await self._wait_for_non_empty_value(['#gridfullLoaddata tr td', '#gridfullLoaddata tr'], timeout_ms=8000)
         
         value_val = cargo.get("value")
-        await self._fill_with_fallback(
+        await self._fill_verified_text_field(
             [
                 'input[name="txtLoadsValue"]',
                 'input[id="txtLoadsValue"]',
@@ -2134,6 +2083,17 @@ class EnhancedWaybillManager:
             "ارزش تقریبی بار",
             required=bool(value_val),
         )
+        
+        # Click Next and check errors
+        await self.interactor.safe_click(
+            '#btnGoLVL5',
+            wait_for_navigation=False,
+            timeout=2500,
+        )
+        await asyncio.sleep(0.3)
+        form_errors = await self._extract_form_errors()
+        if form_errors:
+            logger.error("cargo_form_validation_failed", extra={"extra_fields": {"errors": form_errors}})
 
     async def _handle_tajmi_initialization(self) -> None:
         """آماده‌سازی حالت تجمیعی برای ثبت ناوگان"""
@@ -2295,8 +2255,6 @@ class EnhancedWaybillManager:
                     'input[name="txtDriverSearch"]',
                     'input[id="txtDriverSearch"]',
                     'input[name="DriverNationalCode"]',
-                    'input[id="DriverNationalCode"]',
-                    'input[name*="driver" i][name*="national" i]',
                 ],
                 driver_code,
                 "کد ملی راننده",
@@ -2322,7 +2280,6 @@ class EnhancedWaybillManager:
                 [
                     'input[name="DriverPhone"]',
                     'input[id="DriverPhone"]',
-                    'input[name*="driver" i][name*="phone" i]',
                 ],
                 driver_phone,
                 "تلفن راننده",
@@ -2337,7 +2294,6 @@ class EnhancedWaybillManager:
                 [
                     'select[name="VehicleType"]',
                     'select[id="VehicleType"]',
-                    'select[name*="vehicle" i][name*="type" i]',
                 ],
                 vehicle_type,
                 "نوع ناوگان",
@@ -2347,32 +2303,34 @@ class EnhancedWaybillManager:
     async def _fill_vehicle_info(self, vehicle: dict[str, str]):
         """پر کردن اطلاعات ناوگان"""
         await self._wait_for_loading_overlays_to_disappear()
-        await self._wait_for_step_marker(3, ['#txtDriverSearch', '#PelakComboTajmi', '#btnGoLVL4'], timeout_ms=8000)
+        await self._wait_for_step_marker(3, ['#txtDriverSearch', '#PelakComboTajmi'], timeout_ms=8000)
         tajmi_mode = await self._element_exists('#PelakComboTajmi')
 
         driver_code = self._normalize_national_code(vehicle.get("driver_national_code", ""))
-
-        await self._handle_tajmi_initialization()
-
-        plate_parts = self._parse_plate(vehicle.get("plate", ""))
-        await self._fill_vehicle_plate(vehicle, plate_parts, tajmi_mode)
-
-        tajmi_driver_selected = await self._handle_tajmi_driver_selection(driver_code)
-
-        if tajmi_mode and tajmi_driver_selected:
-            logger.info("vehicle_tajmi_flow_ready_for_next_step")
-            return
+        driver_phone = self._normalize_mobile(vehicle.get("driver_phone", ""))
 
         if tajmi_mode:
-            logger.warning(
-                "vehicle_tajmi_driver_not_ready_falling_back",
-                extra={"extra_fields": {"driver_code": driver_code}},
-            )
+            selected_driver = await self._handle_tajmi_driver_selection(driver_code)
+            if not selected_driver:
+                logger.warning("vehicle_tajmi_driver_selection_failed_trying_normal")
+                await self._fill_fallback_driver_info(driver_code, driver_phone)
+        else:
+            await self._fill_fallback_driver_info(driver_code, driver_phone)
 
-        driver_phone = self._normalize_mobile(vehicle.get("driver_phone", ""))
-        await self._fill_fallback_driver_info(driver_code, driver_phone)
-
+        await self._fill_plate_info(vehicle.get("plate", ""), tajmi_mode=tajmi_mode)
         await self._fill_vehicle_type(vehicle.get("type", ""))
+
+        # Click Next and check for validation errors
+        await self.interactor.safe_click(
+            '#btnGoLVL4',
+            wait_for_navigation=False,
+            timeout=2500,
+        )
+        
+        await asyncio.sleep(0.3)
+        form_errors = await self._extract_form_errors()
+        if form_errors:
+            logger.error("vehicle_form_validation_failed", extra={"extra_fields": {"errors": form_errors}})
 
     async def _fill_financial_info(self, financial: dict[str, Any]):
         """پر کردن اطلاعات مالی"""
@@ -2428,7 +2386,7 @@ class EnhancedWaybillManager:
                     ],
                     str(financial["payment_method"]),
                     "روش پرداخت",
-                    required=True,
+                    required=False,
                 )
 
     async def _check_checkbox_with_fallback(
@@ -2687,6 +2645,13 @@ class EnhancedWaybillManager:
                     await locator.select_option(value=best_value)
                 else:
                     await self.page.select_option(selector, value=best_value)
+                
+                # Trigger events for formValidation and cascading logic
+                try:
+                    target_locator = locator if locator is not None else self.page.locator(selector)
+                    await target_locator.evaluate("el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); }")
+                except Exception:
+                    pass
                 return True
             except Exception:
                 try:
@@ -2694,6 +2659,12 @@ class EnhancedWaybillManager:
                         await locator.select_option(label=best_value)
                     else:
                         await self.page.select_option(selector, label=best_value)
+                    
+                    try:
+                        target_locator = locator if locator is not None else self.page.locator(selector)
+                        await target_locator.evaluate("el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); }")
+                    except Exception:
+                        pass
                     return True
                 except Exception:
                     pass
@@ -3010,8 +2981,10 @@ class EnhancedWaybillManager:
             ".k-loading-color",
             "div:has-text('لطفا صبر کنید')",
             "div:has-text('در حال بارگذاری')",
+            "#loading",
             "#loading-box",
             ".loading-overlay",
+            ".loading-mask",
             "div.modal-backdrop",
             ".blockUI",
             ".blockMsg",
@@ -3034,7 +3007,7 @@ class EnhancedWaybillManager:
             if not found_any:
                 return
             
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.1) # Reduced from 0.25
 
     async def _close_blocking_overlays(self) -> None:
         """Attempt to close blocking overlays (modals, popups, backdrops)."""

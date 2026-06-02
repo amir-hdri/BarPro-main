@@ -304,10 +304,10 @@ class WaybillPayload(BaseModel):
     destination: str = Field(..., max_length=500, description="Destination city/location (text only, no map)")
 
     # Waybill details
-    waybill_number: str = Field(..., min_length=1, max_length=100)
+    waybill_number: str | None = Field(default=None, max_length=100)
     cargo_type: str = Field(..., min_length=1, max_length=100)
     cargo_weight: float = Field(..., gt=0)
-    cargo_description: str = Field(..., min_length=1, max_length=1000)
+    cargo_description: str | None = Field(default=None, max_length=1000)
     cargo_value: str | None = Field(None, max_length=50)
 
     # Additional fields
@@ -316,7 +316,7 @@ class WaybillPayload(BaseModel):
     driver_phone: str = Field(..., min_length=11, max_length=20)
 
     # Metadata
-    notes: str = Field(..., min_length=1, max_length=500)
+    notes: str | None = Field(default=None, max_length=500)
     metadata_json: dict | None = Field(None)
 
     @field_validator("driver_national_code", mode="before")

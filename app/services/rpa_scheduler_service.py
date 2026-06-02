@@ -170,6 +170,47 @@ class RPASchedulerService:
         finally:
             await session.close()
 
+    async def cleanup_stuck_queued_jobs(self) -> int:
+        """Detect and recover jobs stuck in QUEUED status for > 15 minutes."""
+        session = async_session_factory()
+        try:
+            cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=15)
+            stmt = select(WaybillJob).where(
+                WaybillJob.status == TaskStatus.QUEUED.value,
+                WaybillJob.updated_at < cutoff,
+            )
+            result = await session.exec(stmt)
+            stuck_jobs = result.all()
+            
+            count = 0
+            for job in stuck_jobs:
+                logger.warning(
+                    "recovering_stuck_job",
+                    extra={"extra_fields": {"job_id": job.job_id, "last_updated": job.updated_at.isoformat()}}
+                )
+                job.status = TaskStatus.PENDING.value
+                job.celery_task_id = None
+                job.updated_at = _utcnow_naive()
+                session.add(job)
+                
+                # Add log for visibility
+                session.add(
+                    WaybillTaskLog(
+                        job_id=job.job_id,
+                        client_id=job.client_id,
+                        step="recovery",
+                        status="pending",
+                        message="تسک از صف انتظار بازیابی شد (عدم پاسخگویی کارگر)",
+                    )
+                )
+                count += 1
+            
+            if count > 0:
+                await session.commit()
+            return count
+        finally:
+            await session.close()
+
     async def _ensure_runtime_state(self, session, client_id: int, driver_id: int) -> DriverRuntimeState:
         state = (await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver_id))).first()
         if state is None:

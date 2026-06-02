@@ -43,6 +43,12 @@ if celery_app is not None:
         return _run(rpa_dispatch_service.dispatch_phase1_due_jobs())
 
 
+    @celery_app.task(name="phase1.scheduler.cleanup")
+    def cleanup_phase1_jobs():
+        from app.services.rpa_scheduler_service import rpa_scheduler_service
+        return _run(rpa_scheduler_service.cleanup_stuck_queued_jobs())
+
+
     @celery_app.task(name="phase1.auth.process")
     def process_phase1_auth(client_id: int, driver_id: int, reason: str, resume_job_id: str | None = None):
         result = _run(rpa_auth_service.authenticate_driver(client_id, driver_id, reason, resume_job_id=resume_job_id))

@@ -70,6 +70,8 @@ cd apps/web && npm install && cd ../..
 
 ```bash
 ./scripts/start_system.sh
+./scripts/stop_system.sh
+
 ```
 
 ---

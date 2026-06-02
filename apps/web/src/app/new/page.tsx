@@ -613,7 +613,6 @@ export default function NewWaybillPage() {
               <Field
                 label="روش پرداخت"
                 error={errors.financial_payment_method}
-                required
               >
                 <input
                   className="field"
@@ -642,7 +641,6 @@ export default function NewWaybillPage() {
               <Field
                 label="شماره بارنامه"
                 error={errors.waybill_number}
-                required
               >
                 <input
                   dir="ltr"
@@ -656,7 +654,7 @@ export default function NewWaybillPage() {
             </div>
 
             <div className="mt-6 grid gap-6">
-              <Field label="شرح بار" error={errors.cargo_description} required>
+              <Field label="شرح بار" error={errors.cargo_description}>
                 <textarea
                   className="field min-h-28"
                   value={form.cargo_description}
@@ -666,9 +664,9 @@ export default function NewWaybillPage() {
                 />
               </Field>
 
-              <Field label="توضیحات" error={errors.notes} required>
+              <Field label="توضیحات" error={errors.notes}>
                 <textarea
-                  className="field min-h-24"
+                  className="field min-h-28"
                   value={form.notes}
                   onChange={(event) =>
                     handleChange("notes", event.target.value)
