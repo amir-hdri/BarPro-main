@@ -103,30 +103,31 @@ class SmartLocator:
         self.stability_checks = max(1, stability_checks)
         self.stability_interval_ms = max(50, stability_interval_ms)
         self._logger = logger_instance or logger
+        self._cache: dict[str, str] = {} # Selector cache for performance
 
     @auto_retry()
     async def locate(self, page: Page, selectors: Sequence[str], timeout: int = 10_000) -> Locator:
         """
-        Locate an element using multiple selector fallbacks.
-
-        Args:
-            page: Active Playwright page.
-            selectors: Ordered selectors from most specific to most generic.
-            timeout: Total timeout in milliseconds for all fallback attempts.
-
-        Returns:
-            Locator pointing to a stable and interactable element.
-
-        Raises:
-            SmartLocatorError: If all selectors fail.
-            ValueError: If selectors are empty.
+        Locate an element using multiple selector fallbacks with caching and smart recovery.
         """
         if not selectors:
             raise ValueError("selectors cannot be empty")
 
+        # 1. Try cached successful selector first for speed
+        cache_key = ":".join(selectors)
+        if cache_key in self._cache:
+            try:
+                cached_selector = self._cache[cache_key]
+                locator = await self._build_locator(page, cached_selector)
+                await locator.wait_for(state="visible", timeout=2000)
+                return locator
+            except Exception:
+                del self._cache[cache_key]
+
         deadline = asyncio.get_running_loop().time() + (max(1, timeout) / 1000)
         failures: list[dict[str, str]] = []
 
+        # 2. Sequential fallback search
         for index, raw_selector in enumerate(selectors, start=1):
             remaining_ms = int((deadline - asyncio.get_running_loop().time()) * 1000)
             if remaining_ms <= 0:
@@ -140,52 +141,28 @@ class SmartLocator:
                 await locator.wait_for(state="visible", timeout=per_selector_timeout)
                 await self._ensure_interactable(locator, timeout=per_selector_timeout)
 
-                if failures:
-                    self._logger.info(
-                        "smart_locator_selector_fallback_success",
-                        extra={
-                            "extra_fields": {
-                                "message": (
-                                    f"Selector 1 failed, but Selector {index} succeeded"
-                                    if index > 1
-                                    else "Selector 1 succeeded"
-                                ),
-                                "successful_selector": raw_selector,
-                                "successful_selector_index": index,
-                                "failed_selectors_count": len(failures),
-                                "failed_selectors": failures,
-                            }
-                        },
-                    )
-                else:
-                    self._logger.info(
-                        "smart_locator_selector_success",
-                        extra={
-                            "extra_fields": {
-                                "successful_selector": raw_selector,
-                                "successful_selector_index": index,
-                            }
-                        },
-                    )
-
+                # Update cache on success
+                self._cache[cache_key] = raw_selector
                 return locator
-            except Exception as exc:  # noqa: BLE001 - we intentionally continue fallback chain
-                failure = {
-                    "selector": raw_selector,
-                    "selector_index": str(index),
-                    "error": str(exc),
-                }
-                failures.append(failure)
-                self._logger.debug(
-                    "smart_locator_selector_failed",
-                    extra={
-                        "extra_fields": {
-                            "selector": raw_selector,
-                            "selector_index": index,
-                            "error": str(exc),
-                        }
-                    },
-                )
+            except Exception as exc:
+                failures.append({"selector": raw_selector, "error": str(exc)})
+                self._logger.debug(f"Selector {index} failed: {raw_selector}")
+
+        # 3. Smart Recovery: Fuzzy matching for text-based selectors
+        text_selectors = [s for s in selectors if "text=" in s.lower() or ":" in s]
+        if text_selectors:
+            self._logger.info("smart_locator_attempting_fuzzy_recovery")
+            for ts in text_selectors:
+                try:
+                    # Look for elements containing the text regardless of casing/exact match
+                    clean_text = ts.split("=")[-1].strip("'\"") if "=" in ts else ts
+                    fuzzy_selector = f"*:has-text('{clean_text}')"
+                    locator = page.locator(fuzzy_selector).first
+                    if await locator.is_visible(timeout=1000):
+                        self._logger.info(f"smart_locator_fuzzy_recovered: {fuzzy_selector}")
+                        return locator
+                except Exception:
+                    continue
 
         raise SmartLocatorError(
             f"No stable interactable element found for selectors after {len(failures)} failures"
