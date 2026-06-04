@@ -48,7 +48,7 @@ export default function DriversPage() {
       const userRes = await api.get<ClientUser>("/api/v1/auth/me");
       setUser(userRes.data || null);
 
-      const driversRes = await api.get<Driver[]>("/api/v1/multitenant/drivers");
+      const driversRes = await api.get<Driver[]>("/api/v1/drivers");
       setDrivers(driversRes.data || []);
     } catch (err: any) {
       setError(err.response?.data?.detail || "خطا در دریافت اطلاعات");
@@ -63,7 +63,7 @@ export default function DriversPage() {
     e.preventDefault();
     try {
       setError("");
-      await api.post("/api/v1/multitenant/drivers", formData);
+      await api.post("/api/v1/drivers", formData);
       setIsModalOpen(false);
       fetchData();
     } catch (err: any) {

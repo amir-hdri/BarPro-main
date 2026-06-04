@@ -491,6 +491,10 @@ class MapController:
         script = script_loader.load("extract_route_info_generic")
         return await self.page.evaluate(script)
 
+    async def _extract_route_info(self) -> dict[str, Any]:
+        """پوشش دهنده متد extract_route_info برای سازگاری با ماک‌های تستی"""
+        return await self.extract_route_info()
+
     async def search_address(self, query: str, input_selector: str) -> list[dict[str, Any]]:
         """
         جستجوی آدرس و بازگرداندن پیشنهادات

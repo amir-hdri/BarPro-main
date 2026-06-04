@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 class EnhancedWaybillManager:
     """مدیریت بارنامه با پشتیبانی کامل از نقشه و مکان‌یابی"""
+
     _captcha_digit_map = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
     _captcha_value_pattern = re.compile(r"^-?\d+$")
     _captcha_hint_markers = (
@@ -94,12 +95,10 @@ class EnhancedWaybillManager:
 
     async def _detect_active_pane(self) -> str:
         try:
-            pane_id = await self.page.evaluate(
-                """() => {
+            pane_id = await self.page.evaluate("""() => {
                     const pane = document.querySelector('.tab-pane.active.show, .tab-pane.active');
                     return pane ? String(pane.id || '') : '';
-                }"""
-            )
+                }""")
             return str(pane_id or "")
         except Exception:
             return ""
@@ -198,7 +197,9 @@ class EnhancedWaybillManager:
         )
 
     def _log_selector_inventory_audit(self) -> None:
-        audit = sorted(self._selector_inventory.values(), key=lambda item: (str(item.get("pill")), str(item.get("field"))))
+        audit = sorted(
+            self._selector_inventory.values(), key=lambda item: (str(item.get("pill")), str(item.get("field")))
+        )
         payload = {"items": audit}
 
         logger.info(
@@ -214,6 +215,7 @@ class EnhancedWaybillManager:
         )
 
         import asyncio
+
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
@@ -320,6 +322,69 @@ class EnhancedWaybillManager:
         }
 
     @classmethod
+    def _parse_free_zone_plate(cls, value: Any) -> dict[str, str] | None:
+        raw = cls._to_english_digits(str(value or "")).strip()
+        digit_seqs = re.findall(r"\d+", raw)
+        if not digit_seqs:
+            return None
+
+        number = ""
+        two_digit = ""
+
+        if len(digit_seqs) == 1:
+            seq = digit_seqs[0]
+            if len(seq) == 5:
+                number = seq
+            elif len(seq) == 7:
+                number = seq[:5]
+                two_digit = seq[5:]
+            elif len(seq) > 5:
+                number = seq[:5]
+                two_digit = seq[5:7]
+            else:
+                number = seq
+        elif len(digit_seqs) >= 2:
+            seq0, seq1 = digit_seqs[0], digit_seqs[1]
+            if len(seq0) == 5:
+                number = seq0
+                two_digit = seq1[:2]
+            elif len(seq1) == 5:
+                number = seq1
+                two_digit = seq0[:2]
+            else:
+                if len(seq0) > len(seq1):
+                    number = seq0[:5]
+                    two_digit = seq1[:2]
+                else:
+                    number = seq1[:5]
+                    two_digit = seq0[:2]
+
+        if not number:
+            return None
+
+        zones = {
+            "7": ["ارس", "aras"],
+            "1": ["اروند", "arvand"],
+            "2": ["انزلی", "anzali"],
+            "3": ["چابهار", "chabahar"],
+            "4": ["قشم", "qeshm"],
+            "5": ["کیش", "kish"],
+            "6": ["ماکو", "maku"],
+        }
+
+        normalized = cls._normalize_text(raw)
+        for zone_id, keywords in zones.items():
+            for kw in keywords:
+                if kw in normalized:
+                    return {
+                        "number": number,
+                        "two_digit": two_digit,
+                        "zone_id": zone_id,
+                        "zone_name": keywords[0],
+                    }
+        return None
+
+    @classmethod
     def _normalize_number_text(cls, value: Any, *, allow_decimal: bool = False) -> str:
         raw = cls._to_english_digits(str(value or "")).strip()
         if not raw:
@@ -408,13 +473,11 @@ class EnhancedWaybillManager:
         except Exception:
             pass
         try:
-            value = await locator.evaluate(
-                """el => {
+            value = await locator.evaluate("""el => {
                     if (!el) return '';
                     if ('value' in el) return String(el.value || '');
                     return String((el.innerText || el.textContent || '').trim());
-                }"""
-            )
+                }""")
             return str(value or "")
         except Exception:
             return ""
@@ -455,14 +518,22 @@ class EnhancedWaybillManager:
                 await locator.type(str(value), delay=60)
             else:
                 await locator.fill(str(value))
-            
-            # Explicitly trigger events for formValidation plugin found in UTCMS source
+
             try:
-                await locator.evaluate("el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); }")
+                await locator.evaluate("""el => {
+                        el.dispatchEvent(new Event('keydown', { bubbles: true }));
+                        el.dispatchEvent(new Event('keypress', { bubbles: true }));
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('keyup', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        if (window.jQuery) {
+                            window.jQuery(el).trigger('keydown').trigger('keypress').trigger('input').trigger('keyup').trigger('change');
+                        }
+                    }""")
             except Exception:
                 pass
 
-            await asyncio.sleep(0.05) # Reduced from 0.2
+            await asyncio.sleep(0.05)  # Reduced from 0.2
             current = await self._locator_current_value(locator)
             normalized_current = normalizer(current) if callable(normalizer) else current
             if normalized_current == expected:
@@ -609,10 +680,7 @@ class EnhancedWaybillManager:
             option_text = self._normalize_text(str(option.get("text") or ""))
             option_value_normalized = self._normalize_text(str(option.get("value") or ""))
             option_value = str(option.get("value") or "").strip()
-            if all(
-                fragment in option_text or fragment in option_value_normalized
-                for fragment in cleaned_fragments
-            ):
+            if all(fragment in option_text or fragment in option_value_normalized for fragment in cleaned_fragments):
                 best_value = option_value or str(option.get("text") or "").strip()
                 break
 
@@ -669,9 +737,24 @@ class EnhancedWaybillManager:
                     const options = Array.from(el.options || []);
                     const matched = options.find(opt => String(opt.value || '') === value || String(opt.textContent || '').trim() === value);
                     if (!matched) return false;
-                    el.value = matched.value;
+
+                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')?.set;
+                    if (nativeInputValueSetter) {
+                        nativeInputValueSetter.call(el, matched.value);
+                    } else {
+                        el.value = matched.value;
+                    }
+                    if (el._valueTracker) {
+                        el._valueTracker.setValue(matched.value);
+                    }
+                    el.dispatchEvent(new Event('keydown', { bubbles: true }));
+                    el.dispatchEvent(new Event('keypress', { bubbles: true }));
                     el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('keyup', { bubbles: true }));
                     el.dispatchEvent(new Event('change', { bubbles: true }));
+                    if (window.jQuery) {
+                        window.jQuery(el).trigger('keydown').trigger('keypress').trigger('input').trigger('keyup').trigger('change');
+                    }
                     return true;
                 }""",
                 value,
@@ -734,9 +817,9 @@ class EnhancedWaybillManager:
                         }).length;
                     }""",
                 )
+                last_count = int(count or 0)
             except Exception:
-                count = 0
-            last_count = int(count or 0)
+                last_count = 0
             if last_count >= min_count - 1:
                 return last_count
             await asyncio.sleep(0.25)
@@ -783,6 +866,41 @@ class EnhancedWaybillManager:
                     const pane = document.querySelector(`#pills-${stepIndex}`);
                     if (!tab || !pane) return false;
 
+                    // Run validation on the active form we are leaving before switching
+                    if (window.jQuery) {
+                        const currentTab = document.querySelector('[id^="pills-"][role="tab"].active');
+                        if (currentTab) {
+                            const match = currentTab.id.match(/pills-(\d+)-tab/);
+                            if (match) {
+                                const currentStep = parseInt(match[1]);
+                                let formId = null;
+                                if (currentStep === 1) formId = "frmSender";
+                                else if (currentStep === 2) formId = "frmReciver";
+                                else if (currentStep === 3) {
+                                    const normalForm = document.getElementById("frmDriver");
+                                    const isTajmi = normalForm ? normalForm.style.display === 'none' : true;
+                                    formId = isTajmi ? "frmDriverTajmi" : "frmDriver";
+                                }
+                                else if (currentStep === 4) formId = "frmBar";
+                                else if (currentStep === 5) formId = "frmmabda";
+                                else if (currentStep === 6) formId = "formmagsad";
+                                else if (currentStep === 7) formId = "frmkeraye";
+
+                                if (formId) {
+                                    const $form = window.jQuery("#" + formId);
+                                    const fv = $form.data('formValidation');
+                                    if (fv) {
+                                        try {
+                                            fv.validate();
+                                        } catch (e) {
+                                            console.error("FormValidation execution failed for " + formId, e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     document.querySelectorAll('[id^="pills-"][role="tab"]').forEach(node => {
                         node.classList.remove('active');
                         node.setAttribute('aria-selected', 'false');
@@ -804,8 +922,8 @@ class EnhancedWaybillManager:
 
     async def _force_step_transition(self, step_index: int) -> bool:
         selectors = [
-            f'#GoLVL{step_index}',
-            f'#pills-{step_index}-tab',
+            f"#GoLVL{step_index}",
+            f"#pills-{step_index}-tab",
             f'button[data-to="#pills-{step_index}-tab"]',
         ]
         for selector in selectors:
@@ -926,7 +1044,7 @@ class EnhancedWaybillManager:
     ) -> tuple[bool, str | None, str]:
         for selector in [
             f'button[data-to="#pills-{target_step}-tab"]',
-            f'#GoLVL{target_step}',
+            f"#GoLVL{target_step}",
         ]:
             await self._scroll_selector_into_view(selector)
             if await self._js_click(selector):
@@ -1024,9 +1142,29 @@ class EnhancedWaybillManager:
                     const value = String(rawValue ?? '');
                     if (!el) return false;
                     if ('value' in el) {
-                        el.value = value;
+                        let prototype = window.HTMLInputElement.prototype;
+                        if (el instanceof window.HTMLTextAreaElement) {
+                            prototype = window.HTMLTextAreaElement.prototype;
+                        } else if (el instanceof window.HTMLSelectElement) {
+                            prototype = window.HTMLSelectElement.prototype;
+                        }
+                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+                        if (nativeInputValueSetter) {
+                            nativeInputValueSetter.call(el, value);
+                        } else {
+                            el.value = value;
+                        }
+                        if (el._valueTracker) {
+                            el._valueTracker.setValue(value);
+                        }
+                        el.dispatchEvent(new Event('keydown', { bubbles: true }));
+                        el.dispatchEvent(new Event('keypress', { bubbles: true }));
                         el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('keyup', { bubbles: true }));
                         el.dispatchEvent(new Event('change', { bubbles: true }));
+                        if (window.jQuery) {
+                            window.jQuery(el).trigger('keydown').trigger('keypress').trigger('input').trigger('keyup').trigger('change');
+                        }
                         return true;
                     }
                     return false;
@@ -1085,7 +1223,9 @@ class EnhancedWaybillManager:
             return None
         return None
 
-    async def _wait_for_network_settle(self, primary_timeout_ms: int = 15000, fallback_sleep_seconds: float = 2.0) -> None:
+    async def _wait_for_network_settle(
+        self, primary_timeout_ms: int = 15000, fallback_sleep_seconds: float = 2.0
+    ) -> None:
         try:
             await self.page.wait_for_load_state("networkidle", timeout=primary_timeout_ms)
             return
@@ -1278,7 +1418,7 @@ class EnhancedWaybillManager:
             await self._check_account_eligibility()
             await self._wait_for_step_marker(
                 1,
-                ['#txtSenderFirstName', '#senderSelectType', '#btnGoLVL2'],
+                ["#txtSenderFirstName", "#senderSelectType", "#btnGoLVL2"],
                 timeout_ms=10000,
             )
             self._set_active_pill("sender")
@@ -1288,7 +1428,7 @@ class EnhancedWaybillManager:
             await self._fill_sender_info(data.get("sender", {}))
             await self._wait_for_step_marker(
                 2,
-                ['#txtReceiverFirstName', '#receiverSelectType', '#btnGoLVL3'],
+                ["#txtReceiverFirstName", "#receiverSelectType", "#btnGoLVL3"],
                 timeout_ms=8000,
             )
             self._set_active_pill("receiver")
@@ -1298,7 +1438,7 @@ class EnhancedWaybillManager:
             await self._fill_receiver_info(data.get("receiver", {}))
             await self._wait_for_step_marker(
                 3,
-                ['#txtDriverSearch', '#PelakComboTajmi', '#btnGoLVL4'],
+                ["#txtDriverSearch", "#PelakComboTajmi", "#btnGoLVL4"],
                 timeout_ms=8000,
             )
             self._set_active_pill("vehicle")
@@ -1331,7 +1471,7 @@ class EnhancedWaybillManager:
                 await self._force_step_transition(4)
             cargo_step_ready = await self._wait_for_step_marker(
                 4,
-                ['#txtLoadsValue', '#btnAddLoad', '#btnGoLVL5'],
+                ["#txtLoadsValue", "#btnAddLoad", "#btnGoLVL5"],
                 timeout_ms=8000,
             )
             if not cargo_step_ready:
@@ -1339,7 +1479,7 @@ class EnhancedWaybillManager:
                 await self._force_step_transition(4)
                 await self._wait_for_step_marker(
                     4,
-                    ['#txtLoadsValue', '#btnAddLoad', '#btnGoLVL5'],
+                    ["#txtLoadsValue", "#btnAddLoad", "#btnGoLVL5"],
                     timeout_ms=6000,
                 )
             logger.info("waybill_stage_start", extra={"extra_fields": {"stage": "cargo"}})
@@ -1361,17 +1501,14 @@ class EnhancedWaybillManager:
                 await self._force_step_transition(5)
             await self._wait_for_step_marker(
                 5,
-                ['#ddStateSource', '#ddCitySource', '#txtAddressSource', '#btnGoLVL6'],
+                ["#ddStateSource", "#ddCitySource", "#txtAddressSource", "#btnGoLVL6"],
                 timeout_ms=10000,
             )
             self._set_active_pill("origin")
             logger.info("waybill_stage_start", extra={"extra_fields": {"stage": "origin"}})
 
             # انتخاب مکان مبدا (نقشه ← منوی کشویی ← متن)
-            origin_result = await self.location_selector.select_location(
-                data.get("origin", {}),
-                origin=True
-            )
+            origin_result = await self.location_selector.select_location(data.get("origin", {}), origin=True)
             self._record_selector_inventory(
                 field_label="مبدا",
                 selectors=["location_selector"],
@@ -1398,17 +1535,14 @@ class EnhancedWaybillManager:
                 await self._force_step_transition(6)
             await self._wait_for_step_marker(
                 6,
-                ['#ddStateDest', '#ddCityDest', '#txtAddressDest', '#btnGoLVL7'],
+                ["#ddStateDest", "#ddCityDest", "#txtAddressDest", "#btnGoLVL7"],
                 timeout_ms=10000,
             )
             self._set_active_pill("destination")
             logger.info("waybill_stage_start", extra={"extra_fields": {"stage": "destination"}})
 
             # انتخاب مکان مقصد
-            dest_result = await self.location_selector.select_location(
-                data.get("destination", {}),
-                origin=False
-            )
+            dest_result = await self.location_selector.select_location(data.get("destination", {}), origin=False)
             self._record_selector_inventory(
                 field_label="مقصد",
                 selectors=["location_selector"],
@@ -1435,7 +1569,7 @@ class EnhancedWaybillManager:
                 await self._force_step_transition(7)
             await self._wait_for_step_marker(
                 7,
-                ['#txtAddressSourceView', '#txtAddressDestView', '#pills-7 button[data-to=\"#pills-8-tab\"]'],
+                ["#txtAddressSourceView", "#txtAddressDestView", '#pills-7 button[data-to="#pills-8-tab"]'],
                 timeout_ms=10000,
             )
             self._set_active_pill("address_preview")
@@ -1444,7 +1578,7 @@ class EnhancedWaybillManager:
                 8,
                 [
                     '#pills-7 button[data-to="#pills-8-tab"]',
-                    '#pills-7 button.btn-next',
+                    "#pills-7 button.btn-next",
                     '#pills-7 button:has-text("مرحله بعد")',
                 ],
                 "مرحله بعد (پیش‌نمایش مبدا و مقصد)",
@@ -1453,7 +1587,7 @@ class EnhancedWaybillManager:
                 await self._force_step_transition(8)
             await self._wait_for_step_marker(
                 8,
-                ['#txtkeraye', '#loadingTime', '#btnregisterbarname'],
+                ["#txtkeraye", "#loadingTime", "#btnregisterbarname"],
                 timeout_ms=10000,
             )
             self._set_active_pill("financial")
@@ -1461,8 +1595,7 @@ class EnhancedWaybillManager:
 
             # محاسبه مسیر در صورت وجود مختصات
             route_info = None
-            if (origin_result.get("coordinates") and
-                dest_result.get("coordinates")):
+            if origin_result.get("coordinates") and dest_result.get("coordinates"):
 
                 # تلاش برای استخراج مسیر از روی نقشه UI
                 try:
@@ -1473,7 +1606,7 @@ class EnhancedWaybillManager:
                             "distance": map_route_info.get("distance"),
                             "duration": map_route_info.get("duration"),
                             "polyline": map_route_info.get("polyline"),
-                            "method": "map_extracted"
+                            "method": "map_extracted",
                         }
                 except Exception as e:
                     logger.debug(f"استخراج مسیر از نقشه شکست خورد: {e}")
@@ -1482,13 +1615,11 @@ class EnhancedWaybillManager:
                 if not route_info:
                     route_info = await self.route_calculator.calculate_distance(
                         GeoCoordinate(
-                            latitude=origin_result["coordinates"]["lat"],
-                            longitude=origin_result["coordinates"]["lng"]
+                            latitude=origin_result["coordinates"]["lat"], longitude=origin_result["coordinates"]["lng"]
                         ),
                         GeoCoordinate(
-                            latitude=dest_result["coordinates"]["lat"],
-                            longitude=dest_result["coordinates"]["lng"]
-                        )
+                            latitude=dest_result["coordinates"]["lat"], longitude=dest_result["coordinates"]["lng"]
+                        ),
                     )
 
             # پر کردن اطلاعات مالی
@@ -1585,7 +1716,7 @@ class EnhancedWaybillManager:
         except Exception as e:
             await self.interactor.screenshot("waybill_map_error")
             self._log_selector_inventory_audit()
-            raise WaybillError(f"ایجاد بارنامه با شکست مواجه شد: {str(e)}")
+            raise WaybillError(f"ایجاد بارنامه با شکست مواجه شد: {str(e)}") from e
 
     async def _ensure_waybill_form_page(self):
         """
@@ -1635,7 +1766,8 @@ class EnhancedWaybillManager:
                 "els => els.map(e => ({text:(e.innerText||'').trim(), href:(e.getAttribute('href')||'').trim()}))",
             )
             interesting = [
-                item for item in menu_links
+                item
+                for item in menu_links
                 if ("بارنامه" in item.get("text", "")) or ("Waybill" in item.get("href", ""))
             ]
             logger.info(
@@ -1771,8 +1903,8 @@ class EnhancedWaybillManager:
             'input[name="SenderName"]',
             'input[name="txtReceiverFirstName"]',
             'input[name="ReceiverName"]',
-            '#btnGoLVL2',
-            '#GoLVL2',
+            "#btnGoLVL2",
+            "#GoLVL2",
         )
         for selector in markers:
             try:
@@ -1829,33 +1961,33 @@ class EnhancedWaybillManager:
     async def _fill_sender_info(self, sender: dict[str, str]):
         """پر کردن اطلاعات فرستنده"""
         await self._wait_for_loading_overlays_to_disappear()
-        
+
         # نوع فرستنده برای حقیقی/حقوقی
         # Value 1 = حقیقی, Value 2 = حقوقی according to hagigihogugiTemplate.js
         sender_type_selectors = [
             'select[name="senderSelectType"]',
             'select[id="senderSelectType"]',
         ]
-        
+
         await self._select_dropdown_with_fallback(
             sender_type_selectors,
-            "1", # Explicitly try value '1' first for real person
+            "1",  # Explicitly try value '1' first for real person
             "نوع فرستنده",
             required=True,
         )
-        
+
         # Trigger change to reveal name fields
         try:
             await self.page.eval_on_selector(
-                sender_type_selectors[0], 
-                "el => { el.dispatchEvent(new Event('change', { bubbles: true })); }"
+                sender_type_selectors[0],
+                "el => { el.dispatchEvent(new Event('change', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('change'); } }",
             )
         except Exception:
             pass
 
         # بعد از انتخاب نوع فرستنده، ممکن است فیلدهای نام و نام خانوادگی ظاهر شوند
         await self._wait_until_any_visible(
-            ['#txtSenderFirstName', '#txtSenderLastName', '#txtSenderMobile'],
+            ["#txtSenderFirstName", "#txtSenderLastName", "#txtSenderMobile"],
             timeout_ms=4000,
         )
 
@@ -1898,16 +2030,16 @@ class EnhancedWaybillManager:
             normalizer=self._normalize_mobile,
             prefer_type=True,
         )
-        
+
         # Click Next and check for validation errors
         await self.interactor.safe_click(
-            '#btnGoLVL2',
+            "#btnGoLVL2",
             wait_for_navigation=False,
             timeout=2500,
         )
-        
+
         # Check for error toasts that might prevent moving to next step
-        await asyncio.sleep(0.3) # Reduced from 0.8
+        await asyncio.sleep(0.3)  # Reduced from 0.8
         form_errors = await self._extract_form_errors()
         if form_errors:
             logger.error("sender_form_validation_failed", extra={"extra_fields": {"errors": form_errors}})
@@ -1923,21 +2055,21 @@ class EnhancedWaybillManager:
         ]
         await self._select_dropdown_with_fallback(
             receiver_type_selectors,
-            "1", # Value 1 = حقیقی
+            "1",  # Value 1 = حقیقی
             "نوع گیرنده",
             required=True,
         )
         # Trigger change
         try:
             await self.page.eval_on_selector(
-                receiver_type_selectors[0], 
-                "el => { el.dispatchEvent(new Event('change', { bubbles: true })); }"
+                receiver_type_selectors[0],
+                "el => { el.dispatchEvent(new Event('change', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('change'); } }",
             )
         except Exception:
             pass
 
         await self._wait_until_any_visible(
-            ['#txtReceiverFirstName', '#txtReceiverLastName', '#txtReceiverMobile'],
+            ["#txtReceiverFirstName", "#txtReceiverLastName", "#txtReceiverMobile"],
             timeout_ms=4000,
         )
 
@@ -1982,7 +2114,7 @@ class EnhancedWaybillManager:
         )
 
         await self.interactor.safe_click(
-            '#btnGoLVL3',
+            "#btnGoLVL3",
             wait_for_navigation=False,
             timeout=2500,
         )
@@ -1995,7 +2127,7 @@ class EnhancedWaybillManager:
     async def _fill_cargo_info(self, cargo: dict[str, Any]):
         """پر کردن اطلاعات کالا"""
         await self._wait_for_loading_overlays_to_disappear()
-        await self._wait_for_step_marker(4, ['#txtLoadsValue', '#btnAddLoad'], timeout_ms=8000)
+        await self._wait_for_step_marker(4, ["#txtLoadsValue", "#btnAddLoad"], timeout_ms=8000)
 
         cargo_name, packaging_hint = self._split_cargo_type_and_packaging(cargo.get("type"))
 
@@ -2014,7 +2146,10 @@ class EnhancedWaybillManager:
             # Use JS to set the hidden value if autocomplete fails
             hidden_selected = cargo_name or str(cargo["type"])
             try:
-                await self.page.eval_on_selector('#selecteditme', f"el => {{ el.value = '{hidden_selected}'; el.dispatchEvent(new Event('change', {{ bubbles: true }})); }}")
+                await self.page.eval_on_selector(
+                    "#selecteditme",
+                    f"el => {{ el.value = '{hidden_selected}'; el.dispatchEvent(new Event('change', {{ bubbles: true }})); if (window.jQuery) {{ window.jQuery(el).trigger('change'); }} }}",
+                )
             except Exception:
                 pass
 
@@ -2071,8 +2206,8 @@ class EnhancedWaybillManager:
             "ثبت کالای جدید",
             required=True,
         )
-        await self._wait_for_non_empty_value(['#gridfullLoaddata tr td', '#gridfullLoaddata tr'], timeout_ms=8000)
-        
+        await self._wait_for_non_empty_value(["#gridfullLoaddata tr td", "#gridfullLoaddata tr"], timeout_ms=8000)
+
         value_val = cargo.get("value")
         await self._fill_verified_text_field(
             [
@@ -2083,10 +2218,10 @@ class EnhancedWaybillManager:
             "ارزش تقریبی بار",
             required=bool(value_val),
         )
-        
+
         # Click Next and check errors
         await self.interactor.safe_click(
-            '#btnGoLVL5',
+            "#btnGoLVL5",
             wait_for_navigation=False,
             timeout=2500,
         )
@@ -2097,41 +2232,56 @@ class EnhancedWaybillManager:
 
     async def _handle_tajmi_initialization(self) -> None:
         """آماده‌سازی حالت تجمیعی برای ثبت ناوگان"""
-        if await self._element_exists('#DriverListTajmi'):
+        if await self._element_exists("#DriverListTajmi"):
             logger.info("vehicle_tajmi_mode_detected")
             await self._disable_hidden_required_fields(
                 [
-                    '#txtDriverSearch',
-                    '#driversearchtext',
-                    '#pelakFirst',
-                    '#pelakCombo',
-                    '#pelakCenter',
-                    '#pelakIrNum',
-                    '#pelakTypeCombo',
+                    "#txtDriverSearch",
+                    "#driversearchtext",
+                    "#pelakFirst",
+                    "#pelakCombo",
+                    "#pelakCenter",
+                    "#pelakIrNum",
+                    "#pelakTypeCombo",
                 ]
             )
-            await self._log_select_options('#PelakComboTajmi', 'tajmi_plate')
+            await self._log_select_options("#PelakComboTajmi", "tajmi_plate")
 
-    async def _fill_vehicle_plate(self, vehicle: dict[str, str], plate_parts: dict[str, str] | None, tajmi_mode: bool) -> None:
+    async def _fill_vehicle_plate(
+        self,
+        vehicle: dict[str, str],
+        plate_parts: dict[str, str] | None,
+        free_zone_parts: dict[str, str] | None,
+        tajmi_mode: bool,
+    ) -> None:
         """پر کردن پلاک خودرو"""
-        if plate_parts:
+        if plate_parts or free_zone_parts:
             selected_tajmi = False
             if tajmi_mode:
-                selected_tajmi = await self._select_option_by_fragments(
-                    '#PelakComboTajmi',
-                    [
-                        plate_parts["iran"],
-                        plate_parts["letter"],
-                        plate_parts["first"],
-                        plate_parts["center"],
-                    ],
-                )
+                if plate_parts:
+                    selected_tajmi = await self._select_option_by_fragments(
+                        "#PelakComboTajmi",
+                        [
+                            plate_parts["iran"],
+                            plate_parts["letter"],
+                            plate_parts["first"],
+                            plate_parts["center"],
+                        ],
+                    )
+                elif free_zone_parts:
+                    selected_tajmi = await self._select_option_by_fragments(
+                        "#PelakComboTajmi",
+                        [
+                            free_zone_parts["number"],
+                            free_zone_parts["zone_name"],
+                        ],
+                    )
                 if not selected_tajmi:
-                    selected_tajmi = await self._select_first_non_placeholder_option('#PelakComboTajmi')
+                    selected_tajmi = await self._select_first_non_placeholder_option("#PelakComboTajmi")
             if selected_tajmi:
                 try:
                     selected_plate_value = await self.page.eval_on_selector(
-                        '#PelakComboTajmi',
+                        "#PelakComboTajmi",
                         """el => {
                             if (!el) return '';
                             return String(el.value || '');
@@ -2140,54 +2290,83 @@ class EnhancedWaybillManager:
                 except Exception:
                     selected_plate_value = ""
                 if selected_plate_value:
-                    await self._set_select_value_with_js('#PelakComboTajmi', str(selected_plate_value))
+                    await self._set_select_value_with_js("#PelakComboTajmi", str(selected_plate_value))
                 await asyncio.sleep(1.0)
                 await self._wait_for_non_empty_value(
-                    ['#TypeofLoaderTajmi', '#CapacityTajmi', '#CapacityTajmiTo'],
+                    ["#TypeofLoaderTajmi", "#CapacityTajmi", "#CapacityTajmiTo"],
                     timeout_ms=8000,
                 )
-                await self._wait_for_select_options_count('#DriverListTajmi', timeout_ms=12000)
-                await self._log_select_options('#DriverListTajmi', 'tajmi_driver_after_plate')
+                await self._wait_for_select_options_count("#DriverListTajmi", timeout_ms=12000)
+                await self._log_select_options("#DriverListTajmi", "tajmi_driver_after_plate")
             else:
-                await self._fill_verified_text_field(
-                    ['input[id="pelakFirst"]', 'input[name="pelakFirst"]'],
-                    plate_parts["first"],
-                    "دو رقم ابتدایی پلاک",
-                    required=False,
-                    normalizer=self._digits_only,
-                    prefer_type=True,
-                )
-                await self._select_dropdown_with_fallback(
-                    ['select[id="pelakCombo"]', 'select[name="pelakCombo"]'],
-                    plate_parts["letter"],
-                    "حرف پلاک",
-                    required=False,
-                )
-                await self._fill_verified_text_field(
-                    ['input[id="pelakCenter"]', 'input[name="pelakCenter"]'],
-                    plate_parts["center"],
-                    "سه رقم میانی پلاک",
-                    required=False,
-                    normalizer=self._digits_only,
-                    prefer_type=True,
-                )
-                await self._fill_verified_text_field(
-                    ['input[id="pelakIrNum"]', 'input[name="pelakIrNum"]'],
-                    plate_parts["iran"],
-                    "کد ایران پلاک",
-                    required=False,
-                    normalizer=self._digits_only,
-                    prefer_type=True,
-                )
+                if plate_parts:
+                    if await self._element_exists("#pelakTypeNormal"):
+                        await self._click_with_fallback(["#pelakTypeNormal"], "نوع پلاک ملی", required=False)
+                    await self._fill_verified_text_field(
+                        ['input[id="pelakFirst"]', 'input[name="pelakFirst"]'],
+                        plate_parts["first"],
+                        "دو رقم ابتدایی پلاک",
+                        required=False,
+                        normalizer=self._digits_only,
+                        prefer_type=True,
+                    )
+                    await self._select_dropdown_with_fallback(
+                        ['select[id="pelakCombo"]', 'select[name="pelakCombo"]'],
+                        plate_parts["letter"],
+                        "حرف پلاک",
+                        required=False,
+                    )
+                    await self._fill_verified_text_field(
+                        ['input[id="pelakCenter"]', 'input[name="pelakCenter"]'],
+                        plate_parts["center"],
+                        "سه رقم میانی پلاک",
+                        required=False,
+                        normalizer=self._digits_only,
+                        prefer_type=True,
+                    )
+                    await self._fill_verified_text_field(
+                        ['input[id="pelakIrNum"]', 'input[name="pelakIrNum"]'],
+                        plate_parts["iran"],
+                        "کد ایران پلاک",
+                        required=False,
+                        normalizer=self._digits_only,
+                        prefer_type=True,
+                    )
+                elif free_zone_parts:
+                    if await self._element_exists("#pelakTypeFreeZone"):
+                        await self._click_with_fallback(["#pelakTypeFreeZone"], "نوع پلاک منطقه آزاد", required=False)
+                    await self._select_dropdown_with_fallback(
+                        ['select[id="pelakTypeCombo"]', 'select[name="pelakTypeCombo"]'],
+                        free_zone_parts["zone_id"],
+                        "منطقه آزاد",
+                        required=True,
+                    )
+                    await self._fill_verified_text_field(
+                        ['input[id="pelakAzadFarsiNumber"]', 'input[name="pelakAzadFarsiNumber"]'],
+                        free_zone_parts["number"],
+                        "شماره پلاک منطقه آزاد",
+                        required=True,
+                        normalizer=self._digits_only,
+                        prefer_type=True,
+                    )
+                    if free_zone_parts.get("two_digit"):
+                        await self._fill_verified_text_field(
+                            ['input[id="pelakAzadFarsiNumber3"]', 'input[name="pelakAzadFarsiNumber3"]'],
+                            free_zone_parts["two_digit"],
+                            "کد دو رقمی منطقه آزاد",
+                            required=False,
+                            normalizer=self._digits_only,
+                            prefer_type=True,
+                        )
                 await self._click_with_fallback(
                     [
-                        '#btnShowDetailspelaq',
+                        "#btnShowDetailspelaq",
                     ],
                     "مشاهده مشخصات پلاک",
                     required=False,
                 )
                 plate_lookup_value = await self._wait_for_non_empty_value(
-                    ['#TypeofLoader', '#CapacityFrom', '#TypeofLoaderTajmi', '#CapacityTajmi'],
+                    ["#TypeofLoader", "#CapacityFrom", "#TypeofLoaderTajmi", "#CapacityTajmi"],
                     timeout_ms=8000,
                 )
                 if plate_lookup_value is None:
@@ -2209,31 +2388,31 @@ class EnhancedWaybillManager:
 
     async def _handle_tajmi_driver_selection(self, driver_code: str) -> bool:
         """انتخاب راننده در حالت تجمیعی"""
-        if not await self._element_exists('#DriverListTajmi'):
+        if not await self._element_exists("#DriverListTajmi"):
             return False
 
         try:
-            await self._wait_for_select_options_count('#DriverListTajmi', timeout_ms=12000)
+            await self._wait_for_select_options_count("#DriverListTajmi", timeout_ms=12000)
         except Exception:
             pass
         selected_driver = False
         if driver_code:
-            selected_driver = await self._select_option_by_fragments('#DriverListTajmi', [driver_code])
+            selected_driver = await self._select_option_by_fragments("#DriverListTajmi", [driver_code])
         if not selected_driver:
-            selected_driver = await self._select_first_non_placeholder_option('#DriverListTajmi')
+            selected_driver = await self._select_first_non_placeholder_option("#DriverListTajmi")
         if not selected_driver:
             try:
                 options = await self.page.eval_on_selector_all(
-                    '#DriverListTajmi option',
+                    "#DriverListTajmi option",
                     "els => els.map(el => ({text: (el.textContent || '').trim(), value: (el.getAttribute('value') || '').trim()}))",
                 )
             except Exception:
                 options = []
             for option in options:
-                value = str((option or {}).get('value') or '').strip()
-                if not value or value == '0':
+                value = str((option or {}).get("value") or "").strip()
+                if not value or value == "0":
                     continue
-                selected_driver = await self._set_select_value_with_js('#DriverListTajmi', value)
+                selected_driver = await self._set_select_value_with_js("#DriverListTajmi", value)
                 if selected_driver:
                     break
         logger.info(
@@ -2241,7 +2420,7 @@ class EnhancedWaybillManager:
             extra={"extra_fields": {"selected": selected_driver, "driver_code": driver_code}},
         )
         await self._wait_for_non_empty_value(
-            ['#DriverFullNameTajmi', '#DriverMobileTajmi'],
+            ["#DriverFullNameTajmi", "#DriverMobileTajmi"],
             timeout_ms=8000,
         )
         return selected_driver
@@ -2262,15 +2441,15 @@ class EnhancedWaybillManager:
                 normalizer=self._normalize_national_code,
                 prefer_type=True,
             )
-            if await self._is_element_visible('#btnShowDetailsDriver'):
+            if await self._is_element_visible("#btnShowDetailsDriver"):
                 await self._click_with_fallback(
-                    ['#btnShowDetailsDriver'],
+                    ["#btnShowDetailsDriver"],
                     "مشاهده مشخصات راننده",
                     required=True,
                 )
-            elif await self._is_element_visible('#driversearch'):
+            elif await self._is_element_visible("#driversearch"):
                 await self._click_with_fallback(
-                    ['#driversearch'],
+                    ["#driversearch"],
                     "جستجوی راننده",
                     required=True,
                 )
@@ -2303,8 +2482,8 @@ class EnhancedWaybillManager:
     async def _fill_vehicle_info(self, vehicle: dict[str, str]):
         """پر کردن اطلاعات ناوگان"""
         await self._wait_for_loading_overlays_to_disappear()
-        await self._wait_for_step_marker(3, ['#txtDriverSearch', '#PelakComboTajmi'], timeout_ms=8000)
-        tajmi_mode = await self._element_exists('#PelakComboTajmi')
+        await self._wait_for_step_marker(3, ["#txtDriverSearch", "#PelakComboTajmi"], timeout_ms=8000)
+        tajmi_mode = await self._element_exists("#PelakComboTajmi")
 
         driver_code = self._normalize_national_code(vehicle.get("driver_national_code", ""))
         driver_phone = self._normalize_mobile(vehicle.get("driver_phone", ""))
@@ -2317,16 +2496,21 @@ class EnhancedWaybillManager:
         else:
             await self._fill_fallback_driver_info(driver_code, driver_phone)
 
-        await self._fill_plate_info(vehicle.get("plate", ""), tajmi_mode=tajmi_mode)
+        plate_str = vehicle.get("plate", "")
+        plate_parts = self._parse_plate(plate_str)
+        free_zone_parts = self._parse_free_zone_plate(plate_str)
+        await self._fill_vehicle_plate(
+            vehicle, plate_parts=plate_parts, free_zone_parts=free_zone_parts, tajmi_mode=tajmi_mode
+        )
         await self._fill_vehicle_type(vehicle.get("type", ""))
 
         # Click Next and check for validation errors
         await self.interactor.safe_click(
-            '#btnGoLVL4',
+            "#btnGoLVL4",
             wait_for_navigation=False,
             timeout=2500,
         )
-        
+
         await asyncio.sleep(0.3)
         form_errors = await self._extract_form_errors()
         if form_errors:
@@ -2626,10 +2810,7 @@ class EnhancedWaybillManager:
             normalized_text = self._normalize_text(option_text)
             normalized_value = self._normalize_text(option_value)
 
-            if (
-                normalized_target == normalized_text
-                or normalized_target == normalized_value
-            ):
+            if normalized_target == normalized_text or normalized_target == normalized_value:
                 best_value = option_value or option_text
                 break
             if (
@@ -2645,11 +2826,13 @@ class EnhancedWaybillManager:
                     await locator.select_option(value=best_value)
                 else:
                     await self.page.select_option(selector, value=best_value)
-                
+
                 # Trigger events for formValidation and cascading logic
                 try:
                     target_locator = locator if locator is not None else self.page.locator(selector)
-                    await target_locator.evaluate("el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); }")
+                    await target_locator.evaluate(
+                        "el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); el.dispatchEvent(new Event('input', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('change').trigger('keydown').trigger('keyup').trigger('input'); } }"
+                    )
                 except Exception:
                     pass
                 return True
@@ -2659,15 +2842,30 @@ class EnhancedWaybillManager:
                         await locator.select_option(label=best_value)
                     else:
                         await self.page.select_option(selector, label=best_value)
-                    
+
                     try:
                         target_locator = locator if locator is not None else self.page.locator(selector)
-                        await target_locator.evaluate("el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); }")
+                        await target_locator.evaluate(
+                            "el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); el.dispatchEvent(new Event('input', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('change').trigger('keydown').trigger('keyup').trigger('input'); } }"
+                        )
                     except Exception:
                         pass
                     return True
                 except Exception:
                     pass
+
+        try:
+            if await self._set_select_value_with_js(selector, value_text):
+                return True
+        except Exception:
+            pass
+
+        if best_value:
+            try:
+                if await self._set_select_value_with_js(selector, best_value):
+                    return True
+            except Exception:
+                pass
 
         return False
 
@@ -2726,6 +2924,9 @@ class EnhancedWaybillManager:
                                 el.value = value;
                                 el.dispatchEvent(new Event('input', { bubbles: true }));
                                 el.dispatchEvent(new Event('change', { bubbles: true }));
+                                if (window.jQuery) {
+                                    window.jQuery(el).trigger('input').trigger('change');
+                                }
                             });
                         }""",
                         digits,
@@ -2870,7 +3071,7 @@ class EnhancedWaybillManager:
 
                 # Exponential backoff: T_wait(k) = 2^k * 1000ms
                 if attempt < max_retries:
-                    wait_ms = (2 ** attempt) * 1000
+                    wait_ms = (2**attempt) * 1000
                     logger.warning(
                         "resilient_click_retry",
                         extra={"extra_fields": {"label": label, "attempt": attempt, "wait_ms": wait_ms}},
@@ -2960,9 +3161,7 @@ class EnhancedWaybillManager:
             form_errors = await self._extract_form_errors()
             if form_errors:
                 raise WaybillError(f"ثبت بارنامه با خطا مواجه شد: {form_errors}")
-            raise WaybillError(
-                "ثبت بارنامه تایید نشد: نه کد رهگیری پیدا شد و نه نشانه موفقیت در صفحه وجود داشت"
-            )
+            raise WaybillError("ثبت بارنامه تایید نشد: نه کد رهگیری پیدا شد و نه نشانه موفقیت در صفحه وجود داشت")
 
         return {
             "success": True,
@@ -2990,7 +3189,7 @@ class EnhancedWaybillManager:
             ".blockMsg",
             ".blockPage",
         ]
-        
+
         deadline = asyncio.get_running_loop().time() + (timeout_ms / 1000)
         while asyncio.get_running_loop().time() < deadline:
             found_any = False
@@ -3003,11 +3202,11 @@ class EnhancedWaybillManager:
                         break
                 except Exception:
                     continue
-            
+
             if not found_any:
                 return
-            
-            await asyncio.sleep(0.1) # Reduced from 0.25
+
+            await asyncio.sleep(0.1)  # Reduced from 0.25
 
     async def _close_blocking_overlays(self) -> None:
         """Attempt to close blocking overlays (modals, popups, backdrops)."""
@@ -3418,17 +3617,16 @@ class EnhancedWaybillManager:
             return
 
         if utcms_config.CAPTCHA_AUTO_ONLY or (utcms_config.CAPTCHA_MODE or "").strip().lower() != "manual_only":
-            logger.warning("submit_captcha_auto_solve_failed", extra={"extra_fields": {"mode": utcms_config.CAPTCHA_MODE}})
+            logger.warning(
+                "submit_captcha_auto_solve_failed", extra={"extra_fields": {"mode": utcms_config.CAPTCHA_MODE}}
+            )
             track_captcha_failure("auto_solve_failed", phase="submit", strategy="auto")
             raise WaybillError(
-                "حل خودکار کپچای ثبت نهایی ناموفق بود. "
-                "فایل مدل CNN یا کیفیت تصویر کپچا را بررسی کنید."
+                "حل خودکار کپچای ثبت نهایی ناموفق بود. " "فایل مدل CNN یا کیفیت تصویر کپچا را بررسی کنید."
             )
 
         if utcms_config.HEADLESS:
-            raise WaybillError(
-                "کپچا برای ثبت نهایی لازم است. در حالت HEADLESS مقدار UTCMS_CAPTCHA_VALUE تنظیم شود."
-            )
+            raise WaybillError("کپچا برای ثبت نهایی لازم است. در حالت HEADLESS مقدار UTCMS_CAPTCHA_VALUE تنظیم شود.")
 
         timeout_seconds = max(5, utcms_config.UTCMS_MANUAL_CAPTCHA_TIMEOUT_SECONDS)
         poll_seconds = max(0.2, utcms_config.UTCMS_MANUAL_CAPTCHA_POLL_SECONDS)
@@ -3598,11 +3796,11 @@ class EnhancedWaybillManager:
 
         # تلاش با انتخابگرهای مختلف
         selectors = [
-            '.tracking-code',
-            '#TrackingCode',
-            '[data-tracking]',
-            '.waybill-number',
-            '#printId',
+            ".tracking-code",
+            "#TrackingCode",
+            "[data-tracking]",
+            ".waybill-number",
+            "#printId",
             "input[name='printId']",
         ]
 
@@ -3613,7 +3811,7 @@ class EnhancedWaybillManager:
                     element = await self.smart_locator.locate(self.page, [selector], timeout=900)
                 text = await self._as_clean_text(await element.text_content())
                 text = self._to_english_digits(text)
-                codes = re.findall(r'\d{6,}', text or "")
+                codes = re.findall(r"\d{6,}", text or "")
                 if codes:
                     return codes[0]
             except Exception:
@@ -3624,7 +3822,7 @@ class EnhancedWaybillManager:
             if isinstance(raw_body_text, str):
                 body_text = await self._as_clean_text(raw_body_text)
                 body_text = self._to_english_digits(body_text)
-                labeled = re.findall(r'(?:کد\s*رهگیری|شماره\s*بارنامه)\D*(\d{6,})', body_text)
+                labeled = re.findall(r"(?:کد\s*رهگیری|شماره\s*بارنامه)\D*(\d{6,})", body_text)
                 if labeled:
                     return labeled[0]
         except Exception:
@@ -3632,7 +3830,7 @@ class EnhancedWaybillManager:
 
         # تلاش با استفاده از URL
         url = await self._current_url()
-        codes = re.findall(r'[A-Z0-9]{8,}', self._to_english_digits(url))
+        codes = re.findall(r"[A-Z0-9]{8,}", self._to_english_digits(url))
         if codes:
             return codes[0]
 

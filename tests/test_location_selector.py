@@ -85,12 +85,12 @@ class TestLocationSelector(unittest.IsolatedAsyncioTestCase):
         selector._log_select_diagnostics = AsyncMock()
 
         # Mock asyncio.sleep to speed up tests
-        with patch('asyncio.sleep', new_callable=AsyncMock) as mock_sleep:
+        with patch("asyncio.sleep", new_callable=AsyncMock):
             location_data = {
                 "province": "Tehran",
                 "city": "Tehran City",
                 "district": "District 1",
-                "address": "Azadi Square"
+                "address": "Azadi Square",
             }
             prefix = "Origin"
 
@@ -159,7 +159,7 @@ class TestLocationSelector(unittest.IsolatedAsyncioTestCase):
         selector._wait_for_select_options = AsyncMock(return_value=True)
         selector._log_select_diagnostics = AsyncMock()
 
-        with patch('asyncio.sleep', new_callable=AsyncMock):
+        with patch("asyncio.sleep", new_callable=AsyncMock):
             location_data = {"province": "Tehran", "city": "Unknown"}
             prefix = "Origin"
 
@@ -199,5 +199,34 @@ class TestLocationSelector(unittest.IsolatedAsyncioTestCase):
         selector._find_map_search_input.assert_not_called()
         selector._geocode_address.assert_not_called()
 
-if __name__ == '__main__':
+    async def test_fill_coordinate_hidden_fields_case_insensitivity_and_scoping(self):
+        page = AsyncMock()
+        selector = LocationSelector(page)
+        selector._fill_input_like = AsyncMock(return_value=True)
+
+        result = await selector._fill_coordinate_hidden_fields(35.7, 51.4, "Origin")
+
+        self.assertTrue(result)
+        # Check that case-insensitive and scoped selectors were passed to _fill_input_like
+        calls = [call[0][0] for call in selector._fill_input_like.call_args_list]
+        self.assertIn('#pills-5 input[name*="lat"]', calls)
+        self.assertIn('#pills-5 input[name*="lng"]', calls)
+        self.assertIn('input[name*="lat"]', calls)
+        self.assertIn('input[name*="lng"]', calls)
+
+    async def test_inject_coordinates_via_js_contains_value_tracker(self):
+        page = AsyncMock()
+        selector = LocationSelector(page)
+        page.evaluate = AsyncMock(return_value=True)
+
+        result = await selector._inject_coordinates_via_js(35.7, 51.4, "Origin")
+
+        self.assertTrue(result)
+        page.evaluate.assert_called_once()
+        script = page.evaluate.call_args[0][0]
+        self.assertIn("_valueTracker", script)
+        self.assertIn("setValue", script)
+
+
+if __name__ == "__main__":
     unittest.main()

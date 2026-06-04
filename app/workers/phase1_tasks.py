@@ -135,3 +135,24 @@ if celery_app is not None:
         except Exception:
             logger.exception("clear_expired_waiting_jobs_failed")
             raise
+
+    @celery_app.task(
+        name="scheduled.waybill.run_job",
+        queue="scheduled_tasks",
+        soft_time_limit=300,
+        time_limit=600,
+    )
+    def run_scheduled_job(job_id: int):
+        """Execute a single scheduled waybill job on worker."""
+        try:
+            from app.services.scheduled_waybill_executor import execute_scheduled_job_by_id
+            result = _run(execute_scheduled_job_by_id(job_id))
+            logger.info(
+                "scheduled_waybill_execution_complete",
+                extra={"extra_fields": {"job_id": job_id, "result": result}},
+            )
+            return result
+        except Exception:
+            logger.exception(f"run_scheduled_job_failed_for_job_{job_id}")
+            raise
+

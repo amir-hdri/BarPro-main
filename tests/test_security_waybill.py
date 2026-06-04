@@ -31,8 +31,8 @@ async def test_detect_map_leaks_sensitive_info():
 
             # Assert that the sensitive info is NOT present in the response detail
             response_json = response.json()
-            assert sensitive_info not in response_json["detail"]
-            assert response_json["detail"] == "خطای داخلی سرور در تشخیص نقشه"
+            assert sensitive_info not in response_json["message"]
+            assert response_json["message"] == "خطای داخلی سرور در تشخیص نقشه"
 
 @pytest.mark.asyncio
 async def test_create_waybill_leaks_sensitive_info():
@@ -97,5 +97,5 @@ async def test_create_waybill_leaks_sensitive_info():
                     response = client.post("/waybill/create-with-map", json=payload)
 
                     assert response.status_code == 500
-                    assert sensitive_info not in response.json()["detail"]
-                    assert response.json()["detail"] == "خطای داخلی سرور در ثبت بارنامه"
+                    assert sensitive_info not in response.json()["message"]
+                    assert response.json()["message"] == "خطای داخلی سرور در ثبت بارنامه"

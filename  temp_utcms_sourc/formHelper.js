@@ -84,20 +84,20 @@ var formHelper = function () {
                                 var type = entity.attr("type");
                                 switch (type) {
                                     case "checkbox":
-                                        entity.prop('checked', data[key]);
+                                        entity.prop('checked', data[key]).trigger('change');
                                         break;
                                     case "radio":
                                         entity.filter("[value='" + data[key] + "']").prop("checked", true).trigger('change');
                                         break;
                                     default:
-                                        entity.val(data[key]).trigger('keydown');
+                                        entity.val(data[key]).trigger('keyup').trigger('change');
                                 }
                                 break;
                             case "SELECT":
-                                entity.val(data[key]).trigger('keydown').trigger("change");
+                                entity.val(data[key]).trigger('keyup').trigger("change");
                                 break;
                             case "TEXTAREA":
-                                entity.val(data[key]).trigger('keydown');
+                                entity.val(data[key]).trigger('keyup').trigger('change');
                                 break;
                         }
                     }

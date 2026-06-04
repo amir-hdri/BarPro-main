@@ -143,6 +143,8 @@ class SmartLocator:
 
                 # Update cache on success
                 self._cache[cache_key] = raw_selector
+                if index > 1:
+                    self._logger.info(f"smart_locator_selector_fallback_success: {raw_selector} (index={index})")
                 return locator
             except Exception as exc:
                 failures.append({"selector": raw_selector, "error": str(exc)})

@@ -23,6 +23,8 @@ async def test_get_current_client_uses_async_session():
             name="Tenant Auth",
             email="tenant-auth@example.com",
             hashed_password="hash",
+            username="tenant-auth",
+            full_name="Tenant Auth",
         )
         session.add(client)
         await session.commit()

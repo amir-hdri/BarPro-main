@@ -140,54 +140,79 @@ async def calculate_route(origin: GeoCoordinateModel, destination: GeoCoordinate
 async def reverse_geocode(lat: float, lng: float):
     """تبدیل مختصات به آدرس (استان، شهر، منطقه)."""
     import aiohttp
+    from app.automation.proxy_rotator import get_proxy_rotator
 
+    url = "https://nominatim.openstreetmap.org/reverse"
+    params = {
+        "lat": lat,
+        "lon": lng,
+        "format": "json",
+        "accept-language": "fa",
+        "zoom": 10,
+    }
+    headers = {"User-Agent": "UTCMS-Automation/1.0"}
+
+    data = None
+
+    # 1. تلاش مستقیم
     try:
         async with aiohttp.ClientSession() as session:
-            url = "https://nominatim.openstreetmap.org/reverse"
-            params = {
-                "lat": lat,
-                "lon": lng,
-                "format": "json",
-                "accept-language": "fa",
-                "zoom": 10,
-            }
-            headers = {"User-Agent": "UTCMS-Automation/1.0"}
-
             async with session.get(url, params=params, headers=headers, timeout=5) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    address = data.get("address", {})
+    except Exception:
+        pass
 
-                    return {
-                        "success": True,
-                        "province": (
-                            address.get("state") or
-                            address.get("province") or
-                            address.get("county") or
-                            ""
-                        ),
-                        "city": (
-                            address.get("city") or
-                            address.get("town") or
-                            address.get("village") or
-                            ""
-                        ),
-                        "district": (
-                            address.get("suburb") or
-                            address.get("district") or
-                            address.get("neighbourhood") or
-                            ""
-                        ),
-                        "display_name": data.get("display_name", ""),
-                    }
-    except Exception as exc:
+    # 2. تلاش با پروکسی چرخشی در صورت شکست مستقیم
+    if data is None:
+        try:
+            proxy_info = await get_proxy_rotator().get_next()
+            if proxy_info and proxy_info.protocol in ("http", "https"):
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        url,
+                        params=params,
+                        headers=headers,
+                        proxy=proxy_info.full_url,
+                        timeout=5
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+        except Exception:
+            pass
+
+    if data:
+        address = data.get("address", {})
         return {
-            "success": False,
-            "error": str(exc),
-            "province": "",
-            "city": "",
-            "district": "",
+            "success": True,
+            "province": (
+                address.get("state") or
+                address.get("province") or
+                address.get("county") or
+                ""
+            ),
+            "city": (
+                address.get("city") or
+                address.get("town") or
+                address.get("village") or
+                ""
+            ),
+            "district": (
+                address.get("suburb") or
+                address.get("district") or
+                address.get("neighbourhood") or
+                ""
+            ),
+            "display_name": data.get("display_name", ""),
         }
+
+    return {
+        "success": False,
+        "error": "Failed to resolve geocode coordinates",
+        "province": "",
+        "city": "",
+        "district": "",
+    }
 
 
 __all__ = [

@@ -27,6 +27,8 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
 
     def _create_mock_page(self):
         """Create a reusable mock page with common methods."""
+        from unittest.mock import MagicMock
+
         mock = AsyncMock()
         mock.goto = AsyncMock()
         mock.query_selector = AsyncMock()
@@ -34,15 +36,24 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         mock.evaluate = AsyncMock()
         mock.wait_for_selector = AsyncMock()
         mock.wait_for_timeout = AsyncMock()
+
+        # Setup locator mock to avoid coroutine warnings in _is_element_visible / _element_exists
+        mock.locator = MagicMock()
+        mock_loc = MagicMock()
+        mock_loc.first = mock_loc
+        mock_loc.count = AsyncMock(return_value=1)
+        mock_loc.is_visible = AsyncMock(return_value=True)
+        mock.locator.return_value = mock_loc
+
         return mock
 
     def _setup_patches(self):
         """Setup all patches in one place for easier management."""
         patch_targets = [
-            ('app.automation.waybill_enhanced.PageInteractor', 'mock_interactor'),
-            ('app.automation.waybill_enhanced.MapController', 'mock_map_controller'),
-            ('app.automation.waybill_enhanced.LocationSelector', 'mock_location_selector'),
-            ('app.automation.waybill_enhanced.RouteCalculator', 'mock_route_calculator'),
+            ("app.automation.waybill_enhanced.PageInteractor", "mock_interactor"),
+            ("app.automation.waybill_enhanced.MapController", "mock_map_controller"),
+            ("app.automation.waybill_enhanced.LocationSelector", "mock_location_selector"),
+            ("app.automation.waybill_enhanced.RouteCalculator", "mock_route_calculator"),
         ]
 
         for target, attr_name in patch_targets:
@@ -63,7 +74,23 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
 
         self.manager._handle_submit_captcha_if_present = AsyncMock()
         self.manager.smart_locator = AsyncMock()
-        self.manager.smart_locator.locate = AsyncMock()
+
+        def mock_locate(*args, **kwargs):
+            return AsyncMock()
+
+        self.manager.smart_locator.locate = AsyncMock(side_effect=mock_locate)
+
+        async def mock_locator_current_value(loc):
+            if loc.fill.called:
+                return loc.fill.call_args[0][0]
+            if loc.type.called:
+                return loc.type.call_args[0][0]
+            if loc.select_option.called:
+                kwargs = loc.select_option.call_args[1]
+                return kwargs.get("value") or kwargs.get("label") or ""
+            return ""
+
+        self.manager._locator_current_value = mock_locator_current_value
 
     async def asyncTearDown(self):
         """Clean teardown of all patches."""
@@ -90,13 +117,13 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
             "destination": {"province": "Mashhad", "coordinates": {"lat": 36.2972, "lng": 59.6067}},
             "cargo": {"type": "General", "weight": 1000},
             "vehicle": {"plate": "12A34567"},
-            "financial": {"cost": 5000000}
+            "financial": {"cost": 5000000},
         }
 
         # Mock location selection
         self.mock_location_selector.select_location.side_effect = [
-            {"success": True, "method": "map", "coordinates": data["origin"]["coordinates"]}, # Origin
-            {"success": True, "method": "map", "coordinates": data["destination"]["coordinates"]} # Destination
+            {"success": True, "method": "map", "coordinates": data["origin"]["coordinates"]},  # Origin
+            {"success": True, "method": "map", "coordinates": data["destination"]["coordinates"]},  # Destination
         ]
 
         # Mock route calculation
@@ -124,14 +151,16 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
             wait_until="domcontentloaded",
             timeout=utcms_config.PAGE_NAVIGATION_TIMEOUT,
         )
-        self.mock_interactor.safe_fill.assert_any_call('input[name="SenderName"]', "Sender")
-        self.mock_interactor.safe_fill.assert_any_call('input[name="ReceiverName"]', "Receiver")
-
-        # Verify cargo info
-        self.mock_interactor.safe_fill.assert_any_call('input[name="CargoWeight"]', "1000")
-
-        # Verify vehicle info
-        self.mock_interactor.safe_fill.assert_any_call('input[name="PlateNumber"]', "12A34567")
+        # Verify filled values using selector inventory
+        inventory = self.manager._selector_inventory
+        self.assertIn("sender:نام فرستنده", inventory)
+        self.assertEqual(inventory["sender:نام فرستنده"]["value_summary"], "Sender")
+        self.assertIn("receiver:نام گیرنده", inventory)
+        self.assertEqual(inventory["receiver:نام گیرنده"]["value_summary"], "Receiver")
+        self.assertIn("cargo:وزن کالا", inventory)
+        self.assertEqual(inventory["cargo:وزن کالا"]["value_summary"], "1000")
+        self.assertIn("vehicle:پلاک خودرو", inventory)
+        self.assertEqual(inventory["vehicle:پلاک خودرو"]["value_summary"], "12A34567")
 
         # Check select_location calls
         self.assertEqual(self.mock_location_selector.select_location.call_count, 2)
@@ -161,7 +190,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         # Mock origin success, destination failure
         self.mock_location_selector.select_location.side_effect = [
             {"success": True, "coordinates": {"lat": 1, "lng": 1}},
-            {"success": False, "error": "Map error"}
+            {"success": False, "error": "Map error"},
         ]
 
         with self.assertRaises(WaybillError) as context:
@@ -172,15 +201,12 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
 
     async def test_route_calculation_logic(self):
         """Test that route calculation is skipped if coordinates are missing."""
-        data = {
-            "origin": {"province": "Tehran"}, # No coords
-            "destination": {"province": "Mashhad"} # No coords
-        }
+        data = {"origin": {"province": "Tehran"}, "destination": {"province": "Mashhad"}}  # No coords  # No coords
 
         # Mock success but no coordinates returned
         self.mock_location_selector.select_location.side_effect = [
             {"success": True, "coordinates": None},
-            {"success": True, "coordinates": None}
+            {"success": True, "coordinates": None},
         ]
 
         # Mock tracking code extraction to avoid failure later
@@ -199,11 +225,13 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
 
         # We need to test the private method _fill_financial_info indirectly or call it directly
         # Calling directly for unit testing is acceptable in Python
+        self.manager._set_active_pill("financial")
         await self.manager._fill_financial_info(financial_data)
 
-        self.mock_interactor.safe_fill.assert_called_with('input[name="TransportCost"]', "1000")
-        # _select_dropdown calls page.select_option
-        self.mock_page.select_option.assert_called()
+        # Verify filled values using selector inventory
+        inventory = self.manager._selector_inventory
+        self.assertIn("financial:هزینه حمل", inventory)
+        self.assertEqual(inventory["financial:هزینه حمل"]["value_summary"], "1000")
 
     async def test_submit_waybill_tracking_extraction(self):
         """Test extraction of tracking code from different sources."""
@@ -242,9 +270,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
     async def test_detect_otp_required_uses_submit_state_first(self):
         self.mock_page.query_selector = AsyncMock(return_value=None)
 
-        detected = await self.manager._detect_otp_required(
-            submit_state={"document_id": 1, "is_otp_needed": True}
-        )
+        detected = await self.manager._detect_otp_required(submit_state={"document_id": 1, "is_otp_needed": True})
 
         self.assertTrue(detected)
 
@@ -252,6 +278,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         """Submit should fail when click action cannot be performed."""
         self.mock_interactor.safe_click = AsyncMock(return_value=False)
         self.mock_page.query_selector = AsyncMock(return_value=None)
+        self.manager.smart_locator.locate = AsyncMock(side_effect=Exception("Smart locator click failed"))
 
         with self.assertRaises(WaybillError) as context:
             await self.manager._submit_waybill()
@@ -318,5 +345,59 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         inventory = self.manager._selector_inventory["sender:نام فرستنده"]
         self.assertEqual(inventory["status"], "filled")
 
-if __name__ == '__main__':
+    async def test_parse_free_zone_plate(self):
+        parsed = self.manager._parse_free_zone_plate("12345 اروند")
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["number"], "12345")
+        self.assertEqual(parsed["two_digit"], "")
+        self.assertEqual(parsed["zone_id"], "1")
+        self.assertEqual(parsed["zone_name"], "اروند")
+
+        parsed2 = self.manager._parse_free_zone_plate("12345-12 اروند")
+        self.assertIsNotNone(parsed2)
+        self.assertEqual(parsed2["number"], "12345")
+        self.assertEqual(parsed2["two_digit"], "12")
+
+        parsed3 = self.manager._parse_free_zone_plate("12345 34 اروند")
+        self.assertIsNotNone(parsed3)
+        self.assertEqual(parsed3["number"], "12345")
+        self.assertEqual(parsed3["two_digit"], "34")
+
+        # Non-matching
+        self.assertIsNone(self.manager._parse_free_zone_plate("12345678"))
+
+    async def test_create_waybill_free_zone_plate_success(self):
+        data = {
+            "sender": {"name": "Sender"},
+            "receiver": {"name": "Receiver"},
+            "origin": {"province": "Tehran", "coordinates": {"lat": 35.6892, "lng": 51.3890}},
+            "destination": {"province": "Mashhad", "coordinates": {"lat": 36.2972, "lng": 59.6067}},
+            "cargo": {"type": "General", "weight": 1000},
+            "vehicle": {"plate": "12345 اروند"},
+            "financial": {"cost": 5000000},
+        }
+
+        # Mock location selection
+        self.mock_location_selector.select_location.side_effect = [
+            {"success": True, "method": "map", "coordinates": data["origin"]["coordinates"]},
+            {"success": True, "method": "map", "coordinates": data["destination"]["coordinates"]},
+        ]
+
+        # Mock tracking code extraction
+        mock_element = AsyncMock()
+        mock_element.text_content.return_value = "Code: 123456"
+        self.mock_page.query_selector.return_value = mock_element
+
+        result = await self.manager.create_waybill_with_map(data)
+        self.assertTrue(result["success"])
+
+        # Verify free zone plate was logged in inventory
+        inventory = self.manager._selector_inventory
+        self.assertIn("vehicle:منطقه آزاد", inventory)
+        self.assertEqual(inventory["vehicle:منطقه آزاد"]["value_summary"], "1")
+        self.assertIn("vehicle:شماره پلاک منطقه آزاد", inventory)
+        self.assertEqual(inventory["vehicle:شماره پلاک منطقه آزاد"]["value_summary"], "12345")
+
+
+if __name__ == "__main__":
     unittest.main()

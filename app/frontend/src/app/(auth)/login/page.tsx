@@ -143,6 +143,15 @@ export default function LoginPage() {
           </button>
         </form>
 
+        {role === "client" && (
+          <div className="mt-6 text-center text-sm text-slate-400">
+            حساب کاربری ندارید؟{" "}
+            <a href="/register" className="font-semibold text-cyan-400 hover:underline">
+              ثبت نام کنید
+            </a>
+          </div>
+        )}
+
         {error && (
           <div className="mt-5 flex items-center gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-red-300">
             <AlertCircle className="shrink-0" />

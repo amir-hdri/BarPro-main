@@ -216,6 +216,97 @@ async def _execute_single_job(
                 pass
 
 
+async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
+    """Execute a single waybill job by its database ID (runs in a worker)."""
+    session = async_session_factory()
+    try:
+        job = await session.get(WaybillJob, job_id)
+        if not job:
+            logger.error(f"Scheduled job {job_id} not found in DB")
+            return {"status": "failed", "error": "Job not found"}
+
+        # Avoid executing if already processed/processing
+        if job.status in (TaskStatus.SUCCESS.value, TaskStatus.IN_PROGRESS.value):
+            logger.warning(f"Scheduled job {job_id} is already in status: {job.status}")
+            return {"status": "skipped", "message": f"Job in status {job.status}"}
+
+        client = await session.get(Client, job.client_id)
+        if not client or client.status != "active":
+            job.status = TaskStatus.FAILED.value
+            job.finished_at = _utcnow()
+            job.last_error = "Client inactive or not found"
+            job.retryable = False
+            await session.commit()
+            return {"status": "failed", "error": "Client inactive or not found"}
+
+        driver = await session.get(Driver, job.driver_id)
+        if not driver or driver.client_id != client.id:
+            job.status = TaskStatus.FAILED.value
+            job.finished_at = _utcnow()
+            job.last_error = "Driver not found or mismatch"
+            job.retryable = False
+            await session.commit()
+            return {"status": "failed", "error": "Driver not found"}
+
+        if driver.status not in ("active", "ready"):
+            job.status = TaskStatus.FAILED.value
+            job.finished_at = _utcnow()
+            job.last_error = f"Driver status is inactive ({driver.status})"
+            job.retryable = False
+            await session.commit()
+            return {"status": "failed", "error": "Driver status inactive"}
+
+        job.status = TaskStatus.IN_PROGRESS.value
+        job.started_at = _utcnow()
+        await session.commit()
+
+        # Execute the automation bot
+        result = await _execute_single_job(client, driver, job, session, attempt=job.attempt_count + 1)
+        result_status = str(result.get("status", "")).strip().lower()
+
+        if result_status == "success":
+            job.status = TaskStatus.SUCCESS.value
+            job.finished_at = _utcnow()
+        elif result_status == TaskStatus.WAITING_RETRY.value:
+            # WAITING_RETRY is set inside _execute_single_job and committed there
+            pass
+        else:
+            job.status = TaskStatus.FAILED.value
+            job.finished_at = _utcnow()
+
+        await session.commit()
+        return result
+    except Exception as exc:
+        logger.exception(f"Scheduled job {job_id} execution exception: {exc}")
+        try:
+            job = await session.get(WaybillJob, job_id)
+            if job:
+                job.status = TaskStatus.FAILED.value
+                job.last_error = str(exc)
+                job.finished_at = _utcnow()
+                await session.commit()
+        except Exception:
+            pass
+        return {"status": "failed", "error": str(exc)}
+    finally:
+        await session.close()
+
+
+def dispatch_scheduled_job(job_id: int):
+    """Dispatch a scheduled waybill job execution to Celery."""
+    from app.workers.celery_app import celery_app
+    if celery_app is not None:
+        celery_app.send_task(
+            "scheduled.waybill.run_job",
+            args=[job_id],
+            queue="scheduled_tasks",
+        )
+    else:
+        logger.warning(f"Celery is not available. Executing scheduled job {job_id} synchronously in background task.")
+        import asyncio
+        asyncio.create_task(execute_scheduled_job_by_id(job_id))
+
+
 def _is_retryable(result: dict[str, Any]) -> bool:
     error_cat = str(result.get("error_category", "")).strip().lower()
     return error_cat in ("login_failed", "captcha_failed", "network_error", "system_or_network_error", "auth_expired")
@@ -355,7 +446,8 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
         schedule_id=schedule.id,
     )
     session.add(new_job)
-    await session.flush()
+    await session.commit()
+    await session.refresh(new_job)
 
     await _record_event(session, schedule.client_id, driver.id, new_job.job_id, JOB_CREATED, {
         "source": "scheduled",
@@ -363,38 +455,8 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
         "timeslot": target_slot,
     })
 
-    # Execute the job immediately
-    success_count = 0
-    failed_count = 0
-
-    try:
-        result = await _execute_single_job(client, driver, new_job, session, attempt=1)
-        result_status = str(result.get("status", "")).strip().lower()
-
-        if result_status == "success":
-            new_job.status = TaskStatus.SUCCESS.value
-            new_job.finished_at = _utcnow()
-            success_count = 1
-        elif result_status == TaskStatus.WAITING_RETRY.value:
-            new_job.status = TaskStatus.WAITING_RETRY.value
-            new_job.started_at = _utcnow()
-            success_count = 0
-            failed_count = 0
-        else:
-            new_job.status = TaskStatus.FAILED.value
-            new_job.finished_at = _utcnow()
-            failed_count = 1
-
-        await session.commit()
-    except Exception as exc:
-        logger.exception(f"Job execution failed: {exc}")
-        new_job.status = TaskStatus.FAILED.value
-        new_job.last_error = str(exc)
-        new_job.error_category = "execution_error"
-        new_job.finished_at = _utcnow()
-        new_job.retryable = False
-        failed_count = 1
-        await session.commit()
+    # Dispatch the job to Celery worker asynchronously
+    dispatch_scheduled_job(new_job.id)
 
     # Update schedule timestamps
     schedule.last_run_at = _utcnow()
@@ -408,8 +470,8 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
 
     return {
         "jobs_created": 1,
-        "jobs_success": success_count,
-        "jobs_failed": failed_count,
+        "jobs_success": 0,
+        "jobs_failed": 0,
         "job_id": new_job.job_id,
         "timeslot": target_slot,
     }
@@ -466,20 +528,12 @@ async def retry_failed_scheduled_jobs() -> dict[str, Any]:
                 driver = await session.get(Driver, job.driver_id) if job.driver_id else None
 
                 if client and driver:
-                    result = await _execute_single_job(client, driver, job, session, attempt=job.attempt_count)
-                    result_status = str(result.get("status", "")).strip().lower()
-
-                    if result_status == "success":
-                        job.status = TaskStatus.SUCCESS.value
-                        job.finished_at = _utcnow()
-                    elif result_status == TaskStatus.WAITING_RETRY.value:
-                        job.status = TaskStatus.WAITING_RETRY.value
-                    else:
-                        job.status = TaskStatus.FAILED.value
-                        job.finished_at = _utcnow()
-                        job.retryable = False
-
+                    # Update status to Pending to trigger processing on worker
+                    job.status = TaskStatus.PENDING.value
                     await session.commit()
+
+                    # Dispatch to Celery worker asynchronously
+                    dispatch_scheduled_job(job.id)
                     summary["jobs_retried"] += 1
                 else:
                     job.status = TaskStatus.FAILED.value
@@ -547,4 +601,5 @@ scheduled_waybill_executor = {
     "evaluate_and_run_schedules": evaluate_and_run_schedules,
     "retry_failed_scheduled_jobs": retry_failed_scheduled_jobs,
     "clear_expired_waiting_jobs": clear_expired_waiting_jobs,
+    "execute_scheduled_job_by_id": execute_scheduled_job_by_id,
 }

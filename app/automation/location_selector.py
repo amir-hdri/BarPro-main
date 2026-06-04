@@ -93,7 +93,10 @@ class LocationSelector:
 
         try:
             await self.page.fill(selector, value)
-            await self.page.eval_on_selector(selector, "el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); }")
+            await self.page.eval_on_selector(
+                selector,
+                "el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('input').trigger('change').trigger('keyup'); } }",
+            )
             return True
         except Exception:
             pass
@@ -103,7 +106,9 @@ class LocationSelector:
             if await locator.count() == 0:
                 return False
             await locator.fill(value)
-            await locator.evaluate("el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); }")
+            await locator.evaluate(
+                "el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('input').trigger('change').trigger('keyup'); } }"
+            )
             return True
         except Exception:
             pass
@@ -115,15 +120,27 @@ class LocationSelector:
                     const value = String(rawValue ?? '');
                     if (!el) return false;
                     if ('value' in el) {
-                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+                        let prototype = window.HTMLInputElement.prototype;
+                        if (el instanceof window.HTMLTextAreaElement) {
+                            prototype = window.HTMLTextAreaElement.prototype;
+                        } else if (el instanceof window.HTMLSelectElement) {
+                            prototype = window.HTMLSelectElement.prototype;
+                        }
+                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
                         if (nativeInputValueSetter) {
                             nativeInputValueSetter.call(el, value);
                         } else {
                             el.value = value;
                         }
+                        if (el._valueTracker) {
+                            el._valueTracker.setValue(value);
+                        }
                         el.dispatchEvent(new Event('input', { bubbles: true }));
                         el.dispatchEvent(new Event('change', { bubbles: true }));
                         el.dispatchEvent(new Event('keyup', { bubbles: true }));
+                        if (window.jQuery) {
+                            window.jQuery(el).trigger('input').trigger('change').trigger('keyup');
+                        }
                         return true;
                     }
                     return false;
@@ -228,8 +245,10 @@ class LocationSelector:
             for selector in selectors:
                 options = await self._read_select_options(selector)
                 real_options = [
-                    option for option in options
-                    if self._normalize_text(option.get("text", "")) not in {"", "انتخابکنید...", "انتخابکنید", "undefined"}
+                    option
+                    for option in options
+                    if self._normalize_text(option.get("text", ""))
+                    not in {"", "انتخابکنید...", "انتخابکنید", "undefined"}
                     and self._normalize_text(option.get("value", "")) not in {"", "0", "undefined"}
                 ]
                 if len(real_options) >= min_real_options:
@@ -329,11 +348,7 @@ class LocationSelector:
         )
         return runtime
 
-    async def select_location(
-        self,
-        location_data: dict[str, Any],
-        origin: bool = True
-    ) -> dict[str, Any]:
+    async def select_location(self, location_data: dict[str, Any], origin: bool = True) -> dict[str, Any]:
         """
         انتخاب مکان با استفاده از بهترین روش موجود
         اولویت: ۱. مختصات صریح (کلیک کاربر) ۲. نقشه ۳. منوی کشویی ۴. ورودی متنی
@@ -366,7 +381,7 @@ class LocationSelector:
             "error": "skipped_by_runtime",
             "runtime": dropdown_runtime,
         }
-        
+
         favorite_result = await self._try_favorite_address_selection(location_data, prefix)
         if favorite_result["success"]:
             return favorite_result
@@ -394,7 +409,13 @@ class LocationSelector:
                     return dropdown_result
                 logger.warning(
                     "dropdown_selection_failed_falling_back",
-                    extra={"extra_fields": {"prefix": prefix, "error": dropdown_result.get("error"), "runtime": dropdown_runtime}},
+                    extra={
+                        "extra_fields": {
+                            "prefix": prefix,
+                            "error": dropdown_result.get("error"),
+                            "runtime": dropdown_runtime,
+                        }
+                    },
                 )
             else:
                 logger.info(
@@ -438,14 +459,22 @@ class LocationSelector:
                 extra={"extra_fields": {"prefix": prefix, "error": map_result.get("error")}},
             )
 
-        if (coordinates and coordinates.get("lat") is not None and coordinates.get("lng") is not None) and not inferred_coordinates:
+        if (
+            coordinates and coordinates.get("lat") is not None and coordinates.get("lng") is not None
+        ) and not inferred_coordinates:
             if dropdown_runtime.get("viable"):
                 dropdown_result = await self._try_dropdown_selection(location_data, prefix, selectors=selectors)
                 if dropdown_result["success"]:
                     return dropdown_result
                 logger.warning(
                     "dropdown_selection_failed_falling_back",
-                    extra={"extra_fields": {"prefix": prefix, "error": dropdown_result.get("error"), "runtime": dropdown_runtime}},
+                    extra={
+                        "extra_fields": {
+                            "prefix": prefix,
+                            "error": dropdown_result.get("error"),
+                            "runtime": dropdown_runtime,
+                        }
+                    },
                 )
             else:
                 logger.info(
@@ -468,14 +497,29 @@ class LocationSelector:
 
     async def _fill_coordinate_hidden_fields(self, lat: float, lng: float, prefix: str) -> bool:
         """تلاش برای یافتن و پر کردن hidden fields مربوط به مختصات"""
+        pane_id = "pills-5" if prefix == "Origin" else "pills-6"
         hidden_selectors = [
+            # Prefix-specific selectors (highest priority)
             f'input[name="{prefix}Lat"]',
             f'input[name="{prefix}Lng"]',
             f'input[name="{prefix}Latitude"]',
             f'input[name="{prefix}Longitude"]',
             f'input[id="{prefix.lower()}_lat"]',
             f'input[id="{prefix.lower()}_lng"]',
-            f'input[name*="Coordinate"][name*="{prefix.lower()}"]',
+            f'input[name*="Coordinate"][name*="{prefix.lower()}"][name*="lat"]',
+            f'input[name*="Coordinate"][name*="{prefix.lower()}"][name*="lng"]',
+            f'input[name*="Coordinate"][name*="{prefix.lower()}"][name*="latitude"]',
+            f'input[name*="Coordinate"][name*="{prefix.lower()}"][name*="longitude"]',
+            # Tab pane-scoped generic selectors
+            f'#{pane_id} input[name*="lat"]',
+            f'#{pane_id} input[name*="lng"]',
+            f'#{pane_id} input[id*="lat"]',
+            f'#{pane_id} input[id*="lng"]',
+            f'#{pane_id} input[name*="latitude"]',
+            f'#{pane_id} input[name*="longitude"]',
+            f'#{pane_id} input[id*="latitude"]',
+            f'#{pane_id} input[id*="longitude"]',
+            # Page-wide generic selectors (lowest fallback)
             'input[name*="lat"]',
             'input[name*="lng"]',
             'input[id*="lat"]',
@@ -486,10 +530,11 @@ class LocationSelector:
         lng_filled = False
 
         for selector in hidden_selectors:
-            if "Lat" in selector or "Latitude" in selector or "_lat" in selector:
+            sel_lower = selector.lower()
+            if "lat" in sel_lower or "latitude" in sel_lower:
                 if await self._fill_input_like(selector, str(lat)):
                     lat_filled = True
-            elif "Lng" in selector or "Longitude" in selector or "_lng" in selector:
+            elif "lng" in sel_lower or "longitude" in sel_lower or "lon" in sel_lower:
                 if await self._fill_input_like(selector, str(lng)):
                     lng_filled = True
 
@@ -521,6 +566,9 @@ class LocationSelector:
                     }} else {{
                         input.value = lat;
                     }}
+                    if (input._valueTracker) {{
+                        input._valueTracker.setValue(lat);
+                    }}
                     input.dispatchEvent(new Event('input', {{ bubbles: true }}));
                     input.dispatchEvent(new Event('change', {{ bubbles: true }}));
                     found = true;
@@ -534,6 +582,9 @@ class LocationSelector:
                         nativeInputValueSetter.call(input, lng);
                     }} else {{
                         input.value = lng;
+                    }}
+                    if (input._valueTracker) {{
+                        input._valueTracker.setValue(lng);
                     }}
                     input.dispatchEvent(new Event('input', {{ bubbles: true }}));
                     input.dispatchEvent(new Event('change', {{ bubbles: true }}));
@@ -744,20 +795,15 @@ class LocationSelector:
 
             await self._wait_for_select_options(selectors["province"], timeout_ms=10000)
             for selector in selectors["province"][:3]:
-                await self._log_select_diagnostics(selector, f"{prefix} province", str(location_data.get("province", "")))
+                await self._log_select_diagnostics(
+                    selector, f"{prefix} province", str(location_data.get("province", ""))
+                )
 
             province_selectors = selectors["province"]
-            province_selected = await self._select_from_options(
-                province_selectors,
-                location_data.get("province", "")
-            )
+            province_selected = await self._select_from_options(province_selectors, location_data.get("province", ""))
 
             if not province_selected:
-                return {
-                    "success": False,
-                    "method": "dropdown",
-                    "error": "انتخاب استان با شکست مواجه شد"
-                }
+                return {"success": False, "method": "dropdown", "error": "انتخاب استان با شکست مواجه شد"}
 
             city_options_ready = await self._wait_for_select_options(
                 selectors["city"],
@@ -772,17 +818,10 @@ class LocationSelector:
                 await self._log_select_diagnostics(selector, f"{prefix} city", str(location_data.get("city", "")))
 
             city_selectors = selectors["city"]
-            city_selected = await self._select_from_options(
-                city_selectors,
-                location_data.get("city", "")
-            )
+            city_selected = await self._select_from_options(city_selectors, location_data.get("city", ""))
 
             if not city_selected:
-                return {
-                    "success": False,
-                    "method": "dropdown",
-                    "error": "انتخاب شهر با شکست مواجه شد"
-                }
+                return {"success": False, "method": "dropdown", "error": "انتخاب شهر با شکست مواجه شد"}
 
             await self._wait_for_select_options(
                 selectors["district"],
@@ -790,10 +829,7 @@ class LocationSelector:
             )
 
             district_selectors = selectors["district"]
-            await self._select_from_options(
-                district_selectors,
-                location_data.get("district", "")
-            )
+            await self._select_from_options(district_selectors, location_data.get("district", ""))
 
             address_selectors = self._build_formatted_selectors(
                 LocationSelectors.ADDRESS_TEMPLATES,
@@ -823,7 +859,7 @@ class LocationSelector:
                 "method": "dropdown",
                 "province": location_data.get("province"),
                 "city": location_data.get("city"),
-                "district": location_data.get("district")
+                "district": location_data.get("district"),
             }
         except Exception as e:
             return {"success": False, "method": "dropdown", "error": str(e)}
@@ -891,7 +927,9 @@ class LocationSelector:
             try:
                 await self.page.click(container_selector, timeout=2000)
             except Exception:
-                await self.page.locator(f"xpath=//select[@id='{select_selector.lstrip('#')}']/following-sibling::span[contains(@class,'select2')][1]//span[contains(@class,'select2-selection')]").click(timeout=2500)
+                await self.page.locator(
+                    f"xpath=//select[@id='{select_selector.lstrip('#')}']/following-sibling::span[contains(@class,'select2')][1]//span[contains(@class,'select2-selection')]"
+                ).click(timeout=2500)
             await asyncio.sleep(0.3)
             search_input = self.page.locator("input.select2-search__field").last
             await search_input.fill(search_value)
@@ -905,10 +943,24 @@ class LocationSelector:
                 if target and (target in text or text in target):
                     await option.click()
                     await asyncio.sleep(0.5)
+                    try:
+                        await self.page.eval_on_selector(
+                            select_selector,
+                            "el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); el.dispatchEvent(new Event('input', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('change').trigger('keydown').trigger('keyup').trigger('input'); } }",
+                        )
+                    except Exception:
+                        pass
                     return True
             if count > 0:
                 await results.nth(0).click()
                 await asyncio.sleep(0.5)
+                try:
+                    await self.page.eval_on_selector(
+                        select_selector,
+                        "el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); el.dispatchEvent(new Event('input', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('change').trigger('keydown').trigger('keyup').trigger('input'); } }",
+                    )
+                except Exception:
+                    pass
                 return True
         except Exception:
             return False
@@ -1003,19 +1055,11 @@ class LocationSelector:
                         sugg = await self.page.query_selector(sugg_selector)
                         if sugg:
                             await sugg.click()
-                            return {
-                                "success": True,
-                                "method": "autocomplete",
-                                "search": search_text
-                            }
+                            return {"success": True, "method": "autocomplete", "search": search_text}
                 except Exception:
                     continue
 
-            return {
-                "success": False,
-                "method": "autocomplete",
-                "error": "هیچ پیشنهادی یافت نشد"
-            }
+            return {"success": False, "method": "autocomplete", "error": "هیچ پیشنهادی یافت نشد"}
         except Exception as e:
             return {"success": False, "method": "autocomplete", "error": str(e)}
 
@@ -1031,10 +1075,7 @@ class LocationSelector:
             if normalized_text == "undefined" or normalized_value == "undefined":
                 continue
 
-            if (
-                normalized_target == normalized_text
-                or normalized_target == normalized_value
-            ):
+            if normalized_target == normalized_text or normalized_target == normalized_value:
                 return option_value or option_text
 
             if (
@@ -1087,7 +1128,7 @@ class LocationSelector:
                     try:
                         await self.page.eval_on_selector(
                             selector,
-                            "el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); }"
+                            "el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); el.dispatchEvent(new Event('input', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('change').trigger('keydown').trigger('keyup').trigger('input'); } }",
                         )
                     except Exception:
                         pass
@@ -1128,10 +1169,42 @@ class LocationSelector:
 
         return None
 
+    async def _make_http_request(self, url: str, params: dict, headers: dict, timeout: float = 5.0) -> Any:
+        """اجرای درخواست HTTP با قابلیت تلاش مجدد و استفاده از پروکسی در صورت شکست"""
+        import aiohttp
+        from app.automation.proxy_rotator import get_proxy_rotator
+
+        # 1. تلاش برای درخواست مستقیم (سریع‌ترین حالت در صورت در دسترس بودن شبکه)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, headers=headers, timeout=timeout) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+        except Exception as e:
+            logger.debug(f"Direct HTTP request to {url} failed: {e}. Retrying via proxy if available...")
+
+        # 2. تلاش با استفاده از پروکسی‌های چرخشی در صورت شکست مستقیم
+        proxy_info = await get_proxy_rotator().get_next()
+        if proxy_info:
+            try:
+                if proxy_info.protocol in ("http", "https"):
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(
+                            url,
+                            params=params,
+                            headers=headers,
+                            proxy=proxy_info.full_url,
+                            timeout=timeout,
+                        ) as resp:
+                            if resp.status == 200:
+                                return await resp.json()
+            except Exception as proxy_err:
+                logger.warning(f"Proxy HTTP request to {url} failed: {proxy_err}")
+
+        return None
+
     async def _geocode_address(self, location_data: dict[str, Any]) -> dict[str, float] | None:
         """تبدیل آدرس به مختصات با استفاده از سرویس خارجی"""
-        import aiohttp
-
         province = str(location_data.get("province", "") or "").strip()
         city = str(location_data.get("city", "") or "").strip()
         address_text = str(location_data.get("address", "") or "").strip()
@@ -1142,85 +1215,60 @@ class LocationSelector:
         ]
         candidates = [candidate for candidate in candidates if candidate]
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                url = "https://nominatim.openstreetmap.org/search"
-                headers = {"User-Agent": "UTCMS-Automation/1.0"}
+        url = "https://nominatim.openstreetmap.org/search"
+        headers = {"User-Agent": "UTCMS-Automation/1.0"}
 
-                for candidate in candidates:
-                    params = {
-                        "q": f"{candidate}, Iran",
-                        "format": "json",
-                        "limit": 1
-                    }
-                    async with session.get(url, params=params, headers=headers) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            if data:
-                                return {
-                                    "lat": float(data[0]["lat"]),
-                                    "lng": float(data[0]["lon"])
-                                }
-        except Exception as e:
-            logger.warning(
-                "geocoding_failed",
-                extra={"extra_fields": {"address_candidates": candidates, "error": str(e)}},
-            )
+        for candidate in candidates:
+            params = {"q": f"{candidate}, Iran", "format": "json", "limit": 1}
+            try:
+                data = await self._make_http_request(url, params=params, headers=headers, timeout=4.0)
+                if data:
+                    return {"lat": float(data[0]["lat"]), "lng": float(data[0]["lon"])}
+            except Exception as e:
+                logger.debug(f"Candidate geocoding failed for {candidate}: {e}")
 
         return None
 
     async def _reverse_geocode(self, lat: float, lng: float) -> dict[str, str] | None:
         """تبدیل مختصات به آدرس (استان، شهر، منطقه) برای پر کردن خودکار فیلدها"""
-        import aiohttp
+        url = "https://nominatim.openstreetmap.org/reverse"
+        params = {
+            "lat": lat,
+            "lng": lng,
+            "format": "json",
+            "accept-language": "fa",
+            "zoom": 10,
+        }
+        headers = {"User-Agent": "UTCMS-Automation/1.0"}
 
         try:
-            async with aiohttp.ClientSession() as session:
-                url = "https://nominatim.openstreetmap.org/reverse"
-                params = {
-                    "lat": lat,
-                    "lon": lng,
-                    "format": "json",
-                    "accept-language": "fa",
-                    "zoom": 10,
-                }
-                headers = {"User-Agent": "UTCMS-Automation/1.0"}
+            data = await self._make_http_request(url, params=params, headers=headers, timeout=4.0)
+            if data:
+                address = data.get("address", {})
 
-                async with session.get(url, params=params, headers=headers, timeout=5) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        address = data.get("address", {})
+                province = address.get("state") or address.get("province") or address.get("county") or ""
 
-                        province = (
-                            address.get("state") or
-                            address.get("province") or
-                            address.get("county") or
-                            ""
-                        )
+                city = (
+                    address.get("city")
+                    or address.get("town")
+                    or address.get("village")
+                    or address.get("municipality")
+                    or ""
+                )
 
-                        city = (
-                            address.get("city") or
-                            address.get("town") or
-                            address.get("village") or
-                            address.get("municipality") or
-                            ""
-                        )
+                district = (
+                    address.get("suburb") or address.get("district") or address.get("neighbourhood") or ""
+                )
 
-                        district = (
-                            address.get("suburb") or
-                            address.get("district") or
-                            address.get("neighbourhood") or
-                            ""
-                        )
+                result = {}
+                if province:
+                    result["province"] = province
+                if city:
+                    result["city"] = city
+                if district:
+                    result["district"] = district
 
-                        result = {}
-                        if province:
-                            result["province"] = province
-                        if city:
-                            result["city"] = city
-                        if district:
-                            result["district"] = district
-
-                        return result if result else None
+                return result if result else None
         except Exception as e:
             logger.warning(
                 "reverse_geocoding_failed",
@@ -1239,15 +1287,19 @@ class RouteCalculator:
     async def calculate_distance(self, origin: GeoCoordinate, destination: GeoCoordinate) -> dict[str, Any]:
         """محاسبه مسافت و زمان بین دو نقطه"""
         from app.automation.script_loader import script_loader
+
         script = script_loader.load("calculate_distance")
 
         try:
-            result = await self.page.evaluate(script, {
-                "originLat": origin.latitude,
-                "originLng": origin.longitude,
-                "destLat": destination.latitude,
-                "destLng": destination.longitude
-            })
+            result = await self.page.evaluate(
+                script,
+                {
+                    "originLat": origin.latitude,
+                    "originLng": origin.longitude,
+                    "destLat": destination.latitude,
+                    "destLng": destination.longitude,
+                },
+            )
             return result or {}
         except Exception:
             return self._calculate_haversine(origin, destination)
@@ -1263,10 +1315,10 @@ class RouteCalculator:
         dlat = math.radians(destination.latitude - origin.latitude)
         dlon = math.radians(destination.longitude - origin.longitude)
 
-        a = (math.sin(dlat/2) * math.sin(dlat/2) +
-             math.cos(lat1) * math.cos(lat2) *
-             math.sin(dlon/2) * math.sin(dlon/2))
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+        a = math.sin(dlat / 2) * math.sin(dlat / 2) + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) * math.sin(
+            dlon / 2
+        )
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         distance = R * c
 
         duration_min = (distance / 60) * 60  # فرض ۶۰ کیلومتر بر ساعت
@@ -1276,5 +1328,5 @@ class RouteCalculator:
             "distance_value": distance * 1000,
             "duration": f"{int(duration_min)} mins",
             "duration_value": duration_min * 60,
-            "method": "haversine"
+            "method": "haversine",
         }

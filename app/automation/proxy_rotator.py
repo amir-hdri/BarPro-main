@@ -168,7 +168,7 @@ class ProxyRotator:
         cooldown: float = 5.0,
         health_check_interval: float = 300.0,  # 5 minutes
         max_health_check_attempts: int = 3,
-        test_url: str = "https://httpbin.org/ip",
+        test_url: str = "https://barname.utcms.ir",
         timeout: float = 10.0,
         min_success_rate: float = 70.0,
         max_fail_count: int = 3,
@@ -315,10 +315,20 @@ class ProxyRotator:
                 logger.debug("No available proxies")
                 return None
 
+            # Prioritize IR proxies for Iranian site operations
+            has_ir_proxy = any(p.country == "IR" for p in available)
+            if has_ir_proxy:
+                # If IR proxies are available, filter down to IR or unknown ones
+                ir_available = [p for p in available if p.country == "IR" or p.country is None]
+                if ir_available:
+                    available = ir_available
+
             def sort_key(p):
                 score = p.health_score
                 if prefer_low_latency:
                     score -= p.avg_latency * 2
+                if p.country == "IR":
+                    score += 500.0  # Massive score boost for Iranian proxies
                 return score
 
             available.sort(key=sort_key, reverse=True)
@@ -341,10 +351,31 @@ class ProxyRotator:
             return chosen
 
     async def health_check(self, proxy: ProxyInfo) -> bool:
-        """Perform health check on a single proxy."""
+        """Perform health check on a single proxy and auto-detect country."""
         start_time = time.time()
 
         try:
+            # 1. Attempt to fetch geo-information to detect Iran IPs
+            geo_apis = [
+                "https://freeipapi.com/api/json/",
+                "http://ip-api.com/json/",
+            ]
+            for geo_url in geo_apis:
+                try:
+                    async with ClientSession(timeout=ClientTimeout(total=self.timeout)) as session:
+                        async with session.get(geo_url, proxy=proxy.full_url) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                country_code = data.get("countryCode") or data.get("country")
+                                if country_code:
+                                    proxy.country = str(country_code).strip().upper()
+                                    proxy.city = data.get("cityName") or data.get("city")
+                                    proxy.isp = data.get("isp")
+                                    break
+                except Exception:
+                    continue
+
+            # 2. Test target URL connectivity
             test_urls = [
                 self.test_url,
                 "https://api.ipify.org?format=json",
@@ -358,19 +389,19 @@ class ProxyRotator:
                             test_url,
                             proxy=proxy.full_url,
                         ) as response:
-                            if response.status == 200:
+                            if response.status in (200, 301, 302):
                                 latency = time.time() - start_time
                                 proxy.record_success(latency)
                                 proxy.last_health_check = time.time()
 
                                 try:
                                     data = await response.json()
-                                    if "ip" in data:
+                                    if isinstance(data, dict) and "ip" in data:
                                         logger.debug(
-                                            f"Proxy OK: {proxy.url[:40]}... IP: {data['ip']} ({latency:.2f}s)"
+                                            f"Proxy OK: {proxy.url[:40]}... IP: {data['ip']} Country: {proxy.country} ({latency:.2f}s)"
                                         )
                                 except Exception:
-                                    logger.debug(f"Proxy OK: {proxy.url[:40]}... ({latency:.2f}s)")
+                                    logger.debug(f"Proxy OK: {proxy.url[:40]}... Country: {proxy.country} ({latency:.2f}s)")
 
                                 return True
                 except ClientError:
@@ -554,11 +585,18 @@ async def test_proxy(proxy_url: str, timeout: float = 10.0) -> bool:
             if not proxy_str.startswith(("http://", "https://", "socks4://", "socks5://")):
                 proxy_str = f"http://{proxy_str}"
 
-            async with session.get(
-                "https://httpbin.org/ip",
-                proxy=f"{protocol}://{proxy_str.split('://')[1]}",
-            ) as response:
-                return response.status == 200
+            # Try UTCMS first, then fallback
+            for target_url in ("https://barname.utcms.ir", "https://httpbin.org/ip"):
+                try:
+                    async with session.get(
+                        target_url,
+                        proxy=f"{protocol}://{proxy_str.split('://')[1]}",
+                    ) as response:
+                        if response.status in (200, 301, 302):
+                            return True
+                except Exception:
+                    continue
+            return False
     except Exception:
         return False
 

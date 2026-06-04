@@ -390,6 +390,65 @@ class BrowserManager:
         await self._register_page_listener(page, "request", _capture_request)
         await self._register_page_listener(page, "response", _capture_response)
 
+        # Route interceptor to prevent downloading heavy map tiles and slow trackers
+        async def block_map_tiles_and_trackers(route):
+            try:
+                url = route.request.url.lower()
+                resource_type = route.request.resource_type
+
+                # 1. Block tracking/analytics scripts that are slow/blocked in Iran
+                trackers = [
+                    "google-analytics.com",
+                    "googletagmanager.com",
+                    "googletagservices.com",
+                    "doubleclick.net",
+                    "facebook.net",
+                    "connect.facebook.net",
+                ]
+                if any(tracker in url for tracker in trackers):
+                    await route.abort()
+                    return
+
+                # 2. Block heavy map tiles/images to prevent SHOMA / national network timeouts
+                map_tile_domains = [
+                    "tile.openstreetmap.org",
+                    "api.mapbox.com",
+                    "api.neshan.org",
+                    "cedarmap.com",
+                    "parsimap.ir",
+                    "google.com/maps/vt",
+                    "google.com/maps/preview",
+                    "google.com/maps/geometry",
+                ]
+
+                is_map_domain = any(dom in url for dom in map_tile_domains)
+                is_tile_path = "/tiles/" in url or "/tile/" in url
+
+                if (is_map_domain or is_tile_path) and resource_type in ("image", "media", "font"):
+                    # Fulfill with a 1x1 transparent PNG
+                    import base64
+                    blank_png = base64.b64decode(
+                        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+                    )
+                    await route.fulfill(
+                        status=200,
+                        content_type="image/png",
+                        body=blank_png
+                    )
+                    return
+            except Exception as e:
+                logger.debug(f"Error in request interceptor: {e}")
+
+            try:
+                await route.continue_()
+            except Exception:
+                pass
+
+        try:
+            await page.route("**/*", block_map_tiles_and_trackers)
+        except Exception as route_exc:
+            logger.warning(f"Failed to register route interceptor: {route_exc}")
+
         # Apply stealth mode to hide automation indicators
         try:
             await apply_stealth_mode(page)
