@@ -145,9 +145,16 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
         password = decrypt_driver_password(driver.utcms_password_encrypted)
         payload = json.loads(job.payload_json)
 
+        from app.services.session_vault import session_vault
+
+        auth_state_path = session_vault.auth_state_path_for_account(
+            username=username,
+            national_code=driver.driver_national_code,
+            fallback=username,
+        )
         proxy_info = await get_proxy_rotator().get_next()
         proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
-        async with managed_browser_session(proxy_dict=proxy_dict) as (_session_id, context):
+        async with managed_browser_session(auth_state_path=auth_state_path, proxy_dict=proxy_dict) as (_session_id, context):
             page = await browser_manager.new_page(context)
 
             try:

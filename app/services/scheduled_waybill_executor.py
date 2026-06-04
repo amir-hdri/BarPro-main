@@ -141,16 +141,29 @@ async def _execute_single_job(
     attempt: int = 1,
 ) -> dict[str, Any]:
     """Execute a single waybill job with retry logic."""
+    if attempt == 1:
+        import random
+        start_jitter = random.uniform(1.0, 5.0)
+        logger.info(f"Adding start jitter of {start_jitter:.2f}s for scheduled job {job.job_id}")
+        await asyncio.sleep(start_jitter)
+
     payload_data = _safe_json(job.payload_json)
     normalized = build_enhanced_waybill_payload(payload_data)
     username = driver.utcms_username
     password = decrypt_driver_password(driver.utcms_password_encrypted)
     job_id = job.job_id
 
+    from app.services.session_vault import session_vault
+
+    auth_state_path = session_vault.auth_state_path_for_account(
+        username=username,
+        national_code=driver.driver_national_code,
+        fallback=username,
+    )
     proxy_info = await get_proxy_rotator().get_next()
     proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
 
-    async with managed_browser_session(proxy_dict=proxy_dict) as (_session_id, context):
+    async with managed_browser_session(auth_state_path=auth_state_path, proxy_dict=proxy_dict) as (_session_id, context):
         page = await browser_manager.new_page(context)
         try:
             bot = WaybillAutomationBot(page, context)

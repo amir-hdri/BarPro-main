@@ -129,8 +129,13 @@ def dispatch_waybill_task(task_id: str, priority: int | None = None):
         raise RuntimeError("Celery is not available in current environment")
     normalized_priority = utcms_config.CELERY_DEFAULT_PRIORITY if priority is None else int(priority)
     normalized_priority = max(utcms_config.CELERY_MIN_PRIORITY, min(utcms_config.CELERY_MAX_PRIORITY, normalized_priority))
+    
+    import random
+    jitter_countdown = random.randint(3, 10)
+
     return process_waybill_task.apply_async(
         args=[task_id],
         queue=utcms_config.CELERY_TASK_QUEUE,
         priority=normalized_priority,
+        countdown=jitter_countdown,
     )

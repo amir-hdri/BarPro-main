@@ -52,8 +52,32 @@ class WaybillAutomationBot:
             },
         }
 
+        from app.services.session_vault import session_vault
+        from app.automation.browser import browser_manager
+
+        driver_national_code = (
+            payload.get("driver_national_code")
+            or payload.get("vehicle", {}).get("driver_national_code")
+        )
+        auth_state_path = session_vault.auth_state_path_for_account(
+            username=username,
+            national_code=driver_national_code,
+            fallback=username,
+        )
+
         try:
-            login_success = await self.authenticator.login(username, password)
+            # Check if we are already logged in via active session cookies
+            is_logged_in = await self.authenticator._is_logged_in()
+            login_success = True
+
+            if not is_logged_in:
+                login_success = await self.authenticator.login(username, password)
+                if login_success:
+                    await browser_manager.save_auth_state(self.context, auth_state_path=auth_state_path)
+            else:
+                logger.info(f"Reusing active authenticated session for driver: {username}")
+                await browser_manager.save_auth_state(self.context, auth_state_path=auth_state_path)
+
             if not login_success:
                 self.last_error = self.authenticator.last_error or "login_failed"
                 self.last_state = self.authenticator.last_state or "failed"
@@ -71,7 +95,7 @@ class WaybillAutomationBot:
             result["steps"].append({
                 "step": "login",
                 "status": "success",
-                "message": "Login successful via self-healing authenticator",
+                "message": "Login successful or session reused via self-healing authenticator",
             })
 
             normalized_payload = build_enhanced_waybill_payload(payload)
