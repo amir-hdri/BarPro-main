@@ -2488,6 +2488,13 @@ class EnhancedWaybillManager:
         driver_code = self._normalize_national_code(vehicle.get("driver_national_code", ""))
         driver_phone = self._normalize_mobile(vehicle.get("driver_phone", ""))
 
+        plate_str = vehicle.get("plate", "")
+        plate_parts = self._parse_plate(plate_str)
+        free_zone_parts = self._parse_free_zone_plate(plate_str)
+        await self._fill_vehicle_plate(
+            vehicle, plate_parts=plate_parts, free_zone_parts=free_zone_parts, tajmi_mode=tajmi_mode
+        )
+
         if tajmi_mode:
             selected_driver = await self._handle_tajmi_driver_selection(driver_code)
             if not selected_driver:
@@ -2496,12 +2503,6 @@ class EnhancedWaybillManager:
         else:
             await self._fill_fallback_driver_info(driver_code, driver_phone)
 
-        plate_str = vehicle.get("plate", "")
-        plate_parts = self._parse_plate(plate_str)
-        free_zone_parts = self._parse_free_zone_plate(plate_str)
-        await self._fill_vehicle_plate(
-            vehicle, plate_parts=plate_parts, free_zone_parts=free_zone_parts, tajmi_mode=tajmi_mode
-        )
         await self._fill_vehicle_type(vehicle.get("type", ""))
 
         # Click Next and check for validation errors
