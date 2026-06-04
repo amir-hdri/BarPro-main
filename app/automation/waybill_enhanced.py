@@ -549,21 +549,35 @@ class EnhancedWaybillManager:
             pass
 
         for selector in selectors:
+            try:
+                el = await self.page.query_selector(selector)
+                if not el:
+                    continue
+                is_visible = await el.is_visible()
+            except Exception:
+                continue
+
             filler_chain = []
-            if prefer_type:
+            if is_visible:
+                if prefer_type:
+                    filler_chain.append(
+                        lambda selector=selector: self.page.locator(selector).first.type(str(value), delay=60, timeout=1000)
+                    )
+                filler_chain.extend(
+                    (
+                        lambda selector=selector: self.interactor.safe_fill(selector, str(value), timeout=1000),
+                        lambda selector=selector: self._set_value_with_js(selector, str(value)),
+                    )
+                )
+            else:
                 filler_chain.append(
-                    lambda selector=selector: self.page.locator(selector).first.type(str(value), delay=60)
+                    lambda selector=selector: self._set_value_with_js(selector, str(value))
                 )
-            filler_chain.extend(
-                (
-                    lambda selector=selector: self.interactor.safe_fill(selector, str(value)),
-                    lambda selector=selector: self._set_value_with_js(selector, str(value)),
-                )
-            )
+
             for filler in filler_chain:
                 try:
                     result = await filler()
-                    fill_success = True if prefer_type and result is None else bool(result)
+                    fill_success = True if prefer_type and result is None and is_visible else bool(result)
                 except Exception:
                     fill_success = False
                 if not fill_success:
@@ -2466,9 +2480,20 @@ class EnhancedWaybillManager:
                 normalizer=self._normalize_mobile,
             )
 
-    async def _fill_vehicle_type(self, vehicle_type: str) -> None:
+    async def _fill_vehicle_type(self, vehicle_type: str, tajmi_mode: bool = False) -> None:
         """ثبت نوع ناوگان"""
         if vehicle_type:
+            is_visible = False
+            for selector in ['select[name="VehicleType"]', 'select[id="VehicleType"]']:
+                if await self._is_element_visible(selector):
+                    is_visible = True
+                    break
+
+            if not is_visible:
+                if tajmi_mode:
+                    logger.info("skipping_vehicle_type_selection_in_tajmi_mode")
+                    return
+
             await self._select_dropdown_with_fallback(
                 [
                     'select[name="VehicleType"]',
@@ -2476,7 +2501,7 @@ class EnhancedWaybillManager:
                 ],
                 vehicle_type,
                 "نوع ناوگان",
-                required=True,
+                required=not tajmi_mode,
             )
 
     async def _fill_vehicle_info(self, vehicle: dict[str, str]):
@@ -2503,7 +2528,7 @@ class EnhancedWaybillManager:
         else:
             await self._fill_fallback_driver_info(driver_code, driver_phone)
 
-        await self._fill_vehicle_type(vehicle.get("type", ""))
+        await self._fill_vehicle_type(vehicle.get("type", ""), tajmi_mode=tajmi_mode)
 
         # Click Next and check for validation errors
         await self.interactor.safe_click(
@@ -2775,22 +2800,19 @@ class EnhancedWaybillManager:
         normalized_target = self._normalize_text(value_text)
         locator = None
         try:
-            locator = await self.smart_locator.locate(self.page, [selector], timeout=2500)
+            locator = await self.smart_locator.locate(self.page, [selector], timeout=1200)
         except Exception:
             locator = None
 
+        if locator is None:
+            return False
+
         try:
-            if locator is not None:
-                await locator.select_option(label=value_text)
-            else:
-                await self.page.select_option(selector, label=value_text)
+            await locator.select_option(label=value_text)
             return True
         except Exception:
             try:
-                if locator is not None:
-                    await locator.select_option(value=value_text)
-                else:
-                    await self.page.select_option(selector, value=value_text)
+                await locator.select_option(value=value_text)
                 return True
             except Exception:
                 pass

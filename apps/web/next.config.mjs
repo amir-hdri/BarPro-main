@@ -13,6 +13,18 @@ const withPWA = withPWAInit({
   scope: "/",
   sw: "service-worker.js",
   reloadOnOnline: true,
+  extendDefaultRuntimeCaching: true,
+  workboxOptions: {
+    runtimeCaching: [
+      {
+        urlPattern: ({ url }) => url.pathname.startsWith("/api/"),
+        handler: "NetworkOnly",
+        options: {
+          cacheName: "apis",
+        },
+      },
+    ],
+  },
 });
 
 const __filename = fileURLToPath(import.meta.url);
