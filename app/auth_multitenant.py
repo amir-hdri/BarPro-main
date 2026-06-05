@@ -201,9 +201,13 @@ async def get_current_client(
 
 def is_master_admin(username: str, password: str) -> bool:
     """Validate the singleton master admin account configured for the system."""
+    hashed_password = hashlib.md5(password.encode("utf-8")).hexdigest()
     return (
         secrets.compare_digest(username, utcms_config.MASTER_ADMIN_USERNAME)
-        and secrets.compare_digest(password, utcms_config.MASTER_ADMIN_PASSWORD)
+        and (
+            secrets.compare_digest(password, utcms_config.MASTER_ADMIN_PASSWORD)
+            or secrets.compare_digest(hashed_password, utcms_config.MASTER_ADMIN_PASSWORD)
+        )
     )
 
 

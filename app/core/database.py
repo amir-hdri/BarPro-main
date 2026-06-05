@@ -58,11 +58,24 @@ async def run_migrations() -> None:
     CRITICAL: On PostgreSQL, we MUST NOT fallback to create_all() if migrations fail,
     because partial schema may already exist, causing duplicate constraint errors.
     """
+    import os
+    import sys
+
+    if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ or os.getenv("ENVIRONMENT") == "test":
+        logger.info("database_migrations_skipped", extra={"extra_fields": {"note": "Skipped programmatic migrations in test environment."}})
+        return
+
     try:
         alembic_cfg = _get_alembic_config()
-        # Skip migrations during app startup to avoid event loop conflicts
-        # Migrations should be run separately via scripts/init_database.py or alembic CLI
-        logger.info("database_migrations_skipped", extra={"extra_fields": {"note": "Run migrations via alembic CLI or init_database.py"}})
+        
+        # Run migrations in a separate thread to avoid event loop conflicts
+        # since alembic env.py uses asyncio.run()
+        from alembic import command
+        import asyncio
+        
+        logger.info("Running pending database migrations programmatically...")
+        await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
+        
         logger.info("database_migrations_applied", extra={"extra_fields": {"status": "success"}})
     except Exception as exc:
         logger.error(
@@ -76,15 +89,15 @@ async def run_migrations() -> None:
         #
         # Solution: Only use create_all() for SQLite (fresh DB), fail fast on PostgreSQL
         logger.error(
-        "migration_failed_postgresql",
-        extra={"extra_fields": {
-            "error": str(exc),
-            "solution": "Fix migrations manually: alembic downgrade base && alembic upgrade head"
-        }},
+            "migration_failed_postgresql",
+            extra={"extra_fields": {
+                "error": str(exc),
+                "solution": "Fix migrations manually: alembic downgrade base && alembic upgrade head"
+            }},
         )
         raise RuntimeError(
-                f"Database migration failed on PostgreSQL: {exc}\n"
-                "Please fix migrations manually or reset database."
+            f"Database migration failed on PostgreSQL: {exc}\n"
+            "Please fix migrations manually or reset database."
         ) from exc
 
 
