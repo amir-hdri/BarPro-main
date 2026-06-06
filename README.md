@@ -1,7 +1,7 @@
 # 🚀 سیستم اتوماسیون جامع UTCMS (BarPro)
 
 [![Architecture](https://img.shields.io/badge/Architecture-Monorepo-blue.svg)]()
-[![Backend](https://img.shields.io/badge/Backend-FastAPI-green.svg)]()
+[![Backend](https://img.shields.io/badge/Backend-FastAPI-green.svg)](https://fastapi.tiangolo.com/)
 [![Frontend](https://img.shields.io/badge/Frontend-Next.js%2014-black.svg)]()
 [![Automation](https://img.shields.io/badge/Automation-Playwright-orange.svg)]()
 

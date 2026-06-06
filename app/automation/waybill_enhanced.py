@@ -813,7 +813,7 @@ class EnhancedWaybillManager:
         self,
         selector: str,
         *,
-        min_count: int = 2,
+        min_count: int = 1,
         timeout_ms: int = 8000,
     ) -> int:
         deadline = asyncio.get_running_loop().time() + max(0.5, timeout_ms / 1000)
@@ -834,7 +834,7 @@ class EnhancedWaybillManager:
                 last_count = int(count or 0)
             except Exception:
                 last_count = 0
-            if last_count >= min_count - 1:
+            if last_count >= min_count:
                 return last_count
             await asyncio.sleep(0.25)
         return last_count
@@ -2143,29 +2143,141 @@ class EnhancedWaybillManager:
         await self._wait_for_loading_overlays_to_disappear()
         await self._wait_for_step_marker(4, ["#txtLoadsValue", "#btnAddLoad"], timeout_ms=8000)
 
+        # Check if the "Add Cargo" button/modal trigger is present and visible
+        if await self._is_element_visible("#btnAddLoad"):
+            logger.info("cargo_modal_trigger_visible_clicking")
+            await self._click_with_fallback(["#btnAddLoad"], "دکمه افزودن کالا")
+            try:
+                # Wait for the modal or one of the form inputs inside it to be visible
+                await self.page.wait_for_selector("#txtLoadName", state="visible", timeout=3000)
+            except Exception:
+                logger.warning("cargo_input_not_visible_after_modal_click_attempting_anyway")
+
         cargo_name, packaging_hint = self._split_cargo_type_and_packaging(cargo.get("type"))
 
         # انتخاب نوع کالا
         if cargo.get("type"):
+            cargo_query = cargo_name or str(cargo["type"])
             await self._fill_verified_text_field(
                 [
                     'input[id="txtLoadName"]',
                     'input[name="txtLoadName"]',
                 ],
-                cargo_name or str(cargo["type"]),
+                cargo_query,
                 "نام کالا",
                 required=True,
                 prefer_type=True,
             )
-            # Use JS to set the hidden value if autocomplete fails
-            hidden_selected = cargo_name or str(cargo["type"])
+
+            # Wait for autocomplete dropdown to appear (UI layer option selection)
+            dropdown_selected = False
             try:
-                await self.page.eval_on_selector(
-                    "#selecteditme",
-                    f"el => {{ el.value = '{hidden_selected}'; el.dispatchEvent(new Event('change', {{ bubbles: true }})); if (window.jQuery) {{ window.jQuery(el).trigger('change'); }} }}",
-                )
+                await self.page.wait_for_selector(".ui-autocomplete:visible", timeout=3000)
+                items = await self.page.locator(".ui-autocomplete:visible .ui-menu-item").all()
+                if items:
+                    await items[0].click()
+                    dropdown_selected = True
+                    logger.info("cargo_autocomplete_selected_via_ui")
             except Exception:
                 pass
+
+            # If UI selection didn't work/happen, fall back to API-based lookup and manual JS set
+            if not dropdown_selected:
+                logger.info("cargo_autocomplete_ui_failed_trying_api_lookup")
+                try:
+                    search_results = await self.page.evaluate(
+                        """async (term) => {
+                            return new Promise((resolve) => {
+                                if (!window.jQuery) {
+                                    resolve([]);
+                                    return;
+                                }
+                                window.jQuery.ajax({
+                                    url: "/Barname/Document/KalaSearch",
+                                    data: { txtkala: term },
+                                    success: function(doc) {
+                                        try {
+                                            const parsed = typeof doc === 'string' ? JSON.parse(doc) : doc;
+                                            resolve(parsed || []);
+                                        } catch(e) {
+                                            resolve([]);
+                                        }
+                                    },
+                                    error: function() {
+                                        resolve([]);
+                                    }
+                                });
+                            });
+                        }""",
+                        cargo_query
+                    )
+                except Exception as ex:
+                    logger.warning(f"cargo_api_lookup_failed: {ex}")
+                    search_results = []
+
+                selected_id = None
+                selected_name = cargo_query
+
+                if search_results and isinstance(search_results, list):
+                    best_match = None
+                    for res in search_results:
+                        if not isinstance(res, dict):
+                            continue
+                        label = str(res.get("label") or res.get("value") or "").strip()
+                        if cargo_query.lower() in label.lower():
+                            best_match = res
+                            break
+                    if not best_match and search_results:
+                        best_match = search_results[0]
+
+                    if best_match and isinstance(best_match, dict):
+                        selected_id = str(best_match.get("id") or "")
+                        selected_name = str(best_match.get("label") or best_match.get("value") or cargo_query)
+
+                if not selected_id:
+                    selected_id = cargo_query
+
+                try:
+                    await self.page.eval_on_selector(
+                        "#selecteditme",
+                        """(el, val) => {
+                            if (!el) return;
+                            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+                            if (nativeSetter) {
+                                nativeSetter.call(el, val);
+                            } else {
+                                el.value = val;
+                            }
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            if (window.jQuery) {
+                                window.jQuery(el).trigger('input').trigger('change');
+                            }
+                        }""",
+                        selected_id
+                    )
+
+                    await self.page.eval_on_selector(
+                        "#txtLoadName",
+                        """(el, name) => {
+                            if (!el) return;
+                            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+                            if (nativeSetter) {
+                                nativeSetter.call(el, name);
+                            } else {
+                                el.value = name;
+                            }
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            if (window.jQuery) {
+                                window.jQuery(el).trigger('input').trigger('change');
+                            }
+                        }""",
+                        selected_name
+                    )
+                    logger.info("cargo_fields_set_via_js", extra={"extra_fields": {"id": selected_id, "name": selected_name}})
+                except Exception as ex:
+                    logger.error(f"failed_setting_cargo_fields_via_js: {ex}")
 
         packaging_value = packaging_hint or cargo.get("packaging") or cargo.get("description")
         if packaging_value:
@@ -2409,30 +2521,60 @@ class EnhancedWaybillManager:
             await self._wait_for_select_options_count("#DriverListTajmi", timeout_ms=12000)
         except Exception:
             pass
+
+        # Fetch all options first
+        try:
+            options = await self.page.eval_on_selector_all(
+                "#DriverListTajmi option",
+                "els => els.map(el => ({text: (el.textContent || '').trim(), value: (el.getAttribute('value') || '').trim()}))",
+            )
+        except Exception:
+            options = []
+
         selected_driver = False
+
+        # 1. Match by driver_code (national code)
         if driver_code:
-            selected_driver = await self._select_option_by_fragments("#DriverListTajmi", [driver_code])
-        if not selected_driver:
-            selected_driver = await self._select_first_non_placeholder_option("#DriverListTajmi")
-        if not selected_driver:
-            try:
-                options = await self.page.eval_on_selector_all(
-                    "#DriverListTajmi option",
-                    "els => els.map(el => ({text: (el.textContent || '').trim(), value: (el.getAttribute('value') || '').trim()}))",
-                )
-            except Exception:
-                options = []
+            normalized_code = self._normalize_text(driver_code)
             for option in options:
-                value = str((option or {}).get("value") or "").strip()
-                if not value or value == "0":
+                opt_text = self._normalize_text(option.get("text") or "")
+                opt_val = self._normalize_text(option.get("value") or "")
+                if normalized_code in opt_text or normalized_code in opt_val:
+                    selected_driver = await self._set_select_value_with_js("#DriverListTajmi", option.get("value") or "")
+                    if selected_driver:
+                        logger.info("vehicle_tajmi_driver_selected_by_code", extra={"extra_fields": {"driver_code": driver_code}})
+                        break
+
+        # 2. Match first non-placeholder option
+        if not selected_driver:
+            for option in options:
+                opt_text = self._normalize_text(option.get("text") or "")
+                opt_val = str(option.get("value") or "").strip()
+                if opt_text in {"", "انتخاب", "انتخابکنید", "انتخابکنید..."}:
                     continue
-                selected_driver = await self._set_select_value_with_js("#DriverListTajmi", value)
+                if opt_val in {"", "0"}:
+                    continue
+                selected_driver = await self._set_select_value_with_js("#DriverListTajmi", option.get("value") or "")
                 if selected_driver:
+                    logger.info("vehicle_tajmi_driver_selected_first_non_placeholder")
                     break
+
+        # 3. Match any valid option
+        if not selected_driver:
+            for option in options:
+                opt_val = str(option.get("value") or "").strip()
+                if not opt_val or opt_val == "0":
+                    continue
+                selected_driver = await self._set_select_value_with_js("#DriverListTajmi", option.get("value") or "")
+                if selected_driver:
+                    logger.info("vehicle_tajmi_driver_selected_fallback_any")
+                    break
+
         logger.info(
             "vehicle_tajmi_driver_select_attempt",
             extra={"extra_fields": {"selected": selected_driver, "driver_code": driver_code}},
         )
+
         await self._wait_for_non_empty_value(
             ["#DriverFullNameTajmi", "#DriverMobileTajmi"],
             timeout_ms=8000,
