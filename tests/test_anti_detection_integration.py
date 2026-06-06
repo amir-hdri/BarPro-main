@@ -196,6 +196,49 @@ class TestProxyRotator:
         assert stats["total_requests"] == 2
         assert stats["successful_requests"] == 2
 
+    @pytest.mark.asyncio
+    async def test_proxy_rotator_waybill_scoring_and_geoip(self):
+        """Test proxy rotator waybill scoring and Geo-IP filtering"""
+        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
+        from unittest.mock import AsyncMock
+
+        # Initialize with require_iran_ip=True explicitly for testing
+        rotator = ProxyRotator(cooldown=0, require_iran_ip=True)
+        
+        # Mock verify_country
+        async def mock_verify(proxy):
+            if "iran" in proxy.url:
+                proxy.country = "IR"
+            else:
+                proxy.country = "US"
+            return True
+        
+        rotator.verify_country = mock_verify
+
+        rotator.add_proxy(ProxyConfig(url="http://iran-proxy.com:8080")) # country None at start
+        rotator.add_proxy(ProxyConfig(url="http://us-proxy.com:8080")) # country None at start
+
+        # Test on-the-fly Geo-IP checking
+        # Only the iran-proxy should be selected because it gets verified as "IR"
+        chosen = await rotator.get_next()
+        assert chosen is not None
+        assert "iran-proxy.com" in chosen.url
+        assert chosen.country == "IR"
+
+        # Check scoring with waybill results
+        p = rotator.proxies[0]
+        p.record_waybill_result(success=True, latency=1.2)
+        assert p.waybill_attempts == 1
+        assert p.waybill_successes == 1
+        assert p.waybill_success_rate == 100.0
+        
+        # Test low success rate is unhealthy
+        p.record_waybill_result(success=False, latency=1.0)
+        p.record_waybill_result(success=False, latency=1.0)
+        # 1 success out of 3 attempts = 33.3% success rate
+        assert p.waybill_success_rate < 50.0
+        assert p.is_healthy is False
+
 
 class TestHeaderBuilder:
     """Test header builder functionality"""

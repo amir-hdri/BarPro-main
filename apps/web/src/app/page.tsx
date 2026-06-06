@@ -25,7 +25,7 @@ import type {
   WaybillJob,
   WaybillTaskListResponse,
 } from "@/lib/types";
-import { Zap, ShieldCheck, BarChart3, Clock as ClockIconLucide } from 'lucide-react';
+import { Zap, ShieldCheck, BarChart3, Clock as ClockIconLucide, XCircle } from 'lucide-react';
 
 const emptyStats: ClientStats = {
   client_id: 0,
@@ -267,7 +267,7 @@ export default function DashboardPage() {
                 {[
                   { label: "کل درخواست‌ها", value: toPersianDigits(stats.today_jobs), icon: Zap, color: "text-blue-500" },
                   { label: "ثبت‌های موفق", value: toPersianDigits(stats.today_success), icon: ShieldCheck, color: "text-emerald-500" },
-                  { label: "تراکنش‌های ناموفق", value: toPersianDigits(stats.today_failed), icon: ClockIcon, color: "text-rose-500" },
+                  { label: "تراکنش‌های ناموفق", value: toPersianDigits(stats.today_failed), icon: XCircle, color: "text-rose-500" },
                 ].map((item) => (
                   <div
                     key={item.label}

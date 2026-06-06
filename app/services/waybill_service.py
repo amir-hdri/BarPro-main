@@ -170,6 +170,8 @@ class WaybillService:
 
                         latency_ms = (time.perf_counter() - started_at) * 1000
                         await report_service.record_success(mode=mode, latency_ms=latency_ms)
+                        if proxy_info:
+                            proxy_info.record_waybill_result(success=True, latency=latency_ms / 1000.0)
 
                         if manager_result.get("origin_method") == "map":
                             map_type = (
@@ -190,6 +192,8 @@ class WaybillService:
                         )
 
                 except HTTPException as exc:
+                    if proxy_info:
+                        proxy_info.record_waybill_result(success=False, latency=time.perf_counter() - started_at, error=str(exc))
                     is_temporary = exc.status_code in (429, 503)
                     if is_temporary and attempt < max_attempts:
                         await waybill_traffic_controller.mark_temporary_block(multiplier=2.0)
@@ -210,6 +214,8 @@ class WaybillService:
                     raise
 
                 except WaybillError as exc:
+                    if proxy_info:
+                        proxy_info.record_waybill_result(success=False, latency=time.perf_counter() - started_at, error=str(exc))
                     retryable = is_retryable_network_error(exc)
                     if retryable and attempt < max_attempts:
                         await waybill_traffic_controller.mark_temporary_block(multiplier=1.0)
@@ -236,6 +242,8 @@ class WaybillService:
                     raise HTTPException(status_code=status_code, detail=str(exc))
 
                 except Exception as exc:
+                    if proxy_info:
+                        proxy_info.record_waybill_result(success=False, latency=time.perf_counter() - started_at, error=str(exc))
                     if _is_retryable_exception(exc) and attempt < max_attempts:
                         await waybill_traffic_controller.mark_temporary_block(multiplier=1.0)
                         await asyncio.sleep(_retry_delay_seconds(attempt))

@@ -339,13 +339,14 @@ class RPAHttpSubmitService:
         start = time.perf_counter()
         internal_session_id = None
         page = None
+        proxy_info = None
         try:
             await browser_manager.initialize()
             proxy_info = await get_proxy_rotator().get_next()
             proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
             internal_session_id, context = await browser_manager.create_context(auth_state_path=auth_state_path, proxy_dict=proxy_dict)
             page = await browser_manager.new_page(context)
-            return await self._execute_browser_submit_with_page(
+            res = await self._execute_browser_submit_with_page(
                 page=page,
                 context=context,
                 payload=payload,
@@ -353,8 +354,15 @@ class RPAHttpSubmitService:
                 require_auth_check=True,
                 start_time=start,
             )
+            if proxy_info:
+                success = (res.classification.outcome == SubmitOutcome.SUCCESS)
+                latency = time.perf_counter() - start
+                proxy_info.record_waybill_result(success=success, latency=latency, error=res.classification.message)
+            return res
         except WaybillError as exc:
             latency_ms = int((time.perf_counter() - start) * 1000)
+            if proxy_info:
+                proxy_info.record_waybill_result(success=False, latency=latency_ms / 1000.0, error=str(exc))
             return SubmitExecutionResult(
                 classification=SubmitClassification(
                     outcome=SubmitOutcome.VALIDATION_ERROR,
@@ -366,6 +374,8 @@ class RPAHttpSubmitService:
             )
         except Exception as exc:
             latency_ms = int((time.perf_counter() - start) * 1000)
+            if proxy_info:
+                proxy_info.record_waybill_result(success=False, latency=latency_ms / 1000.0, error=str(exc))
             return SubmitExecutionResult(
                 classification=SubmitClassification(
                     outcome=SubmitOutcome.TRANSIENT_FAILURE,

