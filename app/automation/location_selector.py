@@ -57,6 +57,22 @@ class LocationSelector:
             output.append(item)
         return output
 
+    @staticmethod
+    def _make_visible_selector(selector: str) -> str:
+        if not selector:
+            return selector
+        if selector.startswith("xpath=") or "[type='hidden']" in selector or "type=\"hidden\"" in selector:
+            return selector
+        
+        parts = []
+        for part in selector.split(","):
+            part_stripped = part.strip()
+            if part_stripped and ":visible" not in part_stripped:
+                parts.append(f"{part_stripped}:visible")
+            else:
+                parts.append(part_stripped)
+        return ", ".join(parts)
+
     def _additional_prefix_aliases(self, prefix: str) -> list[str]:
         lowered = (prefix or "").lower()
         if lowered == "origin":
@@ -91,10 +107,11 @@ class LocationSelector:
         if not value:
             return False
 
+        visible_selector = self._make_visible_selector(selector)
         try:
-            await self.page.fill(selector, value)
+            await self.page.fill(visible_selector, value)
             await self.page.eval_on_selector(
-                selector,
+                visible_selector,
                 "el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('input').trigger('change').trigger('keyup'); } }",
             )
             return True
@@ -102,7 +119,7 @@ class LocationSelector:
             pass
 
         try:
-            locator = self.page.locator(selector).first
+            locator = self.page.locator(visible_selector).first
             if await locator.count() == 0:
                 return False
             await locator.fill(value)
@@ -115,7 +132,7 @@ class LocationSelector:
 
         try:
             updated = await self.page.eval_on_selector(
-                selector,
+                visible_selector,
                 """(el, rawValue) => {
                     const value = String(rawValue ?? '');
                     if (!el) return false;
@@ -153,8 +170,9 @@ class LocationSelector:
 
     async def _scroll_into_view(self, selector: str) -> bool:
         try:
+            visible_selector = self._make_visible_selector(selector)
             await self.page.eval_on_selector(
-                selector,
+                visible_selector,
                 """el => {
                     if (!el) return false;
                     el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
@@ -168,7 +186,8 @@ class LocationSelector:
 
     async def _is_selector_visible(self, selector: str) -> bool:
         try:
-            return bool(await self.page.is_visible(selector))
+            visible_selector = self._make_visible_selector(selector)
+            return bool(await self.page.is_visible(visible_selector))
         except Exception:
             return False
 
@@ -215,8 +234,11 @@ class LocationSelector:
 
     async def _read_select_options(self, selector: str) -> list[dict[str, str]]:
         try:
+            visible_selector = self._make_visible_selector(selector)
+            option_parts = [f"{part.strip()} option" for part in visible_selector.split(",") if part.strip()]
+            option_selector = ", ".join(option_parts)
             options = await self.page.eval_on_selector_all(
-                f"{selector} option",
+                option_selector,
                 "els => els.map(el => ({text: (el.textContent || '').trim(), value: (el.getAttribute('value') || '').trim()}))",
             )
         except Exception:
@@ -641,7 +663,8 @@ class LocationSelector:
             if field_name in selectors and selectors[field_name]:
                 for selector in selectors[field_name]:
                     try:
-                        element = await self.page.query_selector(selector)
+                        visible_selector = self._make_visible_selector(selector)
+                        element = await self.page.query_selector(visible_selector)
                         if element:
                             tag_name = await element.evaluate("el => el.tagName.toLowerCase()")
                             if tag_name in ["input", "textarea"]:
@@ -1097,17 +1120,18 @@ class LocationSelector:
 
         for selector in selectors:
             try:
-                element = await self.page.query_selector(selector)
+                visible_selector = self._make_visible_selector(selector)
+                element = await self.page.query_selector(visible_selector)
                 if not element:
                     continue
 
                 success = False
                 try:
-                    await self.page.select_option(selector, label=value_text)
+                    await self.page.select_option(visible_selector, label=value_text)
                     success = True
                 except Exception:
                     try:
-                        await self.page.select_option(selector, value=value_text)
+                        await self.page.select_option(visible_selector, value=value_text)
                         success = True
                     except Exception:
                         raw_options = await self._read_select_options(selector)
@@ -1115,11 +1139,11 @@ class LocationSelector:
                             best_value = self._find_best_option_match(raw_options, normalized_target)
                             if best_value:
                                 try:
-                                    await self.page.select_option(selector, value=best_value)
+                                    await self.page.select_option(visible_selector, value=best_value)
                                     success = True
                                 except Exception:
                                     try:
-                                        await self.page.select_option(selector, label=best_value)
+                                        await self.page.select_option(visible_selector, label=best_value)
                                         success = True
                                     except Exception:
                                         pass
@@ -1127,7 +1151,7 @@ class LocationSelector:
                 if success:
                     try:
                         await self.page.eval_on_selector(
-                            selector,
+                            visible_selector,
                             "el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); el.dispatchEvent(new Event('input', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('change').trigger('keydown').trigger('keyup').trigger('input'); } }",
                         )
                     except Exception:
@@ -1139,6 +1163,7 @@ class LocationSelector:
                     extra={
                         "extra_fields": {
                             "selector": selector,
+                            "visible_selector": visible_selector,
                             "target": value_text,
                         }
                     },
@@ -1163,9 +1188,10 @@ class LocationSelector:
         )
 
         for selector in selectors:
-            element = await self.page.query_selector(selector)
+            visible_selector = self._make_visible_selector(selector)
+            element = await self.page.query_selector(visible_selector)
             if element:
-                return selector
+                return visible_selector
 
         return None
 

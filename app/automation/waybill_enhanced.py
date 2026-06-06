@@ -435,8 +435,11 @@ class EnhancedWaybillManager:
 
     async def _select_first_non_placeholder_option(self, selector: str) -> bool:
         try:
+            visible_selector = self._make_visible_selector(selector)
+            option_parts = [f"{part.strip()} option" for part in visible_selector.split(",") if part.strip()]
+            option_selector = ", ".join(option_parts)
             options = await self.page.eval_on_selector_all(
-                f"{selector} option",
+                option_selector,
                 "els => els.map(el => ({text: (el.textContent || '').trim(), value: (el.getAttribute('value') || '').trim()}))",
             )
         except Exception:
@@ -455,11 +458,11 @@ class EnhancedWaybillManager:
             if option_value in {"", "0"}:
                 continue
             try:
-                await self.page.select_option(selector, value=option_value)
+                await self.page.select_option(visible_selector, value=option_value)
                 return True
             except Exception:
                 try:
-                    await self.page.select_option(selector, label=str(option.get("text") or "").strip())
+                    await self.page.select_option(visible_selector, label=str(option.get("text") or "").strip())
                     return True
                 except Exception:
                     continue
@@ -632,6 +635,22 @@ class EnhancedWaybillManager:
         )
         return False
 
+    @staticmethod
+    def _make_visible_selector(selector: str) -> str:
+        if not selector:
+            return selector
+        if selector.startswith("xpath=") or "[type='hidden']" in selector or "type=\"hidden\"" in selector:
+            return selector
+        
+        parts = []
+        for part in selector.split(","):
+            part_stripped = part.strip()
+            if part_stripped and ":visible" not in part_stripped:
+                parts.append(f"{part_stripped}:visible")
+            else:
+                parts.append(part_stripped)
+        return ", ".join(parts)
+
     async def _wait_for_non_empty_value(
         self,
         selectors,
@@ -642,8 +661,9 @@ class EnhancedWaybillManager:
         while asyncio.get_running_loop().time() < deadline:
             for selector in selectors:
                 try:
+                    visible_selector = self._make_visible_selector(selector)
                     value = await self.page.eval_on_selector(
-                        selector,
+                        visible_selector,
                         """el => {
                             if (!el) return '';
                             if ('value' in el) return String(el.value || '').trim();
@@ -659,7 +679,8 @@ class EnhancedWaybillManager:
 
     async def _is_element_visible(self, selector: str) -> bool:
         try:
-            locator = self.page.locator(selector).first
+            visible_selector = self._make_visible_selector(selector)
+            locator = self.page.locator(visible_selector).first
             if await locator.count() == 0:
                 return False
             return bool(await locator.is_visible())
@@ -682,8 +703,11 @@ class EnhancedWaybillManager:
         if not cleaned_fragments:
             return False
         try:
+            visible_selector = self._make_visible_selector(selector)
+            option_parts = [f"{part.strip()} option" for part in visible_selector.split(",") if part.strip()]
+            option_selector = ", ".join(option_parts)
             options = await self.page.eval_on_selector_all(
-                f"{selector} option",
+                option_selector,
                 "els => els.map(el => ({text: (el.textContent || '').trim(), value: (el.getAttribute('value') || '').trim()}))",
             )
         except Exception:
@@ -702,19 +726,22 @@ class EnhancedWaybillManager:
             return False
 
         try:
-            await self.page.select_option(selector, value=best_value)
+            await self.page.select_option(visible_selector, value=best_value)
             return True
         except Exception:
             try:
-                await self.page.select_option(selector, label=best_value)
+                await self.page.select_option(visible_selector, label=best_value)
                 return True
             except Exception:
                 return False
 
     async def _log_select_options(self, selector: str, label: str) -> None:
         try:
+            visible_selector = self._make_visible_selector(selector)
+            option_parts = [f"{part.strip()} option" for part in visible_selector.split(",") if part.strip()]
+            option_selector = ", ".join(option_parts)
             options = await self.page.eval_on_selector_all(
-                f"{selector} option",
+                option_selector,
                 "els => els.map(el => ({text: (el.textContent || '').trim(), value: (el.getAttribute('value') || '').trim()}))",
             )
             option_preview = [
@@ -729,6 +756,7 @@ class EnhancedWaybillManager:
                 extra={
                     "extra_fields": {
                         "selector": selector,
+                        "visible_selector": visible_selector,
                         "label": label,
                         "option_count": len(options),
                         "options": option_preview,
@@ -820,8 +848,9 @@ class EnhancedWaybillManager:
         last_count = 0
         while asyncio.get_running_loop().time() < deadline:
             try:
+                visible_selector = self._make_visible_selector(selector)
                 count = await self.page.eval_on_selector(
-                    selector,
+                    visible_selector,
                     """el => {
                         if (!el) return 0;
                         return Array.from(el.options || []).filter(opt => {
@@ -875,7 +904,7 @@ class EnhancedWaybillManager:
     async def _force_tab_activation(self, step_index: int) -> bool:
         try:
             activated = await self.page.evaluate(
-                """stepIndex => {
+                r"""stepIndex => {
                     const tab = document.querySelector(`#pills-${stepIndex}-tab`);
                     const pane = document.querySelector(`#pills-${stepIndex}`);
                     if (!tab || !pane) return false;
