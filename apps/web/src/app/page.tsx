@@ -50,38 +50,51 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function loadDashboard() {
-      if (client?.role === 'master_admin') {
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
-      setError(null);
+  const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
 
-      const [statsResponse, jobsResponse] = await Promise.all([
-        api.get<ClientStats>("/api/v1/auth/stats"),
-        api.get<WaybillTaskListResponse>("/api/v1/waybill-jobs", {
-          page: 1,
-          page_size: 5,
-        }),
-      ]);
-
-      if (!statsResponse.success || !statsResponse.data) {
-        setError(statsResponse.error || "آمار داشبورد بارگذاری نشد");
-      } else {
-        setStats(statsResponse.data);
-      }
-
-      if (jobsResponse.success && jobsResponse.data) {
-        setRecentJobs(jobsResponse.data.tasks);
-      }
-
+  async function loadDashboard() {
+    if (client?.role === 'master_admin') {
       setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+
+    const [statsResponse, jobsResponse] = await Promise.all([
+      api.get<ClientStats>("/api/v1/auth/stats"),
+      api.get<WaybillTaskListResponse>("/api/v1/waybill-jobs", {
+        page: 1,
+        page_size: 5,
+      }),
+    ]);
+
+    if (!statsResponse.success || !statsResponse.data) {
+      setError(statsResponse.error || "آمار داشبورد بارگذاری نشد");
+    } else {
+      setStats(statsResponse.data);
     }
 
+    if (jobsResponse.success && jobsResponse.data) {
+      setRecentJobs(jobsResponse.data.tasks);
+    }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
     loadDashboard();
   }, [client?.role]);
+
+  async function handleRetry(jobId: string) {
+    setRetryingJobId(jobId);
+    const response = await api.post(`/api/v1/waybill-jobs/${jobId}/retry`, { dispatch_now: true });
+    setRetryingJobId(null);
+    if (response.success) {
+      void loadDashboard();
+    } else {
+      alert(response.error || 'تلاش مجدد ناموفق بود');
+    }
+  }
 
   const cards = useMemo(
     () => [
@@ -243,6 +256,16 @@ export default function DashboardPage() {
                         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">منبع درخواست</p>
                         <p className="mt-0.5 text-xs font-bold text-slate-600">{statusLabel(job.source)}</p>
                       </div>
+                      {(job.status === 'failed' || job.status === 'needs_review') && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); void handleRetry(job.job_id); }}
+                          disabled={retryingJobId === job.job_id}
+                          className="rounded-xl bg-cyan-500 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-cyan-600 disabled:opacity-50 active:scale-[0.97]"
+                        >
+                          {retryingJobId === job.job_id ? '...' : 'تلاش مجدد'}
+                        </button>
+                      )}
                       <span
                         className={[
                           "inline-flex items-center rounded-xl px-4 py-2 text-xs font-bold shadow-sm",

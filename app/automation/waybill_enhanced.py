@@ -2136,7 +2136,6 @@ class EnhancedWaybillManager:
         form_errors = await self._extract_form_errors()
         if form_errors:
             logger.error("receiver_form_validation_failed", extra={"extra_fields": {"errors": form_errors}})
-        await asyncio.sleep(0.3)
 
     async def _fill_cargo_info(self, cargo: dict[str, Any]):
         """پر کردن اطلاعات کالا"""
@@ -2160,6 +2159,7 @@ class EnhancedWaybillManager:
             cargo_query = cargo_name or str(cargo["type"])
             await self._fill_verified_text_field(
                 [
+                    '#txtLoadName',
                     'input[id="txtLoadName"]',
                     'input[name="txtLoadName"]',
                 ],
@@ -2220,11 +2220,13 @@ class EnhancedWaybillManager:
 
                 if search_results and isinstance(search_results, list):
                     best_match = None
+                    normalized_query = self._normalize_text(cargo_query)
                     for res in search_results:
                         if not isinstance(res, dict):
                             continue
                         label = str(res.get("label") or res.get("value") or "").strip()
-                        if cargo_query.lower() in label.lower():
+                        normalized_label = self._normalize_text(label)
+                        if normalized_query in normalized_label or normalized_label in normalized_query:
                             best_match = res
                             break
                     if not best_match and search_results:
@@ -2279,24 +2281,42 @@ class EnhancedWaybillManager:
                 except Exception as ex:
                     logger.error(f"failed_setting_cargo_fields_via_js: {ex}")
 
+        # Wait for dynamic box type options to load
+        try:
+            await self._wait_for_select_options_count("#ddBoxType", min_count=1, timeout_ms=6000)
+        except Exception as ex:
+            logger.warning(f"failed_waiting_for_ddBoxType_options: {ex}")
+
         packaging_value = packaging_hint or cargo.get("packaging") or cargo.get("description")
+        selected_packaging = False
         if packaging_value:
-            await self._select_dropdown_with_fallback(
+            selected_packaging = await self._select_dropdown_with_fallback(
                 [
+                    '#ddBoxType',
                     'select[name="ddBoxType"]',
                     'select[id="ddBoxType"]',
                 ],
                 str(packaging_value),
                 "نوع بسته بندی",
-                required=True,
+                required=False,
             )
+
+        if not selected_packaging:
+            # Fall back to first non-placeholder option if specific option was not found or not provided
+            selected_packaging = await self._select_first_non_placeholder_option("#ddBoxType")
+            if selected_packaging:
+                logger.info("cargo_packaging_selected_first_non_placeholder")
+            else:
+                logger.warning("cargo_packaging_selection_failed_no_options")
 
         weight_val = cargo.get("weight")
         await self._fill_verified_text_field(
             [
+                '#txtWeight',
+                'input[name="txtWeight"]',
+                'input[id="txtWeight"]',
                 'input[name="CargoWeight"]',
                 'input[id="CargoWeight"]',
-                'input[name="txtWeight"]',
             ],
             self._normalize_number_text(weight_val, allow_decimal=True),
             "وزن کالا",
@@ -2305,9 +2325,11 @@ class EnhancedWaybillManager:
         count_val = cargo.get("count")
         await self._fill_verified_text_field(
             [
+                '#txtBoxNum',
+                'input[name="txtBoxNum"]',
+                'input[id="txtBoxNum"]',
                 'input[name="CargoCount"]',
                 'input[id="CargoCount"]',
-                'input[name="txtBoxNum"]',
             ],
             self._normalize_number_text(count_val or "1"),
             "تعداد کالا",
@@ -2316,14 +2338,30 @@ class EnhancedWaybillManager:
         desc_val = cargo.get("description")
         await self._fill_verified_text_field(
             [
+                '#txtLoadDetail',
+                'textarea[name="txtLoadDetail"]',
+                'textarea[id="txtLoadDetail"]',
                 'textarea[name="CargoDescription"]',
                 'textarea[id="CargoDescription"]',
-                'textarea[name="txtLoadDetail"]',
             ],
             desc_val or "",
             "توضیحات کالا",
             required=False,
         )
+
+        # Force form validation update in case some events didn't propagate
+        try:
+            await self.page.evaluate("""() => {
+                if (window.jQuery) {
+                    const $form = window.jQuery('#frmcommodityInsert');
+                    if ($form.length && $form.data('formValidation')) {
+                        $form.data('formValidation').validate();
+                    }
+                }
+            }""")
+        except Exception:
+            pass
+
         await self._click_with_fallback(
             [
                 "#btnInsertLoad",
@@ -2337,12 +2375,14 @@ class EnhancedWaybillManager:
         value_val = cargo.get("value")
         await self._fill_verified_text_field(
             [
+                '#txtLoadsValue',
                 'input[name="txtLoadsValue"]',
                 'input[id="txtLoadsValue"]',
             ],
             self._normalize_number_text(value_val or ""),
             "ارزش تقریبی بار",
             required=bool(value_val),
+            normalizer=self._digits_only,
         )
 
         # Click Next and check errors
@@ -2417,13 +2457,11 @@ class EnhancedWaybillManager:
                     selected_plate_value = ""
                 if selected_plate_value:
                     await self._set_select_value_with_js("#PelakComboTajmi", str(selected_plate_value))
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(0.1)
                 await self._wait_for_non_empty_value(
                     ["#TypeofLoaderTajmi", "#CapacityTajmi", "#CapacityTajmiTo"],
                     timeout_ms=8000,
                 )
-                await self._wait_for_select_options_count("#DriverListTajmi", timeout_ms=12000)
-                await self._log_select_options("#DriverListTajmi", "tajmi_driver_after_plate")
             else:
                 if plate_parts:
                     if await self._element_exists("#pelakTypeNormal"):
@@ -2519,6 +2557,7 @@ class EnhancedWaybillManager:
 
         try:
             await self._wait_for_select_options_count("#DriverListTajmi", timeout_ms=12000)
+            await self._log_select_options("#DriverListTajmi", "tajmi_driver_after_plate")
         except Exception:
             pass
 
@@ -3337,41 +3376,58 @@ class EnhancedWaybillManager:
 
     async def _wait_for_loading_overlays_to_disappear(self, timeout_ms: int = 15000) -> None:
         """Wait for Iranian government style 'لطفا صبر کنید' or other loading masks to disappear."""
-        loading_selectors = [
-            ".loading",
-            ".spinner",
-            ".k-loading-mask",
-            ".k-loading-image",
-            ".k-loading-color",
-            "div:has-text('لطفا صبر کنید')",
-            "div:has-text('در حال بارگذاری')",
-            "#loading",
-            "#loading-box",
-            ".loading-overlay",
-            ".loading-mask",
-            "div.modal-backdrop",
-            ".blockUI",
-            ".blockMsg",
-            ".blockPage",
-        ]
+        # Use single browser-side JS evaluation to avoid multiple Py-JS roundtrips for 15+ selectors.
+        js_check = """
+        () => {
+            const selectors = [
+                ".loading", ".spinner", ".k-loading-mask", ".k-loading-image", ".k-loading-color",
+                "#loading", "#loading-box", ".loading-overlay", ".loading-mask", "div.modal-backdrop",
+                ".blockUI", ".blockMsg", ".blockPage"
+            ];
+            for (const sel of selectors) {
+                try {
+                    const els = document.querySelectorAll(sel);
+                    for (const el of els) {
+                        const rect = el.getBoundingClientRect();
+                        const style = window.getComputedStyle(el);
+                        if (style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0) {
+                            return true;
+                        }
+                    }
+                } catch (e) {}
+            }
+            try {
+                const xpathResult = document.evaluate(
+                    "//div[contains(., 'لطفا صبر کنید') or contains(., 'در حال بارگذاری')]",
+                    document,
+                    null,
+                    XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+                    null
+                );
+                for (let i = 0; i < xpathResult.snapshotLength; i++) {
+                    const el = xpathResult.snapshotItem(i);
+                    const rect = el.getBoundingClientRect();
+                    const style = window.getComputedStyle(el);
+                    if (style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0) {
+                        return true;
+                    }
+                }
+            } catch (e) {}
+            return false;
+        }
+        """
 
         deadline = asyncio.get_running_loop().time() + (timeout_ms / 1000)
         while asyncio.get_running_loop().time() < deadline:
-            found_any = False
-            for selector in loading_selectors:
-                try:
-                    # Use a fast check
-                    handle = await self.page.query_selector(selector)
-                    if handle and await handle.is_visible():
-                        found_any = True
-                        break
-                except Exception:
-                    continue
+            try:
+                found_any = await self.page.evaluate(js_check)
+            except Exception:
+                found_any = False
 
             if not found_any:
                 return
 
-            await asyncio.sleep(0.1)  # Reduced from 0.25
+            await asyncio.sleep(0.1)
 
     async def _close_blocking_overlays(self) -> None:
         """Attempt to close blocking overlays (modals, popups, backdrops)."""

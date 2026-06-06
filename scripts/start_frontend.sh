@@ -11,7 +11,7 @@ elif [ -d "$PROJECT_DIR/app/frontend" ]; then
     echo "✅ مسیر frontend پیدا شد: app/frontend"
 else
     echo "❌ مسیر frontend پیدا نشد!"
-    return 1 2>/dev/null || sys.exit(1)
+    return 1 2>/dev/null || exit 1
 fi
 
 cd "$FRONTEND_DIR"
