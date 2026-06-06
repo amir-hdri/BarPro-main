@@ -29,7 +29,7 @@ class LocationSelector:
         self.map_controller = MapController(page)
 
     @staticmethod
-    def _normalize_text(value: str) -> str:
+    def _normalize_text(value: str | None) -> str:
         if value is None:
             return ""
         normalized = str(value).strip().lower()
@@ -61,9 +61,9 @@ class LocationSelector:
     def _make_visible_selector(selector: str) -> str:
         if not selector:
             return selector
-        if selector.startswith("xpath=") or "[type='hidden']" in selector or "type=\"hidden\"" in selector:
+        if selector.startswith("xpath=") or "[type='hidden']" in selector or 'type="hidden"' in selector:
             return selector
-        
+
         parts = []
         for part in selector.split(","):
             part_stripped = part.strip()
@@ -103,15 +103,15 @@ class LocationSelector:
 
         return self._unique_preserve_order(selectors)
 
-    async def _fill_input_like(self, selector: str, value: str) -> bool:
+    async def _fill_input_like(self, selector: str, value: str, visible: bool = True) -> bool:
         if not value:
             return False
 
-        visible_selector = self._make_visible_selector(selector)
+        target_selector = self._make_visible_selector(selector) if visible else selector
         try:
-            await self.page.fill(visible_selector, value)
+            await self.page.fill(target_selector, value)
             await self.page.eval_on_selector(
-                visible_selector,
+                target_selector,
                 "el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('input').trigger('change').trigger('keyup'); } }",
             )
             return True
@@ -119,7 +119,7 @@ class LocationSelector:
             pass
 
         try:
-            locator = self.page.locator(visible_selector).first
+            locator = self.page.locator(target_selector).first
             if await locator.count() == 0:
                 return False
             await locator.fill(value)
@@ -132,35 +132,37 @@ class LocationSelector:
 
         try:
             updated = await self.page.eval_on_selector(
-                visible_selector,
+                target_selector,
                 """(el, rawValue) => {
                     const value = String(rawValue ?? '');
                     if (!el) return false;
-                    if ('value' in el) {
-                        let prototype = window.HTMLInputElement.prototype;
-                        if (el instanceof window.HTMLTextAreaElement) {
-                            prototype = window.HTMLTextAreaElement.prototype;
-                        } else if (el instanceof window.HTMLSelectElement) {
-                            prototype = window.HTMLSelectElement.prototype;
+
+                    let prototype = Object.getPrototypeOf(el);
+                    let setter = null;
+                    while (prototype) {
+                        const desc = Object.getOwnPropertyDescriptor(prototype, 'value');
+                        if (desc && desc.set) {
+                            setter = desc.set;
+                            break;
                         }
-                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-                        if (nativeInputValueSetter) {
-                            nativeInputValueSetter.call(el, value);
-                        } else {
-                            el.value = value;
-                        }
-                        if (el._valueTracker) {
-                            el._valueTracker.setValue(value);
-                        }
-                        el.dispatchEvent(new Event('input', { bubbles: true }));
-                        el.dispatchEvent(new Event('change', { bubbles: true }));
-                        el.dispatchEvent(new Event('keyup', { bubbles: true }));
-                        if (window.jQuery) {
-                            window.jQuery(el).trigger('input').trigger('change').trigger('keyup');
-                        }
-                        return true;
+                        prototype = Object.getPrototypeOf(prototype);
                     }
-                    return false;
+
+                    if (setter) {
+                        setter.call(el, value);
+                    } else {
+                        el.value = value;
+                    }
+                    if (el._valueTracker) {
+                        el._valueTracker.setValue(value);
+                    }
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    el.dispatchEvent(new Event('keyup', { bubbles: true }));
+                    if (window.jQuery) {
+                        window.jQuery(el).trigger('input').trigger('change').trigger('keyup');
+                    }
+                    return true;
                 }""",
                 value,
             )
@@ -520,45 +522,91 @@ class LocationSelector:
     async def _fill_coordinate_hidden_fields(self, lat: float, lng: float, prefix: str) -> bool:
         """تلاش برای یافتن و پر کردن hidden fields مربوط به مختصات"""
         pane_id = "pills-5" if prefix == "Origin" else "pills-6"
-        hidden_selectors = [
-            # Prefix-specific selectors (highest priority)
+        other_pane_id = "pills-6" if prefix == "Origin" else "pills-5"
+        other_prefix_lower = "destination" if prefix == "Origin" else "origin"
+
+        # Dynamically exclude inputs of the other prefix/pane to prevent cross-contamination
+        if prefix == "Origin":
+            exclusions = [
+                f"#{other_pane_id} *",
+                f'[name*="{other_prefix_lower}" i]',
+                f'[id*="{other_prefix_lower}" i]',
+                '[name*="dest" i]',
+                '[id*="dest" i]',
+                '[name*="magsad" i]',
+                '[id*="magsad" i]',
+            ]
+        else:
+            exclusions = [
+                f"#{other_pane_id} *",
+                f'[name*="{other_prefix_lower}" i]',
+                f'[id*="{other_prefix_lower}" i]',
+                '[name*="source" i]',
+                '[id*="source" i]',
+                '[name*="start" i]',
+                '[id*="start" i]',
+                '[name*="src" i]',
+                '[id*="src" i]',
+                '[name*="mabda" i]',
+                '[id*="mabda" i]',
+            ]
+        not_clause = "".join(f":not({ex})" for ex in exclusions)
+
+        lat_selectors = [
             f'input[name="{prefix}Lat"]',
-            f'input[name="{prefix}Lng"]',
             f'input[name="{prefix}Latitude"]',
-            f'input[name="{prefix}Longitude"]',
             f'input[id="{prefix.lower()}_lat"]',
-            f'input[id="{prefix.lower()}_lng"]',
+            f'input[id="{prefix.lower()}_latitude"]',
             f'input[name*="Coordinate"][name*="{prefix.lower()}"][name*="lat"]',
-            f'input[name*="Coordinate"][name*="{prefix.lower()}"][name*="lng"]',
             f'input[name*="Coordinate"][name*="{prefix.lower()}"][name*="latitude"]',
-            f'input[name*="Coordinate"][name*="{prefix.lower()}"][name*="longitude"]',
-            # Tab pane-scoped generic selectors
+            # Tab pane-scoped
             f'#{pane_id} input[name*="lat"]',
-            f'#{pane_id} input[name*="lng"]',
-            f'#{pane_id} input[id*="lat"]',
-            f'#{pane_id} input[id*="lng"]',
-            f'#{pane_id} input[name*="latitude"]',
-            f'#{pane_id} input[name*="longitude"]',
-            f'#{pane_id} input[id*="latitude"]',
-            f'#{pane_id} input[id*="longitude"]',
-            # Page-wide generic selectors (lowest fallback)
+            f'#{pane_id} input[name*="lat" i]',
+            f'#{pane_id} input[name*="latitude" i]',
+            f'#{pane_id} input[id*="lat" i]',
+            f'#{pane_id} input[id*="latitude" i]',
+            # Page-wide fallbacks
             'input[name*="lat"]',
+            f'input[name*="lat" i]{not_clause}',
+            f'input[name*="latitude" i]{not_clause}',
+            f'input[id*="lat" i]{not_clause}',
+            f'input[id*="latitude" i]{not_clause}',
+        ]
+
+        lng_selectors = [
+            f'input[name="{prefix}Lng"]',
+            f'input[name="{prefix}Longitude"]',
+            f'input[id="{prefix.lower()}_lng"]',
+            f'input[id="{prefix.lower()}_longitude"]',
+            f'input[name*="Coordinate"][name*="{prefix.lower()}"][name*="lng"]',
+            f'input[name*="Coordinate"][name*="{prefix.lower()}"][name*="longitude"]',
+            # Tab pane-scoped
+            f'#{pane_id} input[name*="lng"]',
+            f'#{pane_id} input[name*="lng" i]',
+            f'#{pane_id} input[name*="longitude" i]',
+            f'#{pane_id} input[id*="lng" i]',
+            f'#{pane_id} input[id*="longitude" i]',
+            f'#{pane_id} input[name*="lon" i]',
+            f'#{pane_id} input[id*="lon" i]',
+            # Page-wide fallbacks
             'input[name*="lng"]',
-            'input[id*="lat"]',
-            'input[id*="lng"]',
+            f'input[name*="lng" i]{not_clause}',
+            f'input[name*="longitude" i]{not_clause}',
+            f'input[id*="lng" i]{not_clause}',
+            f'input[id*="longitude" i]{not_clause}',
+            f'input[name*="lon" i]{not_clause}',
+            f'input[id*="lon" i]{not_clause}',
         ]
 
         lat_filled = False
-        lng_filled = False
+        for selector in lat_selectors:
+            if await self._fill_input_like(selector, str(lat), visible=False):
+                lat_filled = True
 
-        for selector in hidden_selectors:
-            sel_lower = selector.lower()
-            if "lat" in sel_lower or "latitude" in sel_lower:
-                if await self._fill_input_like(selector, str(lat)):
-                    lat_filled = True
-            elif "lng" in sel_lower or "longitude" in sel_lower or "lon" in sel_lower:
-                if await self._fill_input_like(selector, str(lng)):
-                    lng_filled = True
+        lng_filled = False
+        for selector in lng_selectors:
+            if await self._fill_input_like(selector, str(lng), visible=False):
+                lng_filled = True
 
         return lat_filled and lng_filled
 
@@ -570,47 +618,83 @@ class LocationSelector:
             const lng = {lng};
             const prefix = "{prefix.lower()}";
 
-            const inputs = document.querySelectorAll('input[type="hidden"]');
+            const inputs = document.querySelectorAll('input');
             let found = false;
 
-            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+            const setValue = (el, val) => {{
+                let prototype = Object.getPrototypeOf(el);
+                let setter = null;
+                while (prototype) {{
+                    const desc = Object.getOwnPropertyDescriptor(prototype, 'value');
+                    if (desc && desc.set) {{
+                        setter = desc.set;
+                        break;
+                    }}
+                    prototype = Object.getPrototypeOf(prototype);
+                }}
+                if (setter) {{
+                    setter.call(el, val);
+                }} else {{
+                    el.value = val;
+                }}
+                if (el._valueTracker) {{
+                    el._valueTracker.setValue(val);
+                }}
+                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                el.dispatchEvent(new Event('keyup', {{ bubbles: true }}));
+                if (window.jQuery) {{
+                    window.jQuery(el).trigger('input').trigger('change').trigger('keyup');
+                }}
+            }};
+
+            const isOrigin = prefix === "origin";
+            const isDest = prefix === "destination" || prefix === "dest";
 
             inputs.forEach(input => {{
                 const name = (input.name || '').toLowerCase();
                 const id = (input.id || '').toLowerCase();
 
-                if ((name.includes('lat') || id.includes('lat')) &&
-                    (name.includes(prefix) || id.includes(prefix) ||
-                     name.includes('origin') || name.includes('source') ||
-                     name.includes('dest') || name.includes('magsad'))) {{
-                    if (nativeInputValueSetter) {{
-                        nativeInputValueSetter.call(input, lat);
-                    }} else {{
-                        input.value = lat;
+                const isLat = name.includes('lat') || id.includes('lat') || name.includes('latitude') || id.includes('latitude');
+                const isLng = name.includes('lng') || id.includes('lng') || name.includes('lon') || id.includes('lon') || name.includes('longitude') || id.includes('longitude');
+
+                if (!isLat && !isLng) return;
+
+                let prefixMatch = false;
+                if (isOrigin) {{
+                    if (name.includes('origin') || id.includes('origin') || name.includes('source') || id.includes('source') || name.includes('mabda') || id.includes('mabda') || name.includes('start') || id.includes('start')) {{
+                        prefixMatch = true;
+                    }} else if (!(name.includes('dest') || id.includes('dest') || name.includes('magsad') || id.includes('magsad'))) {{
+                        const insideOriginPane = input.closest('#pills-5');
+                        const insideDestPane = input.closest('#pills-6');
+                        if (insideOriginPane) {{
+                            prefixMatch = true;
+                        }} else if (!insideDestPane) {{
+                            prefixMatch = true;
+                        }}
                     }}
-                    if (input._valueTracker) {{
-                        input._valueTracker.setValue(lat);
+                }} else if (isDest) {{
+                    if (name.includes('dest') || id.includes('dest') || name.includes('magsad') || id.includes('magsad')) {{
+                        prefixMatch = true;
+                    }} else if (!(name.includes('origin') || id.includes('origin') || name.includes('source') || id.includes('source') || name.includes('mabda') || id.includes('mabda'))) {{
+                        const insideOriginPane = input.closest('#pills-5');
+                        const insideDestPane = input.closest('#pills-6');
+                        if (insideDestPane) {{
+                            prefixMatch = true;
+                        }} else if (!insideOriginPane) {{
+                            prefixMatch = true;
+                        }}
                     }}
-                    input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    found = true;
                 }}
-                if ((name.includes('lng') || name.includes('lon') ||
-                     id.includes('lng') || id.includes('lon')) &&
-                    (name.includes(prefix) || id.includes(prefix) ||
-                     name.includes('origin') || name.includes('source') ||
-                     name.includes('dest') || name.includes('magsad'))) {{
-                    if (nativeInputValueSetter) {{
-                        nativeInputValueSetter.call(input, lng);
-                    }} else {{
-                        input.value = lng;
+
+                if (prefixMatch) {{
+                    if (isLat) {{
+                        setValue(input, lat);
+                        found = true;
+                    }} else if (isLng) {{
+                        setValue(input, lng);
+                        found = true;
                     }}
-                    if (input._valueTracker) {{
-                        input._valueTracker.setValue(lng);
-                    }}
-                    input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    found = true;
                 }}
             }});
 
@@ -1198,12 +1282,15 @@ class LocationSelector:
     async def _make_http_request(self, url: str, params: dict, headers: dict, timeout: float = 5.0) -> Any:
         """اجرای درخواست HTTP با قابلیت تلاش مجدد و استفاده از پروکسی در صورت شکست"""
         import aiohttp
+
         from app.automation.proxy_rotator import get_proxy_rotator
 
         # 1. تلاش برای درخواست مستقیم (سریع‌ترین حالت در صورت در دسترس بودن شبکه)
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, headers=headers, timeout=timeout) as resp:
+                async with session.get(
+                    url, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout)
+                ) as resp:
                     if resp.status == 200:
                         return await resp.json()
         except Exception as e:
@@ -1220,7 +1307,7 @@ class LocationSelector:
                             params=params,
                             headers=headers,
                             proxy=proxy_info.full_url,
-                            timeout=timeout,
+                            timeout=aiohttp.ClientTimeout(total=timeout),
                         ) as resp:
                             if resp.status == 200:
                                 return await resp.json()
@@ -1282,9 +1369,7 @@ class LocationSelector:
                     or ""
                 )
 
-                district = (
-                    address.get("suburb") or address.get("district") or address.get("neighbourhood") or ""
-                )
+                district = address.get("suburb") or address.get("district") or address.get("neighbourhood") or ""
 
                 result = {}
                 if province:
