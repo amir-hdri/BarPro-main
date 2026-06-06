@@ -1,6 +1,7 @@
 """
 Pydantic schemas for multi-tenant API requests and responses.
 """
+
 import re
 from datetime import datetime
 from typing import Any
@@ -18,7 +19,7 @@ from app.schemas.waybill import (
 )
 
 PERSIAN_PLATE_LETTERS = "اآبپتثجچحخدذرزژسشصضطظعغفقکگلمنوهی"
-PLATE_PATTERN = re.compile(rf"^\d{{2}}[{PERSIAN_PLATE_LETTERS}]\d{{3}}ایران\d{{2}}$")
+PLATE_PATTERN = re.compile(rf"^\d{{2}}(الف|[{PERSIAN_PLATE_LETTERS}])\d{{3}}ایران\d{{2}}$")
 
 
 def _normalize_digits(value: str) -> str:
@@ -45,7 +46,7 @@ def _normalize_national_code(value: str) -> str:
 def _normalize_plate(value: str) -> str:
     compact = re.sub(r"[\s\-]+", "", _normalize_text(_normalize_digits(value)))
     compact = compact.replace("ایران", "")
-    match = re.fullmatch(rf"(\d{{2}})([{PERSIAN_PLATE_LETTERS}])(\d{{3}})(\d{{2}})", compact)
+    match = re.fullmatch(rf"(\d{{2}})(الف|[{PERSIAN_PLATE_LETTERS}])(\d{{3}})(\d{{2}})", compact)
     if not match:
         raise ValueError("فرمت پلاک باید به صورت ۱۲ب۳۴۵ایران۶۷ باشد")
     return f"{match.group(1)}{match.group(2)}{match.group(3)}ایران{match.group(4)}"
@@ -53,20 +54,24 @@ def _normalize_plate(value: str) -> str:
 
 # ==================== AUTH SCHEMAS ====================
 
+
 class ClientLoginRequest(BaseModel):
     """Client login request."""
+
     email: str = Field(..., max_length=255)
     password: str = Field(..., min_length=6, max_length=100)
 
 
 class AdminLoginRequest(BaseModel):
     """Master admin login request."""
+
     username: str = Field(..., min_length=3, max_length=100)
     password: str = Field(..., min_length=3, max_length=100)
 
 
 class ClientRegisterRequest(BaseModel):
     """Client registration request."""
+
     client_code: str = Field(..., max_length=50, pattern=r"^[a-zA-Z0-9_-]+$")
     name: str = Field(..., max_length=255)
     email: str = Field(..., max_length=255)
@@ -96,6 +101,7 @@ class ClientRegisterRequest(BaseModel):
 
 class ClientResponse(BaseModel):
     """Client profile response."""
+
     id: int
     client_code: str
     name: str
@@ -120,6 +126,7 @@ class ClientResponse(BaseModel):
 
 class AdminClientUpdateRequest(BaseModel):
     """Master admin update request for tenant accounts."""
+
     client_code: str | None = Field(None, max_length=50, pattern=r"^[a-zA-Z0-9_-]+$")
     name: str | None = Field(None, max_length=255)
     email: str | None = Field(None, max_length=255)
@@ -151,8 +158,10 @@ class AdminClientUpdateRequest(BaseModel):
 
 # ==================== DRIVER SCHEMAS ====================
 
+
 class DriverCreateRequest(BaseModel):
     """Create a new driver."""
+
     driver_national_code: str = Field(..., max_length=10, pattern=r"^[0-9۰-۹]+$")
     full_name: str = Field(..., max_length=255)
     phone: str | None = Field(None, max_length=20)
@@ -164,6 +173,7 @@ class DriverCreateRequest(BaseModel):
 
 class DriverUpdateRequest(BaseModel):
     """Update driver information."""
+
     full_name: str | None = Field(None, max_length=255)
     phone: str | None = Field(None, max_length=20)
     license_number: str | None = Field(None, max_length=50)
@@ -175,6 +185,7 @@ class DriverUpdateRequest(BaseModel):
 
 class DriverResponse(BaseModel):
     """Driver response (never includes passwords)."""
+
     id: int
     client_id: int
     driver_national_code: str
@@ -294,8 +305,10 @@ class DriverScheduleResponse(BaseModel):
 
 # ==================== WAYBILL JOB SCHEMAS ====================
 
+
 class WaybillPayload(BaseModel):
     """Waybill data for a single job (Flat/Compact version)."""
+
     # Driver info
     driver_national_code: str = Field(..., max_length=10)
 
@@ -346,6 +359,7 @@ class WaybillPayload(BaseModel):
 
 class WaybillNestedPayload(BaseModel):
     """Rich nested waybill data matching the frontend and WaybillMapRequest."""
+
     sender: SenderModel
     receiver: ReceiverModel
     origin: LocationModel
@@ -358,6 +372,7 @@ class WaybillNestedPayload(BaseModel):
 
 class WaybillJobCreateRequest(BaseModel):
     """Create a single waybill job (manual form)."""
+
     driver_national_code: str = Field(..., max_length=10)
     payload: WaybillPayload | WaybillNestedPayload
     max_retries: int = Field(default=3, ge=0, le=10)
@@ -376,6 +391,7 @@ class WaybillJobCreateRequest(BaseModel):
 
 class WaybillRetryRequest(BaseModel):
     """Manual retry controls for an existing job."""
+
     force_auth_refresh: bool = False
     retry_with_overrides: dict[str, Any] | None = None
     dispatch_now: bool = True
@@ -383,6 +399,7 @@ class WaybillRetryRequest(BaseModel):
 
 class WaybillJobResponse(BaseModel):
     """Waybill job status response."""
+
     id: int
     job_id: str
     client_id: int
@@ -409,8 +426,10 @@ class WaybillJobResponse(BaseModel):
 
 # ==================== BULK UPLOAD SCHEMAS ====================
 
+
 class BulkUploadResponse(BaseModel):
     """Response for bulk Excel upload."""
+
     batch_id: str
     client_id: int
     original_filename: str
@@ -424,6 +443,7 @@ class BulkUploadResponse(BaseModel):
 
 class BatchStatusResponse(BaseModel):
     """Batch processing status."""
+
     batch_id: str
     status: str
     total_rows: int
@@ -438,8 +458,10 @@ class BatchStatusResponse(BaseModel):
 
 # ==================== REPORT SCHEMAS ====================
 
+
 class TaskFilterRequest(BaseModel):
     """Filter tasks by various criteria."""
+
     status: str | None = None
     driver_id: int | None = None
     date_from: datetime | None = None
@@ -450,6 +472,7 @@ class TaskFilterRequest(BaseModel):
 
 class TaskListResponse(BaseModel):
     """Paginated task list."""
+
     tasks: list[WaybillJobResponse]
     total: int
     page: int
@@ -459,6 +482,7 @@ class TaskListResponse(BaseModel):
 
 class ClientStatsResponse(BaseModel):
     """Client dashboard statistics."""
+
     client_id: int
     total_drivers: int
     active_drivers: int
@@ -476,8 +500,10 @@ class ClientStatsResponse(BaseModel):
 
 # ==================== TASK LOG SCHEMAS ====================
 
+
 class TaskLogEntry(BaseModel):
     """Single task log entry."""
+
     id: int
     job_id: str
     step: str
@@ -491,12 +517,14 @@ class TaskLogEntry(BaseModel):
 
 class TaskLogsResponse(BaseModel):
     """Task logs response."""
+
     job_id: str
     logs: list[TaskLogEntry]
 
 
 class TaskTimelineEntry(BaseModel):
     """Unified timeline entry sourced from domain events or task logs."""
+
     entry_id: str
     job_id: str
     source: str
@@ -511,6 +539,7 @@ class TaskTimelineEntry(BaseModel):
 
 class TaskTimelineQuery(BaseModel):
     """Server-side timeline filtering and pagination."""
+
     phase: str | None = None
     event_type: str | None = None
     source: str | None = None
@@ -522,6 +551,7 @@ class TaskTimelineQuery(BaseModel):
 
 class TaskTimelineResponse(BaseModel):
     """Merged timeline for a single job."""
+
     job_id: str
     total: int
     page: int

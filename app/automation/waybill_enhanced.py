@@ -54,7 +54,7 @@ class EnhancedWaybillManager:
         "×",
         "÷",
     )
-    _plate_pattern = re.compile(r"^(\d{2})([اآبپتثجچحخدذرزژسشصضطظعغفقکگلمنوهی])(\d{3})ایران(\d{2})$")
+    _plate_pattern = re.compile(r"^(\d{2})(الف|[اآبپتثجچحخدذرزژسشصضطظعغفقکگلمنوهی])(\d{3})ایران(\d{2})$")
     _pill_names = {
         1: "sender",
         2: "receiver",
@@ -564,7 +564,9 @@ class EnhancedWaybillManager:
             if is_visible:
                 if prefer_type:
                     filler_chain.append(
-                        lambda selector=selector: self.page.locator(selector).first.type(str(value), delay=60, timeout=1000)
+                        lambda selector=selector: self.page.locator(selector).first.type(
+                            str(value), delay=60, timeout=1000
+                        )
                     )
                 filler_chain.extend(
                     (
@@ -573,9 +575,7 @@ class EnhancedWaybillManager:
                     )
                 )
             else:
-                filler_chain.append(
-                    lambda selector=selector: self._set_value_with_js(selector, str(value))
-                )
+                filler_chain.append(lambda selector=selector: self._set_value_with_js(selector, str(value)))
 
             for filler in filler_chain:
                 try:
@@ -639,9 +639,9 @@ class EnhancedWaybillManager:
     def _make_visible_selector(selector: str) -> str:
         if not selector:
             return selector
-        if selector.startswith("xpath=") or "[type='hidden']" in selector or "type=\"hidden\"" in selector:
+        if selector.startswith("xpath=") or "[type='hidden']" in selector or 'type="hidden"' in selector:
             return selector
-        
+
         parts = []
         for part in selector.split(","):
             part_stripped = part.strip()
@@ -2188,7 +2188,7 @@ class EnhancedWaybillManager:
             cargo_query = cargo_name or str(cargo["type"])
             await self._fill_verified_text_field(
                 [
-                    '#txtLoadName',
+                    "#txtLoadName",
                     'input[id="txtLoadName"]',
                     'input[name="txtLoadName"]',
                 ],
@@ -2238,7 +2238,7 @@ class EnhancedWaybillManager:
                                 });
                             });
                         }""",
-                        cargo_query
+                        cargo_query,
                     )
                 except Exception as ex:
                     logger.warning(f"cargo_api_lookup_failed: {ex}")
@@ -2285,7 +2285,7 @@ class EnhancedWaybillManager:
                                 window.jQuery(el).trigger('input').trigger('change');
                             }
                         }""",
-                        selected_id
+                        selected_id,
                     )
 
                     await self.page.eval_on_selector(
@@ -2304,9 +2304,11 @@ class EnhancedWaybillManager:
                                 window.jQuery(el).trigger('input').trigger('change');
                             }
                         }""",
-                        selected_name
+                        selected_name,
                     )
-                    logger.info("cargo_fields_set_via_js", extra={"extra_fields": {"id": selected_id, "name": selected_name}})
+                    logger.info(
+                        "cargo_fields_set_via_js", extra={"extra_fields": {"id": selected_id, "name": selected_name}}
+                    )
                 except Exception as ex:
                     logger.error(f"failed_setting_cargo_fields_via_js: {ex}")
 
@@ -2321,7 +2323,7 @@ class EnhancedWaybillManager:
         if packaging_value:
             selected_packaging = await self._select_dropdown_with_fallback(
                 [
-                    '#ddBoxType',
+                    "#ddBoxType",
                     'select[name="ddBoxType"]',
                     'select[id="ddBoxType"]',
                 ],
@@ -2341,7 +2343,7 @@ class EnhancedWaybillManager:
         weight_val = cargo.get("weight")
         await self._fill_verified_text_field(
             [
-                '#txtWeight',
+                "#txtWeight",
                 'input[name="txtWeight"]',
                 'input[id="txtWeight"]',
                 'input[name="CargoWeight"]',
@@ -2354,7 +2356,7 @@ class EnhancedWaybillManager:
         count_val = cargo.get("count")
         await self._fill_verified_text_field(
             [
-                '#txtBoxNum',
+                "#txtBoxNum",
                 'input[name="txtBoxNum"]',
                 'input[id="txtBoxNum"]',
                 'input[name="CargoCount"]',
@@ -2367,7 +2369,7 @@ class EnhancedWaybillManager:
         desc_val = cargo.get("description")
         await self._fill_verified_text_field(
             [
-                '#txtLoadDetail',
+                "#txtLoadDetail",
                 'textarea[name="txtLoadDetail"]',
                 'textarea[id="txtLoadDetail"]',
                 'textarea[name="CargoDescription"]',
@@ -2404,7 +2406,7 @@ class EnhancedWaybillManager:
         value_val = cargo.get("value")
         await self._fill_verified_text_field(
             [
-                '#txtLoadsValue',
+                "#txtLoadsValue",
                 'input[name="txtLoadsValue"]',
                 'input[id="txtLoadsValue"]',
             ],
@@ -2608,9 +2610,14 @@ class EnhancedWaybillManager:
                 opt_text = self._normalize_text(option.get("text") or "")
                 opt_val = self._normalize_text(option.get("value") or "")
                 if normalized_code in opt_text or normalized_code in opt_val:
-                    selected_driver = await self._set_select_value_with_js("#DriverListTajmi", option.get("value") or "")
+                    selected_driver = await self._set_select_value_with_js(
+                        "#DriverListTajmi", option.get("value") or ""
+                    )
                     if selected_driver:
-                        logger.info("vehicle_tajmi_driver_selected_by_code", extra={"extra_fields": {"driver_code": driver_code}})
+                        logger.info(
+                            "vehicle_tajmi_driver_selected_by_code",
+                            extra={"extra_fields": {"driver_code": driver_code}},
+                        )
                         break
 
         # 2. Match first non-placeholder option

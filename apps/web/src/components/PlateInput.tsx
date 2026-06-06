@@ -78,19 +78,30 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
       nextValue = nextValue.replace(/[^\u0600-\u06FF]/g, "");
     }
 
-    const maxLengths = [2, 1, 3, 2];
-    // Special case for "الف" if needed, but the canonicalize handles it as one letter usually.
-    // If user types more, we might need to handle it. For now, limit to 1 char as per standard plate logic.
-    
     if (index === 0) newParts.part1 = nextValue.slice(0, 2);
-    if (index === 1) newParts.part2 = nextValue.slice(0, 1);
+    if (index === 1) {
+      // Allow 'الف' as a multi-character plate letter step-by-step
+      const allowedPrefixes = ["ا", "ال", "الف"];
+      if (allowedPrefixes.includes(nextValue)) {
+        newParts.part2 = nextValue;
+      } else {
+        newParts.part2 = nextValue.slice(0, 1);
+      }
+    }
     if (index === 2) newParts.part3 = nextValue.slice(0, 3);
     if (index === 3) newParts.part4 = nextValue.slice(0, 2);
 
     updateParts(newParts);
 
-    // Auto-tab
-    if (nextValue.length >= maxLengths[index] && index < 3) {
+    // Auto-tab logic supporting multi-character 'الف' letter
+    let shouldTab = false;
+    if (index === 0) shouldTab = nextValue.length >= 2;
+    else if (index === 1) {
+      shouldTab = newParts.part2 === "الف" || (newParts.part2.length === 1 && newParts.part2 !== "ا");
+    }
+    else if (index === 2) shouldTab = nextValue.length >= 3;
+
+    if (shouldTab && index < 3) {
       refs[index + 1].current?.focus();
     }
   };
@@ -137,7 +148,7 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
           value={parts.part2}
           onChange={(e) => handleInputChange(1, e.target.value)}
           onKeyDown={(e) => handleKeyDown(1, e)}
-          maxLength={1}
+          maxLength={parts.part2.startsWith("ا") ? 3 : 1}
           placeholder="الف"
           style={{ direction: 'rtl' }}
         />

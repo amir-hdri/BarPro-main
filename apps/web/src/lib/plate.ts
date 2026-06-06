@@ -23,7 +23,7 @@ export function normalizePersianText(value: string): string {
 export function canonicalizePlate(value: string): string {
   const normalized = normalizeDigits(normalizePersianText(value)).replace(/\s+/g, "").replace(/-/g, "").replaceAll("ايران", "ایران");
   const compact = normalized.replaceAll("ایران", "");
-  const fullMatch = compact.match(new RegExp(`^(\\d{2})([${PERSIAN_PLATE_LETTERS}])(\\d{3})(\\d{2})$`, "u"));
+  const fullMatch = compact.match(new RegExp(`^(\\d{2})(الف|[${PERSIAN_PLATE_LETTERS}])(\\d{3})(\\d{2})$`, "u"));
 
   if (fullMatch) {
     return `${fullMatch[1]}${fullMatch[2]}${fullMatch[3]}ایران${fullMatch[4]}`;
@@ -34,5 +34,5 @@ export function canonicalizePlate(value: string): string {
 
 export function isValidIranPlate(value: string): boolean {
   const canonical = canonicalizePlate(value);
-  return new RegExp(`^\\d{2}[${PERSIAN_PLATE_LETTERS}]\\d{3}ایران\\d{2}$`, "u").test(canonical);
+  return new RegExp(`^\\d{2}(الف|[${PERSIAN_PLATE_LETTERS}])\\d{3}ایران\\d{2}$`, "u").test(canonical);
 }

@@ -101,13 +101,14 @@ export default function NewWaybillPage() {
     if (typeof nextValue === "string") {
       if (name === "plate_number") {
         nextValue = canonicalizePlate(nextValue);
+      } else if (name === "cargo_value" || name === "financial_cost") {
+        const cleanDigits = normalizeDigits(nextValue).replace(/\D/g, "");
+        nextValue = cleanDigits ? Number(cleanDigits).toLocaleString("en-US") : "";
       } else if (
         name === "driver_national_code" ||
         name === "driver_phone" ||
         name === "cargo_weight" ||
         name === "cargo_count" ||
-        name === "cargo_value" ||
-        name === "financial_cost" ||
         name === "sender_phone" ||
         name === "receiver_phone" ||
         name === "sender_national_code" ||
