@@ -1,0 +1,3 @@
+2026-06-07 13:07:07,395 - [INFO] - [GLOBAL] START: Starting Diagnostic Run
+2026-06-07 13:07:09,231 - [INFO] - [NAVIGATION] START: Navigating to https://barname.utcms.ir/Barname/Account/Login
+2026-06-07 13:07:26,779 - [INFO] - Full diagnostic JSON report saved to /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/report.json
