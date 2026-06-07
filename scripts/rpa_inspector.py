@@ -2,13 +2,14 @@
 """
 RPA Inspector & Diagnostic Tool for UTCMS
 -----------------------------------------
-This is a comprehensive standalone diagnostic and analysis tool designed to monitor 
+This is a comprehensive diagnostic and analysis tool designed to monitor 
 and profile the RPA bot's interaction with the UTCMS website. It captures screenshots, 
 HTML page dumps, console logs, uncaught JS errors, network requests/responses, latencies, 
 and blocking DOM overlays.
 
-Commands:
-  --run      Run a diagnostic session (navigating, log in, elements verification).
+Modes:
+  --run      Run a single live browser diagnostic session (navigating, elements verification).
+  --daemon   Run as a background daemon monitoring both logs and active site health.
   --analyze  Load a previous JSON report and print a complete performance and error audit.
 """
 
@@ -19,6 +20,7 @@ import os
 import sys
 import time
 import argparse
+import signal
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -58,6 +60,7 @@ class RPAInspector:
         
         self.start_time = time.time()
         self.request_start_times: Dict[Request, float] = {}
+        self.shutdown_event = asyncio.Event()
 
     def _log_event(self, step: str, status: str, message: str, details: Optional[Dict] = None):
         """Logs an event both to file/stdout and the structured diagnostic output."""
@@ -70,7 +73,7 @@ class RPAInspector:
             "details": details or {}
         }
         self.logs.append(entry)
-        level = logging.INFO if status in ("SUCCESS", "START") else logging.WARNING if status == "WARNING" else logging.ERROR if status == "FAILURE" else logging.DEBUG
+        level = logging.INFO if status in ("SUCCESS", "START", "INFO") else logging.WARNING if status == "WARNING" else logging.ERROR if status == "FAILURE" else logging.DEBUG
         logger.log(level, f"[{step}] {status}: {message}")
 
     async def capture_state(self, page: Page, name: str):
@@ -229,16 +232,86 @@ class RPAInspector:
         self.js_errors.append(error_entry)
         self._log_event("PAGE_EXCEPTION", "FAILURE", f"Uncaught Javascript error: {err}")
 
-    # Main execution loop
+    # Signal Handling
+    def setup_signal_handlers(self):
+        try:
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, lambda: asyncio.create_task(self.shutdown()))
+            logger.info("Signal handlers for SIGINT and SIGTERM registered successfully.")
+        except NotImplementedError:
+            pass
+
+    async def shutdown(self):
+        logger.info("Shutdown signal received. Terminating diagnostic loop...")
+        self.shutdown_event.set()
+
+    # Log Monitoring (Passive)
+    async def _monitor_backend_log(self, file_path: Path):
+        """Monitors backend.log for any errors or failures during runtime."""
+        logger.info(f"Log monitor thread started targeting: {file_path}")
+        position = 0
+        if file_path.exists():
+            position = file_path.stat().st_size
+
+        while not self.shutdown_event.is_set():
+            if not file_path.exists():
+                await asyncio.sleep(2)
+                continue
+
+            try:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    f.seek(position)
+                    lines = f.readlines()
+                    position = f.tell()
+
+                    for line in lines:
+                        if any(marker in line for marker in ["LocationSelectionError", "WaybillError", "ERROR", "CRITICAL", "failure_bundle"]):
+                            self._log_event("BACKEND_LOG", "WARNING", f"Detected backend log warning: {line.strip()[:250]}")
+            except Exception as e:
+                logger.debug(f"Error reading backend.log: {e}")
+
+            await asyncio.sleep(2)
+
+    # Save final structured report
+    def _save_final_report(self):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_filename = f"report_{timestamp}.json"
+        report_path = self.output_dir / report_filename
+
+        report_data = {
+            "execution_summary": {
+                "date": datetime.now().isoformat(),
+                "total_duration_seconds": round(time.time() - self.start_time, 2),
+                "timings_per_phase": self.step_timings
+            },
+            "events": self.logs,
+            "network_requests": self.network_logs,
+            "browser_console": self.console_logs,
+            "javascript_errors": self.js_errors
+        }
+        
+        report_path.write_text(json.dumps(report_data, indent=2, ensure_ascii=False), encoding='utf-8')
+        
+        # Save a duplicate at a static endpoint 'latest_report.json'
+        latest_path = self.output_dir / "latest_report.json"
+        latest_path.write_text(json.dumps(report_data, indent=2, ensure_ascii=False), encoding='utf-8')
+        
+        logger.info("="*80)
+        logger.info(f"RPA Inspector report compiled successfully.")
+        logger.info(f"Structured report file:  {report_path}")
+        logger.info(f"Latest report link:      {latest_path}")
+        logger.info("="*80)
+
+    # 1. Navigation & elements check
     async def run_diagnostic(self, login_url: str, credentials: Dict[str, str], proxy: Optional[str] = None, headless: bool = False):
-        self._log_event("GLOBAL", "START", "Starting Diagnostic Run")
+        self._log_event("GLOBAL", "START", "Starting Single Diagnostic Run")
         self.start_time = time.time()
         
         async with async_playwright() as p:
             launch_args = {}
             if proxy:
                 launch_args["proxy"] = {"server": proxy}
-                self._log_event("CONFIG", "INFO", f"Configuring browser to use proxy: {proxy}")
             
             browser = await p.chromium.launch(headless=headless, **launch_args)
             context = await browser.new_context(viewport={'width': 1280, 'height': 800})
@@ -251,81 +324,130 @@ class RPAInspector:
             page.on("pageerror", self._on_page_error)
 
             try:
-                # 1. Navigation & Connection
+                # 1. Navigation
                 phase = "NAVIGATION"
                 self.step_timings[phase] = time.time()
                 self._log_event(phase, "START", f"Navigating to {login_url}")
-                await page.goto(login_url, wait_until="networkidle", timeout=30000)
+                await page.goto(login_url, wait_until="domcontentloaded", timeout=60000)
                 self.step_timings[phase] = time.time() - self.step_timings[phase]
-                self._log_event(phase, "SUCCESS", "Initial page loaded and network is idle")
+                self._log_event(phase, "SUCCESS", "Initial login page loaded")
                 await self.capture_state(page, "login_page_loaded")
 
-                # 2. Login verification
+                # 2. Elements verification
                 phase = "LOGIN_ELEMENTS"
                 self.step_timings[phase] = time.time()
                 self._log_event(phase, "START", "Verifying login form elements exist")
                 username_selector = "input[name='username'], input[name='Username'], #Username"
                 try:
                     await page.wait_for_selector(username_selector, timeout=5000)
-                    self._log_event(phase, "SUCCESS", "Username inputs found in DOM")
+                    self._log_event(phase, "SUCCESS", "Username input found in DOM")
                 except Exception as e:
                     await self.diagnose_element(page, "input", phase)
                     await self.analyze_failure(page, phase, e)
 
-                # Attempting automated input fill
                 if credentials.get("user") and credentials.get("pass"):
                     try:
-                        self._log_event(phase, "INFO", "Attempting automated credentials entry")
+                        self._log_event(phase, "INFO", "Attempting credentials autofill")
                         await page.fill(username_selector, credentials["user"])
                         password_selector = "input[name='password'], input[name='Password'], #Password"
                         await page.fill(password_selector, credentials["pass"])
-                        self._log_event(phase, "SUCCESS", "Credentials typed successfully")
+                        self._log_event(phase, "SUCCESS", "Credentials typed")
                     except Exception as e:
-                        self._log_event(phase, "WARNING", f"Could not autofill credentials: {e}")
+                        self._log_event(phase, "WARNING", f"Autofill failed: {e}")
                 
                 self.step_timings[phase] = time.time() - self.step_timings[phase]
 
-                # 3. User action observation period
+                # 3. Observation
                 phase = "OBSERVATION"
                 self.step_timings[phase] = time.time()
-                self._log_event(phase, "START", "Entering observation period. Waiting 10 seconds to collect console logs and network traffic...")
+                self._log_event(phase, "START", "Waiting 10 seconds to collect console logs and network traffic...")
                 await asyncio.sleep(10)
                 self.step_timings[phase] = time.time() - self.step_timings[phase]
-                self._log_event(phase, "SUCCESS", "Observation period completed")
 
-                # 4. Form Pages Check
+                # 4. Form check
                 phase = "FORM_PAGES"
                 self.step_timings[phase] = time.time()
-                self._log_event(phase, "START", "Checking Waybill step pages")
-                # Navigate directly to a form endpoint if logged in, or check redirection
+                self._log_event(phase, "START", "Auditing Waybill form endpoint redirection")
                 await page.goto("https://barname.utcms.ir/barname/Document/HagigiHogugi", wait_until="domcontentloaded")
                 await asyncio.sleep(2)
                 await self.check_for_overlays(page, phase)
                 await self.capture_state(page, "form_page_hagigihogugi")
                 self.step_timings[phase] = time.time() - self.step_timings[phase]
                 
-                self._log_event("GLOBAL", "SUCCESS", "Diagnostic run completed successfully. Saving logs.")
-
+                self._log_event("GLOBAL", "SUCCESS", "Single diagnostic run completed successfully.")
             except Exception as e:
-                self._log_event("GLOBAL", "CRITICAL", f"Severe error during execution: {e}")
+                self._log_event("GLOBAL", "CRITICAL", f"Fatal exception during diagnostic: {e}")
             finally:
-                # Save report JSON
-                report_data = {
-                    "execution_summary": {
-                        "date": datetime.now().isoformat(),
-                        "total_duration_seconds": round(time.time() - self.start_time, 2),
-                        "timings_per_phase": self.step_timings
-                    },
-                    "events": self.logs,
-                    "network_requests": self.network_logs,
-                    "browser_console": self.console_logs,
-                    "javascript_errors": self.js_errors
-                }
-                
-                report_path = self.output_dir / "report.json"
-                report_path.write_text(json.dumps(report_data, indent=2, ensure_ascii=False), encoding='utf-8')
-                logger.info(f"Full diagnostic JSON report saved to {report_path}")
+                self._save_final_report()
                 await browser.close()
+
+    # 2. Daemon mode execution
+    async def run_daemon_mode(self, login_url: str, credentials: Dict[str, str], proxy: Optional[str] = None, headless: bool = True, interval_seconds: int = 60):
+        self._log_event("GLOBAL", "START", "Starting Continuous RPA Monitoring Daemon")
+        self.start_time = time.time()
+        self.setup_signal_handlers()
+
+        # Monitor backend.log dynamically
+        backend_log_path = PROJECT_ROOT / "backend.log"
+        log_monitor_task = asyncio.create_task(self._monitor_backend_log(backend_log_path))
+
+        async with async_playwright() as p:
+            launch_args = {}
+            if proxy:
+                launch_args["proxy"] = {"server": proxy}
+            
+            browser = None
+            try:
+                browser = await p.chromium.launch(headless=headless, **launch_args)
+            except Exception as e:
+                self._log_event("GLOBAL", "CRITICAL", f"Browser launch failed for daemon: {e}")
+
+            iteration = 0
+            while not self.shutdown_event.is_set():
+                iteration += 1
+                self._log_event("DAEMON", "INFO", f"Active health check loop iteration #{iteration}")
+                
+                if browser:
+                    try:
+                        context = await browser.new_context(viewport={'width': 1280, 'height': 800})
+                        page = await context.new_page()
+
+                        # Attach listeners
+                        page.on("request", self._on_request)
+                        page.on("response", self._on_response)
+                        page.on("console", self._on_console)
+                        page.on("pageerror", self._on_page_error)
+
+                        # Check navigation
+                        start_time = time.time()
+                        await page.goto(login_url, wait_until="domcontentloaded", timeout=25000)
+                        latency = time.time() - start_time
+                        
+                        self._log_event("DAEMON_NAV", "SUCCESS", f"Active navigation ping succeeded in {latency:.2f}s")
+                        
+                        # Cleanup context
+                        await context.close()
+                    except Exception as e:
+                        self._log_event("DAEMON_NAV", "WARNING", f"Active navigation ping failed: {e}")
+                
+                # Sleep in 1-second chunks to react immediately to termination signals
+                for _ in range(interval_seconds):
+                    if self.shutdown_event.is_set():
+                        break
+                    await asyncio.sleep(1)
+
+            # Cleanup browser
+            if browser:
+                await browser.close()
+            
+            # Cancel log tailer
+            log_monitor_task.cancel()
+            try:
+                await log_monitor_task
+            except asyncio.CancelledError:
+                pass
+
+            self._save_final_report()
 
 
 def analyze_report(report_path: str):
@@ -421,22 +543,22 @@ def analyze_report(report_path: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="UTCMS RPA Diagnostic Inspector & Analyzer")
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--run", action="store_true", help="Execute a live browser diagnostic session")
-    group.add_argument("--analyze", type=str, nargs='?', const=str(DEFAULT_OUTPUT_DIR / "report.json"), 
-                       help="Analyze an existing report JSON output file (defaults to output/rpa_diagnostics/report.json)")
+    group.add_argument("--run", action="store_true", help="Execute a single live browser diagnostic session")
+    group.add_argument("--daemon", action="store_true", help="Run as a continuous monitoring daemon in the background")
+    group.add_argument("--analyze", type=str, nargs='?', const=str(DEFAULT_OUTPUT_DIR / "latest_report.json"), 
+                       help="Analyze an existing report JSON output file (defaults to latest_report.json)")
     
     parser.add_argument("--user", type=str, default="5729076411", help="UTCMS username")
     parser.add_argument("--password", type=str, default="@M_m123456789", help="UTCMS password")
     parser.add_argument("--proxy", type=str, default=None, help="Proxy address (e.g. http://127.0.0.1:8080)")
     parser.add_argument("--headless", action="store_true", help="Launch Playwright in headless mode")
     parser.add_argument("--output-dir", type=str, default=str(DEFAULT_OUTPUT_DIR), help="Diagnostic logs output path")
+    parser.add_argument("--interval", type=int, default=60, help="Interval seconds between active daemon health checks")
 
     args = parser.parse_args()
 
     if args.run:
-        print("--- RPA Inspector Started ---")
-        print(f"Configuring output directory: '{args.output_dir}/'")
-        
+        print("--- RPA Inspector: Single Run Started ---")
         inspector = RPAInspector(output_dir=args.output_dir)
         LOGIN_URL = "https://barname.utcms.ir/Barname/Account/Login"
         CREDS = {"user": args.user, "pass": args.password}
@@ -447,11 +569,23 @@ if __name__ == "__main__":
             proxy=args.proxy,
             headless=args.headless
         ))
+    elif args.daemon:
+        print("--- RPA Inspector: Daemon Mode Started ---")
+        inspector = RPAInspector(output_dir=args.output_dir)
+        LOGIN_URL = "https://barname.utcms.ir/Barname/Account/Login"
+        CREDS = {"user": args.user, "pass": args.password}
         
-        # Analyze the report immediately after execution
-        report_file = os.path.join(args.output_dir, "report.json")
-        analyze_report(report_file)
+        try:
+            asyncio.run(inspector.run_daemon_mode(
+                login_url=LOGIN_URL,
+                credentials=CREDS,
+                proxy=args.proxy,
+                headless=args.headless,
+                interval_seconds=args.interval
+            ))
+        except (KeyboardInterrupt, SystemExit):
+            print("Daemon stopped by user request.")
     else:
         # User specified --analyze (either with a custom path or as a flag)
-        report_file = args.analyze if args.analyze else str(DEFAULT_OUTPUT_DIR / "report.json")
+        report_file = args.analyze if args.analyze else str(DEFAULT_OUTPUT_DIR / "latest_report.json")
         analyze_report(report_file)

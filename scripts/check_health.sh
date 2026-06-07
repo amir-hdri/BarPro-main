@@ -53,29 +53,12 @@
  # Check database migration status
  echo "🗄️  Database Status:"
  if [ -f ".env" ]; then
-     export $(grep -v '^#' .env | xargs)
+     set -a && source .env && set +a
  fi
  
  PYTHON_BIN="${PYTHON_BIN:-python3}"
  if command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-     VERSION=$("$PYTHON_BIN" -c "
- import sys
- sys.path.insert(0, '.')
- from alembic import command
- from alembic.config import Config
- from app.core.config import utcms_config
- 
- alembic_cfg = Config('alembic.ini')
- alembic_cfg.set_main_option('sqlalchemy.url', utcms_config.DATABASE_URL)
- 
- try:
-     from alembic.script import ScriptDirectory
-     script = ScriptDirectory.from_config(alembic_cfg)
-     head = script.get_current_head()
-     print(head if head else 'unknown')
- except:
-     print('error')
- " 2>/dev/null)
+     VERSION=$("$PYTHON_BIN" -c "import sys; sys.path.insert(0, '.'); from alembic.config import Config; from app.core.config import utcms_config; alembic_cfg = Config('alembic.ini'); alembic_cfg.set_main_option('sqlalchemy.url', utcms_config.DATABASE_URL); from alembic.script import ScriptDirectory; script = ScriptDirectory.from_config(alembic_cfg); head = script.get_current_head(); print(head if head else 'unknown')" 2>/dev/null)
      
      if [ "$VERSION" != "error" ] && [ -n "$VERSION" ]; then
          echo -e "${GREEN}✅ Migration version: $VERSION${NC}"

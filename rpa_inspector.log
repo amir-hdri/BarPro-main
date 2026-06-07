@@ -1,3 +1,9 @@
 2026-06-07 13:07:07,395 - [INFO] - [GLOBAL] START: Starting Diagnostic Run
 2026-06-07 13:07:09,231 - [INFO] - [NAVIGATION] START: Navigating to https://barname.utcms.ir/Barname/Account/Login
 2026-06-07 13:07:26,779 - [INFO] - Full diagnostic JSON report saved to /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/report.json
+2026-06-07 13:10:48,603 - [INFO] - [GLOBAL] START: Starting Diagnostic Run
+2026-06-07 13:11:01,554 - [INFO] - [NAVIGATION] START: Navigating to https://barname.utcms.ir/Barname/Account/Login
+2026-06-07 13:11:31,577 - [INFO] - Full diagnostic JSON report saved to /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/report.json
+2026-06-07 13:14:54,166 - [INFO] - [GLOBAL] START: Starting Diagnostic Run
+2026-06-07 13:14:55,619 - [INFO] - [NAVIGATION] START: Navigating to https://barname.utcms.ir/Barname/Account/Login
+2026-06-07 13:15:11,440 - [INFO] - Full diagnostic JSON report saved to /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/report.json

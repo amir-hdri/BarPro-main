@@ -611,47 +611,72 @@ class LocationSelector:
         return lat_filled and lng_filled
 
     async def _inject_coordinates_via_js(self, lat: float, lng: float, prefix: str) -> bool:
-        """تلاش برای تزریق مستقیم مختصات به inputهای مخفی از طریق JavaScript"""
-        injection_script = f"""
-        () => {{
-            const lat = {lat};
-            const lng = {lng};
-            const prefix = "{prefix.lower()}";
-
-            const inputs = document.querySelectorAll('input');
+        """تلاش برای تزریق مستقیم مختصات به متغیرهای سراسری JS و inputهای مخفی"""
+        injection_script = """
+        ([lat, lng, prefix]) => {
+            const prefixLower = prefix.toLowerCase();
+            const isOrigin = prefixLower === "origin" || prefixLower === "source" || prefixLower === "src" || prefixLower === "mabda";
+            
             let found = false;
 
-            const setValue = (el, val) => {{
+            // 1. تزریق به متغیرهای سراسری پنجره مرورگر (فول‌استک و اختصاصی UTCMS)
+            try {
+                if (isOrigin) {
+                    if (typeof LatSource !== 'undefined') { LatSource = lat; found = true; }
+                    if (typeof LngSource !== 'undefined') { LngSource = lng; found = true; }
+                    if (typeof PlaceSource !== 'undefined') {
+                        PlaceSource.Lat = lat;
+                        PlaceSource.Lon = lng;
+                        found = true;
+                    }
+                    if (typeof window.LatSource !== 'undefined') { window.LatSource = lat; found = true; }
+                    if (typeof window.LngSource !== 'undefined') { window.LngSource = lng; found = true; }
+                } else {
+                    if (typeof LatDestination !== 'undefined') { LatDestination = lat; found = true; }
+                    if (typeof LngDestination !== 'undefined') { LngDestination = lng; found = true; }
+                    if (typeof PlaceDestination !== 'undefined') {
+                        PlaceDestination.Lat = lat;
+                        PlaceDestination.Lon = lng;
+                        found = true;
+                    }
+                    if (typeof window.LatDestination !== 'undefined') { window.LatDestination = lat; found = true; }
+                    if (typeof window.LngDestination !== 'undefined') { window.LngDestination = lng; found = true; }
+                }
+            } catch (e) {
+                console.error("Global JS coordinate injection failed:", e);
+            }
+
+            // 2. تزریق به inputهای مخفی و معمولی DOM
+            const inputs = document.querySelectorAll('input');
+            
+            const setValue = (el, val) => {
                 let prototype = Object.getPrototypeOf(el);
                 let setter = null;
-                while (prototype) {{
+                while (prototype) {
                     const desc = Object.getOwnPropertyDescriptor(prototype, 'value');
-                    if (desc && desc.set) {{
+                    if (desc && desc.set) {
                         setter = desc.set;
                         break;
-                    }}
+                    }
                     prototype = Object.getPrototypeOf(prototype);
-                }}
-                if (setter) {{
+                }
+                if (setter) {
                     setter.call(el, val);
-                }} else {{
+                } else {
                     el.value = val;
-                }}
-                if (el._valueTracker) {{
+                }
+                if (el._valueTracker) {
                     el._valueTracker.setValue(val);
-                }}
-                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                el.dispatchEvent(new Event('keyup', {{ bubbles: true }}));
-                if (window.jQuery) {{
+                }
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                el.dispatchEvent(new Event('keyup', { bubbles: true }));
+                if (window.jQuery) {
                     window.jQuery(el).trigger('input').trigger('change').trigger('keyup');
-                }}
-            }};
+                }
+            };
 
-            const isOrigin = prefix === "origin";
-            const isDest = prefix === "destination" || prefix === "dest";
-
-            inputs.forEach(input => {{
+            inputs.forEach(input => {
                 const name = (input.name || '').toLowerCase();
                 const id = (input.id || '').toLowerCase();
 
@@ -661,51 +686,51 @@ class LocationSelector:
                 if (!isLat && !isLng) return;
 
                 let prefixMatch = false;
-                if (isOrigin) {{
-                    if (name.includes('origin') || id.includes('origin') || name.includes('source') || id.includes('source') || name.includes('mabda') || id.includes('mabda') || name.includes('start') || id.includes('start')) {{
+                if (isOrigin) {
+                    if (name.includes('origin') || id.includes('origin') || name.includes('source') || id.includes('source') || name.includes('mabda') || id.includes('mabda') || name.includes('start') || id.includes('start')) {
                         prefixMatch = true;
-                    }} else if (!(name.includes('dest') || id.includes('dest') || name.includes('magsad') || id.includes('magsad'))) {{
+                    } else if (!(name.includes('dest') || id.includes('dest') || name.includes('magsad') || id.includes('magsad'))) {
                         const insideOriginPane = input.closest('#pills-5');
                         const insideDestPane = input.closest('#pills-6');
-                        if (insideOriginPane) {{
+                        if (insideOriginPane) {
                             prefixMatch = true;
-                        }} else if (!insideDestPane) {{
+                        } else if (!insideDestPane) {
                             prefixMatch = true;
-                        }}
-                    }}
-                }} else if (isDest) {{
-                    if (name.includes('dest') || id.includes('dest') || name.includes('magsad') || id.includes('magsad')) {{
+                        }
+                    }
+                } else {
+                    if (name.includes('dest') || id.includes('dest') || name.includes('magsad') || id.includes('magsad')) {
                         prefixMatch = true;
-                    }} else if (!(name.includes('origin') || id.includes('origin') || name.includes('source') || id.includes('source') || name.includes('mabda') || id.includes('mabda'))) {{
+                    } else if (!(name.includes('origin') || id.includes('origin') || name.includes('source') || id.includes('source') || name.includes('mabda') || id.includes('mabda'))) {
                         const insideOriginPane = input.closest('#pills-5');
                         const insideDestPane = input.closest('#pills-6');
-                        if (insideDestPane) {{
+                        if (insideDestPane) {
                             prefixMatch = true;
-                        }} else if (!insideOriginPane) {{
+                        } else if (!insideOriginPane) {
                             prefixMatch = true;
-                        }}
-                    }}
-                }}
+                        }
+                    }
+                }
 
-                if (prefixMatch) {{
-                    if (isLat) {{
+                if (prefixMatch) {
+                    if (isLat) {
                         setValue(input, lat);
                         found = true;
-                    }} else if (isLng) {{
+                    } else if (isLng) {
                         setValue(input, lng);
                         found = true;
-                    }}
-                }}
-            }});
+                    }
+                }
+            });
 
             return found;
-        }}
+        }
         """
-        injected = await self.page.evaluate(injection_script)
+        injected = await self.page.evaluate(injection_script, [lat, lng, prefix])
         return bool(injected)
 
     async def _try_explicit_coordinates(self, location_data: dict[str, Any], prefix: str) -> dict[str, Any]:
-        """تلاش برای استفاده مستقیم از مختصات با پر کردن hidden fields یا تزریق JS"""
+        """تلاش برای استفاده مستقیم از مختصات با پر کردن متغیرهای سراسری و فراخوانی متدهای بومی نقشه"""
         coordinates = location_data.get("coordinates")
         if not coordinates:
             return {"success": False, "method": "explicit_coords", "error": "مختصات موجود نیست"}
@@ -717,24 +742,95 @@ class LocationSelector:
             if lat is None or lng is None:
                 return {"success": False, "method": "explicit_coords", "error": "مختصات ناقص"}
 
-            if await self._fill_coordinate_hidden_fields(lat, lng, prefix):
-                return {
-                    "success": True,
-                    "method": "explicit_coordinates",
-                    "coordinates": {"lat": lat, "lng": lng},
-                }
+            province = location_data.get("province") or ""
+            city = location_data.get("city") or ""
+            address = location_data.get("address") or ""
 
-            if await self._inject_coordinates_via_js(lat, lng, prefix):
+            # 1. تزریق مستقیم به متغیرهای سراسری و اجرای متد بومی reverse mapping نقشه
+            native_called = await self.page.evaluate(
+                """([lat, lng, prefix, state, city, addr]) => {
+                    const isOrigin = prefix === "Origin";
+                    let called = false;
+                    
+                    try {
+                        if (isOrigin) {
+                            if (typeof LatSource !== 'undefined') LatSource = lat;
+                            if (typeof LngSource !== 'undefined') LngSource = lng;
+                            if (typeof PlaceSource !== 'undefined') {
+                                PlaceSource.Lat = lat;
+                                PlaceSource.Lon = lng;
+                                PlaceSource.StateName = state;
+                                PlaceSource.CityName = city;
+                                PlaceSource.Address = addr;
+                            }
+                            if (typeof RevereseMapLatSource === 'function') {
+                                RevereseMapLatSource(lat, lng);
+                                called = true;
+                            }
+                        } else {
+                            if (typeof LatDestination !== 'undefined') LatDestination = lat;
+                            if (typeof LngDestination !== 'undefined') LngDestination = lng;
+                            if (typeof PlaceDestination !== 'undefined') {
+                                PlaceDestination.Lat = lat;
+                                PlaceDestination.Lon = lng;
+                                PlaceDestination.StateName = state;
+                                PlaceDestination.CityName = city;
+                                PlaceDestination.Address = addr;
+                            }
+                            if (typeof RevereseMapLatDest === 'function') {
+                                RevereseMapLatDest(lat, lng);
+                                called = true;
+                            }
+                        }
+                    } catch(e) {
+                        console.error("Native reverse mapping call failed:", e);
+                    }
+                    return called;
+                }""",
+                [lat, lng, prefix, province, city, address]
+            )
+
+            # 2. تزریق به فیلدهای مخفی DOM به عنوان پشتیبان
+            await self._fill_coordinate_hidden_fields(lat, lng, prefix)
+            await self._inject_coordinates_via_js(lat, lng, prefix)
+
+            # 3. اگر متد بومی اجرا شد، منتظر پر شدن فیلدهای آدرس می‌شویم
+            if native_called:
+                addr_selector = "#txtAddressSource" if prefix == "Origin" else "#txtAddressDest"
+                state_selector = "#ddStateSource" if prefix == "Origin" else "#ddStateDest"
+                
+                # حداکثر 3 ثانیه برای پاسخ دهی متد بومی صبر می‌کنیم
+                for _ in range(15):
+                    try:
+                        addr_val = await self.page.locator(addr_selector).input_value()
+                        state_val = await self.page.locator(state_selector).input_value()
+                        if addr_val and state_val:
+                            logger.info(f"Native reverse mapping successfully populated fields for {prefix}.")
+                            return {
+                                "success": True,
+                                "method": "explicit_coordinates_native_reverse_mapped",
+                                "coordinates": {"lat": lat, "lng": lng},
+                            }
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.2)
+
+            # 4. اگر فیلدها پر نشدند (مثلا به خاطر خطای سرویس نقشه سایت)، به صورت دستی فیلدهای دراپ‌دان را پر می‌کنیم
+            logger.warning(
+                f"Native reverse mapping did not populate fields for {prefix}. Falling back to manual dropdown/input entry."
+            )
+            dropdown_result = await self._try_dropdown_selection(location_data, prefix)
+            if dropdown_result["success"]:
                 return {
                     "success": True,
-                    "method": "explicit_coordinates_injected",
+                    "method": "explicit_coordinates_dropdown_fallback",
                     "coordinates": {"lat": lat, "lng": lng},
                 }
 
             return {
                 "success": False,
                 "method": "explicit_coords",
-                "error": "hidden fields برای مختصات یافت نشد",
+                "error": "عدم موفقیت در مقداردهی بومی و دستی فیلدهای مکان",
             }
         except Exception as e:
             return {"success": False, "method": "explicit_coords", "error": str(e)}
