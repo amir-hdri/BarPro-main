@@ -458,6 +458,48 @@ class BrowserManager:
                 extra={"extra_fields": {"error": str(e)}},
             )
 
+        # Inject JavaScript fallback for jQuery DataTables to prevent crashes on slow networks
+        try:
+            await page.add_init_script("""
+                (() => {
+                    let jQueryInstance = null;
+                    Object.defineProperty(window, 'jQuery', {
+                        get: () => jQueryInstance,
+                        set: (val) => {
+                            jQueryInstance = val;
+                            if (jQueryInstance && jQueryInstance.fn) {
+                                if (!jQueryInstance.fn.dataTable) {
+                                    Object.defineProperty(jQueryInstance.fn, 'dataTable', {
+                                        get: () => {
+                                            return {
+                                                defaults: { bootstrap: {} },
+                                                ext: { classes: {}, errMode: () => {} }
+                                            };
+                                        },
+                                        set: (dtVal) => {
+                                            delete jQueryInstance.fn.dataTable;
+                                            jQueryInstance.fn.dataTable = dtVal;
+                                        },
+                                        configurable: true
+                                    });
+                                }
+                            }
+                        },
+                        configurable: true
+                    });
+                    let dollarInstance = null;
+                    Object.defineProperty(window, '$', {
+                        get: () => dollarInstance || jQueryInstance,
+                        set: (val) => {
+                            dollarInstance = val;
+                        },
+                        configurable: true
+                    });
+                })();
+            """)
+        except Exception as init_exc:
+            logger.warning(f"Failed to add DataTables fallback init script: {init_exc}")
+
         # Update resource guard
         for session_id, ctx in self._contexts.items():
             if ctx == context:

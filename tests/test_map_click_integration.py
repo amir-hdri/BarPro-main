@@ -251,10 +251,10 @@ class TestMapClickUI:
         with open(ui_path, encoding='utf-8') as f:
             content = f.read()
 
-        assert 'tab-map-tools' in content
-        assert 'btn-select-origin' in content
-        assert 'btn-select-destination' in content
-        assert 'btn-clear-selection' in content
+        assert 'map-tools' in content
+        assert 'btn-map-target-origin' in content
+        assert 'btn-map-target-destination' in content
+        assert 'btn-clear-map-points' in content
 
     def test_ui_has_click_handler(self):
         """تست وجود handler کلیک"""

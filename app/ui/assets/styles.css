@@ -1215,12 +1215,14 @@ pre {
   transform: translateX(-4px);
   border-color: var(--border);
 }
-.nav-item.active {
+.nav-item.active,
+.nav-item.is-active {
   background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 20%, transparent), transparent);
   border-right: 3px solid var(--primary);
   color: var(--primary-strong);
   font-weight: 600;
 }
-html[data-theme="dark"] .nav-item.active {
+html[data-theme="dark"] .nav-item.active,
+html[data-theme="dark"] .nav-item.is-active {
   color: var(--primary);
 }

@@ -1292,6 +1292,9 @@ function setTab(tabId) {
         setTimeout(() => mapState.instance.invalidateSize(), 120);
       }
     });
+  } else if (effectiveTab === "driver-schedules") {
+    loadDriversForSchedule();
+    loadSchedules();
   }
 }
 

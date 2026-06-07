@@ -2,15 +2,14 @@
 """
 RPA Inspector & Diagnostic Tool for UTCMS
 -----------------------------------------
-This is a standalone diagnostic tool designed to monitor the RPA bot's interaction 
-with the UTCMS website. It performs a "Deep Audit" of the registration process, 
-capturing screenshots, HTML dumps, and detailed error analysis for every step.
+This is a comprehensive standalone diagnostic and analysis tool designed to monitor 
+and profile the RPA bot's interaction with the UTCMS website. It captures screenshots, 
+HTML page dumps, console logs, uncaught JS errors, network requests/responses, latencies, 
+and blocking DOM overlays.
 
-Features:
-- Step-by-step verification of form filling.
-- Detection of blocking overlays (e.g., 'Please wait').
-- Detailed tracking of network responses and JS errors.
-- Standalone execution (independent of the main app).
+Commands:
+  --run      Run a diagnostic session (navigating, log in, elements verification).
+  --analyze  Load a previous JSON report and print a complete performance and error audit.
 """
 
 import asyncio
@@ -19,13 +18,14 @@ import logging
 import os
 import sys
 import time
+import argparse
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from playwright.async_api import async_playwright, Page, BrowserContext, Response
+from playwright.async_api import async_playwright, Page, BrowserContext, Response, Request
 
-# Setup Logging
+# Setup Logger
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - [%(levelname)s] - %(message)s',
@@ -36,18 +36,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger("RPAInspector")
 
+# Project directories setup relative to the project root
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "output" / "rpa_diagnostics"
+
 class RPAInspector:
-    def __init__(self, output_dir: str = "rpa_diagnostics"):
+    def __init__(self, output_dir: Path = DEFAULT_OUTPUT_DIR):
         self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         self.screenshots_dir = self.output_dir / "screenshots"
-        self.screenshots_dir.mkdir(exist_ok=True)
+        self.screenshots_dir.mkdir(parents=True, exist_ok=True)
         self.html_dir = self.output_dir / "html_dumps"
-        self.html_dir.mkdir(exist_ok=True)
+        self.html_dir.mkdir(parents=True, exist_ok=True)
+        
+        # In-memory session tracking
         self.logs: List[Dict[str, Any]] = []
+        self.network_logs: List[Dict[str, Any]] = []
+        self.console_logs: List[Dict[str, Any]] = []
+        self.js_errors: List[Dict[str, Any]] = []
+        self.step_timings: Dict[str, float] = {}
+        
         self.start_time = time.time()
+        self.request_start_times: Dict[Request, float] = {}
 
     def _log_event(self, step: str, status: str, message: str, details: Optional[Dict] = None):
+        """Logs an event both to file/stdout and the structured diagnostic output."""
         entry = {
             "timestamp": datetime.now().isoformat(),
             "elapsed_seconds": round(time.time() - self.start_time, 2),
@@ -57,7 +70,7 @@ class RPAInspector:
             "details": details or {}
         }
         self.logs.append(entry)
-        level = logging.INFO if status == "SUCCESS" else logging.WARNING if status == "WARNING" else logging.ERROR
+        level = logging.INFO if status in ("SUCCESS", "START") else logging.WARNING if status == "WARNING" else logging.ERROR if status == "FAILURE" else logging.DEBUG
         logger.log(level, f"[{step}] {status}: {message}")
 
     async def capture_state(self, page: Page, name: str):
@@ -70,97 +83,375 @@ class RPAInspector:
             await page.screenshot(path=str(ss_path), full_page=True)
             html_content = await page.content()
             html_path.write_text(html_content, encoding='utf-8')
+            self._log_event("DIAGNOSTIC", "INFO", f"Captured state snapshot to {ss_path.name}")
         except Exception as e:
             logger.error(f"Failed to capture state for {name}: {e}")
 
-    async def analyze_failure(self, page: Page, step: str, error: Exception):
-        """Performs a deep analysis of why a step failed."""
-        self._log_event(step, "FAILURE", str(error))
-        await self.capture_state(page, f"FAILURE_{step}")
-        
-        # Check for blocking overlays
+    async def check_for_overlays(self, page: Page, step: str):
+        """Checks if there are any overlays covering the page blocking inputs."""
         try:
             overlays = await page.evaluate("""() => {
                 const results = [];
-                const possibleOverlays = document.querySelectorAll('.loading, .spinner, .modal-backdrop, .overlay, .k-loading-mask');
-                possibleOverlays.forEach(el => {
-                    if (el.offsetWidth > 0 || el.offsetHeight > 0) {
-                        results.push({
-                            selector: el.tagName + (el.className ? '.' + el.className.split(' ').join('.') : ''),
-                            text: el.innerText || el.textContent
-                        });
-                    }
+                const selectors = ['.loading', '.spinner', '#loading-mask', '.k-loading-mask', '.modal-backdrop', '.please-wait', '.overlay'];
+                selectors.forEach(sel => {
+                    const elements = document.querySelectorAll(sel);
+                    elements.forEach(el => {
+                        const style = window.getComputedStyle(el);
+                        const isVisible = el.offsetWidth > 0 && el.offsetHeight > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                        if (isVisible) {
+                            results.push({
+                                selector: sel,
+                                tag: el.tagName,
+                                className: el.className,
+                                zIndex: style.zIndex,
+                                opacity: style.opacity
+                            });
+                        }
+                    });
                 });
                 return results;
             }""")
             if overlays:
-                self._log_event(step, "DIAGNOSTIC", "Detected active overlays that might block interaction", {"overlays": overlays})
-        except:
-            pass
+                self._log_event(step, "OVERLAY_DETECTED", "Detected active overlay elements blocking inputs", {"overlays": overlays})
+                return overlays
+        except Exception as e:
+            logger.debug(f"Failed to scan for overlays: {e}")
+        return []
 
-    async def run_diagnostic(self, login_url: str, credentials: Dict[str, str], payload: Dict[str, Any]):
+    async def diagnose_element(self, page: Page, selector: str, step: str):
+        """Deep analysis of an element if Playwright is unable to interact with it."""
+        try:
+            details = await page.evaluate("""(sel) => {
+                const el = document.querySelector(sel);
+                if (!el) return { present: false };
+                const rect = el.getBoundingClientRect();
+                const style = window.getComputedStyle(el);
+                
+                // Check if covered by another element
+                let coveredBy = null;
+                if (rect.width > 0 && rect.height > 0) {
+                    const x = rect.left + rect.width / 2;
+                    const y = rect.top + rect.height / 2;
+                    const topEl = document.elementFromPoint(x, y);
+                    if (topEl && topEl !== el && !el.contains(topEl)) {
+                        coveredBy = topEl.tagName + (topEl.className ? '.' + topEl.className.split(' ').join('.') : '');
+                    }
+                }
+
+                return {
+                    present: true,
+                    visible: rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden',
+                    disabled: el.disabled || el.getAttribute('disabled') !== null,
+                    rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+                    style: {
+                        display: style.display,
+                        visibility: style.visibility,
+                        opacity: style.opacity,
+                        zIndex: style.zIndex,
+                        pointerEvents: style.pointerEvents
+                    },
+                    coveredBy: coveredBy,
+                    html: el.outerHTML.substring(0, 500)
+                };
+            }""", selector)
+            self._log_event(step, "ELEMENT_DIAGNOSIS", f"Diagnostic report for '{selector}'", {"element": details})
+            return details
+        except Exception as e:
+            self._log_event(step, "ELEMENT_DIAGNOSIS_FAILED", f"Could not audit element '{selector}': {e}")
+            return {"error": str(e)}
+
+    async def analyze_failure(self, page: Page, step: str, error: Exception):
+        """Performs a deep audit on why an automation step has failed."""
+        self._log_event(step, "FAILURE", f"Automation error occurred: {error}")
+        await self.capture_state(page, f"FAILURE_{step}")
+        await self.check_for_overlays(page, step)
+
+    # Listeners for Network events
+    def _on_request(self, request: Request):
+        self.request_start_times[request] = time.time()
+
+    async def _on_response(self, response: Response):
+        request = response.request
+        start_time = self.request_start_times.get(request)
+        latency_ms = None
+        if start_time:
+            latency_ms = round((time.time() - start_time) * 1000, 2)
+            del self.request_start_times[request]
+        
+        # Try capturing response preview
+        response_body = ""
+        if response.status < 400:
+            content_type = response.headers.get("content-type", "")
+            if "json" in content_type:
+                try:
+                    body_text = await response.text()
+                    response_body = body_text[:1200] + "..." if len(body_text) > 1200 else body_text
+                except Exception:
+                    response_body = "<binary or closed stream>"
+        else:
+            self._log_event("NETWORK", "WARNING", f"HTTP {response.status} {response.status_text} on {response.url}")
+            try:
+                response_body = await response.text()
+            except Exception:
+                response_body = "<failed to read error response text>"
+
+        self.network_logs.append({
+            "timestamp": datetime.now().isoformat(),
+            "url": response.url,
+            "method": request.method,
+            "status": response.status,
+            "status_text": response.status_text,
+            "headers": response.headers,
+            "latency_ms": latency_ms,
+            "content_length": len(response_body),
+            "response_body_sample": response_body
+        })
+
+    def _on_console(self, msg: Any):
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "type": msg.type,
+            "text": msg.text,
+            "location": msg.location
+        }
+        self.console_logs.append(log_entry)
+        if msg.type == "error":
+            self._log_event("BROWSER_CONSOLE", "ERROR", f"Browser console error: {msg.text} @ {msg.location}")
+        else:
+            logger.debug(f"BROWSER CONSOLE: [{msg.type}] {msg.text}")
+
+    def _on_page_error(self, err: Any):
+        error_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "message": str(err),
+            "stack": getattr(err, "stack", "No stack trace available")
+        }
+        self.js_errors.append(error_entry)
+        self._log_event("PAGE_EXCEPTION", "FAILURE", f"Uncaught Javascript error: {err}")
+
+    # Main execution loop
+    async def run_diagnostic(self, login_url: str, credentials: Dict[str, str], proxy: Optional[str] = None, headless: bool = False):
+        self._log_event("GLOBAL", "START", "Starting Diagnostic Run")
+        self.start_time = time.time()
+        
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=False) # Keep it visible for diagnostics
+            launch_args = {}
+            if proxy:
+                launch_args["proxy"] = {"server": proxy}
+                self._log_event("CONFIG", "INFO", f"Configuring browser to use proxy: {proxy}")
+            
+            browser = await p.chromium.launch(headless=headless, **launch_args)
             context = await browser.new_context(viewport={'width': 1280, 'height': 800})
             page = await context.new_page()
 
-            # Network monitor
-            page.on("response", lambda res: self._on_response(res))
-            page.on("console", lambda msg: logger.debug(f"BROWSER CONSOLE: {msg.text}"))
+            # Attach listeners
+            page.on("request", self._on_request)
+            page.on("response", self._on_response)
+            page.on("console", self._on_console)
+            page.on("pageerror", self._on_page_error)
 
             try:
-                # 1. Login Phase
-                self._log_event("LOGIN", "START", f"Navigating to {login_url}")
-                await page.goto(login_url, wait_until="networkidle")
-                await self.capture_state(page, "login_page")
+                # 1. Navigation & Connection
+                phase = "NAVIGATION"
+                self.step_timings[phase] = time.time()
+                self._log_event(phase, "START", f"Navigating to {login_url}")
+                await page.goto(login_url, wait_until="networkidle", timeout=30000)
+                self.step_timings[phase] = time.time() - self.step_timings[phase]
+                self._log_event(phase, "SUCCESS", "Initial page loaded and network is idle")
+                await self.capture_state(page, "login_page_loaded")
+
+                # 2. Login verification
+                phase = "LOGIN_ELEMENTS"
+                self.step_timings[phase] = time.time()
+                self._log_event(phase, "START", "Verifying login form elements exist")
+                username_selector = "input[name='username'], input[name='Username'], #Username"
+                try:
+                    await page.wait_for_selector(username_selector, timeout=5000)
+                    self._log_event(phase, "SUCCESS", "Username inputs found in DOM")
+                except Exception as e:
+                    await self.diagnose_element(page, "input", phase)
+                    await self.analyze_failure(page, phase, e)
+
+                # Attempting automated input fill
+                if credentials.get("user") and credentials.get("pass"):
+                    try:
+                        self._log_event(phase, "INFO", "Attempting automated credentials entry")
+                        await page.fill(username_selector, credentials["user"])
+                        password_selector = "input[name='password'], input[name='Password'], #Password"
+                        await page.fill(password_selector, credentials["pass"])
+                        self._log_event(phase, "SUCCESS", "Credentials typed successfully")
+                    except Exception as e:
+                        self._log_event(phase, "WARNING", f"Could not autofill credentials: {e}")
                 
-                # Manual interaction check (this script is for observation)
-                self._log_event("LOGIN", "INFO", "Waiting for login to be completed manually or via script...")
-                # Here we could add auto-login logic if needed, but for diagnostic 
-                # we usually want to watch the failure point reported by user.
-                
-                # 2. Navigate to HagigiHogugi (Step 1)
-                self._log_event("STEP_1", "START", "Navigating to Sender Information page")
-                # Assuming user is logged in
+                self.step_timings[phase] = time.time() - self.step_timings[phase]
+
+                # 3. User action observation period
+                phase = "OBSERVATION"
+                self.step_timings[phase] = time.time()
+                self._log_event(phase, "START", "Entering observation period. Waiting 10 seconds to collect console logs and network traffic...")
+                await asyncio.sleep(10)
+                self.step_timings[phase] = time.time() - self.step_timings[phase]
+                self._log_event(phase, "SUCCESS", "Observation period completed")
+
+                # 4. Form Pages Check
+                phase = "FORM_PAGES"
+                self.step_timings[phase] = time.time()
+                self._log_event(phase, "START", "Checking Waybill step pages")
+                # Navigate directly to a form endpoint if logged in, or check redirection
                 await page.goto("https://barname.utcms.ir/barname/Document/HagigiHogugi", wait_until="domcontentloaded")
                 await asyncio.sleep(2)
-                await self.capture_state(page, "step1_initial")
-
-                # Check for "Sender Type" dropdown
-                try:
-                    await page.wait_for_selector('select[name="senderSelectType"]', timeout=5000)
-                    self._log_event("STEP_1", "SUCCESS", "Sender Type dropdown found")
-                except Exception as e:
-                    await self.analyze_failure(page, "STEP_1_SENDER_TYPE", e)
-
-                # 3. Form Filling Simulation
-                # (You would add specific field checks here based on what failed)
+                await self.check_for_overlays(page, phase)
+                await self.capture_state(page, "form_page_hagigihogugi")
+                self.step_timings[phase] = time.time() - self.step_timings[phase]
                 
-                self._log_event("DIAGNOSTIC", "COMPLETE", "Diagnostic run finished. Check logs and screenshots.")
+                self._log_event("GLOBAL", "SUCCESS", "Diagnostic run completed successfully. Saving logs.")
 
             except Exception as e:
-                self._log_event("GLOBAL", "CRITICAL", f"Unexpected error: {e}")
+                self._log_event("GLOBAL", "CRITICAL", f"Severe error during execution: {e}")
             finally:
-                # Save final report
+                # Save report JSON
+                report_data = {
+                    "execution_summary": {
+                        "date": datetime.now().isoformat(),
+                        "total_duration_seconds": round(time.time() - self.start_time, 2),
+                        "timings_per_phase": self.step_timings
+                    },
+                    "events": self.logs,
+                    "network_requests": self.network_logs,
+                    "browser_console": self.console_logs,
+                    "javascript_errors": self.js_errors
+                }
+                
                 report_path = self.output_dir / "report.json"
-                report_path.write_text(json.dumps(self.logs, indent=2, ensure_ascii=False), encoding='utf-8')
-                logger.info(f"Full diagnostic report saved to {report_path}")
-                await asyncio.sleep(5) # Let user see the final state
+                report_path.write_text(json.dumps(report_data, indent=2, ensure_ascii=False), encoding='utf-8')
+                logger.info(f"Full diagnostic JSON report saved to {report_path}")
                 await browser.close()
 
-    def _on_response(self, response: Response):
-        if response.status >= 400:
-            self._log_event("NETWORK", "WARNING", f"HTTP {response.status} on {response.url}")
+
+def analyze_report(report_path: str):
+    """Parses a diagnostic report.json file and outputs a formatted performance audit."""
+    path = Path(report_path)
+    if not path.exists():
+        print(f"Error: Report file {report_path} not found.")
+        sys.exit(1)
+
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except Exception as e:
+        print(f"Error reading JSON file: {e}")
+        sys.exit(1)
+
+    summary = data.get("execution_summary", {})
+    events = data.get("events", [])
+    network = data.get("network_requests", [])
+    console = data.get("browser_console", [])
+    js_errors = data.get("javascript_errors", [])
+
+    print("\n" + "="*80)
+    print("                    UTCMS RPA BOT DIAGNOSTIC AUDIT REPORT")
+    print("="*80)
+    print(f"Report Date:      {summary.get('date', 'Unknown')}")
+    print(f"Total Duration:   {summary.get('total_duration_seconds', 0)} seconds")
+    print("-"*80)
+
+    # 1. Timing Profiles
+    print("\n⏱️  Timing Profile per Phase:")
+    timings = summary.get("timings_per_phase", {})
+    if timings:
+        for phase, duration in timings.items():
+            print(f"  - {phase:<18}: {duration:.2f} seconds")
+    else:
+        print("  No timing profiles recorded.")
+
+    # 2. Critical Failures / Warnings
+    failures = [e for e in events if e.get("status") in ("FAILURE", "CRITICAL")]
+    warnings = [e for e in events if e.get("status") == "WARNING"]
+    overlays = [e for e in events if e.get("status") == "OVERLAY_DETECTED"]
+    
+    print(f"\n⚠️  Automation Event Metrics:")
+    print(f"  - Critical Failures / Crashes: {len(failures)}")
+    print(f"  - Event Warnings:             {len(warnings)}")
+    print(f"  - Blocking Overlays Detected: {len(overlays)}")
+
+    if failures:
+        print("\n❌ Critical Failure Log:")
+        for idx, f in enumerate(failures, 1):
+            print(f"  {idx}. [{f.get('step')}] {f.get('message')}")
+            if f.get("details"):
+                print(f"     Details: {json.dumps(f.get('details'))}")
+
+    if overlays:
+        print("\n⛔ Overlay Interventions:")
+        for idx, o in enumerate(overlays, 1):
+            print(f"  {idx}. [{o.get('step')}] elements present: {o.get('details', {}).get('overlays')}")
+
+    # 3. Network Audit
+    print("\n🌐 Network Request Audit:")
+    print(f"  - Total Network Responses:     {len(network)}")
+    
+    failed_requests = [n for n in network if n.get("status", 0) >= 400]
+    slow_requests = sorted([n for n in network if n.get("latency_ms") is not None], 
+                           key=lambda x: x["latency_ms"], reverse=True)[:5]
+
+    print(f"  - Failed HTTP Requests (>=400): {len(failed_requests)}")
+    if failed_requests:
+        for idx, fr in enumerate(failed_requests, 1):
+            print(f"    {idx}. {fr.get('method')} {fr.get('status')} {fr.get('url')}")
+            if fr.get("response_body_sample"):
+                print(f"       Response Body: {fr.get('response_body_sample')[:150]}")
+
+    print("\n⚡ Top 5 Slowest Network Requests:")
+    for idx, sr in enumerate(slow_requests, 1):
+        print(f"  {idx}. {sr.get('method')} {sr.get('url')} - {sr.get('latency_ms'):.0f}ms (HTTP {sr.get('status')})")
+
+    # 4. Javascript Console and Exceptions
+    print("\n💻 Browser Exceptions & Console Errors:")
+    print(f"  - Uncaught page exceptions:  {len(js_errors)}")
+    print(f"  - Console error messages:    {len([c for c in console if c.get('type') == 'error'])}")
+
+    if js_errors:
+        print("\n🚨 Uncaught Page Javascript Stacktraces:")
+        for idx, je in enumerate(js_errors, 1):
+            print(f"  {idx}. Exception: {je.get('message')}")
+            print(f"     Stack: {je.get('stack')}")
+
+    print("="*80 + "\n")
+
 
 if __name__ == "__main__":
-    # Example usage
-    inspector = RPAInspector()
+    parser = argparse.ArgumentParser(description="UTCMS RPA Diagnostic Inspector & Analyzer")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--run", action="store_true", help="Execute a live browser diagnostic session")
+    group.add_argument("--analyze", type=str, nargs='?', const=str(DEFAULT_OUTPUT_DIR / "report.json"), 
+                       help="Analyze an existing report JSON output file (defaults to output/rpa_diagnostics/report.json)")
     
-    # These would normally come from command line or config
-    LOGIN_URL = "https://barname.utcms.ir/Barname/Account/Login"
-    CREDS = {"user": "5729076411", "pass": "@M_m123456789"}
-    
-    print("--- RPA Inspector Started ---")
-    print("This tool will run a diagnostic session and save results to 'rpa_diagnostics/'")
-    
-    asyncio.run(inspector.run_diagnostic(LOGIN_URL, CREDS, {}))
+    parser.add_argument("--user", type=str, default="5729076411", help="UTCMS username")
+    parser.add_argument("--password", type=str, default="@M_m123456789", help="UTCMS password")
+    parser.add_argument("--proxy", type=str, default=None, help="Proxy address (e.g. http://127.0.0.1:8080)")
+    parser.add_argument("--headless", action="store_true", help="Launch Playwright in headless mode")
+    parser.add_argument("--output-dir", type=str, default=str(DEFAULT_OUTPUT_DIR), help="Diagnostic logs output path")
+
+    args = parser.parse_args()
+
+    if args.run:
+        print("--- RPA Inspector Started ---")
+        print(f"Configuring output directory: '{args.output_dir}/'")
+        
+        inspector = RPAInspector(output_dir=args.output_dir)
+        LOGIN_URL = "https://barname.utcms.ir/Barname/Account/Login"
+        CREDS = {"user": args.user, "pass": args.password}
+        
+        asyncio.run(inspector.run_diagnostic(
+            login_url=LOGIN_URL,
+            credentials=CREDS,
+            proxy=args.proxy,
+            headless=args.headless
+        ))
+        
+        # Analyze the report immediately after execution
+        report_file = os.path.join(args.output_dir, "report.json")
+        analyze_report(report_file)
+    else:
+        # User specified --analyze (either with a custom path or as a flag)
+        report_file = args.analyze if args.analyze else str(DEFAULT_OUTPUT_DIR / "report.json")
+        analyze_report(report_file)

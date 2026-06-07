@@ -9,46 +9,46 @@
   <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
   <link rel="stylesheet" href="/assets/styles.css">
 
-    <style>
-      body {
-        font-family: 'Vazirmatn', sans-serif;
-      }
-      /* Custom Scrollbar for better UI */
-      ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-      }
-      ::-webkit-scrollbar-track {
-        background: rgba(0, 0, 0, 0.1);
-        border-radius: 4px;
-      }
-      ::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.15);
-        border-radius: 4px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.25);
-      }
-      /* Ensure glass effect is strong */
-      .glass {
-        background: rgba(15, 23, 42, 0.65);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
-      }
-      /* Interactive hover effects for cards */
-      .card-hover {
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      }
-      .card-hover:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 12px 40px -10px rgba(59, 130, 246, 0.3);
-        border-color: rgba(59, 130, 246, 0.3);
-      }
-    </style>
+  <style>
+    body {
+      font-family: 'Vazirmatn', sans-serif;
+    }
+    /* Custom Scrollbar for better UI */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.1);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
+    /* Ensure glass effect is strong */
+    .glass {
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+    }
+    /* Interactive hover effects for cards */
+    .card-hover {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .card-hover:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px -10px rgba(59, 130, 246, 0.3);
+      border-color: rgba(59, 130, 246, 0.3);
+    }
+  </style>
 </head>
-<body class="antialiased min-h-screen">
+<body class="antialiased min-h-screen text-slate-100 bg-[#060a14]">
   <div class="flex h-screen overflow-hidden">
     
     <!-- Mobile overlay -->
@@ -57,7 +57,7 @@
     <!-- Sidebar -->
     <aside id="sidebar" class="w-72 flex-shrink-0 border-l border-white/10 glass rounded-none lg:rounded-r-none h-full overflow-y-auto flex flex-col fixed lg:static right-0 z-50 transform translate-x-full lg:translate-x-0 transition-transform duration-300">
       <div class="p-6 relative">
-          <button id="btn-sidebar-close" class="lg:hidden absolute top-4 left-4 p-2 text-white/50 hover:text-white" onclick="toggleSidebar()">✕</button>
+        <button id="btn-sidebar-close" class="lg:hidden absolute top-4 left-4 p-2 text-white/50 hover:text-white" onclick="toggleSidebar()">✕</button>
         <div class="flex items-center gap-4 mb-8 pb-6 border-b border-white/10">
           <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-2xl shadow-lg">📦</div>
           <div>
@@ -97,7 +97,7 @@
       <!-- Topbar -->
       <header class="glass m-4 lg:m-6 p-4 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4 z-10">
         <div class="flex items-center gap-4 w-full sm:w-auto">
-          <button class="lg:hidden text-2xl p-2 rounded-lg hover:bg-white/10" onclick="toggleSidebar()" aria-label="نمایش یا مخفی کردن منو">☰</button>
+          <button id="btn-sidebar-toggle" class="lg:hidden text-2xl p-2 rounded-lg hover:bg-white/10" aria-label="نمایش یا مخفی کردن منو">☰</button>
           <div>
             <h1 class="text-xl sm:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">داشبورد کنترل بارنامه</h1>
             <p class="text-xs sm:text-sm opacity-70">مدیریت هوشمند و خودکار صدور بارنامه</p>
@@ -112,336 +112,851 @@
 
       <!-- Scrollable Content Area -->
       <div class="flex-1 overflow-y-auto p-4 lg:p-6 pt-0">
-        <!-- Status Cards -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <div class="glass p-5 rounded-2xl text-center card-hover" id="card-health">
-            <h3 class="text-sm opacity-70 mb-2">سلامت سیستم</h3>
-            <div class="text-xl sm:text-2xl font-bold text-blue-400" id="health-status">بررسی...</div>
-          </div>
-          <div class="glass p-5 rounded-2xl text-center card-hover" id="card-ready">
-            <h3 class="text-sm opacity-70 mb-2">آمادگی سرویس</h3>
-            <div class="text-xl sm:text-2xl font-bold text-blue-400" id="ready-status">بررسی...</div>
-          </div>
-          <div class="glass p-5 rounded-2xl text-center card-hover">
-            <h3 class="text-sm opacity-70 mb-2">عملیات فعال</h3>
-            <div class="text-xl sm:text-2xl font-bold text-purple-400" id="active-status">0</div>
-          </div>
-          <div class="glass p-5 rounded-2xl text-center card-hover">
-            <h3 class="text-sm opacity-70 mb-2">صف انتظار</h3>
-            <div class="text-xl sm:text-2xl font-bold text-orange-400" id="queue-status">0</div>
-          </div>
-        </div>
-
-        <!-- Waybill Form Tab -->
-        <section id="tab-waybill-form" class="tab-content active">
-          <div class="glass p-6 sm:p-8 rounded-2xl">
-            <h2 class="text-2xl font-bold text-blue-400 mb-2">📝 ثبت بارنامه جدید</h2>
-            <p class="opacity-70 mb-6 text-sm">اطلاعات بارنامه را وارد کنید. سیستم به صورت خودکار فرآیند صدور را انجام می‌دهد.</p>
+        <div class="grid grid-cols-1 xl:grid-cols-4 gap-6 items-start">
+          
+          <!-- Workspace (Middle Column) -->
+          <div class="xl:col-span-3 space-y-6">
             
-            <form id="waybill-form" class="space-y-4">
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label class="block text-sm font-medium mb-1">نام فرستنده</label>
-                  <input type="text" name="sender_name" required placeholder="نام کامل فرستنده" class="w-full form-input rounded-xl px-4 py-3 text-sm">
-                </div>
-                <div>
-                  <label class="block text-sm font-medium mb-1">کد ملی فرستنده</label>
-                  <input type="text" name="sender_code" required placeholder="کد ملی ۱۰ رقمی" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
-                </div>
+            <!-- Status Cards -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div class="glass p-5 rounded-2xl text-center card-hover" id="card-health">
+                <h3 class="text-sm opacity-70 mb-2">سلامت سیستم</h3>
+                <div class="text-xl sm:text-2xl font-bold text-blue-400" id="health-status">بررسی...</div>
               </div>
-
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label class="block text-sm font-medium mb-1">نام گیرنده</label>
-                  <input type="text" name="receiver_name" required placeholder="نام کامل گیرنده" class="w-full form-input rounded-xl px-4 py-3 text-sm">
-                </div>
-                <div>
-                  <label class="block text-sm font-medium mb-1">کد ملی گیرنده</label>
-                  <input type="text" name="receiver_code" required placeholder="کد ملی ۱۰ رقمی" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
-                </div>
+              <div class="glass p-5 rounded-2xl text-center card-hover" id="card-ready">
+                <h3 class="text-sm opacity-70 mb-2">آمادگی سرویس</h3>
+                <div class="text-xl sm:text-2xl font-bold text-blue-400" id="ready-status">بررسی...</div>
               </div>
-
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label class="block text-sm font-medium mb-1">مبدا</label>
-                  <input type="text" name="origin" required placeholder="شهر مبدا" class="w-full form-input rounded-xl px-4 py-3 text-sm">
-                </div>
-                <div>
-                  <label class="block text-sm font-medium mb-1">مقصد</label>
-                  <input type="text" name="destination" required placeholder="شهر مقصد" class="w-full form-input rounded-xl px-4 py-3 text-sm">
-                </div>
+              <div class="glass p-5 rounded-2xl text-center card-hover">
+                <h3 class="text-sm opacity-70 mb-2">عملیات فعال</h3>
+                <div class="text-xl sm:text-2xl font-bold text-purple-400" id="active-status">0</div>
               </div>
-
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label class="block text-sm font-medium mb-1">نوع بار</label>
-                  <input type="text" name="cargo_type" required placeholder="نوع کالا" class="w-full form-input rounded-xl px-4 py-3 text-sm">
-                </div>
-                <div>
-                  <label class="block text-sm font-medium mb-1">وزن (کیلوگرم)</label>
-                  <input type="number" name="cargo_weight" required placeholder="وزن بار" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
-                </div>
+              <div class="glass p-5 rounded-2xl text-center card-hover">
+                <h3 class="text-sm opacity-70 mb-2">صف انتظار</h3>
+                <div class="text-xl sm:text-2xl font-bold text-orange-400" id="queue-status">0</div>
               </div>
+            </div>
 
-              <div>
-                <label class="block text-sm font-medium mb-1">شماره پلاک خودرو</label>
-                <input type="text" name="vehicle_plate" required placeholder="مثال: ۱۲ ب ۳۴۵ ایران ۶۷" class="w-full form-input rounded-xl px-4 py-3 text-sm">
-              </div>
-
-              <button type="submit" class="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium py-3 rounded-xl shadow-lg shadow-blue-500/25 transition-all transform hover:-translate-y-0.5 mt-4">
-                🚀 ثبت بارنامه
-              </button>
-            </form>
-            <div id="waybill-result" class="mt-4"></div>
-          </div>
-        </section>
-
-        <!-- Other tabs placeholders styled minimally -->
-
-        <section id="tab-driver-schedules" class="tab-content">
-          <div class="glass p-8 rounded-2xl">
-            <h2 class="text-2xl font-bold text-blue-400 mb-4">⏱️ زمان‌بندی خودکار ثبت بارنامه</h2>
-            <p class="opacity-70 mb-6 text-sm">برنامه‌ریزی برای ثبت خودکار بارنامه در تاریخ و ساعت مشخص.</p>
-
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <!-- Form -->
-              <div>
-                <h3 class="text-lg font-semibold mb-4 border-b border-white/10 pb-2">ایجاد زمان‌بندی جدید</h3>
-                <form id="schedule-form" class="space-y-4">
+            <!-- Tab 1: Waybill Form Tab -->
+            <section id="waybill-form" class="tab-panel is-active">
+              <div class="glass p-6 sm:p-8 rounded-2xl">
+                <h2 class="text-2xl font-bold text-blue-400 mb-2">📝 ثبت بارنامه جدید</h2>
+                <p class="opacity-70 mb-6 text-sm">اطلاعات کامل بارنامه را وارد کنید. سیستم به صورت خودکار فرآیند صدور را انجام می‌دهد.</p>
+                
+                <form id="create-waybill-form" class="space-y-6">
+                  
+                  <!-- Section: Session & Mode -->
                   <div>
-                    <label class="block text-sm font-medium mb-1">راننده</label>
-                    <select name="driver_id" id="schedule-driver-select" required class="w-full form-input rounded-xl px-4 py-3 text-sm bg-slate-800">
-                      <option value="">در حال بارگذاری...</option>
-                    </select>
+                    <h3 class="text-sm font-bold text-blue-300 border-b border-white/10 pb-2 mb-4">⚙️ تنظیمات نشست و حالت عملیات</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">شناسه نشست (Session ID - اختیاری)</label>
+                        <input type="text" id="session-id" placeholder="کپی شده از لاگ یا خالی برای اتوماتیک" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left font-mono" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">حالت عملیات صدور</label>
+                        <select id="operation-mode" class="w-full form-input rounded-xl px-4 py-3 text-sm bg-slate-800">
+                          <option value="safe" selected>حالت امن (شبیه‌سازی کامل رفتار انسانی)</option>
+                          <option value="direct">حالت مستقیم (صدور سریع و موازی)</option>
+                        </select>
+                      </div>
+                    </div>
                   </div>
+
+                  <!-- Section: Sender Info -->
                   <div>
-                    <label class="block text-sm font-medium mb-1">عنوان برنامه</label>
-                    <input type="text" name="title" required placeholder="مثلاً: بارنامه روزانه تهران" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                    <h3 class="text-sm font-bold text-blue-300 border-b border-white/10 pb-2 mb-4">👤 مشخصات فرستنده</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">نام و نام خانوادگی فرستنده</label>
+                        <input type="text" id="sender-name" required placeholder="مثال: علی محمدی" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">کد ملی / شناسه ملی فرستنده</label>
+                        <input type="text" id="sender-national-code" required placeholder="کد ملی ۱۰ رقمی یا شناسه ملی حقوقی" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">شماره تلفن همراه فرستنده</label>
+                        <input type="text" id="sender-phone" required placeholder="مثال: 09121234567" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">آدرس فرستنده</label>
+                        <input type="text" id="sender-address" required placeholder="آدرس دقیق محل بارگیری" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                    </div>
                   </div>
-                  <div class="grid grid-cols-2 gap-4">
+
+                  <!-- Section: Receiver Info -->
+                  <div>
+                    <h3 class="text-sm font-bold text-blue-300 border-b border-white/10 pb-2 mb-4">👥 مشخصات گیرنده</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">نام و نام خانوادگی گیرنده</label>
+                        <input type="text" id="receiver-name" required placeholder="مثال: رضا احمدی" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">شماره تلفن همراه گیرنده</label>
+                        <input type="text" id="receiver-phone" required placeholder="مثال: 09127654321" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div class="md:col-span-2">
+                        <label class="block text-xs opacity-80 mb-1">آدرس گیرنده</label>
+                        <input type="text" id="receiver-address" required placeholder="آدرس دقیق محل تخلیه بار" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Section: Origin Info -->
+                  <div>
+                    <h3 class="text-sm font-bold text-blue-300 border-b border-white/10 pb-2 mb-4">📍 مشخصات مبدا</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">استان مبدا</label>
+                        <input type="text" id="origin-province" required placeholder="مثال: تهران" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">شهر مبدا</label>
+                        <input type="text" id="origin-city" required placeholder="مثال: تهران" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">بخش / منطقه مبدا (اختیاری)</label>
+                        <input type="text" id="origin-district" placeholder="مثال: منطقه ۲" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div class="md:col-span-3">
+                        <label class="block text-xs opacity-80 mb-1">آدرس دقیق مبدا</label>
+                        <input type="text" id="origin-address" required placeholder="آدرس دقیق مبدا بار" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">عرض جغرافیایی مبدا (Lat)</label>
+                        <input type="text" id="origin-lat" required placeholder="35.7000" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">طول جغرافیایی مبدا (Lng)</label>
+                        <input type="text" id="origin-lng" required placeholder="51.4000" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Section: Destination Info -->
+                  <div>
+                    <h3 class="text-sm font-bold text-blue-300 border-b border-white/10 pb-2 mb-4">🏁 مشخصات مقصد</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">استان مقصد</label>
+                        <input type="text" id="destination-province" required placeholder="مثال: اصفهان" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">شهر مقصد</label>
+                        <input type="text" id="destination-city" required placeholder="مثال: اصفهان" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">بخش / منطقه مقصد (اختیاری)</label>
+                        <input type="text" id="destination-district" placeholder="بخش یا دهستان مقصد" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div class="md:col-span-3">
+                        <label class="block text-xs opacity-80 mb-1">آدرس دقیق مقصد</label>
+                        <input type="text" id="destination-address" required placeholder="آدرس دقیق تخلیه بار" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">عرض جغرافیایی مقصد (Lat)</label>
+                        <input type="text" id="destination-lat" required placeholder="32.6500" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">طول جغرافیایی مقصد (Lng)</label>
+                        <input type="text" id="destination-lng" required placeholder="51.6800" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Section: Cargo Info -->
+                  <div>
+                    <h3 class="text-sm font-bold text-blue-300 border-b border-white/10 pb-2 mb-4">📦 مشخصات کالا و بار</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">نوع بار / کالا (اختیاری)</label>
+                        <input type="text" id="cargo-type" placeholder="مثال: سیمان فله" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">وزن بار (کیلوگرم)</label>
+                        <input type="number" id="cargo-weight" required placeholder="وزن به کیلوگرم" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">تعداد / مقدار بار</label>
+                        <input type="number" id="cargo-count" required value="1" placeholder="تعداد یا تعداد بسته‌ها" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">توضیحات بارنامه (اختیاری)</label>
+                        <input type="text" id="cargo-description" placeholder="توضیحات تکمیلی باربری" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Section: Vehicle & Driver Info -->
+                  <div>
+                    <h3 class="text-sm font-bold text-blue-300 border-b border-white/10 pb-2 mb-4">🚛 مشخصات خودرو و راننده</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">کد ملی راننده (اختیاری)</label>
+                        <input type="text" id="vehicle-driver-national-code" placeholder="کد ملی ۱۰ رقمی راننده" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">تلفن همراه راننده (اختیاری)</label>
+                        <input type="text" id="vehicle-driver-phone" placeholder="تلفن همراه راننده" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">شماره پلاک خودرو (اختیاری)</label>
+                        <input type="text" id="vehicle-plate" placeholder="مثال: ۱۲ب۳۴۵ایران۶۷" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">نوع تریلر / خودرو (اختیاری)</label>
+                        <input type="text" id="vehicle-type" placeholder="مثال: تک، جفت، تریلی کشنده" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Section: Financial Info -->
+                  <div>
+                    <h3 class="text-sm font-bold text-blue-300 border-b border-white/10 pb-2 mb-4">💵 اطلاعات مالی و پرداخت</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">هزینه کل حمل بار (ریال - اختیاری)</label>
+                        <input type="number" id="financial-cost" placeholder="کرایه توافق شده به ریال" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">روش پرداخت کرایه (اختیاری)</label>
+                        <select id="financial-payment-method" class="w-full form-input rounded-xl px-4 py-3 text-sm bg-slate-800">
+                          <option value="cash" selected>نقدی در مبدا</option>
+                          <option value="credit">پس‌کرایه در مقصد (اعتباری)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Submit Panel -->
+                  <div class="flex flex-col sm:flex-row gap-3 pt-4 border-t border-white/10">
+                    <button type="submit" id="btn-submit-waybill" class="flex-1 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium py-3 rounded-xl shadow-lg shadow-blue-500/25 transition-all transform hover:-translate-y-0.5">
+                      🚀 صدور مستقیم بارنامه (فوری)
+                    </button>
+                    <button type="submit" id="btn-submit-waybill-queue" class="px-6 bg-slate-800 hover:bg-slate-700 text-white border border-white/10 font-medium py-3 rounded-xl transition-all">
+                      📥 افزودن به صف صدور خودکار
+                    </button>
+                  </div>
+                </form>
+
+                <!-- Task Monitoring Panel inside Form Tab -->
+                <div class="mt-8 border-t border-white/10 pt-6">
+                  <h3 class="text-lg font-bold text-blue-400 mb-2">⏱️ پایش وضعیت تسک بارنامه</h3>
+                  <p class="opacity-70 mb-4 text-xs">برای بررسی وضعیت تسک‌های صف از شناسه تسک استفاده کنید.</p>
+                  <div class="flex gap-2 mb-4">
+                    <input type="text" id="queue-task-id" placeholder="Task ID / شناسه تسک" class="flex-1 form-input rounded-xl px-4 py-3 text-sm text-left font-mono" dir="ltr">
+                    <button id="btn-waybill-task-status" class="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-semibold transition-all">بررسی وضعیت</button>
+                  </div>
+                  <div class="grid grid-cols-3 gap-3 text-center border border-white/10 rounded-xl p-4 bg-slate-900/50">
                     <div>
-                      <label class="block text-sm font-medium mb-1">دوره تناوب</label>
-                      <select name="frequency" required class="w-full form-input rounded-xl px-4 py-3 text-sm bg-slate-800">
-                        <option value="daily">روزانه</option>
-                        <option value="weekly">هفتگی</option>
+                      <div class="text-xs opacity-70">وضعیت تسک</div>
+                      <div id="waybill-task-state" class="font-bold text-blue-300 mt-1 text-sm">-</div>
+                    </div>
+                    <div class="border-x border-white/10">
+                      <div class="text-xs opacity-70">Celery ID</div>
+                      <div id="waybill-task-celery" class="font-bold text-slate-300 mt-1 text-sm overflow-hidden text-ellipsis whitespace-nowrap px-2">-</div>
+                    </div>
+                    <div>
+                      <div class="text-xs opacity-70">آخرین بروزرسانی</div>
+                      <div id="waybill-task-updated" class="font-bold text-slate-300 mt-1 text-sm">-</div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </section>
+
+            <!-- Tab 2: Manual Entry Tab -->
+            <section id="manual-entry" class="tab-panel">
+              <div class="glass p-6 sm:p-8 rounded-2xl">
+                <h2 class="text-2xl font-bold text-blue-400 mb-2">✏️ ورود دستی بارنامه (ثبت دستی مستقیم)</h2>
+                <p class="opacity-70 mb-6 text-sm">برای ثبت سریع و بررسی دستی بدون دخالت کامل ربات هوشمند.</p>
+                
+                <form id="manual-waybill-form" class="space-y-6">
+                  <!-- Credentials -->
+                  <div>
+                    <h3 class="text-sm font-bold text-amber-300 border-b border-white/10 pb-2 mb-4">🔐 اطلاعات حساب کاربری UTCMS</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">نام کاربری سامانه</label>
+                        <input type="text" id="manual-utcms-username" placeholder="Username" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left font-mono" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">کلمه عبور سامانه</label>
+                        <input type="password" id="manual-utcms-password" placeholder="Password" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left font-mono" dir="ltr">
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Settings -->
+                  <div>
+                    <h3 class="text-sm font-bold text-amber-300 border-b border-white/10 pb-2 mb-4">⚙️ تنظیمات صدور دستی</h3>
+                    <div>
+                      <label class="block text-xs opacity-80 mb-1">حالت عملیات صدور</label>
+                      <select id="manual-operation-mode" class="w-full form-input rounded-xl px-4 py-3 text-sm bg-slate-800">
+                        <option value="safe" selected>حالت امن (شبیه‌سازی کامل رفتار انسانی)</option>
+                        <option value="direct">حالت مستقیم (صدور سریع)</option>
                       </select>
                     </div>
-                    <div>
-                      <label class="block text-sm font-medium mb-1">ساعت اجرا (HH:MM)</label>
-                      <input type="time" name="run_time" required value="08:00" class="w-full form-input rounded-xl px-4 py-3 text-sm">
-                    </div>
                   </div>
-                  <div class="grid grid-cols-2 gap-4">
-                     <div>
-                      <label class="block text-sm font-medium mb-1">تاریخ شروع (اختیاری)</label>
-                      <input type="date" name="start_date" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left">
-                    </div>
-                    <div>
-                      <label class="block text-sm font-medium mb-1">تاریخ پایان (اختیاری)</label>
-                      <input type="date" name="end_date" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left">
-                    </div>
-                  </div>
+
+                  <!-- Sender Info -->
                   <div>
-                    <label class="block text-sm font-medium mb-1">تنظیمات الگو (JSON)</label>
-                    <textarea name="payload_template" rows="4" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left font-mono" dir="ltr" placeholder='{"origin": "تهران", "destination": "اصفهان"}'></textarea>
+                    <h3 class="text-sm font-bold text-amber-300 border-b border-white/10 pb-2 mb-4">👤 مشخصات فرستنده</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">نام فرستنده</label>
+                        <input type="text" id="manual-sender-name" placeholder="نام فرستنده" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">کد ملی فرستنده</label>
+                        <input type="text" id="manual-sender-national-code" placeholder="کد ملی فرستنده" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">تلفن همراه فرستنده</label>
+                        <input type="text" id="manual-sender-phone" placeholder="تلفن فرستنده" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">آدرس فرستنده</label>
+                        <input type="text" id="manual-sender-address" placeholder="آدرس فرستنده" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                    </div>
                   </div>
-                  <button type="submit" class="w-full px-8 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl transition-colors">
-                    ذخیره زمان‌بندی
-                  </button>
+
+                  <!-- Receiver Info -->
+                  <div>
+                    <h3 class="text-sm font-bold text-amber-300 border-b border-white/10 pb-2 mb-4">👥 مشخصات گیرنده</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">نام گیرنده</label>
+                        <input type="text" id="manual-receiver-name" placeholder="نام گیرنده" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">کد ملی گیرنده (اختیاری)</label>
+                        <input type="text" id="manual-receiver-national-code" placeholder="کد ملی گیرنده" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">تلفن همراه گیرنده</label>
+                        <input type="text" id="manual-receiver-phone" placeholder="تلفن گیرنده" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">آدرس گیرنده</label>
+                        <input type="text" id="manual-receiver-address" placeholder="آدرس گیرنده" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Origin Info -->
+                  <div>
+                    <h3 class="text-sm font-bold text-amber-300 border-b border-white/10 pb-2 mb-4">📍 مشخصات مبدا</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">استان مبدا</label>
+                        <input type="text" id="manual-origin-province" placeholder="استان مبدا" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">شهر مبدا</label>
+                        <input type="text" id="manual-origin-city" placeholder="شهر مبدا" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">بخش مبدا</label>
+                        <input type="text" id="manual-origin-district" placeholder="بخش مبدا" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div class="md:col-span-3">
+                        <label class="block text-xs opacity-80 mb-1">آدرس دقیق مبدا</label>
+                        <input type="text" id="manual-origin-address" placeholder="آدرس مبدا" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">Lat مبدا</label>
+                        <input type="text" id="manual-origin-lat" placeholder="35.7000" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">Lng مبدا</label>
+                        <input type="text" id="manual-origin-lng" placeholder="51.4000" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Destination Info -->
+                  <div>
+                    <h3 class="text-sm font-bold text-amber-300 border-b border-white/10 pb-2 mb-4">🏁 مشخصات مقصد</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">استان مقصد</label>
+                        <input type="text" id="manual-destination-province" placeholder="استان مقصد" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">شهر مقصد</label>
+                        <input type="text" id="manual-destination-city" placeholder="شهر مقصد" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">بخش مقصد</label>
+                        <input type="text" id="manual-destination-district" placeholder="بخش مقصد" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div class="md:col-span-3">
+                        <label class="block text-xs opacity-80 mb-1">آدرس دقیق مقصد</label>
+                        <input type="text" id="manual-destination-address" placeholder="آدرس مقصد" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">Lat مقصد</label>
+                        <input type="text" id="manual-destination-lat" placeholder="32.6500" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">Lng مقصد</label>
+                        <input type="text" id="manual-destination-lng" placeholder="51.6800" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Cargo Info -->
+                  <div>
+                    <h3 class="text-sm font-bold text-amber-300 border-b border-white/10 pb-2 mb-4">📦 مشخصات کالا</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">نوع کالا</label>
+                        <input type="text" id="manual-cargo-type" placeholder="نوع کالا" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">وزن کالا (کیلوگرم)</label>
+                        <input type="number" id="manual-cargo-weight" placeholder="وزن به کیلوگرم" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">تعداد بسته‌ها</label>
+                        <input type="number" id="manual-cargo-count" value="1" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">توضیحات بار</label>
+                        <input type="text" id="manual-cargo-description" placeholder="توضیحات" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Vehicle Info -->
+                  <div>
+                    <h3 class="text-sm font-bold text-amber-300 border-b border-white/10 pb-2 mb-4">🚛 مشخصات خودرو</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">کد ملی راننده</label>
+                        <input type="text" id="manual-vehicle-driver-national-code" placeholder="کد ملی راننده" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">تلفن راننده</label>
+                        <input type="text" id="manual-vehicle-driver-phone" placeholder="تلفن راننده" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">پلاک خودرو</label>
+                        <input type="text" id="manual-vehicle-plate" placeholder="پلاک خودرو" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">نوع بارگیر</label>
+                        <input type="text" id="manual-vehicle-type" placeholder="نوع بارگیر" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Financial Info -->
+                  <div>
+                    <h3 class="text-sm font-bold text-amber-300 border-b border-white/10 pb-2 mb-4">💵 هزینه و مالی</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">کرایه (ریال)</label>
+                        <input type="number" id="manual-financial-cost" placeholder="کرایه" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left" dir="ltr">
+                      </div>
+                      <div>
+                        <label class="block text-xs opacity-80 mb-1">روش پرداخت</label>
+                        <select id="manual-financial-payment-method" class="w-full form-input rounded-xl px-4 py-3 text-sm bg-slate-800">
+                          <option value="cash" selected>نقدی</option>
+                          <option value="credit">اعتباری</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Buttons -->
+                  <div class="flex flex-wrap gap-3 pt-4 border-t border-white/10">
+                    <button type="button" id="btn-validate-manual" class="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-semibold transition-all">🔍 اعتبارسنجی اولیه داده‌ها</button>
+                    <button type="button" id="btn-submit-manual-waybill" class="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-bold transition-all">✏️ ارسال و ثبت نهایی دستی</button>
+                    <button type="button" id="btn-fill-sample-manual" class="px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-sm transition-all">📄 نمونه داده دستی</button>
+                  </div>
                 </form>
+
+                <!-- Validation and Submit Results -->
+                <div id="manual-validation-result" class="mt-6"></div>
+                <div id="manual-submit-result" class="mt-6"></div>
               </div>
+            </section>
 
-              <!-- List -->
-              <div>
-                 <h3 class="text-lg font-semibold mb-4 border-b border-white/10 pb-2">زمان‌بندی‌های فعال</h3>
-                 <div id="schedules-list" class="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                    <div class="text-center opacity-50 py-4 text-sm">در حال بارگذاری...</div>
-                 </div>
-              </div>
-            </div>
+            <!-- Tab 3: Driver Schedules Tab -->
+            <section id="driver-schedules" class="tab-panel">
+              <div class="glass p-6 sm:p-8 rounded-2xl">
+                <h2 class="text-2xl font-bold text-blue-400 mb-4">⏱️ زمان‌بندی خودکار ثبت بارنامه</h2>
+                <p class="opacity-70 mb-6 text-sm">برنامه‌ریزی برای ثبت خودکار بارنامه در تاریخ و ساعت مشخص.</p>
 
-          </div>
-        </section>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <!-- Form -->
+                  <div>
+                    <h3 class="text-lg font-semibold mb-4 border-b border-white/10 pb-2">ایجاد زمان‌بندی جدید</h3>
+                    <form id="schedule-form" class="space-y-4">
+                      <div>
+                        <label class="block text-sm font-medium mb-1">راننده</label>
+                        <select name="driver_id" id="schedule-driver-select" required class="w-full form-input rounded-xl px-4 py-3 text-sm bg-slate-800">
+                          <option value="">در حال بارگذاری...</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="block text-sm font-medium mb-1">عنوان برنامه</label>
+                        <input type="text" name="title" required placeholder="مثلاً: بارنامه روزانه تهران" class="w-full form-input rounded-xl px-4 py-3 text-sm">
+                      </div>
+                      <div class="grid grid-cols-2 gap-4">
+                        <div>
+                          <label class="block text-sm font-medium mb-1">دوره تناوب</label>
+                          <select name="frequency" required class="w-full form-input rounded-xl px-4 py-3 text-sm bg-slate-800">
+                            <option value="daily">روزانه</option>
+                            <option value="weekly">هفتگی</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label class="block text-sm font-medium mb-1">ساعت اجرا (HH:MM)</label>
+                          <input type="time" name="run_time" required value="08:00" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left">
+                        </div>
+                      </div>
+                      <div class="grid grid-cols-2 gap-4">
+                        <div>
+                          <label class="block text-sm font-medium mb-1">تاریخ شروع (اختیاری)</label>
+                          <input type="date" name="start_date" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left">
+                        </div>
+                        <div>
+                          <label class="block text-sm font-medium mb-1">تاریخ پایان (اختیاری)</label>
+                          <input type="date" name="end_date" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left">
+                        </div>
+                      </div>
+                      <div>
+                        <label class="block text-sm font-medium mb-1">تنظیمات الگو (JSON)</label>
+                        <textarea name="payload_template" rows="4" class="w-full form-input rounded-xl px-4 py-3 text-sm text-left font-mono" dir="ltr" placeholder='{"origin": "تهران", "destination": "اصفهان"}'></textarea>
+                      </div>
+                      <button type="submit" class="w-full px-8 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl transition-colors font-semibold">
+                        ذخیره زمان‌بندی
+                      </button>
+                    </form>
+                  </div>
 
-        <section id="tab-manual-entry" class="tab-content">
-          <div class="glass p-8 rounded-2xl">
-            <h2 class="text-2xl font-bold text-blue-400 mb-4">✏️ ورود دستی بارنامه</h2>
-            <p class="opacity-70 mb-6 text-sm">برای سناریوهای سریع، همین فرم را مستقیماً به endpoint ثبت دستی وصل کرده‌ایم.</p>
-            <button id="btn-manual-submit" class="w-full md:w-auto px-8 py-3 bg-amber-500/20 text-amber-400 rounded-xl border border-amber-500/30 hover:bg-amber-500/30 transition-colors">
-              ارسال نمونه به ثبت دستی
-            </button>
-            <div id="manual-result" class="mt-4"></div>
-          </div>
-        </section>
-
-        <section id="tab-excel-upload" class="tab-content">
-          <div class="glass p-8 rounded-2xl text-center">
-            <h2 class="text-2xl font-bold text-blue-400 mb-4">📊 آپلود و پردازش اکسل</h2>
-            <div class="border-2 border-dashed border-white/20 rounded-xl p-8 hover:border-blue-500/50 transition-colors cursor-pointer" onclick="document.getElementById('excel-file').click()">
-              <div class="text-4xl mb-4">📁</div>
-              <p>برای انتخاب فایل کلیک کنید یا فایل را اینجا رها کنید</p>
-              <input type="file" id="excel-file" class="hidden" accept=".xlsx,.xls">
-            </div>
-            <button id="btn-upload-excel" class="w-full md:w-auto px-8 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl mt-6 transition-colors">📤 آپلود و پردازش</button>
-            <div id="excel-result" class="mt-4"></div>
-          </div>
-        </section>
-
-        <section id="tab-map-tools" class="tab-content">
-           <div class="glass p-8 rounded-2xl">
-             <h2 class="text-2xl font-bold text-blue-400 mb-4">🗺️ انتخاب مبدا و مقصد روی نقشه</h2>
-             <div class="bg-blue-500/10 border border-blue-500/30 p-4 rounded-xl mb-6">
-                💡 راهنما: ابتدا مبدا و سپس مقصد را روی نقشه کلیک کنید
-             </div>
-             <!-- Map container placeholder -->
-             <div id="map-click-surface" class="bg-slate-800 rounded-xl h-[400px] flex items-center justify-center border border-white/10 relative overflow-hidden group cursor-crosshair">
-                <div class="absolute inset-0 bg-blue-500/5 group-hover:bg-blue-500/10 transition-colors"></div>
-                <div class="text-center relative z-10">
-                  <div class="text-5xl mb-2">🗺️</div>
-                  <p class="text-white/70">نقشه در حال بارگذاری...</p>
+                  <!-- List -->
+                  <div>
+                    <h3 class="text-lg font-semibold mb-4 border-b border-white/10 pb-2">زمان‌بندی‌های فعال</h3>
+                    <div id="schedules-list" class="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                      <div class="text-center opacity-50 py-4 text-sm">در حال بارگذاری...</div>
+                    </div>
+                  </div>
                 </div>
-             </div>
-             <div class="grid grid-cols-3 gap-4 mt-6">
-               <button id="btn-select-origin" class="bg-blue-500/20 text-blue-400 py-2 rounded-lg border border-blue-500/30">📍 مبدا</button>
-               <button id="btn-select-destination" class="bg-orange-500/20 text-orange-400 py-2 rounded-lg border border-orange-500/30">🏁 مقصد</button>
-               <button id="btn-clear-selection" class="bg-red-500/20 text-red-400 py-2 rounded-lg border border-red-500/30">🗑️ پاک کردن</button>
-             </div>
-             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-               <div id="origin-display" class="rounded-xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm">
-                 <div class="font-medium text-blue-300 mb-1">مختصات مبدا</div>
-                 <div id="origin-card" class="opacity-80">
-                   <div id="origin-display-value">هنوز انتخاب نشده است</div>
-                 </div>
-               </div>
-               <div id="destination-display" class="rounded-xl border border-orange-500/20 bg-orange-500/10 p-4 text-sm">
-                 <div class="font-medium text-orange-300 mb-1">مختصات مقصد</div>
-                 <div id="destination-card" class="opacity-80">
-                   <div id="destination-display-value">هنوز انتخاب نشده است</div>
-                 </div>
-               </div>
-             </div>
-             <div id="map-selection-status" class="mt-4 text-sm opacity-80">حالت انتخاب: مبدا</div>
-           </div>
-        </section>
+              </div>
+            </section>
 
-                <section id="tab-reports-tools" class="tab-content">
-          <div class="glass p-8 rounded-2xl">
-             <h2 class="text-2xl font-bold text-blue-400 mb-4">📈 گزارش‌ها و آمار</h2>
-             <p class="opacity-70 mb-6 text-sm">بارگیری خلاصه گزارش‌ها از سیستم‌های مدیریت و کلاینت.</p>
+            <!-- Tab 4: Excel Upload Tab -->
+            <section id="excel-upload" class="tab-panel">
+              <div class="glass p-6 sm:p-8 rounded-2xl">
+                <h2 class="text-2xl font-bold text-blue-400 mb-4">📊 آپلود و پردازش اکسل</h2>
+                <p class="opacity-70 mb-6 text-sm">بارگذاری فایل اکسل حاوی لیست بارنامه‌ها برای پردازش گروهی و صدور خودکار.</p>
+                
+                <div class="excel-upload-area border-2 border-dashed border-white/20 rounded-2xl p-8 hover:border-blue-500/50 transition-colors cursor-pointer text-center" id="excel-drop-zone">
+                  <div class="text-5xl mb-4">📁</div>
+                  <div class="upload-instructions">
+                     <h3 class="text-lg font-bold mb-1">برای انتخاب فایل کلیک کنید یا فایل را اینجا بکشید</h3>
+                     <p class="text-xs opacity-75">فرمت‌های مجاز: .xlsx, .xls</p>
+                  </div>
+                  <input type="file" id="excel-file-input" class="hidden" accept=".xlsx,.xls">
+                  <button type="button" id="btn-select-excel" class="px-6 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-xs font-semibold transition-colors mt-2">انتخاب فایل</button>
+                </div>
 
-             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                <div class="border border-white/10 rounded-xl p-4 bg-slate-900/50">
-                    <h3 class="text-lg font-bold text-blue-300 mb-2">گزارش‌های ادمین (کلی)</h3>
-                    <div class="flex flex-col gap-2">
-                        <button id="btn-admin-summary" class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm">خلاصه کاربران</button>
-                        <button id="btn-admin-failure" class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm">تحلیل شکست‌ها</button>
-                        <div class="flex gap-2">
-                            <input type="number" id="admin-client-id" placeholder="Client ID" class="w-full px-3 py-2 bg-slate-800 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500">
-                            <button id="btn-admin-client-detail" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-sm whitespace-nowrap">جزئیات مشتری</button>
+                <!-- Selected File Info -->
+                <div id="excel-file-info" class="mt-4 p-4 bg-slate-900/50 border border-white/10 rounded-xl hidden">
+                  <div class="flex justify-between items-center text-xs">
+                    <div class="flex items-center gap-2">
+                      <span class="text-lg">📄</span>
+                      <span class="file-name font-bold text-slate-200">filename.xlsx</span>
+                    </div>
+                    <span class="file-size opacity-70">0.00 MB</span>
+                  </div>
+                </div>
+
+                <div class="excel-options flex flex-wrap gap-3 mt-6">
+                  <button id="btn-parse-excel" class="px-6 py-3 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition-all" disabled>🔍 آنالیز و بررسی اکسل</button>
+                  <button id="btn-submit-excel-waybills" class="px-6 py-3 bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition-all" disabled>📤 ثبت مستقیم گروهی</button>
+                  <button id="btn-queue-excel-waybills" class="px-6 py-3 bg-purple-500 hover:bg-purple-600 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition-all" disabled>📥 افزودن گروهی به صف</button>
+                  <button id="btn-download-template" class="px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-sm font-semibold transition-all">📥 دانلود نمونه قالب اکسل</button>
+                  <button id="btn-clear-excel-results" class="px-4 py-3 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 rounded-xl text-sm transition-all">🗑️ پاک کردن</button>
+                </div>
+
+                <!-- Analysis results container -->
+                <div id="excel-parse-result" class="mt-6"></div>
+                <!-- Preview of rows container -->
+                <div id="excel-waybills-preview" class="mt-6"></div>
+              </div>
+            </section>
+
+            <!-- Tab 5: Map Tools Tab -->
+            <section id="map-tools" class="tab-panel">
+              <div class="glass p-6 sm:p-8 rounded-2xl">
+                <h2 class="text-2xl font-bold text-blue-400 mb-4">🗺️ انتخاب مبدا و مقصد روی نقشه</h2>
+                <div class="bg-blue-500/10 border border-blue-500/30 p-4 rounded-xl mb-6 text-sm">
+                   💡 راهنما: ابتدا روی دکمه "انتخاب مبدا" کلیک کرده و نقطه شروع را روی نقشه مشخص کنید، سپس روی دکمه "انتخاب مقصد" کلیک کرده و مقصد را ثبت کنید.
+                </div>
+
+                <!-- Map container -->
+                <div id="interactive-route-map" class="bg-slate-800 rounded-xl h-[400px] flex items-center justify-center border border-white/10 relative overflow-hidden group cursor-crosshair">
+                   <div class="absolute inset-0 bg-blue-500/5 group-hover:bg-blue-500/10 transition-colors"></div>
+                   <div class="text-center relative z-10">
+                     <div class="text-5xl mb-2">🗺️</div>
+                     <p class="text-white/70">نقشه در حال بارگذاری...</p>
+                   </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-4 mt-6">
+                  <button id="btn-map-target-origin" class="py-2.5 rounded-lg border text-sm font-semibold transition-all">📍 انتخاب مبدا</button>
+                  <button id="btn-map-target-destination" class="py-2.5 rounded-lg border text-sm font-semibold transition-all">🏁 انتخاب مقصد</button>
+                  <button id="btn-clear-map-points" class="bg-red-500/20 text-red-400 py-2.5 rounded-lg border border-red-500/30 text-sm font-semibold transition-all">🗑️ پاک کردن نقاط</button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                  <div id="origin-display" class="rounded-xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm">
+                    <div class="font-medium text-blue-300 mb-1 flex justify-between items-center">
+                      <span>مختصات مبدا</span>
+                      <span id="map-origin-status" class="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 font-bold">ثبت نشده</span>
+                    </div>
+                    <div id="origin-card" class="opacity-80">
+                      <div id="origin-display-value">هنوز انتخاب نشده است</div>
+                    </div>
+                  </div>
+                  <div id="destination-display" class="rounded-xl border border-orange-500/20 bg-orange-500/10 p-4 text-sm">
+                    <div class="font-medium text-orange-300 mb-1 flex justify-between items-center">
+                      <span>مختصات مقصد</span>
+                      <span id="map-destination-status" class="text-xs px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 font-bold">ثبت نشده</span>
+                    </div>
+                    <div id="destination-card" class="opacity-80">
+                      <div id="destination-display-value">هنوز انتخاب نشده است</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="mt-4 flex flex-col sm:flex-row justify-between text-xs opacity-80 gap-2">
+                  <div class="flex gap-1">وضعیت انتخاب: <span id="map-active-target" class="font-bold text-blue-400">مبدا</span></div>
+                  <div id="map-click-status" class="font-semibold text-green-400"></div>
+                  <div id="map-fallback-notice" class="text-red-400"></div>
+                </div>
+              </div>
+            </section>
+
+            <!-- Tab 6: Reports Tab -->
+            <section id="reports-tools" class="tab-panel">
+              <div class="glass p-6 sm:p-8 rounded-2xl">
+                 <h2 class="text-2xl font-bold text-blue-400 mb-4">📈 گزارش‌ها و آمار صدور</h2>
+                 <p class="opacity-70 mb-6 text-sm">بارگیری خلاصه گزارش‌ها از سیستم‌های مدیریت و کلاینت.</p>
+
+                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div class="border border-white/10 rounded-xl p-4 bg-slate-900/50">
+                        <h3 class="text-lg font-bold text-blue-300 mb-2">گزارش‌های ادمین (کلی)</h3>
+                        <div class="flex flex-col gap-2">
+                            <button id="btn-admin-summary" class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm">خلاصه کاربران</button>
+                            <button id="btn-admin-failure" class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm">تحلیل شکست‌ها</button>
+                            <div class="flex gap-2">
+                                <input type="number" id="admin-client-id" placeholder="Client ID" class="w-full px-3 py-2 bg-slate-800 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500">
+                                <button id="btn-admin-client-detail" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-sm whitespace-nowrap">جزئیات مشتری</button>
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                <div class="border border-white/10 rounded-xl p-4 bg-slate-900/50">
-                    <h3 class="text-lg font-bold text-green-300 mb-2">گزارش‌های کاربر (کلاینت)</h3>
-                    <div class="flex flex-col gap-2">
-                        <button id="btn-user-dashboard" class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm">داشبورد آماری</button>
-                        <button id="btn-user-drivers" class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm">عملکرد رانندگان</button>
-                        <button id="btn-user-waybills" class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm">تاریخچه بارنامه‌ها</button>
-                        <button id="btn-user-errors" class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm">جزئیات خطاها</button>
+                    <div class="border border-white/10 rounded-xl p-4 bg-slate-900/50">
+                        <h3 class="text-lg font-bold text-green-300 mb-2">گزارش‌های کاربر (کلاینت)</h3>
+                        <div class="flex flex-col gap-2">
+                            <button id="btn-user-dashboard" class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm">داشبورد آماری</button>
+                            <button id="btn-user-drivers" class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm">عملکرد رانندگان</button>
+                            <button id="btn-user-waybills" class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm">تاریخچه بارنامه‌ها</button>
+                            <button id="btn-user-errors" class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm">جزئیات خطاها</button>
+                        </div>
                     </div>
+                 </div>
+
+                 <pre id="reports-result" class="hidden rounded-xl border border-white/10 bg-slate-950/50 p-4 text-left text-xs overflow-x-auto h-96 font-mono text-green-400" dir="ltr"></pre>
+              </div>
+            </section>
+
+            <!-- Tab 7: Management Tools Tab -->
+            <section id="management-tools" class="tab-panel">
+              <div class="glass p-6 sm:p-8 rounded-2xl">
+                 <h2 class="text-2xl font-bold text-blue-400 mb-4">⚙️ مدیریت حرفه‌ای ربات‌ها</h2>
+                 <p class="opacity-70 mb-6 text-sm">پنل مدیریت یکپارچه ربات‌ها و زمان‌بندی</p>
+
+                 <!-- Statistics Grid -->
+                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                   <div class="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 text-center">
+                     <div class="text-xs opacity-70">مشتریان</div>
+                     <div id="management-summary-customers" class="text-2xl font-bold text-blue-300">0</div>
+                   </div>
+                   <div class="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 text-center">
+                     <div class="text-xs opacity-70">مسیرها</div>
+                     <div id="management-summary-routes" class="text-2xl font-bold text-blue-300">0</div>
+                   </div>
+                   <div class="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 text-center">
+                     <div class="text-xs opacity-70">اکانت‌ها</div>
+                     <div id="management-summary-accounts" class="text-2xl font-bold text-blue-300">0</div>
+                   </div>
+                   <div class="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 text-center">
+                     <div class="text-xs opacity-70">صف کلی</div>
+                     <div id="management-summary-queue" class="text-2xl font-bold text-blue-300">0</div>
+                   </div>
+
+                   <div class="bg-green-500/10 p-4 rounded-xl border border-green-500/20 text-center">
+                     <div class="text-xs opacity-70">اکانت‌های فعال</div>
+                     <div id="management-summary-active-accounts" class="text-2xl font-bold text-green-300">0</div>
+                   </div>
+                   <div class="bg-yellow-500/10 p-4 rounded-xl border border-yellow-500/20 text-center">
+                     <div class="text-xs opacity-70">نیازمند OTP</div>
+                     <div id="management-summary-otp-accounts" class="text-2xl font-bold text-yellow-300">0</div>
+                   </div>
+                   <div class="bg-purple-500/10 p-4 rounded-xl border border-purple-500/20 text-center">
+                     <div class="text-xs opacity-70">سشن‌های آماده</div>
+                     <div id="management-summary-session-ready" class="text-2xl font-bold text-purple-300">0</div>
+                   </div>
+                   <div class="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 text-center">
+                     <div class="text-xs opacity-70">صف لوکال</div>
+                     <div id="management-summary-local-queue" class="text-2xl font-bold text-blue-300">0</div>
+                   </div>
+                 </div>
+
+                 <!-- Actions Grid -->
+                 <div class="flex flex-wrap gap-2 mb-8">
+                   <button id="btn-management-refresh-summary" class="px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-semibold transition-colors">🔄 بروزرسانی</button>
+                   <button id="btn-management-diagnostics" class="px-4 py-2.5 bg-purple-500 hover:bg-purple-600 text-white rounded-lg text-xs font-semibold transition-colors">🧪 عیب‌یابی</button>
+                   <button id="btn-management-list-accounts" class="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-semibold transition-colors">📋 لیست اکانت‌ها</button>
+                   <button id="btn-management-list-queue" class="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-semibold transition-colors">📋 لیست صف</button>
+                 </div>
+
+                 <!-- Diagnostics Results -->
+                 <div id="management-diagnostics-list" class="mb-8 hidden">
+                    <pre class="bg-slate-900 p-4 rounded-xl border border-slate-700 text-xs overflow-x-auto text-left font-mono text-slate-200" dir="ltr"></pre>
+                 </div>
+
+                 <!-- Excel Upload -->
+                 <div class="bg-slate-800/50 p-6 rounded-xl border border-white/10 mb-8">
+                   <h3 class="text-lg font-bold mb-4">آپلود گروهی اکسل مدیریت</h3>
+                   <div class="flex flex-col sm:flex-row gap-4">
+                     <input type="file" id="management-excel-file" class="block w-full text-sm text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-500 file:text-white hover:file:bg-blue-600">
+                     <button id="btn-management-import-excel" class="px-6 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs font-semibold whitespace-nowrap transition-colors">📤 پردازش اکسل</button>
+                   </div>
+                   <div id="management-import-results" class="mt-4 text-sm"></div>
+                 </div>
+
+                 <!-- Required hidden inputs/buttons to satisfy management.js listeners without throwing errors -->
+                 <div class="hidden">
+                    <input id="management-customer-key"><input id="management-customer-name">
+                    <button id="btn-management-save-customer"></button><button id="btn-management-list-customers"></button>
+                    <input id="management-route-key"><input id="management-route-name"><input id="management-route-origin-province"><input id="management-route-origin-city"><input id="management-route-destination-province"><input id="management-route-destination-city"><input id="management-route-origin-lat"><input id="management-route-origin-lng"><input id="management-route-destination-lat"><input id="management-route-destination-lng"><input id="management-route-distance"><input id="management-route-duration"><input id="management-route-enabled" type="checkbox"><input id="management-route-recommended" type="checkbox">
+                    <button id="btn-management-save-route"></button><button id="btn-management-list-routes"></button><button id="btn-management-copy-route-from-map"></button>
+                    <input id="management-account-name"><input id="management-account-owner"><input id="management-account-title"><input id="management-account-phone"><input id="management-account-national-code"><input id="management-account-route-key"><select id="management-account-status"></select><select id="management-account-platform"></select><input id="management-account-current-submit"><input id="management-account-target-submit"><input id="management-account-time-interval"><input id="management-account-last-success"><input id="management-account-start-shipping"><input id="management-account-otp-needed" type="checkbox"><textarea id="management-account-driver-data"></textarea><textarea id="management-account-truck-data"></textarea><input id="management-account-valid-location" type="checkbox"><input id="management-account-two-way" type="checkbox">
+                    <button id="btn-management-save-account"></button><button id="btn-management-fill-queue-from-account"></button><button id="btn-management-warm-session"></button><button id="btn-management-bootstrap-current"></button>
+                    <input id="management-queue-account-name"><input id="management-queue-route-key"><input id="management-queue-owner">
+                    <button id="btn-management-create-queue"></button><button id="btn-management-queue-current"></button>
+                    <input id="management-dispatch-queue-id">
+                    <button id="btn-management-dispatch-queue"></button><button id="btn-management-list-logs"></button>
+                    <div id="management-summary-imported-queue"></div>
+                 </div>
+              </div>
+            </section>
+
+          </div>
+
+          <!-- Developer Side Panel (Left Column) -->
+          <div class="space-y-6">
+            
+            <!-- Auth Card -->
+            <div class="glass p-6 rounded-2xl" id="auth-card">
+              <h3 class="text-base font-bold text-blue-400 mb-4 flex items-center gap-2">🔐 اطلاعات احراز هویت</h3>
+              <div class="space-y-3">
+                <div>
+                  <label class="block text-[11px] opacity-70 mb-1">API Key Header</label>
+                  <input type="text" id="api-key-header" value="X-API-Key" class="w-full form-input rounded-xl px-3 py-2 text-xs text-left font-mono" dir="ltr">
                 </div>
-             </div>
+                <div>
+                  <label class="block text-[11px] opacity-70 mb-1">API Key Value</label>
+                  <input type="password" id="api-key-value" placeholder="کپی شده از تنظیمات یا خالی" class="w-full form-input rounded-xl px-3 py-2 text-xs text-left font-mono" dir="ltr">
+                </div>
+                <div>
+                  <label class="block text-[11px] opacity-70 mb-1">JWT Bearer Token</label>
+                  <textarea id="jwt-token" placeholder="توکن ورود" rows="2" class="w-full form-input rounded-xl px-3 py-2 text-xs text-left font-mono" dir="ltr"></textarea>
+                </div>
+                
+                <div class="border-t border-white/10 pt-3 mt-3">
+                   <h4 class="text-xs font-bold text-purple-300 mb-2">UTCMS Login Credentials</h4>
+                   <div class="grid grid-cols-2 gap-2">
+                     <div>
+                       <input type="text" id="utcms-username" placeholder="نام کاربری UTCMS" class="w-full form-input rounded-xl px-3 py-2 text-xs text-left font-mono" dir="ltr">
+                     </div>
+                     <div>
+                       <input type="password" id="utcms-password" placeholder="رمز عبور UTCMS" class="w-full form-input rounded-xl px-3 py-2 text-xs text-left font-mono" dir="ltr">
+                     </div>
+                   </div>
+                   <div class="mt-2">
+                     <input type="text" id="utcms-login-url" placeholder="https://barname.utcms.ir/Barname/Account/Login" class="w-full form-input rounded-xl px-3 py-2 text-xs text-left font-mono" dir="ltr">
+                   </div>
+                </div>
 
-             <pre id="reports-result" class="hidden rounded-xl border border-white/10 bg-slate-950/50 p-4 text-left text-xs overflow-x-auto h-96" dir="ltr"></pre>
+                <div class="flex gap-2 pt-2">
+                  <button id="btn-save-auth" class="flex-1 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-semibold transition-colors">ذخیره اعتبارات</button>
+                  <button id="btn-clear-auth" class="py-2 px-3 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 rounded-lg text-xs transition-colors">پاک کردن</button>
+                </div>
+                <button id="btn-fill-sample" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs transition-colors font-medium">📄 بارگذاری نمونه کامل داده</button>
+              </div>
+            </div>
+
+            <!-- Output Console Card -->
+            <div class="glass p-6 rounded-2xl" id="output-card">
+              <div class="flex justify-between items-center mb-3">
+                <h3 class="text-base font-bold text-blue-400 flex items-center gap-2">💻 ترمینال خروجی لاگ</h3>
+                <div class="flex gap-1">
+                  <button id="btn-copy-output" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded text-[10px] transition-all">کپی</button>
+                  <button id="btn-download-output" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded text-[10px] transition-all">دانلود</button>
+                </div>
+              </div>
+              <pre id="response-output" class="bg-slate-950/60 border border-white/10 rounded-xl p-3 text-left text-[11px] overflow-auto h-60 font-mono text-green-400" dir="ltr">Ready.</pre>
+              
+              <div class="border-t border-white/10 pt-4 mt-4">
+                <h4 class="text-xs font-bold text-slate-300 mb-2">تاریخچه درخواست‌ها</h4>
+                <ul id="request-history" class="space-y-1 text-[11px] text-slate-400 font-mono text-left max-h-40 overflow-y-auto" dir="ltr"></ul>
+              </div>
+            </div>
+
           </div>
-        </section>
 
-                <section id="tab-management-tools" class="tab-content">
-          <div class="glass p-8 rounded-2xl">
-             <h2 class="text-2xl font-bold text-blue-400 mb-4">⚙️ مدیریت حرفه‌ای</h2>
-             <p class="opacity-70 mb-6 text-sm">پنل مدیریت یکپارچه ربات‌ها و زمان‌بندی</p>
-
-             <!-- Statistics Grid -->
-             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-               <div class="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 text-center">
-                 <div class="text-sm opacity-70">مشتریان</div>
-                 <div id="management-summary-customers" class="text-2xl font-bold">0</div>
-               </div>
-               <div class="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 text-center">
-                 <div class="text-sm opacity-70">مسیرها</div>
-                 <div id="management-summary-routes" class="text-2xl font-bold">0</div>
-               </div>
-               <div class="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 text-center">
-                 <div class="text-sm opacity-70">اکانت‌ها</div>
-                 <div id="management-summary-accounts" class="text-2xl font-bold">0</div>
-               </div>
-               <div class="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 text-center">
-                 <div class="text-sm opacity-70">صف کلی</div>
-                 <div id="management-summary-queue" class="text-2xl font-bold">0</div>
-               </div>
-
-               <div class="bg-green-500/10 p-4 rounded-xl border border-green-500/20 text-center">
-                 <div class="text-sm opacity-70">اکانت‌های فعال</div>
-                 <div id="management-summary-active-accounts" class="text-2xl font-bold">0</div>
-               </div>
-               <div class="bg-yellow-500/10 p-4 rounded-xl border border-yellow-500/20 text-center">
-                 <div class="text-sm opacity-70">نیازمند OTP</div>
-                 <div id="management-summary-otp-accounts" class="text-2xl font-bold">0</div>
-               </div>
-               <div class="bg-purple-500/10 p-4 rounded-xl border border-purple-500/20 text-center">
-                 <div class="text-sm opacity-70">سشن‌های آماده</div>
-                 <div id="management-summary-session-ready" class="text-2xl font-bold">0</div>
-               </div>
-               <div class="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 text-center">
-                 <div class="text-sm opacity-70">صف لوکال</div>
-                 <div id="management-summary-local-queue" class="text-2xl font-bold">0</div>
-               </div>
-             </div>
-
-             <!-- Actions Grid -->
-             <div class="flex flex-wrap gap-2 mb-8">
-               <button id="btn-management-refresh-summary" class="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg">🔄 بروزرسانی</button>
-               <button id="btn-management-diagnostics" class="px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg">🧪 عیب‌یابی</button>
-               <button id="btn-management-list-accounts" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg">📋 لیست اکانت‌ها</button>
-               <button id="btn-management-list-queue" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg">📋 لیست صف</button>
-             </div>
-
-             <!-- Diagnostics Results -->
-             <div id="management-diagnostics-list" class="mb-8 hidden">
-                <pre class="bg-slate-900 p-4 rounded-xl border border-slate-700 text-xs overflow-x-auto text-left" dir="ltr"></pre>
-             </div>
-
-             <!-- Excel Upload -->
-             <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 mb-8">
-               <h3 class="text-lg font-bold mb-4">آپلود گروهی اکسل</h3>
-               <div class="flex gap-4">
-                 <input type="file" id="management-excel-file" class="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-500 file:text-white hover:file:bg-blue-600">
-                 <button id="btn-management-import-excel" class="px-6 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg whitespace-nowrap">📤 پردازش</button>
-               </div>
-               <div id="management-import-results" class="mt-4 text-sm"></div>
-             </div>
-
-             <!-- The rest of the required hidden inputs/buttons to satisfy the management.js listeners without throwing errors if the UI is minimal -->
-             <div class="hidden">
-                <input id="management-customer-key"><input id="management-customer-name">
-                <button id="btn-management-save-customer"></button><button id="btn-management-list-customers"></button>
-                <input id="management-route-key"><input id="management-route-name"><input id="management-route-origin-province"><input id="management-route-origin-city"><input id="management-route-destination-province"><input id="management-route-destination-city"><input id="management-route-origin-lat"><input id="management-route-origin-lng"><input id="management-route-destination-lat"><input id="management-route-destination-lng"><input id="management-route-distance"><input id="management-route-duration"><input id="management-route-enabled" type="checkbox"><input id="management-route-recommended" type="checkbox">
-                <button id="btn-management-save-route"></button><button id="btn-management-list-routes"></button><button id="btn-management-copy-route-from-map"></button>
-                <input id="management-account-name"><input id="management-account-owner"><input id="management-account-title"><input id="management-account-phone"><input id="management-account-national-code"><input id="management-account-route-key"><select id="management-account-status"></select><select id="management-account-platform"></select><input id="management-account-current-submit"><input id="management-account-target-submit"><input id="management-account-time-interval"><input id="management-account-last-success"><input id="management-account-start-shipping"><input id="management-account-otp-needed" type="checkbox"><textarea id="management-account-driver-data"></textarea><textarea id="management-account-truck-data"></textarea><input id="management-account-valid-location" type="checkbox"><input id="management-account-two-way" type="checkbox">
-                <button id="btn-management-save-account"></button><button id="btn-management-fill-queue-from-account"></button><button id="btn-management-warm-session"></button><button id="btn-management-bootstrap-current"></button>
-                <input id="management-queue-account-name"><input id="management-queue-route-key"><input id="management-queue-owner">
-                <button id="btn-management-create-queue"></button><button id="btn-management-queue-current"></button>
-                <input id="management-dispatch-queue-id">
-                <button id="btn-management-dispatch-queue"></button><button id="btn-management-list-logs"></button>
-                <div id="management-summary-imported-queue"></div>
-             </div>
-          </div>
-        </section>
-
+        </div>
       </div>
     </main>
   </div>
+
+  <div id="toast" class="toast"></div>
+
+  <!-- Keep hidden coordinates fields expected by app.js coordinate mirror logic -->
+  <div class="hidden">
+    <input id="route-origin-lat"><input id="route-origin-lng"><input id="route-destination-lat"><input id="route-destination-lng">
+  </div>
+
+  <!-- Sidebar Overlay Toggle Helper Script -->
+  <script>
+    function toggleSidebar() {
+      const sidebar = document.getElementById("sidebar");
+      const overlay = document.getElementById("mobile-overlay");
+      if (!sidebar || !overlay) return;
+      const isHidden = sidebar.classList.contains("translate-x-full");
+      if (isHidden) {
+        sidebar.classList.remove("translate-x-full");
+        overlay.classList.remove("hidden");
+      } else {
+        sidebar.classList.add("translate-x-full");
+        overlay.classList.add("hidden");
+      }
+    }
+  </script>
 
   <script src="/assets/app.js"></script>
   <script src="/assets/management.js"></script>
