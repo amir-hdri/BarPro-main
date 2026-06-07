@@ -7,3 +7,95 @@
 2026-06-07 13:14:54,166 - [INFO] - [GLOBAL] START: Starting Diagnostic Run
 2026-06-07 13:14:55,619 - [INFO] - [NAVIGATION] START: Navigating to https://barname.utcms.ir/Barname/Account/Login
 2026-06-07 13:15:11,440 - [INFO] - Full diagnostic JSON report saved to /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/report.json
+2026-06-07 14:10:22,627 - [INFO] - [GLOBAL] START: Starting Continuous RPA Monitoring Daemon
+2026-06-07 14:10:22,627 - [INFO] - Signal handlers for SIGINT and SIGTERM registered successfully.
+2026-06-07 14:10:22,627 - [INFO] - Log monitor thread started targeting: /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/backend.log
+2026-06-07 14:10:24,510 - [INFO] - [DAEMON] INFO: Active health check loop iteration #1
+2026-06-07 14:10:31,427 - [INFO] - [DAEMON_NAV] SUCCESS: Active navigation ping succeeded in 5.12s
+2026-06-07 14:11:31,562 - [INFO] - [DAEMON] INFO: Active health check loop iteration #2
+2026-06-07 14:11:46,497 - [INFO] - [DAEMON_NAV] SUCCESS: Active navigation ping succeeded in 13.86s
+2026-06-07 14:12:46,942 - [INFO] - [DAEMON] INFO: Active health check loop iteration #3
+2026-06-07 14:12:59,438 - [INFO] - [DAEMON_NAV] SUCCESS: Active navigation ping succeeded in 11.56s
+2026-06-07 14:13:59,588 - [INFO] - [DAEMON] INFO: Active health check loop iteration #4
+2026-06-07 14:14:25,073 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: Timeout 25000ms exceeded.
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-07 14:15:21,041 - [INFO] - Shutdown signal received. Terminating diagnostic loop...
+2026-06-07 14:15:21,258 - [INFO] - ================================================================================
+2026-06-07 14:15:21,258 - [INFO] - RPA Inspector report compiled successfully.
+2026-06-07 14:15:21,258 - [INFO] - Structured report file:  /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/report_20260607_141521.json
+2026-06-07 14:15:21,258 - [INFO] - Latest report link:      /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/latest_report.json
+2026-06-07 14:15:21,258 - [INFO] - ================================================================================
+2026-06-07 14:18:50,666 - [INFO] - [GLOBAL] START: Starting Continuous RPA Monitoring Daemon
+2026-06-07 14:18:50,666 - [INFO] - Signal handlers for SIGINT and SIGTERM registered successfully.
+2026-06-07 14:18:50,666 - [INFO] - Log monitor thread started targeting: /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/backend.log
+2026-06-07 14:18:52,639 - [INFO] - [DAEMON] INFO: Active health check loop iteration #1
+2026-06-07 14:19:11,087 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-07 14:20:11,155 - [INFO] - [DAEMON] INFO: Active health check loop iteration #2
+2026-06-07 14:20:27,667 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-07 14:21:27,731 - [INFO] - [DAEMON] INFO: Active health check loop iteration #3
+2026-06-07 14:21:43,694 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-07 14:22:43,758 - [INFO] - [DAEMON] INFO: Active health check loop iteration #4
+2026-06-07 14:22:55,918 - [INFO] - Shutdown signal received. Terminating diagnostic loop...
+2026-06-07 14:23:01,127 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-07 14:23:01,347 - [INFO] - ================================================================================
+2026-06-07 14:23:01,347 - [INFO] - RPA Inspector report compiled successfully.
+2026-06-07 14:23:01,347 - [INFO] - Structured report file:  /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/report_20260607_142301.json
+2026-06-07 14:23:01,347 - [INFO] - Latest report link:      /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/latest_report.json
+2026-06-07 14:23:01,347 - [INFO] - ================================================================================
+2026-06-07 14:23:05,134 - [INFO] - [GLOBAL] START: Starting Continuous RPA Monitoring Daemon
+2026-06-07 14:23:05,134 - [INFO] - Signal handlers for SIGINT and SIGTERM registered successfully.
+2026-06-07 14:23:05,134 - [INFO] - Log monitor thread started targeting: /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/backend.log
+2026-06-07 14:23:06,359 - [INFO] - [DAEMON] INFO: Active health check loop iteration #1
+2026-06-07 14:23:25,263 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-07 14:24:25,334 - [INFO] - [DAEMON] INFO: Active health check loop iteration #2
+2026-06-07 14:24:41,810 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-07 14:25:41,874 - [INFO] - [DAEMON] INFO: Active health check loop iteration #3
+2026-06-07 14:25:57,957 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-07 14:26:50,676 - [INFO] - Shutdown signal received. Terminating diagnostic loop...
+2026-06-07 14:26:51,297 - [INFO] - ================================================================================
+2026-06-07 14:26:51,297 - [INFO] - RPA Inspector report compiled successfully.
+2026-06-07 14:26:51,297 - [INFO] - Structured report file:  /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/report_20260607_142651.json
+2026-06-07 14:26:51,297 - [INFO] - Latest report link:      /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/latest_report.json
+2026-06-07 14:26:51,297 - [INFO] - ================================================================================
+2026-06-07 14:26:59,928 - [INFO] - [GLOBAL] START: Starting Continuous RPA Monitoring Daemon
+2026-06-07 14:26:59,928 - [INFO] - Signal handlers for SIGINT and SIGTERM registered successfully.
+2026-06-07 14:26:59,928 - [INFO] - Log monitor thread started targeting: /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/backend.log
+2026-06-07 14:27:00,899 - [INFO] - [DAEMON] INFO: Active health check loop iteration #1
+2026-06-07 14:27:19,179 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-07 14:28:19,181 - [INFO] - [DAEMON] INFO: Active health check loop iteration #2
+2026-06-07 14:28:36,477 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-07 14:29:05,987 - [INFO] - Shutdown signal received. Terminating diagnostic loop...
+2026-06-07 14:29:06,676 - [INFO] - ================================================================================
+2026-06-07 14:29:06,676 - [INFO] - RPA Inspector report compiled successfully.
+2026-06-07 14:29:06,676 - [INFO] - Structured report file:  /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/report_20260607_142906.json
+2026-06-07 14:29:06,676 - [INFO] - Latest report link:      /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/latest_report.json
+2026-06-07 14:29:06,676 - [INFO] - ================================================================================

@@ -42,4 +42,4 @@ echo "🚀 راه‌اندازی Frontend..."
 echo "📍 Frontend در حال اجرا: http://localhost:3000"
 echo ""
 
-yarn dev
+exec yarn dev

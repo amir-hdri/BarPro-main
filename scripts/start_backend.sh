@@ -28,16 +28,29 @@ else
 fi
 
 echo "🔍 بررسی Docker containers..."
-if ! docker ps | grep -q "postgres"; then
-    echo "❌ PostgreSQL container در حال اجرا نیست"
-    echo "💡 لطفاً ابتدا Docker را راه‌اندازی کنید: docker compose up -d"
+if ! docker ps >/dev/null 2>&1; then
+    echo "❌ دیمن داکر یا Docker Desktop در حال اجرا نیست."
+    echo "💡 لطفاً ابتدا نرم‌افزار Docker Desktop را باز کرده و مجدداً تلاش کنید."
     exit 1
 fi
 
-if ! docker ps | grep -q "redis"; then
-    echo "❌ Redis container در حال اجرا نیست"
-    echo "💡 لطفاً ابتدا Docker را راه‌اندازی کنید: docker compose up -d"
-    exit 1
+if ! docker ps | grep -q "postgres" || ! docker ps | grep -q "redis"; then
+    echo "⚠️  کانتینرهای Postgres یا Redis در حال اجرا نیستند."
+    echo "🚀 در حال راه‌اندازی خودکار کانتینرها با docker compose..."
+    docker compose up -d postgres redis
+    
+    echo "⏳ در انتظار بالا آمدن و آماده‌باش کانتینرها..."
+    for i in {1..20}; do
+        if docker ps | grep -q "postgres" && docker ps | grep -q "redis"; then
+            echo "✅ کانتینرهای داکر با موفقیت بالا آمدند و آماده استفاده هستند."
+            break
+        fi
+        if [ $i -eq 20 ]; then
+            echo "❌ کانتینرهای داکر در زمان مقرر آماده نشدند."
+            exit 1
+        fi
+        sleep 1
+    done
 fi
 
 echo "✅ Docker containers در حال اجرا هستند"
@@ -85,4 +98,4 @@ echo "📍 Backend در حال اجرا: http://localhost:8000"
 echo "📍 API Docs: http://localhost:8000/docs"
 echo ""
 
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
