@@ -539,7 +539,7 @@ class EnhancedWaybillManager:
             await asyncio.sleep(0.05)  # Reduced from 0.2
             current = await self._locator_current_value(locator)
             normalized_current = normalizer(current) if callable(normalizer) else current
-            if normalized_current == expected:
+            if normalized_current == expected or self._normalize_text(str(normalized_current)) == self._normalize_text(str(expected)):
                 self._record_selector_inventory(
                     field_label=field_label,
                     selectors=list(selectors),
@@ -1454,9 +1454,9 @@ class EnhancedWaybillManager:
             # رفتن به صفحه ایجاد بارنامه
             await self._goto_with_retry(utcms_config.WAYBILL_URL, wait_until="domcontentloaded")
             try:
-                await self.page.wait_for_load_state("networkidle", timeout=10000)
+                await self.page.wait_for_load_state("networkidle", timeout=1500)
             except Exception:
-                await asyncio.sleep(2)
+                pass
             await self._ensure_waybill_form_page()
             await self._check_account_eligibility()
             await self._wait_for_step_marker(
@@ -1481,7 +1481,7 @@ class EnhancedWaybillManager:
             await self._fill_receiver_info(data.get("receiver", {}))
             await self._wait_for_step_marker(
                 3,
-                ["#txtDriverSearch", "#PelakComboTajmi", "#btnGoLVL4"],
+                ["#txtDriverSearch", "#PelakComboTajmi", "#DriverListTajmi", "#btnGoLVL4"],
                 timeout_ms=8000,
             )
             self._set_active_pill("vehicle")
@@ -2724,8 +2724,8 @@ class EnhancedWaybillManager:
     async def _fill_vehicle_info(self, vehicle: dict[str, str]):
         """پر کردن اطلاعات ناوگان"""
         await self._wait_for_loading_overlays_to_disappear()
-        await self._wait_for_step_marker(3, ["#txtDriverSearch", "#PelakComboTajmi"], timeout_ms=8000)
-        tajmi_mode = await self._element_exists("#PelakComboTajmi")
+        await self._wait_for_step_marker(3, ["#txtDriverSearch", "#PelakComboTajmi", "#DriverListTajmi"], timeout_ms=8000)
+        tajmi_mode = await self._element_exists("#PelakComboTajmi") or await self._element_exists("#DriverListTajmi")
 
         driver_code = self._normalize_national_code(vehicle.get("driver_national_code", ""))
         driver_phone = self._normalize_mobile(vehicle.get("driver_phone", ""))

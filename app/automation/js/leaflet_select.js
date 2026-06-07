@@ -1,6 +1,4 @@
 ({ selector, lat, lng }) => {
-    if (typeof L === 'undefined') return false;
-
     const mapElement =
         document.querySelector(selector) ||
         document.querySelector('.leaflet-container') ||
@@ -15,9 +13,18 @@
     );
 
     const findMap = () => {
-        const directCandidates = [mapElement._leaflet_map, mapElement._map, window.map];
+        const directCandidates = [
+            mapElement._leaflet_map,
+            mapElement._map,
+            window.map,
+            window.appMap,
+            window.appMap2,
+            window.appMap3
+        ];
         for (const candidate of directCandidates) {
+            if (!candidate) continue;
             if (matchesLeafletMap(candidate)) return candidate;
+            if (matchesLeafletMap(candidate.map)) return candidate.map;
         }
 
         for (const key in window) {
@@ -27,13 +34,16 @@
             } catch (_error) {
                 continue;
             }
-            if (!matchesLeafletMap(value)) continue;
-            try {
-                if (value.getContainer() === mapElement) {
-                    return value;
-                }
-            } catch (_error) {
-                continue;
+            if (!value) continue;
+            if (matchesLeafletMap(value)) {
+                try {
+                    if (value.getContainer() === mapElement) return value;
+                } catch (_) {}
+            }
+            if (value.map && matchesLeafletMap(value.map)) {
+                try {
+                    if (value.map.getContainer() === mapElement) return value.map;
+                } catch (_) {}
             }
         }
 
@@ -64,12 +74,15 @@
     const map = findMap();
     if (!map) return false;
 
-    const latLng = L.latLng(lat, lng);
+    const latLngObj = { lat: Number(lat), lng: Number(lng) };
+    const latLng = (typeof L !== 'undefined' && typeof L.latLng === 'function') ? L.latLng(lat, lng) : latLngObj;
+
     map.setView(latLng, Math.max(15, Number(map.getZoom?.() || 0)));
 
     const clickPoint = dispatchCenterClick(mapElement);
     const containerPoint = map.latLngToContainerPoint(latLng);
     const layerPoint = map.latLngToLayerPoint(latLng);
+    
     map.fire('click', {
         latlng: latLng,
         layerPoint,
