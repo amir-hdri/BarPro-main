@@ -408,6 +408,7 @@ class RPAInspector:
                 self._log_event("DAEMON", "INFO", f"Active health check loop iteration #{iteration}")
                 
                 if browser:
+                    context = None
                     try:
                         context = await browser.new_context(viewport={'width': 1280, 'height': 800})
                         page = await context.new_page()
@@ -424,11 +425,14 @@ class RPAInspector:
                         latency = time.time() - start_time
                         
                         self._log_event("DAEMON_NAV", "SUCCESS", f"Active navigation ping succeeded in {latency:.2f}s")
-                        
-                        # Cleanup context
-                        await context.close()
                     except Exception as e:
                         self._log_event("DAEMON_NAV", "WARNING", f"Active navigation ping failed: {e}")
+                    finally:
+                        if context:
+                            try:
+                                await context.close()
+                            except Exception:
+                                pass
                 
                 # Sleep in 1-second chunks to react immediately to termination signals
                 for _ in range(interval_seconds):

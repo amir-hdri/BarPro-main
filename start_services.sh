@@ -6,6 +6,9 @@
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
+# Export HEADLESS=true to run browsers silently when starting services
+export HEADLESS=true
+
 # Create output dir if it doesn't exist
 mkdir -p "$PROJECT_DIR/output"
 
@@ -26,7 +29,7 @@ echo "Frontend started with PID: $FRONTEND_PID"
 sleep 2
 
 echo "Starting RPA Inspector Daemon..."
-python3 "$PROJECT_DIR/scripts/rpa_inspector.py" --daemon > "$PROJECT_DIR/output/rpa_inspector.log" 2>&1 &
+python3 "$PROJECT_DIR/scripts/rpa_inspector.py" --daemon --headless > "$PROJECT_DIR/output/rpa_inspector.log" 2>&1 &
 INSPECTOR_PID=$!
 echo $INSPECTOR_PID > "$PROJECT_DIR/output/rpa_inspector.pid"
 echo "RPA Inspector started with PID: $INSPECTOR_PID"

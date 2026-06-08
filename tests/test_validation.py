@@ -43,7 +43,8 @@ def test_create_waybill_validation_error(mock_close, mock_init):
 
         # Expect 422 Validation Error
         assert response.status_code == 422
-        errors = response.json().get("detail", [])
+        res_json = response.json()
+        errors = res_json.get("details", res_json.get("detail", []))
 
         # Verify specific fields are missing
         error_locs = [str(e["loc"][-1]) for e in errors]

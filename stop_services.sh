@@ -39,5 +39,6 @@ pkill -f "next-server" 2>/dev/null || true
 pkill -f "next dev" 2>/dev/null || true
 pkill -f "yarn dev" 2>/dev/null || true
 pkill -f "node.*next" 2>/dev/null || true
+pkill -f "ms-playwright" 2>/dev/null || true
 
 echo "All services stopped successfully."
