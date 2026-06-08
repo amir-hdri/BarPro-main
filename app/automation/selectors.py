@@ -2,43 +2,96 @@
 ثابت‌های انتخابگر برای اتوماسیون
 """
 
-class LocationSelectors:
-    """الگوهای انتخابگر مکان برای استفاده در LocationSelector"""
 
+class LocationSelectors:
+    """الگوهای انتخابگر مکان برای استفاده در LocationSelector
+
+    نکته مهم: سامانه UTCMS از فیلدهای خاص با نام‌های زیر استفاده می‌کند:
+    - استان مبدا: ddStateSource  (Origin → Source)
+    - شهر مبدا: ddCitySource
+    - منطقه مبدا: ddDistrictSource
+    - آدرس مبدا: txtAddressSource
+    - استان مقصد: ddStateDest  (Destination → Dest)
+    - شهر مقصد: ddCityDest
+    - آدرس مقصد: txtAddressDest
+    """
+
+    # ─── Province / State ───────────────────────────────────────────
     PROVINCE_TEMPLATES = [
+        # فرم‌های اختصاصی UTCMS (اولویت بالا)
+        'select[id="ddStateSource"]',          # مبدا - UTCMS اصلی
+        'select[name="ddStateSource"]',
+        'select[id="ddStateDest"]',            # مقصد - UTCMS اصلی
+        'select[name="ddStateDest"]',
+        # الگوهای عمومی با prefix
         'select[name="{prefix}Province"]',
         'select[name="{prefix}State"]',
         'select[id="{prefix}Province"]',
+        'select[id="{prefix}State"]',
         'select[name="ddState{prefix}"]',
         'select[id="ddState{prefix}"]',
         '[id="{prefix_lower}_province"]',
         '[name*="province" i][name*="{prefix_lower}" i]',
         '[name*="state" i][name*="{prefix_lower}" i]',
+        # fallback های عمومی
         'select[name*="Ostan"]',
-        'select[name*="استان"]'
+        'select[name*="استان"]',
+        'select[id*="State"][id*="Source"]',
+        'select[id*="State"][id*="Dest"]',
     ]
 
+    # ─── City ────────────────────────────────────────────────────────
     CITY_TEMPLATES = [
+        # فرم‌های اختصاصی UTCMS (اولویت بالا)
+        'select[id="ddCitySource"]',           # مبدا - UTCMS اصلی
+        'select[name="ddCitySource"]',
+        'select[id="ddCityDest"]',             # مقصد - UTCMS اصلی
+        'select[name="ddCityDest"]',
+        # الگوهای عمومی با prefix
         'select[name="{prefix}City"]',
         'select[id="{prefix}City"]',
         'select[name="ddCity{prefix}"]',
         'select[id="ddCity{prefix}"]',
         '[id="{prefix_lower}_city"]',
         '[name*="city" i][name*="{prefix_lower}" i]',
+        # fallback های عمومی
         'select[name*="Shahr"]',
-        'select[name*="شهر"]'
+        'select[name*="شهر"]',
+        'select[id*="City"][id*="Source"]',
+        'select[id*="City"][id*="Dest"]',
     ]
 
+    # ─── District ────────────────────────────────────────────────────
     _DISTRICT_ID = "{prefix_lower}_district"
     DISTRICT_TEMPLATES = [
+        # فرم‌های اختصاصی UTCMS
+        'select[id="ddDistrictSource"]',
+        'select[name="ddDistrictSource"]',
+        'select[id="ddDistrictDest"]',
+        'select[name="ddDistrictDest"]',
+        # الگوهای عمومی
         'select[name="{prefix}District"]',
         'select[id="{prefix}District"]',
         f"#{_DISTRICT_ID}",
         'select[name*="Mantaghe"]',
-        'select[name*="منطقه"]'
+        'select[name*="منطقه"]',
+        'select[id*="District"][id*="Source"]',
+        'select[id*="District"][id*="Dest"]',
     ]
 
+    # ─── Address ─────────────────────────────────────────────────────
     ADDRESS_TEMPLATES = [
+        # فرم‌های اختصاصی UTCMS (اولویت بالا)
+        'textarea[id="txtAddressSource"]',
+        'textarea[name="txtAddressSource"]',
+        'input[id="txtAddressSource"]',
+        'textarea[id="txtAddressDest"]',
+        'textarea[name="txtAddressDest"]',
+        'input[id="txtAddressDest"]',
+        # read-only map fields
+        'input[id="txtAddressSourceFromMap"]',
+        'input[id="txtAddressDestFromMap"]',
+        # الگوهای عمومی با prefix
         'textarea[name="{prefix}Address"]',
         'textarea[id="{prefix}Address"]',
         'input[name="{prefix}Address"]',
@@ -47,41 +100,50 @@ class LocationSelectors:
         'input[name="{prefix}PostalCode"]',
         'input[id="{prefix}PostalCode"]',
         '[name*="address" i][name*="{prefix_lower}" i]',
-        '[name*="آدرس"]'
+        '[name*="آدرس"]',
     ]
 
+    # ─── Text / Search inputs ────────────────────────────────────────
     INPUT_TEMPLATES = [
+        # UTCMS map search boxes (اولویت بالا)
+        '#AddressSearch',
+        '#AddressSearch2',
+        '#txtAddressSource',
+        '#txtAddressDest',
+        # الگوهای عمومی
         'input[name="{prefix}Location"]',
         'input[name="{prefix}Address"]',
         'input[name="AddressSearch{prefix}"]',
         'select[name="AddressSearch{prefix}"]',
         'input[name="txtAddress{prefix}"]',
         'textarea[name="txtAddress{prefix}"]',
-        '[id="AddressSearch"]',
-        '[id="AddressSearch2"]',
-        '[id="txtAddressSource"]',
-        '[id="txtAddressDest"]',
         'input[placeholder*="{prefix}" i]',
         '[name*="location" i][name*="{prefix_lower}" i]',
         '.location-search',
         '[class*="location-search"]',
         'input[placeholder*="جستجو"]',
-        'input[placeholder*="search"]'
+        'input[placeholder*="search"]',
     ]
 
+    # ─── Autocomplete suggestions ────────────────────────────────────
     SUGGESTION_SELECTORS = [
         '.autocomplete-suggestion:first-child',
         '.pac-item:first-child',
         '[class*="suggestion"]:first-child',
-        'li:first-child'
+        '.ui-autocomplete .ui-menu-item:first-child',
+        'li.ui-menu-item:first-child',
+        'li:first-child',
     ]
 
+    # ─── Map search ──────────────────────────────────────────────────
     MAP_SEARCH_TEMPLATES = [
+        # UTCMS map select2 fields
         '#MapCity',
         '#MapCity2',
         '#AddressSearch',
         '#AddressSearch2',
-        'input[name=\"{prefix}Search\"]',
+        # الگوهای عمومی
+        'input[name="{prefix}Search"]',
         'select[name="MapCity{prefix}"]',
         'select[id="MapCity{prefix}"]',
         'input[name="AddressSearch{prefix}"]',
@@ -95,8 +157,31 @@ class LocationSelectors:
         '[id="AddressSearch"]',
         '[id="AddressSearch2"]',
         'input[placeholder*="جستجو در نقشه"]',
-        'input[placeholder*="Search map"]'
+        'input[placeholder*="Search map"]',
     ]
+
+    # ─── UTCMS-specific direct selectors (for fast-path access) ──────
+    UTCMS_ORIGIN_SELECTORS = {
+        "province": ["#ddStateSource", 'select[name="ddStateSource"]'],
+        "city":     ["#ddCitySource",  'select[name="ddCitySource"]'],
+        "district": ["#ddDistrictSource", 'select[name="ddDistrictSource"]'],
+        "address":  ["#txtAddressSource", 'textarea[name="txtAddressSource"]', 'input[name="txtAddressSource"]'],
+        "map_address": ["#txtAddressSourceFromMap"],
+        "map_city": ["#MapCity"],
+        "map_search": ["#AddressSearch"],
+        "search_btn": ["#btnsearchAddressSource"],
+    }
+
+    UTCMS_DESTINATION_SELECTORS = {
+        "province": ["#ddStateDest",  'select[name="ddStateDest"]'],
+        "city":     ["#ddCityDest",   'select[name="ddCityDest"]'],
+        "district": ["#ddDistrictDest", 'select[name="ddDistrictDest"]'],
+        "address":  ["#txtAddressDest", 'textarea[name="txtAddressDest"]', 'input[name="txtAddressDest"]'],
+        "map_address": ["#txtAddressDestFromMap"],
+        "map_city": ["#MapCity2"],
+        "map_search": ["#AddressSearch2"],
+        "search_btn": ["#btnsearchAddressDest"],
+    }
 
 
 class AuthSelectors:

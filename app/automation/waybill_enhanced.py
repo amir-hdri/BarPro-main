@@ -1467,27 +1467,17 @@ class EnhancedWaybillManager:
             self._set_active_pill("sender")
             logger.info("waybill_stage_start", extra={"extra_fields": {"stage": "sender"}})
 
-            # پر کردن اطلاعات فرستنده
+            # پر کردن اطلاعات فرستنده (now handles its own next-pill transition internally)
             await self._fill_sender_info(data.get("sender", {}))
-            await self._wait_for_step_marker(
-                2,
-                ["#txtReceiverFirstName", "#receiverSelectType", "#btnGoLVL3"],
-                timeout_ms=8000,
-            )
-            self._set_active_pill("receiver")
-            logger.info("waybill_stage_start", extra={"extra_fields": {"stage": "receiver"}})
 
             # پر کردن اطلاعات گیرنده
+            self._set_active_pill("receiver")
+            logger.info("waybill_stage_start", extra={"extra_fields": {"stage": "receiver"}})
             await self._fill_receiver_info(data.get("receiver", {}))
-            await self._wait_for_step_marker(
-                3,
-                ["#txtDriverSearch", "#PelakComboTajmi", "#DriverListTajmi", "#btnGoLVL4"],
-                timeout_ms=8000,
-            )
+
+            # پر کردن اطلاعات ناوگان (handles its own next-pill transition internally)
             self._set_active_pill("vehicle")
             logger.info("waybill_stage_start", extra={"extra_fields": {"stage": "vehicle"}})
-
-            # پر کردن اطلاعات ناوگان
             await self._fill_vehicle_info(data.get("vehicle", {}))
             await self._disable_hidden_required_fields(
                 [
@@ -1500,18 +1490,6 @@ class EnhancedWaybillManager:
                     "#pelakTypeCombo",
                 ]
             )
-            vehicle_next_clicked = await self._click_step_next(
-                3,
-                4,
-                [
-                    "#btnGoLVL4",
-                    "#GoLVL4",
-                    'button[data-to="#pills-4-tab"]',
-                ],
-                "مرحله بعد (ناوگان)",
-            )
-            if not vehicle_next_clicked:
-                await self._force_step_transition(4)
             cargo_step_ready = await self._wait_for_step_marker(
                 4,
                 ["#txtLoadsValue", "#btnAddLoad", "#btnGoLVL5"],
@@ -2035,17 +2013,23 @@ class EnhancedWaybillManager:
         )
 
         sender_name = (sender.get("name") or "").strip()
-        sender_first = sender_name
-        sender_last = sender_name
+        # Split name into first and last parts for Persian name fields
+        # For single-word names: first = last = full name (e.g., a company name)
+        # For multi-word names: first = first word, last = remaining words
         if sender_name:
             parts = sender_name.split(maxsplit=1)
             sender_first = parts[0]
-            sender_last = parts[1] if len(parts) > 1 else parts[0]
+            sender_last = parts[1] if len(parts) > 1 else sender_name
+        else:
+            sender_first = ""
+            sender_last = ""
 
         await self._fill_verified_text_field(
             [
                 'input[id="txtSenderFirstName"]',
                 'input[name="txtSenderFirstName"]',
+                'input[name="SenderName"]',
+                'input[id="SenderName"]',
             ],
             sender_first,
             "نام فرستنده",
@@ -2055,11 +2039,29 @@ class EnhancedWaybillManager:
             [
                 'input[id="txtSenderLastName"]',
                 'input[name="txtSenderLastName"]',
+                'input[name="SenderLastName"]',
+                'input[id="SenderLastName"]',
             ],
             sender_last,
             "نام خانوادگی فرستنده",
             required=bool(sender_last),
         )
+
+        # National code / company code (optional)
+        sender_national_code = (sender.get("national_code") or sender.get("national_id") or "").strip()
+        if sender_national_code:
+            await self._fill_verified_text_field(
+                [
+                    'input[name="txtSenderNationalCode"]',
+                    'input[id="txtSenderNationalCode"]',
+                    'input[name="SenderNationalCode"]',
+                    'input[id="SenderNationalCode"]',
+                ],
+                self._normalize_national_code(sender_national_code),
+                "کد ملی فرستنده",
+                required=False,
+                normalizer=self._normalize_national_code,
+            )
 
         sender_phone = sender.get("phone", "")
         await self._fill_verified_text_field(
@@ -2075,18 +2077,26 @@ class EnhancedWaybillManager:
         )
 
         # Click Next and check for validation errors
-        await self.interactor.safe_click(
-            "#btnGoLVL2",
-            wait_for_navigation=False,
-            timeout=2500,
+        sender_next = await self._click_step_next(
+            1,
+            2,
+            ["#btnGoLVL2", "#GoLVL2", 'button[data-to="#pills-2-tab"]'],
+            "مرحله بعد (فرستنده)",
         )
+        if not sender_next:
+            await self._force_step_transition(2)
 
-        # Check for error toasts that might prevent moving to next step
-        await asyncio.sleep(0.3)  # Reduced from 0.8
-        form_errors = await self._extract_form_errors()
-        if form_errors:
-            logger.error("sender_form_validation_failed", extra={"extra_fields": {"errors": form_errors}})
-            # We don't raise here yet, but we're stuck if the active pill doesn't change.
+        # Verify we actually moved to pill 2; if not, extract and raise the form error
+        pill2_ready = await self._wait_for_step_marker(
+            2,
+            ["#txtReceiverFirstName", "#receiverSelectType", "#btnGoLVL3"],
+            timeout_ms=5000,
+        )
+        if not pill2_ready:
+            form_errors = await self._extract_form_errors()
+            error_msg = form_errors or "اعتبارسنجی فرم فرستنده ناموفق بود"
+            logger.error("sender_form_validation_blocked", extra={"extra_fields": {"errors": error_msg}})
+            raise WaybillError(f"گذر از مرحله فرستنده ناموفق بود: {error_msg}")
 
     async def _fill_receiver_info(self, receiver: dict[str, str]):
         """پر کردن اطلاعات گیرنده"""
@@ -2117,17 +2127,20 @@ class EnhancedWaybillManager:
         )
 
         receiver_name = (receiver.get("name") or "").strip()
-        receiver_first = receiver_name
-        receiver_last = receiver_name
         if receiver_name:
             parts = receiver_name.split(maxsplit=1)
             receiver_first = parts[0]
-            receiver_last = parts[1] if len(parts) > 1 else parts[0]
+            receiver_last = parts[1] if len(parts) > 1 else receiver_name
+        else:
+            receiver_first = ""
+            receiver_last = ""
 
         await self._fill_verified_text_field(
             [
                 'input[id="txtReceiverFirstName"]',
                 'input[name="txtReceiverFirstName"]',
+                'input[name="ReceiverName"]',
+                'input[id="ReceiverName"]',
             ],
             receiver_first,
             "نام گیرنده",
@@ -2137,11 +2150,29 @@ class EnhancedWaybillManager:
             [
                 'input[id="txtReceiverLastName"]',
                 'input[name="txtReceiverLastName"]',
+                'input[name="ReceiverLastName"]',
+                'input[id="ReceiverLastName"]',
             ],
             receiver_last,
             "نام خانوادگی گیرنده",
             required=bool(receiver_last),
         )
+
+        # National code (optional)
+        receiver_national_code = (receiver.get("national_code") or receiver.get("national_id") or "").strip()
+        if receiver_national_code:
+            await self._fill_verified_text_field(
+                [
+                    'input[name="txtReceiverNationalCode"]',
+                    'input[id="txtReceiverNationalCode"]',
+                    'input[name="ReceiverNationalCode"]',
+                    'input[id="ReceiverNationalCode"]',
+                ],
+                self._normalize_national_code(receiver_national_code),
+                "کد ملی گیرنده",
+                required=False,
+                normalizer=self._normalize_national_code,
+            )
 
         receiver_phone = receiver.get("phone", "")
         await self._fill_verified_text_field(
@@ -2156,15 +2187,26 @@ class EnhancedWaybillManager:
             prefer_type=True,
         )
 
-        await self.interactor.safe_click(
-            "#btnGoLVL3",
-            wait_for_navigation=False,
-            timeout=2500,
+        receiver_next = await self._click_step_next(
+            2,
+            3,
+            ["#btnGoLVL3", "#GoLVL3", 'button[data-to="#pills-3-tab"]'],
+            "مرحله بعد (گیرنده)",
         )
-        await asyncio.sleep(0.3)
-        form_errors = await self._extract_form_errors()
-        if form_errors:
-            logger.error("receiver_form_validation_failed", extra={"extra_fields": {"errors": form_errors}})
+        if not receiver_next:
+            await self._force_step_transition(3)
+
+        # Verify we actually moved to pill 3
+        pill3_ready = await self._wait_for_step_marker(
+            3,
+            ["#txtDriverSearch", "#PelakComboTajmi", "#DriverListTajmi", "#btnGoLVL4"],
+            timeout_ms=5000,
+        )
+        if not pill3_ready:
+            form_errors = await self._extract_form_errors()
+            error_msg = form_errors or "اعتبارسنجی فرم گیرنده ناموفق بود"
+            logger.error("receiver_form_validation_blocked", extra={"extra_fields": {"errors": error_msg}})
+            raise WaybillError(f"گذر از مرحله گیرنده ناموفق بود: {error_msg}")
 
     async def _fill_cargo_info(self, cargo: dict[str, Any]):
         """پر کردن اطلاعات کالا"""
@@ -2401,7 +2443,15 @@ class EnhancedWaybillManager:
             "ثبت کالای جدید",
             required=True,
         )
-        await self._wait_for_non_empty_value(["#gridfullLoaddata tr td", "#gridfullLoaddata tr"], timeout_ms=8000)
+        # Wait for the cargo list grid to be populated (confirms item was saved)
+        cargo_row_appeared = await self._wait_for_non_empty_value(
+            ["#gridfullLoaddata tr td", "#gridfullLoaddata tr"], timeout_ms=8000
+        )
+        if cargo_row_appeared is None:
+            # Try to extract any form error before giving up
+            form_errors = await self._extract_form_errors()
+            error_msg = form_errors or "کالا در جدول بارگذاری نشد"
+            logger.warning("cargo_grid_not_populated", extra={"extra_fields": {"errors": error_msg}})
 
         value_val = cargo.get("value")
         await self._fill_verified_text_field(
@@ -2747,17 +2797,26 @@ class EnhancedWaybillManager:
 
         await self._fill_vehicle_type(vehicle.get("type", ""), tajmi_mode=tajmi_mode)
 
-        # Click Next and check for validation errors
-        await self.interactor.safe_click(
-            "#btnGoLVL4",
-            wait_for_navigation=False,
-            timeout=2500,
+        # Click Next and verify transition to pill 4
+        vehicle_next = await self._click_step_next(
+            3,
+            4,
+            ["#btnGoLVL4", "#GoLVL4", 'button[data-to="#pills-4-tab"]'],
+            "مرحله بعد (ناوگان)",
         )
+        if not vehicle_next:
+            await self._force_step_transition(4)
 
-        await asyncio.sleep(0.3)
-        form_errors = await self._extract_form_errors()
-        if form_errors:
-            logger.error("vehicle_form_validation_failed", extra={"extra_fields": {"errors": form_errors}})
+        pill4_ready = await self._wait_for_step_marker(
+            4,
+            ["#txtLoadsValue", "#btnAddLoad", "#btnGoLVL5"],
+            timeout_ms=5000,
+        )
+        if not pill4_ready:
+            form_errors = await self._extract_form_errors()
+            error_msg = form_errors or "اعتبارسنجی فرم ناوگان ناموفق بود"
+            logger.error("vehicle_form_validation_blocked", extra={"extra_fields": {"errors": error_msg}})
+            raise WaybillError(f"گذر از مرحله ناوگان ناموفق بود: {error_msg}")
 
     async def _fill_financial_info(self, financial: dict[str, Any]):
         """پر کردن اطلاعات مالی"""
@@ -2897,6 +2956,19 @@ class EnhancedWaybillManager:
         try:
             locator = await self.smart_locator.locate(self.page, list(selectors), timeout=5000)
             await locator.fill(value)
+            # Dispatch change/input events so cascading form logic (e.g. province→city) triggers
+            try:
+                await locator.evaluate(
+                    "el => { "
+                    "el.dispatchEvent(new Event('keydown', { bubbles: true })); "
+                    "el.dispatchEvent(new Event('input', { bubbles: true })); "
+                    "el.dispatchEvent(new Event('keyup', { bubbles: true })); "
+                    "el.dispatchEvent(new Event('change', { bubbles: true })); "
+                    "if (window.jQuery) { window.jQuery(el).trigger('input').trigger('change'); } "
+                    "}"
+                )
+            except Exception:
+                pass
             await asyncio.sleep(0.2)
             self._record_selector_inventory(
                 field_label=field_label,
@@ -3464,6 +3536,12 @@ class EnhancedWaybillManager:
                 return
 
             await asyncio.sleep(0.1)
+
+        # Overlay still present after timeout — log and continue (don't block the flow)
+        logger.warning(
+            "loading_overlay_timeout",
+            extra={"extra_fields": {"timeout_ms": timeout_ms, "action": "continuing_despite_overlay"}},
+        )
 
     async def _close_blocking_overlays(self) -> None:
         """Attempt to close blocking overlays (modals, popups, backdrops)."""

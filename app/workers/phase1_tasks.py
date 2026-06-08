@@ -13,28 +13,13 @@ from app.workers.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 
-_worker_loop: asyncio.AbstractEventLoop | None = None
-
-
-def _get_worker_loop() -> asyncio.AbstractEventLoop:
-    global _worker_loop
-    if _worker_loop is None or _worker_loop.is_closed():
-        _worker_loop = asyncio.new_event_loop()
-    return _worker_loop
-
-
 def _run(coro):
-    loop = _get_worker_loop()
-    asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro)
-
-
-@atexit.register
-def _close_worker_loop() -> None:
-    global _worker_loop
-    if _worker_loop is not None and not _worker_loop.is_closed():
-        _worker_loop.close()
-    _worker_loop = None
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 if celery_app is not None:

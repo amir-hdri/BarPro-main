@@ -5,6 +5,7 @@ import logging
 import secrets
 import string
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +208,7 @@ class SecretsManager:
 
         return env
 
-    def get_security_report(self) -> dict[str, any]:
+    def get_security_report(self) -> dict[str, Any]:
         """Generate a security report."""
         current_env = self._read_env_file()
 

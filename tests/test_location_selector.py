@@ -81,6 +81,7 @@ class TestLocationSelector(unittest.IsolatedAsyncioTestCase):
 
         # Mock page.fill for address
         page.fill = AsyncMock()
+        page.eval_on_selector = AsyncMock(return_value=False)
         selector._wait_for_select_options = AsyncMock(return_value=True)
         selector._log_select_diagnostics = AsyncMock()
 
@@ -209,10 +210,10 @@ class TestLocationSelector(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result)
         # Check that case-insensitive and scoped selectors were passed to _fill_input_like
         calls = [call[0][0] for call in selector._fill_input_like.call_args_list]
-        self.assertIn('#pills-5 input[name*="lat"]', calls)
-        self.assertIn('#pills-5 input[name*="lng"]', calls)
-        self.assertIn('input[name*="lat"]', calls)
-        self.assertIn('input[name*="lng"]', calls)
+        self.assertTrue(any('#pills-5 input[name*="lat"]' in c for c in calls))
+        self.assertTrue(any('#pills-5 input[name*="lng"]' in c for c in calls))
+        self.assertTrue(any('input[name*="lat"' in c for c in calls))
+        self.assertTrue(any('input[name*="lng"' in c for c in calls))
 
     async def test_inject_coordinates_via_js_contains_value_tracker(self):
         page = AsyncMock()

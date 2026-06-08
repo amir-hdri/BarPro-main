@@ -99,3 +99,31 @@ Call log:
 2026-06-07 14:29:06,676 - [INFO] - Structured report file:  /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/report_20260607_142906.json
 2026-06-07 14:29:06,676 - [INFO] - Latest report link:      /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/latest_report.json
 2026-06-07 14:29:06,676 - [INFO] - ================================================================================
+2026-06-07 14:30:58,849 - [INFO] - [GLOBAL] START: Starting Continuous RPA Monitoring Daemon
+2026-06-07 14:30:58,850 - [INFO] - Signal handlers for SIGINT and SIGTERM registered successfully.
+2026-06-07 14:30:58,850 - [INFO] - Log monitor thread started targeting: /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/backend.log
+2026-06-07 14:31:00,266 - [INFO] - [DAEMON] INFO: Active health check loop iteration #1
+2026-06-07 14:31:05,120 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_NETWORK_CHANGED at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-07 14:32:05,191 - [INFO] - [DAEMON] INFO: Active health check loop iteration #2
+2026-06-07 14:32:14,326 - [INFO] - [DAEMON_NAV] SUCCESS: Active navigation ping succeeded in 8.53s
+2026-06-07 14:33:14,445 - [INFO] - [DAEMON] INFO: Active health check loop iteration #3
+2026-06-07 14:33:19,173 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_ABORTED; maybe frame was detached?
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-07 14:33:36,062 - [INFO] - Shutdown signal received. Terminating diagnostic loop...
+2026-06-07 14:33:36,279 - [INFO] - ================================================================================
+2026-06-07 14:33:36,279 - [INFO] - RPA Inspector report compiled successfully.
+2026-06-07 14:33:36,279 - [INFO] - Structured report file:  /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/report_20260607_143336.json
+2026-06-07 14:33:36,279 - [INFO] - Latest report link:      /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/latest_report.json
+2026-06-07 14:33:36,279 - [INFO] - ================================================================================
+2026-06-07 14:41:43,236 - [INFO] - [GLOBAL] START: Starting Single Diagnostic Run
+2026-06-07 14:41:46,654 - [INFO] - [NAVIGATION] START: Navigating to https://barname.utcms.ir/Barname/Account/Login
+2026-06-07 14:42:03,209 - [INFO] - ================================================================================
+2026-06-07 14:42:03,210 - [INFO] - RPA Inspector report compiled successfully.
+2026-06-07 14:42:03,210 - [INFO] - Structured report file:  /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/report_20260607_144203.json
+2026-06-07 14:42:03,210 - [INFO] - Latest report link:      /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/latest_report.json
+2026-06-07 14:42:03,210 - [INFO] - ================================================================================

@@ -108,9 +108,17 @@ async def init_db():
 
 
 async def get_session() -> AsyncSession:
-    """Dependency for database session."""
+    """Dependency for database session.
+    
+    Properly handles commit on success and rollback on failure.
+    This prevents dirty sessions from leaking into subsequent requests.
+    """
     async with async_session_factory() as session:
         try:
             yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
         finally:
             await session.close()

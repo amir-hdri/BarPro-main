@@ -329,6 +329,7 @@ class TestCheckboxWithFallback:
 class TestDryRunValidationSummary:
     def _make_manager(self, page=None, ctx=None):
         page = page or AsyncMock()
+        page.evaluate.return_value = False
         ctx = ctx or AsyncMock()
         with patch("app.automation.waybill_enhanced.PageInteractor"), \
              patch("app.automation.waybill_enhanced.MapController"), \

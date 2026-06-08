@@ -166,13 +166,19 @@ async def request_context_middleware(request: Request, call_next):
     response = None
     rate_limit_state = None
 
-    # Apply rate limiting for public endpoints
+    # Apply rate limiting for public and auth endpoints
     path = request.url.path
+    rate_rule = None
     if path.startswith("/waybill/calculate-route") or path == "/":
+        rate_rule = "public"
+    elif path in ("/api/v1/auth/login", "/api/v1/admin/login", "/admin/login"):
+        rate_rule = "auth"
+
+    if rate_rule is not None:
         from app.core.rate_limiter import rate_limit_dependency
 
         try:
-            rate_limit_state = await rate_limit_dependency(request, rule="public")
+            rate_limit_state = await rate_limit_dependency(request, rule=rate_rule)
         except HTTPException as exc:
             content = exc.detail if isinstance(exc.detail, dict) else {"detail": exc.detail}
             response = JSONResponse(status_code=exc.status_code, content=content)
@@ -270,6 +276,8 @@ async def general_exception_handler(request: Request, exc: Exception):
         },
     )
 
+    is_production = os.getenv("ENVIRONMENT", "development").lower() == "production"
+
     return JSONResponse(
         status_code=500,
         content={
@@ -277,7 +285,10 @@ async def general_exception_handler(request: Request, exc: Exception):
             "message": "خطای داخلی سرور رخ داده است",
             "request_id": request.headers.get("X-Request-ID"),
             "correlation_id": request.headers.get(utcms_config.TRACE_HEADER_NAME),
-            "error_type": type(exc).__name__,
+            # Only expose error_type in non-production environments for debugging
+            **({
+                "error_type": type(exc).__name__,
+            } if not is_production else {}),
         },
     )
 
@@ -304,7 +315,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         content={
             "error": "VALIDATION_ERROR",
             "message": "اعتبارسنجی درخواست ناموفق بود",
-            "detail": exc.errors(),
             "details": exc.errors(),
             "request_id": request.headers.get("X-Request-ID"),
             "correlation_id": request.headers.get(utcms_config.TRACE_HEADER_NAME),

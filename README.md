@@ -112,7 +112,7 @@ python3 scripts/rpa_inspector.py --analyze output/rpa_diagnostics/latest_report.
 | دستور | توضیحات |
 |-------|---------|
 | `./start_services.sh` | شروع تمام وب‌سرویس‌ها و دیمن خطا‌یاب در پس‌زمینه |
-| `./stop_services.sh` | توقف امن تمام پروسس‌ها و تولید فایل گزارش عیب‌یابی بر اساس زمان |
+| `.   ./stop_services.sh.   ` | توقف امن تمام پروسس‌ها و تولید فایل گزارش عیب‌یابی بر اساس زمان |
 | `./scripts/check_health.sh` | تست سریع سلامت اتصال به دیتابیس، Redis و در دسترس بودن API |
 | `pytest` | اجرای کلیه تست‌های یکپارچه‌سازی و واحد سیستم |
 | `alembic upgrade head` | اعمال آخرین تغییرات ساختاری بر روی دیتابیس PostgreSQL |

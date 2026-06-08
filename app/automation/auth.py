@@ -953,20 +953,23 @@ class UTCMSAuthenticator:
             self.last_error = "مقدار کپچا معتبر نیست."
             track_captcha_failure("captcha_value_invalid")
             return False
+        
+        # Clear field first
         try:
             await self.page.fill(captcha_selector, "")
-            await self.page.fill(captcha_selector, normalized)
-            return True
         except Exception:
             try:
-                field = await self.smart_locator.locate(self.page, [captcha_selector], timeout=1800)
+                field = await self.smart_locator.locate(self.page, [captcha_selector], timeout=1000)
                 await field.fill("")
-                await field.fill(normalized)
-                return True
             except Exception:
-                self.last_error = "مقداردهی فیلد کپچا انجام نشد."
-                track_captcha_failure("captcha_fill_failed")
-                return False
+                pass
+
+        if await self._fill_input_like(captcha_selector, normalized):
+            return True
+
+        self.last_error = "مقداردهی فیلد کپچا انجام نشد."
+        track_captcha_failure("captcha_fill_failed")
+        return False
 
     async def _captcha_image_fingerprint(self) -> str:
         for selector in AuthSelectors.CAPTCHA_IMAGE_SELECTORS:
@@ -1075,6 +1078,71 @@ class UTCMSAuthenticator:
         track_captcha_failure("auto_solve_failed", phase="login", strategy="auto")
         return False
 
+    async def _fill_input_like(self, selector: str, value: str) -> bool:
+        if not value:
+            return False
+        try:
+            await self.page.fill(selector, value)
+            await self.page.eval_on_selector(
+                selector,
+                "el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('input').trigger('change').trigger('keyup'); } }",
+            )
+            return True
+        except Exception:
+            pass
+
+        try:
+            locator = self.page.locator(selector).first
+            if await locator.count() == 0:
+                return False
+            await locator.fill(value)
+            await locator.evaluate(
+                "el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('input').trigger('change').trigger('keyup'); } }"
+            )
+            return True
+        except Exception:
+            pass
+
+        try:
+            updated = await self.page.eval_on_selector(
+                selector,
+                """(el, rawValue) => {
+                    const value = String(rawValue ?? '');
+                    if (!el) return false;
+
+                    let prototype = Object.getPrototypeOf(el);
+                    let setter = null;
+                    while (prototype) {
+                        const desc = Object.getOwnPropertyDescriptor(prototype, 'value');
+                        if (desc && desc.set) {
+                            setter = desc.set;
+                            break;
+                        }
+                        prototype = Object.getPrototypeOf(prototype);
+                    }
+
+                    if (setter) {
+                        setter.call(el, value);
+                    } else {
+                        el.value = value;
+                    }
+                    if (el._valueTracker) {
+                        el._valueTracker.setValue(value);
+                    }
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    el.dispatchEvent(new Event('keyup', { bubbles: true }));
+                    if (window.jQuery) {
+                        window.jQuery(el).trigger('input').trigger('change').trigger('keyup');
+                    }
+                    return true;
+                }""",
+                value,
+            )
+            return bool(updated)
+        except Exception:
+            return False
+
     async def _fill_credentials(
         self,
         username_selector: str,
@@ -1082,20 +1150,12 @@ class UTCMSAuthenticator:
         username: str,
         password: str,
     ) -> bool:
-        try:
-            await self.page.fill(username_selector, username)
-            await self.page.fill(password_selector, password)
+        u_ok = await self._fill_input_like(username_selector, username)
+        p_ok = await self._fill_input_like(password_selector, password)
+        if u_ok and p_ok:
             return True
-        except Exception:
-            try:
-                username_locator = await self.smart_locator.locate(self.page, [username_selector], timeout=4000)
-                password_locator = await self.smart_locator.locate(self.page, [password_selector], timeout=4000)
-                await username_locator.fill(username)
-                await password_locator.fill(password)
-                return True
-            except (SmartLocatorError, Exception) as error:
-                self.last_error = f"تکمیل فرم ورود با خطا مواجه شد: {error}"
-                return False
+        self.last_error = "تکمیل فرم ورود با خطا مواجه شد: عناصر ورود پیدا یا پر نشدند"
+        return False
 
     async def _handle_captcha(self, captcha_selector: str, force_auto: bool = False) -> bool:
         if not captcha_selector:

@@ -62,7 +62,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
             hashed_password.encode("utf-8"),
         )
     except Exception as e:
-        logger.error(f"Password verification error: {e}")
+        logger.error("password_verification_error", extra={"extra_fields": {"error_type": type(e).__name__}})
         return False
 
 
@@ -86,7 +86,6 @@ def encrypt_driver_password(plain_password: str) -> str:
 
 def decrypt_driver_password(encrypted_password: str) -> str:
     """Decrypt driver's UTCMS password."""
-    import hashlib
     from base64 import urlsafe_b64encode
 
     from cryptography.fernet import Fernet
@@ -141,10 +140,10 @@ def decode_access_token(token: str) -> dict:
         if isinstance(payload.get('sub'), str) and payload['sub'].isdigit():
             payload['sub'] = int(payload['sub'])
         return payload
-    except JWTError as e:
+    except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {str(e)}",
+            detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -172,9 +171,13 @@ async def get_current_client(
         if payload.get("role", "client") != "client":
             raise credentials_exception
         raw_client_id = payload.get("sub")
-        client_id = int(raw_client_id) if isinstance(raw_client_id, str) and raw_client_id.isdigit() else raw_client_id
+        # Safely convert sub claim to int, rejecting any non-integer values
+        try:
+            client_id = int(raw_client_id)
+        except (TypeError, ValueError):
+            raise credentials_exception
         client_code: str = payload.get("client_code")
-        if client_id is None or client_code is None:
+        if not client_id or client_code is None:
             raise credentials_exception
     except JWTError:
         raise credentials_exception
@@ -200,15 +203,23 @@ async def get_current_client(
 
 
 def is_master_admin(username: str, password: str) -> bool:
-    """Validate the singleton master admin account configured for the system."""
-    hashed_password = hashlib.md5(password.encode("utf-8")).hexdigest()
-    return (
-        secrets.compare_digest(username, utcms_config.MASTER_ADMIN_USERNAME)
-        and (
-            secrets.compare_digest(password, utcms_config.MASTER_ADMIN_PASSWORD)
-            or secrets.compare_digest(hashed_password, utcms_config.MASTER_ADMIN_PASSWORD)
-        )
-    )
+    """Validate the singleton master admin account configured for the system.
+    
+    Uses bcrypt for secure password comparison when the stored password is bcrypt-hashed.
+    Falls back to direct comparison for plain-text configured passwords.
+    """
+    if not secrets.compare_digest(username, utcms_config.MASTER_ADMIN_USERNAME):
+        return False
+
+    stored = utcms_config.MASTER_ADMIN_PASSWORD
+    # If stored password looks like a bcrypt hash, use bcrypt comparison
+    if stored.startswith(("$2a$", "$2b$", "$2y$")):
+        try:
+            return bcrypt.checkpw(password.encode("utf-8"), stored.encode("utf-8"))
+        except Exception:
+            return False
+    # Direct constant-time comparison for plain-text configured passwords
+    return secrets.compare_digest(password, stored)
 
 
 async def get_current_admin(

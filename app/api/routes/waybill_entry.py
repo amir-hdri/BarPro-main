@@ -344,7 +344,7 @@ async def download_excel_template():
         "5000000",
         "نقدی",
         "user@example.com",
-        "password123",
+        "[رمز عبور اکانت - وارد کنید]",
     ]
 
     for col_idx, value in enumerate(sample_data, start=1):

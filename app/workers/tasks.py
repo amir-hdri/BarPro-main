@@ -19,9 +19,12 @@ from app.workers.celery_app import celery_app
 def _run_async(coro):
     try:
         asyncio.get_running_loop()
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(asyncio.run, coro)
+            return future.result()
     except RuntimeError:
         return asyncio.run(coro)
-    raise RuntimeError("Cannot run task coroutine inside an active event loop")
 
 
 def _retry_delay_seconds(attempt_number: int) -> float:

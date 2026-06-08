@@ -15,7 +15,7 @@ from datetime import UTC, datetime, time, timedelta
 
 from fastapi import APIRouter, Body, Depends, UploadFile, status
 from fastapi.security import HTTPBearer
-from sqlmodel import func, select
+from sqlmodel import case, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth_multitenant import get_current_admin, get_current_client
@@ -627,23 +627,66 @@ async def get_driver_performance(
     Get driver performance report.
 
     Shows success rate and job counts for each driver.
+    Uses aggregate query to avoid N+1 problem.
     """
+    # Fetch all drivers for this client
     drivers_stmt = select(Driver).where(Driver.client_id == client.id)
     drivers_result = await session.exec(drivers_stmt)
     drivers = drivers_result.all()
 
+    if not drivers:
+        return {"client_id": client.id, "drivers": []}
+
+    driver_ids = [d.id for d in drivers]
+
+    # Single aggregate query for all driver job statistics
+    success_statuses = [TaskStatus.SUCCESS.value]
+    failed_statuses = [
+        TaskStatus.FAILED.value,
+        TaskStatus.DEAD_LETTER.value,
+        TaskStatus.NEEDS_REVIEW.value,
+    ]
+
+    jobs_agg_stmt = (
+        select(
+            WaybillJob.driver_id,
+            func.count(WaybillJob.id).label("total"),
+            func.count(
+                case(
+                    (WaybillJob.status.in_(success_statuses), WaybillJob.id),
+                    else_=None,
+                )
+            ).label("success"),
+            func.count(
+                case(
+                    (WaybillJob.status.in_(failed_statuses), WaybillJob.id),
+                    else_=None,
+                )
+            ).label("failed"),
+        )
+        .where(
+            (WaybillJob.client_id == client.id)
+            & (WaybillJob.driver_id.in_(driver_ids))
+        )
+        .group_by(WaybillJob.driver_id)
+    )
+
+    agg_result = await session.exec(jobs_agg_stmt)
+    stats_by_driver: dict[int, dict] = {
+        row.driver_id: {
+            "total": int(row.total or 0),
+            "success": int(row.success or 0),
+            "failed": int(row.failed or 0),
+        }
+        for row in agg_result.all()
+    }
+
     performance = []
     for driver in drivers:
-        jobs_stmt = select(WaybillJob).where(
-            (WaybillJob.client_id == client.id)
-            & (WaybillJob.driver_id == driver.id)
-        )
-        jobs_result = await session.exec(jobs_stmt)
-        jobs = jobs_result.all()
-
-        total = len(jobs)
-        success = sum(1 for j in jobs if j.status == TaskStatus.SUCCESS.value)
-        failed = sum(1 for j in jobs if j.status in [TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.NEEDS_REVIEW.value])
+        stats = stats_by_driver.get(driver.id, {"total": 0, "success": 0, "failed": 0})
+        total = stats["total"]
+        success = stats["success"]
+        failed = stats["failed"]
         success_rate = (success / total * 100) if total > 0 else 0.0
 
         performance.append(

@@ -74,12 +74,23 @@ class LocationSelector:
         return ", ".join(parts)
 
     def _additional_prefix_aliases(self, prefix: str) -> list[str]:
+        """نگاشت prefix به alias های واقعی در فرم UTCMS"""
         lowered = (prefix or "").lower()
         if lowered == "origin":
-            return ["Source"]
+            # UTCMS از Source استفاده می‌کند (ddStateSource, ddCitySource, ...)
+            return ["Source", "Src", "source"]
         if lowered == "destination":
-            return ["Dest"]
+            # UTCMS از Dest استفاده می‌کند (ddStateDest, ddCityDest, ...)
+            return ["Dest", "destination"]
         return []
+
+    @staticmethod
+    def _get_utcms_selectors(is_origin: bool) -> dict[str, list[str]]:
+        """بازگشت انتخابگرهای مستقیم UTCMS برای مبدا یا مقصد"""
+        from app.automation.selectors import LocationSelectors
+        if is_origin:
+            return LocationSelectors.UTCMS_ORIGIN_SELECTORS
+        return LocationSelectors.UTCMS_DESTINATION_SELECTORS
 
     def _build_formatted_selectors(
         self,
@@ -96,9 +107,14 @@ class LocationSelector:
         for alias in self._unique_preserve_order(aliases):
             prefix_lower = alias.lower()
             for template in templates:
+                # اگر template هیچ placeholder ای ندارد، یک بار اضافه می‌کنیم (absolute selector)
+                if "{prefix}" not in template and "{prefix_lower}" not in template:
+                    if template not in selectors:
+                        selectors.append(template)
+                    continue
                 try:
                     selectors.append(template.format(prefix=alias, prefix_lower=prefix_lower))
-                except KeyError:
+                except (KeyError, ValueError):
                     continue
 
         return self._unique_preserve_order(selectors)
@@ -108,28 +124,8 @@ class LocationSelector:
             return False
 
         target_selector = self._make_visible_selector(selector) if visible else selector
-        try:
-            await self.page.fill(target_selector, value)
-            await self.page.eval_on_selector(
-                target_selector,
-                "el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('input').trigger('change').trigger('keyup'); } }",
-            )
-            return True
-        except Exception:
-            pass
-
-        try:
-            locator = self.page.locator(target_selector).first
-            if await locator.count() == 0:
-                return False
-            await locator.fill(value)
-            await locator.evaluate(
-                "el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('input').trigger('change').trigger('keyup'); } }"
-            )
-            return True
-        except Exception:
-            pass
-
+        
+        # 1. Try native prototype setter bypass first (React/Vue/jQuery robust handling)
         try:
             updated = await self.page.eval_on_selector(
                 target_selector,
@@ -166,9 +162,36 @@ class LocationSelector:
                 }""",
                 value,
             )
-            return bool(updated)
+            if updated:
+                return True
         except Exception:
-            return False
+            pass
+
+        # 2. Fallback to Playwright's standard fill
+        try:
+            await self.page.fill(target_selector, value)
+            await self.page.eval_on_selector(
+                target_selector,
+                "el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('input').trigger('change').trigger('keyup'); } }",
+            )
+            return True
+        except Exception:
+            pass
+
+        # 3. Fallback to locator fill
+        try:
+            locator = self.page.locator(target_selector).first
+            if await locator.count() == 0:
+                return False
+            await locator.fill(value)
+            await locator.evaluate(
+                "el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('input').trigger('change').trigger('keyup'); } }"
+            )
+            return True
+        except Exception:
+            pass
+
+        return False
 
     async def _scroll_into_view(self, selector: str) -> bool:
         try:
@@ -194,23 +217,22 @@ class LocationSelector:
             return False
 
     async def _ensure_location_tab_active(self, prefix: str) -> None:
-        tab_ids = {
-            "Origin": "pills-5-tab",
-            "Destination": "pills-6-tab",
-        }
-        pane_ids = {
-            "Origin": "pills-5",
-            "Destination": "pills-6",
-        }
-        tab_id = tab_ids.get(prefix)
-        pane_id = pane_ids.get(prefix)
-        if not tab_id or not pane_id:
+        """فعال کردن tab مرحله مبدا یا مقصد"""
+        # Map prefix/alias to tab numbers
+        origin_prefixes = {"origin", "Origin", "source", "Source", "src", "Src"}
+        dest_prefixes = {"destination", "Destination", "dest", "Dest"}
+
+        if prefix in origin_prefixes:
+            tab_id = "pills-5-tab"
+            pane_id = "pills-5"
+        elif prefix in dest_prefixes:
+            tab_id = "pills-6-tab"
+            pane_id = "pills-6"
+        else:
             return
 
         tab_selector = f"#{tab_id}"
         pane_selector = f"#{pane_id}"
-        if not tab_selector or not pane_selector:
-            return
 
         try:
             is_visible = await self.page.eval_on_selector(
@@ -220,7 +242,8 @@ class LocationSelector:
                     const style = window.getComputedStyle(el);
                     return !el.classList.contains('hidden')
                         && style.display !== 'none'
-                        && style.visibility !== 'hidden';
+                        && style.visibility !== 'hidden'
+                        && el.classList.contains('active');
                 }""",
             )
             if is_visible:
@@ -228,9 +251,34 @@ class LocationSelector:
         except Exception:
             pass
 
+        # Try clicking the tab
         try:
-            await self.page.click(tab_selector)
-            await asyncio.sleep(0.4)
+            await self.page.click(tab_selector, timeout=3000)
+            await asyncio.sleep(0.5)
+        except Exception:
+            pass
+
+        # Force activate via JS if click didn't work
+        try:
+            await self.page.evaluate(
+                """(tabId, paneId) => {
+                    const tab = document.getElementById(tabId);
+                    const pane = document.getElementById(paneId);
+                    if (!tab || !pane) return;
+                    document.querySelectorAll('[id^="pills-"][role="tab"]').forEach(t => {
+                        t.classList.remove('active');
+                        t.setAttribute('aria-selected', 'false');
+                    });
+                    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active', 'show'));
+                    tab.classList.add('active');
+                    tab.setAttribute('aria-selected', 'true');
+                    pane.classList.add('active', 'show');
+                    pane.scrollIntoView({ block: 'start', behavior: 'instant' });
+                }""",
+                tab_id,
+                pane_id,
+            )
+            await asyncio.sleep(0.3)
         except Exception:
             pass
 
@@ -375,14 +423,37 @@ class LocationSelector:
     async def select_location(self, location_data: dict[str, Any], origin: bool = True) -> dict[str, Any]:
         """
         انتخاب مکان با استفاده از بهترین روش موجود
-        اولویت: ۱. مختصات صریح (کلیک کاربر) ۲. نقشه ۳. منوی کشویی ۴. ورودی متنی
+
+        اولویت:
+        ۱. Fast-path UTCMS (انتخابگرهای مستقیم)
+        ۲. جستجوی نقشه داخلی (Select2)
+        ۳. آدرس مورد علاقه (favorite)
+        ۴. مختصات صریح، نقشه
+        ۵. منوی کشویی آبشاری
+        ۶. ورودی متنی
         """
         prefix = "Origin" if origin else "Destination"
         logger.info(
             "location_selection_started",
             extra={"extra_fields": {"prefix": prefix, "location_data": location_data}},
         )
+
+        # Ensure the correct pill is visible before doing anything
+        await self._ensure_location_tab_active(prefix)
+        await asyncio.sleep(0.3)
+
         coordinates = location_data.get("coordinates")
+
+        # ── ۱. Fast-path: UTCMS direct dropdown fill ────────────────────
+        utcms_result = await self._try_utcms_direct_fill(location_data, prefix)
+        if utcms_result["success"]:
+            logger.info("utcms_direct_fill_succeeded", extra={"extra_fields": {"prefix": prefix}})
+            return utcms_result
+        logger.warning(
+            "utcms_direct_fill_failed_falling_back",
+            extra={"extra_fields": {"prefix": prefix, "error": utcms_result.get("error")}},
+        )
+
         selectors = {
             "province": self._build_formatted_selectors(
                 LocationSelectors.PROVINCE_TEMPLATES,
@@ -406,26 +477,27 @@ class LocationSelector:
             "runtime": dropdown_runtime,
         }
 
+        # ── ۲. آدرس مورد علاقه ─────────────────────────────────────
         favorite_result = await self._try_favorite_address_selection(location_data, prefix)
         if favorite_result["success"]:
             return favorite_result
-
         logger.warning(
             "favorite_address_selection_failed_falling_back",
             extra={"extra_fields": {"prefix": prefix, "error": favorite_result.get("error")}},
         )
 
+        # ── ۳. جستجوی ماپ داخلی ─────────────────────────────────────
         map_search_result = {"success": False, "error": "Not attempted"}
         if not coordinates or coordinates.get("lat") is None or coordinates.get("lng") is None:
             map_search_result = await self._try_internal_map_search(location_data, prefix)
             if map_search_result["success"]:
                 return map_search_result
-
             logger.warning(
                 "internal_map_search_failed_falling_back",
                 extra={"extra_fields": {"prefix": prefix, "error": map_search_result.get("error")}},
             )
 
+        # ── ۴. منوی کشویی آبشاری ─────────────────────────────────────
         if not coordinates or coordinates.get("lat") is None or coordinates.get("lng") is None:
             if dropdown_runtime.get("viable"):
                 dropdown_result = await self._try_dropdown_selection(location_data, prefix, selectors=selectors)
@@ -447,15 +519,13 @@ class LocationSelector:
                     extra={"extra_fields": {"prefix": prefix, "runtime": dropdown_runtime}},
                 )
 
+        # ── ۵. Geocoding + مختصات صریح ──────────────────────────────────
         inferred_coordinates = None
         if not coordinates or coordinates.get("lat") is None or coordinates.get("lng") is None:
             inferred_coordinates = await self._geocode_address(location_data)
             if inferred_coordinates:
                 coordinates = inferred_coordinates
-                location_data = {
-                    **location_data,
-                    "coordinates": inferred_coordinates,
-                }
+                location_data = {**location_data, "coordinates": inferred_coordinates}
                 logger.info(
                     "location_geocoded_for_fallback",
                     extra={"extra_fields": {"prefix": prefix, "location_data": location_data}},
@@ -471,6 +541,7 @@ class LocationSelector:
                 extra={"extra_fields": {"prefix": prefix, "error": explicit_coords_result.get("error")}},
             )
 
+        # ── ۶. نقشه با کلیک ─────────────────────────────────────────
         map_result = {"success": False, "error": "بدون مختصات"}
         if coordinates and coordinates.get("lat") is not None and coordinates.get("lng") is not None:
             map_result = await self._try_map_selection(location_data, prefix, selectors=selectors)
@@ -500,24 +571,127 @@ class LocationSelector:
                         }
                     },
                 )
-            else:
-                logger.info(
-                    "dropdown_selection_skipped",
-                    extra={"extra_fields": {"prefix": prefix, "runtime": dropdown_runtime}},
-                )
 
+        # ── ۷. ورودی متنی ─────────────────────────────────────────────
         text_result = await self._try_text_input(location_data, prefix)
         if text_result["success"]:
             return text_result
 
         raise LocationSelectionError(
             f"همه روش‌های انتخاب مکان ({prefix}) با شکست مواجه شدند. "
+            f"UTCMS: {utcms_result.get('error')} | "
             f"Favorite: {favorite_result.get('error')} | "
             f"MapSearch: {map_search_result.get('error')} | "
             f"نقشه: {map_result.get('error')} | "
             f"Dropdown: {dropdown_result.get('error')} | "
             f"متن: {text_result.get('error')}"
         )
+
+    async def _try_utcms_direct_fill(
+        self,
+        location_data: dict[str, Any],
+        prefix: str,
+    ) -> dict[str, Any]:
+        """
+        Fast-path مخصوص UTCMS: به جای جستجوی دینامیک،
+        مستقیماً با #ddStateSource / #ddCitySource / #txtAddressSource کار می‌کند
+        """
+        is_origin = prefix in {"Origin", "Source", "origin", "source"}
+        utcms = self._get_utcms_selectors(is_origin)
+        province = (location_data.get("province") or "").strip()
+        city = (location_data.get("city") or "").strip()
+        district = (location_data.get("district") or "").strip()
+        address = (location_data.get("address") or "").strip()
+
+        if not province and not city:
+            return {"success": False, "method": "utcms_direct", "error": "استان یا شهر داده نشده است"}
+
+        try:
+            # ۱. صبر برای لود شدن گزینه‌های استان
+            province_ready = await self._wait_for_select_options(
+                utcms["province"],
+                min_real_options=1,
+                timeout_ms=12000,
+            )
+            if not province_ready:
+                return {
+                    "success": False,
+                    "method": "utcms_direct",
+                    "error": "گزینه‌های استان بارگذاری نشدند",
+                }
+
+            # Log current options for debugging
+            for sel in utcms["province"][:2]:
+                await self._log_select_diagnostics(sel, f"{prefix} province (utcms)", province)
+
+            # ۲. انتخاب استان
+            province_selected = await self._select_from_options(utcms["province"], province)
+            if not province_selected:
+                return {
+                    "success": False,
+                    "method": "utcms_direct",
+                    "error": f"انتخاب استان '{province}' ناموفق بود",
+                }
+
+            # ۳. صبر برای cascade شهر (AJAX بعد از انتخاب استان)
+            city_ready = await self._wait_for_select_options(
+                utcms["city"],
+                min_real_options=1,
+                timeout_ms=15000,
+            )
+            if not city_ready:
+                logger.warning(
+                    "utcms_direct_city_options_not_ready",
+                    extra={"extra_fields": {"prefix": prefix, "province": province}},
+                )
+
+            for sel in utcms["city"][:2]:
+                await self._log_select_diagnostics(sel, f"{prefix} city (utcms)", city)
+
+            # ۴. انتخاب شهر
+            city_selected = await self._select_from_options(utcms["city"], city)
+            if not city_selected:
+                logger.warning(
+                    "utcms_direct_city_selection_failed",
+                    extra={"extra_fields": {"prefix": prefix, "city": city}},
+                )
+                # در صورت ناموفقی شهر، همچنان ادامه می‌دهیم و آدرس را پر می‌کنیم
+
+            # ۵. انتخاب منطقه (اختیاری)
+            if district:
+                district_ready = await self._wait_for_select_options(
+                    utcms["district"],
+                    min_real_options=1,
+                    timeout_ms=5000,
+                )
+                if district_ready:
+                    await self._select_from_options(utcms["district"], district)
+
+            # ۶. پر کردن آدرس
+            if address:
+                addr_filled = False
+                for sel in utcms["address"]:
+                    filled = await self._fill_input_like(sel, address)
+                    if filled:
+                        addr_filled = True
+                        break
+                if not addr_filled:
+                    logger.warning(
+                        "utcms_direct_address_fill_failed",
+                        extra={"extra_fields": {"prefix": prefix, "selectors": utcms["address"]}},
+                    )
+
+            return {
+                "success": True,
+                "method": "utcms_direct",
+                "province": province,
+                "city": city,
+                "district": district,
+                "address": address,
+            }
+
+        except Exception as exc:
+            return {"success": False, "method": "utcms_direct", "error": str(exc)}
 
     async def _fill_coordinate_hidden_fields(self, lat: float, lng: float, prefix: str) -> bool:
         """تلاش برای یافتن و پر کردن hidden fields مربوط به مختصات"""
@@ -565,12 +739,18 @@ class LocationSelector:
             f'#{pane_id} input[name*="latitude" i]',
             f'#{pane_id} input[id*="lat" i]',
             f'#{pane_id} input[id*="latitude" i]',
-            # Page-wide fallbacks
-            'input[name*="lat"]',
+            # Page-wide fallbacks (constrained by exclusions)
             f'input[name*="lat" i]{not_clause}',
             f'input[name*="latitude" i]{not_clause}',
             f'input[id*="lat" i]{not_clause}',
             f'input[id*="latitude" i]{not_clause}',
+            # Generic hidden coordinates (constrained by exclusions)
+            f'input[type="hidden"][name*="lat" i]{not_clause}',
+            f'input[type="hidden"][id*="lat" i]{not_clause}',
+            f'input[type="hidden"][name*="latitude" i]{not_clause}',
+            f'input[type="hidden"][id*="latitude" i]{not_clause}',
+            f'input[type="hidden"][name="lat"]{not_clause}',
+            f'input[type="hidden"][id="lat"]{not_clause}',
         ]
 
         lng_selectors = [
@@ -588,14 +768,24 @@ class LocationSelector:
             f'#{pane_id} input[id*="longitude" i]',
             f'#{pane_id} input[name*="lon" i]',
             f'#{pane_id} input[id*="lon" i]',
-            # Page-wide fallbacks
-            'input[name*="lng"]',
+            # Page-wide fallbacks (constrained by exclusions)
             f'input[name*="lng" i]{not_clause}',
             f'input[name*="longitude" i]{not_clause}',
             f'input[id*="lng" i]{not_clause}',
             f'input[id*="longitude" i]{not_clause}',
             f'input[name*="lon" i]{not_clause}',
             f'input[id*="lon" i]{not_clause}',
+            # Generic hidden coordinates (constrained by exclusions)
+            f'input[type="hidden"][name*="lng" i]{not_clause}',
+            f'input[type="hidden"][id*="lng" i]{not_clause}',
+            f'input[type="hidden"][name*="longitude" i]{not_clause}',
+            f'input[type="hidden"][id*="longitude" i]{not_clause}',
+            f'input[type="hidden"][name*="lon" i]{not_clause}',
+            f'input[type="hidden"][id*="lon" i]{not_clause}',
+            f'input[type="hidden"][name="lng"]{not_clause}',
+            f'input[type="hidden"][id="lng"]{not_clause}',
+            f'input[type="hidden"][name="lon"]{not_clause}',
+            f'input[type="hidden"][id="lon"]{not_clause}',
         ]
 
         lat_filled = False
@@ -650,16 +840,25 @@ class LocationSelector:
             const inputs = document.querySelectorAll('input');
             
             const setValue = (el, val) => {
-                let prototype = Object.getPrototypeOf(el);
                 let setter = null;
-                while (prototype) {
-                    const desc = Object.getOwnPropertyDescriptor(prototype, 'value');
-                    if (desc && desc.set) {
-                        setter = desc.set;
-                        break;
+                try {
+                    // Try getting setter from HTMLInputElement prototype explicitly
+                    setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+                } catch(e) {}
+
+                if (!setter) {
+                    // Fallback to traversing prototype chain
+                    let prototype = Object.getPrototypeOf(el);
+                    while (prototype) {
+                        const desc = Object.getOwnPropertyDescriptor(prototype, 'value');
+                        if (desc && desc.set) {
+                            setter = desc.set;
+                            break;
+                        }
+                        prototype = Object.getPrototypeOf(prototype);
                     }
-                    prototype = Object.getPrototypeOf(prototype);
                 }
+
                 if (setter) {
                     setter.call(el, val);
                 } else {
@@ -907,7 +1106,11 @@ class LocationSelector:
         prefix: str,
         selectors: dict[str, list[str]] | None = None,
     ) -> dict[str, Any]:
-        """تلاش برای انتخاب مکان با استفاده از نقشه"""
+        """تلاش برای انتخاب مکان با استفاده از نقشه و تزریق مختصات به متغیرهای بومی"""
+        # اول پنل صحیح را فعال کنیم، سپس نقشه را تشخیص دهیم
+        await self._ensure_location_tab_active(prefix)
+        await asyncio.sleep(0.4)
+
         map_type = await self.map_controller.detect_map_type()
         if not map_type:
             return {"success": False, "method": "map", "error": "نقشه‌ای یافت نشد"}
@@ -916,13 +1119,20 @@ class LocationSelector:
         if not coordinates:
             return {"success": False, "method": "map", "error": "مختصات صریح کاربر ارسال نشده است"}
 
+        lat = coordinates.get("lat")
+        lng = coordinates.get("lng")
+        if lat is None or lng is None:
+            return {"success": False, "method": "map", "error": "مختصات ناقص است"}
+
         try:
             location = GeoCoordinate(
-                latitude=coordinates["lat"],
-                longitude=coordinates["lng"],
+                latitude=lat,
+                longitude=lng,
                 address=location_data.get("address"),
             )
 
+            is_origin = prefix in {"Origin", "Source", "origin", "source"}
+            utcms = self._get_utcms_selectors(is_origin)
             before_state = await self._get_form_state(selectors, prefix) if selectors else {}
 
             selected = await self.map_controller.select_on_map(
@@ -940,31 +1150,45 @@ class LocationSelector:
 
             await self.map_controller.wait_for_map_idle()
 
+            # تزریق مختصات به hidden fields به عنوان safety net
+            await self._fill_coordinate_hidden_fields(lat, lng, prefix)
+            await self._inject_coordinates_via_js(lat, lng, prefix)
+
             if selectors:
                 after_state = await self._get_form_state(selectors, prefix)
 
-                has_changes = False
-                for key, val in after_state.items():
-                    if val and val != before_state.get(key):
-                        has_changes = True
-                        break
-
-                # If after_state is empty, no changes occurred, so we skip the comparison
-                if not has_changes and after_state and after_state == before_state:
-                    logger.warning("map_click_had_no_effect_on_form", extra={"extra_fields": {"prefix": prefix}})
-                    return {
-                        "success": False,
-                        "method": "map",
-                        "error": "کلیک روی نقشه تاثیری در فرم نداشت (فیلدها تغییر نکردند)",
-                    }
+                if not after_state:
+                    # after_state خالی = فیلدها در DOM نیستند → موفق فرض می‌کنیم
+                    logger.info(
+                        "map_click_form_state_empty_assuming_success",
+                        extra={"extra_fields": {"prefix": prefix}},
+                    )
+                else:
+                    has_changes = any(
+                        val and val != before_state.get(key)
+                        for key, val in after_state.items()
+                    )
+                    if not has_changes and after_state == before_state:
+                        logger.warning(
+                            "map_click_had_no_effect_on_form",
+                            extra={"extra_fields": {"prefix": prefix}},
+                        )
+                        # Fallback: پر کردن فیلد آدرس متنی
+                        address = location_data.get("address", "")
+                        if address:
+                            for sel in utcms["address"]:
+                                if await self._fill_input_like(sel, address):
+                                    break
+                        return {
+                            "success": False,
+                            "method": "map",
+                            "error": "کلیک روی نقشه تاثیری در فرم نداشت (فیلدها تغییر نکردند)",
+                        }
 
             return {
                 "success": True,
                 "method": "map",
-                "coordinates": {
-                    "lat": location.latitude,
-                    "lng": location.longitude,
-                },
+                "coordinates": {"lat": lat, "lng": lng},
                 "map_type": map_type,
             }
         except Exception as e:
@@ -981,81 +1205,70 @@ class LocationSelector:
         try:
             await self._ensure_location_tab_active(prefix)
 
-            selectors = selectors or {
-                "province": self._build_formatted_selectors(
-                    LocationSelectors.PROVINCE_TEMPLATES,
-                    prefix=prefix,
-                ),
-                "city": self._build_formatted_selectors(
-                    LocationSelectors.CITY_TEMPLATES,
-                    prefix=prefix,
-                ),
-                "district": self._build_formatted_selectors(
-                    LocationSelectors.DISTRICT_TEMPLATES,
-                    prefix=prefix,
-                ),
-            }
+            is_origin = prefix in {"Origin", "Source", "origin", "source"}
+            utcms = self._get_utcms_selectors(is_origin)
 
-            await self._wait_for_select_options(selectors["province"], timeout_ms=10000)
-            for selector in selectors["province"][:3]:
+            # ساختن لیست انتخابگر با اولویت UTCMS direct selectors
+            if selectors is None:
+                province_tmpl = self._build_formatted_selectors(
+                    LocationSelectors.PROVINCE_TEMPLATES, prefix=prefix
+                )
+                city_tmpl = self._build_formatted_selectors(
+                    LocationSelectors.CITY_TEMPLATES, prefix=prefix
+                )
+                district_tmpl = self._build_formatted_selectors(
+                    LocationSelectors.DISTRICT_TEMPLATES, prefix=prefix
+                )
+            else:
+                province_tmpl = selectors["province"]
+                city_tmpl = selectors["city"]
+                district_tmpl = selectors.get("district", [])
+
+            # Merge UTCMS direct selectors at the head (highest priority)
+            merged_province = self._unique_preserve_order(utcms["province"] + province_tmpl)
+            merged_city    = self._unique_preserve_order(utcms["city"]     + city_tmpl)
+            merged_district = self._unique_preserve_order(utcms["district"] + district_tmpl)
+
+            await self._wait_for_select_options(merged_province, timeout_ms=12000)
+            for selector in merged_province[:3]:
                 await self._log_select_diagnostics(
                     selector, f"{prefix} province", str(location_data.get("province", ""))
                 )
 
-            province_selectors = selectors["province"]
-            province_selected = await self._select_from_options(province_selectors, location_data.get("province", ""))
-
+            province_selected = await self._select_from_options(merged_province, location_data.get("province", ""))
             if not province_selected:
                 return {"success": False, "method": "dropdown", "error": "انتخاب استان با شکست مواجه شد"}
 
-            city_options_ready = await self._wait_for_select_options(
-                selectors["city"],
-                timeout_ms=15000,
-            )
+            city_options_ready = await self._wait_for_select_options(merged_city, timeout_ms=15000)
             if not city_options_ready:
                 logger.warning(
                     "location_city_options_not_ready",
                     extra={"extra_fields": {"prefix": prefix, "location_data": location_data}},
                 )
-            for selector in selectors["city"][:3]:
+            for selector in merged_city[:3]:
                 await self._log_select_diagnostics(selector, f"{prefix} city", str(location_data.get("city", "")))
 
-            city_selectors = selectors["city"]
-            city_selected = await self._select_from_options(city_selectors, location_data.get("city", ""))
-
+            city_selected = await self._select_from_options(merged_city, location_data.get("city", ""))
             if not city_selected:
                 return {"success": False, "method": "dropdown", "error": "انتخاب شهر با شکست مواجه شد"}
 
-            await self._wait_for_select_options(
-                selectors["district"],
-                timeout_ms=5000,
+            await self._wait_for_select_options(merged_district, timeout_ms=5000)
+            await self._select_from_options(merged_district, location_data.get("district", ""))
+
+            # پر کردن آدرس - ابتدا UTCMS direct, سپس template
+            address_selectors = self._unique_preserve_order(
+                utcms["address"]
+                + self._build_formatted_selectors(LocationSelectors.ADDRESS_TEMPLATES, prefix=prefix)
             )
-
-            district_selectors = selectors["district"]
-            await self._select_from_options(district_selectors, location_data.get("district", ""))
-
-            address_selectors = self._build_formatted_selectors(
-                LocationSelectors.ADDRESS_TEMPLATES,
-                prefix=prefix,
-            )
-
-            for selector in address_selectors:
-                try:
-                    logger.info(
-                        "location_address_fill_attempt",
-                        extra={
-                            "extra_fields": {
-                                "prefix": prefix,
-                                "selector": selector,
-                                "address": location_data.get("address", ""),
-                            }
-                        },
-                    )
-                    filled = await self._fill_input_like(selector, location_data.get("address", ""))
-                    if filled:
-                        break
-                except Exception:
-                    continue
+            address = location_data.get("address", "")
+            if address:
+                for selector in address_selectors:
+                    try:
+                        filled = await self._fill_input_like(selector, address)
+                        if filled:
+                            break
+                    except Exception:
+                        continue
 
             return {
                 "success": True,
@@ -1074,10 +1287,13 @@ class LocationSelector:
     ) -> dict[str, Any]:
         try:
             await self._ensure_location_tab_active(prefix)
-            grid_id = "gridfulSenderAddress" if prefix == "Origin" else "gridfulReceiverAddress"
-            button_id = "selectSenderAddress" if prefix == "Origin" else "selectReceiverAddress"
+
+            # ماپ همه alias های مبدا به grid/button مرتبط
+            is_origin = prefix in {"Origin", "Source", "origin", "source"}
+            grid_id = "gridfulSenderAddress" if is_origin else "gridfulReceiverAddress"
+            button_selector_inner = "#selectSenderAddress" if is_origin else "#selectReceiverAddress"
             grid_selector = f"#{grid_id}"
-            button_selector = f"#{button_id}"
+
             if not await self.page.query_selector(grid_selector):
                 return {"success": False, "method": "favorite", "error": "grid یافت نشد"}
 
@@ -1113,9 +1329,14 @@ class LocationSelector:
             if best_index is None or best_score <= 0:
                 return {"success": False, "method": "favorite", "error": "آدرس نزدیک یافت نشد"}
 
-            selector = f"{grid_selector} tbody tr:nth-child({best_index + 1}) {button_selector}"
-            await self._scroll_into_view(selector)
-            await self.page.click(selector)
+            row_selector = f"{grid_selector} tbody tr:nth-child({best_index + 1})"
+            btn_selector = f"{row_selector} {button_selector_inner}"
+            await self._scroll_into_view(btn_selector)
+            try:
+                await self.page.click(btn_selector, timeout=3000)
+            except Exception:
+                # تلاش با JS در صورت شکست click
+                await self.page.eval_on_selector(btn_selector, "el => el && el.click()")
             await asyncio.sleep(0.8)
             return {"success": True, "method": "favorite", "row_index": best_index}
         except Exception as exc:

@@ -211,7 +211,7 @@ rate_limiter.register_rule(
 )
 rate_limiter.register_rule(
     name="auth",
-    max_requests=10,
+    max_requests=5,  # Strict: protect login from brute-force
     window_seconds=60,
 )
 rate_limiter.register_rule(

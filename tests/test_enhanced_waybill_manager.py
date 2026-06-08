@@ -33,7 +33,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         mock.goto = AsyncMock()
         mock.query_selector = AsyncMock()
         mock.query_selector_all = AsyncMock(return_value=[])
-        mock.evaluate = AsyncMock()
+        mock.evaluate = AsyncMock(return_value=False)
         mock.wait_for_selector = AsyncMock()
         mock.wait_for_timeout = AsyncMock()
 
