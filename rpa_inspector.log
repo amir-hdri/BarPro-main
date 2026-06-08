@@ -191,3 +191,355 @@ Call log:
 2026-06-08 16:47:27,729 - [INFO] - Structured report file:  /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/report_20260608_164727.json
 2026-06-08 16:47:27,729 - [INFO] - Latest report link:      /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/output/rpa_diagnostics/latest_report.json
 2026-06-08 16:47:27,729 - [INFO] - ================================================================================
+2026-06-08 21:27:57,350 - [INFO] - [GLOBAL] START: Starting Continuous RPA Monitoring Daemon
+2026-06-08 21:27:57,351 - [INFO] - Signal handlers for SIGINT and SIGTERM registered successfully.
+2026-06-08 21:27:57,351 - [INFO] - Log monitor thread started targeting: /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/backend.log
+2026-06-08 21:27:59,921 - [INFO] - [DAEMON] INFO: Active health check loop iteration #1
+2026-06-08 21:28:04,046 - [WARNING] - [NETWORK] WARNING: HTTP 444 Internal Server Error on https://barname.utcms.ir/Barname/Account/Login
+2026-06-08 21:28:04,140 - [INFO] - [DAEMON_NAV] SUCCESS: Active navigation ping succeeded in 3.92s
+2026-06-08 21:29:04,218 - [INFO] - [DAEMON] INFO: Active health check loop iteration #2
+2026-06-08 21:29:04,518 - [WARNING] - [NETWORK] WARNING: HTTP 444 Internal Server Error on https://barname.utcms.ir/Barname/Account/Login
+2026-06-08 21:29:04,561 - [INFO] - [DAEMON_NAV] SUCCESS: Active navigation ping succeeded in 0.25s
+2026-06-08 21:30:04,635 - [INFO] - [DAEMON] INFO: Active health check loop iteration #3
+2026-06-08 21:30:04,937 - [WARNING] - [NETWORK] WARNING: HTTP 444 Internal Server Error on https://barname.utcms.ir/Barname/Account/Login
+2026-06-08 21:30:04,983 - [INFO] - [DAEMON_NAV] SUCCESS: Active navigation ping succeeded in 0.26s
+2026-06-08 21:31:05,055 - [INFO] - [DAEMON] INFO: Active health check loop iteration #4
+2026-06-08 21:31:05,617 - [WARNING] - [NETWORK] WARNING: HTTP 444 Internal Server Error on https://barname.utcms.ir/Barname/Account/Login
+2026-06-08 21:31:05,664 - [INFO] - [DAEMON_NAV] SUCCESS: Active navigation ping succeeded in 0.52s
+2026-06-08 21:32:05,740 - [INFO] - [DAEMON] INFO: Active health check loop iteration #5
+2026-06-08 21:32:06,264 - [WARNING] - [NETWORK] WARNING: HTTP 444 Internal Server Error on https://barname.utcms.ir/Barname/Account/Login
+2026-06-08 21:32:06,335 - [INFO] - [DAEMON_NAV] SUCCESS: Active navigation ping succeeded in 0.31s
+2026-06-08 21:33:06,406 - [INFO] - [DAEMON] INFO: Active health check loop iteration #6
+2026-06-08 21:33:06,707 - [WARNING] - [NETWORK] WARNING: HTTP 444 Internal Server Error on https://barname.utcms.ir/Barname/Account/Login
+2026-06-08 21:33:06,714 - [INFO] - [DAEMON_NAV] SUCCESS: Active navigation ping succeeded in 0.23s
+2026-06-08 21:34:06,804 - [INFO] - [DAEMON] INFO: Active health check loop iteration #7
+2026-06-08 21:34:23,185 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-08 21:35:23,258 - [INFO] - [DAEMON] INFO: Active health check loop iteration #8
+2026-06-08 21:35:38,954 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-08 21:36:39,040 - [INFO] - [DAEMON] INFO: Active health check loop iteration #9
+2026-06-08 21:36:55,505 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-08 21:37:55,579 - [INFO] - [DAEMON] INFO: Active health check loop iteration #10
+2026-06-08 21:38:11,136 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-08 21:39:11,213 - [INFO] - [DAEMON] INFO: Active health check loop iteration #11
+2026-06-08 21:39:26,783 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-08 21:40:26,865 - [INFO] - [DAEMON] INFO: Active health check loop iteration #12
+2026-06-08 21:40:42,514 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-08 21:41:42,595 - [INFO] - [DAEMON] INFO: Active health check loop iteration #13
+2026-06-08 21:41:58,140 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-08 21:42:58,220 - [INFO] - [DAEMON] INFO: Active health check loop iteration #14
+2026-06-08 21:43:15,383 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-08 21:44:15,593 - [INFO] - [DAEMON] INFO: Active health check loop iteration #15
+2026-06-08 21:44:37,564 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-08 21:45:37,643 - [INFO] - [DAEMON] INFO: Active health check loop iteration #16
+2026-06-08 21:45:53,218 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-08 21:46:53,321 - [INFO] - [DAEMON] INFO: Active health check loop iteration #17
+2026-06-08 21:47:08,949 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-08 21:47:11,934 - [INFO] - [GLOBAL] START: Starting Continuous RPA Monitoring Daemon
+2026-06-08 21:47:11,934 - [INFO] - Signal handlers for SIGINT and SIGTERM registered successfully.
+2026-06-08 21:47:11,934 - [INFO] - Log monitor thread started targeting: /Users/amirheidari/Documents/VSCode/BBB/BarPro-main/backend.log
+2026-06-08 21:47:13,388 - [INFO] - [DAEMON] INFO: Active health check loop iteration #1
+2026-06-08 21:47:21,336 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_ABORTED at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
+2026-06-08 21:48:09,072 - [INFO] - [DAEMON] INFO: Active health check loop iteration #18
+2026-06-08 21:48:09,078 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:48:21,443 - [INFO] - [DAEMON] INFO: Active health check loop iteration #2
+2026-06-08 21:48:21,445 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:49:09,152 - [INFO] - [DAEMON] INFO: Active health check loop iteration #19
+2026-06-08 21:49:09,157 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:49:21,511 - [INFO] - [DAEMON] INFO: Active health check loop iteration #3
+2026-06-08 21:49:21,517 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:50:09,226 - [INFO] - [DAEMON] INFO: Active health check loop iteration #20
+2026-06-08 21:50:09,231 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:50:21,584 - [INFO] - [DAEMON] INFO: Active health check loop iteration #4
+2026-06-08 21:50:21,587 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:51:09,300 - [INFO] - [DAEMON] INFO: Active health check loop iteration #21
+2026-06-08 21:51:09,307 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:51:21,658 - [INFO] - [DAEMON] INFO: Active health check loop iteration #5
+2026-06-08 21:51:21,661 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:52:09,377 - [INFO] - [DAEMON] INFO: Active health check loop iteration #22
+2026-06-08 21:52:09,382 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:52:21,734 - [INFO] - [DAEMON] INFO: Active health check loop iteration #6
+2026-06-08 21:52:21,739 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:53:09,451 - [INFO] - [DAEMON] INFO: Active health check loop iteration #23
+2026-06-08 21:53:09,455 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:53:21,809 - [INFO] - [DAEMON] INFO: Active health check loop iteration #7
+2026-06-08 21:53:21,815 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:54:09,533 - [INFO] - [DAEMON] INFO: Active health check loop iteration #24
+2026-06-08 21:54:09,535 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:54:21,886 - [INFO] - [DAEMON] INFO: Active health check loop iteration #8
+2026-06-08 21:54:21,890 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:55:09,605 - [INFO] - [DAEMON] INFO: Active health check loop iteration #25
+2026-06-08 21:55:09,610 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:55:21,959 - [INFO] - [DAEMON] INFO: Active health check loop iteration #9
+2026-06-08 21:55:21,965 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:56:09,681 - [INFO] - [DAEMON] INFO: Active health check loop iteration #26
+2026-06-08 21:56:09,687 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:56:22,033 - [INFO] - [DAEMON] INFO: Active health check loop iteration #10
+2026-06-08 21:56:22,038 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:57:09,752 - [INFO] - [DAEMON] INFO: Active health check loop iteration #27
+2026-06-08 21:57:09,758 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:57:22,108 - [INFO] - [DAEMON] INFO: Active health check loop iteration #11
+2026-06-08 21:57:22,113 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:58:09,831 - [INFO] - [DAEMON] INFO: Active health check loop iteration #28
+2026-06-08 21:58:09,838 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:58:22,185 - [INFO] - [DAEMON] INFO: Active health check loop iteration #12
+2026-06-08 21:58:22,191 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:59:09,911 - [INFO] - [DAEMON] INFO: Active health check loop iteration #29
+2026-06-08 21:59:09,920 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 21:59:22,271 - [INFO] - [DAEMON] INFO: Active health check loop iteration #13
+2026-06-08 21:59:22,277 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:00:09,976 - [INFO] - [DAEMON] INFO: Active health check loop iteration #30
+2026-06-08 22:00:09,980 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:00:22,334 - [INFO] - [DAEMON] INFO: Active health check loop iteration #14
+2026-06-08 22:00:22,350 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:01:10,069 - [INFO] - [DAEMON] INFO: Active health check loop iteration #31
+2026-06-08 22:01:10,082 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:01:22,452 - [INFO] - [DAEMON] INFO: Active health check loop iteration #15
+2026-06-08 22:01:22,464 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:02:10,204 - [INFO] - [DAEMON] INFO: Active health check loop iteration #32
+2026-06-08 22:02:10,209 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:02:22,594 - [INFO] - [DAEMON] INFO: Active health check loop iteration #16
+2026-06-08 22:02:22,598 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:03:10,327 - [INFO] - [DAEMON] INFO: Active health check loop iteration #33
+2026-06-08 22:03:10,333 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:03:22,728 - [INFO] - [DAEMON] INFO: Active health check loop iteration #17
+2026-06-08 22:03:22,734 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:04:10,445 - [INFO] - [DAEMON] INFO: Active health check loop iteration #34
+2026-06-08 22:04:10,449 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:04:22,842 - [INFO] - [DAEMON] INFO: Active health check loop iteration #18
+2026-06-08 22:04:22,847 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:05:10,558 - [INFO] - [DAEMON] INFO: Active health check loop iteration #35
+2026-06-08 22:05:10,563 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:05:22,972 - [INFO] - [DAEMON] INFO: Active health check loop iteration #19
+2026-06-08 22:05:22,977 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:06:10,677 - [INFO] - [DAEMON] INFO: Active health check loop iteration #36
+2026-06-08 22:06:10,681 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:06:23,087 - [INFO] - [DAEMON] INFO: Active health check loop iteration #20
+2026-06-08 22:06:23,093 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:07:10,802 - [INFO] - [DAEMON] INFO: Active health check loop iteration #37
+2026-06-08 22:07:10,807 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:07:23,207 - [INFO] - [DAEMON] INFO: Active health check loop iteration #21
+2026-06-08 22:07:23,220 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:08:10,933 - [INFO] - [DAEMON] INFO: Active health check loop iteration #38
+2026-06-08 22:08:10,940 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:08:23,343 - [INFO] - [DAEMON] INFO: Active health check loop iteration #22
+2026-06-08 22:08:23,348 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:09:11,062 - [INFO] - [DAEMON] INFO: Active health check loop iteration #39
+2026-06-08 22:09:11,069 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:09:23,471 - [INFO] - [DAEMON] INFO: Active health check loop iteration #23
+2026-06-08 22:09:23,479 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:10:11,194 - [INFO] - [DAEMON] INFO: Active health check loop iteration #40
+2026-06-08 22:10:11,201 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:10:23,599 - [INFO] - [DAEMON] INFO: Active health check loop iteration #24
+2026-06-08 22:10:23,604 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:11:11,315 - [INFO] - [DAEMON] INFO: Active health check loop iteration #41
+2026-06-08 22:11:11,320 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:11:23,729 - [INFO] - [DAEMON] INFO: Active health check loop iteration #25
+2026-06-08 22:11:23,732 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:12:11,441 - [INFO] - [DAEMON] INFO: Active health check loop iteration #42
+2026-06-08 22:12:11,446 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:12:23,848 - [INFO] - [DAEMON] INFO: Active health check loop iteration #26
+2026-06-08 22:12:23,852 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:13:11,570 - [INFO] - [DAEMON] INFO: Active health check loop iteration #43
+2026-06-08 22:13:11,578 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:13:23,973 - [INFO] - [DAEMON] INFO: Active health check loop iteration #27
+2026-06-08 22:13:23,976 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:14:11,698 - [INFO] - [DAEMON] INFO: Active health check loop iteration #44
+2026-06-08 22:14:11,703 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:14:24,100 - [INFO] - [DAEMON] INFO: Active health check loop iteration #28
+2026-06-08 22:14:24,107 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:15:11,821 - [INFO] - [DAEMON] INFO: Active health check loop iteration #45
+2026-06-08 22:15:11,823 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:15:24,227 - [INFO] - [DAEMON] INFO: Active health check loop iteration #29
+2026-06-08 22:15:24,232 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:16:11,963 - [INFO] - [DAEMON] INFO: Active health check loop iteration #46
+2026-06-08 22:16:11,966 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:16:24,363 - [INFO] - [DAEMON] INFO: Active health check loop iteration #30
+2026-06-08 22:16:24,367 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:17:12,094 - [INFO] - [DAEMON] INFO: Active health check loop iteration #47
+2026-06-08 22:17:12,099 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:17:24,493 - [INFO] - [DAEMON] INFO: Active health check loop iteration #31
+2026-06-08 22:17:24,497 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:18:12,226 - [INFO] - [DAEMON] INFO: Active health check loop iteration #48
+2026-06-08 22:18:12,233 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:18:24,620 - [INFO] - [DAEMON] INFO: Active health check loop iteration #32
+2026-06-08 22:18:24,628 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:19:12,359 - [INFO] - [DAEMON] INFO: Active health check loop iteration #49
+2026-06-08 22:19:12,364 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:19:24,750 - [INFO] - [DAEMON] INFO: Active health check loop iteration #33
+2026-06-08 22:19:24,758 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:20:12,489 - [INFO] - [DAEMON] INFO: Active health check loop iteration #50
+2026-06-08 22:20:12,494 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:20:24,876 - [INFO] - [DAEMON] INFO: Active health check loop iteration #34
+2026-06-08 22:20:24,880 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:21:12,612 - [INFO] - [DAEMON] INFO: Active health check loop iteration #51
+2026-06-08 22:21:12,618 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:21:25,002 - [INFO] - [DAEMON] INFO: Active health check loop iteration #35
+2026-06-08 22:21:25,005 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:22:12,746 - [INFO] - [DAEMON] INFO: Active health check loop iteration #52
+2026-06-08 22:22:12,754 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:22:25,126 - [INFO] - [DAEMON] INFO: Active health check loop iteration #36
+2026-06-08 22:22:25,130 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:23:12,878 - [INFO] - [DAEMON] INFO: Active health check loop iteration #53
+2026-06-08 22:23:12,885 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:23:25,260 - [INFO] - [DAEMON] INFO: Active health check loop iteration #37
+2026-06-08 22:23:25,265 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:24:13,010 - [INFO] - [DAEMON] INFO: Active health check loop iteration #54
+2026-06-08 22:24:13,015 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:24:25,390 - [INFO] - [DAEMON] INFO: Active health check loop iteration #38
+2026-06-08 22:24:25,395 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:25:13,131 - [INFO] - [DAEMON] INFO: Active health check loop iteration #55
+2026-06-08 22:25:13,137 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:25:25,520 - [INFO] - [DAEMON] INFO: Active health check loop iteration #39
+2026-06-08 22:25:25,525 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:26:13,230 - [INFO] - [DAEMON] INFO: Active health check loop iteration #56
+2026-06-08 22:26:13,234 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:26:25,645 - [INFO] - [DAEMON] INFO: Active health check loop iteration #40
+2026-06-08 22:26:25,649 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:27:13,348 - [INFO] - [DAEMON] INFO: Active health check loop iteration #57
+2026-06-08 22:27:13,354 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:27:25,766 - [INFO] - [DAEMON] INFO: Active health check loop iteration #41
+2026-06-08 22:27:25,771 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:28:13,471 - [INFO] - [DAEMON] INFO: Active health check loop iteration #58
+2026-06-08 22:28:13,477 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:28:25,881 - [INFO] - [DAEMON] INFO: Active health check loop iteration #42
+2026-06-08 22:28:25,886 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:29:13,597 - [INFO] - [DAEMON] INFO: Active health check loop iteration #59
+2026-06-08 22:29:13,602 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:29:26,006 - [INFO] - [DAEMON] INFO: Active health check loop iteration #43
+2026-06-08 22:29:26,011 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:30:13,727 - [INFO] - [DAEMON] INFO: Active health check loop iteration #60
+2026-06-08 22:30:13,732 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:30:26,137 - [INFO] - [DAEMON] INFO: Active health check loop iteration #44
+2026-06-08 22:30:26,142 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:31:13,847 - [INFO] - [DAEMON] INFO: Active health check loop iteration #61
+2026-06-08 22:31:13,856 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:31:26,261 - [INFO] - [DAEMON] INFO: Active health check loop iteration #45
+2026-06-08 22:31:26,267 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:32:13,994 - [INFO] - [DAEMON] INFO: Active health check loop iteration #62
+2026-06-08 22:32:14,000 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:32:26,406 - [INFO] - [DAEMON] INFO: Active health check loop iteration #46
+2026-06-08 22:32:26,411 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:33:14,126 - [INFO] - [DAEMON] INFO: Active health check loop iteration #63
+2026-06-08 22:33:14,131 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:33:26,538 - [INFO] - [DAEMON] INFO: Active health check loop iteration #47
+2026-06-08 22:33:26,544 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:34:14,254 - [INFO] - [DAEMON] INFO: Active health check loop iteration #64
+2026-06-08 22:34:14,261 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:34:26,664 - [INFO] - [DAEMON] INFO: Active health check loop iteration #48
+2026-06-08 22:34:26,671 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:35:14,382 - [INFO] - [DAEMON] INFO: Active health check loop iteration #65
+2026-06-08 22:35:14,389 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:35:26,796 - [INFO] - [DAEMON] INFO: Active health check loop iteration #49
+2026-06-08 22:35:26,801 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:36:14,508 - [INFO] - [DAEMON] INFO: Active health check loop iteration #66
+2026-06-08 22:36:14,514 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:36:26,922 - [INFO] - [DAEMON] INFO: Active health check loop iteration #50
+2026-06-08 22:36:26,928 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:37:14,639 - [INFO] - [DAEMON] INFO: Active health check loop iteration #67
+2026-06-08 22:37:14,644 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:37:27,049 - [INFO] - [DAEMON] INFO: Active health check loop iteration #51
+2026-06-08 22:37:27,055 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:38:14,765 - [INFO] - [DAEMON] INFO: Active health check loop iteration #68
+2026-06-08 22:38:14,771 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:38:27,180 - [INFO] - [DAEMON] INFO: Active health check loop iteration #52
+2026-06-08 22:38:27,187 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:39:14,894 - [INFO] - [DAEMON] INFO: Active health check loop iteration #69
+2026-06-08 22:39:14,900 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:39:27,306 - [INFO] - [DAEMON] INFO: Active health check loop iteration #53
+2026-06-08 22:39:27,309 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:40:15,018 - [INFO] - [DAEMON] INFO: Active health check loop iteration #70
+2026-06-08 22:40:15,021 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:40:27,433 - [INFO] - [DAEMON] INFO: Active health check loop iteration #54
+2026-06-08 22:40:27,439 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:41:15,145 - [INFO] - [DAEMON] INFO: Active health check loop iteration #71
+2026-06-08 22:41:15,148 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:41:27,559 - [INFO] - [DAEMON] INFO: Active health check loop iteration #55
+2026-06-08 22:41:27,565 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:42:15,268 - [INFO] - [DAEMON] INFO: Active health check loop iteration #72
+2026-06-08 22:42:15,274 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:42:27,684 - [INFO] - [DAEMON] INFO: Active health check loop iteration #56
+2026-06-08 22:42:27,690 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:43:15,397 - [INFO] - [DAEMON] INFO: Active health check loop iteration #73
+2026-06-08 22:43:15,403 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:43:27,807 - [INFO] - [DAEMON] INFO: Active health check loop iteration #57
+2026-06-08 22:43:27,812 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:44:15,531 - [INFO] - [DAEMON] INFO: Active health check loop iteration #74
+2026-06-08 22:44:15,536 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:44:27,943 - [INFO] - [DAEMON] INFO: Active health check loop iteration #58
+2026-06-08 22:44:27,947 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:45:15,658 - [INFO] - [DAEMON] INFO: Active health check loop iteration #75
+2026-06-08 22:45:15,662 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:45:28,097 - [INFO] - [DAEMON] INFO: Active health check loop iteration #59
+2026-06-08 22:45:28,103 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:46:15,783 - [INFO] - [DAEMON] INFO: Active health check loop iteration #76
+2026-06-08 22:46:15,788 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:46:28,233 - [INFO] - [DAEMON] INFO: Active health check loop iteration #60
+2026-06-08 22:46:28,236 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:47:15,894 - [INFO] - [DAEMON] INFO: Active health check loop iteration #77
+2026-06-08 22:47:15,901 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:47:28,469 - [INFO] - [DAEMON] INFO: Active health check loop iteration #61
+2026-06-08 22:47:28,473 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:48:16,137 - [INFO] - [DAEMON] INFO: Active health check loop iteration #78
+2026-06-08 22:48:16,148 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:48:28,566 - [INFO] - [DAEMON] INFO: Active health check loop iteration #62
+2026-06-08 22:48:28,575 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:49:16,265 - [INFO] - [DAEMON] INFO: Active health check loop iteration #79
+2026-06-08 22:49:16,273 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:49:28,695 - [INFO] - [DAEMON] INFO: Active health check loop iteration #63
+2026-06-08 22:49:28,702 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:50:16,392 - [INFO] - [DAEMON] INFO: Active health check loop iteration #80
+2026-06-08 22:50:16,396 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:50:28,825 - [INFO] - [DAEMON] INFO: Active health check loop iteration #64
+2026-06-08 22:50:28,830 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:51:16,510 - [INFO] - [DAEMON] INFO: Active health check loop iteration #81
+2026-06-08 22:51:16,515 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:51:28,948 - [INFO] - [DAEMON] INFO: Active health check loop iteration #65
+2026-06-08 22:51:28,954 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:52:16,631 - [INFO] - [DAEMON] INFO: Active health check loop iteration #82
+2026-06-08 22:52:16,644 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:52:29,073 - [INFO] - [DAEMON] INFO: Active health check loop iteration #66
+2026-06-08 22:52:29,084 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:57:59,704 - [INFO] - [DAEMON] INFO: Active health check loop iteration #83
+2026-06-08 22:57:59,713 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:58:12,135 - [INFO] - [DAEMON] INFO: Active health check loop iteration #67
+2026-06-08 22:58:12,148 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:58:59,823 - [INFO] - [DAEMON] INFO: Active health check loop iteration #84
+2026-06-08 22:58:59,834 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-08 22:59:12,213 - [INFO] - [DAEMON] INFO: Active health check loop iteration #68
+2026-06-08 22:59:12,225 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed

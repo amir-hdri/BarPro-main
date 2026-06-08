@@ -16,6 +16,7 @@ class _NoopAsyncContext:
 class TestUTCMSAuthenticator(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.page = AsyncMock()
+        self.page.locator = Mock()
         self.context = AsyncMock()
         self.auth = UTCMSAuthenticator(self.page, self.context)
         self.page.expect_navigation = Mock(return_value=_NoopAsyncContext())

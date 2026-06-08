@@ -328,7 +328,9 @@ class TestCheckboxWithFallback:
 
 class TestDryRunValidationSummary:
     def _make_manager(self, page=None, ctx=None):
+        from unittest.mock import Mock
         page = page or AsyncMock()
+        page.locator = Mock()
         page.evaluate.return_value = False
         ctx = ctx or AsyncMock()
         with patch("app.automation.waybill_enhanced.PageInteractor"), \

@@ -45,9 +45,11 @@ function readClientFromStorage(): StoredClient | null {
   return cachedClientValue;
 }
 
+const SERVER_SNAPSHOT: SessionSnapshot = { client: null, token: null };
+
 function getSnapshot(): SessionSnapshot {
   if (typeof window === 'undefined') {
-    return { client: null, token: null };
+    return SERVER_SNAPSHOT;
   }
 
   const client = readClientFromStorage();
@@ -59,13 +61,6 @@ function getSnapshot(): SessionSnapshot {
   // "not ready/unauthenticated" snapshot and let the UI recover naturally.
   //
   // This prevents logout/redirect loops on refresh.
-  if (!token && client) {
-    return { client, token: null };
-  }
-  if (token && !client) {
-    return { client: null, token };
-  }
-
   if (client === cachedSnapshot.client && token === cachedTokenValue) {
     return cachedSnapshot;
   }
@@ -76,7 +71,7 @@ function getSnapshot(): SessionSnapshot {
 }
 
 function getServerSnapshot(): SessionSnapshot {
-  return { client: null, token: null };
+  return SERVER_SNAPSHOT;
 }
 
 function subscribe(callback: () => void) {
