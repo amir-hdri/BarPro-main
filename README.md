@@ -1,123 +1,138 @@
-# 🚀 سیستم اتوماسیون جامع بارنامه UTCMS (BarPro)
+# 🚀 BarPro: Enterprise Multi-tenant RPA & Waybill Automation
 
 [![Architecture](https://img.shields.io/badge/Architecture-Monorepo-blue.svg)]()
 [![Backend](https://img.shields.io/badge/Backend-FastAPI-green.svg)](https://fastapi.tiangolo.com/)
-[![Frontend](https://img.shields.io/badge/Frontend-Next.js%2014-black.svg)](https://nextjs.org/)
+[![Frontend](https://img.shields.io/badge/Frontend-Next.js%2015-black.svg)](https://nextjs.org/)
 [![Automation](https://img.shields.io/badge/Automation-Playwright-orange.svg)](https://playwright.dev/python/)
 [![Database](https://img.shields.io/badge/Database-PostgreSQL-blue.svg)](https://www.postgresql.org/)
 [![Caching](https://img.shields.io/badge/Caching-Redis-red.svg)](https://redis.io/)
 [![Queue](https://img.shields.io/badge/Queue-Celery-green.svg)](https://docs.celeryq.dev/)
 
-> **راهکار جامع اتوماسیون سازمانی چند مستأجره:** سامانه **BarPro** یک فریم‌ورک پیشرفته و صنعتی برای خودکارسازی فرآیندهای ثبت بارنامه در وب‌سایت کشوری **UTCMS** است. این سیستم با بهره‌گیری از تکنولوژی‌های مدرن وب، الگوهای تعامل انسانی هوشمند (Human-like RPA)، دور زدن مکانیزم‌های تشخیص ربات (Anti-detection) و مدیریت هوشمند کپچا، پایداری بالا در حجم تراکنش‌های سنگین سازمانی را تضمین می‌کند.
+**BarPro** is an advanced, industrial-grade RPA (Robotic Process Automation) framework designed for automated waybill registration on the **UTCMS** national portal. Built with a modern full-stack architecture, it combines high-performance backend processing with a seamless user experience, ensuring reliability even under heavy enterprise workloads.
+
+[ فارسی (Persian) ](#-سیستم-اتوماسیون-جامع-بارنامه-utcms-barpro)
 
 ---
 
-## 💎 ویژگی‌های کلیدی سامانه BarPro
+## ✨ Key Features
 
-### ۱. معماری چند مستاجره (Multi-tenancy) واقعی
-* **جداسازی داده‌ها (Data Isolation):** ایزوله‌سازی کامل داده‌های هر مستاجر (Tenant) در لایه دیتابیس.
-* **پروفایل‌های مستقل:** مدیریت جداگانه ناوگان حمل و نقل، رانندگان و مسیرهای ترجیحی برای هر شرکت.
-* **پنل مستر ادمین:** داشبورد پیشرفته مدیریتی برای تعریف شرکت‌های جدید، کنترل دسترسی‌ها، محدودیت تراکنش‌ها و مانیتورینگ زنده.
+### 🏢 Real Multi-tenancy
+*   **Data Isolation:** Strict data separation at the database level using `client_id` scoping.
+*   **Independent Profiles:** Separate management for fleets, drivers, and routes for each tenant.
+*   **Master Admin Dashboard:** Centralized control for tenant onboarding, quota management, and live monitoring.
 
-### ۲. موتور رباتیک (RPA) پیشرفته و شبیه‌ساز رفتار انسانی
-* **تزریق مستقیم مختصات جغرافیایی:** دور زدن نقص‌های سیستم سرچ آدرس سایت با تزریق مستقیم مختصات به متغیرهای سراسری جاوااسکریپت (`LatSource`/`LngSource` و شیء `PlaceSource`) و فراخوانی متدهای بومی نقشه.
-* **خودترمیمی هوشمند (Self-healing):** درک پویای ساختار صفحات وب، کنترل لایه‌های مسدودکننده (Loading Overlays) و استفاده از سلکتورهای جایگزین در صورت تغییر کدهای قالب سایت.
-* **حل هوشمند کپچا (Math & OCR):** مجهز به حل‌کننده قدرتمند ریاضی و بصری بر پایه یادگیری ماشین (CNN) با قابلیت تلاش مجدد خودکار در صورت عدم موفقیت.
-* **سیستم تطبیق منعطف (Loose Matcher):** برطرف‌کننده چالش خطاهای فرمت‌دهی کاراکترها و یکسان‌سازی خودکار حروف عربی/فارسی و فاصله‌های مجازی.
+### 🤖 Advanced RPA Engine
+*   **Human-like Behavior:** Sophisticated simulation of human interactions to bypass anti-bot mechanisms.
+*   **Smart Map Injection:** Direct coordinate injection into JavaScript globals (`LatSource`/`LngSource`) to bypass search bottlenecks.
+*   **Intelligent Captcha Solver:** ML-powered math and visual OCR solver with automatic retry logic.
+*   **Self-Healing Navigation:** Dynamic element detection and "Loading Overlay" management for resilient web interactions.
 
-### ۳. امنیت و شبکه در سطح سازمانی
-* **امنیت داده‌ها:** رمزنگاری کلیدهای دسترسی حساس با الگوریتم AES-256 و استفاده از JWT با امضای ایمن برای ارتباطات API.
-* **شبکه انعطاف‌پذیر:** پشتیبانی از پروکسی‌های چرخشی (Rotating Proxies)، پچ‌های شبیه‌ساز اثر انگشت مرورگر (CDP/Stealth Patches) برای جلوگیری از بلاک شدن آی‌پی.
-* **پایداری کوکی‌ها:** ذخیره و بازیابی هوشمند نشست‌ها (Session State Persistence) برای کاهش لاگین‌های مجدد غیرضروری.
+### 🛡️ Enterprise-Grade Resilience
+*   **Automatic Stuck Job Recovery:** Periodic cleanup of jobs stuck in `QUEUED` or `IN_PROGRESS` states.
+*   **Global Safety Net:** Integrated error handling that prevents processing deadlocks during unexpected browser crashes.
+*   **Session Persistence:** Intelligent session bundle storage to minimize redundant logins.
 
 ---
 
-## 🛠️ ساختار مهندسی و پوشه‌بندی پروژه
+## 🏗️ Architecture & Stack
 
+### Technology Stack
+- **Backend:** FastAPI (Python 3.11)
+- **Frontend:** Next.js 15 (TypeScript, Tailwind CSS)
+- **Database:** PostgreSQL 16 (via SQLModel/AsyncPG)
+- **Task Queue:** Celery + Redis
+- **Automation:** Playwright (Headless/Headful)
+- **Monitoring:** Prometheus + Custom RPA Inspector
+
+### Directory Structure
 ```text
-BarPro-main/
-├── app/                        # هسته بک‌انـد (FastAPI)
-│   ├── api/                    # کنترلرها و مسیرهای وب‌سرویس (v1)
-│   ├── automation/             # موتور اصلی RPA (تعامل مرورگر، کپچا، انتخاب مکان، نقشه)
-│   ├── core/                   # پیکربندی‌های پایه، دیتابیس، امنیت، انعطاف‌پذیری شبکه و مانیتورینگ
-│   ├── models/                 # مدل‌های داده شی‌گرا (SQLModel / SQLAlchemy)
-│   ├── schemas/                # فیلترها و قالب‌های اعتبارسنجی ورودی/خروجی (Pydantic)
-│   └── services/               # سرویس‌های منطق کسب‌وکار، تحلیل فایل اکسل و کنترل تسک‌ها
+.
+├── app/                # Backend Core (FastAPI)
+│   ├── api/            # REST API Routes
+│   ├── automation/     # RPA Engine (Playwright logic)
+│   ├── services/       # Business Logic & Orchestration
+│   └── workers/        # Celery Task Workers
 ├── apps/
-│   └── web/                    # فرانت‌انـد مدرن (Next.js 14, TypeScript, Tailwind CSS)
-├── alembic/                    # تاریخچه و مدیریت ساختار دیتابیس (Migrations)
-├── docs/                       # مستندات جامع، راهنماهای دیتابیس و لاگ پچ‌ها
-├── output/                     # دایرکتوری تولیدی خروجی‌ها (فایل‌های پلاک، لاگ‌ها، اسکرین‌شات‌ها)
-└── scripts/                    # اسکریپت‌های سیستمی، سلامت‌سنجی و خطا‌یاب خودکار
+│   └── web/            # Frontend (Next.js)
+├── alembic/            # Database Migrations
+├── scripts/            # DevOps & Management Scripts
+└── output/             # Logs, Snapshots, and Reports
 ```
 
 ---
 
-## 🚦 راه‌اندازی و اجرای پروژه
+## 🚀 Quick Start
 
-### پیش‌نیازها
-* **Python 3.11** یا بالاتر
-* **Node.js 18** یا بالاتر
-* **PostgreSQL** و **Redis** (در صورت استفاده از داکر، به صورت خودکار لود می‌شوند)
+### Prerequisites
+- Python 3.11+
+- Node.js 20+
+- Docker & Docker Compose (for Postgres/Redis)
 
-### ۱. نصب وابستگی‌ها
+### 1. Installation
 ```bash
-# نصب وابستگی‌های پایتون بک‌انـد
+# Install Python dependencies
 pip install -r requirements.txt
 
-# نصب مرورگرهای مورد نیاز Playwright
+# Install Playwright browsers
 playwright install chromium
 
-# نصب وابستگی‌های فرانت‌انـد Next.js
-cd apps/web && npm install && cd ../..
+# Install Frontend dependencies
+cd apps/web && npm install
 ```
 
-### ۲. تنظیم متغیرهای محیطی
-یک فایل `.env` در ریشه پروژه ایجاد کنید و متغیرها را مقداردهی نمایید (می‌توانید از نمونه پیش‌فرض الگوبرداری کنید).
+### 2. Environment Setup
+Create a `.env` file in the root directory. Use the provided documentation to configure your database and security keys.
 
-### ۳. اجرای سریع پروژه (Start & Stop)
-راه‌اندازی کامل پروژه و وب‌سرویس‌ها از طریق اسکریپت‌های زیر انجام می‌شود:
+### 3. Running the System
+The system is managed via unified shell scripts for easy operation:
 
 ```bash
-# راه‌اندازی پس‌زمینه (Backend, Frontend, RPA Inspector Daemon)
-./start_services.sh
+# Start all services (Backend, Frontend, Workers, Redis, Postgres)
+./scripts/start_system.sh
 
-# توقف تمام سرویس‌ها به همراه کامپایل و ذخیره گزارش عیب‌یابی
-./stop_services.sh
+# Stop all services and generate a health report
+./scripts/stop_system.sh
 ```
 
 ---
 
-## 🔍 دپارتمان عیب‌یابی: دیمن هوشمند خطا‌یاب (RPA Inspector Daemon)
+## 🛠️ Operational Commands
 
-سامانه BarPro مجهز به یک **دیمن خطا‌یاب پس‌زمینه اختصاصی** (`scripts/rpa_inspector.py`) است که با شروع پروژه به طور خودکار استارت می‌خورد. 
-
-### نحوه عملکرد خطا‌یاب:
-1. **پایش فعال (Active Monitoring):** در فواصل زمانی مشخص صفحه لاگین و تعاملات نقشه را شبیه‌سازی کرده و تاخیر لود سرورها، خطاهای احتمالی ۵۰۰ شبکه و مسدودکننده‌ها را تحلیل می‌کند.
-2. **پایش غیرفعال (Passive Monitoring):** فایل لاگ اصلی سرور (`backend.log`) را به صورت زنده رصد کرده و هرگونه خطای سطح بالایی نظیر `LocationSelectionError` یا `WaybillError` را شکار می‌کند.
-3. **ذخیره‌سازی گزارش بر اساس زمان:** پس از توقف پروژه با `./stop_services.sh`، دیمن خطا‌یاب سیگنال توقف را دریافت کرده و بلافاصله تمام داده‌های شبکه‌ای، خطاهای جاوااسکریپت کنسول مرورگر و رخدادهای بحرانی را تحت قالب یک فایل گزارش زمان‌دار با ساختار زیر ذخیره می‌کند:
-   - مسیر ذخیره: `output/rpa_diagnostics/report_YYYYMMDD_HHMMSS.json`
-   - کپی آخرین گزارش: `output/rpa_diagnostics/latest_report.json`
-
-### تحلیل گزارش ذخیره شده:
-شما می‌توانید فایل‌های گزارش تولید شده را با دستور زیر تحلیل و به شکل کاملاً خوانا در ترمینال مشاهده کنید:
-```bash
-python3 scripts/rpa_inspector.py --analyze output/rpa_diagnostics/latest_report.json
-```
+| Command | Description |
+| :--- | :--- |
+| `./scripts/start_system.sh` | Full system bootstrap in background |
+| `./scripts/stop_system.sh` | Graceful shutdown of all components |
+| `./scripts/check_health.sh` | Instant health check of DB, Redis, and API |
+| `pytest` | Run comprehensive integration & unit tests |
+| `alembic upgrade head` | Apply latest database schema migrations |
 
 ---
 
-## 📈 دستورات پرکاربرد خط فرمان
-
-| دستور | توضیحات |
-|-------|---------|
-| `./start_services.sh` | شروع تمام وب‌سرویس‌ها و دیمن خطا‌یاب در پس‌زمینه |
-| `.   ./stop_services.sh.   ` | توقف امن تمام پروسس‌ها و تولید فایل گزارش عیب‌یابی بر اساس زمان |
-| `./scripts/check_health.sh` | تست سریع سلامت اتصال به دیتابیس، Redis و در دسترس بودن API |
-| `pytest` | اجرای کلیه تست‌های یکپارچه‌سازی و واحد سیستم |
-| `alembic upgrade head` | اعمال آخرین تغییرات ساختاری بر روی دیتابیس PostgreSQL |
-| `./scripts/reset_database.sh` | پاکسازی کامل دیتابیس و بازنشانی مجدد تیبل‌ها (مخصوص توسعه) |
+## 🏥 System Resilience (Self-Healing)
+BarPro is designed to be "always-on." It includes:
+- **Watcher Daemon:** Monitor active jobs and recover orphans.
+- **Circuit Breakers:** Prevent overloading the target portal during downtime.
+- **Diagnostic Reports:** Automated generation of JSON reports on every shutdown.
 
 ---
-**وضعیت سامانه:** آماده بهره‌برداری تجاری (Production Ready) ✅  
-**آخرین بازنویسی مستندات:** ژوئن ۲۰۲۶  
+
+# 🚀 سیستم اتوماسیون جامع بارنامه UTCMS (BarPro)
+
+**BarPro** یک فریم‌ورک پیشرفته و صنعتی برای خودکارسازی فرآیندهای ثبت بارنامه در سامانه کشوری **UTCMS** است. این سیستم با معماری مدرن و قابلیت اطمینان بالا، پایداری عملیات در مقیاس سازمانی را تضمین می‌کند.
+
+### 💎 ویژگی‌های برتر
+*   **معماری چند مستاجره:** جداسازی کامل داده‌ها و مدیریت کوتای هر مشتری.
+*   **رباتیک پیشرفته:** شبیه‌سازی دقیق رفتار انسانی و حل خودکار کپچا.
+*   **تاب‌آوری هوشمند:** بازیابی خودکار تسک‌های متوقف شده و مدیریت خطاهای بحرانی.
+*   **مانیتورینگ زنده:** مجهز به سیستم بازرس RPA برای پایش لحظه‌ای عملیات.
+
+### 🚦 راه اندازی سریع
+1.  نصب وابستگی‌های پایتون: `pip install -r requirements.txt`
+2.  نصب مرورگر: `playwright install chromium`
+3.  نصب فرانت‌اند: `cd apps/web && npm install`
+4.  اجرای سیستم: `./scripts/start_system.sh`
+
+---
+**Status:** Production Ready ✅  
+**Last Updated:** June 2026  
+**License:** Enterprise Proprietary  

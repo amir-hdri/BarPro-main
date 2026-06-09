@@ -170,37 +170,52 @@ class RPASchedulerService:
         finally:
             await session.close()
 
-    async def cleanup_stuck_queued_jobs(self) -> int:
-        """Detect and recover jobs stuck in QUEUED status for > 15 minutes."""
+    async def cleanup_stuck_jobs(self) -> int:
+        """Detect and recover jobs stuck in QUEUED or IN_PROGRESS status."""
         session = async_session_factory()
         try:
-            cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=15)
+            now = datetime.now(UTC).replace(tzinfo=None)
+            queued_cutoff = now - timedelta(minutes=15)
+            in_progress_cutoff = now - timedelta(minutes=30)
+            
+            # Find jobs stuck in QUEUED (15m+) or IN_PROGRESS (30m+)
+            from sqlalchemy import or_
             stmt = select(WaybillJob).where(
-                WaybillJob.status == TaskStatus.QUEUED.value,
-                WaybillJob.updated_at < cutoff,
+                or_(
+                    (WaybillJob.status == TaskStatus.QUEUED.value) & (WaybillJob.updated_at < queued_cutoff),
+                    (WaybillJob.status == TaskStatus.IN_PROGRESS.value) & (WaybillJob.updated_at < in_progress_cutoff)
+                )
             )
             result = await session.exec(stmt)
             stuck_jobs = result.all()
             
             count = 0
             for job in stuck_jobs:
+                old_status = job.status
                 logger.warning(
                     "recovering_stuck_job",
-                    extra={"extra_fields": {"job_id": job.job_id, "last_updated": job.updated_at.isoformat()}}
+                    extra={"extra_fields": {
+                        "job_id": job.job_id, 
+                        "old_status": old_status,
+                        "last_updated": job.updated_at.isoformat()
+                    }}
                 )
+                
                 job.status = TaskStatus.PENDING.value
                 job.celery_task_id = None
+                job.worker_id = None
                 job.updated_at = _utcnow_naive()
                 session.add(job)
                 
                 # Add log for visibility
+                from app.models_multitenant import WaybillTaskLog
                 session.add(
                     WaybillTaskLog(
                         job_id=job.job_id,
                         client_id=job.client_id,
                         step="recovery",
                         status="pending",
-                        message="تسک از صف انتظار بازیابی شد (عدم پاسخگویی کارگر)",
+                        message=f"تسک از وضعیت {old_status} بازیابی شد (عدم پاسخگویی کارگر/تایم‌اوت)",
                     )
                 )
                 count += 1

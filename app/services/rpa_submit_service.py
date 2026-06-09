@@ -150,129 +150,150 @@ class RPAHttpSubmitService:
             runtime_state.state = DriverRuntimeStateValue.SUBMITTING.value
             await session.commit()
 
-            if live_page is not None and live_context is not None:
-                result = await self._execute_browser_submit_with_page(
-                    page=live_page,
-                    context=live_context,
-                    payload=payload,
-                    prior_error="inline_auth_submit",
-                    require_auth_check=False,
-                )
-            else:
-                try:
-                    result = await self.adapter.execute(payload, session_bundle)
-                except Exception as exc:
-                    logger.warning(
-                        "submit_http_adapter_failed_falling_back_to_browser",
-                        extra={"extra_fields": {"job_id": job.job_id, "client_id": client_id, "driver_id": job.driver_id, "error": str(exc)}},
-                    )
-                    result = await self._execute_browser_submit(
-                        session=session,
-                        client_id=client_id,
-                        driver=driver,
-                        job=job,
+            try:
+                if live_page is not None and live_context is not None:
+                    result = await self._execute_browser_submit_with_page(
+                        page=live_page,
+                        context=live_context,
                         payload=payload,
-                        prior_error=str(exc),
+                        prior_error="inline_auth_submit",
+                        require_auth_check=False,
                     )
+                else:
+                    try:
+                        result = await self.adapter.execute(payload, session_bundle)
+                    except Exception as exc:
+                        logger.warning(
+                            "submit_http_adapter_failed_falling_back_to_browser",
+                            extra={"extra_fields": {"job_id": job.job_id, "client_id": client_id, "driver_id": job.driver_id, "error": str(exc)}},
+                        )
+                        result = await self._execute_browser_submit(
+                            session=session,
+                            client_id=client_id,
+                            driver=driver,
+                            job=job,
+                            payload=payload,
+                            prior_error=str(exc),
+                        )
 
-            await rpa_runtime.increment_attempt(client_id, job.driver_id)
-            classification = result.classification
-            await self._record_attempt(session, job, runtime_state, classification, result.latency_ms)
+                await rpa_runtime.increment_attempt(client_id, job.driver_id)
+                classification = result.classification
+                await self._record_attempt(session, job, runtime_state, classification, result.latency_ms)
 
-            if classification.outcome == SubmitOutcome.SUCCESS:
-                await rpa_runtime.increment_success(client_id, job.driver_id)
-                job.status = TaskStatus.SUCCESS.value
-                job.result_json = json.dumps(
-                    {
-                        "status": "success",
-                        "reason": classification.reason_code,
-                        "http_status": classification.http_status,
-                        "latency_ms": result.latency_ms,
-                    },
-                    ensure_ascii=False,
+                if classification.outcome == SubmitOutcome.SUCCESS:
+                    await rpa_runtime.increment_success(client_id, job.driver_id)
+                    job.status = TaskStatus.SUCCESS.value
+                    job.result_json = json.dumps(
+                        {
+                            "status": "success",
+                            "reason": classification.reason_code,
+                            "http_status": classification.http_status,
+                            "latency_ms": result.latency_ms,
+                        },
+                        ensure_ascii=False,
+                    )
+                    job.finished_at = datetime.now(UTC).replace(tzinfo=None)
+                    job.submit_after = None
+                    job.next_retry_at = None
+                    job.last_error = None
+                    job.error_category = None
+                    job.terminal_reason = classification.reason_code
+                    job.celery_task_id = None
+                    job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    runtime_state.state = DriverRuntimeStateValue.READY.value
+                    runtime_state.next_retry_at = None
+                    runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    driver.runtime_status = DriverStatus.READY.value
+                    driver.last_error_code = None
+                    await self._record_event(session, client_id, job.driver_id, job.job_id, SUBMIT_SUCCEEDED, {"reason": classification.reason_code})
+                elif classification.outcome == SubmitOutcome.AUTH_EXPIRED:
+                    await rpa_runtime.delete_session(client_id, job.driver_id)
+                    return await self._mark_waiting_auth(session, job, driver, runtime_state, classification.reason_code)
+                elif classification.outcome in {SubmitOutcome.TRANSIENT_FAILURE, SubmitOutcome.RATE_LIMITED}:
+                    job.status = TaskStatus.WAITING_RETRY.value
+                    job.error_category = _map_error_category(classification.outcome, classification.reason_code)
+                    job.last_error = classification.message or classification.reason_code
+                    job.next_retry_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
+                    job.submit_after = job.next_retry_at
+                    job.finished_at = None
+                    job.celery_task_id = None
+                    job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    job.result_json = json.dumps(
+                        {
+                            "status": "waiting_retry",
+                            "reason": classification.reason_code,
+                            "error_category": job.error_category,
+                            "message": classification.message,
+                            "http_status": classification.http_status,
+                            "retry_at": job.next_retry_at.isoformat() if job.next_retry_at else None,
+                        },
+                        ensure_ascii=False,
+                    )
+                    runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
+                    runtime_state.next_retry_at = job.next_retry_at
+                    runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    driver.runtime_status = DriverStatus.WAITING_RETRY.value
+                    driver.last_error_code = classification.reason_code
+                    if classification.outcome == SubmitOutcome.RATE_LIMITED:
+                        await rpa_runtime.apply_cooldown("tenant", str(client_id), utcms_config.RPA_PROXY_COOLDOWN_SECONDS)
+                    await self._record_event(session, client_id, job.driver_id, job.job_id, SUBMIT_DELAYED, {"reason": classification.reason_code, "retry_at": job.next_retry_at.isoformat()})
+                else:
+                    job.status = TaskStatus.NEEDS_REVIEW.value if classification.outcome == SubmitOutcome.VALIDATION_ERROR else TaskStatus.FAILED.value
+                    job.error_category = _map_error_category(classification.outcome, classification.reason_code)
+                    job.last_error = classification.message or classification.reason_code
+                    job.finished_at = datetime.now(UTC).replace(tzinfo=None)
+                    job.submit_after = None
+                    job.next_retry_at = None
+                    job.terminal_reason = classification.reason_code
+                    job.celery_task_id = None
+                    job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    job.result_json = json.dumps(
+                        {
+                            "status": job.status,
+                            "reason": classification.reason_code,
+                            "error_category": job.error_category,
+                            "message": classification.message,
+                            "http_status": classification.http_status,
+                        },
+                        ensure_ascii=False,
+                    )
+                    runtime_state.state = DriverRuntimeStateValue.READY.value
+                    runtime_state.next_retry_at = None
+                    runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    driver.runtime_status = DriverStatus.READY.value
+                    driver.last_error_code = classification.reason_code
+                    await self._record_event(session, client_id, job.driver_id, job.job_id, SUBMIT_FAILED, {"reason": classification.reason_code})
+
+                counter = await self._sync_counter_row(session, client_id, job.driver_id)
+                if counter.successes >= utcms_config.DRIVER_DAILY_SUCCESS_CAP:
+                    driver.runtime_status = DriverStatus.DAILY_LIMIT_REACHED.value
+                    runtime_state.state = DriverRuntimeStateValue.DAILY_SUCCESS_LIMIT_REACHED.value
+                elif counter.attempts >= utcms_config.DRIVER_DAILY_ATTEMPT_CAP:
+                    driver.runtime_status = DriverStatus.DAILY_LIMIT_REACHED.value
+                    runtime_state.state = DriverRuntimeStateValue.DAILY_ATTEMPT_LIMIT_REACHED.value
+
+                await session.commit()
+                return result
+            except Exception as core_exc:
+                logger.exception(
+                    "submit_execution_unhandled_crash",
+                    extra={"extra_fields": {"job_id": job.job_id, "client_id": client_id, "driver_id": job.driver_id, "error": str(core_exc)}}
                 )
-                job.finished_at = datetime.now(UTC).replace(tzinfo=None)
-                job.submit_after = None
-                job.next_retry_at = None
-                job.last_error = None
-                job.error_category = None
-                job.terminal_reason = classification.reason_code
-                job.celery_task_id = None
-                job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                runtime_state.state = DriverRuntimeStateValue.READY.value
-                runtime_state.next_retry_at = None
-                runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                driver.runtime_status = DriverStatus.READY.value
-                driver.last_error_code = None
-                await self._record_event(session, client_id, job.driver_id, job.job_id, SUBMIT_SUCCEEDED, {"reason": classification.reason_code})
-            elif classification.outcome == SubmitOutcome.AUTH_EXPIRED:
-                await rpa_runtime.delete_session(client_id, job.driver_id)
-                return await self._mark_waiting_auth(session, job, driver, runtime_state, classification.reason_code)
-            elif classification.outcome in {SubmitOutcome.TRANSIENT_FAILURE, SubmitOutcome.RATE_LIMITED}:
-                job.status = TaskStatus.WAITING_RETRY.value
-                job.error_category = _map_error_category(classification.outcome, classification.reason_code)
-                job.last_error = classification.message or classification.reason_code
-                job.next_retry_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
-                job.submit_after = job.next_retry_at
-                job.finished_at = None
-                job.celery_task_id = None
-                job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                job.result_json = json.dumps(
-                    {
-                        "status": "waiting_retry",
-                        "reason": classification.reason_code,
-                        "error_category": job.error_category,
-                        "message": classification.message,
-                        "http_status": classification.http_status,
-                        "retry_at": job.next_retry_at.isoformat() if job.next_retry_at else None,
-                    },
-                    ensure_ascii=False,
-                )
-                runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
-                runtime_state.next_retry_at = job.next_retry_at
-                runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                driver.runtime_status = DriverStatus.WAITING_RETRY.value
-                driver.last_error_code = classification.reason_code
-                if classification.outcome == SubmitOutcome.RATE_LIMITED:
-                    await rpa_runtime.apply_cooldown("tenant", str(client_id), utcms_config.RPA_PROXY_COOLDOWN_SECONDS)
-                await self._record_event(session, client_id, job.driver_id, job.job_id, SUBMIT_DELAYED, {"reason": classification.reason_code, "retry_at": job.next_retry_at.isoformat()})
-            else:
-                job.status = TaskStatus.NEEDS_REVIEW.value if classification.outcome == SubmitOutcome.VALIDATION_ERROR else TaskStatus.FAILED.value
-                job.error_category = _map_error_category(classification.outcome, classification.reason_code)
-                job.last_error = classification.message or classification.reason_code
-                job.finished_at = datetime.now(UTC).replace(tzinfo=None)
-                job.submit_after = None
-                job.next_retry_at = None
-                job.terminal_reason = classification.reason_code
-                job.celery_task_id = None
-                job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                job.result_json = json.dumps(
-                    {
-                        "status": job.status,
-                        "reason": classification.reason_code,
-                        "error_category": job.error_category,
-                        "message": classification.message,
-                        "http_status": classification.http_status,
-                    },
-                    ensure_ascii=False,
-                )
-                runtime_state.state = DriverRuntimeStateValue.READY.value
-                runtime_state.next_retry_at = None
-                runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                driver.runtime_status = DriverStatus.READY.value
-                driver.last_error_code = classification.reason_code
-                await self._record_event(session, client_id, job.driver_id, job.job_id, SUBMIT_FAILED, {"reason": classification.reason_code})
-
-            counter = await self._sync_counter_row(session, client_id, job.driver_id)
-            if counter.successes >= utcms_config.DRIVER_DAILY_SUCCESS_CAP:
-                driver.runtime_status = DriverStatus.DAILY_LIMIT_REACHED.value
-                runtime_state.state = DriverRuntimeStateValue.DAILY_SUCCESS_LIMIT_REACHED.value
-            elif counter.attempts >= utcms_config.DRIVER_DAILY_ATTEMPT_CAP:
-                driver.runtime_status = DriverStatus.DAILY_LIMIT_REACHED.value
-                runtime_state.state = DriverRuntimeStateValue.DAILY_ATTEMPT_LIMIT_REACHED.value
-
-            await session.commit()
-            return result
+                try:
+                    # Mark job as failed to prevent sticking in IN_PROGRESS
+                    job.status = TaskStatus.FAILED.value
+                    job.last_error = f"Unhandled crash: {str(core_exc)}"
+                    job.error_category = "system_error"
+                    job.finished_at = datetime.now(UTC).replace(tzinfo=None)
+                    job.celery_task_id = None
+                    job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    runtime_state.state = DriverRuntimeStateValue.READY.value
+                    runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    driver.runtime_status = DriverStatus.READY.value
+                    await session.commit()
+                except Exception as db_exc:
+                    logger.warning("failed_to_mark_job_as_failed_after_crash", extra={"extra_fields": {"error": str(db_exc)}})
+                raise
         finally:
             if 'driver' in locals() and getattr(driver, 'id', None):
                 await rpa_runtime.release_lock(rpa_runtime.submit_lock_key(client_id, driver.id))

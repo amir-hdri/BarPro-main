@@ -152,7 +152,17 @@ class RPAAuthService:
 
             recovery_session = async_session_factory()
             try:
+                # Reset runtime state to prevent sticking in AUTH_IN_PROGRESS
+                rs = (await recovery_session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver_id))).first()
+                if rs:
+                    rs.state = DriverRuntimeStateValue.AUTH_REQUIRED.value
+                    rs.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    recovery_session.add(rs)
+                
                 await self._mark_resume_job_for_auth_retry(recovery_session, client_id, resume_job_id, str(exc))
+                await recovery_session.commit()
+            except Exception as rec_exc:
+                logger.warning("auth_recovery_failed", extra={"extra_fields": {"error": str(rec_exc)}})
             finally:
                 await recovery_session.close()
             return AuthResult(ok=False, session_bundle=None, reason_code="unexpected_auth_error", message=str(exc))
