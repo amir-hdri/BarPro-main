@@ -1416,6 +1416,14 @@ class LocationSelector:
             map_city_id = "MapCity" if prefix == "Origin" else "MapCity2"
             address_search_id = "AddressSearch" if prefix == "Origin" else "AddressSearch2"
             search_button_id = "btnsearchAddressSource" if prefix == "Origin" else "btnsearchAddressDest"
+            # Fallback selectors for UTCMS site compatibility
+            if prefix == "Destination":
+                search_button_id = "btnsearchAddressDest"  # Primary
+                try:
+                    if not await self.page.query_selector(f"#{search_button_id}"):
+                        search_button_id = "btnsearchAddressDes"  # UTCMS site variant
+                except Exception:
+                    search_button_id = "btnsearchAddressDes"  # Fallback to UTCMS variant
             readonly_address_id = "txtAddressSourceFromMap" if prefix == "Origin" else "txtAddressDestFromMap"
 
             map_city = f"#{map_city_id}"

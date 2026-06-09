@@ -180,7 +180,7 @@ class LocationSelectors:
         "map_address": ["#txtAddressDestFromMap"],
         "map_city": ["#MapCity2"],
         "map_search": ["#AddressSearch2"],
-        "search_btn": ["#btnsearchAddressDest"],
+        "search_btn": ["#btnsearchAddressDest", "#btnsearchAddressDes"],
     }
 
 
@@ -283,6 +283,23 @@ class AuthSelectors:
         "textarea[name='ReceiverAddress']",
         "input[name='SenderPhone']",
         "input[name='ReceiverPhone']",
+        # Cargo/Load form markers
+        "#txtLoadName",
+        "input[name='txtLoadName']",
+        "#txtLoadsValue",
+        "input[name='txtLoadsValue']",
+        "#btnAddLoad",
+        "#frmkeraye",
+        # Vehicle form markers
+        "#pelakFirst",
+        "#pelakCombo",
+        "#pelakCenter",
+        "#pelakIrNum",
+        "#pelakTypeCombo",
+        # Financial form markers
+        "#txtnotifyCost",
+        "#txtAvarez",
+        "#txtbearingCost",
     )
     LOGIN_ERROR_SELECTORS = (
         ".validation-summary-errors li",
@@ -293,4 +310,39 @@ class AuthSelectors:
         ".toast-message",
         ".toast-body",
         ".swal2-html-container",
+    )
+    OTP_SELECTORS = (
+        "#otp",
+        "input[name='otp']",
+        "input[id='otp']",
+        ".otp-box",
+        ".modal.show #otp",
+    )
+    OTP_SUBMIT_SELECTORS = (
+        "#submitOtp",
+        "button:has-text('تایید')",
+        "button:has-text('ارسال')",
+    )
+    OTP_MODAL_SELECTORS = (
+        ".modal.show",
+        ".modal-open",
+    )
+    SUBMIT_SELECTORS = (
+        "#btnregisterbarname",
+        "#GoPil9",
+        "#GoFinalStep",
+        "#btnRegisterFinished",
+        "#btnFinalSubmit",
+        "#btnSubmit",
+        "button:has-text('مرحله نهایی')",
+        "button:has-text('ثبت بارنامه')",
+        "button:has-text('ثبت نهایی')",
+        "button:has-text('تایید و ثبت')",
+        "button[type='submit']",
+        "input[type='submit']",
+    )
+    DRAFT_SELECTORS = (
+        "#btndraft",
+        "button:has-text('ذخیره پیش‌نویس')",
+        "button:has-text('پیش‌نویس')",
     )
