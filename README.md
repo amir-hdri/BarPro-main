@@ -10,41 +10,46 @@
 
 **BarPro** is an advanced, industrial-grade RPA (Robotic Process Automation) framework designed for automated waybill registration on the **UTCMS** national portal. Built with a modern full-stack architecture, it combines high-performance backend processing with a seamless user experience, ensuring reliability even under heavy enterprise workloads.
 
-[ فارسی (Persian) ](#-سیستم-اتوماسیون-جامع-بارنامه-utcms-barpro)
+[فارسی (Persian)](#-سیستم-اتوماسیون-جامع-بارنامه-utcms-barpro)
 
 ---
 
 ## ✨ Key Features
 
 ### 🏢 Real Multi-tenancy
-*   **Data Isolation:** Strict data separation at the database level using `client_id` scoping.
-*   **Independent Profiles:** Separate management for fleets, drivers, and routes for each tenant.
-*   **Master Admin Dashboard:** Centralized control for tenant onboarding, quota management, and live monitoring.
+
+* **Data Isolation:** Strict data separation at the database level using `client_id` scoping.
+* **Independent Profiles:** Separate management for fleets, drivers, and routes for each tenant.
+* **Master Admin Dashboard:** Centralized control for tenant onboarding, quota management, and live monitoring.
 
 ### 🤖 Advanced RPA Engine
-*   **Human-like Behavior:** Sophisticated simulation of human interactions to bypass anti-bot mechanisms.
-*   **Smart Map Injection:** Direct coordinate injection into JavaScript globals (`LatSource`/`LngSource`) to bypass search bottlenecks.
-*   **Intelligent Captcha Solver:** ML-powered math and visual OCR solver with automatic retry logic.
-*   **Self-Healing Navigation:** Dynamic element detection and "Loading Overlay" management for resilient web interactions.
+
+* **Human-like Behavior:** Sophisticated simulation of human interactions to bypass anti-bot mechanisms.
+* **Smart Map Injection:** Direct coordinate injection into JavaScript globals (`LatSource`/`LngSource`) to bypass search bottlenecks.
+* **Intelligent Captcha Solver:** ML-powered math and visual OCR solver with automatic retry logic.
+* **Self-Healing Navigation:** Dynamic element detection and "Loading Overlay" management for resilient web interactions.
 
 ### 🛡️ Enterprise-Grade Resilience
-*   **Automatic Stuck Job Recovery:** Periodic cleanup of jobs stuck in `QUEUED` or `IN_PROGRESS` states.
-*   **Global Safety Net:** Integrated error handling that prevents processing deadlocks during unexpected browser crashes.
-*   **Session Persistence:** Intelligent session bundle storage to minimize redundant logins.
+
+* **Automatic Stuck Job Recovery:** Periodic cleanup of jobs stuck in `QUEUED` or `IN_PROGRESS` states.
+* **Global Safety Net:** Integrated error handling that prevents processing deadlocks during unexpected browser crashes.
+* **Session Persistence:** Intelligent session bundle storage to minimize redundant logins.
 
 ---
 
 ## 🏗️ Architecture & Stack
 
 ### Technology Stack
-- **Backend:** FastAPI (Python 3.11)
-- **Frontend:** Next.js 15 (TypeScript, Tailwind CSS)
-- **Database:** PostgreSQL 16 (via SQLModel/AsyncPG)
-- **Task Queue:** Celery + Redis
-- **Automation:** Playwright (Headless/Headful)
-- **Monitoring:** Prometheus + Custom RPA Inspector
+
+* **Backend:** FastAPI (Python 3.11)
+* **Frontend:** Next.js 15 (TypeScript, Tailwind CSS)
+* **Database:** PostgreSQL 16 (via SQLModel/AsyncPG)
+* **Task Queue:** Celery + Redis
+* **Automation:** Playwright (Headless/Headful)
+* **Monitoring:** Prometheus + Custom RPA Inspector
 
 ### Directory Structure
+
 ```text
 .
 ├── app/                # Backend Core (FastAPI)
@@ -64,11 +69,13 @@
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.11+
-- Node.js 20+
-- Docker & Docker Compose (for Postgres/Redis)
+
+* Python 3.11+
+* Node.js 20+
+* Docker & Docker Compose (for Postgres/Redis)
 
 ### 1. Installation
+
 ```bash
 # Install Python dependencies
 pip install -r requirements.txt
@@ -81,9 +88,11 @@ cd apps/web && npm install
 ```
 
 ### 2. Environment Setup
+
 Create a `.env` file in the root directory. Use the provided documentation to configure your database and security keys.
 
 ### 3. Running the System
+
 The system is managed via unified shell scripts for easy operation:
 
 ```bash
@@ -109,10 +118,12 @@ The system is managed via unified shell scripts for easy operation:
 ---
 
 ## 🏥 System Resilience (Self-Healing)
+
 BarPro is designed to be "always-on." It includes:
-- **Watcher Daemon:** Monitor active jobs and recover orphans.
-- **Circuit Breakers:** Prevent overloading the target portal during downtime.
-- **Diagnostic Reports:** Automated generation of JSON reports on every shutdown.
+
+* **Watcher Daemon:** Monitor active jobs and recover orphans.
+* **Circuit Breakers:** Prevent overloading the target portal during downtime.
+* **Diagnostic Reports:** Automated generation of JSON reports on every shutdown.
 
 ---
 
@@ -121,16 +132,18 @@ BarPro is designed to be "always-on." It includes:
 **BarPro** یک فریم‌ورک پیشرفته و صنعتی برای خودکارسازی فرآیندهای ثبت بارنامه در سامانه کشوری **UTCMS** است. این سیستم با معماری مدرن و قابلیت اطمینان بالا، پایداری عملیات در مقیاس سازمانی را تضمین می‌کند.
 
 ### 💎 ویژگی‌های برتر
-*   **معماری چند مستاجره:** جداسازی کامل داده‌ها و مدیریت کوتای هر مشتری.
-*   **رباتیک پیشرفته:** شبیه‌سازی دقیق رفتار انسانی و حل خودکار کپچا.
-*   **تاب‌آوری هوشمند:** بازیابی خودکار تسک‌های متوقف شده و مدیریت خطاهای بحرانی.
-*   **مانیتورینگ زنده:** مجهز به سیستم بازرس RPA برای پایش لحظه‌ای عملیات.
+
+* **معماری چند مستاجره:** جداسازی کامل داده‌ها و مدیریت کوتای هر مشتری.
+* **رباتیک پیشرفته:** شبیه‌سازی دقیق رفتار انسانی و حل خودکار کپچا.
+* **تاب‌آوری هوشمند:** بازیابی خودکار تسک‌های متوقف شده و مدیریت خطاهای بحرانی.
+* **مانیتورینگ زنده:** مجهز به سیستم بازرس RPA برای پایش لحظه‌ای عملیات.
 
 ### 🚦 راه اندازی سریع
-1.  نصب وابستگی‌های پایتون: `pip install -r requirements.txt`
-2.  نصب مرورگر: `playwright install chromium`
-3.  نصب فرانت‌اند: `cd apps/web && npm install`
-4.  اجرای سیستم: `./scripts/start_system.sh`
+
+1. نصب وابستگی‌های پایتون: `pip install -r requirements.txt`
+2. نصب مرورگر: `playwright install chromium`
+3. نصب فرانت‌اند: `cd apps/web && npm install`
+4. اجرای سیستم: `./scripts/start_system.sh`
 
 ---
 **Status:** Production Ready ✅  
