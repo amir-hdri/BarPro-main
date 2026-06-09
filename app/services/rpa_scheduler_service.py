@@ -147,6 +147,7 @@ class RPASchedulerService:
                         driver.runtime_status = DriverStatus.AUTH_REQUIRED.value
                         runtime_state.state = DriverRuntimeStateValue.AUTH_REQUIRED.value
                         job.status = TaskStatus.WAITING_AUTH.value
+                        job.submit_after = now + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
                         await self._record_event(session, job.client_id, driver.id, job.job_id, JOB_QUEUED_AUTH, {"reason": reason, "queue": queue_name})
                 else:
                     queue_name = utcms_config.RPA_SUBMIT_QUEUE
@@ -171,19 +172,25 @@ class RPASchedulerService:
             await session.close()
 
     async def cleanup_stuck_jobs(self) -> int:
-        """Detect and recover jobs stuck in QUEUED or IN_PROGRESS status."""
+        """Detect and recover jobs stuck in QUEUED, IN_PROGRESS, WAITING_AUTH, WAITING_RETRY, or OTP_BACKOFF status."""
         session = async_session_factory()
         try:
             now = datetime.now(UTC).replace(tzinfo=None)
             queued_cutoff = now - timedelta(minutes=15)
             in_progress_cutoff = now - timedelta(minutes=30)
+            waiting_auth_cutoff = now - timedelta(hours=1)
+            waiting_retry_cutoff = now - timedelta(hours=1)
+            otp_backoff_cutoff = now - timedelta(hours=2)
             
-            # Find jobs stuck in QUEUED (15m+) or IN_PROGRESS (30m+)
+            # Find jobs stuck in various states with appropriate timeouts
             from sqlalchemy import or_
             stmt = select(WaybillJob).where(
                 or_(
                     (WaybillJob.status == TaskStatus.QUEUED.value) & (WaybillJob.updated_at < queued_cutoff),
-                    (WaybillJob.status == TaskStatus.IN_PROGRESS.value) & (WaybillJob.updated_at < in_progress_cutoff)
+                    (WaybillJob.status == TaskStatus.IN_PROGRESS.value) & (WaybillJob.updated_at < in_progress_cutoff),
+                    (WaybillJob.status == TaskStatus.WAITING_AUTH.value) & (WaybillJob.updated_at < waiting_auth_cutoff),
+                    (WaybillJob.status == TaskStatus.WAITING_RETRY.value) & (WaybillJob.updated_at < waiting_retry_cutoff),
+                    (WaybillJob.status == TaskStatus.OTP_BACKOFF.value) & (WaybillJob.updated_at < otp_backoff_cutoff),
                 )
             )
             result = await session.exec(stmt)

@@ -303,7 +303,7 @@ class RPAHttpSubmitService:
         job.status = TaskStatus.WAITING_AUTH.value
         job.error_category = "utcms_login_error"
         job.last_error = reason
-        job.submit_after = datetime.now(UTC).replace(tzinfo=None)
+        job.submit_after = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
         job.next_retry_at = None
         job.finished_at = None
         job.celery_task_id = None
