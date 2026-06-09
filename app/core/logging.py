@@ -1,6 +1,7 @@
 import contextvars
 import json
 import logging
+import logging.handlers
 import re
 import sys
 from datetime import UTC, datetime
@@ -134,7 +135,7 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
-def configure_logging(log_level: str = "INFO") -> None:
+def configure_logging(log_level: str = "INFO", log_file: str | None = None, max_bytes: int = 100 * 1024 * 1024, backup_count: int = 5) -> None:
     level = getattr(logging, (log_level or "INFO").upper(), logging.INFO)
     root = logging.getLogger()
     root.setLevel(level)
@@ -145,11 +146,41 @@ def configure_logging(log_level: str = "INFO") -> None:
     # Reset handlers to avoid duplicate output during tests/reloads.
     root.handlers.clear()
 
+    # Primary handler: stdout (for Docker/container environments)
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(level)
     handler.setFormatter(formatter)
     handler.addFilter(request_filter)
     root.addHandler(handler)
+
+    # Optional: File-based logging with rotation (for bare metal/VM deployments)
+    if log_file:
+        try:
+            # Create parent directories if they don't exist
+            import os
+            log_dir = os.path.dirname(log_file)
+            if log_dir:
+                os.makedirs(log_dir, exist_ok=True)
+            
+            # Use RotatingFileHandler for built-in rotation support
+            file_handler = logging.handlers.RotatingFileHandler(
+                filename=log_file,
+                maxBytes=max_bytes,  # 100MB by default
+                backupCount=backup_count,
+                encoding='utf-8',
+            )
+            file_handler.setLevel(level)
+            file_handler.setFormatter(formatter)
+            file_handler.addFilter(request_filter)
+            root.addHandler(file_handler)
+            
+            logger.info(
+                "file_logging_configured",
+                extra={"extra_fields": {"file": log_file, "max_bytes": max_bytes, "backup_count": backup_count}},
+            )
+        except Exception as exc:
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to configure file logging: {exc}")
 
     for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
         logger = logging.getLogger(logger_name)

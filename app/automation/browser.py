@@ -244,7 +244,6 @@ class BrowserManager:
             "locale": "fa-IR",
             "timezone_id": "Asia/Tehran",
             "java_script_enabled": True,
-            "ignore_https_errors": True,
             "accept_downloads": True,
             "has_touch": False,
             "is_mobile": False,
@@ -254,14 +253,7 @@ class BrowserManager:
                 "Accept-Encoding": "gzip, deflate, br",
                 "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
                 "Cache-Control": "max-age=0",
-                "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-                "Sec-Ch-Ua-Mobile": "?0",
-                "Sec-Ch-Ua-Platform": '"Windows"',
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "none",
-                "Sec-Fetch-User": "?1",
-                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Site": "same-origin",
             },
         }
 
@@ -443,10 +435,15 @@ class BrowserManager:
             except Exception:
                 pass
 
-        try:
-            await page.route("**/*", block_map_tiles_and_trackers)
-        except Exception as route_exc:
-            logger.warning(f"Failed to register route interceptor: {route_exc}")
+        # Route interceptor for blocking heavy map tiles and trackers
+        # Can be disabled via BLOCK_MAP_TILES enabled flag (default: True)
+        if getattr(utcms_config, 'BLOCK_MAP_TILES', True):
+            try:
+                await page.route("**/*", block_map_tiles_and_trackers)
+            except Exception as route_exc:
+                logger.warning(f"Failed to register route interceptor: {route_exc}")
+        else:
+            logger.info("Route interceptor disabled via BLOCK_MAP_TILES=False")
 
         # Apply stealth mode to hide automation indicators
         try:

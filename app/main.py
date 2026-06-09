@@ -37,7 +37,16 @@ from app.core.logging import configure_logging, reset_request_id, set_request_id
 from app.core.rate_limiter import add_rate_limit_headers, rate_limiter
 from app.core.tracing import setup_tracing, shutdown_tracing, trace_span
 
-configure_logging(utcms_config.LOG_LEVEL)
+# Configure logging with optional file-based logging
+if utcms_config.LOG_FILE:
+    configure_logging(
+        log_level=utcms_config.LOG_LEVEL,
+        log_file=utcms_config.LOG_FILE,
+        max_bytes=utcms_config.LOG_MAX_BYTES,
+        backup_count=utcms_config.LOG_BACKUP_COUNT,
+    )
+else:
+    configure_logging(utcms_config.LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
 

@@ -144,6 +144,9 @@ class UTCMSConfig:
         self.PAGE_DEFAULT_TIMEOUT = int(os.getenv("PAGE_DEFAULT_TIMEOUT", "30000"))
         self.PAGE_NAVIGATION_TIMEOUT = int(os.getenv("PAGE_NAVIGATION_TIMEOUT", "45000"))
 
+        # Browser route interceptor settings
+        self.BLOCK_MAP_TILES = _to_bool(os.getenv("BLOCK_MAP_TILES", "True"), default=True)
+
         self.DATABASE_URL = os.getenv("DATABASE_URL", "")
         if not self.DATABASE_URL or "sqlite" in self.DATABASE_URL.lower():
             is_prod = os.getenv("NODE_ENV", "").lower() == "production" or os.getenv("ENVIRONMENT", "").lower() == "production"
@@ -193,6 +196,12 @@ class UTCMSConfig:
         self.LATENCY_SAMPLE_MAX = int(os.getenv("LATENCY_SAMPLE_MAX", "2000"))
         self.FAILURE_ARTIFACTS_DIR = os.getenv("FAILURE_ARTIFACTS_DIR", "output/failure_artifacts").strip()
         self.TRACE_HEADER_NAME = os.getenv("TRACE_HEADER_NAME", "X-Correlation-ID").strip()
+        
+        # Logging configuration
+        self.LOG_FILE = os.getenv("LOG_FILE", "").strip()
+        self.LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", "104857600"))  # 100MB default
+        self.LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "5"))
+        self.LOG_DIR = os.getenv("LOG_DIR", "/var/log/barpro").strip()
         self.ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "").strip()
         self.WS_EVENT_HISTORY_LIMIT = int(os.getenv("WS_EVENT_HISTORY_LIMIT", "500"))
         self.WORKER_HEARTBEAT_INTERVAL_SECONDS = float(os.getenv("WORKER_HEARTBEAT_INTERVAL_SECONDS", "5"))

@@ -1211,10 +1211,11 @@ class UTCMSAuthenticator:
         ajax_response_task = None
         if hasattr(self.page, "wait_for_response"):
             try:
+                # Increased timeout for AJAX login response (UTCMS may be slow)
                 ajax_response_task = asyncio.create_task(
                     self.page.wait_for_response(
                         lambda response: self._is_ajax_login_response_url(getattr(response, "url", "")),
-                        timeout=12000,
+                        timeout=25000,  # Increased from 12000 to 25000 for better reliability
                     )
                 )
             except Exception:

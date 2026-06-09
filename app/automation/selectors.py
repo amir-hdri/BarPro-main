@@ -194,9 +194,12 @@ class AuthSelectors:
         "/Login",
     )
     USERNAME_SELECTORS = (
+        # UTCMS uses NationalCode for username (priority first)
         "input[name='NationalCode']",
         "input[id='NationalCode']",
         "input[name*='national' i][type='text']",
+        "input[name*='National' i][type='text']",
+        # Fallback selectors for other systems
         "input[name='Username']",
         "input[name='username']",
         "input[name='UserName']",
