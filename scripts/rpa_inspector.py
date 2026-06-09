@@ -310,11 +310,11 @@ class RPAInspector:
         
         async with async_playwright() as p:
             launch_args = {}
-            if proxy:
+            if proxy and proxy != "":
                 launch_args["proxy"] = {"server": proxy}
             
             browser = await p.chromium.launch(headless=headless, **launch_args)
-            context = await browser.new_context(viewport={'width': 1280, 'height': 800})
+            context = await browser.new_context(viewport={'width': 1280, 'height': 800}, ignore_https_errors=True)
             page = await context.new_page()
 
             # Attach listeners
@@ -393,7 +393,7 @@ class RPAInspector:
 
         async with async_playwright() as p:
             launch_args = {}
-            if proxy:
+            if proxy and proxy != "":
                 launch_args["proxy"] = {"server": proxy}
             
             browser = None
@@ -410,7 +410,7 @@ class RPAInspector:
                 if browser:
                     context = None
                     try:
-                        context = await browser.new_context(viewport={'width': 1280, 'height': 800})
+                        context = await browser.new_context(viewport={'width': 1280, 'height': 800}, ignore_https_errors=True)
                         page = await context.new_page()
 
                         # Attach listeners

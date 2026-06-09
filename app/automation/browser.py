@@ -235,11 +235,10 @@ class BrowserManager:
             return await self._try_local_home_launch(launch_options, first_error)
 
     def _build_context_args(self, auth_state_path: str | None = None, proxy_dict: dict | None = None) -> dict:
-        # Use random user agent and viewport for anti-detection
         user_agent = get_random_user_agent()
         viewport = get_random_viewport()
-
         context_args = {
+            "ignore_https_errors": True,
             "user_agent": user_agent,
             "viewport": viewport,
             "locale": "fa-IR",

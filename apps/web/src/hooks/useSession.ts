@@ -98,7 +98,7 @@ export function useSession() {
     isAuthenticated: Boolean(session.token),
     isAdmin: role === 'master_admin',
     isClient: role === 'client',
-    isReady: true,
+    isReady: typeof window !== 'undefined',
     logout: clearSession,
     role,
     token: session.token,
