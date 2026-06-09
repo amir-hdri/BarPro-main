@@ -3542,3 +3542,8 @@ Call log:
 2026-06-09 14:23:42,451 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
 2026-06-09 14:23:48,284 - [INFO] - [DAEMON] INFO: Active health check loop iteration #232
 2026-06-09 14:23:48,293 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-09 14:24:20,996 - [INFO] - [DAEMON] INFO: Active health check loop iteration #17
+2026-06-09 14:24:21,539 - [INFO] - [DAEMON] INFO: Active health check loop iteration #365
+2026-06-09 14:24:21,557 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-09 14:24:34,316 - [INFO] - [DAEMON] INFO: Active health check loop iteration #349
+2026-06-09 14:24:34,328 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
