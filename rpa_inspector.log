@@ -3199,3 +3199,7 @@ Call log:
 2026-06-09 13:49:21,365 - [INFO] - [DAEMON] INFO: Active health check loop iteration #198
 2026-06-09 13:49:30,541 - [INFO] - [DAEMON] INFO: Active health check loop iteration #314
 2026-06-09 13:49:30,552 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Browser.new_context: Target page, context or browser has been closed
+2026-06-09 13:49:36,862 - [WARNING] - [DAEMON_NAV] WARNING: Active navigation ping failed: Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://barname.utcms.ir/Barname/Account/Login
+Call log:
+  - navigating to "https://barname.utcms.ir/Barname/Account/Login", waiting until "domcontentloaded"
+
