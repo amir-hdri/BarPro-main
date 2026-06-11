@@ -1451,3 +1451,107 @@ class WaybillJobService:
         )
         session.add(log)
         await session.commit()
+
+    @staticmethod
+    async def update_job(
+        client: Client,
+        job_id: str,
+        session: AsyncSession,
+        request: "WaybillJobUpdateRequest",
+    ) -> WaybillJobResponse:
+        """Update an existing waybill job."""
+        from sqlalchemy import update as sql_update
+
+        statement = select(WaybillJob).where(
+            (WaybillJob.client_id == client.id) &
+            (WaybillJob.job_id == job_id)
+        )
+        result = await session.exec(statement)
+        job = result.first()
+
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Job not found",
+            )
+
+        now = datetime.now(UTC).replace(tzinfo=None)
+        update_data: dict[str, object] = {"updated_at": now}
+
+        if request.priority is not None:
+            update_data["priority"] = request.priority
+        if request.max_retries is not None:
+            update_data["max_retries"] = request.max_retries
+        if request.status is not None:
+            update_data["status"] = request.status
+        if request.terminal_reason is not None:
+            update_data["terminal_reason"] = request.terminal_reason
+        if request.business_date is not None:
+            update_data["business_date"] = request.business_date
+        if request.correlation_id is not None:
+            update_data["correlation_id"] = request.correlation_id
+
+        for key, value in update_data.items():
+            setattr(job, key, value)
+
+        session.add(job)
+        await session.commit()
+        await session.refresh(job)
+
+        await session.add(
+            WaybillTaskLog(
+                job_id=job.job_id,
+                client_id=client.id,
+                step="manual_update",
+                status="success",
+                message=f"Job updated: {list(update_data.keys())}",
+                details_json=json.dumps({"updated_fields": list(update_data.keys())}, ensure_ascii=False),
+            )
+        )
+        await session.commit()
+
+        return WaybillJobResponse.model_validate(job)
+
+    @staticmethod
+    async def delete_job(
+        client: Client,
+        job_id: str,
+        session: AsyncSession,
+    ) -> dict[str, object]:
+        """Delete a waybill job permanently."""
+        statement = select(WaybillJob).where(
+            (WaybillJob.client_id == client.id) &
+            (WaybillJob.job_id == job_id)
+        )
+        result = await session.exec(statement)
+        job = result.first()
+
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Job not found",
+            )
+
+        job_id_to_delete = job.job_id
+        client_id = job.client_id
+
+        await session.delete(job)
+        await session.commit()
+
+        await session.add(
+            WaybillTaskLog(
+                job_id=job_id_to_delete,
+                client_id=client_id,
+                step="manual_delete",
+                status="success",
+                message="Job deleted by user",
+                details_json=json.dumps({"deleted": True, "job_id": job_id_to_delete}, ensure_ascii=False),
+            )
+        )
+        await session.commit()
+
+        return {
+            "success": True,
+            "message": "Job deleted successfully",
+            "job_id": job_id_to_delete,
+        }

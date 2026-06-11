@@ -397,6 +397,18 @@ class WaybillRetryRequest(BaseModel):
     dispatch_now: bool = True
 
 
+class WaybillJobUpdateRequest(BaseModel):
+    """Update request for an existing waybill job."""
+
+    priority: int | None = Field(default=None, ge=0, le=9, description="اولویت کار (0-9)")
+    max_retries: int | None = Field(default=None, ge=0, le=10, description="حداکثر تلاش مجدد")
+    status: str | None = Field(default=None, description="تغییر وضعیت دستی")
+    terminal_reason: str | None = Field(default=None, max_length=64, description="دلیل پایان کار")
+    notes: str | None = Field(default=None, max_length=500, description="یادداشت‌ها")
+    business_date: str | None = Field(default=None, max_length=16, description="تاریخ تجاری")
+    correlation_id: str | None = Field(default=None, max_length=128, description="شناسه همبستگی")
+
+
 class WaybillJobResponse(BaseModel):
     """Waybill job status response."""
 

@@ -14,6 +14,7 @@ import logging
 from datetime import UTC, datetime, time, timedelta
 
 from fastapi import APIRouter, Body, Depends, UploadFile, status
+from fastapi.responses import Response
 from fastapi.security import HTTPBearer
 from sqlmodel import case, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -46,6 +47,7 @@ from app.schemas.multitenant import (
     TaskTimelineResponse,
     WaybillJobCreateRequest,
     WaybillJobResponse,
+    WaybillJobUpdateRequest,
     WaybillRetryRequest,
 )
 from app.services.excel_upload_service import ExcelUploadService
@@ -504,6 +506,38 @@ async def get_waybill_job_logs(
     Provides detailed step-by-step execution history for audit purposes.
     """
     return await WaybillJobService.get_job_logs(client, job_id, session)
+
+
+@router.patch("/waybill-jobs/{job_id}", response_model=WaybillJobResponse)
+async def update_waybill_job(
+    job_id: str,
+    request: WaybillJobUpdateRequest,
+    client: Client = Depends(get_current_client),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Update an existing waybill job.
+
+    Allows modification of job properties such as priority, max_retries, status, etc.
+    Only accessible to the job owner (client) or master admin.
+    """
+    return await WaybillJobService.update_job(client, job_id, session, request)
+
+
+@router.delete("/waybill-jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_waybill_job(
+    job_id: str,
+    client: Client = Depends(get_current_client),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Delete a waybill job permanently.
+
+    Removes the job from the system. This action cannot be undone.
+    Only accessible to the job owner (client) or master admin.
+    """
+    await WaybillJobService.delete_job(client, job_id, session)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ==================== EXCEL UPLOAD ENDPOINTS ====================

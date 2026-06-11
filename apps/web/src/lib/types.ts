@@ -219,6 +219,15 @@ export interface WaybillJobCreateRequest {
   idempotency_key?: string;
 }
 
+export interface WaybillJobUpdateRequest {
+  priority?: number;
+  max_retries?: number;
+  status?: string;
+  terminal_reason?: string;
+  business_date?: string;
+  correlation_id?: string;
+}
+
 export interface WaybillJob {
   driver_name?: string;
   id: number;
