@@ -273,7 +273,7 @@ export default function HistoryPage() {
                           )}
                         </div>
                         
-                        <span className={['rounded-xl px-4 py-2 text-xs font-bold shadow-sm', statusTone(job.status)].join(' ')'>
+                        <span className={['rounded-xl px-4 py-2 text-xs font-bold shadow-sm', statusTone(job.status)].join(' ')}>
                           {statusLabel(job.status)}
                         </span>
                       </div>
