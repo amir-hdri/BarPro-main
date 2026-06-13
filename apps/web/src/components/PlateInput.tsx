@@ -10,9 +10,6 @@ interface PlateInputProps {
   className?: string;
 }
 
-const PERSIAN_PLATE_LETTERS = [
-  "ب", "ج", "د", "س", "ص", "ط", "ع", "ق", "ل", "م", "ن", "و", "ه", "ی", "پ", "ت", "ث", "ز", "ژ", "ش", "ض", "ظ", "غ", "ف", "ک", "گ", "الف"
-];
 
 // Helper to convert English digits to Persian for display if needed, 
 // but usually inputs are better kept as they are if inputmode is numeric.
@@ -49,7 +46,7 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
     if (JSON.stringify(nextParts) !== JSON.stringify(parts)) {
       setParts(nextParts);
     }
-  }, [value]);
+  }, [value, parts]);
 
   const part1Ref = useRef<HTMLInputElement>(null);
   const part2Ref = useRef<HTMLInputElement>(null);

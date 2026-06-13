@@ -1,21 +1,22 @@
 """Database configuration and session management with Alembic migrations support."""
 
 import logging
+import sys
 from pathlib import Path
 
-from alembic.config import Config
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from alembic.config import Config
 from app.core.config import utcms_config
 
 logger = logging.getLogger(__name__)
 
 # Database engine with optimized connection pooling
 # Pool settings tuned for async workload with multiple workers
-import sys
-from sqlalchemy.pool import NullPool
+
 
 engine_kwargs = {
     "echo": False,
@@ -59,7 +60,7 @@ def _get_alembic_config() -> Config:
 
 async def run_migrations() -> None:
     """Run pending Alembic migrations programmatically.
-    
+
     CRITICAL: On PostgreSQL, we MUST NOT fallback to create_all() if migrations fail,
     because partial schema may already exist, causing duplicate constraint errors.
     """
@@ -72,15 +73,16 @@ async def run_migrations() -> None:
 
     try:
         alembic_cfg = _get_alembic_config()
-        
+
         # Run migrations in a separate thread to avoid event loop conflicts
         # since alembic env.py uses asyncio.run()
-        from alembic import command
         import asyncio
-        
+
+        from alembic import command
+
         logger.info("Running pending database migrations programmatically...")
         await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
-        
+
         logger.info("database_migrations_applied", extra={"extra_fields": {"status": "success"}})
     except Exception as exc:
         logger.error(
@@ -114,7 +116,7 @@ async def init_db():
 
 async def get_session() -> AsyncSession:
     """Dependency for database session.
-    
+
     Properly handles commit on success and rollback on failure.
     This prevents dirty sessions from leaking into subsequent requests.
     """

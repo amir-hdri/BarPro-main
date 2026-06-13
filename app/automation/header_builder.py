@@ -26,7 +26,7 @@ class HeaderContext:
 class HeaderBuilder:
     """
     Advanced HTTP header builder that creates realistic, consistent headers.
-    
+
     Features:
     - Fingerprint-consistent headers
     - Realistic Accept headers
@@ -100,8 +100,6 @@ class HeaderBuilder:
             "Sec-Fetch-Mode": "navigate",
             "Sec-Fetch-Site": "same-origin",
             "Sec-Fetch-User": "?1",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Dest": "document",
         },
     }
 
@@ -145,7 +143,7 @@ class HeaderBuilder:
     ) -> dict[str, str]:
         """
         Build complete HTTP headers based on fingerprint.
-        
+
         Args:
             user_agent: Browser user agent string
             platform: Platform identifier (Win32, MacIntel, etc.)
@@ -157,7 +155,7 @@ class HeaderBuilder:
             is_ajax: Whether this is an AJAX request
             include_sec_headers: Include Sec-* headers
             include_cache_headers: Include cache control headers
-            
+
         Returns:
             Dictionary of HTTP headers
         """
@@ -355,13 +353,13 @@ class HeaderBuilder:
     ) -> dict[str, str]:
         """
         Build headers optimized for a specific request.
-        
+
         Args:
             user_agent: Browser user agent
             url: Request URL
             method: HTTP method
             existing_headers: Existing headers to merge with
-            
+
         Returns:
             Complete headers dictionary
         """
@@ -419,12 +417,12 @@ class HeaderBuilder:
     ) -> dict[str, str]:
         """
         Build headers optimized for API requests.
-        
+
         Args:
             user_agent: Browser user agent
             content_type: Content-Type of request
             referer: Referrer URL
-            
+
         Returns:
             API-optimized headers
         """
@@ -450,10 +448,10 @@ class HeaderBuilder:
     def build_cookie_headers(self, cookies: dict[str, str]) -> dict[str, str]:
         """
         Build Cookie header from cookie dictionary.
-        
+
         Args:
             cookies: Dictionary of cookie name -> value
-            
+
         Returns:
             Cookie header dictionary
         """
@@ -466,10 +464,10 @@ class HeaderBuilder:
     def merge_headers(self, *header_dicts: dict[str, str]) -> dict[str, str]:
         """
         Merge multiple header dictionaries.
-        
+
         Args:
             *header_dicts: Header dictionaries to merge
-            
+
         Returns:
             Merged headers (later dicts override earlier ones)
         """
@@ -482,10 +480,10 @@ class HeaderBuilder:
     def validate_consistency(self, headers: dict[str, str]) -> list[str]:
         """
         Validate header consistency.
-        
+
         Args:
             headers: Headers to validate
-            
+
         Returns:
             List of warnings for inconsistent headers
         """

@@ -63,7 +63,7 @@ def safe_execute(
 ) -> T | None:
     """
     Safely execute a function and return default value on error.
-    
+
     Args:
         func: Function to execute
         *args: Positional arguments for func
@@ -71,7 +71,7 @@ def safe_execute(
         log_error: Whether to log errors
         error_message: Custom error message
         **kwargs: Keyword arguments for func
-    
+
     Returns:
         Function result or default value
     """
@@ -103,7 +103,7 @@ def retry_on_exception(
 ) -> Callable:
     """
     Decorator to retry function on specific exceptions.
-    
+
     Args:
         max_attempts: Maximum number of attempts
         exceptions: Tuple of exception types to catch
@@ -172,7 +172,7 @@ async def async_retry_on_exception(
 ) -> Callable:
     """
     Async decorator to retry function on specific exceptions.
-    
+
     Args:
         max_attempts: Maximum number of attempts
         exceptions: Tuple of exception types to catch
@@ -240,7 +240,7 @@ def log_exception_context(
 ) -> None:
     """
     Log exception with full context and traceback, and report via centralized system.
-    
+
     Args:
         logger_instance: Logger to use
         message: Error message

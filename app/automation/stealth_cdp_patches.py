@@ -11,7 +11,7 @@ CDP_LEAK_PATCH_SCRIPT = """
         window.chrome.runtime.sendMessage = function(...args) {
             // Block CDP detection messages
             if (args[0] && typeof args[0] === 'object') {
-                if (args[0].method === 'Runtime.enable' || 
+                if (args[0].method === 'Runtime.enable' ||
                     args[0].method === 'Debugger.enable' ||
                     args[0].method === 'Network.enable') {
                     return Promise.resolve({});
@@ -51,7 +51,7 @@ CDP_LEAK_PATCH_SCRIPT = """
     // 4. Patch Function.toString CDP leak (advanced)
     const nativeToStringFunctionString = Error.toString.toString();
     const nativeToString = Function.prototype.toString;
-    
+
     Function.prototype.toString = function() {
         if (this === Function.prototype.toString) {
             return nativeToStringFunctionString;

@@ -1,7 +1,9 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock
 
 from app.monitoring.event_bridge import MonitoringEventBridge
+
 
 @pytest.mark.asyncio
 async def test_publish_to_timeline_failure():

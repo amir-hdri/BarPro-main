@@ -9,7 +9,6 @@ import {
   CubeIcon,
   UserIcon,
   BanknotesIcon,
-  DocumentTextIcon,
   ChevronRightIcon,
   ChevronLeftIcon,
   SparklesIcon,

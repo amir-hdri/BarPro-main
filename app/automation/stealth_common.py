@@ -19,13 +19,13 @@ def build_core_stealth_script(
     """
     Build core stealth script with common evasion techniques.
     This is shared between basic and advanced stealth.
-    
+
     Args:
         webgl_vendor: WebGL vendor string
         webgl_renderer: WebGL renderer string
         hw_concurrency: Hardware concurrency value
         device_memory: Device memory value
-        
+
     Returns:
         JavaScript stealth script
     """
@@ -163,7 +163,7 @@ def build_core_stealth_script(
 def pick_random_fingerprint() -> dict:
     """
     Pick a random fingerprint configuration.
-    
+
     Returns:
         Dictionary with fingerprint values
     """

@@ -15,7 +15,7 @@ from playwright.async_api import BrowserContext, Page
 from app.automation.captcha import captcha_engine, get_captcha_provider
 from app.automation.selectors import AuthSelectors
 from app.bot.captcha.interceptor import CaptchaInterceptor, CaptchaSolveStatus
-from app.bot.core.smart_locator import SmartLocator, SmartLocatorError
+from app.bot.core.smart_locator import SmartLocator
 from app.core.config import utcms_config
 from app.core.network import is_retryable_network_error
 from app.core.utils import resolve_maybe_awaitable
@@ -953,7 +953,7 @@ class UTCMSAuthenticator:
             self.last_error = "مقدار کپچا معتبر نیست."
             track_captcha_failure("captcha_value_invalid")
             return False
-        
+
         # Clear field first
         try:
             await self.page.fill(captcha_selector, "")
@@ -1057,10 +1057,10 @@ class UTCMSAuthenticator:
                     }
                 }"""
             )
-            
+
             # ۲. پولینگ (Polling) برای اتمام حل و تولید توکن
             # زمان حداکثر ۳۰ ثانیه برای اجرای وب‌اسمبلی روی مرورگر کلاینت
-            for attempt in range(60):  # 60 * 0.5s = 30s
+            for _attempt in range(60):  # 60 * 0.5s = 30s
                 solved = await self.page.evaluate(
                     """() => {
                         const widget = document.querySelector('cap-widget');
@@ -1074,7 +1074,7 @@ class UTCMSAuthenticator:
                     logger.info("کپچای CapJS با موفقیت در مرورگر حل شد.")
                     return True
                 await asyncio.sleep(0.5)
-            
+
             self.last_error = "زمان حل خودکار کپچای CapJS به پایان رسید (Timeout)."
             logger.error("CapJS solving timed out after 30 seconds.")
             return False

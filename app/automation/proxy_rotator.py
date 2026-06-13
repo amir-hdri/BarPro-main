@@ -302,7 +302,7 @@ class ProxyRotator:
     def load_from_file(self, filepath: str, encoding: str = "utf-8") -> int:
         """Load proxies from file (one per line)."""
         try:
-            with open(filepath, "r", encoding=encoding) as f:
+            with open(filepath, encoding=encoding) as f:
                 lines = f.readlines()
             return self.load_from_list(lines)
         except Exception as e:
@@ -390,7 +390,7 @@ class ProxyRotator:
             require_iran_ip = self.require_iran_ip
 
         max_verification_attempts = 3
-        for attempt in range(max_verification_attempts):
+        for _attempt in range(max_verification_attempts):
             chosen = None
             async with self.lock:
                 now = time.time()
@@ -513,7 +513,7 @@ class ProxyRotator:
             proxy.record_failure("All test URLs failed")
             return False
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proxy.record_failure("Timeout")
             return False
         except Exception as e:
@@ -637,7 +637,7 @@ class ProxyRotator:
     def load_from_file_state(self, filepath: str, encoding: str = "utf-8") -> int:
         """Load proxy state from JSON file."""
         try:
-            with open(filepath, "r", encoding=encoding) as f:
+            with open(filepath, encoding=encoding) as f:
                 data = json.load(f)
 
             if "proxies" in data:

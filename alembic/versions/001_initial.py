@@ -1,7 +1,7 @@
 """Initial migration - create bot_stats and waybill_tasks tables
 
 Revision ID: 001_initial
-Revises: 
+Revises:
 Create Date: 2026-04-05 00:00:00.000000
 
 """

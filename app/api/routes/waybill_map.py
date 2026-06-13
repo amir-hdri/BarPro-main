@@ -140,6 +140,7 @@ async def calculate_route(origin: GeoCoordinateModel, destination: GeoCoordinate
 async def reverse_geocode(lat: float, lng: float):
     """تبدیل مختصات به آدرس (استان، شهر، منطقه)."""
     import aiohttp
+
     from app.automation.proxy_rotator import get_proxy_rotator
 
     url = "https://nominatim.openstreetmap.org/reverse"

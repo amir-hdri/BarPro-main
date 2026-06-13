@@ -13,17 +13,17 @@ column clients.max_plates does not exist
 which prevents any Client-related operations (including authentication).
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = '4a5b6c7d8e9f'
-down_revision: Union[str, None] = '3ef63013cff9'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = '3ef63013cff9'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -31,7 +31,7 @@ def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     tables = inspector.get_table_names()
-    
+
     if 'clients' in tables:
         columns = {col['name'] for col in inspector.get_columns('clients')}
         if 'max_plates' not in columns:
@@ -46,7 +46,7 @@ def downgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     tables = inspector.get_table_names()
-    
+
     if 'clients' in tables:
         columns = {col['name'] for col in inspector.get_columns('clients')}
         if 'max_plates' in columns:

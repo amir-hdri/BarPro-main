@@ -64,7 +64,7 @@ class ITMBBaseInfoService:
             decoded = base64.b64decode(encoded_text).decode("utf-8")
             return json.loads(decoded)
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"فرمت BaseInfo نامعتبر است: {str(exc)}")
+            raise HTTPException(status_code=502, detail=f"فرمت BaseInfo نامعتبر است: {str(exc)}") from exc
 
     async def _fetch_method(
         self,

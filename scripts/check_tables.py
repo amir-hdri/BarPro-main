@@ -18,9 +18,9 @@ def check_tables():
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public' 
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
             ORDER BY table_name
         """)
 

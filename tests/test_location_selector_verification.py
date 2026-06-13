@@ -1,6 +1,9 @@
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+
 from app.automation.location_selector import LocationSelector
+
 
 @pytest.mark.asyncio
 async def test_try_map_selection_verification_failure():

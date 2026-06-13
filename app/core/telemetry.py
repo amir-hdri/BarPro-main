@@ -94,14 +94,14 @@ class EvidenceCollector:
     ) -> list[Evidence]:
         """
         Capture comprehensive evidence when a step fails.
-        
+
         Args:
             page: Playwright page instance
             workflow_id: Current workflow identifier
             step_name: Name of the failed step
             error_code: Structured error code
             error_message: Human-readable error message
-            
+
         Returns:
             List of captured evidence objects
         """
@@ -499,7 +499,7 @@ class TelemetryCollector:
     ) -> TelemetryEvent:
         """
         Record a telemetry event.
-        
+
         Args:
             event_type: Type of event (e.g., 'login_attempt', 'waybill_submit')
             workflow_id: Workflow identifier
@@ -512,7 +512,7 @@ class TelemetryCollector:
             error_code: Structured error code if failed
             error_message: Human-readable error message
             metadata: Additional context data
-            
+
         Returns:
             Created telemetry event
         """
@@ -756,12 +756,12 @@ class ClientReportGenerator:
     ) -> dict[str, Any]:
         """
         Generate a comprehensive client-facing report.
-        
+
         Args:
             workflow_state: Workflow execution state
             telemetry_events: Optional telemetry data
             evidence: Optional evidence collected
-            
+
         Returns:
             Client-friendly report dictionary
         """

@@ -2,9 +2,9 @@
 """
 RPA Inspector & Diagnostic Tool for UTCMS
 -----------------------------------------
-This is a comprehensive diagnostic and analysis tool designed to monitor 
-and profile the RPA bot's interaction with the UTCMS website. It captures screenshots, 
-HTML page dumps, console logs, uncaught JS errors, network requests/responses, latencies, 
+This is a comprehensive diagnostic and analysis tool designed to monitor
+and profile the RPA bot's interaction with the UTCMS website. It captures screenshots,
+HTML page dumps, console logs, uncaught JS errors, network requests/responses, latencies,
 and blocking DOM overlays.
 
 Modes:
@@ -13,19 +13,18 @@ Modes:
   --analyze  Load a previous JSON report and print a complete performance and error audit.
 """
 
+import argparse
 import asyncio
 import json
 import logging
-import os
+import signal
 import sys
 import time
-import argparse
-import signal
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from playwright.async_api import async_playwright, Page, BrowserContext, Response, Request
+from playwright.async_api import Page, Request, Response, async_playwright
 
 # Setup Logger
 logging.basicConfig(
@@ -50,19 +49,19 @@ class RPAInspector:
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
         self.html_dir = self.output_dir / "html_dumps"
         self.html_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # In-memory session tracking
-        self.logs: List[Dict[str, Any]] = []
-        self.network_logs: List[Dict[str, Any]] = []
-        self.console_logs: List[Dict[str, Any]] = []
-        self.js_errors: List[Dict[str, Any]] = []
-        self.step_timings: Dict[str, float] = {}
-        
+        self.logs: list[dict[str, Any]] = []
+        self.network_logs: list[dict[str, Any]] = []
+        self.console_logs: list[dict[str, Any]] = []
+        self.js_errors: list[dict[str, Any]] = []
+        self.step_timings: dict[str, float] = {}
+
         self.start_time = time.time()
-        self.request_start_times: Dict[Request, float] = {}
+        self.request_start_times: dict[Request, float] = {}
         self.shutdown_event = asyncio.Event()
 
-    def _log_event(self, step: str, status: str, message: str, details: Optional[Dict] = None):
+    def _log_event(self, step: str, status: str, message: str, details: dict | None = None):
         """Logs an event both to file/stdout and the structured diagnostic output."""
         entry = {
             "timestamp": datetime.now().isoformat(),
@@ -81,7 +80,7 @@ class RPAInspector:
         timestamp = datetime.now().strftime("%H%M%S")
         ss_path = self.screenshots_dir / f"{name}_{timestamp}.png"
         html_path = self.html_dir / f"{name}_{timestamp}.html"
-        
+
         try:
             await page.screenshot(path=str(ss_path), full_page=True)
             html_content = await page.content()
@@ -129,7 +128,7 @@ class RPAInspector:
                 if (!el) return { present: false };
                 const rect = el.getBoundingClientRect();
                 const style = window.getComputedStyle(el);
-                
+
                 // Check if covered by another element
                 let coveredBy = null;
                 if (rect.width > 0 && rect.height > 0) {
@@ -180,7 +179,7 @@ class RPAInspector:
         if start_time:
             latency_ms = round((time.time() - start_time) * 1000, 2)
             del self.request_start_times[request]
-        
+
         # Try capturing response preview
         response_body = ""
         if response.status < 400:
@@ -260,7 +259,7 @@ class RPAInspector:
                 continue
 
             try:
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                with open(file_path, encoding="utf-8", errors="ignore") as f:
                     f.seek(position)
                     lines = f.readlines()
                     position = f.tell()
@@ -290,29 +289,29 @@ class RPAInspector:
             "browser_console": self.console_logs,
             "javascript_errors": self.js_errors
         }
-        
+
         report_path.write_text(json.dumps(report_data, indent=2, ensure_ascii=False), encoding='utf-8')
-        
+
         # Save a duplicate at a static endpoint 'latest_report.json'
         latest_path = self.output_dir / "latest_report.json"
         latest_path.write_text(json.dumps(report_data, indent=2, ensure_ascii=False), encoding='utf-8')
-        
+
         logger.info("="*80)
-        logger.info(f"RPA Inspector report compiled successfully.")
+        logger.info("RPA Inspector report compiled successfully.")
         logger.info(f"Structured report file:  {report_path}")
         logger.info(f"Latest report link:      {latest_path}")
         logger.info("="*80)
 
     # 1. Navigation & elements check
-    async def run_diagnostic(self, login_url: str, credentials: Dict[str, str], proxy: Optional[str] = None, headless: bool = False):
+    async def run_diagnostic(self, login_url: str, credentials: dict[str, str], proxy: str | None = None, headless: bool = False):
         self._log_event("GLOBAL", "START", "Starting Single Diagnostic Run")
         self.start_time = time.time()
-        
+
         async with async_playwright() as p:
             launch_args = {}
             if proxy and proxy != "":
                 launch_args["proxy"] = {"server": proxy}
-            
+
             browser = await p.chromium.launch(headless=headless, **launch_args)
             context = await browser.new_context(viewport={'width': 1280, 'height': 800}, ignore_https_errors=True)
             page = await context.new_page()
@@ -354,7 +353,7 @@ class RPAInspector:
                         self._log_event(phase, "SUCCESS", "Credentials typed")
                     except Exception as e:
                         self._log_event(phase, "WARNING", f"Autofill failed: {e}")
-                
+
                 self.step_timings[phase] = time.time() - self.step_timings[phase]
 
                 # 3. Observation
@@ -373,7 +372,7 @@ class RPAInspector:
                 await self.check_for_overlays(page, phase)
                 await self.capture_state(page, "form_page_hagigihogugi")
                 self.step_timings[phase] = time.time() - self.step_timings[phase]
-                
+
                 self._log_event("GLOBAL", "SUCCESS", "Single diagnostic run completed successfully.")
             except Exception as e:
                 self._log_event("GLOBAL", "CRITICAL", f"Fatal exception during diagnostic: {e}")
@@ -382,7 +381,7 @@ class RPAInspector:
                 await browser.close()
 
     # 2. Daemon mode execution
-    async def run_daemon_mode(self, login_url: str, credentials: Dict[str, str], proxy: Optional[str] = None, headless: bool = True, interval_seconds: int = 60):
+    async def run_daemon_mode(self, login_url: str, credentials: dict[str, str], proxy: str | None = None, headless: bool = True, interval_seconds: int = 60):
         self._log_event("GLOBAL", "START", "Starting Continuous RPA Monitoring Daemon")
         self.start_time = time.time()
         self.setup_signal_handlers()
@@ -395,7 +394,7 @@ class RPAInspector:
             launch_args = {}
             if proxy and proxy != "":
                 launch_args["proxy"] = {"server": proxy}
-            
+
             browser = None
             try:
                 browser = await p.chromium.launch(headless=headless, **launch_args)
@@ -406,7 +405,7 @@ class RPAInspector:
             while not self.shutdown_event.is_set():
                 iteration += 1
                 self._log_event("DAEMON", "INFO", f"Active health check loop iteration #{iteration}")
-                
+
                 if browser:
                     context = None
                     try:
@@ -423,7 +422,7 @@ class RPAInspector:
                         start_time = time.time()
                         await page.goto(login_url, wait_until="domcontentloaded", timeout=25000)
                         latency = time.time() - start_time
-                        
+
                         self._log_event("DAEMON_NAV", "SUCCESS", f"Active navigation ping succeeded in {latency:.2f}s")
                     except Exception as e:
                         self._log_event("DAEMON_NAV", "WARNING", f"Active navigation ping failed: {e}")
@@ -433,7 +432,7 @@ class RPAInspector:
                                 await context.close()
                             except Exception:
                                 pass
-                
+
                 # Sleep in 1-second chunks to react immediately to termination signals
                 for _ in range(interval_seconds):
                     if self.shutdown_event.is_set():
@@ -443,7 +442,7 @@ class RPAInspector:
             # Cleanup browser
             if browser:
                 await browser.close()
-            
+
             # Cancel log tailer
             log_monitor_task.cancel()
             try:
@@ -493,8 +492,8 @@ def analyze_report(report_path: str):
     failures = [e for e in events if e.get("status") in ("FAILURE", "CRITICAL")]
     warnings = [e for e in events if e.get("status") == "WARNING"]
     overlays = [e for e in events if e.get("status") == "OVERLAY_DETECTED"]
-    
-    print(f"\n⚠️  Automation Event Metrics:")
+
+    print("\n⚠️  Automation Event Metrics:")
     print(f"  - Critical Failures / Crashes: {len(failures)}")
     print(f"  - Event Warnings:             {len(warnings)}")
     print(f"  - Blocking Overlays Detected: {len(overlays)}")
@@ -514,9 +513,9 @@ def analyze_report(report_path: str):
     # 3. Network Audit
     print("\n🌐 Network Request Audit:")
     print(f"  - Total Network Responses:     {len(network)}")
-    
+
     failed_requests = [n for n in network if n.get("status", 0) >= 400]
-    slow_requests = sorted([n for n in network if n.get("latency_ms") is not None], 
+    slow_requests = sorted([n for n in network if n.get("latency_ms") is not None],
                            key=lambda x: x["latency_ms"], reverse=True)[:5]
 
     print(f"  - Failed HTTP Requests (>=400): {len(failed_requests)}")
@@ -549,9 +548,9 @@ if __name__ == "__main__":
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--run", action="store_true", help="Execute a single live browser diagnostic session")
     group.add_argument("--daemon", action="store_true", help="Run as a continuous monitoring daemon in the background")
-    group.add_argument("--analyze", type=str, nargs='?', const=str(DEFAULT_OUTPUT_DIR / "latest_report.json"), 
+    group.add_argument("--analyze", type=str, nargs='?', const=str(DEFAULT_OUTPUT_DIR / "latest_report.json"),
                        help="Analyze an existing report JSON output file (defaults to latest_report.json)")
-    
+
     parser.add_argument("--user", type=str, default="5729076411", help="UTCMS username")
     parser.add_argument("--password", type=str, default="@M_m123456789", help="UTCMS password")
     parser.add_argument("--proxy", type=str, default=None, help="Proxy address (e.g. http://127.0.0.1:8080)")
@@ -566,7 +565,7 @@ if __name__ == "__main__":
         inspector = RPAInspector(output_dir=args.output_dir)
         LOGIN_URL = "https://barname.utcms.ir/Barname/Account/Login"
         CREDS = {"user": args.user, "pass": args.password}
-        
+
         asyncio.run(inspector.run_diagnostic(
             login_url=LOGIN_URL,
             credentials=CREDS,
@@ -578,7 +577,7 @@ if __name__ == "__main__":
         inspector = RPAInspector(output_dir=args.output_dir)
         LOGIN_URL = "https://barname.utcms.ir/Barname/Account/Login"
         CREDS = {"user": args.user, "pass": args.password}
-        
+
         try:
             asyncio.run(inspector.run_daemon_mode(
                 login_url=LOGIN_URL,

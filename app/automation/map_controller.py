@@ -6,7 +6,9 @@
 import asyncio
 from dataclasses import dataclass
 from typing import Any
+
 from playwright.async_api import Page
+
 from app.automation.script_loader import script_loader
 from app.core.exceptions import MapInteractionError
 
@@ -183,7 +185,7 @@ class MapController:
                 return await self._select_by_click(resolved_selector, location)
 
         except Exception as e:
-            raise MapInteractionError(f"انتخاب روی نقشه با خطا مواجه شد: {str(e)}")
+            raise MapInteractionError(f"انتخاب روی نقشه با خطا مواجه شد: {str(e)}") from e
 
     async def _select_google_maps(
         self,

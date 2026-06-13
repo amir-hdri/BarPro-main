@@ -237,9 +237,9 @@ class WaybillService:
                         raise HTTPException(
                             status_code=503,
                             detail="اختلال موقت در ارتباط با سامانه بارنامه. لطفاً مجدداً تلاش کنید",
-                        )
+                        ) from exc
                     status_code = self._status_code_for_waybill_error(exc)
-                    raise HTTPException(status_code=status_code, detail=str(exc))
+                    raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
                 except Exception as exc:
                     if proxy_info:
@@ -277,7 +277,7 @@ class WaybillService:
                                 "retryable": retryable,
                             },
                         )
-                    raise HTTPException(status_code=500, detail="خطای داخلی سرور در ثبت بارنامه")
+                    raise HTTPException(status_code=500, detail="خطای داخلی سرور در ثبت بارنامه") from exc
 
                 finally:
                     if page:
@@ -422,7 +422,7 @@ class WaybillService:
                 "detect_map_failed",
                 extra={"extra_fields": {"request_id": request_id, "error": str(exc)}},
             )
-            raise HTTPException(status_code=500, detail="خطای داخلی سرور در تشخیص نقشه")
+            raise HTTPException(status_code=500, detail="خطای داخلی سرور در تشخیص نقشه") from exc
         finally:
             if page:
                 try:

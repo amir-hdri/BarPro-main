@@ -162,7 +162,7 @@ class ExcelUploadService:
                         {
                             "row": row_idx,
                             "errors": [f"Parse error: {str(e)}"],
-                            "data": {str(h): str(v) for h, v in zip(headers, row) if v is not None},
+                            "data": {str(h): str(v) for h, v in zip(headers, row, strict=False) if v is not None},
                         }
                     )
 

@@ -71,7 +71,7 @@ class WaybillQueueManager:
                     raise HTTPException(
                         status_code=503,
                         detail="صف Celery در دسترس نیست و fallback غیرفعال است",
-                    )
+                    ) from exc
 
         return await self._execute_inline(task.task_id, task.idempotency_key)
 

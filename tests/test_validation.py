@@ -71,7 +71,7 @@ def test_create_waybill_valid_payload(mock_close, mock_init):
 
             # Also need to mock browser_manager.create_context and new_page
             with patch("app.automation.browser.browser_manager.create_context", new_callable=AsyncMock) as mock_ctx, \
-                 patch("app.automation.browser.browser_manager.new_page", new_callable=AsyncMock) as mock_page, \
+                 patch("app.automation.browser.browser_manager.new_page", new_callable=AsyncMock), \
                  patch("app.automation.browser.browser_manager.close_context", new_callable=AsyncMock):
 
                 # Ensure create_context returns a tuple (session_id, context)

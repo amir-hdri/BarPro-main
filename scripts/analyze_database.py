@@ -34,7 +34,7 @@ async def analyze_indexes():
     async with engine.begin() as conn:
         # Check for missing indexes on foreign keys
         result = await conn.execute(text("""
-            SELECT 
+            SELECT
                 tablename,
                 indexname,
                 indexdef
@@ -56,7 +56,7 @@ async def analyze_table_stats():
 
     async with engine.begin() as conn:
         result = await conn.execute(text("""
-            SELECT 
+            SELECT
                 schemaname,
                 tablename,
                 pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size,
@@ -96,7 +96,7 @@ async def analyze_slow_queries():
             return
 
         result = await conn.execute(text("""
-            SELECT 
+            SELECT
                 substring(query, 1, 100) as query_snippet,
                 calls,
                 mean_exec_time,
@@ -142,7 +142,7 @@ async def suggest_optimizations():
 
         # Check for high dead tuple ratio
         result = await conn.execute(text("""
-            SELECT 
+            SELECT
                 tablename,
                 n_dead_tup,
                 n_live_tup,
@@ -172,7 +172,7 @@ async def check_connection_pool():
 
     async with engine.begin() as conn:
         result = await conn.execute(text("""
-            SELECT 
+            SELECT
                 setting,
                 unit,
                 context

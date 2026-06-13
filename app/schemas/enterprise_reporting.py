@@ -45,7 +45,7 @@ class TelemetryEventSchema(BaseModel):
         try:
             datetime.fromisoformat(v)
         except ValueError:
-            raise ValueError("Timestamp must be valid ISO 8601 format")
+            raise ValueError("Timestamp must be valid ISO 8601 format") from None
         return v
 
     @field_validator('status')

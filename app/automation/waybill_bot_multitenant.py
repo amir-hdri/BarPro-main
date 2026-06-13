@@ -52,8 +52,8 @@ class WaybillAutomationBot:
             },
         }
 
-        from app.services.session_vault import session_vault
         from app.automation.browser import browser_manager
+        from app.services.session_vault import session_vault
 
         driver_national_code = (
             payload.get("driver_national_code")

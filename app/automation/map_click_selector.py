@@ -36,7 +36,7 @@ class ClickSelection:
 class MapClickSelector:
     """
     مدیریت انتخاب مبدا و مقصد با کلیک کاربر روی نقشه
-    
+
     نحوه کار:
     ۱. فعال کردن حالت انتخاب روی نقشه
     ۲. گوش دادن به رویداد کلیک
@@ -54,7 +54,7 @@ class MapClickSelector:
     async def initialize_map_click_mode(self) -> bool:
         """
         فعال کردن حالت انتخاب با کلیک روی نقشه
-        
+
         Returns:
             True اگر موفق شد حالت کلیک را فعال کند
         """
@@ -75,7 +75,7 @@ class MapClickSelector:
                     // تابع اضافه کردن مارکر
                     window.__utcms_add_marker = function(lat, lng, label) {
                         const mapClicks = window.__utcms_map_clicks;
-                        
+
                         // تلاش برای اضافه کردن مارکر به نقشه‌های مختلف
                         // Google Maps
                         if (typeof google !== 'undefined' && google.maps) {
@@ -125,7 +125,7 @@ class MapClickSelector:
                                 font-size: 12px;
                                 font-weight: bold;
                             ">${label === 'origin' ? 'مبدا' : 'مقصد'}</div>`;
-                            
+
                             new mapboxgl.Marker(el)
                                 .setLngLat([lng, lat])
                                 .addTo(window.map);
@@ -138,12 +138,12 @@ class MapClickSelector:
                     // تابع پاک کردن مارکرها
                     window.__utcms_clear_markers = function() {
                         const mapClicks = window.__utcms_map_clicks;
-                        
+
                         // Google Maps
                         if (typeof google !== 'undefined' && google.maps) {
                             mapClicks.markers.forEach(marker => marker.setMap(null));
                         }
-                        
+
                         // Leaflet
                         mapClicks.markers.forEach(marker => {
                             if (marker.remove) marker.remove();
@@ -169,7 +169,7 @@ class MapClickSelector:
     async def get_map_bounds(self) -> dict[str, float] | None:
         """
         دریافت محدوده فعلی نقشه
-        
+
         Returns:
             Dict با کلیدهای north, south, east, west
         """
@@ -231,10 +231,10 @@ class MapClickSelector:
     async def wait_for_user_click(self, timeout_ms: int = 60000) -> ClickLocation | None:
         """
         انتظار برای کلیک کاربر روی نقشه
-        
+
         Args:
             timeout_ms: حداکثر زمان انتظار به میلی‌ثانیه
-            
+
         Returns:
             ClickLocation شامل مختصات نقطه انتخاب شده
         """
@@ -282,7 +282,7 @@ class MapClickSelector:
                                 const rect = mapElement.getBoundingClientRect();
                                 const x = event.clientX - rect.left;
                                 const y = event.clientY - rect.top;
-                                
+
                                 // تلاش برای تبدیل pixel به lat/lng
                                 const coords = await window.__utcms_pixel_to_coords(x, y, rect.width, rect.height);
                                 if (coords) {
@@ -334,12 +334,12 @@ class MapClickSelector:
     async def add_marker_to_map(self, lat: float, lng: float, label: str = 'point') -> bool:
         """
         اضافه کردن مارکر به نقشه در نقطه انتخاب شده
-        
+
         Args:
             lat: عرض جغرافیایی
             lng: طول جغرافیایی
             label: برچسب مارکر (origin/destination)
-            
+
         Returns:
             True اگر موفق شد مارکر اضافه کند
         """
@@ -386,10 +386,10 @@ class MapClickSelector:
     async def select_origin_by_click(self, timeout_ms: int = 60000) -> ClickLocation | None:
         """
         انتخاب مبدا با کلیک کاربر
-        
+
         Args:
             timeout_ms: حداکثر زمان انتظار
-            
+
         Returns:
             ClickLocation نقطه انتخاب شده
         """
@@ -464,10 +464,10 @@ class MapClickSelector:
     async def select_destination_by_click(self, timeout_ms: int = 60000) -> ClickLocation | None:
         """
         انتخاب مقصد با کلیک کاربر
-        
+
         Args:
             timeout_ms: حداکثر زمان انتظار
-            
+
         Returns:
             ClickLocation نقطه انتخاب شده
         """
@@ -546,11 +546,11 @@ class MapClickSelector:
     ) -> ClickSelection:
         """
         انتخاب هم مبدا و هم مقصد با کلیک کاربر
-        
+
         Args:
             origin_timeout: زمان انتظار برای انتخاب مبدا
             destination_timeout: زمان انتظار برای انتخاب مقصد
-            
+
         Returns:
             ClickSelection شامل هر دو نقطه
         """
@@ -586,7 +586,7 @@ class MapClickSelector:
     def get_selection_result(self) -> dict[str, Any]:
         """
         دریافت نتیجه انتخاب به صورت دیکشنری
-        
+
         Returns:
             دیکشنری شامل اطلاعات مبدا و مقصد
         """

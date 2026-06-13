@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def timer(operation_name: str, log_level: int = logging.INFO):
     """
     Context manager to time operations.
-    
+
     Usage:
         with timer("database_query"):
             result = db.query(...)
@@ -35,7 +35,7 @@ def timer(operation_name: str, log_level: int = logging.INFO):
 async def async_timer(operation_name: str, log_level: int = logging.INFO):
     """
     Async context manager to time operations.
-    
+
     Usage:
         async with async_timer("api_call"):
             result = await api.fetch(...)
@@ -55,12 +55,12 @@ async def async_timer(operation_name: str, log_level: int = logging.INFO):
 def measure_time(func: Callable | None = None, *, operation_name: str | None = None):
     """
     Decorator to measure function execution time.
-    
+
     Usage:
         @measure_time
         def my_function():
             ...
-        
+
         @measure_time(operation_name="custom_name")
         def another_function():
             ...
@@ -83,7 +83,7 @@ def measure_time(func: Callable | None = None, *, operation_name: str | None = N
 def measure_async_time(func: Callable | None = None, *, operation_name: str | None = None):
     """
     Decorator to measure async function execution time.
-    
+
     Usage:
         @measure_async_time
         async def my_async_function():
@@ -148,7 +148,7 @@ performance_monitor = PerformanceMonitor()
 def log_slow_operation(threshold_ms: float = 1000):
     """
     Decorator to log operations that exceed a time threshold.
-    
+
     Args:
         threshold_ms: Threshold in milliseconds
     """

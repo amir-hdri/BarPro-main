@@ -32,24 +32,24 @@ from app.services.waybill_service import WaybillService
 
 def _base_request(**kwargs) -> WaybillMapRequest:
     """Return a minimal valid WaybillMapRequest, optionally overriding fields."""
-    defaults = dict(
-        session_id="shipping-opts-test",
-        operation_mode=OperationMode.SAFE,
-        sender=SenderModel(name="Alice", phone="09121111111", address="Addr A", national_code="1234567890"),
-        receiver=ReceiverModel(name="Bob", phone="09122222222", address="Addr B"),
-        origin=LocationModel(
+    defaults = {
+        "session_id": "shipping-opts-test",
+        "operation_mode": OperationMode.SAFE,
+        "sender": SenderModel(name="Alice", phone="09121111111", address="Addr A", national_code="1234567890"),
+        "receiver": ReceiverModel(name="Bob", phone="09122222222", address="Addr B"),
+        "origin": LocationModel(
             province="تهران", city="تهران", address="خ آزادی",
             coordinates=GeoCoordinateModel(lat=35.6892, lng=51.3890),
         ),
-        destination=LocationModel(
+        "destination": LocationModel(
             province="مشهد", city="مشهد", address="خ امام رضا",
             coordinates=GeoCoordinateModel(lat=36.2972, lng=59.6067),
         ),
-        cargo=CargoModel(type="General", weight=1000, count=1, description="test"),
-        vehicle=VehicleModel(driver_national_code="1234567890", driver_phone="09121111111",
+        "cargo": CargoModel(type="General", weight=1000, count=1, description="test"),
+        "vehicle": VehicleModel(driver_national_code="1234567890", driver_phone="09121111111",
                              plate="12A34567", type="Truck"),
-        financial=FinancialModel(cost=1000, payment_method="Cash"),
-    )
+        "financial": FinancialModel(cost=1000, payment_method="Cash"),
+    }
     defaults.update(kwargs)
     return WaybillMapRequest(**defaults)
 
@@ -357,10 +357,9 @@ class TestDryRunValidationSummary:
         mgr._fill_receiver_info = AsyncMock()
         mgr._fill_vehicle_info = AsyncMock()
         mgr._fill_cargo_info = AsyncMock()
+        mgr._fill_origin_info = AsyncMock(return_value={"success": True, "method": "map"})
+        mgr._fill_destination_info = AsyncMock(return_value={"success": True, "method": "map"})
         mgr._fill_financial_info = AsyncMock()
-        mgr.location_selector.select_location = AsyncMock(
-            return_value={"success": True, "method": "map"}
-        )
         mgr._goto_with_retry = AsyncMock()
         mgr._click_with_fallback = AsyncMock()
         mgr._check_checkbox_with_fallback = AsyncMock(return_value=True)
@@ -391,10 +390,9 @@ class TestDryRunValidationSummary:
         mgr._fill_receiver_info = AsyncMock()
         mgr._fill_vehicle_info = AsyncMock()
         mgr._fill_cargo_info = AsyncMock()
+        mgr._fill_origin_info = AsyncMock(return_value={"success": True, "method": "dropdown"})
+        mgr._fill_destination_info = AsyncMock(return_value={"success": True, "method": "dropdown"})
         mgr._fill_financial_info = AsyncMock()
-        mgr.location_selector.select_location = AsyncMock(
-            return_value={"success": True, "method": "dropdown"}
-        )
         mgr._goto_with_retry = AsyncMock()
         mgr._click_with_fallback = AsyncMock()
         mgr._check_checkbox_with_fallback = AsyncMock(return_value=False)

@@ -39,11 +39,11 @@ async def test_waybill_login_success():
         login_url="https://barname.utcms.ir/Barname/Account/Login",
     )
 
-    with patch("app.automation.browser.browser_manager.initialize", new_callable=AsyncMock) as mock_init, \
+    with patch("app.automation.browser.browser_manager.initialize", new_callable=AsyncMock), \
          patch("app.automation.browser.browser_manager.create_context", new_callable=AsyncMock) as mock_create_context, \
          patch("app.automation.browser.browser_manager.new_page", new_callable=AsyncMock) as mock_new_page, \
          patch("app.automation.browser.browser_manager.save_auth_state", new_callable=AsyncMock) as mock_save_auth_state, \
-         patch("app.automation.browser.browser_manager.close_context", new_callable=AsyncMock) as mock_close_context, \
+         patch("app.automation.browser.browser_manager.close_context", new_callable=AsyncMock), \
          patch("app.automation.auth.UTCMSAuthenticator") as MockAuth, \
          patch("app.automation.waybill_enhanced.EnhancedWaybillManager") as MockManager, \
          patch("app.automation.reporting.report_service.record_request", new_callable=AsyncMock), \

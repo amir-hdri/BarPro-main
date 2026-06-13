@@ -145,7 +145,7 @@ def decode_access_token(token: str) -> dict:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from None
 
 
 async def get_current_client(
@@ -175,12 +175,12 @@ async def get_current_client(
         try:
             client_id = int(raw_client_id)
         except (TypeError, ValueError):
-            raise credentials_exception
+            raise credentials_exception from None
         client_code: str = payload.get("client_code")
         if not client_id or client_code is None:
             raise credentials_exception
     except JWTError:
-        raise credentials_exception
+        raise credentials_exception from None
 
     # Fetch client from database
     statement = select(Client).where(Client.id == client_id)
@@ -204,7 +204,7 @@ async def get_current_client(
 
 def is_master_admin(username: str, password: str) -> bool:
     """Validate the singleton master admin account configured for the system.
-    
+
     Uses bcrypt for secure password comparison when the stored password is bcrypt-hashed.
     Falls back to direct comparison for plain-text configured passwords.
     """
@@ -243,7 +243,7 @@ async def get_current_admin(
         if payload.get("client_code") != utcms_config.MASTER_ADMIN_USERNAME:
             raise credentials_exception
     except JWTError:
-        raise credentials_exception
+        raise credentials_exception from None
 
     return {
         "username": utcms_config.MASTER_ADMIN_USERNAME,

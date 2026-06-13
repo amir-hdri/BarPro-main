@@ -1508,19 +1508,19 @@ class EnhancedWaybillManager:
 
             # پر کردن اطلاعات بار
             await self._fill_cargo_info(data.get("cargo", {}))
-            
+
             self._set_active_pill("origin")
             logger.info("waybill_stage_start", extra={"extra_fields": {"stage": "origin"}})
 
             # انتخاب و ثبت مبدا
             origin_result = await self._fill_origin_info(data.get("origin", {}))
-            
+
             self._set_active_pill("destination")
             logger.info("waybill_stage_start", extra={"extra_fields": {"stage": "destination"}})
 
             # انتخاب و ثبت مقصد
             dest_result = await self._fill_destination_info(data.get("destination", {}))
-            
+
             self._set_active_pill("address_preview")
             preview_next_clicked = await self._click_step_next(
                 7,
@@ -2114,7 +2114,7 @@ class EnhancedWaybillManager:
             raise WaybillError("تایپ کالا (cargo.type) الزامی است")
         if not isinstance(cargo.get("type"), str) or len(cargo["type"].strip()) < 2:
             raise WaybillError(f"تایپ کالا معتبر نیست: {cargo.get('type')}")
-        
+
         await self._wait_for_loading_overlays_to_disappear()
         await self._wait_for_step_marker(4, ["#txtLoadsValue", "#btnAddLoad"], timeout_ms=8000)
 
@@ -2424,7 +2424,7 @@ class EnhancedWaybillManager:
         )
         if not origin_next_clicked:
             await self._force_step_transition(6)
-            
+
         pill6_ready = await self._wait_for_step_marker(
             6,
             ["#ddStateDest", "#ddCityDest", "#txtAddressDest", "#btnGoLVL7"],
@@ -2434,7 +2434,7 @@ class EnhancedWaybillManager:
             form_errors = await self._extract_form_errors()
             error_msg = form_errors or "اعتبارسنجی فرم مبدا ناموفق بود"
             raise WaybillError(f"گذر از مرحله مبدا ناموفق بود: {error_msg}")
-            
+
         return origin_result
 
     async def _fill_destination_info(self, destination_data: dict[str, Any]) -> dict[str, Any]:
@@ -2464,7 +2464,7 @@ class EnhancedWaybillManager:
         )
         if not destination_next_clicked:
             await self._force_step_transition(7)
-            
+
         pill7_ready = await self._wait_for_step_marker(
             7,
             ["#txtAddressSourceView", "#txtAddressDestView", '#pills-7 button[data-to="#pills-8-tab"]'],
@@ -2474,7 +2474,7 @@ class EnhancedWaybillManager:
             form_errors = await self._extract_form_errors()
             error_msg = form_errors or "اعتبارسنجی فرم مقصد ناموفق بود"
             raise WaybillError(f"گذر از مرحله مقصد ناموفق بود: {error_msg}")
-            
+
         return dest_result
 
     async def _handle_tajmi_initialization(self) -> None:

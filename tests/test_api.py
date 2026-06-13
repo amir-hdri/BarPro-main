@@ -149,7 +149,7 @@ def test_worker_heartbeats_endpoint():
 @patch("app.main.init_db", new_callable=AsyncMock)
 @patch("app.automation.browser.browser_manager.close", new_callable=AsyncMock)
 def test_lifespan(mock_close, mock_init_db):
-    with TestClient(app) as c:
+    with TestClient(app):
         pass
     mock_init_db.assert_called()
     mock_close.assert_called()

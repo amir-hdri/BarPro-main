@@ -8,11 +8,11 @@ from pathlib import Path
  # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import command
+from alembic.config import Config
 from app.core.config import utcms_config
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

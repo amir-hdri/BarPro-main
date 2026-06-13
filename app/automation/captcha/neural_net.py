@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 """
 PyTorch CNN-based captcha character recogniser — v11 high-accuracy edition.
 
@@ -20,7 +19,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
-from dataclasses import dataclass
 import numpy as np
 import torch
 import torch.nn as nn
@@ -31,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _CHAR_SET = list("0123456789+-*/")
 _CHAR_TO_IDX = {char: idx for idx, char in enumerate(_CHAR_SET)}
-_IDX_TO_CHAR = {idx: char for idx, char in enumerate(_CHAR_SET)}
+_IDX_TO_CHAR = dict(enumerate(_CHAR_SET))
 _NUM_CLASSES = len(_CHAR_SET)
 _IMG_SIZE = 28
 _FLAT_SIZE = _IMG_SIZE * _IMG_SIZE
@@ -143,7 +141,7 @@ def _train_model(
     best_acc = 0.0
     best_state = None
 
-    for epoch in range(config.epochs):
+    for _epoch_idx in range(config.epochs):
         indices = torch.randperm(num_samples, device=_DEVICE)
         net.train()
         for start in range(0, num_samples, config.batch_size):
@@ -179,7 +177,7 @@ def _train_model(
 
     logger.info("neural_captcha_training_complete",
                 extra={"extra_fields": {"best_accuracy": round(best_acc, 4),
-                                        "epochs": epoch + 1}})
+                                        "epochs": _epoch_idx + 1}})
 
 
 def _discover_fonts() -> list[str]:
@@ -416,4 +414,4 @@ def predict_chars_batch(images: list[np.ndarray]) -> list[tuple[str, float]]:
             batch[idx, :flat.shape[0]] = flat
 
     preds, confs = model.predict(batch)
-    return [(_IDX_TO_CHAR[int(p)], float(c)) for p, c in zip(preds, confs)]
+    return [(_IDX_TO_CHAR[int(p)], float(c)) for p, c in zip(preds, confs, strict=False)]

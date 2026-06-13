@@ -67,6 +67,7 @@ from app.schemas.multitenant import (
     TaskTimelineResponse,
     WaybillJobCreateRequest,
     WaybillJobResponse,
+    WaybillJobUpdateRequest,
     WaybillRetryRequest,
 )
 from app.services.rpa_dispatch_service import rpa_dispatch_service
@@ -442,7 +443,7 @@ class ClientService:
             client.hashed_password = hash_password(request.password)
 
         client.updated_at = datetime.now(UTC).replace(tzinfo=None)
-        
+
         # Add retry logic for database operations to handle network errors
         max_retries = 3
         for attempt in range(max_retries):
@@ -490,7 +491,7 @@ class ClientService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
 
         logger.info('audit_client_deleted', extra={'extra_fields': {'client_id': client.id, 'client_code': client.client_code}})
-        
+
         # Add retry logic for database operations to handle network errors
         max_retries = 3
         for attempt in range(max_retries):
@@ -713,7 +714,7 @@ class DriverService:
                 setattr(driver, field, value)
 
         driver.updated_at = datetime.now(UTC).replace(tzinfo=None)
-        
+
         # Add retry logic for database operations to handle network errors
         max_retries = 3
         for attempt in range(max_retries):
@@ -1457,10 +1458,9 @@ class WaybillJobService:
         client: Client,
         job_id: str,
         session: AsyncSession,
-        request: "WaybillJobUpdateRequest",
+        request: WaybillJobUpdateRequest,
     ) -> WaybillJobResponse:
         """Update an existing waybill job."""
-        from sqlalchemy import update as sql_update
 
         statement = select(WaybillJob).where(
             (WaybillJob.client_id == client.id) &

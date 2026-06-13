@@ -280,14 +280,14 @@ def calculate_backoff_delay(
 ) -> float:
     """
     Calculate exponential backoff delay with optional jitter.
-    
+
     Args:
         attempt: Current attempt number (0-indexed)
         base_delay: Base delay in seconds
         max_delay: Maximum delay cap
         exponential_base: Base for exponential calculation
         jitter: Add random jitter to prevent thundering herd
-        
+
     Returns:
         Delay in seconds
     """
@@ -315,17 +315,17 @@ async def retry_with_backoff(
 ) -> Any:
     """
     Execute function with exponential backoff retry.
-    
+
     Args:
         func: Async function to execute
         *args: Positional arguments for the function
         retry_config: Retry configuration
         on_retry: Callback function called on each retry
         **kwargs: Keyword arguments for the function
-        
+
     Returns:
         Result of the function call
-        
+
     Raises:
         Last exception if all retries exhausted
     """
@@ -402,14 +402,14 @@ class ExplicitWaits:
     ) -> bool:
         """
         Wait for element to be present and stable (not changing).
-        
+
         Args:
             page: Playwright page
             selector: Element selector
             timeout: Maximum wait time in milliseconds
             stable_time: Time element must remain unchanged
             check_interval: How often to check
-            
+
         Returns:
             True if element is stable
         """
@@ -442,12 +442,12 @@ class ExplicitWaits:
     ) -> str:
         """
         Wait for page URL to change from current value.
-        
+
         Args:
             page: Playwright page
             current_url: Current URL to wait away from
             timeout: Maximum wait time in milliseconds
-            
+
         Returns:
             New URL
         """
@@ -470,7 +470,7 @@ class ExplicitWaits:
     ) -> None:
         """
         Wait for network idle with fallback to sleep.
-        
+
         Args:
             page: Playwright page
             timeout: Maximum wait for networkidle
@@ -526,7 +526,7 @@ class ResilientWorkflow:
     ) -> Any:
         """
         Execute a workflow step with retry logic and state tracking.
-        
+
         Args:
             step_name: Human-readable step name
             step_func: Async function to execute
@@ -534,7 +534,7 @@ class ResilientWorkflow:
             retryable_exceptions: Tuple of exceptions that trigger retry
             capture_evidence: Capture screenshot/HTML on failure
             **kwargs: Additional arguments for step_func
-            
+
         Returns:
             Result of step_func
         """
@@ -613,11 +613,11 @@ class ResilientWorkflow:
     async def execute(self, workflow_func: Callable, **kwargs) -> dict[str, Any]:
         """
         Execute the entire workflow with top-level error handling.
-        
+
         Args:
             workflow_func: Main workflow async function
             **kwargs: Arguments for workflow_func
-            
+
         Returns:
             Workflow result with state tracking
         """
@@ -802,7 +802,7 @@ def resilient_step(
 ):
     """
     Decorator to make any async function resilient with retry and error handling.
-    
+
     Usage:
         @resilient_step(max_retries=3, error_code="AUTH_TIMEOUT")
         async def login(username, password):
@@ -885,7 +885,7 @@ class GracefulDegradation:
     async def record_failure(self, error_code: str = "") -> bool:
         """
         Record a failed operation.
-        
+
         Returns:
             True if system should pause (too many consecutive failures)
         """
@@ -911,7 +911,7 @@ class GracefulDegradation:
     async def check_and_resume(self) -> bool:
         """
         Check if paused system should resume.
-        
+
         Returns:
             True if system can resume
         """

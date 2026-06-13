@@ -227,7 +227,7 @@ class CaptchaInterceptor:
         try:
             capture_started_at = time.perf_counter()
             image_bytes = await captcha_locator.screenshot(timeout=5000)
-            if isinstance(image_bytes, (bytes, bytearray)):
+            if isinstance(image_bytes, bytes | bytearray):
                 logger.info(
                     "captcha_capture_attempt",
                     extra=monitoring_extra(
@@ -285,15 +285,15 @@ class CaptchaInterceptor:
                 payload={
                     "source": "page.screenshot",
                     "duration_ms": round((time.perf_counter() - capture_started_at) * 1000, 2),
-                    "success": isinstance(image_bytes, (bytes, bytearray)),
+                    "success": isinstance(image_bytes, bytes | bytearray),
                 },
                 tags={"component": "captcha_interceptor"},
                 source="page.screenshot",
                 duration_ms=round((time.perf_counter() - capture_started_at) * 1000, 2),
-                success=isinstance(image_bytes, (bytes, bytearray)),
+                success=isinstance(image_bytes, bytes | bytearray),
             ),
         )
-        if not isinstance(image_bytes, (bytes, bytearray)):
+        if not isinstance(image_bytes, bytes | bytearray):
             return None
         return base64.b64encode(bytes(image_bytes)).decode("utf-8")
 

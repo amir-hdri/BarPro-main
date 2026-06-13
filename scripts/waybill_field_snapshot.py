@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 #!/usr/bin/env python3
 """Extract live UTCMS waybill form fields after authenticated login.
 

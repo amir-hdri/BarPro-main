@@ -123,7 +123,7 @@ class TestProxyRotator:
 
     def test_proxy_rotator_creation(self):
         """Test ProxyRotator initialization"""
-        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
+        from app.automation.proxy_rotator import ProxyRotator
 
         rotator = ProxyRotator(
             cooldown=5.0,
@@ -135,7 +135,7 @@ class TestProxyRotator:
 
     def test_proxy_rotator_load_from_list(self):
         """Test loading proxies from list"""
-        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
+        from app.automation.proxy_rotator import ProxyRotator
 
         rotator = ProxyRotator()
         urls = [
@@ -152,7 +152,7 @@ class TestProxyRotator:
 
     def test_proxy_rotator_load_from_file(self, tmp_path):
         """Test loading proxies from file"""
-        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
+        from app.automation.proxy_rotator import ProxyRotator
 
         # Create test file
         proxy_file = tmp_path / "proxies.txt"
@@ -199,12 +199,12 @@ class TestProxyRotator:
     @pytest.mark.asyncio
     async def test_proxy_rotator_waybill_scoring_and_geoip(self):
         """Test proxy rotator waybill scoring and Geo-IP filtering"""
+
         from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
-        from unittest.mock import AsyncMock
 
         # Initialize with require_iran_ip=True explicitly for testing
         rotator = ProxyRotator(cooldown=0, require_iran_ip=True)
-        
+
         # Mock verify_country
         async def mock_verify(proxy):
             if "iran" in proxy.url:
@@ -212,7 +212,7 @@ class TestProxyRotator:
             else:
                 proxy.country = "US"
             return True
-        
+
         rotator.verify_country = mock_verify
 
         rotator.add_proxy(ProxyConfig(url="http://iran-proxy.com:8080")) # country None at start
@@ -231,7 +231,7 @@ class TestProxyRotator:
         assert p.waybill_attempts == 1
         assert p.waybill_successes == 1
         assert p.waybill_success_rate == 100.0
-        
+
         # Test low success rate is unhealthy
         p.record_waybill_result(success=False, latency=1.0)
         p.record_waybill_result(success=False, latency=1.0)
@@ -383,9 +383,9 @@ class TestHumanInteraction:
     @pytest.mark.asyncio
     async def test_punctuation_delay(self):
         """Test punctuation causes longer delays"""
-        from app.automation.human_interaction import _calculate_typing_delay
-        import random
         from unittest.mock import patch
+
+        from app.automation.human_interaction import _calculate_typing_delay
 
         def mock_uniform(a, b):
             return (a + b) / 2
@@ -488,7 +488,7 @@ class TestIntegration:
 
         # 1. Select random profile
         profile = USER_AGENT_PROFILES[0]
-        screen = SCREEN_PRESETS[0]
+        SCREEN_PRESETS[0]
 
         # 2. Create proxy
         rotator = ProxyRotator(cooldown=0)
@@ -536,7 +536,7 @@ class TestEdgeCases:
 
     def test_empty_proxy_list(self):
         """Test handling empty proxy list"""
-        from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
+        from app.automation.proxy_rotator import ProxyRotator
 
         rotator = ProxyRotator()
         # No proxies added
@@ -548,7 +548,7 @@ class TestEdgeCases:
 
     def test_all_proxies_failed(self):
         """Test when all proxies have failed"""
-        from app.automation.proxy_rotator import ProxyConfig, ProxyInfo, ProxyRotator
+        from app.automation.proxy_rotator import ProxyInfo, ProxyRotator
 
         rotator = ProxyRotator(cooldown=0, max_fail_count=1)
 

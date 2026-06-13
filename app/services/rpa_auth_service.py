@@ -158,7 +158,7 @@ class RPAAuthService:
                     rs.state = DriverRuntimeStateValue.AUTH_REQUIRED.value
                     rs.updated_at = datetime.now(UTC).replace(tzinfo=None)
                     recovery_session.add(rs)
-                
+
                 await self._mark_resume_job_for_auth_retry(recovery_session, client_id, resume_job_id, str(exc))
                 await recovery_session.commit()
             except Exception as rec_exc:

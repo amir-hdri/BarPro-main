@@ -1,8 +1,8 @@
+# ruff: noqa: E402
 """Celery tasks for Phase 1 hybrid auth/submit orchestration."""
 from __future__ import annotations
 
 import asyncio
-import atexit
 import logging
 
 from app.services.rpa_auth_service import rpa_auth_service
@@ -144,6 +144,4 @@ if celery_app is not None:
             raise
 
 # Import other task files to ensure they are registered with the celery app
-import app.workers.waybill_worker
-import app.workers.tasks
 

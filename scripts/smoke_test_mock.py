@@ -18,7 +18,7 @@ async def run_smoke_test():
     with patch("app.core.config.utcms_config.API_AUTH_MODE", "off"), \
          patch("app.automation.browser.browser_manager.initialize", new_callable=AsyncMock), \
          patch("app.automation.browser.browser_manager.create_context", new_callable=AsyncMock) as mock_ctx, \
-         patch("app.automation.browser.browser_manager.new_page", new_callable=AsyncMock) as mock_page, \
+         patch("app.automation.browser.browser_manager.new_page", new_callable=AsyncMock), \
          patch("app.automation.browser.browser_manager.close_context", new_callable=AsyncMock), \
          patch("app.automation.auth.UTCMSAuthenticator") as MockAuth, \
          patch("app.automation.waybill_enhanced.EnhancedWaybillManager") as MockManager:

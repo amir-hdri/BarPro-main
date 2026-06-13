@@ -159,14 +159,6 @@ class TestMapClickIntegration:
         location_selector = LocationSelector(mock_page)
 
         # داده‌های مکان از کلیک کاربر
-        location_data = {
-            'province': 'تهران',
-            'city': 'تهران',
-            'coordinates': {
-                'lat': 35.6892,
-                'lng': 51.3890
-            }
-        }
 
         # تست که متد select_location وجود دارد
         assert hasattr(location_selector, 'select_location')

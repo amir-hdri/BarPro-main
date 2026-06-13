@@ -152,7 +152,7 @@ def upgrade() -> None:
     # 8. Insert default subscription plans
     op.execute("""
         INSERT INTO subscription_plans (name, name_fa, price_monthly, price_yearly, max_drivers, max_concurrent_tasks, max_daily_tasks, features)
-        VALUES 
+        VALUES
             ('Basic', 'پایه', 500000, 5000000, 5, 1, 50, '{"support": "email", "api_access": false}'::jsonb),
             ('Pro', 'حرفه‌ای', 1500000, 15000000, 20, 5, 200, '{"support": "priority", "api_access": true}'::jsonb),
             ('Enterprise', 'سازمانی', 5000000, 50000000, 100, 20, 1000, '{"support": "24/7", "api_access": true, "custom_features": true}'::jsonb)

@@ -124,7 +124,7 @@ class LocationSelector:
             return False
 
         target_selector = self._make_visible_selector(selector) if visible else selector
-        
+
         # 1. Try native prototype setter bypass first (React/Vue/jQuery robust handling)
         try:
             updated = await self.page.eval_on_selector(
@@ -836,7 +836,7 @@ class LocationSelector:
         ([lat, lng, prefix]) => {
             const prefixLower = prefix.toLowerCase();
             const isOrigin = prefixLower === "origin" || prefixLower === "source" || prefixLower === "src" || prefixLower === "mabda";
-            
+
             let found = false;
 
             // 1. تزریق به متغیرهای سراسری پنجره مرورگر (فول‌استک و اختصاصی UTCMS)
@@ -868,7 +868,7 @@ class LocationSelector:
 
             // 2. تزریق به inputهای مخفی و معمولی DOM
             const inputs = document.querySelectorAll('input');
-            
+
             const setValue = (el, val) => {
                 let setter = null;
                 try {
@@ -980,7 +980,7 @@ class LocationSelector:
                 """([lat, lng, prefix, state, city, addr]) => {
                     const isOrigin = prefix === "Origin";
                     let called = false;
-                    
+
                     try {
                         if (isOrigin) {
                             if (typeof LatSource !== 'undefined') LatSource = lat;
@@ -1027,7 +1027,7 @@ class LocationSelector:
             if native_called:
                 addr_selector = "#txtAddressSource" if prefix == "Origin" else "#txtAddressDest"
                 state_selector = "#ddStateSource" if prefix == "Origin" else "#ddStateDest"
-                
+
                 # حداکثر 3 ثانیه برای پاسخ دهی متد بومی صبر می‌کنیم
                 for _ in range(15):
                     try:
@@ -1222,7 +1222,7 @@ class LocationSelector:
                             "method": "map",
                             "error": "کلیک روی نقشه تاثیری در فرم نداشت (فیلدها تغییر نکردند)",
                         }
-                    
+
                     if not after_state.get("province") or not after_state.get("city"):
                         logger.warning(
                             "map_click_missing_province_or_city_falling_back",

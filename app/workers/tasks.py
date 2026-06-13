@@ -102,7 +102,7 @@ if celery_app is not None:
                                 attempt_count=attempt,
                             )
                         )
-                        raise self.retry(exc=exc, countdown=_retry_delay_seconds(attempt))
+                        raise self.retry(exc=exc, countdown=_retry_delay_seconds(attempt)) from exc
 
                     _run_async(
                         task_service.mark_failure(
@@ -132,7 +132,7 @@ def dispatch_waybill_task(task_id: str, priority: int | None = None):
         raise RuntimeError("Celery is not available in current environment")
     normalized_priority = utcms_config.CELERY_DEFAULT_PRIORITY if priority is None else int(priority)
     normalized_priority = max(utcms_config.CELERY_MIN_PRIORITY, min(utcms_config.CELERY_MAX_PRIORITY, normalized_priority))
-    
+
     import random
     jitter_countdown = random.randint(3, 10)
 

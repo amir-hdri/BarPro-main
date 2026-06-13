@@ -71,7 +71,7 @@ async def submit_manual_waybill(request: WaybillMapRequest):
                 "message": "خطا در قرارگیری بارنامه در صف",
                 "detail": str(exc),
             },
-        )
+        ) from exc
 
 
 @router.post(

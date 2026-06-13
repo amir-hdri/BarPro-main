@@ -8,7 +8,7 @@ function getWebSocketUrl(): string {
     // Replace http:// with ws:// and https:// with wss://
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     return `${url.origin}/ws/waybill`;
-  } catch (e) {
+  } catch {
     // Fallback if URL parsing fails
     return "ws://localhost:8000/ws/waybill";
   }

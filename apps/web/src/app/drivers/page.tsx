@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { PlusIcon, UserCircleIcon } from '@heroicons/react/24/outline';
 
 import { AppShell } from '@/components/layout/AppShell';
@@ -54,7 +54,7 @@ export default function DriversPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadDrivers() {
+  const loadDrivers = useCallback(async () => {
       if (role !== "client") { setLoading(false); return; }
 
     setLoading(true);
@@ -76,7 +76,7 @@ export default function DriversPage() {
     setSchedules(schedulesResponse.data || []);
     setError(null);
     setLoading(false);
-  }
+  }, [role]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -215,7 +215,7 @@ export default function DriversPage() {
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
-  }, [role]);
+  }, [role, loadDrivers]);
 
   return (
     <AppShell>
@@ -484,11 +484,4 @@ function Input({ label, onChange, required, type = 'text', value }: { label: str
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl bg-white px-4 py-3">
-      <p className="text-xs text-slate-400">{label}</p>
-      <p className="mt-2 text-sm font-medium text-slate-900">{value}</p>
-    </div>
-  );
-}
+

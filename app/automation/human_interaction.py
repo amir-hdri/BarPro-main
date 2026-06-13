@@ -41,7 +41,7 @@ async def human_type(
 ) -> None:
     """
     Type text with realistic human-like delays and patterns.
-    
+
     Args:
         page: Playwright page instance
         selector: Target element selector
@@ -168,7 +168,7 @@ class MouseMovementEngine:
     ) -> tuple[float, float] | None:
         """
         Move mouse to element with realistic human movement.
-        
+
         Args:
             page: Playwright page instance
             selector: Target element selector
@@ -176,7 +176,7 @@ class MouseMovementEngine:
             use_bezier: Use bezier curve for natural movement
             add_wobble: Add slight wobble (hand tremor simulation)
             hover_before_click: Pause briefly before clicking
-            
+
         Returns:
             Target coordinates or None if failed
         """
@@ -239,13 +239,13 @@ class MouseMovementEngine:
     ) -> bool:
         """
         Click element with human-like mouse behavior.
-        
+
         Args:
             page: Playwright page instance
             selector: Target element selector
             use_human_movement: Use realistic mouse movement
             wait_for_navigation: Wait for page navigation after click
-            
+
         Returns:
             True if click was successful
         """
@@ -421,7 +421,7 @@ class HumanTiming:
     ) -> None:
         """
         Add random delay with different distribution options.
-        
+
         Args:
             min_seconds: Minimum delay
             max_seconds: Maximum delay
@@ -449,7 +449,7 @@ class HumanTiming:
     async def action_delay(action_type: str = "default") -> None:
         """
         Pre-configured delays for different action types.
-        
+
         Args:
             action_type: Type of action ('page_load', 'click', 'form_fill', 'submit', 'default')
         """

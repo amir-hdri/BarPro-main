@@ -25,9 +25,9 @@ def check_status():
 
         # Check indexes
         cursor.execute("""
-            SELECT indexname 
-            FROM pg_indexes 
-            WHERE schemaname = 'public' 
+            SELECT indexname
+            FROM pg_indexes
+            WHERE schemaname = 'public'
             AND indexname LIKE 'idx_%'
             ORDER BY indexname
         """)

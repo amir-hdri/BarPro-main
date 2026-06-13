@@ -45,7 +45,7 @@ def check_schema():
 
     for row in rows:
         print("\n🚗 Driver:")
-        for col, val in zip(col_names, row):
+        for col, val in zip(col_names, row, strict=False):
             print(f"  {col:30s}: {val}")
 
     conn.close()

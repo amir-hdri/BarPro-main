@@ -60,7 +60,7 @@ def _to_bool(value: Any) -> bool | None:
         return None
     if isinstance(value, bool):
         return value
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return bool(value)
     text = str(value).strip().lower()
     if text in {"1", "true", "yes", "on"}:
@@ -857,7 +857,7 @@ class ManagementService:
             try:
                 payload = json.loads(record.payload_json)
             except Exception:
-                raise HTTPException(status_code=400, detail="payload queue item نامعتبر است")
+                raise HTTPException(status_code=400, detail="payload queue item نامعتبر است") from None
 
             account_record = None
             if record.account_external_name:

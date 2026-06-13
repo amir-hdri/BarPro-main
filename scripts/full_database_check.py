@@ -35,10 +35,10 @@ def check_database():
         # 2. لیست جداول
         print("\n2️⃣ جداول موجود:")
         cursor.execute("""
-            SELECT table_name, 
+            SELECT table_name,
                    pg_size_pretty(pg_total_relation_size(quote_ident(table_name)::regclass)) as size
-            FROM information_schema.tables 
-            WHERE table_schema = 'public' 
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
             ORDER BY table_name
         """)
         tables = cursor.fetchall()
@@ -52,8 +52,8 @@ def check_database():
         print("\n3️⃣ Indexes عملکردی:")
         cursor.execute("""
             SELECT indexname, tablename
-            FROM pg_indexes 
-            WHERE schemaname = 'public' 
+            FROM pg_indexes
+            WHERE schemaname = 'public'
             AND indexname LIKE 'idx_%'
             ORDER BY tablename, indexname
         """)
@@ -84,11 +84,11 @@ def check_database():
         print("\n5️⃣ Foreign Keys:")
         cursor.execute("""
             SELECT
-                tc.table_name, 
+                tc.table_name,
                 kcu.column_name,
                 ccu.table_name AS foreign_table_name,
-                ccu.column_name AS foreign_column_name 
-            FROM information_schema.table_constraints AS tc 
+                ccu.column_name AS foreign_column_name
+            FROM information_schema.table_constraints AS tc
             JOIN information_schema.key_column_usage AS kcu
               ON tc.constraint_name = kcu.constraint_name
               AND tc.table_schema = kcu.table_schema
@@ -125,7 +125,7 @@ def check_database():
         print(f"   🚗 Drivers: {drivers_count}")
         if drivers_count > 0:
             cursor.execute("SELECT id, username, state FROM drivers LIMIT 3")
-            for did, username, state in cursor.fetchall():
+            for _did, username, state in cursor.fetchall():
                 print(f"      - {username} ({state})")
 
         # Waybill Jobs
@@ -134,8 +134,8 @@ def check_database():
         print(f"   📦 Waybill Jobs: {jobs_count}")
         if jobs_count > 0:
             cursor.execute("""
-                SELECT status, COUNT(*) 
-                FROM waybill_jobs 
+                SELECT status, COUNT(*)
+                FROM waybill_jobs
                 GROUP BY status
             """)
             for status, count in cursor.fetchall():
@@ -147,8 +147,8 @@ def check_database():
         print(f"   📋 Waybill Tasks: {tasks_count}")
         if tasks_count > 0:
             cursor.execute("""
-                SELECT status, COUNT(*) 
-                FROM waybilltask 
+                SELECT status, COUNT(*)
+                FROM waybilltask
                 GROUP BY status
             """)
             for status, count in cursor.fetchall():

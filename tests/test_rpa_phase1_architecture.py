@@ -29,9 +29,9 @@ async def test_phase1_scheduler_routes_job_to_auth_then_submit():
 
     async with async_session() as session:
         client = Client(
-            client_code="tenant-a", 
-            name="Tenant A", 
-            email="a@example.com", 
+            client_code="tenant-a",
+            name="Tenant A",
+            email="a@example.com",
             hashed_password="hash",
             username="tenant_a",
             full_name="Tenant A Admin"
@@ -118,9 +118,9 @@ async def test_phase1_scheduler_respects_daily_attempt_cap():
 
     async with async_session() as session:
         client = Client(
-            client_code="tenant-b", 
-            name="Tenant B", 
-            email="b@example.com", 
+            client_code="tenant-b",
+            name="Tenant B",
+            email="b@example.com",
             hashed_password="hash",
             username="tenant_b",
             full_name="Tenant B Admin"
@@ -168,9 +168,9 @@ async def test_phase1_scheduler_does_not_stick_job_during_tenant_cooldown():
 
     async with async_session() as session:
         client = Client(
-            client_code="tenant-c", 
-            name="Tenant C", 
-            email="c@example.com", 
+            client_code="tenant-c",
+            name="Tenant C",
+            email="c@example.com",
             hashed_password="hash",
             username="tenant_c",
             full_name="Tenant C Admin"
@@ -217,11 +217,11 @@ async def test_phase1_scheduler_preview_has_no_side_effects():
 
     async with async_session() as session:
         client = Client(
-            client_code="tenant-preview", 
-            name="Tenant Preview", 
-            email="preview@example.com", 
-            hashed_password="hash", 
-            username="tenant_preview", 
+            client_code="tenant-preview",
+            name="Tenant Preview",
+            email="preview@example.com",
+            hashed_password="hash",
+            username="tenant_preview",
             full_name="Tenant Preview Admin"
         )
         session.add(client)
@@ -266,9 +266,9 @@ async def test_phase1_dispatch_due_jobs_enqueues_auth_task_and_persists_task_id(
 
     async with async_session() as session:
         client = Client(
-            client_code="tenant-dispatch", 
-            name="Tenant Dispatch", 
-            email="dispatch@example.com", 
+            client_code="tenant-dispatch",
+            name="Tenant Dispatch",
+            email="dispatch@example.com",
             hashed_password="hash",
             username="tenant_dispatch",
             full_name="Tenant Dispatch Admin"
@@ -324,11 +324,11 @@ async def test_phase1_auth_success_dispatches_submit_for_resume_job():
 
     async with async_session() as session:
         client = Client(
-            client_code="tenant-auth-flow", 
-            name="Tenant Auth Flow", 
-            email="authflow@example.com", 
-            hashed_password="hash", 
-            username="tenant_auth_flow", 
+            client_code="tenant-auth-flow",
+            name="Tenant Auth Flow",
+            email="authflow@example.com",
+            hashed_password="hash",
+            username="tenant_auth_flow",
             full_name="Tenant Auth Flow Admin"
         )
         session.add(client)

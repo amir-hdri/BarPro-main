@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { DriverReport, FailureAnalysis } from "@/lib/types";
 import { Filter, Loader2 } from "lucide-react";
@@ -14,13 +14,13 @@ export default function AdminReportsPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [driverFilter, setDriverFilter] = useState("");
+  const [driverFilter] = useState("");
 
   // Failure analysis state
   const [failureAnalysis, setFailureAnalysis] = useState<FailureAnalysis | null>(null);
   const [failureLoading, setFailureLoading] = useState(false);
 
-  async function loadDriverReport() {
+  const loadDriverReport = useCallback(async () => {
     setDriverLoading(true);
     const params: Record<string, string> = { page: "1", page_size: "50" };
     if (dateFrom) params.date_from = dateFrom;
@@ -31,9 +31,9 @@ export default function AdminReportsPage() {
     const res = await api.get<DriverReport>("/admin/reports/drivers/report", params);
     if (res.data) setDriverReport(res.data);
     setDriverLoading(false);
-  }
+  }, [dateFrom, dateTo, statusFilter, driverFilter]);
 
-  async function loadFailureAnalysis() {
+  const loadFailureAnalysis = useCallback(async () => {
     setFailureLoading(true);
     const params: Record<string, string> = {};
     if (dateFrom) params.date_from = dateFrom;
@@ -42,12 +42,12 @@ export default function AdminReportsPage() {
     const res = await api.get<FailureAnalysis>("/admin/reports/failure-analysis", params);
     if (res.data) setFailureAnalysis(res.data);
     setFailureLoading(false);
-  }
+  }, [dateFrom, dateTo]);
 
   useEffect(() => {
     if (activeTab === "driver") loadDriverReport();
     else loadFailureAnalysis();
-  }, [activeTab, dateFrom, dateTo, statusFilter]);
+  }, [activeTab, loadDriverReport, loadFailureAnalysis]);
 
   return (
     <div className="space-y-6 animate-fade-in">

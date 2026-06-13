@@ -196,7 +196,7 @@ class UTCMSConfig:
         self.LATENCY_SAMPLE_MAX = int(os.getenv("LATENCY_SAMPLE_MAX", "2000"))
         self.FAILURE_ARTIFACTS_DIR = os.getenv("FAILURE_ARTIFACTS_DIR", "output/failure_artifacts").strip()
         self.TRACE_HEADER_NAME = os.getenv("TRACE_HEADER_NAME", "X-Correlation-ID").strip()
-        
+
         # Logging configuration
         self.LOG_FILE = os.getenv("LOG_FILE", "").strip()
         self.LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", "104857600"))  # 100MB default

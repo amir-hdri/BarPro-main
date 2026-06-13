@@ -53,7 +53,7 @@ def sanitize(value: Any) -> Any:
             else:
                 clean[key] = sanitize(raw)
         return clean
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, list | tuple | set):
         return [sanitize(v) for v in value]
     if isinstance(value, str):
         return _sanitize_string(value)
@@ -161,7 +161,7 @@ def configure_logging(log_level: str = "INFO", log_file: str | None = None, max_
             log_dir = os.path.dirname(log_file)
             if log_dir:
                 os.makedirs(log_dir, exist_ok=True)
-            
+
             # Use RotatingFileHandler for built-in rotation support
             file_handler = logging.handlers.RotatingFileHandler(
                 filename=log_file,
@@ -173,8 +173,8 @@ def configure_logging(log_level: str = "INFO", log_file: str | None = None, max_
             file_handler.setFormatter(formatter)
             file_handler.addFilter(request_filter)
             root.addHandler(file_handler)
-            
-            logger.info(
+
+            logging.getLogger(__name__).info(
                 "file_logging_configured",
                 extra={"extra_fields": {"file": log_file, "max_bytes": max_bytes, "backup_count": backup_count}},
             )

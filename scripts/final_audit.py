@@ -27,11 +27,11 @@ for filepath in files_to_check:
     issues = []
     lines = content.split('\n')
 
-    todos = [l.strip() for l in lines if 'TODO' in l or 'FIXME' in l or 'HACK' in l]
+    todos = [line.strip() for line in lines if 'TODO' in line or 'FIXME' in line or 'HACK' in line]
     if todos:
         issues.append(f'TODOs/FIXMEs: {len(todos)}')
 
-    prints = [l.strip() for l in lines if l.strip().startswith('print(')]
+    prints = [line.strip() for line in lines if line.strip().startswith('print(')]
     if prints:
         issues.append(f'Print statements: {len(prints)}')
 
@@ -104,7 +104,7 @@ print()
 
 total_files = 0
 total_lines = 0
-for root, dirs, files in os.walk('app'):
+for root, _dirs, files in os.walk('app'):
     if '__pycache__' in root:
         continue
     for f in files:

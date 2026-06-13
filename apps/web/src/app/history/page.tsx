@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
@@ -8,7 +8,7 @@ import { useSession } from '@/hooks/useSession';
 import { api } from '@/lib/api';
 import { formatDateTime, statusLabel, statusTone, toPersianDigits } from '@/lib/format';
 import type { JobTimelineResponse, WaybillJob, WaybillJobUpdateRequest, WaybillTaskListResponse } from '@/lib/types';
-import { ClockIcon, Activity, ListChecks, MoreVertical, Edit2, Trash2, RefreshCw, X, Check, AlertCircle } from 'lucide-react';
+import { Activity, ListChecks, MoreVertical, Edit2, Trash2, X, Check, AlertCircle } from 'lucide-react';
 
 export default function HistoryPage() {
   const { client } = useSession();
@@ -42,7 +42,7 @@ export default function HistoryPage() {
   const [editError, setEditError] = useState<string | null>(null);
   const [editSuccess, setEditSuccess] = useState<string | null>(null);
 
-  async function loadJobs() {
+  const loadJobs = useCallback(async () => {
     if (client?.role === 'master_admin') { setLoading?.(false); return; }
     setLoading(true);
     const response = await api.get<WaybillTaskListResponse>('/api/v1/waybill-jobs', { page: '1', page_size: '25' });
@@ -59,11 +59,11 @@ export default function HistoryPage() {
     }
     setError(null);
     setLoading(false);
-  }
+  }, [client?.role, selectedJobId]);
 
   useEffect(() => {
     loadJobs();
-  }, [client?.role]);
+  }, [client?.role, loadJobs]);
 
   async function handleRetry(jobId: string) {
     setRetryingJobId(jobId);

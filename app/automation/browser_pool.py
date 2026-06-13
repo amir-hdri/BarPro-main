@@ -124,7 +124,7 @@ class BrowserPool:
             # Check available contexts in queue
             available = self._queue.qsize()
 
-            for context_id, health in self._context_health.items():
+            for _context_id, health in self._context_health.items():
                 total_errors += health.error_count
                 total_successes += health.success_count
 

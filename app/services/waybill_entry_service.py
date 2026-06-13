@@ -99,43 +99,36 @@ class ExcelWaybillParser:
         "sender_address": ["آدرس فرستنده", "sender_address"],
         "sender_lat": ["lat فرستنده", "عرض جغرافیایی فرستنده", "sender_lat"],
         "sender_lng": ["long فرستنده", "طول جغرافیایی فرستنده", "sender_lng"],
-
         "receiver_name": ["نام گیرنده", "گیرنده", "receiver_name"],
         "receiver_national_code": ["کد ملی گیرنده", "receiver_national_code"],
         "receiver_phone": ["موبایل گیرنده", "تلفن گیرنده", "receiver_phone", "receiver_mobile"],
         "receiver_address": ["آدرس گیرنده", "receiver_address"],
         "receiver_lat": ["lat گیرنده", "عرض جغرافیایی گیرنده", "receiver_lat"],
         "receiver_lng": ["long گیرنده", "طول جغرافیایی گیرنده", "receiver_lng"],
-
         "origin_province": ["استان مبدأ", "استان مبدا", "origin_province"],
         "origin_city": ["شهر مبدأ", "شهر مبدا", "origin_city"],
         "origin_district": ["منطقه مبدأ", "منطقه مبدا", "origin_district"],
         "origin_address": ["آدرس مبدأ", "origin_address"],
         "origin_lat": ["lat مبدأ", "lat مبدا", "origin_lat"],
         "origin_lng": ["long مبدأ", "long مبدا", "origin_lng"],
-
         "destination_province": ["استان مقصد", "destination_province"],
         "destination_city": ["شهر مقصد", "destination_city"],
         "destination_district": ["منطقه مقصد", "destination_district"],
         "destination_address": ["آدرس مقصد", "destination_address"],
         "destination_lat": ["lat مقصد", "destination_lat"],
         "destination_lng": ["long مقصد", "destination_lng"],
-
         "cargo_type": ["نوع کالا", "cargo_type"],
         "cargo_weight": ["وزن بار (تن)", "وزن کالا", "cargo_weight", "weight_ton"],
         "cargo_count": ["تعداد بار", "تعداد کالا", "cargo_count"],
         "cargo_description": ["توضیحات کالا", "cargo_description"],
-
         "driver_national_code": ["کد ملی راننده", "driver_national_code"],
         "driver_phone": ["تلفن راننده", "driver_phone"],
         "plate_first_two": ["پلاک ملی: دو رقم اول پلاک", "plate_first_two"],
         "plate_letter": ["پلاک ملی: حرف پلاک", "plate_letter"],
         "plate_three": ["پلاک ملی: سه رقم پلاک", "plate_three"],
         "plate_last_two": ["پلاک ملی: دو رقم آخر پلاک", "plate_last_two"],
-
         "cost": ["هزینه حمل", "cost", "freight_cost"],
         "payment_method": ["روش پرداخت", "payment_method"],
-
         "account_username": ["نام کاربری اکانت ثبت", "account_username", "username"],
         "account_password": ["رمز عبور اکانت ثبت", "account_password", "password"],
     }
@@ -357,9 +350,7 @@ class ManualWaybillService:
 
         # Validate auth
         has_request_auth = (
-            request.utcms_auth
-            and request.utcms_auth.username.strip()
-            and request.utcms_auth.password.strip()
+            request.utcms_auth and request.utcms_auth.username.strip() and request.utcms_auth.password.strip()
         )
         if not has_request_auth:
             errors.append("اطلاعات ورود UTCMS باید برای هر راننده یا هر درخواست به صورت صریح ارسال شود")
@@ -376,31 +367,49 @@ class ManualWaybillService:
     def _count_completed_fields(request: WaybillMapRequest) -> int:
         """Count number of completed fields."""
         count = 0
-        total = 20
 
-        if request.sender.name: count += 1
-        if request.sender.phone: count += 1
-        if request.sender.national_code: count += 1
-        if request.sender.address: count += 1
+        if request.sender.name:
+            count += 1
+        if request.sender.phone:
+            count += 1
+        if request.sender.national_code:
+            count += 1
+        if request.sender.address:
+            count += 1
 
-        if request.receiver.name: count += 1
-        if request.receiver.phone: count += 1
-        if request.receiver.address: count += 1
+        if request.receiver.name:
+            count += 1
+        if request.receiver.phone:
+            count += 1
+        if request.receiver.address:
+            count += 1
 
-        if request.origin.province: count += 1
-        if request.origin.city: count += 1
-        if request.origin.address: count += 1
+        if request.origin.province:
+            count += 1
+        if request.origin.city:
+            count += 1
+        if request.origin.address:
+            count += 1
 
-        if request.destination.province: count += 1
-        if request.destination.city: count += 1
-        if request.destination.address: count += 1
+        if request.destination.province:
+            count += 1
+        if request.destination.city:
+            count += 1
+        if request.destination.address:
+            count += 1
 
-        if request.cargo.weight: count += 1
-        if request.vehicle.driver_national_code: count += 1
-        if request.vehicle.plate: count += 1
-        if request.financial.cost: count += 1
-        if request.utcms_auth and request.utcms_auth.username: count += 1
-        if request.utcms_auth and request.utcms_auth.password: count += 1
+        if request.cargo.weight:
+            count += 1
+        if request.vehicle.driver_national_code:
+            count += 1
+        if request.vehicle.plate:
+            count += 1
+        if request.financial.cost:
+            count += 1
+        if request.utcms_auth and request.utcms_auth.username:
+            count += 1
+        if request.utcms_auth and request.utcms_auth.password:
+            count += 1
 
         return count
 
@@ -448,27 +457,31 @@ class ExcelWaybillService:
             errors = []
             for idx, row in enumerate(rows[1:], start=2):
                 try:
-                    waybill = self.parser.row_to_waybill_request(
-                        row, column_map, operation_mode
-                    )
+                    waybill = self.parser.row_to_waybill_request(row, column_map, operation_mode)
                     if waybill:
                         # Validate
                         validation = self.manual_service.validate_manual_entry(waybill)
-                        waybills.append({
-                            "row": idx,
-                            "waybill": waybill,
-                            "validation": validation,
-                        })
+                        waybills.append(
+                            {
+                                "row": idx,
+                                "waybill": waybill,
+                                "validation": validation,
+                            }
+                        )
                     else:
-                        errors.append({
-                            "row": idx,
-                            "error": "داده‌های ناکافی برای ایجاد بارنامه",
-                        })
+                        errors.append(
+                            {
+                                "row": idx,
+                                "error": "داده‌های ناکافی برای ایجاد بارنامه",
+                            }
+                        )
                 except Exception as exc:
-                    errors.append({
-                        "row": idx,
-                        "error": str(exc),
-                    })
+                    errors.append(
+                        {
+                            "row": idx,
+                            "error": str(exc),
+                        }
+                    )
 
             # Cleanup temp file
             temp_file.unlink(missing_ok=True)
@@ -515,35 +528,41 @@ class ExcelWaybillService:
 
         for item in parse_result["waybills"]:
             try:
-                waybill: WaybillMapRequest = item["waybill"]
+                item["waybill"]
 
                 # Check if live submit is allowed
                 if operation_mode == OperationMode.FULL and not utcms_config.ALLOW_LIVE_SUBMIT:
                     if skip_invalid:
                         error_count += 1
-                        results.append({
-                            "row": item["row"],
-                            "status": "skipped",
-                            "error": "ارسال واقعی غیرفعال است",
-                        })
+                        results.append(
+                            {
+                                "row": item["row"],
+                                "status": "skipped",
+                                "error": "ارسال واقعی غیرفعال است",
+                            }
+                        )
                         continue
 
                 # Here you would call the waybill service to actually process
                 # For now, just mark as queued
-                results.append({
-                    "row": item["row"],
-                    "status": "queued",
-                    "validation": item["validation"],
-                })
+                results.append(
+                    {
+                        "row": item["row"],
+                        "status": "queued",
+                        "validation": item["validation"],
+                    }
+                )
                 success_count += 1
 
             except Exception as exc:
                 error_count += 1
-                results.append({
-                    "row": item["row"],
-                    "status": "failed",
-                    "error": str(exc),
-                })
+                results.append(
+                    {
+                        "row": item["row"],
+                        "status": "failed",
+                        "error": str(exc),
+                    }
+                )
 
         return {
             "success": True,

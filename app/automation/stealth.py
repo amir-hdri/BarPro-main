@@ -56,10 +56,10 @@ def _build_init_script(fp: dict) -> str:
     """
     Build stealth initialization script.
     Uses common script from stealth_common module.
-    
+
     Args:
         fp: Fingerprint dictionary
-        
+
     Returns:
         JavaScript stealth script
     """
@@ -78,7 +78,7 @@ def _build_init_script(fp: dict) -> str:
 async def apply_stealth_mode(page: Page) -> None:
     """
     Apply full stealth fingerprint to a page. Must be called before navigation.
-    
+
     Args:
         page: Playwright page instance
     """
@@ -107,7 +107,7 @@ async def human_like_typing(
 ) -> None:
     """
     Type text with human-like delays.
-    
+
     Args:
         page: Playwright page
         selector: Element selector
@@ -129,7 +129,7 @@ async def human_like_typing(
 async def human_like_mouse_movement(page: Page, target_selector: str) -> None:
     """
     Move mouse to target using cubic bezier curve.
-    
+
     Args:
         page: Playwright page
         target_selector: Element selector to move to
@@ -173,7 +173,7 @@ async def random_scroll(page: Page) -> None:
 async def simulate_human_behavior(page: Page, duration: float = 1.0) -> None:
     """
     Simulate human browsing behavior.
-    
+
     Args:
         page: Playwright page
         duration: Duration in seconds

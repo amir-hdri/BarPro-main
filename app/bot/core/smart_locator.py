@@ -216,7 +216,7 @@ class SmartLocator:
 
     def _is_retryable_error(self, exc: Exception) -> bool:
         """Classify transient errors that should trigger automatic retries."""
-        if isinstance(exc, (PlaywrightTimeoutError, asyncio.TimeoutError)):
+        if isinstance(exc, PlaywrightTimeoutError | asyncio.TimeoutError):
             return True
 
         if isinstance(exc, PlaywrightError):

@@ -181,7 +181,7 @@ class RPASchedulerService:
             waiting_auth_cutoff = now - timedelta(hours=1)
             waiting_retry_cutoff = now - timedelta(hours=1)
             otp_backoff_cutoff = now - timedelta(hours=2)
-            
+
             # Find jobs stuck in various states with appropriate timeouts
             from sqlalchemy import or_
             stmt = select(WaybillJob).where(
@@ -195,25 +195,25 @@ class RPASchedulerService:
             )
             result = await session.exec(stmt)
             stuck_jobs = result.all()
-            
+
             count = 0
             for job in stuck_jobs:
                 old_status = job.status
                 logger.warning(
                     "recovering_stuck_job",
                     extra={"extra_fields": {
-                        "job_id": job.job_id, 
+                        "job_id": job.job_id,
                         "old_status": old_status,
                         "last_updated": job.updated_at.isoformat()
                     }}
                 )
-                
+
                 job.status = TaskStatus.PENDING.value
                 job.celery_task_id = None
                 job.worker_id = None
                 job.updated_at = _utcnow_naive()
                 session.add(job)
-                
+
                 # Add log for visibility
                 from app.models_multitenant import WaybillTaskLog
                 session.add(
@@ -226,7 +226,7 @@ class RPASchedulerService:
                     )
                 )
                 count += 1
-            
+
             if count > 0:
                 await session.commit()
             return count

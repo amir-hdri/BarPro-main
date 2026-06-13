@@ -56,7 +56,7 @@ class DistributedSemaphore:
                 local current = redis.call('SCARD', KEYS[1])
                 local max_concurrent = tonumber(ARGV[1])
                 local client_id = ARGV[2]
-                
+
                 if current < max_concurrent then
                     redis.call('SADD', KEYS[1], client_id)
                     redis.call('EXPIRE', KEYS[1], 300)

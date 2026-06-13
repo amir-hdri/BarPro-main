@@ -11,16 +11,15 @@ Usage:
 
 import argparse
 import asyncio
-import aiohttp
+import json
 import random
 import string
-import time
-import json
 import sys
-from datetime import datetime
-from typing import Optional, Dict, Any
+import time
 from dataclasses import dataclass, field
-from collections import defaultdict
+from typing import Any
+
+import aiohttp
 
 
 @dataclass
@@ -32,8 +31,8 @@ class TestResult:
     total_response_time: float = 0.0
     response_times: list = field(default_factory=list)
     errors: list = field(default_factory=list)
-    start_time: Optional[float] = None
-    end_time: Optional[float] = None
+    start_time: float | None = None
+    end_time: float | None = None
 
 
 @dataclass
@@ -44,7 +43,7 @@ class TestConfig:
     duration: int = 60  # seconds
     spawn_rate: int = 2  # users per second
     endpoints: list = field(default_factory=list)
-    headers: Dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 def generate_random_string(length: int = 10) -> str:
@@ -52,7 +51,7 @@ def generate_random_string(length: int = 10) -> str:
     return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
 
 
-def generate_waybill_data() -> Dict[str, Any]:
+def generate_waybill_data() -> dict[str, Any]:
     """Generate random waybill data."""
     return {
         "origin": f"City {generate_random_string(5)}",
@@ -69,13 +68,13 @@ async def make_request(
     session: aiohttp.ClientSession,
     method: str,
     path: str,
-    data: Optional[Dict[str, Any]] = None,
-    headers: Optional[Dict[str, str]] = None,
-) -> tuple[bool, float, Optional[str]]:
+    data: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+) -> tuple[bool, float, str | None]:
     """Make an HTTP request and return (success, response_time, error)."""
     url = f"{path}"
     start_time = time.time()
-    
+
     try:
         if method.upper() == "GET":
             async with session.get(url, headers=headers) as response:
@@ -84,7 +83,7 @@ async def make_request(
                     error_text = await response.text()
                     return False, response_time, f"HTTP {response.status}: {error_text[:100]}"
                 return True, response_time, None
-        
+
         elif method.upper() == "POST":
             async with session.post(url, json=data, headers=headers) as response:
                 response_time = time.time() - start_time
@@ -92,7 +91,7 @@ async def make_request(
                     error_text = await response.text()
                     return False, response_time, f"HTTP {response.status}: {error_text[:100]}"
                 return True, response_time, None
-        
+
         elif method.upper() == "PUT":
             async with session.put(url, json=data, headers=headers) as response:
                 response_time = time.time() - start_time
@@ -100,10 +99,10 @@ async def make_request(
                     error_text = await response.text()
                     return False, response_time, f"HTTP {response.status}: {error_text[:100]}"
                 return True, response_time, None
-        
+
         else:
             return False, 0, f"Unsupported method: {method}"
-    
+
     except Exception as e:
         return False, time.time() - start_time, str(e)
 
@@ -117,7 +116,7 @@ async def user_task(
     # Create a session for this user
     connector = aiohttp.TCPConnector(limit_per_host=10)
     timeout = aiohttp.ClientTimeout(total=30)
-    
+
     async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
         # Define the tasks this user will perform
         tasks = [
@@ -130,7 +129,7 @@ async def user_task(
                 "destination": f"City {generate_random_string(5)}",
             }),
         ]
-        
+
         # Use custom endpoints if provided
         if config.endpoints:
             tasks = []
@@ -139,21 +138,21 @@ async def user_task(
                 path = endpoint.get("path", "/")
                 data = endpoint.get("data", None)
                 tasks.append((method, f"{config.url}{path}", data))
-        
+
         # Random delay between requests
         await asyncio.sleep(random.uniform(0.1, 0.5))
-        
+
         # Perform tasks in a loop
         start_time = time.time()
         while time.time() - start_time < config.duration:
             # Randomly select a task
             method, url, data = random.choice(tasks)
-            
+
             # Make the request
             success, response_time, error = await make_request(
                 session, method, url, data, config.headers
             )
-            
+
             # Update results
             result.total_requests += 1
             if success:
@@ -162,10 +161,10 @@ async def user_task(
                 result.failed_requests += 1
                 if error:
                     result.errors.append(f"User {user_id} - {method} {url}: {error}")
-            
+
             result.total_response_time += response_time
             result.response_times.append(response_time)
-            
+
             # Random wait between requests
             await asyncio.sleep(random.uniform(0.5, 2.0))
 
@@ -174,17 +173,17 @@ async def run_load_test(config: TestConfig) -> TestResult:
     """Run the load test."""
     result = TestResult()
     result.start_time = time.time()
-    
+
     # Print test information
     print(f"\n{'='*60}")
-    print(f"Starting Load Test")
+    print("Starting Load Test")
     print(f"{'='*60}")
     print(f"URL: {config.url}")
     print(f"Users: {config.users}")
     print(f"Duration: {config.duration} seconds")
     print(f"Spawn Rate: {config.spawn_rate} users/second")
     print(f"{'='*60}\n")
-    
+
     # Create user tasks
     tasks = []
     for user_id in range(config.users):
@@ -193,27 +192,27 @@ async def run_load_test(config: TestConfig) -> TestResult:
             delay = user_id / config.spawn_rate
         else:
             delay = 0
-        
+
         task = asyncio.create_task(
             asyncio.sleep(delay)
         )
         task.add_done_callback(
-            lambda _: asyncio.create_task(user_task(user_id, config, result))
+            lambda _, uid=user_id: asyncio.create_task(user_task(uid, config, result))
         )
         tasks.append(task)
-    
+
     # Wait for all users to complete
     await asyncio.gather(*tasks, return_exceptions=True)
-    
+
     result.end_time = time.time()
-    
+
     return result
 
 
 def print_report(result: TestResult) -> None:
     """Print the test report."""
     duration = result.end_time - result.start_time if result.end_time and result.start_time else 0
-    
+
     print(f"\n{'='*60}")
     print("Load Test Report")
     print(f"{'='*60}")
@@ -221,11 +220,11 @@ def print_report(result: TestResult) -> None:
     print(f"Total Requests: {result.total_requests}")
     print(f"Successful: {result.successful_requests}")
     print(f"Failed: {result.failed_requests}")
-    
+
     if result.total_requests > 0:
         success_rate = (result.successful_requests / result.total_requests) * 100
         print(f"Success Rate: {success_rate:.2f}%")
-    
+
     if result.response_times:
         avg_response_time = sum(result.response_times) / len(result.response_times) * 1000
         min_response_time = min(result.response_times) * 1000
@@ -233,13 +232,13 @@ def print_report(result: TestResult) -> None:
         print(f"Average Response Time: {avg_response_time:.2f}ms")
         print(f"Min Response Time: {min_response_time:.2f}ms")
         print(f"Max Response Time: {max_response_time:.2f}ms")
-    
+
     if result.total_requests > 0 and duration > 0:
         rps = result.total_requests / duration
         print(f"Requests Per Second: {rps:.2f}")
-    
+
     print(f"{'='*60}")
-    
+
     # Print errors if any
     if result.errors:
         print(f"\nErrors ({len(result.errors)}):")
@@ -260,9 +259,9 @@ def main():
     parser.add_argument("--api-key", default="", help="API key for authentication")
     parser.add_argument("--endpoints", default="", help="JSON string of endpoints to test")
     parser.add_argument("--output", default="", help="Output file for JSON report")
-    
+
     args = parser.parse_args()
-    
+
     # Parse endpoints if provided
     endpoints = []
     if args.endpoints:
@@ -271,7 +270,7 @@ def main():
         except json.JSONDecodeError:
             print("Error: Invalid JSON for --endpoints")
             sys.exit(1)
-    
+
     # Build headers
     headers = {
         "Content-Type": "application/json",
@@ -281,7 +280,7 @@ def main():
         headers["Authorization"] = f"Bearer {args.token}"
     if args.api_key:
         headers["X-API-Key"] = args.api_key
-    
+
     # Create config
     config = TestConfig(
         url=args.url,
@@ -291,13 +290,13 @@ def main():
         endpoints=endpoints,
         headers=headers,
     )
-    
+
     # Run test
     result = asyncio.run(run_load_test(config))
-    
+
     # Print report
     print_report(result)
-    
+
     # Save JSON report if requested
     if args.output:
         report = {
@@ -315,7 +314,7 @@ def main():
         with open(args.output, 'w') as f:
             json.dump(report, f, indent=2)
         print(f"\nReport saved to {args.output}")
-    
+
     # Exit with error code if there were failures
     if result.failed_requests > 0:
         sys.exit(1)

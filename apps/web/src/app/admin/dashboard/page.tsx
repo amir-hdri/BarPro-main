@@ -11,31 +11,13 @@ import {
   Search,
 } from "lucide-react";
 
-interface ClientRow {
-  client_id: number;
-  client_code: string;
-  name: string;
-  email: string;
-  status: string;
-  total_drivers: number;
-  active_drivers: number;
-  total_plates: number;
-  active_plates: number;
-  total_jobs: number;
-  success_jobs: number;
-  failed_jobs: number;
-  success_rate: number;
-  failure_reasons: Record<string, number>;
-  first_activity?: string;
-  last_activity?: string;
-  created_at: string;
-}
+
 
 export default function AdminDashboardPage() {
   const [summary, setSummary] = useState<AdminClientSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [showDetail, setShowDetail] = useState<number | null>(null);
+
 
   useEffect(() => {
     loadSummary();
@@ -58,7 +40,7 @@ export default function AdminDashboardPage() {
   const totalClients = summary?.total_clients || 0;
   const activeClients = summary?.active_clients || 0;
   const totalDrivers = (summary?.rows || []).reduce((a, c) => a + c.total_drivers, 0) || 0;
-  const totalJobs = (summary?.rows || []).reduce((a, c) => a + c.total_jobs, 0) || 0;
+
   const totalSuccess = (summary?.rows || []).reduce((a, c) => a + c.success_jobs, 0) || 0;
   const totalFailed = (summary?.rows || []).reduce((a, c) => a + c.failed_jobs, 0) || 0;
 
@@ -192,12 +174,7 @@ function StatCard({
     emerald: "from-emerald-500/10 to-emerald-500/5 text-emerald-300",
     red: "from-red-500/10 to-red-500/5 text-red-300",
   };
-  const dotMap = {
-    cyan: "bg-cyan-400",
-    amber: "bg-amber-400",
-    emerald: "bg-emerald-400",
-    red: "bg-red-400",
-  };
+
 
   return (
     <div className={`rounded-2xl border border-white/10 bg-gradient-to-br p-5 ${bgMap[color]}`}>

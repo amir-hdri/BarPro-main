@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowTrendingUpIcon,
   ChartBarIcon,
@@ -25,7 +25,7 @@ import type {
   WaybillJob,
   WaybillTaskListResponse,
 } from "@/lib/types";
-import { Zap, ShieldCheck, BarChart3, Clock as ClockIconLucide, XCircle } from 'lucide-react';
+import { Zap, ShieldCheck, XCircle } from 'lucide-react';
 
 const emptyStats: ClientStats = {
   client_id: 0,
@@ -52,7 +52,7 @@ export default function DashboardPage() {
 
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
 
-  async function loadDashboard() {
+  const loadDashboard = useCallback(async () => {
     if (client?.role === 'master_admin') {
       setLoading(false);
       return;
@@ -79,11 +79,11 @@ export default function DashboardPage() {
     }
 
     setLoading(false);
-  }
+  }, [client?.role]);
 
   useEffect(() => {
     loadDashboard();
-  }, [client?.role]);
+  }, [client?.role, loadDashboard]);
 
   async function handleRetry(jobId: string) {
     setRetryingJobId(jobId);

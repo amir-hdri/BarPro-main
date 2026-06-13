@@ -75,7 +75,7 @@ class ITMBWSService:
                     "message": "ارتباط وب‌سرویس ITMB موقتاً قطع شده (Circuit Open)",
                     "retry_after_seconds": round(exc.retry_after_seconds, 2),
                 },
-            )
+            ) from exc
 
         company_code, salt, hashed_value = resolve_itmb_auth(
             company_code=request.CompanyCode,
@@ -120,7 +120,7 @@ class ITMBWSService:
                     "upstream_status": status_code,
                     "upstream_body": exc.response.text[:500],
                 }
-                raise HTTPException(status_code=502, detail=detail)
+                raise HTTPException(status_code=502, detail=detail) from exc
             except httpx.RequestError as exc:
                 if is_retryable_network_error(exc) and attempt < max_attempts:
                     await self._sleep_before_retry(attempt)
@@ -129,7 +129,7 @@ class ITMBWSService:
                 raise HTTPException(
                     status_code=503,
                     detail="ارتباط با وب‌سرویس ITMB برقرار نشد",
-                )
+                ) from exc
             except Exception as exc:
                 if is_retryable_network_error(exc) and attempt < max_attempts:
                     await self._sleep_before_retry(attempt)
@@ -139,7 +139,7 @@ class ITMBWSService:
                 raise HTTPException(
                     status_code=500,
                     detail=f"خطای داخلی در ارتباط با ITMB: {str(exc)}",
-                )
+                ) from exc
 
         if response is None:
             await self._mark_circuit_failure()

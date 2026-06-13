@@ -172,7 +172,14 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
 
     async def test_create_waybill_origin_failure(self):
         """Test failure when origin selection fails."""
-        data = {"sender": {}, "receiver": {}, "origin": {}, "destination": {}}
+        data = {
+            "sender": {},
+            "receiver": {},
+            "vehicle": {"plate": "12A34567"},
+            "cargo": {"type": "General", "weight": 1000},
+            "origin": {},
+            "destination": {}
+        }
 
         # Mock origin failure
         self.mock_location_selector.select_location.return_value = {"success": False, "error": "Map error"}
@@ -185,7 +192,14 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
 
     async def test_create_waybill_destination_failure(self):
         """Test failure when destination selection fails."""
-        data = {"sender": {}, "receiver": {}, "origin": {}, "destination": {}}
+        data = {
+            "sender": {},
+            "receiver": {},
+            "vehicle": {"plate": "12A34567"},
+            "cargo": {"type": "General", "weight": 1000},
+            "origin": {},
+            "destination": {}
+        }
 
         # Mock origin success, destination failure
         self.mock_location_selector.select_location.side_effect = [
@@ -201,7 +215,14 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
 
     async def test_route_calculation_logic(self):
         """Test that route calculation is skipped if coordinates are missing."""
-        data = {"origin": {"province": "Tehran"}, "destination": {"province": "Mashhad"}}  # No coords  # No coords
+        data = {
+            "sender": {},
+            "receiver": {},
+            "vehicle": {"plate": "12A34567"},
+            "cargo": {"type": "General", "weight": 1000},
+            "origin": {"province": "Tehran"},
+            "destination": {"province": "Mashhad"}
+        }
 
         # Mock success but no coordinates returned
         self.mock_location_selector.select_location.side_effect = [

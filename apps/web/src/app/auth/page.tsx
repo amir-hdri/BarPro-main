@@ -211,12 +211,3 @@ export default function AuthPage() {
   );
 }
 
-function Field({ children, label }: { children: React.ReactNode; label: string }) {
-  return (
-    <div className="space-y-2">
-      <label className="text-sm font-semibold text-slate-700">{label}</label>
-      {children}
-    </div>
-  );
-}
-

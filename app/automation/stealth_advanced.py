@@ -78,7 +78,7 @@ STEALTH_CORE_SCRIPT = """
     if (!window.chrome) {
         window.chrome = {};
     }
-    
+
     window.chrome.runtime = {
         ...window.chrome.runtime,
         OnInstalledReason: {
@@ -126,7 +126,7 @@ STEALTH_CORE_SCRIPT = """
             tran: 15
         });
     }
-    
+
     if (!window.chrome.loadTimes) {
         window.chrome.loadTimes = () => ({
             connectionInfo: 'h2',
@@ -153,7 +153,7 @@ STEALTH_CORE_SCRIPT = """
         '__webdriver_script_func', '__webdriver_script_fn', '__fxdriver_evaluate',
         '__driver_evaluate', '__webdriver_attr', '__webdriver_script_attr'
     ];
-    
+
     for (const prop of propsToDelete) {
         if (window[prop] !== undefined) {
             delete window[prop];
@@ -171,7 +171,7 @@ STEALTH_CORE_SCRIPT = """
         'webdriver', '__driver_evaluate', '__webdriver_attr',
         '__fxdriver_evaluate', '__webdriver_script_function'
     ];
-    
+
     seleniumProps.forEach(prop => {
         try {
             Object.defineProperty(navigator, prop, {
@@ -235,7 +235,7 @@ WEBGL_SPOOF_SCRIPT = """
 (vendor, renderer, unmaskedVendor, unmaskedRenderer) => {
     const getParameter = WebGLRenderingContext.prototype.getParameter;
     const getExtension = WebGLRenderingContext.prototype.getExtension;
-    
+
     WebGLRenderingContext.prototype.getParameter = function(parameter) {
         // UNMASKED_VENDOR_WEBGL
         if (parameter === 37445) {
@@ -255,7 +255,7 @@ WEBGL_SPOOF_SCRIPT = """
         }
         return getParameter.call(this, parameter);
     };
-    
+
     // WebGL2 support
     if (typeof WebGL2RenderingContext !== 'undefined') {
         const getParameter2 = WebGL2RenderingContext.prototype.getParameter;
@@ -277,7 +277,7 @@ CANVAS_NOISE_SCRIPT = """
 () => {
     const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
     const originalToBlob = HTMLCanvasElement.prototype.toBlob;
-    
+
     HTMLCanvasElement.prototype.toDataURL = function(...args) {
         const ctx = this.getContext('2d');
         if (ctx) {
@@ -292,7 +292,7 @@ CANVAS_NOISE_SCRIPT = """
         }
         return originalToDataURL.apply(this, args);
     };
-    
+
     HTMLCanvasElement.prototype.toBlob = function(callback, ...args) {
         const ctx = this.getContext('2d');
         if (ctx) {
@@ -315,33 +315,33 @@ AUDIO_SPOOF_SCRIPT = """
     if (typeof AudioContext === 'undefined' && typeof webkitAudioContext === 'undefined') {
         return;
     }
-    
+
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    
+
     window.AudioContext = class extends AudioContextClass {
         constructor(...args) {
             super(...args);
             const originalCreateAnalyser = this.createAnalyser.bind(this);
-            
+
             this.createAnalyser = () => {
                 const analyser = originalCreateAnalyser();
                 const originalGetFloatFrequencyData = analyser.getFloatFrequencyData;
                 const originalGetByteFrequencyData = analyser.getByteFrequencyData;
-                
+
                 analyser.getFloatFrequencyData = function(array) {
                     originalGetFloatFrequencyData.call(this, array);
                     for (let i = 0; i < array.length; i++) {
                         array[i] += (Math.random() - 0.5) * 0.1;
                     }
                 };
-                
+
                 analyser.getByteFrequencyData = function(array) {
                     originalGetByteFrequencyData.call(this, array);
                     for (let i = 0; i < array.length; i++) {
                         array[i] += Math.floor(Math.random() * 3) - 1;
                     }
                 };
-                
+
                 return analyser;
             };
         }
@@ -471,11 +471,11 @@ async def apply_enterprise_stealth(
     """
     Apply comprehensive stealth modifications to hide all automation indicators.
     This is the enterprise-grade replacement for the basic apply_stealth_mode.
-    
+
     Args:
         page: Playwright page instance
         config: Optional stealth configuration
-        
+
     Returns:
         Dictionary of applied stealth modules and their success status
     """
@@ -550,7 +550,7 @@ async def apply_enterprise_stealth(
         if config.randomize_fingerprints:
             try:
                 screen_preset = random.choice(SCREEN_PRESETS)
-                locale_preset = random.choice(LOCALE_PRESETS)
+                random.choice(LOCALE_PRESETS)
 
                 # These are set at context creation time, but we can override some via JS
                 await page.add_init_script(f"""
