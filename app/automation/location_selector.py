@@ -420,6 +420,26 @@ class LocationSelector:
         )
         return runtime
 
+    async def _fetch_reverse_geocode(self, lat: float, lng: float) -> dict[str, Any] | None:
+        try:
+            return await self.page.evaluate(
+                """async ([lat, lng]) => {
+                    try {
+                        const response = await fetch('/Barname/Document/RevereseMap?lat=' + lat + '&lon=' + lng);
+                        if (response.ok) {
+                            const data = await response.json();
+                            return data.obj;
+                        }
+                    } catch (e) {
+                        return null;
+                    }
+                    return null;
+                }""",
+                [lat, lng]
+            )
+        except Exception:
+            return None
+
     async def select_location(self, location_data: dict[str, Any], origin: bool = True) -> dict[str, Any]:
         """
         انتخاب مکان با استفاده از بهترین روش موجود
@@ -443,6 +463,16 @@ class LocationSelector:
         await asyncio.sleep(0.3)
 
         coordinates = location_data.get("coordinates")
+        if coordinates and (not location_data.get("province") or not location_data.get("city")):
+            rev = await self._fetch_reverse_geocode(coordinates.get("lat"), coordinates.get("lng"))
+            if rev:
+                location_data["province"] = location_data.get("province") or rev.get("province")
+                location_data["city"] = location_data.get("city") or rev.get("city") or rev.get("county")
+                location_data["address"] = location_data.get("address") or rev.get("address_compact")
+                logger.info(
+                    "location_augmented_with_reverse_geocode",
+                    extra={"extra_fields": {"prefix": prefix, "location_data": location_data}},
+                )
 
         # ── ۱. Fast-path: UTCMS direct dropdown fill ────────────────────
         utcms_result = await self._try_utcms_direct_fill(location_data, prefix)
@@ -1191,6 +1221,25 @@ class LocationSelector:
                             "success": False,
                             "method": "map",
                             "error": "کلیک روی نقشه تاثیری در فرم نداشت (فیلدها تغییر نکردند)",
+                        }
+                    
+                    if not after_state.get("province") or not after_state.get("city"):
+                        logger.warning(
+                            "map_click_missing_province_or_city_falling_back",
+                            extra={"extra_fields": {"prefix": prefix, "after_state": after_state}},
+                        )
+                        dropdown_result = await self._try_dropdown_selection(location_data, prefix, selectors=selectors)
+                        if dropdown_result["success"]:
+                            return {
+                                "success": True,
+                                "method": "map_with_dropdown_fallback",
+                                "coordinates": {"lat": lat, "lng": lng},
+                                "map_type": map_type,
+                            }
+                        return {
+                            "success": False,
+                            "method": "map",
+                            "error": "استان یا شهر پس از کلیک نقشه مقداردهی نشد و فال‌بک ناموفق بود",
                         }
 
             return {
