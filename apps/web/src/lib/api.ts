@@ -196,6 +196,16 @@ export async function put<T = any>(path: string, body?: any): Promise<ApiRespons
   }
 }
 
+export async function patch<T = any>(path: string, body?: any): Promise<ApiResponse<T>> {
+  try {
+    const res = await axiosClient.patch<T>(path, body);
+    return { data: res.data, success: true };
+  } catch (e: any) {
+    const payload = e?.response?.data ?? e;
+    return { error: extractErrorMessage(payload), success: false };
+  }
+}
+
 export async function del<T = any>(path: string): Promise<ApiResponse<T>> {
   try {
     const res = await axiosClient.delete<T>(path);
@@ -208,4 +218,4 @@ export async function del<T = any>(path: string): Promise<ApiResponse<T>> {
 
 // ─── Backwards-compatible default export ──────────────────────────────────────
 
-export const api = { get, post, put, delete: del };
+export const api = { get, post, put, patch, delete: del };
