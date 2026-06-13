@@ -292,7 +292,7 @@ export default function HistoryPage() {
                         <span className="text-slate-600">{toPersianDigits(job.attempt_count)} از {toPersianDigits(job.max_retries)}</span>
                       </div>
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             )}
