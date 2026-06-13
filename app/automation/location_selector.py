@@ -1135,8 +1135,9 @@ class LocationSelector:
             utcms = self._get_utcms_selectors(is_origin)
             before_state = await self._get_form_state(selectors, prefix) if selectors else {}
 
+            map_selector = "#MapSource" if is_origin else "#MapDestination"
             selected = await self.map_controller.select_on_map(
-                selector=None,
+                selector=map_selector,
                 location=location,
                 search_input_selector=None,
             )
@@ -1155,7 +1156,18 @@ class LocationSelector:
             await self._inject_coordinates_via_js(lat, lng, prefix)
 
             if selectors:
-                after_state = await self._get_form_state(selectors, prefix)
+                # صبر برای دریافت پاسخ بومی معکوس نقشه و مقداردهی فیلدها (حداکثر ۳ ثانیه)
+                has_changes = False
+                after_state = {}
+                for _ in range(15):
+                    after_state = await self._get_form_state(selectors, prefix)
+                    has_changes = any(
+                        val and val != before_state.get(key)
+                        for key, val in after_state.items()
+                    )
+                    if has_changes:
+                        break
+                    await asyncio.sleep(0.2)
 
                 if not after_state:
                     # after_state خالی = فیلدها در DOM نیستند → موفق فرض می‌کنیم
@@ -1164,10 +1176,6 @@ class LocationSelector:
                         extra={"extra_fields": {"prefix": prefix}},
                     )
                 else:
-                    has_changes = any(
-                        val and val != before_state.get(key)
-                        for key, val in after_state.items()
-                    )
                     if not has_changes and after_state == before_state:
                         logger.warning(
                             "map_click_had_no_effect_on_form",
@@ -1356,7 +1364,7 @@ class LocationSelector:
                 ).click(timeout=2500)
             await asyncio.sleep(0.3)
             search_input = self.page.locator("input.select2-search__field").last
-            await search_input.fill(search_value)
+            await search_input.fill(search_value, timeout=3000)
             await asyncio.sleep(1.0)
             results = self.page.locator(".select2-results__option")
             count = await results.count()
@@ -1365,7 +1373,7 @@ class LocationSelector:
                 text = self._normalize_text(await option.inner_text())
                 target = self._normalize_text(search_value)
                 if target and (target in text or text in target):
-                    await option.click()
+                    await option.click(timeout=3000)
                     await asyncio.sleep(0.5)
                     try:
                         await self.page.eval_on_selector(
@@ -1376,7 +1384,7 @@ class LocationSelector:
                         pass
                     return True
             if count > 0:
-                await results.nth(0).click()
+                await results.nth(0).click(timeout=3000)
                 await asyncio.sleep(0.5)
                 try:
                     await self.page.eval_on_selector(

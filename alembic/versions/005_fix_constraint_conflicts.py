@@ -1,4 +1,4 @@
-"""Fix constraint name conflicts between legacy tables.
+"""Fix constraint name conflicts between legacy tables. This migration is idempotent.
 
 Revision ID: 005_constraint_conflicts
 Revises: 004_otp_backoff_tz

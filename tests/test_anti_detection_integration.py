@@ -384,24 +384,30 @@ class TestHumanInteraction:
     async def test_punctuation_delay(self):
         """Test punctuation causes longer delays"""
         from app.automation.human_interaction import _calculate_typing_delay
+        import random
+        from unittest.mock import patch
 
-        base_delay = _calculate_typing_delay(
-            char="a",
-            min_delay=0.05,
-            max_delay=0.15,
-            pause_on_punctuation=False,
-            pause_on_capitals=False,
-            random_hesitation=False,
-        )
+        def mock_uniform(a, b):
+            return (a + b) / 2
 
-        punct_delay = _calculate_typing_delay(
-            char=".",
-            min_delay=0.05,
-            max_delay=0.15,
-            pause_on_punctuation=True,
-            pause_on_capitals=False,
-            random_hesitation=False,
-        )
+        with patch("random.uniform", side_effect=mock_uniform):
+            base_delay = _calculate_typing_delay(
+                char="a",
+                min_delay=0.05,
+                max_delay=0.15,
+                pause_on_punctuation=False,
+                pause_on_capitals=False,
+                random_hesitation=False,
+            )
+
+            punct_delay = _calculate_typing_delay(
+                char=".",
+                min_delay=0.05,
+                max_delay=0.15,
+                pause_on_punctuation=True,
+                pause_on_capitals=False,
+                random_hesitation=False,
+            )
 
         # Punctuation should be slower
         assert punct_delay > base_delay

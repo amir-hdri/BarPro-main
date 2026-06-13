@@ -216,6 +216,7 @@ class AuthSelectors:
         "input[type='password']",
     )
     CAPTCHA_SELECTORS = (
+        "cap-widget",
         "input[name='CapToken']",
         "input[id='CapToken']",
         "input[name='DNTCaptchaInputText']",

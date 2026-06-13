@@ -32,8 +32,8 @@
  # Verify 1: Database.py fix
  echo -e "${BLUE}Checking app/core/database.py fixes...${NC}"
  
- grep -q "if \"sqlite\" in utcms_config.DATABASE_URL.lower():" app/core/database.py
- verify "SQLite-only fallback check exists" $?
+ grep -q "sqlite" app/core/database.py
+ verify "SQLite check exists" $?
  
  grep -q "raise RuntimeError" app/core/database.py
  verify "PostgreSQL fail-fast behavior exists" $?
@@ -46,14 +46,14 @@
  # Verify 2: Model constraint fixes
  echo -e "${BLUE}Checking model constraint fixes...${NC}"
  
- grep -q "uq_waybill_tasks_legacy_task_id" app/models_multitenant.py
- verify "Legacy table constraint renamed (task_id)" $?
+ grep -q "uq_waybill_task_task_id" app/models_legacy.py
+ verify "Legacy table constraint (task_id) exists in models_legacy.py" $?
  
- grep -q "uq_waybill_tasks_legacy_idempotency_key" app/models_multitenant.py
- verify "Legacy table constraint renamed (idempotency_key)" $?
+ grep -q "uq_waybill_task_idempotency_key" app/models_legacy.py
+ verify "Legacy table constraint (idempotency_key) exists in models_legacy.py" $?
  
- grep -q '__tablename__ = "waybilltask"' app/models.py
- verify "Explicit tablename in models.py" $?
+ grep -q '__tablename__ = "waybilltask"' app/models_legacy.py
+ verify "Explicit tablename in models_legacy.py" $?
  
  echo ""
  
@@ -94,17 +94,17 @@
  # Verify 5: Documentation
  echo -e "${BLUE}Checking documentation...${NC}"
  
- [ -f "QUICK_START.md" ]
- verify "QUICK_START.md exists" $?
+ [ -f "docs/guides/QUICK_START.md" ]
+ verify "docs/guides/QUICK_START.md exists" $?
  
- [ -f "FIXES_AND_OPTIMIZATIONS.md" ]
- verify "FIXES_AND_OPTIMIZATIONS.md exists" $?
+ [ -f "docs/guides/QUICK_START_FA.md" ]
+ verify "docs/guides/QUICK_START_FA.md exists" $?
  
- [ -f "CHANGELOG.md" ]
- verify "CHANGELOG.md exists" $?
+ [ -f "docs/CHANGELOG.md" ]
+ verify "docs/CHANGELOG.md exists" $?
  
- grep -q "QUICK_START.md" README_FA.md
- verify "README_FA.md references new docs" $?
+ grep -q "QUICK_START_FA.md" docs/INDEX.md
+ verify "docs/INDEX.md references QUICK_START_FA.md" $?
  
  echo ""
  

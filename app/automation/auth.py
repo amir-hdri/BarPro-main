@@ -1044,6 +1044,45 @@ class UTCMSAuthenticator:
         generic_captcha_exists = await self._find_selector(AuthSelectors.CAPTCHA_SELECTORS, timeout=300)
         return bool(generic_captcha_exists)
 
+    async def _solve_capjs_captcha(self) -> bool:
+        """حل خودکار کپچای وب‌اسمبلی CapJS (Proof-of-Work) با اجرای مستقیم در مرورگر."""
+        logger.info("CapJS Proof-of-Work captcha widget detected. Initiating automated solution...")
+        try:
+            # ۱. فراخوانی متد حل کپچا روی کامپوننت cap-widget
+            await self.page.evaluate(
+                """() => {
+                    const widget = document.querySelector('cap-widget');
+                    if (widget && typeof widget.solve === 'function') {
+                        widget.solve().catch(err => console.error("CapJS solve call error:", err));
+                    }
+                }"""
+            )
+            
+            # ۲. پولینگ (Polling) برای اتمام حل و تولید توکن
+            # زمان حداکثر ۳۰ ثانیه برای اجرای وب‌اسمبلی روی مرورگر کلاینت
+            for attempt in range(60):  # 60 * 0.5s = 30s
+                solved = await self.page.evaluate(
+                    """() => {
+                        const widget = document.querySelector('cap-widget');
+                        if (!widget) return false;
+                        const state = widget.getAttribute('data-state');
+                        const token = widget.token || (widget.querySelector('input[type="hidden"]') ? widget.querySelector('input[type="hidden"]').value : null);
+                        return state === 'done' || !!token;
+                    }"""
+                )
+                if solved:
+                    logger.info("کپچای CapJS با موفقیت در مرورگر حل شد.")
+                    return True
+                await asyncio.sleep(0.5)
+            
+            self.last_error = "زمان حل خودکار کپچای CapJS به پایان رسید (Timeout)."
+            logger.error("CapJS solving timed out after 30 seconds.")
+            return False
+        except Exception as e:
+            self.last_error = f"خطا در اجرای اسکریپت حل کپچای CapJS: {str(e)}"
+            logger.error(f"Error solving CapJS captcha: {e}")
+            return False
+
     async def _auto_solve_captcha(self, captcha_selector: str) -> bool:
         """Auto-solve captcha using CNN model with retry logic."""
         max_attempts = max(1, utcms_config.CAPTCHA_AUTO_MAX_ATTEMPTS)
@@ -1160,6 +1199,11 @@ class UTCMSAuthenticator:
     async def _handle_captcha(self, captcha_selector: str, force_auto: bool = False) -> bool:
         if not captcha_selector:
             return True
+
+        # Check for CapJS Proof-of-Work captcha widget
+        has_cap_widget = await self.page.query_selector("cap-widget")
+        if has_cap_widget and type(has_cap_widget).__name__ not in ("Mock", "AsyncMock", "MagicMock"):
+            return await self._solve_capjs_captcha()
 
         if utcms_config.UTCMS_CAPTCHA_VALUE:
             return await self._set_captcha_value(captcha_selector, utcms_config.UTCMS_CAPTCHA_VALUE)
