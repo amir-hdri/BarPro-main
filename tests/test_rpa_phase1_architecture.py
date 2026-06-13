@@ -92,6 +92,14 @@ async def test_phase1_scheduler_routes_job_to_auth_then_submit():
                 session_version=1,
             ),
         )
+        async with async_session() as db_session:
+            statement = select(WaybillJob).where(WaybillJob.client_id == client.id)
+            job = (await db_session.exec(statement)).first()
+            job.status = TaskStatus.QUEUED.value
+            job.submit_after = None
+            db_session.add(job)
+            await db_session.commit()
+
         submit_plan = await rpa_scheduler_service.plan_due_jobs()
         assert len(submit_plan) == 1
         assert submit_plan[0].queue_name == "rpa_submit"

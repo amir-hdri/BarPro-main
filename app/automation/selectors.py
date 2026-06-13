@@ -327,7 +327,7 @@ class AuthSelectors:
         ".modal.show",
         ".modal-open",
     )
-    SUBMIT_SELECTORS = (
+    WAYBILL_SUBMIT_SELECTORS = (
         "#btnregisterbarname",
         "#GoPil9",
         "#GoFinalStep",

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, Any, Tuple
 
 # Add project root to path
-project_root = Path(__file__).resolve().parent
+project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
 
@@ -431,6 +431,144 @@ async def check_async_connectivity() -> Tuple[bool, VerificationReport]:
     return True, report
 
 
+async def check_utcms_connectivity() -> Tuple[bool, VerificationReport]:
+    """بررسی اتصال به سامانه UTCMS و تشخیص موقعیت آی‌پی"""
+    report = VerificationReport()
+    
+    print("\n🌍 Checking UTCMS Connectivity...")
+    
+    import urllib.request
+    import urllib.error
+    import ssl
+    import json
+    
+    target_url = "https://barname.utcms.ir/Barname/Account/Login"
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    
+    # 1. Direct Connection Check
+    utcms_ok = False
+    error_msg = ""
+    try:
+        req = urllib.request.Request(
+            target_url,
+            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+        )
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
+            code = response.getcode()
+            if code in (200, 301, 302):
+                utcms_ok = True
+                error_msg = f"HTTP {code} - Reachable"
+            else:
+                error_msg = f"HTTP {code}"
+    except urllib.error.HTTPError as e:
+        error_msg = f"HTTP Error {e.code}: {e.reason}"
+        if e.code in (403, 444):
+            error_msg += " (Access restricted - likely due to non-Iranian IP)"
+    except urllib.error.URLError as e:
+        error_msg = f"Network Error: {e.reason}"
+    except Exception as e:
+        error_msg = f"Error: {str(e)}"
+        
+    report.add_check(
+        "UTCMS Connection",
+        "Direct connection to UTCMS",
+        utcms_ok,
+        error_msg
+    )
+    
+    # 2. IP Location Check
+    country_code = "UNKNOWN"
+    ip_address = "UNKNOWN"
+    try:
+        req = urllib.request.Request(
+            "https://freeipapi.com/api/json/",
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+        with urllib.request.urlopen(req, context=ctx, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            country_code = data.get("countryCode", "UNKNOWN")
+            ip_address = data.get("ipAddress", "UNKNOWN")
+    except Exception:
+        pass
+        
+    is_iranian = (country_code == "IR")
+    has_proxies = False
+    try:
+        from app.automation.proxy_rotator import get_proxy_rotator
+        rotator = get_proxy_rotator()
+        has_proxies = bool(hasattr(rotator, "proxies") and rotator.proxies)
+    except Exception:
+        pass
+
+    passed = is_iranian or has_proxies
+    ip_msg = f"IP: {ip_address}, Country: {country_code}"
+    if country_code != "UNKNOWN" and not is_iranian:
+        if has_proxies:
+            ip_msg += " ⚠️ (VPN/non-IR IP detected, but proxy pool is configured)"
+        else:
+            ip_msg += " ❌ (WARNING: VPN is active or non-Iranian IP. UTCMS will block requests because no proxies are loaded!)"
+        
+    report.add_check(
+        "UTCMS Connection",
+        "IP Location Check (Must be IR or have proxies)",
+        passed,
+        ip_msg
+    )
+    
+    # 3. Proxy Connection Check
+    try:
+        from app.automation.proxy_rotator import get_proxy_rotator
+        rotator = get_proxy_rotator()
+        if hasattr(rotator, "proxies") and rotator.proxies:
+            report.add_check(
+                "UTCMS Proxy",
+                "Proxy Pool Loaded",
+                True,
+                f"{len(rotator.proxies)} proxies configured"
+            )
+            proxy = await rotator.get_next(require_iran_ip=False)
+            if proxy:
+                proxy_ok = False
+                proxy_err = ""
+                try:
+                    proxy_support = urllib.request.ProxyHandler({'https': proxy.full_url})
+                    opener = urllib.request.build_opener(proxy_support)
+                    urllib.request.install_opener(opener)
+                    
+                    req = urllib.request.Request(
+                        target_url,
+                        headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+                    )
+                    with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
+                        if response.getcode() in (200, 301, 302):
+                            proxy_ok = True
+                            proxy_err = "Reachable via proxy"
+                except Exception as ex:
+                    proxy_err = f"Failed: {str(ex)[:100]}"
+                finally:
+                    urllib.request.install_opener(None)
+                
+                report.add_check(
+                    "UTCMS Proxy",
+                    "Proxy connectivity to UTCMS",
+                    proxy_ok,
+                    proxy_err
+                )
+        else:
+            report.add_check(
+                "UTCMS Proxy",
+                "Proxy Pool Status",
+                True,
+                "No proxies loaded in pool. System relies on direct local IP."
+            )
+    except Exception:
+        pass
+        
+    return True, report
+
+
 def main():
     """اجرای تمام بررسی‌ها"""
     
@@ -462,6 +600,9 @@ def main():
     try:
         _, async_report = asyncio.run(check_async_connectivity())
         all_reports.append(async_report)
+        
+        _, utcms_report = asyncio.run(check_utcms_connectivity())
+        all_reports.append(utcms_report)
     except Exception as e:
         print(f"⚠️  Skipping async checks: {e}")
     
