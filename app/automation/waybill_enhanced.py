@@ -1508,91 +1508,19 @@ class EnhancedWaybillManager:
 
             # پر کردن اطلاعات بار
             await self._fill_cargo_info(data.get("cargo", {}))
-            cargo_next_clicked = await self._click_step_next(
-                4,
-                5,
-                [
-                    "#btnGoLVL5",
-                    "#GoLVL5",
-                    'button[data-to="#pills-5-tab"]',
-                ],
-                "مرحله بعد (کالا)",
-            )
-            if not cargo_next_clicked:
-                await self._force_step_transition(5)
-            await self._wait_for_step_marker(
-                5,
-                ["#ddStateSource", "#ddCitySource", "#txtAddressSource", "#btnGoLVL6"],
-                timeout_ms=10000,
-            )
+            
             self._set_active_pill("origin")
             logger.info("waybill_stage_start", extra={"extra_fields": {"stage": "origin"}})
 
-            # انتخاب مکان مبدا (نقشه ← منوی کشویی ← متن)
-            origin_result = await self.location_selector.select_location(data.get("origin", {}), origin=True)
-            self._record_selector_inventory(
-                field_label="مبدا",
-                selectors=["location_selector"],
-                status="filled" if origin_result.get("success") else "unsupported",
-                selector_used=origin_result.get("method"),
-                value=origin_result.get("address") or data.get("origin", {}).get("address"),
-                pill="origin",
-            )
-
-            if not origin_result["success"]:
-                raise WaybillError(f"انتخاب مبدا با شکست مواجه شد: {origin_result}")
-
-            origin_next_clicked = await self._click_step_next(
-                5,
-                6,
-                [
-                    "#btnGoLVL6",
-                    "#GoStepMagsadBtn",
-                    'button[data-to="#pills-6-tab"]',
-                ],
-                "مرحله بعد (مبدا)",
-            )
-            if not origin_next_clicked:
-                await self._force_step_transition(6)
-            await self._wait_for_step_marker(
-                6,
-                ["#ddStateDest", "#ddCityDest", "#txtAddressDest", "#btnGoLVL7"],
-                timeout_ms=10000,
-            )
+            # انتخاب و ثبت مبدا
+            origin_result = await self._fill_origin_info(data.get("origin", {}))
+            
             self._set_active_pill("destination")
             logger.info("waybill_stage_start", extra={"extra_fields": {"stage": "destination"}})
 
-            # انتخاب مکان مقصد
-            dest_result = await self.location_selector.select_location(data.get("destination", {}), origin=False)
-            self._record_selector_inventory(
-                field_label="مقصد",
-                selectors=["location_selector"],
-                status="filled" if dest_result.get("success") else "unsupported",
-                selector_used=dest_result.get("method"),
-                value=dest_result.get("address") or data.get("destination", {}).get("address"),
-                pill="destination",
-            )
-
-            if not dest_result["success"]:
-                raise WaybillError(f"انتخاب مقصد با شکست مواجه شد: {dest_result}")
-
-            destination_next_clicked = await self._click_step_next(
-                6,
-                7,
-                [
-                    "#btnGoLVL7",
-                    "#GoStepPreviewAddressBtn",
-                    'button[data-to="#pills-7-tab"]',
-                ],
-                "مرحله بعد (مقصد)",
-            )
-            if not destination_next_clicked:
-                await self._force_step_transition(7)
-            await self._wait_for_step_marker(
-                7,
-                ["#txtAddressSourceView", "#txtAddressDestView", '#pills-7 button[data-to="#pills-8-tab"]'],
-                timeout_ms=10000,
-            )
+            # انتخاب و ثبت مقصد
+            dest_result = await self._fill_destination_info(data.get("destination", {}))
+            
             self._set_active_pill("address_preview")
             preview_next_clicked = await self._click_step_next(
                 7,
@@ -2476,16 +2404,109 @@ class EnhancedWaybillManager:
         )
 
         # Click Next and check errors
-        await self.interactor.safe_click(
-            "#btnGoLVL5",
-            wait_for_navigation=False,
-            timeout=2500,
+        cargo_next_clicked = await self._click_step_next(
+            4,
+            5,
+            [
+                "#btnGoLVL5",
+                "#GoLVL5",
+                'button[data-to="#pills-5-tab"]',
+            ],
+            "مرحله بعد (کالا)",
         )
-        await asyncio.sleep(0.3)
-        form_errors = await self._extract_form_errors()
-        if form_errors:
-            logger.error("cargo_form_validation_failed", extra={"extra_fields": {"errors": form_errors}})
-            raise WaybillError(f"اعتبارسنجی فرم کالا ناموفق بود: {form_errors}")
+        if not cargo_next_clicked:
+            await self._force_step_transition(5)
+
+        pill5_ready = await self._wait_for_step_marker(
+            5,
+            ["#ddStateSource", "#ddCitySource", "#txtAddressSource", "#btnGoLVL6"],
+            timeout_ms=10000,
+        )
+        if not pill5_ready:
+            form_errors = await self._extract_form_errors()
+            error_msg = form_errors or "اعتبارسنجی فرم کالا ناموفق بود"
+            logger.error("cargo_form_validation_failed", extra={"extra_fields": {"errors": error_msg}})
+            raise WaybillError(f"گذر از مرحله کالا ناموفق بود: {error_msg}")
+
+    async def _fill_origin_info(self, origin_data: dict[str, Any]) -> dict[str, Any]:
+        """پر کردن اطلاعات مبدا و گذر به مرحله بعد"""
+        origin_result = await self.location_selector.select_location(origin_data, origin=True)
+        self._record_selector_inventory(
+            field_label="مبدا",
+            selectors=["location_selector"],
+            status="filled" if origin_result.get("success") else "unsupported",
+            selector_used=origin_result.get("method"),
+            value=origin_result.get("address") or origin_data.get("address"),
+            pill="origin",
+        )
+
+        if not origin_result["success"]:
+            raise WaybillError(f"انتخاب مبدا با شکست مواجه شد: {origin_result}")
+
+        origin_next_clicked = await self._click_step_next(
+            5,
+            6,
+            [
+                "#btnGoLVL6",
+                "#GoStepMagsadBtn",
+                'button[data-to="#pills-6-tab"]',
+            ],
+            "مرحله بعد (مبدا)",
+        )
+        if not origin_next_clicked:
+            await self._force_step_transition(6)
+            
+        pill6_ready = await self._wait_for_step_marker(
+            6,
+            ["#ddStateDest", "#ddCityDest", "#txtAddressDest", "#btnGoLVL7"],
+            timeout_ms=10000,
+        )
+        if not pill6_ready:
+            form_errors = await self._extract_form_errors()
+            error_msg = form_errors or "اعتبارسنجی فرم مبدا ناموفق بود"
+            raise WaybillError(f"گذر از مرحله مبدا ناموفق بود: {error_msg}")
+            
+        return origin_result
+
+    async def _fill_destination_info(self, destination_data: dict[str, Any]) -> dict[str, Any]:
+        """پر کردن اطلاعات مقصد و گذر به مرحله بعد"""
+        dest_result = await self.location_selector.select_location(destination_data, origin=False)
+        self._record_selector_inventory(
+            field_label="مقصد",
+            selectors=["location_selector"],
+            status="filled" if dest_result.get("success") else "unsupported",
+            selector_used=dest_result.get("method"),
+            value=dest_result.get("address") or destination_data.get("address"),
+            pill="destination",
+        )
+
+        if not dest_result["success"]:
+            raise WaybillError(f"انتخاب مقصد با شکست مواجه شد: {dest_result}")
+
+        destination_next_clicked = await self._click_step_next(
+            6,
+            7,
+            [
+                "#btnGoLVL7",
+                "#GoStepPreviewAddressBtn",
+                'button[data-to="#pills-7-tab"]',
+            ],
+            "مرحله بعد (مقصد)",
+        )
+        if not destination_next_clicked:
+            await self._force_step_transition(7)
+            
+        pill7_ready = await self._wait_for_step_marker(
+            7,
+            ["#txtAddressSourceView", "#txtAddressDestView", '#pills-7 button[data-to="#pills-8-tab"]'],
+            timeout_ms=10000,
+        )
+        if not pill7_ready:
+            form_errors = await self._extract_form_errors()
+            error_msg = form_errors or "اعتبارسنجی فرم مقصد ناموفق بود"
+            raise WaybillError(f"گذر از مرحله مقصد ناموفق بود: {error_msg}")
+            
+        return dest_result
 
     async def _handle_tajmi_initialization(self) -> None:
         """آماده‌سازی حالت تجمیعی برای ثبت ناوگان"""
