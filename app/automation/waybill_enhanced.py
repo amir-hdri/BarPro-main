@@ -1575,60 +1575,29 @@ class EnhancedWaybillManager:
             await self._fill_financial_info(data.get("financial", {}))
 
             # مدیریت گزینه‌های حمل (two_way، end_shipping، time_limit)
-            shipping_opts_pre = data.get("shipping_options") or {}
-            if isinstance(shipping_opts_pre, dict):
-                if shipping_opts_pre.get("two_way"):
-                    await self._check_checkbox_with_fallback(
-                        [
-                            "input[name='TwoWay']",
-                            "input[id='TwoWay']",
-                            "input[name='two_way']",
-                            "input[type='checkbox'][name*='way' i]",
-                        ],
-                        "ثبت دو طرفه",
-                    )
-                if shipping_opts_pre.get("end_shipping"):
-                    await self._fill_with_fallback(
-                        [
-                            "input[name='EndShipping']",
-                            "input[id='EndShipping']",
-                            "input[name='end_shipping']",
-                            "input[name='txtEndShipping']",
-                            "input[id='txtEndShipping']",
-                        ],
-                        str(shipping_opts_pre["end_shipping"]),
-                        "تاریخ پایان حمل",
-                        required=False,
-                    )
-                if shipping_opts_pre.get("time_limit"):
-                    await self._fill_with_fallback(
-                        [
-                            "input[name='TimeLimit']",
-                            "input[id='TimeLimit']",
-                            "input[name='time_limit']",
-                            "input[name='txtTimeLimit']",
-                            "input[id='txtTimeLimit']",
-                        ],
-                        str(shipping_opts_pre["time_limit"]),
-                        "محدودیت زمانی",
-                        required=False,
-                    )
+            shipping_opts = data.get("shipping_options") or {}
+            await self._fill_shipping_options(shipping_opts)
 
-            await self._click_with_fallback(
+            financial_next_clicked = await self._click_step_next(
+                8,
+                9,
                 [
                     "#GoPil9",
                     "button:has-text('مرحله بعد')",
                 ],
                 "مرحله بعد (مالی)",
-                required=False,
+            )
+            if not financial_next_clicked:
+                await self._force_step_transition(9)
+
+            await self._wait_for_step_marker(
+                9,
+                ["#btnregisterbarname", "#GoFinalStep", "button:has-text('مرحله نهایی')", "button:has-text('ثبت بارنامه')"],
+                timeout_ms=10000,
             )
 
             # حالت ایمن: ارسال نهایی انجام نمی‌شود و فقط آمادگی ثبت ارزیابی می‌شود.
-            shipping_opts_final = data.get("shipping_options") or {}
-            if isinstance(shipping_opts_final, dict):
-                otp_val = shipping_opts_final.get("otp")
-            else:
-                otp_val = None
+            otp_val = shipping_opts.get("otp") if isinstance(shipping_opts, dict) else None
 
             if dry_run:
                 result = {
@@ -1637,9 +1606,9 @@ class EnhancedWaybillManager:
                     "validation_summary": {
                         "ready_for_submit": True,
                         "route_calculated": route_info is not None,
-                        "two_way": bool(shipping_opts_final.get("two_way")),
-                        "end_shipping": shipping_opts_final.get("end_shipping"),
-                        "time_limit": shipping_opts_final.get("time_limit"),
+                        "two_way": bool(shipping_opts.get("two_way")) if isinstance(shipping_opts, dict) else False,
+                        "end_shipping": shipping_opts.get("end_shipping") if isinstance(shipping_opts, dict) else None,
+                        "time_limit": shipping_opts.get("time_limit") if isinstance(shipping_opts, dict) else None,
                         "otp_required": otp_val is not None,
                     },
                     "url": await self._current_url(),
@@ -2905,6 +2874,48 @@ class EnhancedWaybillManager:
                     "روش پرداخت",
                     required=False,
                 )
+
+    async def _fill_shipping_options(self, shipping_opts: dict[str, Any]):
+        """مدیریت گزینه‌های حمل (two_way، end_shipping، time_limit)"""
+        if not isinstance(shipping_opts, dict):
+            return
+
+        if shipping_opts.get("two_way"):
+            await self._check_checkbox_with_fallback(
+                [
+                    "input[name='TwoWay']",
+                    "input[id='TwoWay']",
+                    "input[name='two_way']",
+                    "input[type='checkbox'][name*='way' i]",
+                ],
+                "ثبت دو طرفه",
+            )
+        if shipping_opts.get("end_shipping"):
+            await self._fill_with_fallback(
+                [
+                    "input[name='EndShipping']",
+                    "input[id='EndShipping']",
+                    "input[name='end_shipping']",
+                    "input[name='txtEndShipping']",
+                    "input[id='txtEndShipping']",
+                ],
+                str(shipping_opts["end_shipping"]),
+                "تاریخ پایان حمل",
+                required=False,
+            )
+        if shipping_opts.get("time_limit"):
+            await self._fill_with_fallback(
+                [
+                    "input[name='TimeLimit']",
+                    "input[id='TimeLimit']",
+                    "input[name='time_limit']",
+                    "input[name='txtTimeLimit']",
+                    "input[id='txtTimeLimit']",
+                ],
+                str(shipping_opts["time_limit"]),
+                "محدودیت زمانی",
+                required=False,
+            )
 
     async def _check_checkbox_with_fallback(
         self,
