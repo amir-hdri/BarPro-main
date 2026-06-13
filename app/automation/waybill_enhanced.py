@@ -2210,6 +2210,14 @@ class EnhancedWaybillManager:
 
     async def _fill_cargo_info(self, cargo: dict[str, Any]):
         """پر کردن اطلاعات کالا"""
+        # Validate input data first
+        if not cargo:
+            raise WaybillError("اطلاعات کالا ارائه نشده است")
+        if not cargo.get("type"):
+            raise WaybillError("تایپ کالا (cargo.type) الزامی است")
+        if not isinstance(cargo.get("type"), str) or len(cargo["type"].strip()) < 2:
+            raise WaybillError(f"تایپ کالا معتبر نیست: {cargo.get('type')}")
+        
         await self._wait_for_loading_overlays_to_disappear()
         await self._wait_for_step_marker(4, ["#txtLoadsValue", "#btnAddLoad"], timeout_ms=8000)
 
@@ -2452,6 +2460,7 @@ class EnhancedWaybillManager:
             form_errors = await self._extract_form_errors()
             error_msg = form_errors or "کالا در جدول بارگذاری نشد"
             logger.warning("cargo_grid_not_populated", extra={"extra_fields": {"errors": error_msg}})
+            raise WaybillError(f"کالا در جدول بارگذاری نشد: {error_msg}")
 
         value_val = cargo.get("value")
         await self._fill_verified_text_field(
@@ -2476,6 +2485,7 @@ class EnhancedWaybillManager:
         form_errors = await self._extract_form_errors()
         if form_errors:
             logger.error("cargo_form_validation_failed", extra={"extra_fields": {"errors": form_errors}})
+            raise WaybillError(f"اعتبارسنجی فرم کالا ناموفق بود: {form_errors}")
 
     async def _handle_tajmi_initialization(self) -> None:
         """آماده‌سازی حالت تجمیعی برای ثبت ناوگان"""
