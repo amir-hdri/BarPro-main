@@ -16,7 +16,15 @@ from app.rpa.contracts import RuntimeCounterSnapshot, SessionBundle
 class RPADistributedRuntime:
     def __init__(self) -> None:
         self._memory: dict[str, tuple[str, float | None]] = {}
-        self._lock = asyncio.Lock()
+        self._lock = None
+        self._loop = None
+
+    def _get_lock(self) -> asyncio.Lock:
+        current_loop = asyncio.get_running_loop()
+        if not hasattr(self, "_lock") or self._lock is None or self._loop != current_loop:
+            self._lock = asyncio.Lock()
+            self._loop = current_loop
+        return self._lock
 
     @staticmethod
     def session_key(client_id: int, driver_id: int) -> str:
@@ -51,14 +59,14 @@ class RPADistributedRuntime:
             await redis.set(key, value, ex=ttl_seconds)
             return
         expires_at = time.time() + ttl_seconds if ttl_seconds else None
-        async with self._lock:
+        async with self._get_lock():
             self._memory[key] = (value, expires_at)
 
     async def _get_value(self, key: str) -> str | None:
         redis = await self._get_redis()
         if redis is not None:
             return await redis.get(key)
-        async with self._lock:
+        async with self._get_lock():
             payload = self._memory.get(key)
             if payload is None:
                 return None
@@ -73,14 +81,14 @@ class RPADistributedRuntime:
         if redis is not None:
             await redis.delete(key)
             return
-        async with self._lock:
+        async with self._get_lock():
             self._memory.pop(key, None)
 
     async def acquire_lock(self, key: str, ttl_seconds: int) -> bool:
         redis = await self._get_redis()
         if redis is not None:
             return bool(await redis.set(key, "1", ex=ttl_seconds, nx=True))
-        async with self._lock:
+        async with self._get_lock():
             current = self._memory.get(key)
             if current is not None:
                 _, expires_at = current
@@ -133,7 +141,7 @@ class RPADistributedRuntime:
             value = await redis.incr(key)
             await redis.expire(key, int(timedelta(days=3).total_seconds()))
             return int(value)
-        async with self._lock:
+        async with self._get_lock():
             payload = self._memory.get(key)
             current = int(payload[0]) if payload else 0
             current += 1
