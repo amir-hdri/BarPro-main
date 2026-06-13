@@ -6,8 +6,8 @@
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
-# Export HEADLESS=true to run browsers silently when starting services
-export HEADLESS=true
+# Export HEADLESS=false to run browsers in headful mode (visible) when starting services
+export HEADLESS=false
 
 # Create output dir if it doesn't exist
 mkdir -p "$PROJECT_DIR/output"
