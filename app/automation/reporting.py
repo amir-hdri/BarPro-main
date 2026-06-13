@@ -26,22 +26,6 @@ class ReportService:
         self._op_lock = None
         self._loop = None
         self._op_loop = None
-
-    @property
-    def lock(self) -> asyncio.Lock:
-        current_loop = asyncio.get_running_loop()
-        if not hasattr(self, "_loop") or self._loop != current_loop or self._lock is None:
-            self._lock = asyncio.Lock()
-            self._loop = current_loop
-        return self._lock
-
-    @property
-    def op_lock(self) -> asyncio.Lock:
-        current_loop = asyncio.get_running_loop()
-        if not hasattr(self, "_op_loop") or self._op_loop != current_loop or self._op_lock is None:
-            self._op_lock = asyncio.Lock()
-            self._op_loop = current_loop
-        return self._op_lock
         self._latency_samples = deque(maxlen=max(1000, utcms_config.LATENCY_SAMPLE_MAX))
         self._hourly_samples = deque(maxlen=2000)  # For hourly trends
         self._mode_counters = {
@@ -61,6 +45,22 @@ class ReportService:
         self._error_details = deque(maxlen=500)  # Recent error details
         self._success_times = deque(maxlen=1000)  # For success rate trends
         self._daily_trends = {}  # Cache for daily trends
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        current_loop = asyncio.get_running_loop()
+        if not hasattr(self, "_loop") or self._loop != current_loop or self._lock is None:
+            self._lock = asyncio.Lock()
+            self._loop = current_loop
+        return self._lock
+
+    @property
+    def op_lock(self) -> asyncio.Lock:
+        current_loop = asyncio.get_running_loop()
+        if not hasattr(self, "_op_loop") or self._op_loop != current_loop or self._op_lock is None:
+            self._op_lock = asyncio.Lock()
+            self._op_loop = current_loop
+        return self._op_lock
 
     async def _get_today_stats(self, session: AsyncSession) -> BotStats:
         today = date.today()
