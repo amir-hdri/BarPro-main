@@ -22,8 +22,9 @@ class WaybillTrafficController:
     """Compliant load control: concurrency limit, pacing, and temporary backoff."""
 
     def __init__(self):
-        self._semaphore = asyncio.Semaphore(max(1, utcms_config.WAYBILL_MAX_CONCURRENT))
-        self._lock = asyncio.Lock()
+        self._loop = None
+        self._semaphore = None
+        self._lock = None
         self._next_allowed_at = 0.0
         self._blocked_until = 0.0
         self._active_requests = 0
@@ -31,8 +32,21 @@ class WaybillTrafficController:
         self._active_by_mode = {"safe": 0, "full": 0}
         self._queued_by_mode = {"safe": 0, "full": 0}
 
+    def _get_loop_resources(self):
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.Lock(), asyncio.Semaphore(max(1, utcms_config.WAYBILL_MAX_CONCURRENT))
+
+        if self._loop != current_loop or self._lock is None or self._semaphore is None:
+            self._loop = current_loop
+            self._lock = asyncio.Lock()
+            self._semaphore = asyncio.Semaphore(max(1, utcms_config.WAYBILL_MAX_CONCURRENT))
+        return self._lock, self._semaphore
+
     async def _wait_for_pacing(self):
-        async with self._lock:
+        lock, _ = self._get_loop_resources()
+        async with lock:
             loop = asyncio.get_running_loop()
             now = loop.time()
             wait_seconds = max(0.0, self._next_allowed_at - now, self._blocked_until - now)
@@ -48,7 +62,8 @@ class WaybillTrafficController:
         self._queued_requests += 1
         self._queued_by_mode[normalized_mode] += 1
 
-        await self._semaphore.acquire()
+        _, semaphore = self._get_loop_resources()
+        await semaphore.acquire()
 
         self._queued_requests = max(0, self._queued_requests - 1)
         self._queued_by_mode[normalized_mode] = max(0, self._queued_by_mode[normalized_mode] - 1)
@@ -60,7 +75,8 @@ class WaybillTrafficController:
         except Exception:
             self._active_requests = max(0, self._active_requests - 1)
             self._active_by_mode[normalized_mode] = max(0, self._active_by_mode[normalized_mode] - 1)
-            self._semaphore.release()
+            _, semaphore = self._get_loop_resources()
+            semaphore.release()
             raise
 
     def release(self, mode: str = "safe"):
@@ -68,10 +84,12 @@ class WaybillTrafficController:
         if self._active_requests > 0:
             self._active_requests -= 1
         self._active_by_mode[normalized_mode] = max(0, self._active_by_mode[normalized_mode] - 1)
-        self._semaphore.release()
+        _, semaphore = self._get_loop_resources()
+        semaphore.release()
 
     async def mark_temporary_block(self, multiplier: float = 1.0):
-        async with self._lock:
+        lock, _ = self._get_loop_resources()
+        async with lock:
             loop = asyncio.get_running_loop()
             now = loop.time()
             base = max(0.0, utcms_config.WAYBILL_BLOCK_BACKOFF_SECONDS)
@@ -100,6 +118,7 @@ class WaybillTrafficController:
             yield
         finally:
             self.release(mode=mode)
+
 
 
 waybill_traffic_controller = WaybillTrafficController()

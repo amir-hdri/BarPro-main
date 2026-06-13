@@ -26,11 +26,20 @@ class BrowserResourceGuard:
         self.max_age_seconds = max_age_seconds
         self.max_pages = max_pages
         self._resources: dict[str, dict] = {}
-        self._lock = asyncio.Lock()
+        self._loop = None
+        self._lock = None
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        current_loop = asyncio.get_running_loop()
+        if not hasattr(self, "_loop") or self._loop != current_loop or self._lock is None:
+            self._lock = asyncio.Lock()
+            self._loop = current_loop
+        return self._lock
 
     async def register(self, resource_id: str, context: BrowserContext):
         """Register a browser context for tracking."""
-        async with self._lock:
+        async with self.lock:
             self._resources[resource_id] = {
                 "context": context,
                 "created_at": time.time(),
@@ -40,12 +49,12 @@ class BrowserResourceGuard:
 
     async def unregister(self, resource_id: str):
         """Unregister a browser context."""
-        async with self._lock:
+        async with self.lock:
             self._resources.pop(resource_id, None)
 
     async def update_access(self, resource_id: str):
         """Update last accessed time."""
-        async with self._lock:
+        async with self.lock:
             if resource_id in self._resources:
                 self._resources[resource_id]["last_accessed"] = time.time()
                 self._resources[resource_id]["pages_opened"] = len(
@@ -57,7 +66,7 @@ class BrowserResourceGuard:
         cleaned = 0
         now = time.time()
 
-        async with self._lock:
+        async with self.lock:
             stale_ids = []
             for resource_id, info in self._resources.items():
                 age = now - info["created_at"]
@@ -120,15 +129,30 @@ class BrowserManager:
         self._contexts: dict[str, BrowserContext] = {}
         self._pooled_sessions: set[str] = set()
         self._pool: BrowserPool | None = None
-        self._state_lock = asyncio.Lock()
-        self._init_lock = asyncio.Lock()
+        self._state_lock = None
+        self._init_lock = None
+        self._loop = None
         self._resource_guard = BrowserResourceGuard(
             max_age_seconds=300,
             max_pages=5,
         )
 
+    def _ensure_loop_resources(self):
+        current_loop = asyncio.get_running_loop()
+        if not hasattr(self, "_loop") or self._loop != current_loop or self._state_lock is None or self._init_lock is None:
+            if hasattr(self, "_loop") and self._loop is not None and self._loop != current_loop:
+                self.playwright = None
+                self.browser = None
+                self._pool = None
+                self._contexts.clear()
+                self._pooled_sessions.clear()
+            self._loop = current_loop
+            self._state_lock = asyncio.Lock()
+            self._init_lock = asyncio.Lock()
+
     async def initialize(self):
         """Initialize the browser instance"""
+        self._ensure_loop_resources()
         if self.playwright and self.browser and (
             not utcms_config.BROWSER_POOL_ENABLED or self._pool is not None
         ):
@@ -300,6 +324,7 @@ class BrowserManager:
         if auth_state_dir:
             os.makedirs(auth_state_dir, exist_ok=True)
 
+        self._ensure_loop_resources()
         async with self._state_lock:
             try:
                 await context.storage_state(path=effective_auth_state_path)

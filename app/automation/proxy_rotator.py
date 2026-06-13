@@ -243,13 +243,22 @@ class ProxyRotator:
         self.max_fail_count = max_fail_count
         self.require_iran_ip = require_iran_ip
 
-        self._lock = asyncio.Lock()
+        self._lock = None
+        self._loop = None
         self._health_check_task: asyncio.Task | None = None
         self._running = False
         self._on_proxy_used: Callable[[ProxyInfo], Awaitable[None]] | None = None
         self._on_proxy_failed: Callable[[ProxyInfo, str], Awaitable[None]] | None = None
 
         logger.info(f"ProxyRotator initialized with {len(self.proxies)} proxies (require_iran_ip={self.require_iran_ip})")
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        current_loop = asyncio.get_running_loop()
+        if not hasattr(self, "_loop") or self._loop != current_loop or self._lock is None:
+            self._lock = asyncio.Lock()
+            self._loop = current_loop
+        return self._lock
 
     def load_from_list(self, proxy_urls: list[str]) -> int:
         """Load proxies from URL list."""
@@ -383,7 +392,7 @@ class ProxyRotator:
         max_verification_attempts = 3
         for attempt in range(max_verification_attempts):
             chosen = None
-            async with self._lock:
+            async with self.lock:
                 now = time.time()
 
                 available = []

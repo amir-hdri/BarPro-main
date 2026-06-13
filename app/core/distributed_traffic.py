@@ -141,15 +141,32 @@ class DistributedTrafficController:
         self._redis: aioredis.Redis | None = None
         self._semaphore: DistributedSemaphore | None = None
         self._local_semaphore: asyncio.Semaphore | None = None
-        self._lock = asyncio.Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._lock: asyncio.Lock | None = None
         self._next_allowed_at = 0.0
         self._blocked_until = 0.0
         self._is_distributed = False
 
+    async def _ensure_loop(self):
+        current_loop = asyncio.get_running_loop()
+        if self._loop != current_loop or self._lock is None:
+            await self.initialize()
+
     async def initialize(self) -> bool:
         """Initialize distributed traffic controller."""
+        current_loop = asyncio.get_running_loop()
+        self._loop = current_loop
+        self._lock = asyncio.Lock()
+
         if REDIS_AVAILABLE and utcms_config.QUEUE_ENABLED:
             try:
+                if self._redis is not None:
+                    try:
+                        await self._redis.close()
+                    except Exception:
+                        pass
+                    self._redis = None
+
                 self._redis = aioredis.from_url(
                     utcms_config.REDIS_URL,
                     encoding="utf-8",
@@ -163,6 +180,7 @@ class DistributedTrafficController:
                     max_concurrent=utcms_config.WAYBILL_MAX_CONCURRENT,
                 )
                 self._is_distributed = True
+                self._local_semaphore = None
 
                 logger.info(
                     "distributed_traffic_controller_initialized",
@@ -183,6 +201,8 @@ class DistributedTrafficController:
         # Fallback to local semaphore
         self._local_semaphore = asyncio.Semaphore(max(1, utcms_config.WAYBILL_MAX_CONCURRENT))
         self._is_distributed = False
+        self._redis = None
+        self._semaphore = None
 
         logger.info(
             "local_traffic_controller_initialized",
@@ -192,6 +212,7 @@ class DistributedTrafficController:
 
     async def _wait_for_pacing(self):
         """Wait for rate limiting and pacing."""
+        await self._ensure_loop()
         async with self._lock:
             loop = asyncio.get_running_loop()
             now = loop.time()
@@ -206,6 +227,7 @@ class DistributedTrafficController:
 
     async def acquire(self, mode: str = "safe"):
         """Acquire a slot for processing."""
+        await self._ensure_loop()
         if self._is_distributed and self._semaphore:
             acquired = await self._semaphore.acquire(timeout=30.0)
             if not acquired:
@@ -217,6 +239,7 @@ class DistributedTrafficController:
 
     async def release(self, mode: str = "safe"):
         """Release the acquired slot."""
+        await self._ensure_loop()
         if self._is_distributed and self._semaphore:
             await self._semaphore.release()
         elif self._local_semaphore:
@@ -224,6 +247,7 @@ class DistributedTrafficController:
 
     async def mark_temporary_block(self, multiplier: float = 1.0):
         """Mark temporary block for backoff."""
+        await self._ensure_loop()
         async with self._lock:
             loop = asyncio.get_running_loop()
             now = loop.time()
@@ -234,6 +258,7 @@ class DistributedTrafficController:
 
     async def snapshot(self) -> DistributedTrafficSnapshot:
         """Get current traffic snapshot."""
+        await self._ensure_loop()
         loop = asyncio.get_running_loop()
         now = loop.time()
 
@@ -267,6 +292,7 @@ class DistributedTrafficController:
             await self._redis.close()
             self._redis = None
             self._semaphore = None
+            self._loop = None
 
 
 # Global instance

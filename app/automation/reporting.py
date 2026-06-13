@@ -22,8 +22,26 @@ class ReportService:
     """سرویس جمع‌آوری و ارائه گزارش‌های عملکرد با ذخیره‌سازی پایدار و تحلیل پیشرفته"""
 
     def __init__(self):
-        self._lock = asyncio.Lock()
-        self._op_lock = asyncio.Lock()
+        self._lock = None
+        self._op_lock = None
+        self._loop = None
+        self._op_loop = None
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        current_loop = asyncio.get_running_loop()
+        if not hasattr(self, "_loop") or self._loop != current_loop or self._lock is None:
+            self._lock = asyncio.Lock()
+            self._loop = current_loop
+        return self._lock
+
+    @property
+    def op_lock(self) -> asyncio.Lock:
+        current_loop = asyncio.get_running_loop()
+        if not hasattr(self, "_op_loop") or self._op_loop != current_loop or self._op_lock is None:
+            self._op_lock = asyncio.Lock()
+            self._op_loop = current_loop
+        return self._op_lock
         self._latency_samples = deque(maxlen=max(1000, utcms_config.LATENCY_SAMPLE_MAX))
         self._hourly_samples = deque(maxlen=2000)  # For hourly trends
         self._mode_counters = {
@@ -58,7 +76,7 @@ class ReportService:
 
     async def _update_today_stats(self, updater) -> None:
         today = date.today()
-        async with self._lock:
+        async with self.lock:
             async with AsyncSession(engine) as session:
                 stats = await self._get_today_stats(session)
                 updater(stats)
@@ -88,7 +106,7 @@ class ReportService:
     ) -> None:
         normalized_mode = "full" if mode == "full" else "safe"
 
-        async with self._op_lock:
+        async with self.op_lock:
             if event in self._mode_counters[normalized_mode]:
                 self._mode_counters[normalized_mode][event] += 1
 
@@ -182,7 +200,7 @@ class ReportService:
             }
 
             # Calculate trends
-            async with self._op_lock:
+            async with self.op_lock:
                 latencies = list(self._latency_samples)
                 recent_errors = list(self._error_details)[-10:]  # Last 10 errors
 
@@ -244,7 +262,7 @@ class ReportService:
             return daily_stats
 
     async def get_operational_report(self) -> dict[str, Any]:
-        async with self._op_lock:
+        async with self.op_lock:
             latencies = list(self._latency_samples)
             mode_counters = {
                 mode: values.copy()
@@ -283,7 +301,7 @@ class ReportService:
 
     async def get_error_analysis(self) -> dict[str, Any]:
         """تحلیل خطاهای رخ داده با جزئیات"""
-        async with self._op_lock:
+        async with self.op_lock:
             error_categories = self._error_categories.copy()
             error_details = list(self._error_details)
 
@@ -318,7 +336,7 @@ class ReportService:
 
     async def get_performance_dashboard(self) -> dict[str, Any]:
         """داشبورد عملکرد با معیارهای کلیدی"""
-        async with self._op_lock:
+        async with self.op_lock:
             latencies = list(self._latency_samples)
             success_times = list(self._success_times)
 

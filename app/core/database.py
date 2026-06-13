@@ -14,13 +14,18 @@ logger = logging.getLogger(__name__)
 
 # Database engine with optimized connection pooling
 # Pool settings tuned for async workload with multiple workers
+import sys
+from sqlalchemy.pool import NullPool
+
 engine_kwargs = {
     "echo": False,
     "future": True,
 }
 
-# SQLite does not support standard pooling arguments like pool_size, max_overflow
-if "sqlite" not in utcms_config.DATABASE_URL.lower():
+# If Celery worker is running, use NullPool to prevent event loop mismatch errors across tasks
+if "celery" in sys.modules or (len(sys.argv) > 0 and "celery" in sys.argv[0]):
+    engine_kwargs["poolclass"] = NullPool
+elif "sqlite" not in utcms_config.DATABASE_URL.lower():
     engine_kwargs.update({
         "pool_size": 20,  # Base pool size for concurrent connections
         "max_overflow": 10,  # Additional connections during peak load

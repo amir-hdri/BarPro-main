@@ -17,6 +17,8 @@ def _run(coro):
     loop = asyncio.new_event_loop()
     try:
         asyncio.set_event_loop(loop)
+        from app.core.database import engine
+        loop.run_until_complete(engine.dispose())
         return loop.run_until_complete(coro)
     finally:
         loop.close()
@@ -140,4 +142,8 @@ if celery_app is not None:
         except Exception:
             logger.exception(f"run_scheduled_job_failed_for_job_{job_id}")
             raise
+
+# Import other task files to ensure they are registered with the celery app
+import app.workers.waybill_worker
+import app.workers.tasks
 

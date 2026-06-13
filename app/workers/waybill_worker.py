@@ -85,6 +85,8 @@ def process_waybill_job(self, job_id: str):
     loop = asyncio.new_event_loop()
     try:
         asyncio.set_event_loop(loop)
+        from app.core.database import engine
+        loop.run_until_complete(engine.dispose())
         result = loop.run_until_complete(_execute_job(self, job_id))
         return result
     except Exception as e:
