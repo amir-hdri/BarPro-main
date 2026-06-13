@@ -193,7 +193,7 @@ class ITMBBaseInfoService:
         cache_plate_types = self._cache.get("plate_types")
         cache_city_data = self._cache.get("province_cities")
 
-        if not all([cache_goods, cache_packing_types, cache_good_types, cache_plate_types, cache_city_data]):
+        if cache_goods is None or cache_packing_types is None or cache_good_types is None or cache_plate_types is None or cache_city_data is None:
             raise HTTPException(status_code=503, detail="داده‌های BaseInfo کامل نیست")
 
         goods_ids = self._collect_codes(cache_goods.data, ("GoodID", "ID", "Code"))
@@ -223,7 +223,7 @@ class ITMBBaseInfoService:
             ("OffLoadingPlaceCityCode", bol.OffLoadingPlaceCityCode),
         ]
         for field_name, field_value in city_code_fields:
-            if field_value and city_codes and str(field_value) not in city_codes:
+            if field_value and city_codes and field_value not in city_codes:
                 errors.append(f"{field_name} معتبر نیست")
 
         county_code_fields = [
@@ -231,7 +231,7 @@ class ITMBBaseInfoService:
             ("OffLoadingPlaceCountieCode", bol.OffLoadingPlaceCountieCode),
         ]
         for field_name, field_value in county_code_fields:
-            if field_value and county_codes and str(field_value) not in county_codes:
+            if field_value and county_codes and field_value not in county_codes:
                 errors.append(f"{field_name} معتبر نیست")
 
         if errors:

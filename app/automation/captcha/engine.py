@@ -50,6 +50,7 @@ class CaptchaEngine:
         except ValueError:
             return CaptchaSolveDecision(value=None, confidence=0.0, strategy=None)
 
+        result: int | float
         if operator == "+":
             result = left_num + right_num
         elif operator == "-":

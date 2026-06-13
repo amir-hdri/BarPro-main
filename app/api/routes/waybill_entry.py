@@ -232,7 +232,7 @@ async def queue_excel_waybills(
             task = await queue_manager.enqueue_waybill(waybill)
             queued.append({
                 "row": item["row"],
-                "task_id": task.get("task_id"),
+                "task_id": task.task_id,
                 "status": "queued",
             })
         except Exception as exc:
@@ -264,8 +264,10 @@ async def download_excel_template():
 
     wb = Workbook()
     ws = wb.active
+    if ws is None:
+        ws = wb.create_sheet()
     ws.title = "Waybills"
-    ws.sheet_properties.rightToLeft = True
+    ws.sheet_view.rightToLeft = True
 
     # Header style
     header_font = Font(bold=True, color="FFFFFF", size=11)
@@ -351,8 +353,9 @@ async def download_excel_template():
         ws.cell(row=2, column=col_idx, value=value)
 
     # Set column widths
+    import openpyxl.utils
     for col_idx in range(1, len(columns) + 1):
-        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = 20
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = 20
 
     # Save to bytes
     output = io.BytesIO()

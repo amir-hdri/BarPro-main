@@ -403,7 +403,7 @@ class ClientService:
         if q:
             needle = f"%{q.strip()}%"
             statement = statement.where(
-                (Client.name.ilike(needle)) | (Client.email.ilike(needle)) | (Client.client_code.ilike(needle))
+                (col(Client.name).ilike(needle)) | (col(Client.email).ilike(needle)) | (col(Client.client_code).ilike(needle))
             )
 
         statement = statement.order_by(col(Client.created_at).desc())
@@ -816,6 +816,8 @@ class DriverService:
                 logger.warning(f"Retrying driver deletion after network error (attempt {attempt + 1}): {str(e)}")
                 await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
 
+        return False
+
     @staticmethod
     async def get_driver_credentials(
         client: Client,
@@ -1021,7 +1023,7 @@ class DriverScheduleService:
             await session.exec(
                 select(DriverSchedule).where(
                     (DriverSchedule.client_id == client.id) &
-                    (DriverSchedule.is_active.is_(True))
+                    (col(DriverSchedule.is_active).is_(True))
                 )
             )
         ).all()
@@ -1033,7 +1035,7 @@ class DriverScheduleService:
         if driver_ids:
             drivers_result = await session.exec(
                 select(Driver).where(
-                    (Driver.id.in_(driver_ids)) & (Driver.client_id == client.id)
+                    (col(Driver.id).in_(driver_ids)) & (Driver.client_id == client.id)
                 )
             )
             drivers_map = {d.id: d for d in drivers_result.all()}
@@ -1121,7 +1123,7 @@ class WaybillJobService:
             )
 
         job = await rpa_scheduler_service.create_job(
-            client_id=client.id,
+            client_id=client.id or 0,
             driver=driver,
             payload=request.payload.model_dump(),
             source=source,
@@ -1235,7 +1237,7 @@ class WaybillJobService:
             event_payload["retry_with_overrides"] = retry_request.retry_with_overrides
 
         if retry_request.force_auth_refresh and job.driver_id:
-            await rpa_runtime.delete_session(client.id, job.driver_id)
+            await rpa_runtime.delete_session(client.id or 0, job.driver_id)
 
             runtime_state = (
                 await session.exec(
@@ -1498,7 +1500,7 @@ class WaybillJobService:
         await session.commit()
         await session.refresh(job)
 
-        await session.add(
+        session.add(
             WaybillTaskLog(
                 job_id=job.job_id,
                 client_id=client.id,
@@ -1538,7 +1540,7 @@ class WaybillJobService:
         await session.delete(job)
         await session.commit()
 
-        await session.add(
+        session.add(
             WaybillTaskLog(
                 job_id=job_id_to_delete,
                 client_id=client_id,

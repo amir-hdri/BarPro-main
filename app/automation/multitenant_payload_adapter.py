@@ -54,7 +54,8 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             base["vehicle"]["driver_national_code"] = payload["driver_national_code"]
         return base
 
-    metadata = payload.get("metadata_json") if isinstance(payload.get("metadata_json"), dict) else {}
+    raw_metadata = payload.get("metadata_json")
+    metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
     sender_meta = _metadata_section(metadata, "sender")
     receiver_meta = _metadata_section(metadata, "receiver")
     origin_meta = _metadata_section(metadata, "origin")

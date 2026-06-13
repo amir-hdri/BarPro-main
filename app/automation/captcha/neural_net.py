@@ -17,6 +17,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -208,7 +209,7 @@ _OPERATOR_CHARS = frozenset("+-*/")
 def _render_char_on_canvas(
     draw: ImageDraw.ImageDraw,
     char: str,
-    font: ImageFont.FreeTypeFont,
+    font: Any,
     rng: np.random.RandomState,
     is_operator: bool,
 ) -> None:
@@ -271,8 +272,8 @@ def _augment_image(arr: np.ndarray, rng: np.random.RandomState) -> np.ndarray:
     if rng.random() < 0.25:
         sx = rng.randint(-3, 4)
         sy = rng.randint(-3, 4)
-        mat = np.float32([[1, 0, sx], [0, 1, sy]])
-        arr = cv2.warpAffine(arr, mat, (_IMG_SIZE, _IMG_SIZE), borderValue=255)
+        mat = np.array([[1, 0, sx], [0, 1, sy]], dtype=np.float32)
+        arr = cv2.warpAffine(arr, mat, (_IMG_SIZE, _IMG_SIZE), borderValue=255.0)
 
     if rng.random() < 0.2:
         contrast = rng.uniform(0.65, 1.35)

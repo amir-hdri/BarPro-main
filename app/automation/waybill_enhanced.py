@@ -2810,11 +2810,16 @@ class EnhancedWaybillManager:
         pill4_ready = await self._wait_for_step_marker(
             4,
             ["#txtLoadsValue", "#btnAddLoad", "#btnGoLVL5"],
-            timeout_ms=5000,
+            timeout_ms=15000,
         )
         if not pill4_ready:
             form_errors = await self._extract_form_errors()
-            error_msg = form_errors or "اعتبارسنجی فرم ناوگان ناموفق بود"
+            if not form_errors:
+                # Sometimes toasts take a moment to appear
+                await self.page.wait_for_timeout(2000)
+                form_errors = await self._extract_form_errors()
+                
+            error_msg = form_errors or "اعتبارسنجی فرم ناوگان ناموفق بود یا سرور پاسخی نداد"
             logger.error("vehicle_form_validation_blocked", extra={"extra_fields": {"errors": error_msg}})
             raise WaybillError(f"گذر از مرحله ناوگان ناموفق بود: {error_msg}")
 

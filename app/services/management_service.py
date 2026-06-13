@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.automation.auth import UTCMSAuthenticator
 from app.automation.browser import browser_manager
@@ -161,12 +161,12 @@ def _estimate_route_metrics(
     destination_lat: float | None,
     destination_lng: float | None,
 ) -> tuple[float | None, float | None]:
-    if None in {origin_lat, origin_lng, destination_lat, destination_lng}:
+    if origin_lat is None or origin_lng is None or destination_lat is None or destination_lng is None:
         return None, None
-    lat1 = math.radians(float(origin_lat))
-    lat2 = math.radians(float(destination_lat))
-    d_lat = math.radians(float(destination_lat) - float(origin_lat))
-    d_lng = math.radians(float(destination_lng) - float(origin_lng))
+    lat1 = math.radians(origin_lat)
+    lat2 = math.radians(destination_lat)
+    d_lat = math.radians(destination_lat - origin_lat)
+    d_lng = math.radians(destination_lng - origin_lng)
     hav = (
         math.sin(d_lat / 2) ** 2
         + math.cos(lat1) * math.cos(lat2) * math.sin(d_lng / 2) ** 2
@@ -320,17 +320,17 @@ class ManagementService:
 
     async def list_customers(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
-            rows = (await session.execute(select(ManagedCustomer).order_by(ManagedCustomer.synced_at.desc()))).scalars().all()
+            rows = (await session.execute(select(ManagedCustomer).order_by(col(ManagedCustomer.synced_at).desc()))).scalars().all()
             return [self._customer_to_dict(row) for row in rows]
 
     async def list_routes(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
-            rows = (await session.execute(select(ManagedRoute).order_by(ManagedRoute.synced_at.desc()))).scalars().all()
+            rows = (await session.execute(select(ManagedRoute).order_by(col(ManagedRoute.synced_at).desc()))).scalars().all()
             return [self._route_to_dict(row) for row in rows]
 
     async def list_accounts(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
-            rows = (await session.execute(select(ManagedAccount).order_by(ManagedAccount.synced_at.desc()))).scalars().all()
+            rows = (await session.execute(select(ManagedAccount).order_by(col(ManagedAccount.synced_at).desc()))).scalars().all()
             return [self._account_to_dict(row) for row in rows]
 
     async def warm_account_session(self, account_external_name: str) -> dict[str, Any]:
@@ -342,8 +342,8 @@ class ManagementService:
 
         raw_payload = _safe_json_load(record.raw_json) or {}
         auth_details = self._extract_account_auth_details(raw_payload)
-        username = str(auth_details.get("username") or record.external_name or "").strip()
-        password = str(auth_details.get("password") or "").strip()
+        username = (auth_details.get("username") or record.external_name or "").strip()
+        password = (auth_details.get("password") or "").strip()
         login_url = auth_details.get("login_url")
         if not username or not password:
             raise HTTPException(status_code=400, detail="برای این اکانت، اطلاعات ورود UTCMS ذخیره نشده است")
@@ -389,7 +389,7 @@ class ManagementService:
 
     async def list_queue(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
-            rows = (await session.execute(select(ManagedQueueItem).order_by(ManagedQueueItem.updated_at.desc()))).scalars().all()
+            rows = (await session.execute(select(ManagedQueueItem).order_by(col(ManagedQueueItem.updated_at).desc()))).scalars().all()
             return [self._queue_to_dict(row) for row in rows]
 
     async def summary(self) -> dict[str, Any]:
@@ -512,7 +512,7 @@ class ManagementService:
                     "name": path.name,
                     "relative_path": relative,
                     "size_bytes": path.stat().st_size,
-                    "modified_at": datetime.utcfromtimestamp(path.stat().st_mtime).isoformat(),
+                    "modified_at": datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat(),
                     "content_type": "json" if path.suffix == ".json" else ("html" if path.suffix == ".html" else path.suffix.lstrip(".")),
                 }
             )
@@ -764,13 +764,13 @@ class ManagementService:
                 handle.write(content)
                 temp_path = handle.name
 
-            rows = read_xlsx(temp_path)
+            rows = read_xlsx(Path(temp_path))
             if not rows:
                 raise HTTPException(status_code=400, detail="فایل اکسل خالی است یا خوانده نشد")
 
             header_map = to_header_map(rows[0])
             for row_index, row in enumerate(rows[1:], start=2):
-                if not any(str(cell).strip() for cell in row):
+                if not any(cell.strip() for cell in row):
                     continue
                 try:
                     waybill_payload, excerpt, _ = await _build_request(
@@ -927,7 +927,7 @@ class ManagementService:
 
     async def get_sync_logs(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
-            rows = (await session.execute(select(ManagedSyncLog).order_by(ManagedSyncLog.created_at.desc()))).scalars().all()
+            rows = (await session.execute(select(ManagedSyncLog).order_by(col(ManagedSyncLog.created_at).desc()))).scalars().all()
             return [
                 {
                     "id": row.id,

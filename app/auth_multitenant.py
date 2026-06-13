@@ -171,13 +171,22 @@ async def get_current_client(
         if payload.get("role", "client") != "client":
             raise credentials_exception
         raw_client_id = payload.get("sub")
+        if raw_client_id is None:
+            raise credentials_exception
+
         # Safely convert sub claim to int, rejecting any non-integer values
         try:
-            client_id = int(raw_client_id)
+            client_id = int(str(raw_client_id))
         except (TypeError, ValueError):
             raise credentials_exception from None
-        client_code: str = payload.get("client_code")
-        if not client_id or client_code is None:
+
+        raw_client_code = payload.get("client_code")
+        if raw_client_code is None:
+            raise credentials_exception
+
+        client_code: str = str(raw_client_code)
+
+        if not client_id:
             raise credentials_exception
     except JWTError:
         raise credentials_exception from None

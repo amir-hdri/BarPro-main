@@ -3,6 +3,7 @@ import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ class WorkerHeartbeatRegistry:
                 for task_id, lease in self._leases.items()
             }
 
-    def detect_stalled(self, timeout_seconds: float) -> dict[str, dict[str, float | str]]:
+    def detect_stalled(self, timeout_seconds: float) -> dict[str, dict[str, Any]]:
         now = time.time()
         with self._lock:
             stalled = {
