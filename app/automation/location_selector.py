@@ -15,6 +15,173 @@ from app.core.logging import monitoring_extra
 
 logger = logging.getLogger(__name__)
 
+# کش در سطح پروسس برای نتایج ژئوکدینگ
+_geocoding_cache: dict[str, dict[str, float]] = {}
+
+# مختصات شهرهای مهم ایران جهت ژئوکدینگ محلی سریع و بدون نیاز به اینترنت
+IRAN_CITY_COORDINATES: dict[str, dict[str, float]] = {
+    "تهران": {"lat": 35.6892, "lng": 51.3890},
+    "ری": {"lat": 35.5901, "lng": 51.4357},
+    "شمرانات": {"lat": 35.8083, "lng": 51.4283},
+    "اسلامشهر": {"lat": 35.5614, "lng": 51.2325},
+    "شهریار": {"lat": 35.6597, "lng": 51.0592},
+    "قدس": {"lat": 35.7208, "lng": 51.1097},
+    "ملارد": {"lat": 35.6667, "lng": 50.9833},
+    "ورامین": {"lat": 35.3250, "lng": 51.6492},
+    "پاکدشت": {"lat": 35.4817, "lng": 51.6803},
+    "دماوند": {"lat": 35.7178, "lng": 52.0650},
+    "رباطکریم": {"lat": 35.4847, "lng": 51.0828},
+    "بهارستان": {"lat": 35.5386, "lng": 51.1642},
+    "اصفهان": {"lat": 32.6546, "lng": 51.6680},
+    "کاشان": {"lat": 33.9850, "lng": 51.4100},
+    "خمینیشهر": {"lat": 32.6844, "lng": 51.5361},
+    "نجفآباد": {"lat": 32.6339, "lng": 51.3486},
+    "شاهینشهر": {"lat": 32.8625, "lng": 51.5492},
+    "لنجان": {"lat": 32.4333, "lng": 51.3167},
+    "فلاورجان": {"lat": 32.5583, "lng": 51.5103},
+    "شهرضا": {"lat": 32.0089, "lng": 51.8711},
+    "گلپایگان": {"lat": 33.4536, "lng": 50.2883},
+    "مشهد": {"lat": 36.2972, "lng": 59.6067},
+    "نیشابور": {"lat": 36.2133, "lng": 58.7958},
+    "سبزوار": {"lat": 36.2167, "lng": 57.6833},
+    "تربتحیدریه": {"lat": 35.2742, "lng": 59.2194},
+    "قوچان": {"lat": 37.1064, "lng": 58.5095},
+    "کاشمر": {"lat": 35.2383, "lng": 58.4656},
+    "تربتجام": {"lat": 35.2439, "lng": 60.6225},
+    "تبریز": {"lat": 38.0962, "lng": 46.2738},
+    "مراغه": {"lat": 37.3917, "lng": 46.2394},
+    "مرند": {"lat": 38.4286, "lng": 45.7744},
+    "میانه": {"lat": 37.4208, "lng": 47.6972},
+    "اهر": {"lat": 38.4778, "lng": 47.0694},
+    "بناب": {"lat": 37.3403, "lng": 46.0561},
+    "شیراز": {"lat": 29.5918, "lng": 52.5837},
+    "مرودشت": {"lat": 29.8742, "lng": 52.8025},
+    "جهرم": {"lat": 28.5000, "lng": 53.5600},
+    "فسا": {"lat": 28.9383, "lng": 53.6486},
+    "کازرون": {"lat": 29.6194, "lng": 51.6542},
+    "لارستان": {"lat": 27.6833, "lng": 54.3333},
+    "اهواز": {"lat": 31.3183, "lng": 48.6706},
+    "دزفول": {"lat": 32.3811, "lng": 48.4058},
+    "آبادان": {"lat": 30.3392, "lng": 48.3044},
+    "خرمشهر": {"lat": 30.4397, "lng": 48.1794},
+    "اندیمشک": {"lat": 32.4600, "lng": 48.3500},
+    "ایذه": {"lat": 31.8333, "lng": 49.8667},
+    "شوش": {"lat": 32.1942, "lng": 47.2436},
+    "ماهشهر": {"lat": 30.5589, "lng": 49.1917},
+    "بهبهان": {"lat": 30.5958, "lng": 50.2417},
+    "ساری": {"lat": 36.5633, "lng": 53.0601},
+    "بابل": {"lat": 36.5508, "lng": 52.6789},
+    "آمل": {"lat": 36.4678, "lng": 52.3506},
+    "قائمشهر": {"lat": 36.4628, "lng": 52.8606},
+    "بهشهر": {"lat": 36.6925, "lng": 53.5383},
+    "تنکابن": {"lat": 36.8167, "lng": 50.8000},
+    "کرج": {"lat": 35.8327, "lng": 50.9915},
+    "هشتگرد": {"lat": 35.9628, "lng": 50.6828},
+    "نظرآباد": {"lat": 35.9525, "lng": 50.6053},
+    "فردیس": {"lat": 35.7236, "lng": 50.9828},
+    "رشت": {"lat": 37.2808, "lng": 49.5831},
+    "بندرانزلی": {"lat": 37.4722, "lng": 49.4622},
+    "لاهیجان": {"lat": 37.2000, "lng": 50.0000},
+    "لنگرود": {"lat": 37.1903, "lng": 50.1539},
+    "تالش": {"lat": 37.8000, "lng": 48.9000},
+    "کرمان": {"lat": 30.2839, "lng": 57.0834},
+    "سیرجان": {"lat": 29.4522, "lng": 55.6814},
+    "رفسنجان": {"lat": 30.4067, "lng": 55.9939},
+    "جیرفت": {"lat": 28.6747, "lng": 57.7403},
+    "بم": {"lat": 29.1083, "lng": 58.3583},
+    "زاهدان": {"lat": 29.4963, "lng": 60.8629},
+    "زابل": {"lat": 31.0314, "lng": 61.4914},
+    "ایرانشهر": {"lat": 27.2025, "lng": 60.6847},
+    "چابهار": {"lat": 25.2919, "lng": 60.6433},
+    "ارومیه": {"lat": 37.5527, "lng": 45.0761},
+    "خوی": {"lat": 38.5503, "lng": 44.9519},
+    "میاندوآب": {"lat": 36.9667, "lng": 46.1000},
+    "مهاباد": {"lat": 36.7631, "lng": 45.7219},
+    "بوکان": {"lat": 36.5208, "lng": 46.2092},
+    "کرمانشاه": {"lat": 34.3142, "lng": 47.0650},
+    "islamabadgharb": {"lat": 34.1094, "lng": 46.5292},
+    "اسلامآبادغرب": {"lat": 34.1094, "lng": 46.5292},
+    "سرپلذهاب": {"lat": 34.4614, "lng": 45.8625},
+    "خرمآباد": {"lat": 33.4878, "lng": 48.3538},
+    "بروجرد": {"lat": 33.8972, "lng": 48.7514},
+    "دورود": {"lat": 33.4939, "lng": 49.0778},
+    "کوهدشت": {"lat": 33.5342, "lng": 47.6081},
+    "همدان": {"lat": 34.7984, "lng": 48.5146},
+    "ملایر": {"lat": 34.2981, "lng": 48.8242},
+    "نهاوند": {"lat": 34.1886, "lng": 48.3756},
+    "یزد": {"lat": 31.8974, "lng": 54.3569},
+    "میبد": {"lat": 32.2272, "lng": 54.0092},
+    "اردکان": {"lat": 32.3100, "lng": 54.0175},
+    "سنندج": {"lat": 35.3113, "lng": 46.9959},
+    "سقز": {"lat": 36.2497, "lng": 46.2736},
+    "مریوان": {"lat": 35.5261, "lng": 46.1758},
+    "قم": {"lat": 34.6416, "lng": 50.8746},
+    "قزوین": {"lat": 36.2687, "lng": 50.0041},
+    "الوند": {"lat": 36.1892, "lng": 50.0639},
+    "تاکستان": {"lat": 36.0694, "lng": 49.6958},
+    "گرگان": {"lat": 36.8456, "lng": 54.4393},
+    "گنبدکاووس": {"lat": 37.2500, "lng": 55.1667},
+    "اردبیل": {"lat": 38.2514, "lng": 48.2973},
+    "پارسآباد": {"lat": 39.6483, "lng": 47.9172},
+    "مشگینشهر": {"lat": 38.3986, "lng": 47.6814},
+    "اراک": {"lat": 34.0954, "lng": 49.6913},
+    "ساوه": {"lat": 35.0214, "lng": 50.3567},
+    "خمین": {"lat": 33.6425, "lng": 50.0789},
+    "زنجان": {"lat": 36.6736, "lng": 48.4787},
+    "ابهر": {"lat": 36.1464, "lng": 49.2178},
+    "بوشهر": {"lat": 28.9234, "lng": 50.8203},
+    "برازجان": {"lat": 29.2667, "lng": 51.2158},
+    "کنگان": {"lat": 27.8342, "lng": 52.0628},
+    "شهرکرد": {"lat": 32.3256, "lng": 50.8644},
+    "بروجن": {"lat": 31.9683, "lng": 51.2900},
+    "بیرجند": {"lat": 32.8663, "lng": 59.2211},
+    "بجنورد": {"lat": 37.4761, "lng": 57.3317},
+    "شیروان": {"lat": 37.3967, "lng": 57.9294},
+    "یاسوج": {"lat": 30.6691, "lng": 51.5878},
+    "دوگنبدان": {"lat": 30.3586, "lng": 50.7981},
+    "بندرعباس": {"lat": 27.1833, "lng": 56.2667},
+    "میناب": {"lat": 27.1464, "lng": 57.0797},
+    "سمنان": {"lat": 35.5722, "lng": 53.3960},
+    "شاهرود": {"lat": 36.4181, "lng": 54.9761},
+    "ایلام": {"lat": 33.6374, "lng": 46.4227},
+}
+
+# مختصات مرکز استان‌ها به عنوان fallback
+IRAN_PROVINCE_COORDINATES: dict[str, dict[str, float]] = {
+    "تهران": {"lat": 35.6892, "lng": 51.3890},
+    "اصفهان": {"lat": 32.6546, "lng": 51.6680},
+    "خراسانرضوی": {"lat": 36.2972, "lng": 59.6067},
+    "آذربایجانشرقی": {"lat": 38.0962, "lng": 46.2738},
+    "فارس": {"lat": 29.5918, "lng": 52.5837},
+    "خوزستان": {"lat": 31.3183, "lng": 48.6706},
+    "مازندران": {"lat": 36.5633, "lng": 53.0601},
+    "البرز": {"lat": 35.8327, "lng": 50.9915},
+    "گیلان": {"lat": 37.2808, "lng": 49.5831},
+    "کرمان": {"lat": 30.2839, "lng": 57.0834},
+    "سیستانوبلوچستان": {"lat": 29.4963, "lng": 60.8629},
+    "آذربایجانغربی": {"lat": 37.5527, "lng": 45.0761},
+    "کرمانشاه": {"lat": 34.3142, "lng": 47.0650},
+    "لرستان": {"lat": 33.4878, "lng": 48.3538},
+    "همدان": {"lat": 34.7984, "lng": 48.5146},
+    "یزد": {"lat": 31.8974, "lng": 54.3569},
+    "کردستان": {"lat": 35.3113, "lng": 46.9959},
+    "قم": {"lat": 34.6416, "lng": 50.8746},
+    "قزوین": {"lat": 36.2687, "lng": 50.0041},
+    "گلستان": {"lat": 36.8456, "lng": 54.4393},
+    "ardabil": {"lat": 38.2514, "lng": 48.2973},
+    "اردبیل": {"lat": 38.2514, "lng": 48.2973},
+    "مرکزی": {"lat": 34.0954, "lng": 49.6913},
+    "زنجان": {"lat": 36.6736, "lng": 48.4787},
+    "بوشهر": {"lat": 28.9234, "lng": 50.8203},
+    "چهارمحالوبختیاری": {"lat": 32.3256, "lng": 50.8644},
+    "خراسانجنوبی": {"lat": 32.8663, "lng": 59.2211},
+    "خراسانشمالی": {"lat": 37.4761, "lng": 57.3317},
+    "کهگیلویهوبویراحمد": {"lat": 30.6691, "lng": 51.5878},
+    "هرمزگان": {"lat": 27.1833, "lng": 56.2667},
+    "سمنان": {"lat": 35.5722, "lng": 53.3960},
+    "ایلام": {"lat": 33.6374, "lng": 46.4227},
+}
+
 
 class LocationSelector:
     """
@@ -167,6 +334,10 @@ class LocationSelector:
         except Exception:
             pass
 
+        if not visible:
+            # For hidden inputs, do not call page.fill (it will hang waiting for visibility)
+            return False
+
         # 2. Fallback to Playwright's standard fill
         try:
             await self.page.fill(target_selector, value)
@@ -310,7 +481,7 @@ class LocationSelector:
         selectors: list[str],
         *,
         min_real_options: int = 1,
-        timeout_ms: int = 12000,
+        timeout_ms: int = 3000,
     ) -> bool:
         deadline = asyncio.get_running_loop().time() + max(1.0, timeout_ms / 1000)
         while asyncio.get_running_loop().time() < deadline:
@@ -641,7 +812,7 @@ class LocationSelector:
             province_ready = await self._wait_for_select_options(
                 utcms["province"],
                 min_real_options=1,
-                timeout_ms=12000,
+                timeout_ms=3000,
             )
             if not province_ready:
                 return {
@@ -667,7 +838,7 @@ class LocationSelector:
             city_ready = await self._wait_for_select_options(
                 utcms["city"],
                 min_real_options=1,
-                timeout_ms=15000,
+                timeout_ms=4000,
             )
             if not city_ready:
                 logger.warning(
@@ -692,7 +863,7 @@ class LocationSelector:
                 district_ready = await self._wait_for_select_options(
                     utcms["district"],
                     min_real_options=1,
-                    timeout_ms=5000,
+                    timeout_ms=2000,
                 )
                 if district_ready:
                     await self._select_from_options(utcms["district"], district)
@@ -1032,8 +1203,8 @@ class LocationSelector:
                 for _ in range(15):
                     try:
                         addr_val = await self.page.locator(addr_selector).input_value()
-                        state_val = await self.page.locator(state_selector).input_value()
-                        if addr_val and state_val:
+                        # In map mode, the province dropdown might be hidden and empty, so we only check address field
+                        if addr_val:
                             logger.info(f"Native reverse mapping successfully populated fields for {prefix}.")
                             return {
                                 "success": True,
@@ -1044,9 +1215,46 @@ class LocationSelector:
                         pass
                     await asyncio.sleep(0.2)
 
-            # 4. اگر فیلدها پر نشدند (مثلا به خاطر خطای سرویس نقشه سایت)، به صورت دستی فیلدهای دراپ‌دان را پر می‌کنیم
+            # 4. اگر فیلدها پر نشدند (مثلا به خاطر خطای سرویس نقشه سایت)، به صورت دستی آدرس را پر می‌کنیم
+            parts = [p for p in [province, city, address] if p]
+            full_address = "، ".join(parts) or "تهران"
+            addr_selector = "#txtAddressSource" if prefix == "Origin" else "#txtAddressDest"
+
             logger.warning(
-                f"Native reverse mapping did not populate fields for {prefix}. Falling back to manual dropdown/input entry."
+                f"Native reverse mapping did not populate fields for {prefix}. Attempting manual address field filling: {full_address}"
+            )
+
+            addr_filled = False
+            address_selectors = [
+                addr_selector,
+                f"#txtAddress{prefix}FromMap",
+                f"#txtAddress{prefix}",
+            ]
+            for selector in address_selectors:
+                try:
+                    if await self._fill_input_like(selector, full_address, visible=False):
+                        addr_filled = True
+                except Exception:
+                    continue
+
+            # چک می‌کنیم که آیا اکنون مقدار دارد
+            addr_val = ""
+            try:
+                addr_val = await self.page.locator(addr_selector).input_value()
+            except Exception:
+                pass
+
+            if addr_val:
+                logger.info(f"Successfully populated location inputs for {prefix} via manual address injection.")
+                return {
+                    "success": True,
+                    "method": "explicit_coordinates_manual_address_injection",
+                    "coordinates": {"lat": lat, "lng": lng},
+                }
+
+            # ۵. اگر ورودی آدرس متنی هم پر نشد، به عنوان آخرین راهکار سراغ دراپ‌دان آبشاری می‌رویم
+            logger.warning(
+                f"Manual address injection did not populate fields for {prefix}. Falling back to manual dropdown selection."
             )
             dropdown_result = await self._try_dropdown_selection(location_data, prefix)
             if dropdown_result["success"]:
@@ -1059,7 +1267,7 @@ class LocationSelector:
             return {
                 "success": False,
                 "method": "explicit_coords",
-                "error": "عدم موفقیت در مقداردهی بومی و دستی فیلدهای مکان",
+                "error": "عدم موفقیت در مقداردهی بومی، دستی و آبشاری فیلدهای مکان",
             }
         except Exception as e:
             return {"success": False, "method": "explicit_coords", "error": str(e)}
@@ -1212,22 +1420,51 @@ class LocationSelector:
                             extra={"extra_fields": {"prefix": prefix}},
                         )
                         # Fallback: پر کردن فیلد آدرس متنی
-                        address = location_data.get("address", "")
-                        if address:
-                            for sel in utcms["address"]:
-                                if await self._fill_input_like(sel, address):
-                                    break
+                        parts = [p for p in [location_data.get("province"), location_data.get("city"), location_data.get("address")] if p]
+                        full_address = "، ".join(parts) or "تهران"
+                        
+                        addr_filled = False
+                        for sel in utcms["address"] + self._build_formatted_selectors(LocationSelectors.ADDRESS_TEMPLATES, prefix=prefix):
+                            if await self._fill_input_like(sel, full_address, visible=False):
+                                addr_filled = True
+                        
+                        if addr_filled:
+                            logger.info(f"Map click had no effect, but manual address injection succeeded.")
+                            return {
+                                "success": True,
+                                "method": "map_manual_address_injection",
+                                "coordinates": {"lat": lat, "lng": lng},
+                                "map_type": map_type,
+                            }
                         return {
                             "success": False,
                             "method": "map",
                             "error": "کلیک روی نقشه تاثیری در فرم نداشت (فیلدها تغییر نکردند)",
                         }
 
-                    if not after_state.get("province") or not after_state.get("city"):
+                    # In map mode, the province/city dropdowns might be hidden and empty, so we only check the address field
+                    if not after_state.get("address"):
                         logger.warning(
-                            "map_click_missing_province_or_city_falling_back",
+                            "map_click_missing_address_falling_back",
                             extra={"extra_fields": {"prefix": prefix, "after_state": after_state}},
                         )
+                        parts = [p for p in [location_data.get("province"), location_data.get("city"), location_data.get("address")] if p]
+                        full_address = "، ".join(parts) or "تهران"
+                        
+                        addr_filled = False
+                        for sel in utcms["address"] + self._build_formatted_selectors(LocationSelectors.ADDRESS_TEMPLATES, prefix=prefix):
+                            if await self._fill_input_like(sel, full_address, visible=False):
+                                addr_filled = True
+                                
+                        if addr_filled:
+                            logger.info(f"Map click missing address, but manual address injection succeeded.")
+                            return {
+                                "success": True,
+                                "method": "map_manual_address_injection",
+                                "coordinates": {"lat": lat, "lng": lng},
+                                "map_type": map_type,
+                            }
+                            
                         dropdown_result = await self._try_dropdown_selection(location_data, prefix, selectors=selectors)
                         if dropdown_result["success"]:
                             return {
@@ -1239,7 +1476,7 @@ class LocationSelector:
                         return {
                             "success": False,
                             "method": "map",
-                            "error": "استان یا شهر پس از کلیک نقشه مقداردهی نشد و فال‌بک ناموفق بود",
+                            "error": "آدرس پس از کلیک نقشه مقداردهی نشد و فال‌بک ناموفق بود",
                         }
 
             return {
@@ -1286,7 +1523,7 @@ class LocationSelector:
             merged_city    = self._unique_preserve_order(utcms["city"]     + city_tmpl)
             merged_district = self._unique_preserve_order(utcms["district"] + district_tmpl)
 
-            await self._wait_for_select_options(merged_province, timeout_ms=12000)
+            await self._wait_for_select_options(merged_province, timeout_ms=3000)
             for selector in merged_province[:3]:
                 await self._log_select_diagnostics(
                     selector, f"{prefix} province", str(location_data.get("province", ""))
@@ -1296,7 +1533,7 @@ class LocationSelector:
             if not province_selected:
                 return {"success": False, "method": "dropdown", "error": "انتخاب استان با شکست مواجه شد"}
 
-            city_options_ready = await self._wait_for_select_options(merged_city, timeout_ms=15000)
+            city_options_ready = await self._wait_for_select_options(merged_city, timeout_ms=4000)
             if not city_options_ready:
                 logger.warning(
                     "location_city_options_not_ready",
@@ -1309,7 +1546,7 @@ class LocationSelector:
             if not city_selected:
                 return {"success": False, "method": "dropdown", "error": "انتخاب شهر با شکست مواجه شد"}
 
-            await self._wait_for_select_options(merged_district, timeout_ms=5000)
+            await self._wait_for_select_options(merged_district, timeout_ms=2000)
             await self._select_from_options(merged_district, location_data.get("district", ""))
 
             # پر کردن آدرس - ابتدا UTCMS direct, سپس template
@@ -1699,10 +1936,34 @@ class LocationSelector:
         return None
 
     async def _geocode_address(self, location_data: dict[str, Any]) -> dict[str, float] | None:
-        """تبدیل آدرس به مختصات با استفاده از سرویس خارجی"""
+        """تبدیل آدرس به مختصات با استفاده از جستجوی محلی و کش یا سرویس خارجی به عنوان آخرین راهکار"""
         province = str(location_data.get("province", "") or "").strip()
         city = str(location_data.get("city", "") or "").strip()
         address_text = str(location_data.get("address", "") or "").strip()
+
+        norm_province = self._normalize_text(province)
+        norm_city = self._normalize_text(city)
+
+        # ۱. بررسی کش محلی موقت در سطح پروسس
+        cache_key = f"{norm_province}:{norm_city}:{self._normalize_text(address_text)}"
+        if cache_key in _geocoding_cache:
+            logger.info(f"Geocoding cache hit for key: {cache_key}")
+            return _geocoding_cache[cache_key]
+
+        # ۲. جستجو در دیتابیس شهرهای محلی (سریع و آفلاین)
+        if norm_city in IRAN_CITY_COORDINATES:
+            coords = IRAN_CITY_COORDINATES[norm_city]
+            logger.info(f"Geocoding local city hit for {city} -> {coords}")
+            _geocoding_cache[cache_key] = coords
+            return coords
+
+        if norm_province in IRAN_PROVINCE_COORDINATES:
+            coords = IRAN_PROVINCE_COORDINATES[norm_province]
+            logger.info(f"Geocoding local province hit for {province} -> {coords}")
+            _geocoding_cache[cache_key] = coords
+            return coords
+
+        # ۳. در صورت عدم یافت در آفلاین، تلاش با Nominatim با زمان انتظار کوتاه‌تر
         candidates = [
             ", ".join(part for part in [province, city, address_text] if part),
             ", ".join(part for part in [city, address_text] if part),
@@ -1716,13 +1977,20 @@ class LocationSelector:
         for candidate in candidates:
             params = {"q": f"{candidate}, Iran", "format": "json", "limit": 1}
             try:
-                data = await self._make_http_request(url, params=params, headers=headers, timeout=4.0)
+                # کاهش تایم‌اوت از ۴ ثانیه به ۱.۵ ثانیه جهت جلوگیری از قفل شدن ربات
+                data = await self._make_http_request(url, params=params, headers=headers, timeout=1.5)
                 if data:
-                    return {"lat": float(data[0]["lat"]), "lng": float(data[0]["lon"])}
+                    coords = {"lat": float(data[0]["lat"]), "lng": float(data[0]["lon"])}
+                    _geocoding_cache[cache_key] = coords
+                    logger.info(f"Geocoding Nominatim hit for candidate {candidate} -> {coords}")
+                    return coords
             except Exception as e:
                 logger.debug(f"Candidate geocoding failed for {candidate}: {e}")
 
-        return None
+        # اگر هیچ‌کدام کار نکرد، مختصات تهران را به عنوان پیش‌فرض باز می‌گردانیم تا کار متوقف نشود
+        default_coords = {"lat": 35.6892, "lng": 51.3890}
+        _geocoding_cache[cache_key] = default_coords
+        return default_coords
 
     async def _reverse_geocode(self, lat: float, lng: float) -> dict[str, str] | None:
         """تبدیل مختصات به آدرس (استان، شهر، منطقه) برای پر کردن خودکار فیلدها"""
