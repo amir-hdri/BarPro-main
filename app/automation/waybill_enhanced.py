@@ -2818,7 +2818,7 @@ class EnhancedWaybillManager:
                 # Sometimes toasts take a moment to appear
                 await self.page.wait_for_timeout(2000)
                 form_errors = await self._extract_form_errors()
-                
+
             error_msg = form_errors or "اعتبارسنجی فرم ناوگان ناموفق بود یا سرور پاسخی نداد"
             logger.error("vehicle_form_validation_blocked", extra={"extra_fields": {"errors": error_msg}})
             raise WaybillError(f"گذر از مرحله ناوگان ناموفق بود: {error_msg}")
@@ -3457,6 +3457,12 @@ class EnhancedWaybillManager:
             wait_after=0.5,
         )
 
+        # ── Step 1.5: Wait for final stage loading ──
+        try:
+            await self.page.locator("#btnRegisterFinished").first.wait_for(state="visible", timeout=8000)
+        except Exception:
+            pass
+
         # ── Step 2: Solve captcha (if present) ──
         await self._handle_submit_captcha_if_present()
 
@@ -3765,16 +3771,140 @@ class EnhancedWaybillManager:
 
         return unique
 
-    async def _extract_captcha_image_base64(self) -> str | None:
+    def _is_plausible_captcha_image(self, box: dict) -> bool:
+        width = float(box.get("width") or 0)
+        height = float(box.get("height") or 0)
+        if width < 35 or height < 18:
+            return False
+        if width > 220 or height > 120:
+            return False
+        aspect_ratio = width / max(height, 1.0)
+        return 1.0 <= aspect_ratio <= 5.5
+
+    def _captcha_image_score(self, box: dict, input_box: dict | None, selector: str) -> float:
+        width = float(box.get("width") or 0)
+        height = float(box.get("height") or 0)
+        score = 200.0 - abs(width - 110.0) - abs(height - 40.0)
+        lowered = selector.lower()
+        if "dnt" in lowered:
+            score += 20
+        if "captcha" in lowered:
+            score += 10
+
+        if input_box:
+            image_center_x = float(box.get("x") or 0) + (width / 2.0)
+            image_center_y = float(box.get("y") or 0) + (height / 2.0)
+            input_center_x = float(input_box.get("x") or 0) + (float(input_box.get("width") or 0) / 2.0)
+            input_center_y = float(input_box.get("y") or 0) + (float(input_box.get("height") or 0) / 2.0)
+            score -= abs(image_center_x - input_center_x) * 0.35
+            score -= abs(image_center_y - input_center_y) * 0.85
+        return score
+
+    async def _extract_captcha_image_base64(self, captcha_selector: str | None = None) -> str | None:
+        input_box = None
+        if captcha_selector:
+            try:
+                captcha_input = await self.smart_locator.locate(self.page, [captcha_selector], timeout=900)
+                input_box = await captcha_input.bounding_box()
+            except Exception:
+                input_box = None
+
+        best_candidate = None
         for selector in AuthSelectors.CAPTCHA_IMAGE_SELECTORS:
             try:
-                element = await self.smart_locator.locate(self.page, [selector], timeout=800)
-                image_bytes = await element.screenshot(type="png")
-                if image_bytes:
-                    return base64.b64encode(image_bytes).decode("utf-8")
+                locators = self.page.locator(selector)
+                count = await locators.count()
             except Exception:
                 continue
+
+            for index in range(count):
+                try:
+                    locator = locators.nth(index)
+                    box = await locator.bounding_box()
+                    if not box or not self._is_plausible_captcha_image(box):
+                        continue
+                    score = self._captcha_image_score(box, input_box, selector)
+                    if best_candidate is None or score > best_candidate[0]:
+                        best_candidate = (score, locator)
+                except Exception:
+                    continue
+
+        if best_candidate is None:
+            # Fallback to simple query if complex locator failed
+            for selector in AuthSelectors.CAPTCHA_IMAGE_SELECTORS:
+                try:
+                    element = await self.smart_locator.locate(self.page, [selector], timeout=1500)
+                    image_bytes = await element.screenshot(type="png")
+                    if image_bytes:
+                        return base64.b64encode(image_bytes).decode("utf-8")
+                except Exception:
+                    continue
+            return None
+
+        try:
+            image_bytes = await best_candidate[1].screenshot(type="png")
+            if image_bytes:
+                return base64.b64encode(image_bytes).decode("utf-8")
+        except Exception:
+            return None
+
         return None
+
+    def _save_captcha_debug_artifact(
+        self,
+        image_base64: str,
+        phase: str,
+        attempt: int | None,
+        stage: str,
+        provider: str | None = None,
+        solution: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        import binascii
+        import json
+        import os
+        import re
+        from datetime import UTC, datetime
+        from pathlib import Path
+        if not utcms_config.CAPTCHA_DEBUG_SAVE_IMAGES or not image_base64:
+            return
+        try:
+            image_bytes = base64.b64decode(image_base64, validate=True)
+        except (ValueError, binascii.Error):
+            return
+
+        timestamp = datetime.now(UTC).replace(tzinfo=None).strftime("%Y%m%d-%H%M%S-%f")
+        safe_phase = re.sub(r"[^a-zA-Z0-9_-]+", "_", phase or "submit")
+        safe_stage = re.sub(r"[^a-zA-Z0-9_-]+", "_", stage or "capture")
+        debug_dir = Path(utcms_config.CAPTCHA_DEBUG_DIR)
+        debug_dir.mkdir(parents=True, exist_ok=True)
+
+        base_name = f"{timestamp}-{safe_phase}-a{attempt or 0}-{safe_stage}"
+        image_path = debug_dir / f"{base_name}.png"
+        meta_path = debug_dir / f"{base_name}.json"
+
+        image_path.write_bytes(image_bytes)
+        meta_path.write_text(
+            json.dumps(
+                {
+                    "saved_at": datetime.now(UTC).replace(tzinfo=None).isoformat() + "Z",
+                    "phase": phase,
+                    "attempt": attempt,
+                    "stage": stage,
+                    "provider": provider,
+                    "solution": solution,
+                    "error": error,
+                    "url": getattr(self.page, "url", ""),
+                    "image_path": os.fspath(image_path),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        logger.info(
+            "captcha_debug_saved",
+            extra={"extra_fields": {"image_path": os.fspath(image_path), "meta_path": os.fspath(meta_path), "phase": phase, "attempt": attempt, "stage": stage}},
+        )
 
     async def _solve_submit_math_captcha(self, captcha_selector: str) -> str | None:
         started_at = asyncio.get_running_loop().time()
@@ -3838,7 +3968,7 @@ class EnhancedWaybillManager:
             )
             return None
 
-        image_base64 = await self._extract_captcha_image_base64()
+        image_base64 = await self._extract_captcha_image_base64(captcha_selector)
         if not image_base64:
             if utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED:
                 return await self._solve_submit_math_captcha(captcha_selector)
@@ -3850,9 +3980,15 @@ class EnhancedWaybillManager:
             )
             return None
 
+        self._save_captcha_debug_artifact(
+            image_base64, phase="submit", attempt=1, stage="captured", provider="composite"
+        )
         try:
             result = await provider.solve_text_captcha(image_base64)
-        except Exception:
+        except Exception as exc:
+            self._save_captcha_debug_artifact(
+                image_base64, phase="submit", attempt=1, stage="error", provider="composite", error=str(exc)
+            )
             if utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED:
                 return await self._solve_submit_math_captcha(captcha_selector)
             track_captcha_failure(
@@ -3864,6 +4000,9 @@ class EnhancedWaybillManager:
             return None
 
         if not result.solved:
+            self._save_captcha_debug_artifact(
+                image_base64, phase="submit", attempt=1, stage="failed", provider=result.provider or "composite", error=result.error or "unsolved"
+            )
             if utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED:
                 return await self._solve_submit_math_captcha(captcha_selector)
             track_captcha_failure(
@@ -3873,6 +4012,7 @@ class EnhancedWaybillManager:
                 latency_seconds=asyncio.get_running_loop().time() - started_at,
             )
             return None
+
         normalized = self._normalize_captcha_solution(result.value)
         if normalized:
             track_captcha_success(
@@ -3884,7 +4024,14 @@ class EnhancedWaybillManager:
                 "submit_provider_captcha_solved",
                 extra={"extra_fields": {"provider": result.provider}},
             )
+            self._save_captcha_debug_artifact(
+                image_base64, phase="submit", attempt=1, stage="solved", provider=result.provider or "composite", solution=normalized
+            )
             return normalized
+
+        self._save_captcha_debug_artifact(
+            image_base64, phase="submit", attempt=1, stage="failed", provider=result.provider or "composite", error="normalization_failed"
+        )
         track_captcha_failure(
             "provider_invalid_value",
             phase="submit",
@@ -3976,17 +4123,34 @@ class EnhancedWaybillManager:
             "input[id*='captcha' i][type='text']",
         )
 
+        combined_selector = ", ".join(captcha_selectors)
         captcha_selector = None
-        for selector in captcha_selectors:
-            try:
-                await self.smart_locator.locate(self.page, [selector], timeout=900)
-                captcha_selector = selector
-                break
-            except Exception:
-                continue
+        try:
+            locator = self.page.locator(combined_selector).first
+            await locator.wait_for(state="visible", timeout=6000)
+            for selector in captcha_selectors:
+                if await self.page.locator(selector).first.is_visible():
+                    captcha_selector = selector
+                    break
+        except Exception:
+            pass
 
         if not captcha_selector:
+            logger.info("No captcha input found on submit stage, skipping captcha solving.")
             return
+
+        try:
+            for img_sel in AuthSelectors.CAPTCHA_IMAGE_SELECTORS:
+                img_loc = self.page.locator(img_sel).first
+                if await img_loc.is_visible(timeout=500):
+                    for _ in range(25):
+                        width = await img_loc.evaluate("el => el.naturalWidth")
+                        if width and width > 0:
+                            break
+                        await asyncio.sleep(0.2)
+                    break
+        except Exception:
+            pass
 
         if utcms_config.UTCMS_CAPTCHA_VALUE:
             filled = await self._fill_with_selector(captcha_selector, utcms_config.UTCMS_CAPTCHA_VALUE)

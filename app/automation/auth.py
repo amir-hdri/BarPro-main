@@ -258,6 +258,14 @@ class UTCMSAuthenticator:
             return False
 
         if not probe_login_url:
+            if await self._has_auth_cookie():
+                deadline = asyncio.get_running_loop().time() + 5.0
+                while asyncio.get_running_loop().time() < deadline:
+                    curr_url = await self._current_url()
+                    if curr_url and not self._is_login_url(curr_url):
+                        return True
+                    await asyncio.sleep(0.2)
+                return True
             return False
 
         try:

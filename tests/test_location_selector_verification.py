@@ -20,6 +20,7 @@ async def test_try_map_selection_verification_failure():
 
     # Mock form state before/after click: simulate no changes (no filled fields)
     selector._get_form_state = AsyncMock(return_value={"province": ""})
+    selector._fill_input_like = AsyncMock(return_value=False)
 
 
 
