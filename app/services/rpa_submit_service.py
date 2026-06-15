@@ -158,6 +158,7 @@ class RPAHttpSubmitService:
                         payload=payload,
                         prior_error="inline_auth_submit",
                         require_auth_check=False,
+                        job_id=job_id,
                     )
                 else:
                     try:
@@ -183,15 +184,17 @@ class RPAHttpSubmitService:
                 if classification.outcome == SubmitOutcome.SUCCESS:
                     await rpa_runtime.increment_success(client_id, job.driver_id)
                     job.status = TaskStatus.SUCCESS.value
-                    job.result_json = json.dumps(
-                        {
-                            "status": "success",
-                            "reason": classification.reason_code,
-                            "http_status": classification.http_status,
-                            "latency_ms": result.latency_ms,
-                        },
-                        ensure_ascii=False,
-                    )
+                    res_json = {
+                        "status": "success",
+                        "reason": classification.reason_code,
+                        "http_status": classification.http_status,
+                        "latency_ms": result.latency_ms,
+                    }
+                    if result.raw_payload and isinstance(result.raw_payload, dict):
+                        for k in ["waybill_screenshot", "tracking_code", "url", "route"]:
+                            if k in result.raw_payload:
+                                res_json[k] = result.raw_payload[k]
+                    job.result_json = json.dumps(res_json, ensure_ascii=False)
                     job.finished_at = datetime.now(UTC).replace(tzinfo=None)
                     job.submit_after = None
                     job.next_retry_at = None
@@ -374,6 +377,7 @@ class RPAHttpSubmitService:
                 prior_error=prior_error,
                 require_auth_check=True,
                 start_time=start,
+                job_id=job.job_id,
             )
             if proxy_info:
                 success = (res.classification.outcome == SubmitOutcome.SUCCESS)
@@ -426,6 +430,7 @@ class RPAHttpSubmitService:
         prior_error: str,
         require_auth_check: bool,
         start_time: float | None = None,
+        job_id: str | None = None,
     ) -> SubmitExecutionResult:
         start = start_time or time.perf_counter()
         if require_auth_check:
@@ -445,6 +450,7 @@ class RPAHttpSubmitService:
         manager_result = await manager.create_waybill_with_map(
             build_enhanced_waybill_payload(payload),
             dry_run=False,
+            job_id=job_id,
         )
         latency_ms = int((time.perf_counter() - start) * 1000)
         if manager_result.get("success"):

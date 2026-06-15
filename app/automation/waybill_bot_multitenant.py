@@ -99,7 +99,9 @@ class WaybillAutomationBot:
             })
 
             normalized_payload = build_enhanced_waybill_payload(payload)
-            manager_result = await self.manager.create_waybill_with_map(normalized_payload, dry_run=False)
+            manager_result = await self.manager.create_waybill_with_map(
+                normalized_payload, dry_run=False, job_id=job_id
+            )
 
             result["steps"].append({
                 "step": "create_waybill_with_map",
@@ -134,6 +136,7 @@ class WaybillAutomationBot:
                 "origin_map_type": manager_result.get("origin_map_type"),
                 "destination_map_type": manager_result.get("destination_map_type"),
                 "route": manager_result.get("route"),
+                "waybill_screenshot": manager_result.get("waybill_screenshot"),
             }
             result["steps"].append({
                 "step": "submit",

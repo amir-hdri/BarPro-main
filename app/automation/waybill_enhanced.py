@@ -1425,6 +1425,7 @@ class EnhancedWaybillManager:
         self,
         data: dict[str, Any],
         dry_run: bool = False,
+        job_id: str | None = None,
     ) -> dict[str, Any]:
         """
         ایجاد بارنامه با انتخاب مکان از طریق نقشه یا منوی کشویی
@@ -1615,7 +1616,7 @@ class EnhancedWaybillManager:
                 }
             else:
                 # ثبت و دریافت کد رهگیری
-                result = await self._submit_waybill(otp_value=otp_val)
+                result = await self._submit_waybill(otp_value=otp_val, job_id=job_id)
 
             # افزودن اطلاعات مسیر به نتیجه
             if route_info:
@@ -3401,7 +3402,7 @@ class EnhancedWaybillManager:
 
         raise WaybillError("OTP در بازه زمانی مجاز وارد نشد")
 
-    async def _submit_waybill(self, otp_value: str | None = None) -> dict[str, Any]:
+    async def _submit_waybill(self, otp_value: str | None = None, job_id: str | None = None) -> dict[str, Any]:
         """ثبت فرم بارنامه (با پشتیبانی OTP و captcha + Self-Healing)"""
 
         # ── Self-Healing wrapper for critical interactions ──
@@ -3528,11 +3529,29 @@ class EnhancedWaybillManager:
                 raise WaybillError(f"ثبت بارنامه با خطا مواجه شد: {form_errors}")
             raise WaybillError("ثبت بارنامه تایید نشد: نه کد رهگیری پیدا شد و نه نشانه موفقیت در صفحه وجود داشت")
 
+        # Capture waybill screenshot on success
+        waybill_screenshot = None
+        if tracking_code or submission_confirmed:
+            import os
+            import time
+            try:
+                screenshots_dir = "app/ui/assets/screenshots"
+                os.makedirs(screenshots_dir, exist_ok=True)
+                screenshot_filename = f"{job_id or 'unknown_' + str(int(time.time()))}.png"
+                screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
+
+                await self.page.screenshot(path=screenshot_path, full_page=True)
+                waybill_screenshot = f"/assets/screenshots/{screenshot_filename}"
+                logger.info(f"Successfully saved waybill screenshot to {screenshot_path}")
+            except Exception as e:
+                logger.error(f"Failed to capture waybill screenshot: {e}", exc_info=True)
+
         return {
             "success": True,
             "status": "submitted",
             "tracking_code": tracking_code,
             "url": await self._current_url(),
+            "waybill_screenshot": waybill_screenshot,
         }
 
     async def _wait_for_loading_overlays_to_disappear(self, timeout_ms: int = 15000) -> None:

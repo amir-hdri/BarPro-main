@@ -518,36 +518,54 @@ export default function WaybillsPage() {
                 <Loader2 className="h-8 w-8 animate-spin text-cyan-400" />
               </div>
             ) : (
-              <div className="grid gap-6 md:grid-cols-3">
-                {/* Timeline */}
-                <div className="md:col-span-1 border-l border-white/10 pl-4 space-y-4">
-                  <h4 className="font-bold text-slate-200 mb-2">روند رویدادها</h4>
-                  <div className="relative pr-4 border-r border-white/10 space-y-4 text-right">
-                    {timeline.length === 0 ? (
-                      <p className="text-xs text-slate-500">رویدادی ثبت نشده است.</p>
-                    ) : (
-                      timeline.map((evt, idx) => (
-                        <div key={idx} className="relative">
-                          <span className="absolute -right-[21px] top-1 h-3.5 w-3.5 rounded-full border border-slate-900 bg-cyan-400"></span>
-                          <p className="text-xs font-semibold text-slate-200">{evt.status}</p>
-                          <p className="text-xs text-slate-400 mt-0.5">{evt.message}</p>
-                          <p className="text-[10px] text-slate-500 font-mono mt-0.5">
-                            {new Date(evt.created_at).toLocaleTimeString("fa-IR")}
-                          </p>
-                        </div>
-                      ))
-                    )}
+              <>
+                <div className="grid gap-6 md:grid-cols-3">
+                  {/* Timeline */}
+                  <div className="md:col-span-1 border-l border-white/10 pl-4 space-y-4">
+                    <h4 className="font-bold text-slate-200 mb-2">روند رویدادها</h4>
+                    <div className="relative pr-4 border-r border-white/10 space-y-4 text-right">
+                      {timeline.length === 0 ? (
+                        <p className="text-xs text-slate-500">رویدادی ثبت نشده است.</p>
+                      ) : (
+                        timeline.map((evt, idx) => (
+                          <div key={idx} className="relative">
+                            <span className="absolute -right-[21px] top-1 h-3.5 w-3.5 rounded-full border border-slate-900 bg-cyan-400"></span>
+                            <p className="text-xs font-semibold text-slate-200">{evt.status}</p>
+                            <p className="text-xs text-slate-400 mt-0.5">{evt.message}</p>
+                            <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                              {new Date(evt.created_at).toLocaleTimeString("fa-IR")}
+                            </p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Automation Log */}
+                  <div className="md:col-span-2 space-y-4">
+                    <h4 className="font-bold text-slate-200">لاگ کامل اتوماسیون (Worker Log)</h4>
+                    <pre className="w-full h-80 overflow-y-auto rounded-xl border border-white/10 bg-slate-950 p-4 text-left text-xs leading-5 text-slate-300 font-mono" dir="ltr">
+                      {detailLogs || "لاگی در دسترس نیست."}
+                    </pre>
                   </div>
                 </div>
 
-                {/* Automation Log */}
-                <div className="md:col-span-2 space-y-4">
-                  <h4 className="font-bold text-slate-200">لاگ کامل اتوماسیون (Worker Log)</h4>
-                  <pre className="w-full h-80 overflow-y-auto rounded-xl border border-white/10 bg-slate-950 p-4 text-left text-xs leading-5 text-slate-300 font-mono" dir="ltr">
-                    {detailLogs || "لاگی در دسترس نیست."}
-                  </pre>
-                </div>
-              </div>
+                {selectedJob.result_json?.waybill_screenshot && (
+                  <div className="mt-6 border-t border-white/10 pt-4">
+                    <h4 className="font-bold text-slate-200 mb-3">تصویر سند بارنامه</h4>
+                    <div className="relative overflow-hidden rounded-xl border border-white/10 bg-slate-950/50 p-2 flex justify-center">
+                      <img
+                        src={selectedJob.result_json.waybill_screenshot.startsWith("http")
+                          ? selectedJob.result_json.waybill_screenshot
+                          : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "") + selectedJob.result_json.waybill_screenshot
+                        }
+                        alt="سند بارنامه"
+                        className="max-h-[500px] object-contain rounded-lg shadow-md hover:scale-[1.01] transition-transform duration-300"
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             <div className="flex justify-end gap-3 pt-6 border-t border-white/10 mt-6">
