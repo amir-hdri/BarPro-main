@@ -26,6 +26,13 @@ body {
   background-color: #030712;
   background-attachment: fixed;
   color: #f1f5f9;
+  line-height: 1.65;
+}
+
+/* ─── RTL Persian Typography Overrides ───────────────────────────── */
+[dir="rtl"], [dir="rtl"] * {
+  letter-spacing: normal !important;
+  word-spacing: normal !important;
 }
 
 button,

@@ -1288,13 +1288,15 @@ class LocationSelector:
                             if tag_name in ["input", "textarea"]:
                                 value = await element.input_value()
                             else:
-                                value = await element.evaluate("""el => {
+                                value = await element.evaluate(
+                                    """el => {
                                     if (el.selectedIndex >= 0) {
                                         const option = el.options[el.selectedIndex];
                                         return option.value ? option.text : '';
                                     }
                                     return '';
-                                }""")
+                                }"""
+                                )
 
                             if value and value.strip():
                                 state[field_name] = value.strip()
