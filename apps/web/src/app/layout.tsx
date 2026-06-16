@@ -18,8 +18,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="fa" dir="rtl" className={vazirmatn.variable}>
-      <body className="font-sans antialiased text-slate-800">
+    <html lang="fa" dir="rtl" className={vazirmatn.variable} suppressHydrationWarning>
+      <body className="font-sans antialiased text-slate-800" suppressHydrationWarning>
         <QueryProvider>
           {children}
           <Toaster position="bottom-center" />
