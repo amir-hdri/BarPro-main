@@ -291,3 +291,10 @@ select.field {
 ::-webkit-scrollbar-thumb:hover { 
   background: rgba(255, 255, 255, 0.25); 
 }
+
+/* ─── Smooth Transitions & Micro-interactions ────────────────────── */
+a, button, input, select, textarea, .section-card, .stat-card, .badge, .field {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, backdrop-filter, -webkit-backdrop-filter;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 200ms;
+}
