@@ -32,15 +32,15 @@ export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
   }, [hasRequiredRole, isAuthenticated, isReady, requiredRole, role, router, mounted]);
 
   if (!mounted || !isReady) {
-    return <div className="rounded-[28px] border border-white/20 bg-white/70 p-8 text-sm text-slate-500">در حال آماده‌سازی پنل...</div>;
+    return <div className="rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-8 text-sm text-slate-300 font-bold">در حال آماده‌سازی پنل...</div>;
   }
 
   if (!isAuthenticated) {
     return (
-      <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-8 text-right shadow-sm">
-        <h3 className="text-lg font-semibold text-amber-900">برای ادامه وارد حساب شوید</h3>
-        <p className="mt-2 text-sm leading-6 text-amber-800">این بخش به توکن JWT چندمستاجره متصل است و بدون ورود امکان بارگذاری داده‌ها ندارد.</p>
-        <Link href="/auth" className="mt-5 inline-flex rounded-2xl bg-amber-500 px-5 py-3 text-sm font-medium text-white">
+      <div className="rounded-[2rem] border border-amber-500/20 bg-amber-500/5 p-8 text-right shadow-2xl backdrop-blur-xl">
+        <h3 className="text-lg font-bold text-amber-400">برای ادامه وارد حساب شوید</h3>
+        <p className="mt-2 text-sm leading-6 text-slate-300 font-medium">این بخش به توکن JWT چندمستاجره متصل است و بدون ورود امکان بارگذاری داده‌ها ندارد.</p>
+        <Link href="/auth" className="mt-6 inline-flex rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 px-6 py-3.5 text-sm font-black text-slate-950 transition shadow-lg shadow-amber-500/20 active:scale-95">
           رفتن به صفحه ورود
         </Link>
       </div>
@@ -49,9 +49,9 @@ export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
 
   if (requiredRole && !hasRequiredRole) {
     return (
-      <div className="rounded-[28px] border border-rose-200 bg-rose-50 p-8 text-right shadow-sm">
-        <h3 className="text-lg font-semibold text-rose-900">دسترسی این بخش محدود است</h3>
-        <p className="mt-2 text-sm leading-6 text-rose-800">
+      <div className="rounded-[2rem] border border-rose-500/20 bg-rose-500/5 p-8 text-right shadow-2xl backdrop-blur-xl">
+        <h3 className="text-lg font-bold text-rose-400">دسترسی این بخش محدود است</h3>
+        <p className="mt-2 text-sm leading-6 text-slate-300 font-medium">
           این صفحه فقط برای {requiredRole === 'master_admin' ? 'ادمین اصلی سیستم' : 'کاربران مشتری'} در دسترس است.
         </p>
       </div>

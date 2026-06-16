@@ -304,7 +304,7 @@ export default function HistoryPage() {
             )}
 
             {error && (
-              <div className="mt-6 rounded-2xl bg-rose-50 p-4 text-sm font-bold text-rose-700 shadow-sm shadow-rose-100">
+              <div className="mt-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 p-4 text-sm font-bold text-rose-400 shadow-sm shadow-rose-950/20">
                 {error}
               </div>
             )}

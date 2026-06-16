@@ -53,6 +53,9 @@ export default function DashboardPage() {
     queryKey: ["client-stats"],
     queryFn: async () => {
       const res = await api.get<ClientStats>("/api/v1/client/stats");
+      if (!res.success || !res.data) {
+        throw new Error(res.error || "Query data cannot be undefined");
+      }
       return res.data;
     },
     enabled: !!client,
@@ -69,7 +72,10 @@ export default function DashboardPage() {
       const res = await api.get<{ tasks: WaybillJob[] }>(
         "/api/v1/client/waybills?page=1&page_size=5"
       );
-      return res.data?.tasks || [];
+      if (!res.success || !res.data) {
+        throw new Error(res.error || "Query data cannot be undefined");
+      }
+      return res.data.tasks || [];
     },
     enabled: !!client,
   });
