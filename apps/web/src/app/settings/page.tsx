@@ -43,8 +43,8 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="rounded-[32px] border border-white/20 bg-white/80 p-6 shadow-lg shadow-slate-900/5 backdrop-blur">
-            <h2 className="text-2xl font-semibold text-slate-950">جزئیات اشتراک و ظرفیت</h2>
+          <div className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 shadow-2xl text-white">
+            <h2 className="text-2xl font-black text-white">جزئیات اشتراک و ظرفیت</h2>
             {profile ? (
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 <InfoCard label="نام مجموعه" value={profile.name} />
@@ -57,9 +57,9 @@ export default function SettingsPage() {
                 <InfoCard label="وضعیت" value={statusLabel(profile.status)} />
               </div>
             ) : (
-              <div className="mt-6 rounded-3xl border border-dashed border-slate-200 px-5 py-8 text-sm text-slate-500">در حال بارگذاری مشخصات مشتری...</div>
+              <div className="mt-6 rounded-3xl border border-dashed border-white/5 bg-slate-950/20 px-5 py-8 text-sm text-slate-400">در حال بارگذاری مشخصات مشتری...</div>
             )}
-            {error && <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
+            {error && <p className="mt-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 px-4 py-3 text-sm text-rose-400">{error}</p>}
           </div>
         </section>
       </AuthGuard>
@@ -69,9 +69,9 @@ export default function SettingsPage() {
 
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
-    <article className="rounded-3xl bg-slate-50 p-5">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-3 text-base font-semibold text-slate-950">{value}</p>
+    <article className="rounded-3xl bg-slate-950/60 p-5 border border-white/5">
+      <p className="text-sm text-slate-400">{label}</p>
+      <p className="mt-3 text-base font-bold text-white">{value}</p>
     </article>
   );
 }
