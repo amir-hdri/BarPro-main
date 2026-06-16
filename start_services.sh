@@ -28,8 +28,16 @@ echo "Frontend started with PID: $FRONTEND_PID"
 
 sleep 2
 
+# Detect virtual environment python
+VENV_PYTHON="python3"
+if [ -d "$PROJECT_DIR/.venv" ]; then
+    VENV_PYTHON="$PROJECT_DIR/.venv/bin/python"
+elif [ -d "$PROJECT_DIR/venv" ]; then
+    VENV_PYTHON="$PROJECT_DIR/venv/bin/python"
+fi
+
 echo "Starting RPA Inspector Daemon..."
-python3 "$PROJECT_DIR/scripts/rpa_inspector.py" --daemon --headless > "$PROJECT_DIR/output/rpa_inspector.log" 2>&1 &
+"$VENV_PYTHON" "$PROJECT_DIR/scripts/rpa_inspector.py" --daemon --headless > "$PROJECT_DIR/output/rpa_inspector.log" 2>&1 &
 INSPECTOR_PID=$!
 echo $INSPECTOR_PID > "$PROJECT_DIR/output/rpa_inspector.pid"
 echo "RPA Inspector started with PID: $INSPECTOR_PID"

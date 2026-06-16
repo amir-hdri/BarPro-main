@@ -157,13 +157,9 @@ async def readyz():
         details["captcha_model"] = {"message": "captcha model check failed"}
 
     try:
-        requires_itmb_auth = bool(
-            utcms_config.ITMBOL_VALIDATE_BASEINFO
-            or utcms_config.ITMBOL_READYZ_LIVE_CHECK
-        )
+        requires_itmb_auth = bool(utcms_config.ITMBOL_VALIDATE_BASEINFO or utcms_config.ITMBOL_READYZ_LIVE_CHECK)
         has_itmb_credentials = bool(
-            utcms_config.ITMBOL_COMPANY_CODE.strip()
-            and utcms_config.ITMBOL_SERVICE_PASSWORD.strip()
+            utcms_config.ITMBOL_COMPANY_CODE.strip() and utcms_config.ITMBOL_SERVICE_PASSWORD.strip()
         )
         if not utcms_config.ITMBOL_SERVICE_URL.strip():
             checks["itmb_config"] = "error"
@@ -191,7 +187,9 @@ async def readyz():
             has_stale = any(item.get("is_stale", False) for item in cache_snapshot.values() if item.get("cached"))
             checks["itmb_baseinfo_cache"] = "error" if (has_missing or has_stale) else "ok"
             details["itmb_baseinfo_cache"] = {
-                "message": "baseinfo cache ready" if checks["itmb_baseinfo_cache"] == "ok" else "baseinfo cache missing or stale",
+                "message": "baseinfo cache ready"
+                if checks["itmb_baseinfo_cache"] == "ok"
+                else "baseinfo cache missing or stale",
                 "snapshot": cache_snapshot,
             }
     except Exception:
@@ -443,7 +441,6 @@ async def heal_browser_pool():
         }
 
 
-
 @router.get("/security/report")
 async def security_report():
     """Generate security configuration report."""
@@ -454,6 +451,7 @@ async def security_report():
         **report,
         "recommendations": _generate_security_recommendations(report),
     }
+
 
 @router.get("/errors/stats")
 async def error_statistics():
@@ -471,10 +469,9 @@ async def error_statistics():
             "BOT_DETECTED",
             "TRANSIENT_INFRA_ERROR",
             "WORKER_RESOURCE_ERROR",
-            "UNKNOWN_AUTOMATION_ERROR"
-        ]
+            "UNKNOWN_AUTOMATION_ERROR",
+        ],
     }
-
 
 
 def _generate_security_recommendations(report: dict) -> list[str]:

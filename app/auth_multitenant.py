@@ -4,6 +4,7 @@ Multi-tenant authentication and authorization system.
 Provides JWT-based authentication for clients with tenant isolation enforcement.
 Each client can only access their own drivers and waybill tasks.
 """
+
 import hashlib
 import logging
 import secrets
@@ -29,6 +30,7 @@ security = HTTPBearer()
 
 class TokenPayload(BaseModel):
     """JWT token payload structure."""
+
     sub: int  # client_id
     client_code: str
     email: str
@@ -39,6 +41,7 @@ class TokenPayload(BaseModel):
 
 class TokenResponse(BaseModel):
     """Token response model."""
+
     access_token: str
     token_type: str = "bearer"
     expires_in: int
@@ -79,6 +82,7 @@ def encrypt_driver_password(plain_password: str) -> str:
     master_key = utcms_config.DRIVER_ENCRYPTION_KEY.encode("utf-8")
     key = hashlib.sha256(master_key).digest()
     from base64 import urlsafe_b64encode
+
     fernet = Fernet(urlsafe_b64encode(key[:32]))
 
     return fernet.encrypt(plain_password.encode("utf-8")).decode("utf-8")
@@ -108,7 +112,9 @@ def create_access_token(
     if expires_delta:
         expire = datetime.now(UTC).replace(tzinfo=None) + expires_delta
     else:
-        expire = datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=utcms_config.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(UTC).replace(tzinfo=None) + timedelta(
+            minutes=utcms_config.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+        )
 
     to_encode = {
         "sub": str(client_id),  # JWT sub must be string
@@ -137,8 +143,8 @@ def decode_access_token(token: str) -> dict:
             options={"verify_aud": False},
         )
         # Convert sub to int if it's a string
-        if isinstance(payload.get('sub'), str) and payload['sub'].isdigit():
-            payload['sub'] = int(payload['sub'])
+        if isinstance(payload.get("sub"), str) and payload["sub"].isdigit():
+            payload["sub"] = int(payload["sub"])
         return payload
     except JWTError:
         raise HTTPException(
@@ -272,6 +278,7 @@ def enforce_tenant_filter(client: Client, query, model_class):
 
 class TenantIsolationError(Exception):
     """Raised when tenant isolation is violated."""
+
     pass
 
 

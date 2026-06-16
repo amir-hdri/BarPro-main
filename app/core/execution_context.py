@@ -63,4 +63,3 @@ def get_execution_context() -> ExecutionContextSnapshot:
         batch_id=batch_id_ctx.get(),
         worker_id=worker_id_ctx.get(),
     )
-

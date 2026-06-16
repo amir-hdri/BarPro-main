@@ -1,134 +1,170 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ArrowTrendingUpIcon,
-  ChartBarIcon,
-  ClockIcon,
-  TruckIcon,
-} from "@heroicons/react/24/outline";
-
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { AuthGuard } from "@/components/layout/AuthGuard";
 import { useSession } from "@/hooks/useSession";
-import { api } from "@/lib/api";
+import { formatDateTime } from "@/lib/format";
+import type { ClientStats, WaybillJob } from "@/lib/types";
 import {
-  formatDateTime,
-  formatRelativePercent,
-  statusLabel,
-  statusTone,
-  toPersianDigits,
-} from "@/lib/format";
-import type {
-  ClientStats,
-  WaybillJob,
-  WaybillTaskListResponse,
-} from "@/lib/types";
-import { Zap, ShieldCheck, XCircle } from 'lucide-react';
+  ClockIcon,
+  TruckIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  ArrowPathIcon,
+  ChartBarIcon,
+  UsersIcon,
+  QueueListIcon,
+} from "@heroicons/react/24/outline";
+import { Zap, ShieldCheck, XCircle } from "lucide-react";
 
-const emptyStats: ClientStats = {
-  client_id: 0,
-  total_drivers: 0,
-  active_drivers: 0,
-  total_jobs: 0,
-  pending_jobs: 0,
-  in_progress_jobs: 0,
-  success_jobs: 0,
-  failed_jobs: 0,
-  today_jobs: 0,
-  today_success: 0,
-  today_failed: 0,
-  success_rate: 0,
-  created_at: new Date(0).toISOString(),
-};
+function toPersianDigits(num: number | string): string {
+  const id = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
+  return String(num).replace(/[0-9]/g, (w) => id[+w]);
+}
 
 export default function DashboardPage() {
   const { client } = useSession();
-  const [stats, setStats] = useState<ClientStats>(emptyStats);
-  const [recentJobs, setRecentJobs] = useState<WaybillJob[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
+  // 1. Fetch Client Stats
+  const {
+    data: stats = {
+      client_id: 0,
+      total_drivers: 0,
+      active_drivers: 0,
+      total_jobs: 0,
+      pending_jobs: 0,
+      in_progress_jobs: 0,
+      success_jobs: 0,
+      failed_jobs: 0,
+      today_jobs: 0,
+      today_success: 0,
+      today_failed: 0,
+      success_rate: 0,
+      created_at: new Date().toISOString(),
+    } as ClientStats,
+    refetch: refetchStats,
+  } = useQuery({
+    queryKey: ["client-stats"],
+    queryFn: async () => {
+      const res = await api.get<ClientStats>("/api/v1/client/stats");
+      return res.data;
+    },
+    enabled: !!client,
+  });
 
-  const loadDashboard = useCallback(async () => {
-    if (client?.role === 'master_admin') {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
+  // 2. Fetch Recent Waybill Jobs (Limit to 5)
+  const {
+    data: recentJobs = [] as WaybillJob[],
+    isLoading,
+    refetch: refetchJobs,
+  } = useQuery({
+    queryKey: ["recent-jobs"],
+    queryFn: async () => {
+      const res = await api.get<{ tasks: WaybillJob[] }>(
+        "/api/v1/client/waybills?page=1&page_size=5"
+      );
+      return res.data?.tasks || [];
+    },
+    enabled: !!client,
+  });
 
-    const [statsResponse, jobsResponse] = await Promise.all([
-      api.get<ClientStats>("/api/v1/auth/stats"),
-      api.get<WaybillTaskListResponse>("/api/v1/waybill-jobs", {
-        page: 1,
-        page_size: 5,
-      }),
-    ]);
-
-    if (!statsResponse.success || !statsResponse.data) {
-      setError(statsResponse.error || "آمار داشبورد بارگذاری نشد");
-    } else {
-      setStats(statsResponse.data);
-    }
-
-    if (jobsResponse.success && jobsResponse.data) {
-      setRecentJobs(jobsResponse.data.tasks);
-    }
-
-    setLoading(false);
-  }, [client?.role]);
-
-  useEffect(() => {
-    loadDashboard();
-  }, [client?.role, loadDashboard]);
-
+  // Handle Action Trigger (Retry Job)
   async function handleRetry(jobId: string) {
     setRetryingJobId(jobId);
-    const response = await api.post(`/api/v1/waybill-jobs/${jobId}/retry`, { dispatch_now: true });
+    setError(null);
+    const res = await api.post(`/api/v1/client/waybills/${jobId}/retry`, {});
     setRetryingJobId(null);
-    if (response.success) {
-      void loadDashboard();
+    if (!res.success) {
+      setError(res.error || "خطا در ارسال مجدد درخواست");
     } else {
-      alert(response.error || 'تلاش مجدد ناموفق بود');
+      void refetchJobs();
+      void refetchStats();
     }
   }
+
+  // Label Formatter for UI
+  const statusLabel = (status: string) => {
+    switch (status) {
+      case "pending":
+        return "در صف پردازش";
+      case "in_progress":
+        return "در حال اجرا";
+      case "success":
+        return "ثبت موفق";
+      case "failed":
+        return "خطا در ثبت";
+      case "waiting_auth":
+        return "در انتظار تایید";
+      case "waiting_retry":
+        return "در انتظار تلاش مجدد";
+      case "needs_review":
+        return "نیازمند بازبینی";
+      case "rpa_bot":
+        return "ربات هوشمند";
+      case "manual":
+        return "ثبت دستی";
+      case "scheduler":
+        return "زمان‌بندی شده";
+      default:
+        return status;
+    }
+  };
+
+  const statusTone = (status: string) => {
+    switch (status) {
+      case "success":
+        return "bg-emerald-500/10 border-emerald-500/20 text-emerald-400";
+      case "failed":
+        return "bg-rose-500/10 border-rose-500/20 text-rose-400";
+      case "in_progress":
+        return "bg-cyan-500/10 border-cyan-500/20 text-cyan-400";
+      case "waiting_auth":
+      case "needs_review":
+        return "bg-amber-500/10 border-amber-500/20 text-amber-400";
+      default:
+        return "bg-slate-500/10 border-slate-500/20 text-slate-400";
+    }
+  };
 
   const cards = useMemo(
     () => [
       {
-        icon: ChartBarIcon,
-        label: "کل ماموریت‌ها",
+        label: "رانندگان فعال",
+        value: `${toPersianDigits(stats.active_drivers)} / ${toPersianDigits(stats.total_drivers)}`,
+        icon: UsersIcon,
+        hint: "تعداد رانندگان دارای توکن فعال به کل",
+        color: "text-cyan-400",
+        bg: "bg-cyan-500/10 border-cyan-500/20"
+      },
+      {
+        label: "کل بارنامه‌ها",
         value: toPersianDigits(stats.total_jobs),
-        hint: `${toPersianDigits(stats.today_jobs)} مورد جدید امروز`,
-        color: "text-blue-500",
-        bg: "bg-blue-50"
+        icon: QueueListIcon,
+        hint: "مجموع درخواست‌های ثبت شده در سیستم",
+        color: "text-blue-400",
+        bg: "bg-blue-500/10 border-blue-500/20"
       },
       {
-        icon: ArrowTrendingUpIcon,
-        label: "پایداری عملیات",
-        value: formatRelativePercent(stats.success_rate),
-        hint: `${toPersianDigits(stats.success_jobs)} ثبت موفق نهایی`,
-        color: "text-emerald-500",
-        bg: "bg-emerald-50"
+        label: "ثبت‌های موفق",
+        value: toPersianDigits(stats.success_jobs),
+        icon: CheckCircleIcon,
+        hint: "بارنامه‌های با موفقیت صادر شده",
+        color: "text-emerald-400",
+        bg: "bg-emerald-500/10 border-emerald-500/20"
       },
       {
-        icon: TruckIcon,
-        label: "ناوگان تحت مدیریت",
-        value: toPersianDigits(stats.active_drivers),
-        hint: `از ${toPersianDigits(stats.total_drivers)} راننده احراز شده`,
-        color: "text-cyan-500",
-        bg: "bg-cyan-50"
-      },
-      {
-        icon: ClockIcon,
-        label: "در حال پردازش",
-        value: toPersianDigits(stats.pending_jobs + stats.in_progress_jobs),
-        hint: `${toPersianDigits(stats.pending_jobs)} در صف / ${toPersianDigits(stats.in_progress_jobs)} در حال اجرا`,
-        color: "text-amber-500",
-        bg: "bg-amber-50"
+        label: "ناموفق / نیازمند بازبینی",
+        value: toPersianDigits(stats.failed_jobs + stats.pending_jobs),
+        icon: XCircleIcon,
+        hint: "درخواست‌های ناموفق یا متوقف شده",
+        color: "text-amber-400",
+        bg: "bg-amber-500/10 border-amber-500/20"
       },
     ],
     [stats],
@@ -137,29 +173,35 @@ export default function DashboardPage() {
   return (
     <AppShell>
       <AuthGuard requiredRole="client">
-        <section className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr]">
-          <div className="relative overflow-hidden rounded-[40px] border border-slate-200 bg-slate-950 px-8 py-12 text-white shadow-2xl shadow-slate-900/10">
-            <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-cyan-500/10 blur-[80px]"></div>
+        <section className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr] mb-8">
+          <div className="relative overflow-hidden rounded-[2rem] lg:rounded-[3rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl px-6 py-8 lg:px-10 lg:py-14 shadow-2xl">
+            <div className="absolute -right-32 -top-32 h-96 w-96 rounded-full bg-gradient-to-br from-cyan-400/10 to-blue-500/10 blur-[100px] animate-pulse-glow"></div>
             <div className="relative z-10">
-              <span className="inline-flex items-center gap-2 rounded-full bg-cyan-500/10 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-cyan-400">
+              <span className="inline-flex items-center gap-2 rounded-2xl bg-cyan-500/10 px-4 py-2 text-[11px] font-black uppercase text-cyan-400 border border-cyan-500/20 shadow-sm animate-in fade-in slide-in-from-bottom-4">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+                </span>
                 Dashboard Overview
               </span>
-              <h1 className="mt-6 text-4xl font-bold tracking-tight">
-                مدیریت هوشمند عملیات بارنامه
+              <h1 className="mt-6 lg:mt-8 text-3xl md:text-4xl lg:text-5xl font-black leading-tight text-white animate-in fade-in slide-in-from-bottom-6">
+                مدیریت هوشمند <br className="hidden sm:block" />
+                <span className="bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">عملیات بارنامه</span>
               </h1>
-              <p className="mt-4 max-w-xl text-lg leading-relaxed text-slate-400">
-                مشاهده لحظه‌ای وضعیت ثبت، مانیتورینگ ناوگان و تحلیل دقیق نرخ موفقیت در یک نگاه هوشمند.
+              <p className="mt-4 lg:mt-6 max-w-xl text-sm md:text-base lg:text-lg leading-relaxed text-slate-300 font-medium animate-in fade-in slide-in-from-bottom-8">
+                سیستم جامع مانیتورینگ ناوگان و تحلیل دقیق ثبت‌ها. عملیات خود را با بالاترین سرعت و دقت مدیریت کنید.
               </p>
-              <div className="mt-10 flex flex-wrap gap-4">
+              <div className="mt-10 flex flex-wrap gap-4 animate-in fade-in slide-in-from-bottom-10">
                 <Link
                   href="/new"
-                  className="inline-flex items-center justify-center rounded-2xl bg-cyan-400 px-8 py-4 text-sm font-bold text-slate-950 transition hover:bg-cyan-300 active:scale-[0.98]"
+                  className="group relative flex-1 sm:flex-none inline-flex items-center justify-center overflow-hidden rounded-2xl bg-slate-950 border border-white/10 px-6 lg:px-8 py-3.5 lg:py-4 text-sm font-bold text-white transition-transform hover:scale-105 active:scale-95 shadow-[0_10px_20px_-10px_rgba(0,0,0,0.5)]"
                 >
-                  ثبت بارنامه جدید
+                  <span className="absolute inset-0 bg-gradient-to-r from-cyan-500 to-blue-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"></span>
+                  <span className="relative z-10">ثبت بارنامه جدید</span>
                 </Link>
                 <Link
                   href="/drivers"
-                  className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-8 py-4 text-sm font-bold text-white transition hover:bg-white/10 active:scale-[0.98]"
+                  className="inline-flex flex-1 sm:flex-none items-center justify-center rounded-2xl border border-white/10 bg-slate-900/50 px-6 lg:px-8 py-3.5 lg:py-4 text-sm font-bold text-slate-200 transition hover:bg-slate-800 hover:border-white/20 active:scale-95"
                 >
                   مدیریت ناوگان
                 </Link>
@@ -167,108 +209,116 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-            {cards.map((card) => (
+          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-1">
+            {cards.map((card, idx) => (
               <article
                 key={card.label}
-                className="group flex flex-col justify-between rounded-[32px] border border-slate-100 bg-white p-6 shadow-sm transition-all duration-300 hover:shadow-xl hover:shadow-slate-200/50"
+                className="stat-card group relative overflow-hidden"
+                style={{ animationDelay: `${idx * 100}ms` }}
               >
-                <div className="flex items-start justify-between">
+                <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-0 blur-2xl transition-opacity duration-500 group-hover:opacity-100" style={{ backgroundColor: 'currentColor', color: card.color.replace('text-', 'bg-') }}></div>
+                <div className="relative z-10 flex items-start justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-500">{card.label}</p>
-                    <p className="mt-2 text-3xl font-bold text-slate-900">
+                    <p className="text-sm font-bold text-slate-400">{card.label}</p>
+                    <p className="mt-2 text-3xl xl:text-4xl font-black text-white group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-slate-300 transition-all">
                       {card.value}
                     </p>
                   </div>
-                  <div className={`rounded-2xl ${card.bg} p-3.5 ${card.color} transition-transform duration-300 group-hover:scale-110`}>
-                    <card.icon className="h-6 w-6" />
+                  <div className={`rounded-[1.25rem] ${card.bg} border p-4 ${card.color} transition-transform duration-500 group-hover:scale-110 group-hover:-rotate-3 shadow-sm`}>
+                    <card.icon className="h-7 w-7" strokeWidth={2} />
                   </div>
                 </div>
-                <div className="mt-6 flex items-center gap-2">
-                  <div className="h-1 w-1 rounded-full bg-slate-300"></div>
-                  <p className="text-xs font-medium text-slate-400">{card.hint}</p>
+                <div className="relative z-10 mt-6 flex items-center gap-2">
+                  <div className={`h-1.5 w-1.5 rounded-full ${card.color.replace('text-', 'bg-')}`}></div>
+                  <p className="text-xs font-bold text-slate-400">{card.hint}</p>
                 </div>
               </article>
             ))}
           </div>
         </section>
 
-        <section className="mt-10 grid gap-8 lg:grid-cols-[1.15fr_0.85fr]">
-          <div className="rounded-[40px] border border-slate-200 bg-white p-8 shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-50 pb-6">
+        <section className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="section-card">
+            <div className="flex items-center justify-between border-b border-white/5 pb-6 mb-6">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">
-                  آخرین تراکنش‌ها
+                <h2 className="text-2xl font-black text-white flex items-center gap-2">
+                  <ClockIcon className="h-6 w-6 text-cyan-400" /> آخرین تراکنش‌ها
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-sm font-medium text-slate-400">
                   وضعیت لحظه‌ای ۵ درخواست اخیر ثبت شده در سامانه
                 </p>
               </div>
               <Link
                 href="/history"
-                className="inline-flex items-center gap-1 text-sm font-bold text-cyan-600 hover:text-cyan-700"
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-xs font-bold text-slate-400 transition hover:bg-slate-900 hover:text-white border border-white/5"
               >
                 مشاهده آرشیو کامل
               </Link>
             </div>
 
-            {loading ? (
-              <div className="mt-6 space-y-4">
+            {isLoading ? (
+              <div className="space-y-4">
                 {[1, 2, 3].map((item) => (
                   <div
                     key={item}
-                    className="h-24 animate-pulse rounded-3xl bg-slate-50"
+                    className="h-28 skeleton"
                   />
                 ))}
               </div>
             ) : recentJobs.length === 0 ? (
-              <div className="mt-10 flex flex-col items-center justify-center rounded-[32px] border-2 border-dashed border-slate-100 py-16">
-                <div className="rounded-full bg-slate-50 p-4 text-slate-300">
+              <div className="flex flex-col items-center justify-center rounded-[2rem] border border-dashed border-white/5 bg-slate-950/30 py-20">
+                <div className="rounded-full bg-slate-900 p-5 text-slate-500 shadow-sm border border-white/5">
                   <ClockIcon className="h-10 w-10" />
                 </div>
-                <p className="mt-4 text-sm font-medium text-slate-400">
-                  هنوز هیچ فعالیتی برای این حساب ثبت نشده است.
+                <p className="mt-4 text-sm font-bold text-slate-500">
+                  هنوز هیچ فعالیتی ثبت نشده است.
                 </p>
               </div>
             ) : (
-              <div className="mt-6 space-y-3">
-                {recentJobs.map((job) => (
+              <div className="space-y-4">
+                {recentJobs.map((job, idx) => (
                   <div
                     key={job.job_id}
-                    className="group flex flex-wrap items-center justify-between gap-4 rounded-[28px] border border-slate-50 bg-slate-50/50 p-5 transition-all hover:border-cyan-100 hover:bg-white hover:shadow-md"
+                    className="group relative flex flex-wrap items-center justify-between gap-4 rounded-[1.5rem] border border-white/5 bg-slate-900/40 p-5 transition-all duration-300 hover:bg-slate-900/60 hover:shadow-xl hover:border-cyan-500/30 animate-in fade-in-up"
+                    style={{ animationDelay: `${idx * 50}ms` }}
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm transition-colors group-hover:text-cyan-500">
-                        <TruckIcon className="h-6 w-6" />
+                    <div className="flex items-center gap-5">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 to-slate-950 text-slate-500 shadow-sm transition-transform duration-300 group-hover:scale-110 group-hover:text-cyan-400 border border-white/5">
+                        <TruckIcon className="h-6 w-6" strokeWidth={1.5} />
                       </div>
                       <div>
-                        <p className="font-bold text-slate-900">
-                          #{job.job_id}
+                        <p className="text-base sm:text-lg font-black text-white ">
+                          {job.driver_name ? `ثبت بارنامه برای ${job.driver_name}` : `عملیات ثبت بارنامه`}
                         </p>
-                        <p className="mt-0.5 text-xs font-medium text-slate-400">
-                          ثبت شده در {formatDateTime(job.created_at)}
+                        <p className="mt-0.5 text-[10px] font-mono text-slate-400">
+                          شناسه: #{job.job_id.slice(0, 8)}
                         </p>
+                        <div className="mt-1 flex items-center gap-2">
+                          <p className="text-xs font-bold text-slate-400 bg-slate-950/60 border border-white/5 inline-block px-2 py-0.5 rounded-md">
+                            {formatDateTime(job.created_at)}
+                          </p>
+                        </div>
                       </div>
                     </div>
                     
                     <div className="flex items-center gap-6">
                       <div className="hidden text-left sm:block">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">منبع درخواست</p>
-                        <p className="mt-0.5 text-xs font-bold text-slate-600">{statusLabel(job.source)}</p>
+                        <p className="text-[10px] font-black uppercase text-slate-500">منبع</p>
+                        <p className="mt-0.5 text-xs font-bold text-slate-300">{statusLabel(job.source)}</p>
                       </div>
                       {(job.status === 'failed' || job.status === 'needs_review') && (
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); void handleRetry(job.job_id); }}
                           disabled={retryingJobId === job.job_id}
-                          className="rounded-xl bg-cyan-500 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-cyan-600 disabled:opacity-50 active:scale-[0.97]"
+                          className="rounded-xl bg-slate-950 border border-white/10 px-5 py-2.5 text-xs font-bold text-white shadow-md transition hover:bg-slate-900 disabled:opacity-50 active:scale-95"
                         >
-                          {retryingJobId === job.job_id ? '...' : 'تلاش مجدد'}
+                          {retryingJobId === job.job_id ? 'در حال ارسال...' : 'تلاش مجدد'}
                         </button>
                       )}
                       <span
                         className={[
-                          "inline-flex items-center rounded-xl px-4 py-2 text-xs font-bold shadow-sm",
+                          "inline-flex items-center rounded-xl px-4 py-2.5 text-xs font-black shadow-sm border",
                           statusTone(job.status),
                         ].join(" ")}
                       >
@@ -281,52 +331,59 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="flex flex-col gap-8">
-            <div className="rounded-[40px] border border-slate-200 bg-white p-8 shadow-sm">
-              <h2 className="text-xl font-bold text-slate-900">
-                جمع‌بندی عملکرد امروز
+          <div className="flex flex-col gap-6">
+            <div className="section-card">
+              <h2 className="text-xl font-black text-white flex items-center gap-2">
+                <ChartBarIcon className="h-6 w-6 text-emerald-400" /> عملکرد امروز
               </h2>
               <div className="mt-8 space-y-4">
                 {[
-                  { label: "کل درخواست‌ها", value: toPersianDigits(stats.today_jobs), icon: Zap, color: "text-blue-500" },
-                  { label: "ثبت‌های موفق", value: toPersianDigits(stats.today_success), icon: ShieldCheck, color: "text-emerald-500" },
-                  { label: "تراکنش‌های ناموفق", value: toPersianDigits(stats.today_failed), icon: XCircle, color: "text-rose-500" },
-                ].map((item) => (
+                  { label: "کل درخواست‌ها", value: toPersianDigits(stats.today_jobs), icon: Zap, color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
+                  { label: "ثبت‌های موفق", value: toPersianDigits(stats.today_success), icon: ShieldCheck, color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
+                  { label: "تراکنش‌های ناموفق", value: toPersianDigits(stats.today_failed), icon: XCircle, color: "text-rose-400", bg: "bg-rose-500/10 border-rose-500/20" },
+                ].map((item, idx) => (
                   <div
                     key={item.label}
-                    className="flex items-center justify-between rounded-2xl border border-slate-50 bg-slate-50/50 px-5 py-4 transition-colors hover:bg-slate-50"
+                    className="group flex items-center justify-between rounded-[1.25rem] border border-white/5 bg-slate-900/40 px-5 py-4 transition-all hover:bg-slate-900/60 hover:shadow-md animate-in fade-in-up"
+                    style={{ animationDelay: `${idx * 100}ms` }}
                   >
-                    <div className="flex items-center gap-3">
-                      <item.icon className={`h-5 w-5 ${item.color}`} />
-                      <span className="text-sm font-semibold text-slate-600">{item.label}</span>
+                    <div className="flex items-center gap-4">
+                      <div className={`p-2.5 rounded-xl border ${item.bg} ${item.color} group-hover:scale-110 transition-transform`}>
+                        <item.icon className="h-5 w-5" strokeWidth={2.5} />
+                      </div>
+                      <span className="text-sm font-bold text-slate-400">{item.label}</span>
                     </div>
-                    <span className="text-base font-black text-slate-900">
+                    <span className="text-xl font-black text-white">
                       {item.value}
                     </span>
                   </div>
                 ))}
               </div>
               
-              <div className="mt-10 rounded-3xl bg-slate-900 p-6 text-white shadow-xl shadow-slate-900/20">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-bold text-slate-400">آخرین بروزرسانی</p>
-                  <p className="text-xs font-medium text-cyan-400">{formatDateTime(stats.created_at)}</p>
+              <div className="relative mt-8 overflow-hidden rounded-[1.5rem] bg-slate-950 p-5 lg:p-6 text-white shadow-xl">
+                <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-cyan-500/20 blur-2xl"></div>
+                <div className="relative z-10 flex items-center justify-between">
+                  <p className="text-xs font-bold text-slate-400">نرخ موفقیت هوشمند</p>
+                  <p className="text-[10px] font-bold text-cyan-400 bg-cyan-400/10 px-2 py-1 rounded-md">{formatDateTime(stats.created_at)}</p>
                 </div>
-                <div className="mt-4 flex items-center gap-4">
-                  <div className="h-2 flex-1 rounded-full bg-white/10">
+                <div className="relative z-10 mt-6 flex items-center gap-5">
+                  <div className="h-2.5 flex-1 rounded-full bg-slate-800 overflow-hidden border border-slate-700">
                     <div 
-                      className="h-full rounded-full bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.5)] transition-all duration-1000" 
+                      className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.5)] transition-all duration-1000 ease-out" 
                       style={{ width: `${stats.success_rate}%` }}
                     ></div>
                   </div>
-                  <span className="text-sm font-black text-cyan-400">{toPersianDigits(Math.round(stats.success_rate))}%</span>
+                  <span className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-emerald-400">
+                    {toPersianDigits(Math.round(stats.success_rate))}%
+                  </span>
                 </div>
               </div>
             </div>
 
             {error && (
-              <div className="animate-in fade-in slide-in-from-bottom-4 rounded-[32px] bg-rose-50 p-6 text-sm font-bold text-rose-700 shadow-sm shadow-rose-100">
-                {error}
+              <div className="animate-in fade-in slide-in-from-bottom-4 rounded-[1.5rem] bg-rose-500/10 border border-rose-500/20 p-6 text-sm font-bold text-rose-400 shadow-sm flex items-start gap-3">
+                <XCircle className="h-5 w-5 shrink-0" />
+                <p>{error}</p>
               </div>
             )}
           </div>
@@ -335,4 +392,3 @@ export default function DashboardPage() {
     </AppShell>
   );
 }
-

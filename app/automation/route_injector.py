@@ -8,6 +8,7 @@ from playwright.async_api import BrowserContext, Page, expect
 # Configure standard logger
 logger = logging.getLogger(__name__)
 
+
 async def inject_route_points(page: Page, context: BrowserContext, route_points: list[dict[str, Any]]):
     """
     Injects route points (origin, waypoints, destination) sequentially by interacting with an interactive map.
@@ -24,7 +25,7 @@ async def inject_route_points(page: Page, context: BrowserContext, route_points:
     # and override geolocation to a dummy location so "Find My Location" fails or uses our dummy point.
     logger.info("Overriding geolocation permissions in BrowserContext to bypass native location discovery.")
     await context.grant_permissions([])  # Block all permissions including geolocation
-    await context.set_geolocation({"latitude": 0.0, "longitude": 0.0}) # Dummy fallback
+    await context.set_geolocation({"latitude": 0.0, "longitude": 0.0})  # Dummy fallback
 
     # Wait for map container to be fully loaded and stable
     logger.info("Waiting for map container to load and network to idle...")

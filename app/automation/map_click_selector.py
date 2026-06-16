@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ClickLocation:
     """مختصات یک نقطه انتخاب شده با کلیک"""
+
     latitude: float
     longitude: float
     pixel_x: int
@@ -27,6 +28,7 @@ class ClickLocation:
 @dataclass
 class ClickSelection:
     """نتیجه انتخاب با کلیک"""
+
     origin: ClickLocation | None = None
     destination: ClickLocation | None = None
     map_bounds: dict[str, float] | None = None
@@ -244,7 +246,8 @@ class MapClickSelector:
                 await self.initialize_map_click_mode()
 
             # تنظیم event listener برای کلیک
-            await self.page.evaluate("""
+            await self.page.evaluate(
+                """
                 () => {
                     return new Promise((resolve) => {
                         const mapContainers = [
@@ -307,10 +310,13 @@ class MapClickSelector:
                         });
 
                         // Timeout
-                        setTimeout(() => resolve(null), """ + str(timeout_ms) + """);
+                        setTimeout(() => resolve(null), """
+                + str(timeout_ms)
+                + """);
                     });
                 }
-            """)
+            """
+            )
 
             # انتظار برای نتیجه
             result = await self.page.evaluate("""
@@ -319,10 +325,10 @@ class MapClickSelector:
 
             if result:
                 return ClickLocation(
-                    latitude=result['latitude'],
-                    longitude=result['longitude'],
-                    pixel_x=result['pixel_x'],
-                    pixel_y=result['pixel_y']
+                    latitude=result["latitude"],
+                    longitude=result["longitude"],
+                    pixel_x=result["pixel_x"],
+                    pixel_y=result["pixel_y"],
                 )
 
             return None
@@ -331,7 +337,7 @@ class MapClickSelector:
             logger.error(f"failed_to_wait_for_user_click: {e}")
             return None
 
-    async def add_marker_to_map(self, lat: float, lng: float, label: str = 'point') -> bool:
+    async def add_marker_to_map(self, lat: float, lng: float, label: str = "point") -> bool:
         """
         اضافه کردن مارکر به نقشه در نقطه انتخاب شده
 
@@ -344,14 +350,17 @@ class MapClickSelector:
             True اگر موفق شد مارکر اضافه کند
         """
         try:
-            success = await self.page.evaluate("""
+            success = await self.page.evaluate(
+                """
                 (params) => {
                     if (window.__utcms_add_marker) {
                         return window.__utcms_add_marker(params.lat, params.lng, params.label);
                     }
                     return false;
                 }
-            """, {"lat": lat, "lng": lng, "label": label})
+            """,
+                {"lat": lat, "lng": lng, "label": label},
+            )
 
             if success:
                 logger.info(f"marker_added: {label} at ({lat}, {lng})")
@@ -428,9 +437,9 @@ class MapClickSelector:
         location = await self.wait_for_user_click(timeout_ms)
 
         if location:
-            location.label = 'origin'
+            location.label = "origin"
             self.selection.origin = location
-            await self.add_marker_to_map(location.latitude, location.longitude, 'origin')
+            await self.add_marker_to_map(location.latitude, location.longitude, "origin")
             logger.info(f"origin_selected: ({location.latitude}, {location.longitude})")
 
             # نمایش پیام موفقیت
@@ -506,9 +515,9 @@ class MapClickSelector:
         location = await self.wait_for_user_click(timeout_ms)
 
         if location:
-            location.label = 'destination'
+            location.label = "destination"
             self.selection.destination = location
-            await self.add_marker_to_map(location.latitude, location.longitude, 'destination')
+            await self.add_marker_to_map(location.latitude, location.longitude, "destination")
             logger.info(f"destination_selected: ({location.latitude}, {location.longitude})")
 
             # نمایش پیام موفقیت
@@ -540,9 +549,7 @@ class MapClickSelector:
         return location
 
     async def select_both_locations_by_click(
-        self,
-        origin_timeout: int = 60000,
-        destination_timeout: int = 60000
+        self, origin_timeout: int = 60000, destination_timeout: int = 60000
     ) -> ClickSelection:
         """
         انتخاب هم مبدا و هم مقصد با کلیک کاربر
@@ -590,24 +597,20 @@ class MapClickSelector:
         Returns:
             دیکشنری شامل اطلاعات مبدا و مقصد
         """
-        result = {
-            "origin": None,
-            "destination": None,
-            "complete": self.selection.selection_complete
-        }
+        result = {"origin": None, "destination": None, "complete": self.selection.selection_complete}
 
         if self.selection.origin:
             result["origin"] = {
                 "lat": self.selection.origin.latitude,
                 "lng": self.selection.origin.longitude,
-                "address": self.selection.origin.address
+                "address": self.selection.origin.address,
             }
 
         if self.selection.destination:
             result["destination"] = {
                 "lat": self.selection.destination.latitude,
                 "lng": self.selection.destination.longitude,
-                "address": self.selection.destination.address
+                "address": self.selection.destination.address,
             }
 
         return result

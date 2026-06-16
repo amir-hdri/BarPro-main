@@ -167,8 +167,8 @@ def set_circuit_breaker_state(state: str) -> None:
 
 def track_captcha_attempt(strategy: str, phase: str = "unknown", attempt: int | None = None) -> None:
     global _CAPTCHA_RUNTIME_ATTEMPTS_TOTAL
-    normalized_strategy = (strategy or "unknown")
-    normalized_phase = (phase or "unknown")
+    normalized_strategy = strategy or "unknown"
+    normalized_phase = phase or "unknown"
     CAPTCHA_ATTEMPTS.labels(strategy=normalized_strategy).inc()
     CAPTCHA_PHASE_ATTEMPTS.labels(phase=normalized_phase, strategy=normalized_strategy).inc()
     with _CAPTCHA_RUNTIME_LOCK:
@@ -194,8 +194,8 @@ def track_captcha_success(
     attempt: int | None = None,
 ) -> None:
     global _CAPTCHA_RUNTIME_SUCCESSES_TOTAL
-    normalized_strategy = (strategy or "unknown")
-    normalized_phase = (phase or "unknown")
+    normalized_strategy = strategy or "unknown"
+    normalized_phase = phase or "unknown"
     CAPTCHA_SUCCESSES.labels(strategy=normalized_strategy).inc()
     CAPTCHA_PHASE_SUCCESSES.labels(phase=normalized_phase, strategy=normalized_strategy).inc()
     if latency_seconds is not None and latency_seconds >= 0:
@@ -229,8 +229,8 @@ def track_captcha_failure(
     attempt: int | None = None,
 ) -> None:
     global _CAPTCHA_RUNTIME_FAILURES_TOTAL
-    normalized_reason = (reason or "unknown")
-    normalized_phase = (phase or "unknown")
+    normalized_reason = reason or "unknown"
+    normalized_phase = phase or "unknown"
     normalized_strategy = strategy or "unknown"
     CAPTCHA_FAILURES.labels(reason=normalized_reason).inc()
     CAPTCHA_PHASE_FAILURES.labels(phase=normalized_phase, reason=normalized_reason).inc()

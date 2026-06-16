@@ -4,6 +4,7 @@ Multi-tenant database schema for UTCMS Automation SaaS.
 This module defines the complete relational schema ensuring strict tenant isolation.
 Each client has isolated access to their own drivers and waybill tasks.
 """
+
 from datetime import UTC, datetime
 from enum import Enum as PyEnum
 
@@ -11,6 +12,7 @@ from sqlalchemy import Boolean, Column, DateTime, Index, Integer, Text, UniqueCo
 from sqlmodel import Field, SQLModel
 
 # ==================== ENUMS ====================
+
 
 class ClientStatus(str, PyEnum):
     ACTIVE = "active"
@@ -68,11 +70,13 @@ class ErrorCategory(str, PyEnum):
 
 # ==================== MULTI-TENANT MODELS ====================
 
+
 class Client(SQLModel, table=True):
     """
     Represents a tenant (مشتری) in the multi-tenant system.
     Each client has strictly isolated data and can only access their own resources.
     """
+
     __tablename__ = "clients"
     __table_args__ = (
         UniqueConstraint("client_code", name="uq_clients_client_code"),
@@ -125,6 +129,7 @@ class Driver(SQLModel, table=True):
     Represents a driver (راننده) belonging to a specific client.
     Contains credentials for accessing the external UTCMS system.
     """
+
     __tablename__ = "drivers"
     __table_args__ = (
         UniqueConstraint("client_id", "driver_national_code", name="uq_driver_client_national_code"),
@@ -176,6 +181,7 @@ class Driver(SQLModel, table=True):
 
 class DriverPlate(SQLModel, table=True):
     """Vehicle plate assigned to a driver under a tenant."""
+
     __tablename__ = "driver_plates"
     __table_args__ = (
         UniqueConstraint("client_id", "plate_number", name="uq_driver_plate_client_plate"),
@@ -203,6 +209,7 @@ class DriverPlate(SQLModel, table=True):
 
 class DriverSchedule(SQLModel, table=True):
     """Auto waybill schedule definition per driver."""
+
     __tablename__ = "driver_schedules"
     __table_args__ = (
         Index("idx_driver_schedules_client_id", "client_id"),
@@ -248,6 +255,7 @@ class WaybillJob(SQLModel, table=True):
     Represents a waybill registration job queued for RPA processing.
     Each job belongs to a client and optionally to a driver.
     """
+
     __tablename__ = "waybill_jobs"
     __table_args__ = (
         UniqueConstraint("job_id", name="uq_waybill_jobs_job_id"),
@@ -326,6 +334,7 @@ class WaybillTaskLog(SQLModel, table=True):
     Detailed execution log for each waybill job.
     Tracks every step of the RPA bot for audit purposes.
     """
+
     __tablename__ = "waybill_task_logs"
     __table_args__ = (
         Index("idx_waybill_task_logs_job_id", "job_id"),
@@ -353,6 +362,7 @@ class UploadBatch(SQLModel, table=True):
     """
     Tracks bulk Excel upload batches for reporting and auditing.
     """
+
     __tablename__ = "upload_batches"
     __table_args__ = (
         UniqueConstraint("batch_id", name="uq_upload_batches_batch_id"),
@@ -383,5 +393,3 @@ class UploadBatch(SQLModel, table=True):
         default=None,
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )
-
-

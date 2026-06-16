@@ -1,4 +1,5 @@
 """Shared event taxonomy helpers for orchestration, workers, and timeline rendering."""
+
 from __future__ import annotations
 
 from typing import Any

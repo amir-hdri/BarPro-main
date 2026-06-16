@@ -1,4 +1,5 @@
 """Shared Redis accessors with authenticated lazy async initialization."""
+
 from __future__ import annotations
 
 import asyncio
@@ -57,7 +58,6 @@ class RedisConnectionManager:
             await self._redis.close()
             self._redis = None
             self._loop = None
-
 
 
 redis_manager = RedisConnectionManager()

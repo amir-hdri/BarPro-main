@@ -64,4 +64,3 @@ def classify_exception(error: Exception) -> tuple[ErrorCategory, bool]:
     if "timeout" in text or is_retryable_network_error(error):
         return ErrorCategory.TARGET_SITE_TIMEOUT, True
     return ErrorCategory.UNKNOWN_AUTOMATION_ERROR, False
-

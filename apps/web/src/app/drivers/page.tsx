@@ -217,11 +217,11 @@ export default function DriversPage() {
     return () => window.clearTimeout(timeoutId);
   }, [role, loadDrivers]);
 
-  return (
+    return (
     <AppShell>
       <AuthGuard requiredRole="client">
         <section className="flex flex-col gap-10">
-          <form onSubmit={handleSubmit} className="relative overflow-hidden rounded-[40px] border border-slate-200 bg-slate-950 px-8 py-10 text-white shadow-2xl shadow-slate-900/10">
+          <form onSubmit={handleSubmit} className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl px-6 py-8 lg:px-10 lg:py-10 shadow-2xl">
             <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-cyan-500/10 blur-[80px]"></div>
             
             <div className="relative z-10">
@@ -230,7 +230,7 @@ export default function DriversPage() {
                   <PlusIcon className="h-6 w-6" />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-black">ثبت راننده جدید</h1>
+                  <h1 className="text-2xl font-black text-white">ثبت راننده جدید</h1>
                   <p className="mt-1 text-sm text-slate-400">اطلاعات هویتی و دسترسی‌های مورد نیاز برای اتوماسیون</p>
                 </div>
               </div>
@@ -245,7 +245,7 @@ export default function DriversPage() {
               </div>
 
               <div className="mt-10 flex justify-end">
-                <button type="submit" disabled={saving} className="min-w-[200px] rounded-2xl bg-cyan-400 px-8 py-4 text-sm font-black text-slate-950 shadow-xl shadow-cyan-400/20 transition hover:bg-cyan-300 active:scale-[0.98] disabled:opacity-60">
+                <button type="submit" disabled={saving} className="min-w-[200px] rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-8 py-4 text-sm font-black text-slate-950 shadow-xl shadow-cyan-500/20 transition hover:scale-105 active:scale-95 disabled:opacity-60">
                   {saving ? 'در حال ذخیره...' : 'افزودن به لیست'}
                 </button>
               </div>
@@ -257,39 +257,39 @@ export default function DriversPage() {
             </div>
           </form>
 
-          <div className="rounded-[40px] border border-slate-200 bg-white p-8 shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-50 pb-6">
+          <div className="relative overflow-hidden rounded-[2rem] lg:rounded-[3rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 md:p-8 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/5 pb-6">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">رانندگان ناوگان</h2>
-                <p className="mt-1 text-sm text-slate-500">لیست تمامی رانندگان احراز هویت شده و وضعیت فعالیت آن‌ها</p>
+                <h2 className="text-xl font-bold text-white">رانندگان ناوگان</h2>
+                <p className="mt-1 text-sm text-slate-400">لیست تمامی رانندگان احراز هویت شده و وضعیت فعالیت آن‌ها</p>
               </div>
-              <button type="button" onClick={() => void loadDrivers()} className="inline-flex items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 px-5 py-2.5 text-xs font-bold text-slate-600 transition hover:bg-white hover:shadow-sm">
+              <button type="button" onClick={() => void loadDrivers()} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-slate-950 px-5 py-2.5 text-xs font-bold text-slate-300 transition hover:bg-slate-900 hover:scale-105 active:scale-95 shadow-sm">
                 بروزرسانی لیست
               </button>
             </div>
 
             {loading ? (
               <div className="mt-8 space-y-4">
-                {[1, 2, 3].map((item) => <div key={item} className="h-32 animate-pulse rounded-[32px] bg-slate-50" />)}
+                {[1, 2, 3].map((item) => <div key={item} className="h-32 skeleton" />)}
               </div>
             ) : drivers.length === 0 ? (
-              <div className="mt-12 flex flex-col items-center justify-center rounded-[32px] border-2 border-dashed border-slate-100 py-20">
-                <p className="text-sm font-medium text-slate-400">هنوز راننده‌ای در سامانه ثبت نشده است.</p>
+              <div className="mt-12 flex flex-col items-center justify-center rounded-[2rem] border-2 border-dashed border-white/5 py-20">
+                <p className="text-sm font-medium text-slate-500">هنوز راننده‌ای در سامانه ثبت نشده است.</p>
               </div>
             ) : (
               <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-1">
                 {drivers.map((driver) => (
-                  <article key={driver.id} className="group relative rounded-[32px] border border-slate-50 bg-slate-50/50 p-6 transition-all hover:border-cyan-100 hover:bg-white hover:shadow-md">
+                  <article key={driver.id} className="group relative rounded-2xl border border-white/5 bg-slate-950/40 p-6 transition-all hover:border-cyan-500/20 hover:bg-slate-950/60 hover:shadow-lg hover:shadow-cyan-500/5">
                     <div className="flex flex-wrap items-start justify-between gap-6">
                       <div className="flex items-center gap-5">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm transition-colors group-hover:text-cyan-500">
+                        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-950 border border-white/5 text-slate-500 shadow-sm transition-colors group-hover:text-cyan-400 group-hover:border-cyan-500/30">
                           <UserCircleIcon className="h-8 w-8" />
                         </div>
                         <div>
-                          <h3 className="text-lg font-black text-slate-900 group-hover:text-cyan-600">{driver.full_name}</h3>
+                          <h3 className="text-lg font-black text-white group-hover:text-cyan-400">{driver.full_name}</h3>
                           <div className="mt-1 flex items-center gap-3 text-xs font-bold text-slate-400">
                             <span>{driver.driver_national_code}</span>
-                            <span className="h-1 w-1 rounded-full bg-slate-300"></span>
+                            <span className="h-1 w-1 rounded-full bg-slate-700"></span>
                             <span>{driver.phone || 'فاقد شماره همراه'}</span>
                           </div>
                         </div>
@@ -308,27 +308,27 @@ export default function DriversPage() {
                     </div>
 
                     <div className="mt-8 grid gap-4 sm:grid-cols-3">
-                      <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">شناسه UTCMS</p>
-                        <p className="mt-1 text-sm font-bold text-slate-700">{driver.utcms_username}</p>
+                      <div className="rounded-2xl bg-slate-950/60 p-4 border border-white/5">
+                        <p className="text-[10px] font-black uppercase text-slate-400">شناسه UTCMS</p>
+                        <p className="mt-1 text-sm font-bold text-slate-300">{driver.utcms_username}</p>
                       </div>
-                      <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">آخرین فعالیت</p>
-                        <p className="mt-1 text-sm font-bold text-slate-700">{formatDateTime(driver.last_auth_at) || 'ثبت نشده'}</p>
+                      <div className="rounded-2xl bg-slate-950/60 p-4 border border-white/5">
+                        <p className="text-[10px] font-black uppercase text-slate-400">آخرین فعالیت</p>
+                        <p className="mt-1 text-sm font-bold text-slate-300">{formatDateTime(driver.last_auth_at) || 'ثبت نشده'}</p>
                       </div>
-                      <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">اعتبار نشست</p>
-                        <p className="mt-1 text-sm font-bold text-slate-700">{formatDateTime(driver.last_session_expires_at) || 'نامشخص'}</p>
+                      <div className="rounded-2xl bg-slate-950/60 p-4 border border-white/5">
+                        <p className="text-[10px] font-black uppercase text-slate-400">اعتبار نشست</p>
+                        <p className="mt-1 text-sm font-bold text-slate-300">{formatDateTime(driver.last_session_expires_at) || 'نامشخص'}</p>
                       </div>
                     </div>
 
                     {driver.last_error_code && (
-                      <div className="mt-6 rounded-2xl bg-rose-50 p-4 text-xs font-bold text-rose-700 shadow-sm shadow-rose-100/50">
+                      <div className="mt-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 p-4 text-xs font-bold text-rose-400">
                         آخرین خطا: {driver.last_error_code}
                       </div>
                     )}
 
-                    <div className="mt-8 flex justify-end gap-3 border-t border-slate-50 pt-6">
+                    <div className="mt-8 flex justify-end gap-3 border-t border-white/5 pt-6">
                       <button
                         type="button"
                         onClick={() =>
@@ -343,14 +343,14 @@ export default function DriversPage() {
                             },
                           })
                         }
-                        className="rounded-xl border border-slate-100 bg-white px-5 py-2.5 text-xs font-bold text-slate-600 transition hover:bg-slate-50"
+                        className="rounded-xl border border-white/10 bg-slate-950 px-5 py-2.5 text-xs font-bold text-slate-300 transition hover:bg-slate-900 hover:scale-105"
                       >
                         ویرایش اطلاعات
                       </button>
                       <button 
                         type="button" 
                         onClick={() => void handleDriverDelete(driver.id)} 
-                        className="rounded-xl border border-rose-100 bg-rose-50 px-5 py-2.5 text-xs font-bold text-rose-600 transition hover:bg-rose-600 hover:text-white"
+                        className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-5 py-2.5 text-xs font-bold text-rose-400 transition hover:bg-rose-600 hover:text-white hover:border-rose-600"
                       >
                         حذف راننده
                       </button>
@@ -363,8 +363,8 @@ export default function DriversPage() {
 
 
           {editDriver && (
-            <form onSubmit={handleDriverUpdate} className="rounded-[32px] border border-white/20 bg-white p-6 shadow-lg">
-              <h2 className="text-xl font-semibold text-slate-950">ویرایش راننده</h2>
+            <form onSubmit={handleDriverUpdate} className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 sm:p-8 shadow-2xl text-white animate-in fade-in duration-300">
+              <h2 className="text-xl font-bold text-white">ویرایش راننده</h2>
               <div className="mt-4 grid gap-4 md:grid-cols-3">
                 <Input label="نام" value={editDriver.payload.full_name || ''} onChange={(value) => setEditDriver((current) => current ? { ...current, payload: { ...current.payload, full_name: value } } : current)} required />
                 <Input label="تلفن" value={editDriver.payload.phone || ''} onChange={(value) => setEditDriver((current) => current ? { ...current, payload: { ...current.payload, phone: value } } : current)} />
@@ -373,49 +373,49 @@ export default function DriversPage() {
                 <Input label="رمز جدید (اختیاری)" type="password" value={editDriver.payload.utcms_password || ''} onChange={(value) => setEditDriver((current) => current ? { ...current, payload: { ...current.payload, utcms_password: value } } : current)} />
                 <Input label="وضعیت" value={editDriver.payload.status || 'active'} onChange={(value) => setEditDriver((current) => current ? { ...current, payload: { ...current.payload, status: value } } : current)} />
               </div>
-              <div className="mt-4 flex gap-2">
-                <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">ذخیره</button>
-                <button type="button" onClick={() => setEditDriver(null)} className="rounded-xl border px-4 py-2 text-sm">انصراف</button>
+              <div className="mt-6 flex gap-3">
+                <button type="submit" className="rounded-xl bg-cyan-500 hover:bg-cyan-400 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:scale-105">ذخیره</button>
+                <button type="button" onClick={() => setEditDriver(null)} className="rounded-xl border border-white/10 bg-slate-950 px-5 py-2.5 text-sm font-bold text-slate-300 hover:bg-slate-900 transition hover:scale-105">انصراف</button>
               </div>
             </form>
           )}
 
           <section className="grid gap-6 xl:grid-cols-2">
-            <form onSubmit={handleCreatePlate} className="rounded-[32px] border border-white/20 bg-white p-6 shadow-lg">
-              <h2 className="text-xl font-semibold text-slate-950">مدیریت پلاک</h2>
+            <form onSubmit={handleCreatePlate} className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 sm:p-8 shadow-2xl text-white">
+              <h2 className="text-xl font-bold text-white">مدیریت پلاک</h2>
               <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <label className="text-sm font-medium text-slate-700">
+                <label className="text-sm font-medium text-slate-200">
                   <span className="mb-2 block">راننده</span>
-                  <select value={plateForm.driver_id} onChange={(event) => setPlateForm((current) => ({ ...current, driver_id: Number(event.target.value) }))} className="w-full rounded-2xl border border-slate-200 px-4 py-3">
-                    <option value={0}>انتخاب راننده</option>
-                    {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.full_name}</option>)}
+                  <select value={plateForm.driver_id} onChange={(event) => setPlateForm((current) => ({ ...current, driver_id: Number(event.target.value) }))} className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white outline-none focus:border-cyan-400">
+                    <option value={0} className="bg-slate-950">انتخاب راننده</option>
+                    {drivers.map((driver) => <option key={driver.id} value={driver.id} className="bg-slate-950">{driver.full_name}</option>)}
                   </select>
                 </label>
-                <label className="text-sm font-medium text-slate-700">
-                  <span className="mb-2 block">پلاک <span className="mr-1 text-rose-600">*</span></span>
+                <label className="text-sm font-medium text-slate-200">
+                  <span className="mb-2 block">پلاک <span className="mr-1 text-rose-500">*</span></span>
                   <PlateInput value={plateForm.plate_number} onChange={(value) => setPlateForm((current) => ({ ...current, plate_number: value }))} />
                 </label>
                 <Input label="نوع خودرو" value={plateForm.vehicle_type || ''} onChange={(value) => setPlateForm((current) => ({ ...current, vehicle_type: value }))} />
                 <Input label="یادداشت" value={plateForm.notes || ''} onChange={(value) => setPlateForm((current) => ({ ...current, notes: value }))} />
               </div>
-              <button type="submit" disabled={saving} className="mt-4 rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-white">ثبت پلاک</button>
-              <div className="mt-4 space-y-2">
+              <button type="submit" disabled={saving} className="mt-6 rounded-xl bg-cyan-500 hover:bg-cyan-400 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:scale-105 active:scale-95 shadow-lg shadow-cyan-500/20">ثبت پلاک</button>
+              <div className="mt-6 space-y-2">
                 {plates.map((plate) => (
-                  <div key={plate.id} className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                  <div key={plate.id} className="rounded-2xl bg-slate-950/60 border border-white/5 px-4 py-3 text-sm text-slate-300">
                     {plate.plate_number} - راننده #{plate.driver_id} - {statusLabel(plate.status)}
                   </div>
                 ))}
               </div>
             </form>
 
-            <form onSubmit={handleScheduleCreate} className="rounded-[32px] border border-white/20 bg-white p-6 shadow-lg">
-              <h2 className="text-xl font-semibold text-slate-950">زمان‌بندی خودکار بارنامه</h2>
+            <form onSubmit={handleScheduleCreate} className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 sm:p-8 shadow-2xl text-white">
+              <h2 className="text-xl font-bold text-white">زمان‌بندی خودکار بارنامه</h2>
               <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <label className="text-sm font-medium text-slate-700">
+                <label className="text-sm font-medium text-slate-200">
                   <span className="mb-2 block">راننده</span>
-                  <select value={scheduleForm.driver_id} onChange={(event) => setScheduleForm((current) => ({ ...current, driver_id: Number(event.target.value) }))} className="w-full rounded-2xl border border-slate-200 px-4 py-3">
-                    <option value={0}>انتخاب راننده</option>
-                    {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.full_name}</option>)}
+                  <select value={scheduleForm.driver_id} onChange={(event) => setScheduleForm((current) => ({ ...current, driver_id: Number(event.target.value) }))} className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white outline-none focus:border-cyan-400">
+                    <option value={0} className="bg-slate-950">انتخاب راننده</option>
+                    {drivers.map((driver) => <option key={driver.id} value={driver.id} className="bg-slate-950">{driver.full_name}</option>)}
                   </select>
                 </label>
                 <Input label="عنوان برنامه" value={scheduleForm.title} onChange={(value) => setScheduleForm((current) => ({ ...current, title: value }))} required />
@@ -448,21 +448,23 @@ export default function DriversPage() {
                 />
                 <Input label="از تاریخ (YYYY-MM-DD)" value={scheduleForm.start_date || ''} onChange={(value) => setScheduleForm((current) => ({ ...current, start_date: value }))} />
                 <Input label="تا تاریخ (YYYY-MM-DD)" value={scheduleForm.end_date || ''} onChange={(value) => setScheduleForm((current) => ({ ...current, end_date: value }))} />
-                <label className="text-sm font-medium text-slate-700">
+                <label className="text-sm font-medium text-slate-200">
                   <span className="mb-2 block">تناوب</span>
-                  <select value={scheduleForm.frequency} onChange={(event) => setScheduleForm((current) => ({ ...current, frequency: event.target.value as 'daily' | 'weekly' }))} className="w-full rounded-2xl border border-slate-200 px-4 py-3">
-                    <option value="daily">روزانه</option>
-                    <option value="weekly">هفتگی</option>
+                  <select value={scheduleForm.frequency} onChange={(event) => setScheduleForm((current) => ({ ...current, frequency: event.target.value as 'daily' | 'weekly' }))} className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white outline-none focus:border-cyan-400">
+                    <option value="daily" className="bg-slate-950">روزانه</option>
+                    <option value="weekly" className="bg-slate-950">هفتگی</option>
                   </select>
                 </label>
               </div>
-              <button type="submit" disabled={saving} className="mt-4 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">ثبت زمان‌بندی</button>
-              <button type="button" onClick={() => void runSchedulesNow()} disabled={saving} className="mt-4 mr-2 rounded-xl border px-4 py-2 text-sm">
-                اجرای زمان‌بندی‌های سررسیدشده
-              </button>
-              <div className="mt-4 space-y-2">
+              <div className="mt-6 flex flex-wrap gap-3">
+                <button type="submit" disabled={saving} className="rounded-xl bg-cyan-500 hover:bg-cyan-400 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:scale-105 active:scale-95 shadow-lg shadow-cyan-500/20">ثبت زمان‌بندی</button>
+                <button type="button" onClick={() => void runSchedulesNow()} disabled={saving} className="rounded-xl border border-white/10 bg-slate-950 px-5 py-2.5 text-sm font-bold text-slate-300 hover:bg-slate-900 transition hover:scale-105">
+                  اجرای زمان‌بندی‌های سررسیدشده
+                </button>
+              </div>
+              <div className="mt-6 space-y-2">
                 {schedules.map((schedule) => (
-                  <div key={schedule.id} className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                  <div key={schedule.id} className="rounded-2xl bg-slate-950/60 border border-white/5 px-4 py-3 text-sm text-slate-300">
                     {schedule.title} - راننده #{schedule.driver_id} - {schedule.frequency} - {(schedule.run_times?.length ? schedule.run_times.join(', ') : schedule.run_time)}
                   </div>
                 ))}

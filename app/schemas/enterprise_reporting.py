@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 # SCHEMA: TELEMETRY EVENT
 # ============================================================================
 
+
 class TelemetryEventSchema(BaseModel):
     """Schema for individual telemetry events."""
 
@@ -39,7 +40,7 @@ class TelemetryEventSchema(BaseModel):
     # Additional context
     metadata: dict[str, Any] = Field(default_factory=dict, description="Additional event-specific data")
 
-    @field_validator('timestamp')
+    @field_validator("timestamp")
     def validate_timestamp_format(cls, v):
         """Ensure timestamp is valid ISO 8601."""
         try:
@@ -48,10 +49,10 @@ class TelemetryEventSchema(BaseModel):
             raise ValueError("Timestamp must be valid ISO 8601 format") from None
         return v
 
-    @field_validator('status')
+    @field_validator("status")
     def validate_status(cls, v):
         """Ensure status is valid value."""
-        valid_statuses = {'success', 'failure', 'timeout', 'skipped', 'in_progress', 'retrying'}
+        valid_statuses = {"success", "failure", "timeout", "skipped", "in_progress", "retrying"}
         if v not in valid_statuses:
             raise ValueError(f"Status must be one of {valid_statuses}")
         return v
@@ -60,6 +61,7 @@ class TelemetryEventSchema(BaseModel):
 # ============================================================================
 # SCHEMA: WORKFLOW STEP STATE
 # ============================================================================
+
 
 class WorkflowStepSchema(BaseModel):
     """Schema for workflow step state tracking."""
@@ -85,9 +87,9 @@ class WorkflowStepSchema(BaseModel):
     # Additional context
     metadata: dict[str, Any] = Field(default_factory=dict, description="Step-specific metadata")
 
-    @field_validator('status')
+    @field_validator("status")
     def validate_status(cls, v):
-        valid = {'pending', 'in_progress', 'completed', 'failed', 'skipped', 'retrying'}
+        valid = {"pending", "in_progress", "completed", "failed", "skipped", "retrying"}
         if v not in valid:
             raise ValueError(f"Status must be one of {valid}")
         return v
@@ -96,6 +98,7 @@ class WorkflowStepSchema(BaseModel):
 # ============================================================================
 # SCHEMA: WORKFLOW STATE
 # ============================================================================
+
 
 class WorkflowStateSchema(BaseModel):
     """Schema for complete workflow execution state."""
@@ -120,9 +123,9 @@ class WorkflowStateSchema(BaseModel):
     # Additional context
     metadata: dict[str, Any] = Field(default_factory=dict, description="Workflow-level metadata")
 
-    @field_validator('status')
+    @field_validator("status")
     def validate_status(cls, v):
-        valid = {'pending', 'in_progress', 'completed', 'failed', 'skipped'}
+        valid = {"pending", "in_progress", "completed", "failed", "skipped"}
         if v not in valid:
             raise ValueError(f"Status must be one of {valid}")
         return v
@@ -132,11 +135,14 @@ class WorkflowStateSchema(BaseModel):
 # SCHEMA: EVIDENCE
 # ============================================================================
 
+
 class EvidenceSchema(BaseModel):
     """Schema for failure evidence artifacts."""
 
     evidence_id: str = Field(..., description="Unique evidence identifier")
-    evidence_type: str = Field(..., description="Type: screenshot, html_dump, network_log, console_log, performance_metrics, state_snapshot")
+    evidence_type: str = Field(
+        ..., description="Type: screenshot, html_dump, network_log, console_log, performance_metrics, state_snapshot"
+    )
     timestamp: str = Field(..., description="ISO 8601 capture timestamp")
     workflow_id: str = Field(..., description="Associated workflow ID")
     step_name: str = Field(..., description="Step where evidence was captured")
@@ -149,9 +155,9 @@ class EvidenceSchema(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict, description="Evidence metadata")
     error: str | None = Field(None, description="Error during evidence capture")
 
-    @field_validator('evidence_type')
+    @field_validator("evidence_type")
     def validate_evidence_type(cls, v):
-        valid = {'screenshot', 'html_dump', 'network_log', 'console_log', 'performance_metrics', 'state_snapshot'}
+        valid = {"screenshot", "html_dump", "network_log", "console_log", "performance_metrics", "state_snapshot"}
         if v not in valid:
             raise ValueError(f"Evidence type must be one of {valid}")
         return v
@@ -160,6 +166,7 @@ class EvidenceSchema(BaseModel):
 # ============================================================================
 # SCHEMA: CLIENT-FACING REPORT
 # ============================================================================
+
 
 class ClientReportSummarySchema(BaseModel):
     """Summary section of client-facing report."""
@@ -172,9 +179,9 @@ class ClientReportSummarySchema(BaseModel):
     total_duration_ms: float = Field(..., description="Total execution time", ge=0)
     avg_step_duration_ms: float = Field(..., description="Average step duration", ge=0)
 
-    @field_validator('severity')
+    @field_validator("severity")
     def validate_severity(cls, v):
-        valid = {'info', 'warning', 'error', 'critical', 'unknown'}
+        valid = {"info", "warning", "error", "critical", "unknown"}
         if v not in valid:
             raise ValueError(f"Severity must be one of {valid}")
         return v
@@ -225,9 +232,9 @@ class ClientReportSchema(BaseModel):
     # Telemetry summary
     telemetry_summary: dict[str, Any] | None = Field(None, description="Telemetry statistics")
 
-    @field_validator('overall_status')
+    @field_validator("overall_status")
     def validate_overall_status(cls, v):
-        valid = {'success', 'failed', 'partial'}
+        valid = {"success", "failed", "partial"}
         if v not in valid:
             raise ValueError(f"Overall status must be one of {valid}")
         return v
@@ -236,6 +243,7 @@ class ClientReportSchema(BaseModel):
 # ============================================================================
 # SCHEMA: DASHBOARD METRICS
 # ============================================================================
+
 
 class DashboardMetricsSchema(BaseModel):
     """Schema for client dashboard metrics."""
@@ -247,7 +255,9 @@ class DashboardMetricsSchema(BaseModel):
     success_rate_percent: float = Field(..., description="Success rate percentage", ge=0, le=100)
 
     # Performance metrics
-    performance: dict[str, float] = Field(default_factory=dict, description="Performance statistics (avg, p95, p99 latency)")
+    performance: dict[str, float] = Field(
+        default_factory=dict, description="Performance statistics (avg, p95, p99 latency)"
+    )
 
     # Trends
     hourly_trend: list[dict[str, Any]] = Field(default_factory=list, description="Hourly performance trend")
@@ -261,12 +271,15 @@ class DashboardMetricsSchema(BaseModel):
     map_usage_distribution: dict[str, int] = Field(default_factory=dict, description="Map provider usage")
 
     # Current status
-    current_mode_counters: dict[str, dict[str, int]] = Field(default_factory=dict, description="Current operation counters")
+    current_mode_counters: dict[str, dict[str, int]] = Field(
+        default_factory=dict, description="Current operation counters"
+    )
 
 
 # ============================================================================
 # SCHEMA: WORKER HEALTH
 # ============================================================================
+
 
 class WorkerHealthSchema(BaseModel):
     """Schema for worker/bot health status."""
@@ -289,9 +302,9 @@ class WorkerHealthSchema(BaseModel):
     last_activity_at: str | None = Field(None, description="ISO 8601 last activity timestamp")
     last_error: str | None = Field(None, description="Last error encountered")
 
-    @field_validator('status')
+    @field_validator("status")
     def validate_status(cls, v):
-        valid = {'active', 'idle', 'error', 'paused', 'stopped'}
+        valid = {"active", "idle", "error", "paused", "stopped"}
         if v not in valid:
             raise ValueError(f"Status must be one of {valid}")
         return v
@@ -300,6 +313,7 @@ class WorkerHealthSchema(BaseModel):
 # ============================================================================
 # SCHEMA: BROWSER RESOURCE STATUS
 # ============================================================================
+
 
 class BrowserResourceSchema(BaseModel):
     """Schema for browser resource tracking."""
@@ -310,9 +324,9 @@ class BrowserResourceSchema(BaseModel):
     pages_open: int = Field(..., description="Number of open pages", ge=0)
     status: str = Field(..., description="Resource status: active, idle, stale")
 
-    @field_validator('status')
+    @field_validator("status")
     def validate_status(cls, v):
-        valid = {'active', 'idle', 'stale'}
+        valid = {"active", "idle", "stale"}
         if v not in valid:
             raise ValueError(f"Status must be one of {valid}")
         return v
@@ -340,6 +354,7 @@ class BrowserPoolStatsSchema(BaseModel):
 # ============================================================================
 # SCHEMA: SYSTEM HEALTH
 # ============================================================================
+
 
 class SystemHealthSchema(BaseModel):
     """Complete system health status."""
@@ -374,9 +389,9 @@ class SystemHealthSchema(BaseModel):
     # Overall status
     overall_status: str = Field(..., description="System status: healthy, degraded, critical")
 
-    @field_validator('overall_status')
+    @field_validator("overall_status")
     def validate_overall_status(cls, v):
-        valid = {'healthy', 'degraded', 'critical'}
+        valid = {"healthy", "degraded", "critical"}
         if v not in valid:
             raise ValueError(f"Overall status must be one of {valid}")
         return v
@@ -385,6 +400,7 @@ class SystemHealthSchema(BaseModel):
 # ============================================================================
 # SCHEMA: AUDIT LOG ENTRY
 # ============================================================================
+
 
 class AuditLogEntrySchema(BaseModel):
     """Schema for audit log entries."""
@@ -408,9 +424,9 @@ class AuditLogEntrySchema(BaseModel):
     resource_type: str | None = Field(None, description="Type of resource affected")
     resource_id: str | None = Field(None, description="Identifier of resource affected")
 
-    @field_validator('level')
+    @field_validator("level")
     def validate_level(cls, v):
-        valid = {'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'}
+        valid = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
         if v not in valid:
             raise ValueError(f"Level must be one of {valid}")
         return v
@@ -419,6 +435,7 @@ class AuditLogEntrySchema(BaseModel):
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
 
 def create_telemetry_event(
     event_type: str,

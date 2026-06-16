@@ -118,9 +118,8 @@ async def calculate_route(origin: GeoCoordinateModel, destination: GeoCoordinate
     dlat = math.radians(destination.lat - origin.lat)
     dlon = math.radians(destination.lng - origin.lng)
 
-    a = (
-        math.sin(dlat / 2) * math.sin(dlat / 2)
-        + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) * math.sin(dlon / 2)
+    a = math.sin(dlat / 2) * math.sin(dlat / 2) + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) * math.sin(
+        dlon / 2
     )
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     distance = earth_radius_km * c
@@ -171,11 +170,7 @@ async def reverse_geocode(lat: float, lng: float):
             if proxy_info and proxy_info.protocol in ("http", "https"):
                 async with aiohttp.ClientSession() as session:
                     async with session.get(
-                        url,
-                        params=params,
-                        headers=headers,
-                        proxy=proxy_info.full_url,
-                        timeout=5
+                        url, params=params, headers=headers, proxy=proxy_info.full_url, timeout=5
                     ) as resp:
                         if resp.status == 200:
                             data = await resp.json()
@@ -186,24 +181,9 @@ async def reverse_geocode(lat: float, lng: float):
         address = data.get("address", {})
         return {
             "success": True,
-            "province": (
-                address.get("state") or
-                address.get("province") or
-                address.get("county") or
-                ""
-            ),
-            "city": (
-                address.get("city") or
-                address.get("town") or
-                address.get("village") or
-                ""
-            ),
-            "district": (
-                address.get("suburb") or
-                address.get("district") or
-                address.get("neighbourhood") or
-                ""
-            ),
+            "province": (address.get("state") or address.get("province") or address.get("county") or ""),
+            "city": (address.get("city") or address.get("town") or address.get("village") or ""),
+            "district": (address.get("suburb") or address.get("district") or address.get("neighbourhood") or ""),
             "display_name": data.get("display_name", ""),
         }
 

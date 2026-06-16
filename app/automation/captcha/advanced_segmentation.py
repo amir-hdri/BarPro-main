@@ -29,7 +29,7 @@ class AdvancedSegmentation:
             if aspect > 5 or aspect < 0.1:
                 continue
 
-            roi = binary[y:y+h, x:x+w]
+            roi = binary[y : y + h, x : x + w]
 
             # Check if character is too wide (might be overlapping)
             if aspect > 1.8:
@@ -58,7 +58,7 @@ class AdvancedSegmentation:
         valleys = []
         for i in range(1, len(projection) - 1):
             if projection[i] < threshold:
-                if projection[i-1] >= threshold or projection[i+1] >= threshold:
+                if projection[i - 1] >= threshold or projection[i + 1] >= threshold:
                     valleys.append(i)
 
         if not valleys:
@@ -94,12 +94,11 @@ class AdvancedSegmentation:
         new_w = max(1, int(roi.shape[1] * scale))
         new_h = max(1, int(roi.shape[0] * scale))
 
-        resized = cv2.resize(roi, (new_w, new_h),
-                            interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC)
+        resized = cv2.resize(roi, (new_w, new_h), interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC)
 
         canvas = np.zeros((img_size, img_size), dtype=np.uint8)
         offset_x = (img_size - new_w) // 2
         offset_y = (img_size - new_h) // 2
-        canvas[offset_y:offset_y+new_h, offset_x:offset_x+new_w] = resized
+        canvas[offset_y : offset_y + new_h, offset_x : offset_x + new_w] = resized
 
         return canvas

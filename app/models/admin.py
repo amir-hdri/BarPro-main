@@ -1,6 +1,7 @@
 """
 Models for Super Admin and related entities
 """
+
 from datetime import UTC, datetime
 
 from sqlalchemy import JSON, Column
@@ -9,6 +10,7 @@ from sqlmodel import Field, SQLModel
 
 class SuperAdmin(SQLModel, table=True):
     """Super Admin model - manages the entire system"""
+
     __tablename__ = "super_admins"
 
     id: int | None = Field(default=None, primary_key=True)
@@ -25,6 +27,7 @@ class SuperAdmin(SQLModel, table=True):
 
 class SubscriptionPlan(SQLModel, table=True):
     """Subscription plans for clients"""
+
     __tablename__ = "subscription_plans"
 
     id: int | None = Field(default=None, primary_key=True)
@@ -54,6 +57,7 @@ class SubscriptionPlan(SQLModel, table=True):
 
 class AdminDriverSchedule(SQLModel, table=True):
     """Scheduled waybill jobs for drivers (admin legacy model - use models_multitenant.DriverSchedule for multi-tenant)"""
+
     __tablename__ = "admin_driver_schedules"
 
     id: int | None = Field(default=None, primary_key=True)
@@ -83,6 +87,7 @@ class AdminDriverSchedule(SQLModel, table=True):
 
 class ActivityLog(SQLModel, table=True):
     """Activity logs for audit trail"""
+
     __tablename__ = "activity_logs"
 
     id: int | None = Field(default=None, primary_key=True)

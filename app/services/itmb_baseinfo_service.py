@@ -193,7 +193,13 @@ class ITMBBaseInfoService:
         cache_plate_types = self._cache.get("plate_types")
         cache_city_data = self._cache.get("province_cities")
 
-        if cache_goods is None or cache_packing_types is None or cache_good_types is None or cache_plate_types is None or cache_city_data is None:
+        if (
+            cache_goods is None
+            or cache_packing_types is None
+            or cache_good_types is None
+            or cache_plate_types is None
+            or cache_city_data is None
+        ):
             raise HTTPException(status_code=503, detail="داده‌های BaseInfo کامل نیست")
 
         goods_ids = self._collect_codes(cache_goods.data, ("GoodID", "ID", "Code"))

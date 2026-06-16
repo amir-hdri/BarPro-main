@@ -120,5 +120,4 @@ class WaybillTrafficController:
             self.release(mode=mode)
 
 
-
 waybill_traffic_controller = WaybillTrafficController()

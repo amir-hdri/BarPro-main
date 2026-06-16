@@ -22,9 +22,9 @@ export function AppShell({ children }: AppShellProps) {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.15),_transparent_30%),linear-gradient(135deg,_#f8fafc_0%,_#e2e8f0_45%,_#fff7ed_100%)] text-slate-900">
-      <div className="mx-auto flex min-h-screen max-w-[1600px] gap-6 px-4 py-4 md:px-6 lg:px-8">
-        <div className="hidden w-[320px] shrink-0 xl:block">
+    <div className="min-h-screen text-slate-100 selection:bg-cyan-500/30">
+      <div className="mx-auto flex min-h-screen max-w-[1800px] gap-8 px-4 py-6 md:px-8 lg:px-10">
+        <div className="hidden w-[300px] shrink-0 xl:block animate-in slide-in-from-left-8 duration-500">
           <Sidebar />
         </div>
 
@@ -33,18 +33,20 @@ export function AppShell({ children }: AppShellProps) {
             <button
               type="button"
               onClick={() => setMobileOpen(false)}
-              className="absolute inset-0 bg-slate-950/60"
+              className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm transition-opacity duration-300"
               aria-label="close navigation"
             />
-            <div className="absolute right-4 top-4 h-[calc(100vh-2rem)] w-[min(320px,calc(100vw-2rem))]">
+            <div className="absolute right-4 top-4 h-[calc(100vh-2rem)] w-[min(320px,calc(100vw-2rem))] animate-in slide-in-from-right-8 duration-300">
               <Sidebar onNavigate={() => setMobileOpen(false)} />
             </div>
           </div>
         )}
 
-        <main className="flex-1 py-1">
+        <main className="flex-1 py-2 flex flex-col gap-6 animate-in fade-in duration-700">
           <Header client={client} role={role} onLogout={handleLogout} onOpenMenu={() => setMobileOpen(true)} />
-          {children}
+          <div className="relative flex-1">
+            {children}
+          </div>
         </main>
       </div>
     </div>

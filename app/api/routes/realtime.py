@@ -33,4 +33,3 @@ async def waybill_events_socket(
     except Exception:
         await event_hub.disconnect(websocket)
         await asyncio.sleep(0)
-

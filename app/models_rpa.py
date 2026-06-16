@@ -1,4 +1,5 @@
 """Phase 1 operational models for multi-tenant RPA orchestration."""
+
 from datetime import UTC, datetime
 from enum import Enum as PyEnum
 
@@ -58,8 +59,14 @@ class DriverRuntimeState(SQLModel, table=True):
     proxy_key: str | None = Field(default=None, max_length=128, index=True)
     last_error_code: str | None = Field(default=None, max_length=64, index=True)
     last_error_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
 
 
 class DriverDailyCounter(SQLModel, table=True):
@@ -77,7 +84,10 @@ class DriverDailyCounter(SQLModel, table=True):
     successes: int = Field(default=0)
     last_attempt_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
     last_success_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
 
 
 class DriverSessionMetadata(SQLModel, table=True):
@@ -98,7 +108,10 @@ class DriverSessionMetadata(SQLModel, table=True):
     last_auth_result: str | None = Field(default=None, max_length=64)
     last_auth_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
     proxy_key: str | None = Field(default=None, max_length=128)
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
 
 
 class WaybillAttempt(SQLModel, table=True):
@@ -124,7 +137,10 @@ class WaybillAttempt(SQLModel, table=True):
     session_version: int = Field(default=0)
     proxy_key: str | None = Field(default=None, max_length=128)
     response_excerpt: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
 
 
 class DomainEvent(SQLModel, table=True):
@@ -141,7 +157,10 @@ class DomainEvent(SQLModel, table=True):
     driver_id: int | None = Field(default=None, foreign_key="drivers.id", index=True)
     job_id: str | None = Field(default=None, max_length=100, index=True)
     payload_json: str = Field(default="{}", sa_column=Column(Text, nullable=False))
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
     processed_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
 
 
@@ -163,4 +182,7 @@ class ProxyEndpoint(SQLModel, table=True):
     last_failure_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
     cooldown_until: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
     notes: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None), sa_column=Column(DateTime(timezone=False), nullable=False))
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )

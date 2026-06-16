@@ -20,6 +20,7 @@ def _run_async(coro):
     try:
         asyncio.get_running_loop()
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(asyncio.run, coro)
             return future.result()
@@ -48,6 +49,7 @@ def _error_category(exc: Exception) -> str:
 
 
 if celery_app is not None:
+
     @celery_app.task(bind=True, name="app.workers.tasks.process_waybill_task")
     def process_waybill_task(self, task_id: str) -> Any:
         max_retries = max(0, utcms_config.CELERY_MAX_RETRIES)
@@ -123,6 +125,7 @@ if celery_app is not None:
         finally:
             reset_execution_context(execution_tokens)
 else:
+
     def process_waybill_task(*_args, **_kwargs):
         raise RuntimeError("Celery is not installed")
 
@@ -131,9 +134,12 @@ def dispatch_waybill_task(task_id: str, priority: int | None = None):
     if celery_app is None:
         raise RuntimeError("Celery is not available in current environment")
     normalized_priority = utcms_config.CELERY_DEFAULT_PRIORITY if priority is None else int(priority)
-    normalized_priority = max(utcms_config.CELERY_MIN_PRIORITY, min(utcms_config.CELERY_MAX_PRIORITY, normalized_priority))
+    normalized_priority = max(
+        utcms_config.CELERY_MIN_PRIORITY, min(utcms_config.CELERY_MAX_PRIORITY, normalized_priority)
+    )
 
     import random
+
     jitter_countdown = random.randint(3, 10)
 
     return process_waybill_task.apply_async(

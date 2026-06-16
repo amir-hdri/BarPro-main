@@ -10,6 +10,7 @@ to avoid code duplication.
 # CORE STEALTH SCRIPT TEMPLATES
 # ============================================================================
 
+
 def build_core_stealth_script(
     webgl_vendor: str,
     webgl_renderer: str,
@@ -160,6 +161,7 @@ def build_core_stealth_script(
 # UTILITY FUNCTIONS
 # ============================================================================
 
+
 def pick_random_fingerprint() -> dict:
     """
     Pick a random fingerprint configuration.
@@ -185,6 +187,5 @@ def add_random_delay(_page, min_seconds: float = 0.5, max_seconds: float = 2.0) 
     """Add random delay for human-like behavior."""
     import asyncio
     import random
-    asyncio.get_event_loop().run_until_complete(
-        asyncio.sleep(random.uniform(min_seconds, max_seconds))
-    )
+
+    asyncio.get_event_loop().run_until_complete(asyncio.sleep(random.uniform(min_seconds, max_seconds)))

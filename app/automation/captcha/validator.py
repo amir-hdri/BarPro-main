@@ -1,6 +1,7 @@
 """
 Captcha solution validator.
 """
+
 import re
 
 
@@ -14,7 +15,7 @@ class CaptchaValidator:
             return False
 
         # Must be numeric or simple math result
-        if not re.match(r'^-?\d+$', solution.strip()):
+        if not re.match(r"^-?\d+$", solution.strip()):
             return False
 
         # Reasonable range

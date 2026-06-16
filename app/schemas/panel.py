@@ -1,14 +1,17 @@
 """
 Schemas for Client Panel API
 """
+
 from datetime import datetime
 
 from pydantic import BaseModel, Field
 
 # ==================== Driver Management Schemas ====================
 
+
 class DriverCreateRequest(BaseModel):
     """Create new driver request"""
+
     driver_national_code: str = Field(min_length=10, max_length=10)
     full_name: str = Field(min_length=2, max_length=255)
     phone: str | None = Field(default=None, max_length=20)
@@ -26,6 +29,7 @@ class DriverCreateRequest(BaseModel):
 
 class DriverUpdateRequest(BaseModel):
     """Update driver request"""
+
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
     phone: str | None = Field(default=None, max_length=20)
     license_number: str | None = Field(default=None, max_length=50)
@@ -45,6 +49,7 @@ class DriverUpdateRequest(BaseModel):
 
 class DriverResponse(BaseModel):
     """Driver response"""
+
     id: int
     client_id: int
     driver_national_code: str
@@ -85,6 +90,7 @@ class DriverResponse(BaseModel):
 
 class DriverListResponse(BaseModel):
     """Driver list item response"""
+
     id: int
     driver_national_code: str
     full_name: str
@@ -102,8 +108,10 @@ class DriverListResponse(BaseModel):
 
 # ==================== Schedule Management Schemas ====================
 
+
 class ScheduleCreateRequest(BaseModel):
     """Create schedule request"""
+
     schedule_type: str = Field(pattern="^(daily|weekly|monthly|custom)$")
     schedule_time: str = Field(pattern="^([0-1][0-9]|2[0-3]):[0-5][0-9]$")  # HH:MM
     schedule_days: list[str] | None = None  # ["monday", "tuesday", ...]
@@ -116,13 +124,14 @@ class ScheduleCreateRequest(BaseModel):
             "sender_phone": "09123456789",
             "receiver_name": "مقصد",
             "cargo_type": "کالای عمومی",
-            "cargo_weight": "1000"
-        }
+            "cargo_weight": "1000",
+        },
     )
 
 
 class ScheduleUpdateRequest(BaseModel):
     """Update schedule request"""
+
     schedule_type: str | None = Field(default=None, pattern="^(daily|weekly|monthly|custom)$")
     schedule_time: str | None = Field(default=None, pattern="^([0-1][0-9]|2[0-3]):[0-5][0-9]$")
     schedule_days: list[str] | None = None
@@ -132,6 +141,7 @@ class ScheduleUpdateRequest(BaseModel):
 
 class ScheduleResponse(BaseModel):
     """Schedule response"""
+
     id: int
     driver_id: int
     schedule_type: str
@@ -151,8 +161,10 @@ class ScheduleResponse(BaseModel):
 
 # ==================== Waybill Management Schemas ====================
 
+
 class WaybillCreateRequest(BaseModel):
     """Create waybill request"""
+
     driver_id: int
 
     # Sender info
@@ -197,6 +209,7 @@ class WaybillCreateRequest(BaseModel):
 
 class WaybillResponse(BaseModel):
     """Waybill response"""
+
     id: int
     job_id: str
     client_id: int
@@ -221,6 +234,7 @@ class WaybillResponse(BaseModel):
 
 class WaybillListResponse(BaseModel):
     """Waybill list item response"""
+
     id: int
     job_id: str
     driver_id: int
@@ -236,8 +250,10 @@ class WaybillListResponse(BaseModel):
 
 # ==================== Dashboard Schemas ====================
 
+
 class PanelDashboardStats(BaseModel):
     """Client panel dashboard statistics"""
+
     total_drivers: int
     active_drivers: int
     inactive_drivers: int
@@ -269,8 +285,10 @@ class PanelDashboardStats(BaseModel):
 
 # ==================== Report Schemas ====================
 
+
 class ReportFilter(BaseModel):
     """Report filter"""
+
     driver_id: int | None = None
     status: str | None = None
     date_from: datetime | None = None
@@ -281,6 +299,7 @@ class ReportFilter(BaseModel):
 
 class DriverReport(BaseModel):
     """Driver performance report"""
+
     driver_id: int
     driver_name: str
     vehicle_plate: str
@@ -294,6 +313,7 @@ class DriverReport(BaseModel):
 
 class WaybillsByDateReport(BaseModel):
     """Waybills grouped by date"""
+
     date: str
     total: int
     successful: int

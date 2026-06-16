@@ -8,6 +8,7 @@ Provides:
 - Auto-execution timestamps and schedule status
 - Per-driver performance summaries
 """
+
 import logging
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
@@ -103,19 +104,14 @@ class UserReportingService:
                 func.sum(case((col(WaybillJob.status).in_(pending_statuses), 1), else_=0)).label("pending_jobs"),
                 func.max(WaybillJob.created_at).label("last_job_at"),
             )
-            .where(
-                WaybillJob.client_id == client.id,
-                col(WaybillJob.driver_id).in_(driver_ids)
-            )
+            .where(WaybillJob.client_id == client.id, col(WaybillJob.driver_id).in_(driver_ids))
             .group_by(WaybillJob.driver_id)
         )
         agg_result = session.exec(agg_stmt)
         jobs_by_driver = {row.driver_id: row for row in agg_result.all()}
 
         # Fetch all DriverRuntimeStates
-        runtime_stmt = select(DriverRuntimeState).where(
-            col(DriverRuntimeState.driver_id).in_(driver_ids)
-        )
+        runtime_stmt = select(DriverRuntimeState).where(col(DriverRuntimeState.driver_id).in_(driver_ids))
         runtime_result = session.exec(runtime_stmt)
         all_runtimes = runtime_result.all()
         runtime_by_driver = {r.driver_id: r for r in all_runtimes}
@@ -162,43 +158,47 @@ class UserReportingService:
             schedules = schedules_by_driver.get(driver.id, [])
             plates = plates_by_driver.get(driver.id, [])
 
-            output.append({
-                "driver_id": driver.id,
-                "driver_name": driver.full_name,
-                "national_code": driver.driver_national_code,
-                "phone": driver.phone,
-                "status": driver.status,
-                "runtime_status": runtime_status,
-                "last_auth_at": driver.last_auth_at.isoformat() if driver.last_auth_at else None,
-                "last_session_expires_at": driver.last_session_expires_at.isoformat() if driver.last_session_expires_at else None,
-                "last_error_code": driver.last_error_code,
-                "total_jobs": total,
-                "success_jobs": success,
-                "failed_jobs": failed,
-                "pending_jobs": pending,
-                "last_job_at": last_job_at,
-                "success_rate": round(success / max(1, total) * 100, 2),
-                "schedules": [
-                    {
-                        "id": s.id,
-                        "title": s.title,
-                        "is_active": s.is_active,
-                        "frequency": s.frequency,
-                        "next_run_at": s.next_run_at.isoformat() if s.next_run_at else None,
-                        "last_run_at": s.last_run_at.isoformat() if s.last_run_at else None,
-                    }
-                    for s in schedules
-                ],
-                "plates": [
-                    {
-                        "id": p.id,
-                        "plate_number": p.plate_number,
-                        "vehicle_type": p.vehicle_type,
-                        "status": p.status,
-                    }
-                    for p in plates
-                ],
-            })
+            output.append(
+                {
+                    "driver_id": driver.id,
+                    "driver_name": driver.full_name,
+                    "national_code": driver.driver_national_code,
+                    "phone": driver.phone,
+                    "status": driver.status,
+                    "runtime_status": runtime_status,
+                    "last_auth_at": driver.last_auth_at.isoformat() if driver.last_auth_at else None,
+                    "last_session_expires_at": driver.last_session_expires_at.isoformat()
+                    if driver.last_session_expires_at
+                    else None,
+                    "last_error_code": driver.last_error_code,
+                    "total_jobs": total,
+                    "success_jobs": success,
+                    "failed_jobs": failed,
+                    "pending_jobs": pending,
+                    "last_job_at": last_job_at,
+                    "success_rate": round(success / max(1, total) * 100, 2),
+                    "schedules": [
+                        {
+                            "id": s.id,
+                            "title": s.title,
+                            "is_active": s.is_active,
+                            "frequency": s.frequency,
+                            "next_run_at": s.next_run_at.isoformat() if s.next_run_at else None,
+                            "last_run_at": s.last_run_at.isoformat() if s.last_run_at else None,
+                        }
+                        for s in schedules
+                    ],
+                    "plates": [
+                        {
+                            "id": p.id,
+                            "plate_number": p.plate_number,
+                            "vehicle_type": p.vehicle_type,
+                            "status": p.status,
+                        }
+                        for p in plates
+                    ],
+                }
+            )
         return output
 
     async def waybill_history(
@@ -245,23 +245,25 @@ class UserReportingService:
         rows = []
         for job in jobs:
             driver = drivers_map.get(job.driver_id)
-            rows.append({
-                "job_id": job.job_id,
-                "driver_id": job.driver_id,
-                "driver_name": driver.full_name if driver else None,
-                "driver_national_code": driver.driver_national_code if driver else None,
-                "status": job.status,
-                "source": job.source,
-                "business_date": job.business_date,
-                "last_error": job.last_error,
-                "error_category": job.error_category,
-                "attempt_count": job.attempt_count,
-                "created_at": job.created_at.isoformat(),
-                "started_at": job.started_at.isoformat() if job.started_at else None,
-                "finished_at": job.finished_at.isoformat() if job.finished_at else None,
-                "is_scheduled": job.schedule_id is not None,
-                "schedule_id": job.schedule_id,
-            })
+            rows.append(
+                {
+                    "job_id": job.job_id,
+                    "driver_id": job.driver_id,
+                    "driver_name": driver.full_name if driver else None,
+                    "driver_national_code": driver.driver_national_code if driver else None,
+                    "status": job.status,
+                    "source": job.source,
+                    "business_date": job.business_date,
+                    "last_error": job.last_error,
+                    "error_category": job.error_category,
+                    "attempt_count": job.attempt_count,
+                    "created_at": job.created_at.isoformat(),
+                    "started_at": job.started_at.isoformat() if job.started_at else None,
+                    "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+                    "is_scheduled": job.schedule_id is not None,
+                    "schedule_id": job.schedule_id,
+                }
+            )
 
         return {
             "total": total,
@@ -282,11 +284,13 @@ class UserReportingService:
     ) -> list[dict[str, Any]]:
         stmt = select(WaybillJob).where(
             WaybillJob.client_id == client.id,
-            col(WaybillJob.status).in_([
-                TaskStatus.FAILED.value,
-                TaskStatus.DEAD_LETTER.value,
-                TaskStatus.NEEDS_REVIEW.value,
-            ]),
+            col(WaybillJob.status).in_(
+                [
+                    TaskStatus.FAILED.value,
+                    TaskStatus.DEAD_LETTER.value,
+                    TaskStatus.NEEDS_REVIEW.value,
+                ]
+            ),
         )
         if driver_id:
             stmt = stmt.where(WaybillJob.driver_id == driver_id)
@@ -315,10 +319,14 @@ class UserReportingService:
         job_ids = [j.job_id for j in failed_jobs]
         logs_map = defaultdict(list)
         if job_ids:
-            logs_stmt = select(WaybillTaskLog).where(
-                WaybillTaskLog.client_id == client.id,
-                col(WaybillTaskLog.job_id).in_(job_ids),
-            ).order_by(col(WaybillTaskLog.job_id), col(WaybillTaskLog.created_at).desc())
+            logs_stmt = (
+                select(WaybillTaskLog)
+                .where(
+                    WaybillTaskLog.client_id == client.id,
+                    col(WaybillTaskLog.job_id).in_(job_ids),
+                )
+                .order_by(col(WaybillTaskLog.job_id), col(WaybillTaskLog.created_at).desc())
+            )
 
             logs_result = session.exec(logs_stmt)
             for log in logs_result.all():
@@ -330,25 +338,27 @@ class UserReportingService:
             driver = drivers_map.get(job.driver_id)
             logs = logs_map[job.job_id]
 
-            output.append({
-                "job_id": job.job_id,
-                "driver_id": job.driver_id,
-                "driver_name": driver.full_name if driver else None,
-                "status": job.status,
-                "error_category": job.error_category,
-                "last_error": job.last_error,
-                "attempt_count": job.attempt_count,
-                "created_at": job.created_at.isoformat(),
-                "steps": [
-                    {
-                        "step": log.step,
-                        "status": log.status,
-                        "message": log.message,
-                        "created_at": log.created_at.isoformat(),
-                    }
-                    for log in logs
-                ],
-            })
+            output.append(
+                {
+                    "job_id": job.job_id,
+                    "driver_id": job.driver_id,
+                    "driver_name": driver.full_name if driver else None,
+                    "status": job.status,
+                    "error_category": job.error_category,
+                    "last_error": job.last_error,
+                    "attempt_count": job.attempt_count,
+                    "created_at": job.created_at.isoformat(),
+                    "steps": [
+                        {
+                            "step": log.step,
+                            "status": log.status,
+                            "message": log.message,
+                            "created_at": log.created_at.isoformat(),
+                        }
+                        for log in logs
+                    ],
+                }
+            )
         return output
 
     async def scheduled_execution_history(
@@ -390,10 +400,7 @@ class UserReportingService:
                     func.sum(case((WaybillJob.status == TaskStatus.SUCCESS.value, 1), else_=0)).label("success_jobs"),
                     func.sum(case((col(WaybillJob.status).in_(failed_statuses), 1), else_=0)).label("failed_jobs"),
                 )
-                .where(
-                    WaybillJob.client_id == client.id,
-                    col(WaybillJob.schedule_id).in_(schedule_ids)
-                )
+                .where(WaybillJob.client_id == client.id, col(WaybillJob.schedule_id).in_(schedule_ids))
                 .group_by(WaybillJob.schedule_id)
             )
             agg_result = session.exec(agg_stmt)
@@ -406,10 +413,11 @@ class UserReportingService:
                 .label("rn")
             )
 
-            subq = select(WaybillJob, row_num).where(
-                WaybillJob.client_id == client.id,
-                col(WaybillJob.schedule_id).in_(schedule_ids)
-            ).subquery()
+            subq = (
+                select(WaybillJob, row_num)
+                .where(WaybillJob.client_id == client.id, col(WaybillJob.schedule_id).in_(schedule_ids))
+                .subquery()
+            )
 
             recent_jobs_stmt = (
                 select(WaybillJob)
@@ -500,17 +508,19 @@ class UserReportingService:
 
             rate = round(success / max(1, total) * 100, 2)
 
-            output.append({
-                "driver_id": driver.id,
-                "driver_name": driver.full_name,
-                "national_code": driver.driver_national_code,
-                "status": driver.status,
-                "total_jobs": total,
-                "success_jobs": success,
-                "failed_jobs": failed,
-                "success_rate": rate,
-                "last_job_at": last_job_at,
-            })
+            output.append(
+                {
+                    "driver_id": driver.id,
+                    "driver_name": driver.full_name,
+                    "national_code": driver.driver_national_code,
+                    "status": driver.status,
+                    "total_jobs": total,
+                    "success_jobs": success,
+                    "failed_jobs": failed,
+                    "success_rate": rate,
+                    "last_job_at": last_job_at,
+                }
+            )
         return output
 
     async def dashboard_stats(
@@ -535,18 +545,24 @@ class UserReportingService:
         today = datetime.now(UTC).replace(tzinfo=None).date()
         today_start = datetime.combine(today, datetime.min.time())
 
-        agg_stmt = (
-            select(
-                func.count(WaybillJob.id).label("total_jobs"),
-                func.sum(case((WaybillJob.status == TaskStatus.SUCCESS.value, 1), else_=0)).label("success_jobs"),
-                func.sum(case((col(WaybillJob.status).in_(failed_statuses), 1), else_=0)).label("failed_jobs"),
-                func.sum(case((col(WaybillJob.status).in_(pending_statuses), 1), else_=0)).label("pending_jobs"),
-                func.sum(case((WaybillJob.created_at >= today_start, 1), else_=0)).label("today_jobs"),
-                func.sum(case(((WaybillJob.created_at >= today_start) & (WaybillJob.status == TaskStatus.SUCCESS.value), 1), else_=0)).label("today_success"),
-                func.sum(case(((WaybillJob.created_at >= today_start) & (col(WaybillJob.status).in_(failed_statuses)), 1), else_=0)).label("today_failed")
-            )
-            .where(WaybillJob.client_id == client.id)
-        )
+        agg_stmt = select(
+            func.count(WaybillJob.id).label("total_jobs"),
+            func.sum(case((WaybillJob.status == TaskStatus.SUCCESS.value, 1), else_=0)).label("success_jobs"),
+            func.sum(case((col(WaybillJob.status).in_(failed_statuses), 1), else_=0)).label("failed_jobs"),
+            func.sum(case((col(WaybillJob.status).in_(pending_statuses), 1), else_=0)).label("pending_jobs"),
+            func.sum(case((WaybillJob.created_at >= today_start, 1), else_=0)).label("today_jobs"),
+            func.sum(
+                case(
+                    ((WaybillJob.created_at >= today_start) & (WaybillJob.status == TaskStatus.SUCCESS.value), 1),
+                    else_=0,
+                )
+            ).label("today_success"),
+            func.sum(
+                case(
+                    ((WaybillJob.created_at >= today_start) & (col(WaybillJob.status).in_(failed_statuses)), 1), else_=0
+                )
+            ).label("today_failed"),
+        ).where(WaybillJob.client_id == client.id)
         agg_result = session.exec(agg_stmt)
         stats = agg_result.first()
 

@@ -21,8 +21,10 @@ from playwright.async_api import Page
 # EVIDENCE COLLECTOR
 # ============================================================================
 
+
 class EvidenceType(str, Enum):
     """Types of evidence that can be collected."""
+
     SCREENSHOT = "screenshot"
     HTML_DUMP = "html_dump"
     NETWORK_LOG = "network_log"
@@ -34,6 +36,7 @@ class EvidenceType(str, Enum):
 @dataclass
 class Evidence:
     """Represents a single piece of collected evidence."""
+
     evidence_id: str
     evidence_type: EvidenceType
     timestamp: str
@@ -119,28 +122,22 @@ class EvidenceCollector:
                         "count": current_count,
                         "max": self.max_evidence_per_workflow,
                     }
-                }
+                },
             )
             return evidence_list
 
         # 1. Capture full-page screenshot
-        screenshot_evidence = await self._capture_screenshot(
-            page, workflow_id, step_name, timestamp, error_code
-        )
+        screenshot_evidence = await self._capture_screenshot(page, workflow_id, step_name, timestamp, error_code)
         if screenshot_evidence:
             evidence_list.append(screenshot_evidence)
 
         # 2. Capture HTML DOM dump
-        html_evidence = await self._capture_html_dump(
-            page, workflow_id, step_name, timestamp, error_code
-        )
+        html_evidence = await self._capture_html_dump(page, workflow_id, step_name, timestamp, error_code)
         if html_evidence:
             evidence_list.append(html_evidence)
 
         # 3. Capture console logs
-        console_evidence = await self._capture_console_logs(
-            page, workflow_id, step_name, timestamp, error_code
-        )
+        console_evidence = await self._capture_console_logs(page, workflow_id, step_name, timestamp, error_code)
         if console_evidence:
             evidence_list.append(console_evidence)
 
@@ -165,7 +162,7 @@ class EvidenceCollector:
                         "evidence_count": len(evidence_list),
                         "error_code": error_code,
                     }
-                }
+                },
             )
 
         self._evidence_log.extend(evidence_list)
@@ -204,14 +201,11 @@ class EvidenceCollector:
                     "url": await page.url(),
                     "title": await page.title(),
                     "error_code": error_code,
-                }
+                },
             )
 
         except Exception as e:
-            logging.warning(
-                "screenshot_capture_failed",
-                extra={"extra_fields": {"error": str(e)}}
-            )
+            logging.warning("screenshot_capture_failed", extra={"extra_fields": {"error": str(e)}})
             return None
 
     async def _capture_html_dump(
@@ -229,7 +223,7 @@ class EvidenceCollector:
 
             html_content = await page.content()
 
-            with open(file_path, 'w', encoding='utf-8') as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.write(html_content)
 
             file_size = file_path.stat().st_size if file_path.exists() else None
@@ -247,14 +241,11 @@ class EvidenceCollector:
                     "title": await page.title(),
                     "error_code": error_code,
                     "html_length": len(html_content),
-                }
+                },
             )
 
         except Exception as e:
-            logging.warning(
-                "html_dump_capture_failed",
-                extra={"extra_fields": {"error": str(e)}}
-            )
+            logging.warning("html_dump_capture_failed", extra={"extra_fields": {"error": str(e)}})
             return None
 
     async def _capture_console_logs(
@@ -283,7 +274,7 @@ class EvidenceCollector:
                 }
             """)
 
-            with open(file_path, 'w', encoding='utf-8') as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(console_logs, f, indent=2, ensure_ascii=False)
 
             return Evidence(
@@ -295,7 +286,7 @@ class EvidenceCollector:
                 file_path=str(file_path),
                 metadata={
                     "error_code": error_code,
-                }
+                },
             )
 
         except Exception:
@@ -345,7 +336,7 @@ class EvidenceCollector:
                 """),
             }
 
-            with open(file_path, 'w', encoding='utf-8') as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, indent=2, ensure_ascii=False)
 
             file_size = file_path.stat().st_size if file_path.exists() else None
@@ -389,11 +380,7 @@ class EvidenceCollector:
 
     def get_evidence_for_workflow(self, workflow_id: str) -> list[dict[str, Any]]:
         """Get all evidence for a specific workflow."""
-        return [
-            e.to_dict()
-            for e in self._evidence_log
-            if e.workflow_id == workflow_id
-        ]
+        return [e.to_dict() for e in self._evidence_log if e.workflow_id == workflow_id]
 
     def get_storage_usage(self) -> dict[str, Any]:
         """Get evidence storage usage statistics."""
@@ -420,8 +407,10 @@ class EvidenceCollector:
 # ADVANCED STRUCTURED LOGGER
 # ============================================================================
 
+
 class TelemetryLevel(str, Enum):
     """Telemetry detail levels."""
+
     MINIMAL = "minimal"
     STANDARD = "standard"
     DETAILED = "detailed"
@@ -431,6 +420,7 @@ class TelemetryLevel(str, Enum):
 @dataclass
 class TelemetryEvent:
     """Represents a single telemetry event."""
+
     event_id: str
     event_type: str
     timestamp: str
@@ -558,7 +548,7 @@ class TelemetryCollector:
                         "error_code": error_code,
                         "error_message": error_message,
                     }
-                }
+                },
             )
         elif self.telemetry_level == TelemetryLevel.DEBUG:
             logging.debug(
@@ -569,7 +559,7 @@ class TelemetryCollector:
                         "status": status,
                         "duration_ms": duration_ms,
                     }
-                }
+                },
             )
 
         return event
@@ -679,7 +669,7 @@ class TelemetryCollector:
         """Remove oldest events if buffer is full."""
         # Keep only the most recent events
         if len(self._events) > self.max_events_buffer:
-            self._events = self._events[-self.max_events_buffer:]
+            self._events = self._events[-self.max_events_buffer :]
 
     @staticmethod
     def _count_by_type(events: list[TelemetryEvent]) -> dict[str, int]:
@@ -700,6 +690,7 @@ class TelemetryCollector:
 # ============================================================================
 # CLIENT-FACING REPORT GENERATOR
 # ============================================================================
+
 
 class ClientReportGenerator:
     """
@@ -783,17 +774,21 @@ class ClientReportGenerator:
             step_status = step.get("status", "unknown")
             step_error = step.get("error_code")
 
-            steps.append({
-                "step_name": step.get("step_name", "Unknown Step"),
-                "status": step_status,
-                "duration_ms": step.get("duration_ms"),
-                "attempts": step.get("attempts", 1),
-                "error_code": step_error,
-                "error_message": cls._get_friendly_message(
-                    step_error, step.get("error_message"), step_status == "completed"
-                ) if step_error else None,
-                "severity": cls.ERROR_SEVERITY.get(step_error, "unknown") if step_error else None,
-            })
+            steps.append(
+                {
+                    "step_name": step.get("step_name", "Unknown Step"),
+                    "status": step_status,
+                    "duration_ms": step.get("duration_ms"),
+                    "attempts": step.get("attempts", 1),
+                    "error_code": step_error,
+                    "error_message": cls._get_friendly_message(
+                        step_error, step.get("error_message"), step_status == "completed"
+                    )
+                    if step_error
+                    else None,
+                    "severity": cls.ERROR_SEVERITY.get(step_error, "unknown") if step_error else None,
+                }
+            )
 
         # Calculate performance metrics
         completed_steps = [s for s in steps if s["status"] == "completed"]
@@ -821,7 +816,9 @@ class ClientReportGenerator:
                 "user_friendly_message": friendly_message,
                 "severity": severity,
                 "recommended_action": cls._get_recommended_action(error_code),
-            } if error_code else None,
+            }
+            if error_code
+            else None,
             "evidence_count": len(evidence) if evidence else 0,
             "evidence": evidence or [],
         }

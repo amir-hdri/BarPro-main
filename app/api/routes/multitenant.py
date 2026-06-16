@@ -10,6 +10,7 @@ Provides endpoints for:
 
 All endpoints enforce tenant isolation - clients can only access their own data.
 """
+
 import logging
 from datetime import UTC, datetime, time, timedelta
 
@@ -67,6 +68,7 @@ security = HTTPBearer()
 
 
 # ==================== AUTH ENDPOINTS ====================
+
 
 @router.post("/auth/register", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
 async def register_client(
@@ -240,6 +242,7 @@ async def get_client_stats(
 
 # ==================== DRIVER ENDPOINTS ====================
 
+
 @router.post("/drivers", response_model=DriverResponse, status_code=status.HTTP_201_CREATED)
 async def create_driver(
     request: DriverCreateRequest,
@@ -395,6 +398,7 @@ async def run_due_driver_schedules(
 
 # ==================== WAYBILL JOB ENDPOINTS ====================
 
+
 @router.post("/waybill-jobs", response_model=WaybillJobResponse, status_code=status.HTTP_201_CREATED)
 async def create_waybill_job(
     request: WaybillJobCreateRequest,
@@ -542,6 +546,7 @@ async def delete_waybill_job(
 
 # ==================== EXCEL UPLOAD ENDPOINTS ====================
 
+
 @router.post("/upload/excel", response_model=BulkUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_excel_file(
     file: UploadFile,
@@ -585,6 +590,7 @@ async def get_batch_status(
 
 
 # ==================== REPORTING ENDPOINTS ====================
+
 
 @router.get("/reports/daily-summary")
 async def get_daily_summary(
@@ -698,10 +704,7 @@ async def get_driver_performance(
                 )
             ).label("failed"),
         )
-        .where(
-            (WaybillJob.client_id == client.id)
-            & (WaybillJob.driver_id.in_(driver_ids))
-        )
+        .where((WaybillJob.client_id == client.id) & (WaybillJob.driver_id.in_(driver_ids)))
         .group_by(WaybillJob.driver_id)
     )
 

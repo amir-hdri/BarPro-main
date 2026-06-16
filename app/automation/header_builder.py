@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class HeaderContext:
     """Context for header building"""
+
     url: str = ""
     referer: str = ""
     is_navigation: bool = True
@@ -200,20 +201,24 @@ class HeaderBuilder:
 
         # Add Sec-* headers for Chrome/Edge
         if include_sec_headers and (is_chrome or is_edge):
-            headers.update(self._build_sec_headers(
-                platform=platform,
-                is_firefox=is_firefox,
-            ))
+            headers.update(
+                self._build_sec_headers(
+                    platform=platform,
+                    is_firefox=is_firefox,
+                )
+            )
 
         # Add DNT if timezone suggests privacy-conscious user
         if random.random() < 0.15:  # 15% of requests
             headers["DNT"] = "1"
 
         # Additional headers for realism
-        headers.update(self._build_additional_headers(
-            user_agent=user_agent,
-            platform=platform,
-        ))
+        headers.update(
+            self._build_additional_headers(
+                user_agent=user_agent,
+                platform=platform,
+            )
+        )
 
         return headers
 
@@ -266,20 +271,21 @@ class HeaderBuilder:
 
         if is_firefox:
             # Firefox doesn't use Sec-CH-UA headers
-            headers.update({
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "none",
-                "Sec-Fetch-User": "?1",
-            })
+            headers.update(
+                {
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "none",
+                    "Sec-Fetch-User": "?1",
+                }
+            )
             return headers
 
         # Chrome/Edge Sec-CH-UA headers
         headers["Sec-CH-UA"] = random.choice(self.SEC_CH_UA_VARIANTS)
         headers["Sec-CH-UA-Mobile"] = "?0"  # Desktop
         headers["Sec-CH-UA-Platform"] = self.SEC_CH_UA_PLATFORM_VARIANTS.get(
-            platform.split()[0] if platform else "Windows",
-            '"Windows"'
+            platform.split()[0] if platform else "Windows", '"Windows"'
         )
 
         # Additional Sec-* headers
@@ -334,11 +340,22 @@ class HeaderBuilder:
         """Generate a realistic public IP address"""
         # Common ISP ranges
         prefixes = [
-            "72.", "98.", "67.", "73.", "71.", "99.",  # Comcast
-            "184.", "162.", "173.",  # Time Warner
-            "104.", "172.",  # Cloudflare, AWS
-            "208.", "65.",  # Various ISPs
-            "192.", "198.", "174.",
+            "72.",
+            "98.",
+            "67.",
+            "73.",
+            "71.",
+            "99.",  # Comcast
+            "184.",
+            "162.",
+            "173.",  # Time Warner
+            "104.",
+            "172.",  # Cloudflare, AWS
+            "208.",
+            "65.",  # Various ISPs
+            "192.",
+            "198.",
+            "174.",
         ]
 
         prefix = random.choice(prefixes)
@@ -401,7 +418,7 @@ class HeaderBuilder:
         }
 
         # Simple URL parsing
-        match = re.match(r'^(https?)://([^:/]+)(?::\d+)?(.*?)(?:\?.*)?$', url)
+        match = re.match(r"^(https?)://([^:/]+)(?::\d+)?(.*?)(?:\?.*)?$", url)
         if match:
             result["scheme"] = match.group(1)
             result["host"] = match.group(2)
@@ -494,20 +511,14 @@ class HeaderBuilder:
         # Check Sec-CH-UA consistency
         if "Sec-CH-UA" in headers:
             if "Chrome" not in user_agent and "Edg/" not in user_agent:
-                warnings.append(
-                    "Sec-CH-UA header present but user agent is not Chrome/Edge"
-                )
+                warnings.append("Sec-CH-UA header present but user agent is not Chrome/Edge")
 
         if "Sec-CH-UA-Platform" in headers:
             platform = headers["Sec-CH-UA-Platform"].strip('"')
             if "Windows" in platform and "Windows" not in user_agent:
-                warnings.append(
-                    "Platform header (Windows) doesn't match user agent"
-                )
+                warnings.append("Platform header (Windows) doesn't match user agent")
             elif "macOS" in platform and "Mac" not in user_agent:
-                warnings.append(
-                    "Platform header (macOS) doesn't match user agent"
-                )
+                warnings.append("Platform header (macOS) doesn't match user agent")
 
         # Check Accept-Language consistency
         accept_lang = headers.get("Accept-Language", "")
@@ -525,6 +536,7 @@ class HeaderBuilder:
 # ============================================================================
 # HEADER BUILDER FOR SPECIFIC BROWSER TYPES
 # ============================================================================
+
 
 class BrowserHeaderBuilder:
     """Specialized header builders for different browsers"""

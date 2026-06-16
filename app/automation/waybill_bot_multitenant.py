@@ -1,4 +1,5 @@
 """Multi-tenant waybill bot powered by the project's self-healing automation stack."""
+
 import logging
 from typing import Any
 
@@ -55,9 +56,8 @@ class WaybillAutomationBot:
         from app.automation.browser import browser_manager
         from app.services.session_vault import session_vault
 
-        driver_national_code = (
-            payload.get("driver_national_code")
-            or payload.get("vehicle", {}).get("driver_national_code")
+        driver_national_code = payload.get("driver_national_code") or payload.get("vehicle", {}).get(
+            "driver_national_code"
         )
         auth_state_path = session_vault.auth_state_path_for_account(
             username=username,
@@ -84,46 +84,56 @@ class WaybillAutomationBot:
                 result["status"] = TaskStatus.FAILED.value
                 result["error"] = self.last_error
                 result["error_category"] = "captcha_failed" if self.last_state == "captcha_failed" else "login_failed"
-                result["steps"].append({
-                    "step": "login",
-                    "status": "failed",
-                    "message": self.last_error,
-                    "state": self.last_state,
-                })
+                result["steps"].append(
+                    {
+                        "step": "login",
+                        "status": "failed",
+                        "message": self.last_error,
+                        "state": self.last_state,
+                    }
+                )
                 return result
 
-            result["steps"].append({
-                "step": "login",
-                "status": "success",
-                "message": "Login successful or session reused via self-healing authenticator",
-            })
+            result["steps"].append(
+                {
+                    "step": "login",
+                    "status": "success",
+                    "message": "Login successful or session reused via self-healing authenticator",
+                }
+            )
 
             normalized_payload = build_enhanced_waybill_payload(payload)
             manager_result = await self.manager.create_waybill_with_map(
                 normalized_payload, dry_run=False, job_id=job_id
             )
 
-            result["steps"].append({
-                "step": "create_waybill_with_map",
-                "status": "success" if manager_result.get("success") else "failed",
-                "message": manager_result.get("message") or manager_result.get("status") or "waybill_processed",
-            })
+            result["steps"].append(
+                {
+                    "step": "create_waybill_with_map",
+                    "status": "success" if manager_result.get("success") else "failed",
+                    "message": manager_result.get("message") or manager_result.get("status") or "waybill_processed",
+                }
+            )
 
             if str(manager_result.get("status", "")).strip().lower() == "otp_backoff":
                 result["status"] = TaskStatus.OTP_BACKOFF.value
                 result["error"] = manager_result.get("message")
                 result["error_category"] = "otp_required"
                 result["next_retry_at_minutes_add"] = manager_result.get("next_retry_at_minutes_add", 60)
-                result["steps"].append({
-                    "step": "otp_backoff",
-                    "status": "waiting_retry",
-                    "message": manager_result.get("message") or "OTP challenge detected",
-                })
+                result["steps"].append(
+                    {
+                        "step": "otp_backoff",
+                        "status": "waiting_retry",
+                        "message": manager_result.get("message") or "OTP challenge detected",
+                    }
+                )
                 return result
 
             if not manager_result.get("success", False):
                 result["status"] = TaskStatus.FAILED.value
-                result["error"] = manager_result.get("message") or manager_result.get("error") or "waybill_submission_failed"
+                result["error"] = (
+                    manager_result.get("message") or manager_result.get("error") or "waybill_submission_failed"
+                )
                 result["error_category"] = "submission_failed"
                 return result
 
@@ -138,11 +148,13 @@ class WaybillAutomationBot:
                 "route": manager_result.get("route"),
                 "waybill_screenshot": manager_result.get("waybill_screenshot"),
             }
-            result["steps"].append({
-                "step": "submit",
-                "status": "success",
-                "message": manager_result.get("tracking_code") or "Waybill registered successfully",
-            })
+            result["steps"].append(
+                {
+                    "step": "submit",
+                    "status": "success",
+                    "message": manager_result.get("tracking_code") or "Waybill registered successfully",
+                }
+            )
             return result
 
         except WaybillError as exc:
@@ -150,24 +162,33 @@ class WaybillAutomationBot:
             result["status"] = TaskStatus.FAILED.value
             result["error"] = self.last_error
             result["error_category"] = self._categorize_waybill_error(exc)
-            result["steps"].append({
-                "step": "waybill",
-                "status": "failed",
-                "message": self.last_error,
-            })
-            logger.warning("multitenant_waybill_failed", extra={"extra_fields": {"job_id": job_id, "error": self.last_error}})
+            result["steps"].append(
+                {
+                    "step": "waybill",
+                    "status": "failed",
+                    "message": self.last_error,
+                }
+            )
+            logger.warning(
+                "multitenant_waybill_failed", extra={"extra_fields": {"job_id": job_id, "error": self.last_error}}
+            )
             return result
         except Exception as exc:  # noqa: BLE001
             self.last_error = str(exc)
             result["status"] = TaskStatus.FAILED.value
             result["error"] = self.last_error
             result["error_category"] = "unknown"
-            result["steps"].append({
-                "step": "execution",
-                "status": "failed",
-                "message": self.last_error,
-            })
-            logger.exception("multitenant_waybill_unexpected_error", extra={"extra_fields": {"job_id": job_id, "client_id": client_id, "error": self.last_error}})
+            result["steps"].append(
+                {
+                    "step": "execution",
+                    "status": "failed",
+                    "message": self.last_error,
+                }
+            )
+            logger.exception(
+                "multitenant_waybill_unexpected_error",
+                extra={"extra_fields": {"job_id": job_id, "client_id": client_id, "error": self.last_error}},
+            )
             return result
 
     @staticmethod

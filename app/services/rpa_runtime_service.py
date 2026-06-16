@@ -1,4 +1,5 @@
 """Redis-backed runtime state for Phase 1 hybrid RPA orchestration."""
+
 from __future__ import annotations
 
 import asyncio
@@ -122,7 +123,9 @@ class RPADistributedRuntime:
     async def increment_success(self, client_id: int, driver_id: int, at: datetime | None = None) -> int:
         return await self._increment_counter(self.counter_successes_key(client_id, driver_id, business_date_str(at)))
 
-    async def counter_snapshot(self, client_id: int, driver_id: int, at: datetime | None = None) -> RuntimeCounterSnapshot:
+    async def counter_snapshot(
+        self, client_id: int, driver_id: int, at: datetime | None = None
+    ) -> RuntimeCounterSnapshot:
         date_key = business_date_str(at)
         attempts = int(await self._get_value(self.counter_attempts_key(client_id, driver_id, date_key)) or 0)
         successes = int(await self._get_value(self.counter_successes_key(client_id, driver_id, date_key)) or 0)

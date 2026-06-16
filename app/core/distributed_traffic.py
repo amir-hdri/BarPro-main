@@ -221,6 +221,7 @@ class DistributedTrafficController:
                 await asyncio.sleep(wait_seconds)
 
             import random
+
             jitter = random.uniform(0, max(0.0, utcms_config.WAYBILL_JITTER_SECONDS))
             gap = max(0.0, utcms_config.WAYBILL_MIN_GAP_SECONDS) + jitter
             self._next_allowed_at = loop.time() + gap

@@ -3,6 +3,7 @@ Multi-tenant services for managing clients, drivers, and waybill jobs.
 
 All services enforce tenant isolation - clients can only access their own data.
 """
+
 import asyncio
 import json
 import logging
@@ -164,6 +165,7 @@ def _resolve_run_times(item: DriverSchedule) -> list[str]:
 
 # ==================== CLIENT SERVICE ====================
 
+
 class ClientService:
     """Service for managing clients (tenants)."""
 
@@ -180,14 +182,12 @@ class ClientService:
         if status_value not in [value.value for value in ClientStatus]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid status. Valid statuses are: {[value.value for value in ClientStatus]}"
+                detail=f"Invalid status. Valid statuses are: {[value.value for value in ClientStatus]}",
             )
 
         # Check if email or client_code already exists
         existing = await session.exec(
-            select(Client).where(
-                (Client.email == request.email) | (Client.client_code == request.client_code)
-            )
+            select(Client).where((Client.email == request.email) | (Client.client_code == request.client_code))
         )
         if existing.first():
             raise HTTPException(
@@ -201,8 +201,8 @@ class ClientService:
             name=request.name,
             email=request.email,
             phone=request.phone,
-            username=request.client_code,          # fill the mandatory column
-            full_name=request.name,                # fill the mandatory column
+            username=request.client_code,  # fill the mandatory column
+            full_name=request.name,  # fill the mandatory column
             hashed_password=hash_password(request.password),
             status=status_value,
             access_level=access_level_value,
@@ -224,29 +224,32 @@ class ClientService:
                 if attempt == max_retries - 1:  # Last attempt
                     # If it's a network error, return appropriate status
                     if is_retryable_network_error(e):
-                        logger.error(f"Failed to register client due to network error after {max_retries} attempts: {str(e)}")
+                        logger.error(
+                            f"Failed to register client due to network error after {max_retries} attempts: {str(e)}"
+                        )
                         raise HTTPException(
                             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail="Service temporarily unavailable due to network issues. Please try again later."
+                            detail="Service temporarily unavailable due to network issues. Please try again later.",
                         ) from e
                     else:
                         logger.error(f"Failed to register client: {str(e)}")
                         raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"Failed to register client: {str(e)}"
+                            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to register client: {str(e)}"
                         ) from e
                 # Only continue retrying if it's a network-related error
                 if not is_retryable_network_error(e):
                     logger.error(f"Non-network error during client registration: {str(e)}")
                     raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Failed to register client: {str(e)}"
+                        status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to register client: {str(e)}"
                     ) from e
                 # Wait before retry with exponential backoff
                 logger.warning(f"Retrying client registration after network error (attempt {attempt + 1}): {str(e)}")
-                await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
+                await asyncio.sleep(2**attempt)  # 1s, 2s, 4s backoff
 
-        logger.info('audit_client_registered', extra={'extra_fields': {'client_id': client.id, 'client_code': client.client_code, 'email': client.email}})
+        logger.info(
+            "audit_client_registered",
+            extra={"extra_fields": {"client_id": client.id, "client_code": client.client_code, "email": client.email}},
+        )
 
         return ClientResponse.model_validate(client)
 
@@ -284,7 +287,10 @@ class ClientService:
             email=client.email,
         )
 
-        logger.info('audit_client_login', extra={'extra_fields': {'client_id': client.id, 'client_code': client.client_code, 'email': client.email}})
+        logger.info(
+            "audit_client_login",
+            extra={"extra_fields": {"client_id": client.id, "client_code": client.client_code, "email": client.email}},
+        )
 
         return {
             "access_token": token,
@@ -403,7 +409,9 @@ class ClientService:
         if q:
             needle = f"%{q.strip()}%"
             statement = statement.where(
-                (col(Client.name).ilike(needle)) | (col(Client.email).ilike(needle)) | (col(Client.client_code).ilike(needle))
+                (col(Client.name).ilike(needle))
+                | (col(Client.email).ilike(needle))
+                | (col(Client.client_code).ilike(needle))
             )
 
         statement = statement.order_by(col(Client.created_at).desc())
@@ -434,7 +442,16 @@ class ClientService:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Client email already exists")
             client.email = request.email
 
-        for field in ("name", "phone", "status", "access_level", "max_drivers", "max_plates", "max_concurrent_tasks", "max_daily_tasks"):
+        for field in (
+            "name",
+            "phone",
+            "status",
+            "access_level",
+            "max_drivers",
+            "max_plates",
+            "max_concurrent_tasks",
+            "max_daily_tasks",
+        ):
             value = getattr(request, field)
             if value is not None:
                 setattr(client, field, value)
@@ -458,29 +475,31 @@ class ClientService:
                 if attempt == max_retries - 1:  # Last attempt
                     # If it's a network error, return appropriate status
                     if is_retryable_network_error(e):
-                        logger.error(f"Failed to update client due to network error after {max_retries} attempts: {str(e)}")
+                        logger.error(
+                            f"Failed to update client due to network error after {max_retries} attempts: {str(e)}"
+                        )
                         raise HTTPException(
                             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail="Service temporarily unavailable due to network issues. Please try again later."
+                            detail="Service temporarily unavailable due to network issues. Please try again later.",
                         ) from e
                     else:
                         logger.error(f"Failed to update client: {str(e)}")
                         raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"Failed to update client: {str(e)}"
+                            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to update client: {str(e)}"
                         ) from e
                 # Only continue retrying if it's a network-related error
                 if not is_retryable_network_error(e):
                     logger.error(f"Non-network error during client update: {str(e)}")
                     raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Failed to update client: {str(e)}"
+                        status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to update client: {str(e)}"
                     ) from e
                 # Wait before retry with exponential backoff
                 logger.warning(f"Retrying client update after network error (attempt {attempt + 1}): {str(e)}")
-                await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
+                await asyncio.sleep(2**attempt)  # 1s, 2s, 4s backoff
 
-        logger.info('audit_client_updated', extra={'extra_fields': {'client_id': client.id, 'client_code': client.client_code}})
+        logger.info(
+            "audit_client_updated", extra={"extra_fields": {"client_id": client.id, "client_code": client.client_code}}
+        )
         return ClientResponse.model_validate(client)
 
     @staticmethod
@@ -490,7 +509,9 @@ class ClientService:
         if not client:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
 
-        logger.info('audit_client_deleted', extra={'extra_fields': {'client_id': client.id, 'client_code': client.client_code}})
+        logger.info(
+            "audit_client_deleted", extra={"extra_fields": {"client_id": client.id, "client_code": client.client_code}}
+        )
 
         # Add retry logic for database operations to handle network errors
         max_retries = 3
@@ -505,30 +526,31 @@ class ClientService:
                 if attempt == max_retries - 1:  # Last attempt
                     # If it's a network error, return appropriate status
                     if is_retryable_network_error(e):
-                        logger.error(f"Failed to delete client due to network error after {max_retries} attempts: {str(e)}")
+                        logger.error(
+                            f"Failed to delete client due to network error after {max_retries} attempts: {str(e)}"
+                        )
                         raise HTTPException(
                             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail="Service temporarily unavailable due to network issues. Please try again later."
+                            detail="Service temporarily unavailable due to network issues. Please try again later.",
                         ) from e
                     else:
                         logger.error(f"Failed to delete client: {str(e)}")
                         raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"Failed to delete client: {str(e)}"
+                            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to delete client: {str(e)}"
                         ) from e
                 # Only continue retrying if it's a network-related error
                 if not is_retryable_network_error(e):
                     logger.error(f"Non-network error during client deletion: {str(e)}")
                     raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Failed to delete client: {str(e)}"
+                        status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to delete client: {str(e)}"
                     ) from e
                 # Wait before retry with exponential backoff
                 logger.warning(f"Retrying client deletion after network error (attempt {attempt + 1}): {str(e)}")
-                await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
+                await asyncio.sleep(2**attempt)  # 1s, 2s, 4s backoff
 
 
 # ==================== DRIVER SERVICE ====================
+
 
 class DriverService:
     """Service for managing drivers with tenant isolation."""
@@ -541,9 +563,7 @@ class DriverService:
     ) -> DriverResponse:
         """Create a new driver for the client."""
         # Check driver limit
-        existing_drivers = await session.exec(
-            select(Driver).where(Driver.client_id == client.id)
-        )
+        existing_drivers = await session.exec(select(Driver).where(Driver.client_id == client.id))
         if len(existing_drivers.all()) >= client.max_drivers:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -553,8 +573,7 @@ class DriverService:
         # Check if national code already exists for this client
         existing = await session.exec(
             select(Driver).where(
-                (Driver.client_id == client.id) &
-                (Driver.driver_national_code == request.driver_national_code)
+                (Driver.client_id == client.id) & (Driver.driver_national_code == request.driver_national_code)
             )
         )
         if existing.first():
@@ -589,27 +608,27 @@ class DriverService:
                 if attempt == max_retries - 1:  # Last attempt
                     # If it's a network error, return appropriate status
                     if is_retryable_network_error(e):
-                        logger.error(f"Failed to create driver due to network error after {max_retries} attempts: {str(e)}")
+                        logger.error(
+                            f"Failed to create driver due to network error after {max_retries} attempts: {str(e)}"
+                        )
                         raise HTTPException(
                             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail="Service temporarily unavailable due to network issues. Please try again later."
+                            detail="Service temporarily unavailable due to network issues. Please try again later.",
                         ) from e
                     else:
                         logger.error(f"Failed to create driver: {str(e)}")
                         raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"Failed to create driver: {str(e)}"
+                            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to create driver: {str(e)}"
                         ) from e
                 # Only continue retrying if it's a network-related error
                 if not is_retryable_network_error(e):
                     logger.error(f"Non-network error during driver creation: {str(e)}")
                     raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Failed to create driver: {str(e)}"
+                        status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to create driver: {str(e)}"
                     ) from e
                 # Wait before retry with exponential backoff
                 logger.warning(f"Retrying driver creation after network error (attempt {attempt + 1}): {str(e)}")
-                await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
+                await asyncio.sleep(2**attempt)  # 1s, 2s, 4s backoff
 
         return DriverResponse(
             id=driver.id,
@@ -729,27 +748,27 @@ class DriverService:
                 if attempt == max_retries - 1:  # Last attempt
                     # If it's a network error, return appropriate status
                     if is_retryable_network_error(e):
-                        logger.error(f"Failed to update driver due to network error after {max_retries} attempts: {str(e)}")
+                        logger.error(
+                            f"Failed to update driver due to network error after {max_retries} attempts: {str(e)}"
+                        )
                         raise HTTPException(
                             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail="Service temporarily unavailable due to network issues. Please try again later."
+                            detail="Service temporarily unavailable due to network issues. Please try again later.",
                         ) from e
                     else:
                         logger.error(f"Failed to update driver: {str(e)}")
                         raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"Failed to update driver: {str(e)}"
+                            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to update driver: {str(e)}"
                         ) from e
                 # Only continue retrying if it's a network-related error
                 if not is_retryable_network_error(e):
                     logger.error(f"Non-network error during driver update: {str(e)}")
                     raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Failed to update driver: {str(e)}"
+                        status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to update driver: {str(e)}"
                     ) from e
                 # Wait before retry with exponential backoff
                 logger.warning(f"Retrying driver update after network error (attempt {attempt + 1}): {str(e)}")
-                await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
+                await asyncio.sleep(2**attempt)  # 1s, 2s, 4s backoff
 
         return DriverResponse(
             id=driver.id,
@@ -794,27 +813,27 @@ class DriverService:
                 if attempt == max_retries - 1:  # Last attempt
                     # If it's a network error, return appropriate status
                     if is_retryable_network_error(e):
-                        logger.error(f"Failed to delete driver due to network error after {max_retries} attempts: {str(e)}")
+                        logger.error(
+                            f"Failed to delete driver due to network error after {max_retries} attempts: {str(e)}"
+                        )
                         raise HTTPException(
                             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail="Service temporarily unavailable due to network issues. Please try again later."
+                            detail="Service temporarily unavailable due to network issues. Please try again later.",
                         ) from e
                     else:
                         logger.error(f"Failed to delete driver: {str(e)}")
                         raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"Failed to delete driver: {str(e)}"
+                            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to delete driver: {str(e)}"
                         ) from e
                 # Only continue retrying if it's a network-related error
                 if not is_retryable_network_error(e):
                     logger.error(f"Non-network error during driver deletion: {str(e)}")
                     raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Failed to delete driver: {str(e)}"
+                        status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to delete driver: {str(e)}"
                     ) from e
                 # Wait before retry with exponential backoff
                 logger.warning(f"Retrying driver deletion after network error (attempt {attempt + 1}): {str(e)}")
-                await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
+                await asyncio.sleep(2**attempt)  # 1s, 2s, 4s backoff
 
         return False
 
@@ -860,8 +879,7 @@ class PlateService:
 
         existing = await session.exec(
             select(DriverPlate).where(
-                (DriverPlate.client_id == client.id) &
-                (DriverPlate.plate_number == request.plate_number)
+                (DriverPlate.client_id == client.id) & (DriverPlate.plate_number == request.plate_number)
             )
         )
         if existing.first():
@@ -890,7 +908,9 @@ class PlateService:
         return [PlateResponse.model_validate(item) for item in rows]
 
     @staticmethod
-    async def update_plate(client: Client, plate_id: int, request: PlateUpdateRequest, session: AsyncSession) -> PlateResponse:
+    async def update_plate(
+        client: Client, plate_id: int, request: PlateUpdateRequest, session: AsyncSession
+    ) -> PlateResponse:
         plate = await session.get(DriverPlate, plate_id)
         if not plate:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plate not found")
@@ -942,7 +962,9 @@ class DriverScheduleService:
         )
 
     @staticmethod
-    async def create_schedule(client: Client, request: DriverScheduleCreateRequest, session: AsyncSession) -> DriverScheduleResponse:
+    async def create_schedule(
+        client: Client, request: DriverScheduleCreateRequest, session: AsyncSession
+    ) -> DriverScheduleResponse:
         driver = await session.get(Driver, request.driver_id)
         if not driver:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found")
@@ -968,7 +990,9 @@ class DriverScheduleService:
         return DriverScheduleService._schedule_response(schedule)
 
     @staticmethod
-    async def list_schedules(client: Client, session: AsyncSession, driver_id: int | None = None) -> list[DriverScheduleResponse]:
+    async def list_schedules(
+        client: Client, session: AsyncSession, driver_id: int | None = None
+    ) -> list[DriverScheduleResponse]:
         statement = select(DriverSchedule).where(DriverSchedule.client_id == client.id)
         if driver_id:
             statement = statement.where(DriverSchedule.driver_id == driver_id)
@@ -1022,8 +1046,7 @@ class DriverScheduleService:
         schedules = (
             await session.exec(
                 select(DriverSchedule).where(
-                    (DriverSchedule.client_id == client.id) &
-                    (col(DriverSchedule.is_active).is_(True))
+                    (DriverSchedule.client_id == client.id) & (col(DriverSchedule.is_active).is_(True))
                 )
             )
         ).all()
@@ -1034,9 +1057,7 @@ class DriverScheduleService:
         drivers_map = {}
         if driver_ids:
             drivers_result = await session.exec(
-                select(Driver).where(
-                    (col(Driver.id).in_(driver_ids)) & (Driver.client_id == client.id)
-                )
+                select(Driver).where((col(Driver.id).in_(driver_ids)) & (Driver.client_id == client.id))
             )
             drivers_map = {d.id: d for d in drivers_result.all()}
 
@@ -1097,6 +1118,7 @@ class DriverScheduleService:
 
 # ==================== WAYBILL JOB SERVICE ====================
 
+
 class WaybillJobService:
     """Service for managing waybill jobs with tenant isolation."""
 
@@ -1110,8 +1132,7 @@ class WaybillJobService:
         """Create a new waybill job."""
         # Find driver
         driver_stmt = select(Driver).where(
-            (Driver.client_id == client.id) &
-            (Driver.driver_national_code == request.driver_national_code)
+            (Driver.client_id == client.id) & (Driver.driver_national_code == request.driver_national_code)
         )
         driver_result = await session.exec(driver_stmt)
         driver = driver_result.first()
@@ -1181,10 +1202,7 @@ class WaybillJobService:
         session: AsyncSession,
     ) -> WaybillJobResponse:
         """Get a specific job."""
-        statement = select(WaybillJob).where(
-            (WaybillJob.client_id == client.id) &
-            (WaybillJob.job_id == job_id)
-        )
+        statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
         result = await session.exec(statement)
         job = result.first()
 
@@ -1204,10 +1222,7 @@ class WaybillJobService:
         request: WaybillRetryRequest | None = None,
     ) -> WaybillJobResponse:
         """Manually retry or requeue a job with optional payload overrides."""
-        statement = select(WaybillJob).where(
-            (WaybillJob.client_id == client.id) &
-            (WaybillJob.job_id == job_id)
-        )
+        statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
         result = await session.exec(statement)
         job = result.first()
 
@@ -1304,7 +1319,9 @@ class WaybillJobService:
         if retry_request.dispatch_now:
             dispatch_message = await rpa_dispatch_service.dispatch_waybill_job_now(session, job, now)
             if dispatch_message:
-                logger.info("manual_retry_dispatch", extra={"extra_fields": {"job_id": job.job_id, "message": dispatch_message}})
+                logger.info(
+                    "manual_retry_dispatch", extra={"extra_fields": {"job_id": job.job_id, "message": dispatch_message}}
+                )
 
         await session.refresh(job)
         return WaybillJobResponse.model_validate(job)
@@ -1318,10 +1335,7 @@ class WaybillJobService:
     ) -> TaskTimelineResponse:
         """Get a merged timeline of domain events and task logs for a job."""
         query = filters or TaskTimelineQuery()
-        job_stmt = select(WaybillJob).where(
-            (WaybillJob.client_id == client.id) &
-            (WaybillJob.job_id == job_id)
-        )
+        job_stmt = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
         job_result = await session.exec(job_stmt)
         job = job_result.first()
         if not job:
@@ -1331,13 +1345,9 @@ class WaybillJobService:
             )
 
         logs_stmt = select(WaybillTaskLog).where(
-            (WaybillTaskLog.client_id == client.id) &
-            (WaybillTaskLog.job_id == job_id)
+            (WaybillTaskLog.client_id == client.id) & (WaybillTaskLog.job_id == job_id)
         )
-        events_stmt = select(DomainEvent).where(
-            (DomainEvent.client_id == client.id) &
-            (DomainEvent.job_id == job_id)
-        )
+        events_stmt = select(DomainEvent).where((DomainEvent.client_id == client.id) & (DomainEvent.job_id == job_id))
 
         logs = (await session.exec(logs_stmt)).all()
         events = (await session.exec(events_stmt)).all()
@@ -1398,10 +1408,7 @@ class WaybillJobService:
     ) -> TaskLogsResponse:
         """Get execution logs for a job."""
         # Verify job belongs to client
-        job_stmt = select(WaybillJob).where(
-            (WaybillJob.client_id == client.id) &
-            (WaybillJob.job_id == job_id)
-        )
+        job_stmt = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
         job_result = await session.exec(job_stmt)
         if not job_result.first():
             raise HTTPException(
@@ -1410,10 +1417,11 @@ class WaybillJobService:
             )
 
         # Get logs
-        logs_stmt = select(WaybillTaskLog).where(
-            (WaybillTaskLog.client_id == client.id) &
-            (WaybillTaskLog.job_id == job_id)
-        ).order_by(col(WaybillTaskLog.created_at).asc())
+        logs_stmt = (
+            select(WaybillTaskLog)
+            .where((WaybillTaskLog.client_id == client.id) & (WaybillTaskLog.job_id == job_id))
+            .order_by(col(WaybillTaskLog.created_at).asc())
+        )
         logs_result = await session.exec(logs_stmt)
         logs = logs_result.all()
 
@@ -1464,10 +1472,7 @@ class WaybillJobService:
     ) -> WaybillJobResponse:
         """Update an existing waybill job."""
 
-        statement = select(WaybillJob).where(
-            (WaybillJob.client_id == client.id) &
-            (WaybillJob.job_id == job_id)
-        )
+        statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
         result = await session.exec(statement)
         job = result.first()
 
@@ -1521,10 +1526,7 @@ class WaybillJobService:
         session: AsyncSession,
     ) -> dict[str, object]:
         """Delete a waybill job permanently."""
-        statement = select(WaybillJob).where(
-            (WaybillJob.client_id == client.id) &
-            (WaybillJob.job_id == job_id)
-        )
+        statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
         result = await session.exec(statement)
         job = result.first()
 

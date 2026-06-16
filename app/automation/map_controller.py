@@ -16,21 +16,19 @@ from app.core.exceptions import MapInteractionError
 @dataclass
 class GeoCoordinate:
     """مختصات جغرافیایی"""
+
     latitude: float
     longitude: float
     address: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "lat": self.latitude,
-            "lng": self.longitude,
-            "address": self.address
-        }
+        return {"lat": self.latitude, "lng": self.longitude, "address": self.address}
 
 
 @dataclass
 class MapSelection:
     """نتیجه انتخاب روی نقشه"""
+
     origin: GeoCoordinate
     destination: GeoCoordinate
     distance_km: float | None = None
@@ -73,8 +71,8 @@ class MapController:
         has_google_container = await self.page.query_selector(".gm-style")
         if has_google or has_google_container:
             self.map_selector = ".gm-style" if has_google_container else self.map_selector
-            self.map_type = 'google_maps'
-            return 'google_maps'
+            self.map_type = "google_maps"
+            return "google_maps"
 
         # بررسی وجود OpenLayers
         has_ol = await self.page.evaluate("""
@@ -84,8 +82,8 @@ class MapController:
         has_ol_container = await self.page.query_selector(".ol-map, .ol-viewport")
         if has_ol or has_ol_container:
             self.map_selector = ".ol-map" if has_ol_container else self.map_selector
-            self.map_type = 'openlayers'
-            return 'openlayers'
+            self.map_type = "openlayers"
+            return "openlayers"
 
         # بررسی وجود Leaflet
         has_leaflet = await self.page.evaluate("""
@@ -95,8 +93,8 @@ class MapController:
         has_leaflet_container = await self.page.query_selector(".leaflet-container")
         if has_leaflet or has_leaflet_container:
             self.map_selector = ".leaflet-container" if has_leaflet_container else self.map_selector
-            self.map_type = 'leaflet'
-            return 'leaflet'
+            self.map_type = "leaflet"
+            return "leaflet"
 
         # بررسی وجود Mapbox
         has_mapbox = await self.page.evaluate("""
@@ -105,8 +103,8 @@ class MapController:
         has_mapbox_container = await self.page.query_selector(".mapboxgl-map")
         if has_mapbox or has_mapbox_container:
             self.map_selector = ".mapboxgl-map" if has_mapbox_container else self.map_selector
-            self.map_type = 'mapbox'
-            return 'mapbox'
+            self.map_type = "mapbox"
+            return "mapbox"
 
         # بررسی وجود کانتینر نقشه با انتخابگرهای رایج
         for selector in self.MAP_CONTAINER_SELECTORS:
@@ -114,7 +112,7 @@ class MapController:
             if element:
                 self.map_selector = selector
                 self.map_type = "unknown_map"
-                return 'unknown_map'
+                return "unknown_map"
 
         return None
 
@@ -144,10 +142,7 @@ class MapController:
         return None
 
     async def select_on_map(
-        self,
-        selector: str | None,
-        location: GeoCoordinate,
-        search_input_selector: str | None = None
+        self, selector: str | None, location: GeoCoordinate, search_input_selector: str | None = None
     ) -> bool:
         """
         انتخاب یک مکان روی نقشه
@@ -168,17 +163,17 @@ class MapController:
             if not resolved_selector:
                 return False
 
-            if self.map_type == 'google_maps':
+            if self.map_type == "google_maps":
                 return await self._select_google_maps(
                     location,
                     search_input_selector,
                     resolved_selector,
                 )
-            elif self.map_type == 'openlayers':
+            elif self.map_type == "openlayers":
                 return await self._select_openlayers(resolved_selector, location)
-            elif self.map_type == 'leaflet':
+            elif self.map_type == "leaflet":
                 return await self._select_leaflet(resolved_selector, location)
-            elif self.map_type == 'mapbox':
+            elif self.map_type == "mapbox":
                 return await self._select_mapbox(location, search_input_selector, resolved_selector)
             else:
                 # روش جایگزین: تلاش برای کلیک روی نقشه در موقعیت محاسبه شده
@@ -197,13 +192,15 @@ class MapController:
 
         if search_input_selector:
             # استفاده از جعبه جستجو
-            await self.page.fill(search_input_selector, location.address or f"{location.latitude}, {location.longitude}")
+            await self.page.fill(
+                search_input_selector, location.address or f"{location.latitude}, {location.longitude}"
+            )
             await asyncio.sleep(0.5)
-            await self.page.press(search_input_selector, 'Enter')
+            await self.page.press(search_input_selector, "Enter")
             await asyncio.sleep(2)
 
             # کلیک روی اولین پیشنهاد
-            suggestion = await self.page.query_selector('.pac-item:first-child')
+            suggestion = await self.page.query_selector(".pac-item:first-child")
             if suggestion:
                 await suggestion.click()
                 await asyncio.sleep(1)
@@ -211,11 +208,9 @@ class MapController:
 
         # روش جایگزین: استفاده از جاوااسکریپت برای تنظیم مرکز نقشه و قراردادن نشانگر
         script = script_loader.load("google_maps_select")
-        result = await self.page.evaluate(script, {
-            "selector": map_selector,
-            "lat": location.latitude,
-            "lng": location.longitude
-        })
+        result = await self.page.evaluate(
+            script, {"selector": map_selector, "lat": location.latitude, "lng": location.longitude}
+        )
 
         if not result:
             # روش جایگزین: شبیه‌سازی کلیک فیزیکی روی عنصر نقشه
@@ -232,38 +227,24 @@ class MapController:
                     continue
 
                 # کلیک در مرکز نقشه
-                await map_element.click(
-                    position={"x": box["width"] / 2, "y": box["height"] / 2}
-                )
+                await map_element.click(position={"x": box["width"] / 2, "y": box["height"] / 2})
                 return True
 
         return False
 
-    async def _select_openlayers(
-        self,
-        selector: str,
-        location: GeoCoordinate
-    ) -> bool:
+    async def _select_openlayers(self, selector: str, location: GeoCoordinate) -> bool:
         """انتخاب مکان روی OpenLayers"""
         script = script_loader.load("openlayers_select")
-        return await self.page.evaluate(script, {
-            "selector": selector,
-            "lat": location.latitude,
-            "lng": location.longitude
-        })
+        return await self.page.evaluate(
+            script, {"selector": selector, "lat": location.latitude, "lng": location.longitude}
+        )
 
-    async def _select_leaflet(
-        self,
-        selector: str,
-        location: GeoCoordinate
-    ) -> bool:
+    async def _select_leaflet(self, selector: str, location: GeoCoordinate) -> bool:
         """انتخاب مکان روی Leaflet"""
         script = script_loader.load("leaflet_select")
-        return await self.page.evaluate(script, {
-            "selector": selector,
-            "lat": location.latitude,
-            "lng": location.longitude
-        })
+        return await self.page.evaluate(
+            script, {"selector": selector, "lat": location.latitude, "lng": location.longitude}
+        )
 
     async def _select_mapbox(
         self,
@@ -273,17 +254,11 @@ class MapController:
     ) -> bool:
         """انتخاب مکان روی Mapbox"""
         script = script_loader.load("mapbox_select")
-        return await self.page.evaluate(script, {
-            "selector": map_selector,
-            "lat": location.latitude,
-            "lng": location.longitude
-        })
+        return await self.page.evaluate(
+            script, {"selector": map_selector, "lat": location.latitude, "lng": location.longitude}
+        )
 
-    async def _select_by_click(
-        self,
-        selector: str,
-        location: GeoCoordinate
-    ) -> bool:
+    async def _select_by_click(self, selector: str, location: GeoCoordinate) -> bool:
         """روش جایگزین: انتخاب با کلیک فیزیکی روی عنصر نقشه"""
 
         map_element = await self.page.query_selector(selector)
@@ -304,9 +279,7 @@ class MapController:
             return False
 
         # کلیک در مرکز
-        await click_target.click(
-            position={"x": box["width"] / 2, "y": box["height"] / 2}
-        )
+        await click_target.click(position={"x": box["width"] / 2, "y": box["height"] / 2})
 
         return True
 
@@ -318,7 +291,7 @@ class MapController:
             timeout: حداکثر زمان انتظار به میلی‌ثانیه
         """
         try:
-            if self.map_type == 'google_maps':
+            if self.map_type == "google_maps":
                 await self.page.evaluate(f"""
                     () => new Promise((resolve) => {{
                         const map = document.querySelector('[data-map]') ||
@@ -333,7 +306,7 @@ class MapController:
                         setTimeout(resolve, {timeout});
                     }})
                 """)
-            elif self.map_type == 'openlayers':
+            elif self.map_type == "openlayers":
                 await self.page.evaluate(f"""
                     () => new Promise((resolve) => {{
                         const mapElement = document.querySelector('.ol-map, #map');
@@ -350,7 +323,7 @@ class MapController:
                         setTimeout(resolve, {timeout});
                     }})
                 """)
-            elif self.map_type == 'leaflet':
+            elif self.map_type == "leaflet":
                 await self.page.evaluate(f"""
                     () => new Promise((resolve) => {{
                         const mapElement = document.querySelector('.leaflet-container, #map');
@@ -364,7 +337,7 @@ class MapController:
                         setTimeout(resolve, {timeout});
                     }})
                 """)
-            elif self.map_type == 'mapbox':
+            elif self.map_type == "mapbox":
                 await self.page.evaluate(f"""
                     () => new Promise((resolve) => {{
                         const map = window.map || mapboxgl.getMap();
@@ -411,7 +384,7 @@ class MapController:
         origin: GeoCoordinate,
         destination: GeoCoordinate,
         origin_input_selector: str | None = None,
-        dest_input_selector: str | None = None
+        dest_input_selector: str | None = None,
     ) -> MapSelection:
         """
         تنظیم مبدا و مقصد روی نقشه و دریافت اطلاعات مسیر
@@ -433,9 +406,7 @@ class MapController:
             raise MapInteractionError("کانتینر نقشه یافت نشد")
 
         # تنظیم مبدا
-        origin_success = await self.select_on_map(
-            map_selector, origin, origin_input_selector
-        )
+        origin_success = await self.select_on_map(map_selector, origin, origin_input_selector)
 
         if not origin_success:
             raise MapInteractionError("تنظیم نقطه مبدا با شکست مواجه شد")
@@ -444,9 +415,7 @@ class MapController:
         await self.wait_for_map_idle()
 
         # تنظیم مقصد
-        dest_success = await self.select_on_map(
-            map_selector, destination, dest_input_selector
-        )
+        dest_success = await self.select_on_map(map_selector, destination, dest_input_selector)
 
         if not dest_success:
             raise MapInteractionError("تنظیم نقطه مقصد با شکست مواجه شد")
@@ -464,9 +433,9 @@ class MapController:
                 return await v
             return v
 
-        distance_km = route_info.get('distance')
-        duration_min = route_info.get('duration')
-        route_polyline = route_info.get('polyline')
+        distance_km = route_info.get("distance")
+        duration_min = route_info.get("duration")
+        route_polyline = route_info.get("polyline")
 
         # اگر مقادیر به‌صورت coroutine/AsyncMock برگردند، resolve می‌کنیم
         distance_km = await _resolve_value(distance_km)
@@ -485,7 +454,7 @@ class MapController:
         """استخراج اطلاعات مسیر از نقشه"""
 
         # تلاش برای استخراج از Google Maps
-        if self.map_type == 'google_maps':
+        if self.map_type == "google_maps":
             script = script_loader.load("extract_route_info_google")
             return await self.page.evaluate(script)
 
@@ -523,8 +492,5 @@ class MapController:
         script = script_loader.load("get_map_center")
         result = await self.page.evaluate(script)
         if result:
-            return GeoCoordinate(
-                latitude=result['lat'],
-                longitude=result['lng']
-            )
+            return GeoCoordinate(latitude=result["lat"], longitude=result["lng"])
         return None

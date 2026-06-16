@@ -20,15 +20,14 @@ class AdvancedPreprocessor:
 
         for base_img in [image, denoised1, denoised2]:
             for scale in [2.5, 3.0, 3.5, 4.0]:
-                enlarged = cv2.resize(base_img, None, fx=scale, fy=scale,
-                                     interpolation=cv2.INTER_CUBIC)
+                enlarged = cv2.resize(base_img, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
 
                 # Sharpen
-                kernel_sharp = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+                kernel_sharp = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
                 sharpened = cv2.filter2D(enlarged, -1, kernel_sharp)
 
                 # CLAHE
-                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
                 enhanced = clahe.apply(sharpened)
 
                 variants.append(enhanced)
@@ -49,14 +48,13 @@ class AdvancedPreprocessor:
         for block_size in [11, 15, 21, 31, 41]:
             for c in [2, 5, 8, 11]:
                 adaptive = cv2.adaptiveThreshold(
-                    blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                    cv2.THRESH_BINARY_INV, block_size, c
+                    blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, block_size, c
                 )
                 results.append(adaptive)
 
         # Sauvola
         mean = cv2.blur(image, (15, 15))
-        sqmean = cv2.blur(image.astype(np.float32)**2, (15, 15))
+        sqmean = cv2.blur(image.astype(np.float32) ** 2, (15, 15))
         std = np.sqrt(sqmean - mean**2)
         threshold = mean * (1 + 0.2 * ((std / 128) - 1))
         sauvola = ((image > threshold) * 255).astype(np.uint8)

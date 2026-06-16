@@ -1,6 +1,7 @@
 """
 Ensemble captcha solver combining multiple strategies.
 """
+
 import logging
 from collections import Counter
 from dataclasses import dataclass

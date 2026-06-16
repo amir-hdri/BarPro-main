@@ -65,7 +65,11 @@ class CaptchaEngine:
             return CaptchaSolveDecision(value=None, confidence=0.0, strategy=None)
 
         confidence = 0.98 if any(op in normalized for op in "+-*/×÷x") else 0.9
-        return CaptchaSolveDecision(value=str(int(result) if isinstance(result, float) and result.is_integer() else result), confidence=confidence, strategy="parsed_hint")
+        return CaptchaSolveDecision(
+            value=str(int(result) if isinstance(result, float) and result.is_integer() else result),
+            confidence=confidence,
+            strategy="parsed_hint",
+        )
 
     @staticmethod
     def _normalize_hint(raw: str) -> str:

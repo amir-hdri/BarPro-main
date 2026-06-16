@@ -14,6 +14,7 @@ User reports:
 - Error details
 - Auto-execution timestamps
 """
+
 import json
 import logging
 from collections import defaultdict
@@ -98,7 +99,9 @@ class AdminReportingService:
                     select(
                         WaybillJob.client_id,
                         func.count(WaybillJob.id).label("total_jobs"),
-                        func.sum(case((WaybillJob.status == TaskStatus.SUCCESS.value, 1), else_=0)).label("success_jobs"),
+                        func.sum(case((WaybillJob.status == TaskStatus.SUCCESS.value, 1), else_=0)).label(
+                            "success_jobs"
+                        ),
                         func.sum(case((col(WaybillJob.status).in_(failed_statuses), 1), else_=0)).label("failed_jobs"),
                         func.min(WaybillJob.created_at).label("first_job_at"),
                         func.max(WaybillJob.created_at).label("last_job_at"),
@@ -138,25 +141,27 @@ class AdminReportingService:
                 failure_reasons: dict[str, int] = defaultdict(int)
                 # Failure reasons aggregation moved to specific reports or omitted in summary to avoid massive fetch
 
-                rows.append({
-                    "client_id": client.id,
-                    "client_code": client.client_code,
-                    "name": client.name,
-                    "email": client.email,
-                    "status": client.status,
-                    "total_drivers": total_drivers,
-                    "active_drivers": active_drivers,
-                    "total_plates": total_plates,
-                    "active_plates": active_plates,
-                    "total_jobs": total_jobs,
-                    "success_jobs": success_jobs,
-                    "failed_jobs": failed_jobs,
-                    "success_rate": round(success_jobs / max(1, total_jobs) * 100, 2),
-                    "failure_reasons": dict(failure_reasons),
-                    "first_activity": first_job.isoformat() if first_job else None,
-                    "last_activity": last_job.isoformat() if last_job else None,
-                    "created_at": client.created_at.isoformat(),
-                })
+                rows.append(
+                    {
+                        "client_id": client.id,
+                        "client_code": client.client_code,
+                        "name": client.name,
+                        "email": client.email,
+                        "status": client.status,
+                        "total_drivers": total_drivers,
+                        "active_drivers": active_drivers,
+                        "total_plates": total_plates,
+                        "active_plates": active_plates,
+                        "total_jobs": total_jobs,
+                        "success_jobs": success_jobs,
+                        "failed_jobs": failed_jobs,
+                        "success_rate": round(success_jobs / max(1, total_jobs) * 100, 2),
+                        "failure_reasons": dict(failure_reasons),
+                        "first_activity": first_job.isoformat() if first_job else None,
+                        "last_activity": last_job.isoformat() if last_job else None,
+                        "created_at": client.created_at.isoformat(),
+                    }
+                )
 
             total_rows = len(rows)
             start = (page - 1) * page_size
@@ -226,24 +231,26 @@ class AdminReportingService:
                 driver = drivers_dict.get(job.driver_id) if job.driver_id else None
                 client = clients_dict.get(job.client_id)
 
-                rows.append({
-                    "job_id": job.job_id,
-                    "client_id": job.client_id,
-                    "client_name": client.name if client else None,
-                    "driver_id": job.driver_id,
-                    "driver_name": driver.full_name if driver else None,
-                    "driver_national_code": driver.driver_national_code if driver else None,
-                    "status": job.status,
-                    "source": job.source,
-                    "business_date": job.business_date,
-                    "priority": job.priority,
-                    "last_error": job.last_error,
-                    "error_category": job.error_category,
-                    "attempt_count": job.attempt_count,
-                    "created_at": job.created_at.isoformat(),
-                    "started_at": job.started_at.isoformat() if job.started_at else None,
-                    "finished_at": job.finished_at.isoformat() if job.finished_at else None,
-                })
+                rows.append(
+                    {
+                        "job_id": job.job_id,
+                        "client_id": job.client_id,
+                        "client_name": client.name if client else None,
+                        "driver_id": job.driver_id,
+                        "driver_name": driver.full_name if driver else None,
+                        "driver_national_code": driver.driver_national_code if driver else None,
+                        "status": job.status,
+                        "source": job.source,
+                        "business_date": job.business_date,
+                        "priority": job.priority,
+                        "last_error": job.last_error,
+                        "error_category": job.error_category,
+                        "attempt_count": job.attempt_count,
+                        "created_at": job.created_at.isoformat(),
+                        "started_at": job.started_at.isoformat() if job.started_at else None,
+                        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+                    }
+                )
 
             return {
                 "total": total,
@@ -264,11 +271,13 @@ class AdminReportingService:
         session = async_session_factory()
         try:
             stmt = select(WaybillJob).where(
-                col(WaybillJob.status).in_([
-                    TaskStatus.FAILED.value,
-                    TaskStatus.DEAD_LETTER.value,
-                    TaskStatus.NEEDS_REVIEW.value,
-                ])
+                col(WaybillJob.status).in_(
+                    [
+                        TaskStatus.FAILED.value,
+                        TaskStatus.DEAD_LETTER.value,
+                        TaskStatus.NEEDS_REVIEW.value,
+                    ]
+                )
             )
             if client_id:
                 stmt = stmt.where(WaybillJob.client_id == client_id)
@@ -328,13 +337,15 @@ class AdminReportingService:
                 by_driver[driver_name] += 1
 
                 if len(examples[cat]) < 3:
-                    examples[cat].append({
-                        "job_id": job.job_id,
-                        "client": client_name,
-                        "driver": driver_name,
-                        "error": job.last_error,
-                        "created_at": job.created_at.isoformat(),
-                    })
+                    examples[cat].append(
+                        {
+                            "job_id": job.job_id,
+                            "client": client_name,
+                            "driver": driver_name,
+                            "error": job.last_error,
+                            "created_at": job.created_at.isoformat(),
+                        }
+                    )
 
             return {
                 "total_failed": len(failed_jobs),

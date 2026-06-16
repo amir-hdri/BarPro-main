@@ -419,7 +419,7 @@ class EnhancedWaybillManager:
 
         try:
             await self.page.click(tab_selector)
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(0.08)
         except Exception:
             pass
 
@@ -539,7 +539,9 @@ class EnhancedWaybillManager:
             await asyncio.sleep(0.05)  # Reduced from 0.2
             current = await self._locator_current_value(locator)
             normalized_current = normalizer(current) if callable(normalizer) else current
-            if normalized_current == expected or self._normalize_text(str(normalized_current)) == self._normalize_text(str(expected)):
+            if normalized_current == expected or self._normalize_text(str(normalized_current)) == self._normalize_text(
+                str(expected)
+            ):
                 self._record_selector_inventory(
                     field_label=field_label,
                     selectors=list(selectors),
@@ -585,7 +587,7 @@ class EnhancedWaybillManager:
                     fill_success = False
                 if not fill_success:
                     continue
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.05)
                 try:
                     current = await self.page.eval_on_selector(
                         selector,
@@ -674,7 +676,7 @@ class EnhancedWaybillManager:
                     continue
                 if str(value or "").strip():
                     return str(value).strip()
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.05)
         return None
 
     async def _is_element_visible(self, selector: str) -> bool:
@@ -832,7 +834,7 @@ class EnhancedWaybillManager:
                     return true;
                 }""",
             )
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(0.05)
             return True
         except Exception:
             return False
@@ -865,7 +867,7 @@ class EnhancedWaybillManager:
                 last_count = 0
             if last_count >= min_count:
                 return last_count
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.05)
         return last_count
 
     async def _disable_hidden_required_fields(self, selectors: list[str]) -> int:
@@ -973,16 +975,16 @@ class EnhancedWaybillManager:
             try:
                 clicked = await self.interactor.safe_click(selector, wait_for_navigation=False, timeout=2000)
                 if clicked:
-                    await asyncio.sleep(0.4)
+                    await asyncio.sleep(0.08)
                     return True
             except Exception:
                 continue
         for selector in selectors:
             if await self._js_click(selector):
-                await asyncio.sleep(0.4)
+                await asyncio.sleep(0.08)
                 return True
         if await self._force_tab_activation(step_index):
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.06)
             return True
         return False
 
@@ -1015,7 +1017,7 @@ class EnhancedWaybillManager:
                 {"paneSelector": pane_selector, "exactText": exact_next_text},
             )
             if clicked_visible_text_button:
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
                 clicked_selector = f"{pane_selector}::visible_text"
                 button_text = exact_next_text
                 if await self._wait_for_step_marker(target_step, [f"#pills-{target_step}"], timeout_ms=1800):
@@ -1068,7 +1070,7 @@ class EnhancedWaybillManager:
                                 continue
                     clicked_selector = selector
                     button_text = await self._read_button_text(selector, fallback_text=label)
-                    await asyncio.sleep(0.4)
+                    await asyncio.sleep(0.08)
                     if await self._wait_for_step_marker(target_step, [f"#pills-{target_step}"], timeout_ms=1500):
                         await self._log_pill_transition(
                             current_step=current_step,
@@ -1093,7 +1095,7 @@ class EnhancedWaybillManager:
             if await self._js_click(selector):
                 clicked_selector = selector
                 button_text = await self._read_button_text(selector, fallback_text=label)
-                await asyncio.sleep(0.4)
+                await asyncio.sleep(0.08)
                 await self._log_pill_transition(
                     current_step=current_step,
                     target_step=target_step,
@@ -1174,7 +1176,7 @@ class EnhancedWaybillManager:
             for selector in selectors:
                 if await self._is_element_visible(selector):
                     return True
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.05)
         return False
 
     async def _set_value_with_js(self, selector: str, value: str) -> bool:
@@ -1546,7 +1548,6 @@ class EnhancedWaybillManager:
             # محاسبه مسیر در صورت وجود مختصات
             route_info = None
             if origin_result.get("coordinates") and dest_result.get("coordinates"):
-
                 # تلاش برای استخراج مسیر از روی نقشه UI
                 try:
                     await self.map_controller.wait_for_route_calculation(timeout=2000)
@@ -1593,7 +1594,12 @@ class EnhancedWaybillManager:
 
             await self._wait_for_step_marker(
                 9,
-                ["#btnregisterbarname", "#GoFinalStep", "button:has-text('مرحله نهایی')", "button:has-text('ثبت بارنامه')"],
+                [
+                    "#btnregisterbarname",
+                    "#GoFinalStep",
+                    "button:has-text('مرحله نهایی')",
+                    "button:has-text('ثبت بارنامه')",
+                ],
                 timeout_ms=10000,
             )
 
@@ -1672,7 +1678,7 @@ class EnhancedWaybillManager:
                         await action.click()
                         await self.page.wait_for_load_state("domcontentloaded")
 
-                    await asyncio.sleep(1.2)
+                    await asyncio.sleep(0.24)
                     if await self._is_waybill_form_ready():
                         return
                     current_url = await self._current_url()
@@ -1716,7 +1722,7 @@ class EnhancedWaybillManager:
                     await link.click()
                     await self.page.wait_for_load_state("domcontentloaded")
 
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(0.3)
                 if await self._is_waybill_form_ready():
                     return
             except Exception:
@@ -1725,7 +1731,7 @@ class EnhancedWaybillManager:
         for candidate_url in self._waybill_url_candidates():
             try:
                 await self._goto_with_retry(candidate_url, wait_until="domcontentloaded")
-                await asyncio.sleep(1.2)
+                await asyncio.sleep(0.24)
                 if await self._is_waybill_form_ready():
                     return
             except Exception:
@@ -2539,7 +2545,7 @@ class EnhancedWaybillManager:
                     selected_plate_value = ""
                 if selected_plate_value:
                     await self._set_select_value_with_js("#PelakComboTajmi", str(selected_plate_value))
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
                 await self._wait_for_non_empty_value(
                     ["#TypeofLoaderTajmi", "#CapacityTajmi", "#CapacityTajmiTo"],
                     timeout_ms=8000,
@@ -2775,7 +2781,9 @@ class EnhancedWaybillManager:
     async def _fill_vehicle_info(self, vehicle: dict[str, str]):
         """پر کردن اطلاعات ناوگان"""
         await self._wait_for_loading_overlays_to_disappear()
-        await self._wait_for_step_marker(3, ["#txtDriverSearch", "#PelakComboTajmi", "#DriverListTajmi"], timeout_ms=8000)
+        await self._wait_for_step_marker(
+            3, ["#txtDriverSearch", "#PelakComboTajmi", "#DriverListTajmi"], timeout_ms=8000
+        )
         tajmi_mode = await self._element_exists("#PelakComboTajmi") or await self._element_exists("#DriverListTajmi")
 
         driver_code = self._normalize_national_code(vehicle.get("driver_national_code", ""))
@@ -2939,7 +2947,7 @@ class EnhancedWaybillManager:
                 is_checked = await resolve_maybe_awaitable(locator.is_checked())
                 if not is_checked:
                     await locator.check()
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.05)
                 self._record_selector_inventory(
                     field_label=label,
                     selectors=list(selectors),
@@ -2961,7 +2969,7 @@ class EnhancedWaybillManager:
                 if label_locator is None:
                     continue
                 await label_locator.click()
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.05)
                 self._record_selector_inventory(
                     field_label=label,
                     selectors=list(selectors),
@@ -3017,7 +3025,7 @@ class EnhancedWaybillManager:
                 )
             except Exception:
                 pass
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.05)
             self._record_selector_inventory(
                 field_label=field_label,
                 selectors=list(selectors),
@@ -3032,7 +3040,7 @@ class EnhancedWaybillManager:
         for selector in selectors:
             fill_success = await self.interactor.safe_fill(selector, value)
             if fill_success:
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.05)
                 self._record_selector_inventory(
                     field_label=field_label,
                     selectors=list(selectors),
@@ -3044,7 +3052,7 @@ class EnhancedWaybillManager:
 
             js_success = await self._set_value_with_js(selector, value)
             if js_success:
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.05)
                 self._record_selector_inventory(
                     field_label=field_label,
                     selectors=list(selectors),
@@ -3492,7 +3500,7 @@ class EnhancedWaybillManager:
             raise WaybillError("ارسال فرم بارنامه انجام نشد (کلیک روی دکمه ثبت ناموفق بود)")
 
         await self._wait_for_network_settle(primary_timeout_ms=submit_timeout_ms, fallback_sleep_seconds=2.0)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.1)
 
         submit_payload = await self._consume_json_response(
             submit_response_task,
@@ -3534,6 +3542,7 @@ class EnhancedWaybillManager:
         if tracking_code or submission_confirmed:
             import os
             import time
+
             try:
                 screenshots_dir = "app/ui/assets/screenshots"
                 os.makedirs(screenshots_dir, exist_ok=True)
@@ -3607,7 +3616,7 @@ class EnhancedWaybillManager:
             if not found_any:
                 return
 
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
 
         # Overlay still present after timeout — log and continue (don't block the flow)
         logger.warning(
@@ -3885,6 +3894,7 @@ class EnhancedWaybillManager:
         import re
         from datetime import UTC, datetime
         from pathlib import Path
+
         if not utcms_config.CAPTCHA_DEBUG_SAVE_IMAGES or not image_base64:
             return
         try:
@@ -3922,7 +3932,15 @@ class EnhancedWaybillManager:
         )
         logger.info(
             "captcha_debug_saved",
-            extra={"extra_fields": {"image_path": os.fspath(image_path), "meta_path": os.fspath(meta_path), "phase": phase, "attempt": attempt, "stage": stage}},
+            extra={
+                "extra_fields": {
+                    "image_path": os.fspath(image_path),
+                    "meta_path": os.fspath(meta_path),
+                    "phase": phase,
+                    "attempt": attempt,
+                    "stage": stage,
+                }
+            },
         )
 
     async def _solve_submit_math_captcha(self, captcha_selector: str) -> str | None:
@@ -4020,7 +4038,12 @@ class EnhancedWaybillManager:
 
         if not result.solved:
             self._save_captcha_debug_artifact(
-                image_base64, phase="submit", attempt=1, stage="failed", provider=result.provider or "composite", error=result.error or "unsolved"
+                image_base64,
+                phase="submit",
+                attempt=1,
+                stage="failed",
+                provider=result.provider or "composite",
+                error=result.error or "unsolved",
             )
             if utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED:
                 return await self._solve_submit_math_captcha(captcha_selector)
@@ -4044,12 +4067,22 @@ class EnhancedWaybillManager:
                 extra={"extra_fields": {"provider": result.provider}},
             )
             self._save_captcha_debug_artifact(
-                image_base64, phase="submit", attempt=1, stage="solved", provider=result.provider or "composite", solution=normalized
+                image_base64,
+                phase="submit",
+                attempt=1,
+                stage="solved",
+                provider=result.provider or "composite",
+                solution=normalized,
             )
             return normalized
 
         self._save_captcha_debug_artifact(
-            image_base64, phase="submit", attempt=1, stage="failed", provider=result.provider or "composite", error="normalization_failed"
+            image_base64,
+            phase="submit",
+            attempt=1,
+            stage="failed",
+            provider=result.provider or "composite",
+            error="normalization_failed",
         )
         track_captcha_failure(
             "provider_invalid_value",
@@ -4107,7 +4140,7 @@ class EnhancedWaybillManager:
             current = await self._captcha_image_fingerprint()
             if current and current != previous_fingerprint:
                 return
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
         await asyncio.sleep(timeout_seconds)
 
     async def _auto_fill_submit_captcha(self, captcha_selector: str) -> bool:
@@ -4166,7 +4199,7 @@ class EnhancedWaybillManager:
                         width = await img_loc.evaluate("el => el.naturalWidth")
                         if width and width > 0:
                             break
-                        await asyncio.sleep(0.2)
+                        await asyncio.sleep(0.05)
                     break
         except Exception:
             pass

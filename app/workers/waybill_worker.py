@@ -7,6 +7,7 @@ This worker:
 3. Updates job status and logs in real-time
 4. Handles retries and error categorization (including OTP_BACKOFF)
 """
+
 import asyncio
 import json
 import logging
@@ -86,6 +87,7 @@ def process_waybill_job(self, job_id: str):
     try:
         asyncio.set_event_loop(loop)
         from app.core.database import engine
+
         loop.run_until_complete(engine.dispose())
         result = loop.run_until_complete(_execute_job(self, job_id))
         return result
@@ -156,7 +158,10 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
         )
         proxy_info = await get_proxy_rotator().get_next()
         proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
-        async with managed_browser_session(auth_state_path=auth_state_path, proxy_dict=proxy_dict) as (_session_id, context):
+        async with managed_browser_session(auth_state_path=auth_state_path, proxy_dict=proxy_dict) as (
+            _session_id,
+            context,
+        ):
             page = await browser_manager.new_page(context)
 
             try:

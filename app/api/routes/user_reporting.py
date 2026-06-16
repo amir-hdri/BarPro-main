@@ -9,6 +9,7 @@ Provides endpoints for each client to view:
 - Driver performance summaries
 - Dashboard statistics
 """
+
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query

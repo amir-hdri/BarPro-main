@@ -1,4 +1,5 @@
 """Resilient Playwright locator with selector fallback and retry support."""
+
 from __future__ import annotations
 
 import asyncio
@@ -103,7 +104,7 @@ class SmartLocator:
         self.stability_checks = max(1, stability_checks)
         self.stability_interval_ms = max(50, stability_interval_ms)
         self._logger = logger_instance or logger
-        self._cache: dict[str, str] = {} # Selector cache for performance
+        self._cache: dict[str, str] = {}  # Selector cache for performance
 
     @auto_retry()
     async def locate(self, page: Page, selectors: Sequence[str], timeout: int = 10_000) -> Locator:
@@ -166,9 +167,7 @@ class SmartLocator:
                 except Exception:
                     continue
 
-        raise SmartLocatorError(
-            f"No stable interactable element found for selectors after {len(failures)} failures"
-        )
+        raise SmartLocatorError(f"No stable interactable element found for selectors after {len(failures)} failures")
 
     async def _ensure_interactable(self, locator: Locator, timeout: int) -> None:
         """Verify element is attached, visible, enabled, and stable in the DOM."""

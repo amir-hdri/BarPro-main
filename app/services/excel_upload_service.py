@@ -3,6 +3,7 @@ Excel bulk upload service for waybill jobs.
 
 Handles parsing Excel files, validating rows, and creating waybill jobs in bulk.
 """
+
 import io
 import json
 import logging
@@ -106,11 +107,7 @@ class ExcelUploadService:
                     detail=f"Missing required columns. Required: {list(ExcelUploadService.REQUIRED_COLUMNS.keys())}",
                 )
 
-            data_rows = [
-                row
-                for row in rows[1:]
-                if any(cell is not None and str(cell).strip() != "" for cell in row)
-            ]
+            data_rows = [row for row in rows[1:] if any(cell is not None and str(cell).strip() != "" for cell in row)]
             total_rows = len(data_rows)
 
             if total_rows > utcms_config.MAX_UPLOAD_ROWS:
@@ -282,8 +279,7 @@ class ExcelUploadService:
         """Create a waybill job from a parsed row."""
         driver_national_code = str(payload_dict["driver_national_code"]).strip()
         driver_stmt = select(Driver).where(
-            (Driver.client_id == client.id)
-            & (Driver.driver_national_code == driver_national_code)
+            (Driver.client_id == client.id) & (Driver.driver_national_code == driver_national_code)
         )
         driver_result = await session.exec(driver_stmt)
         driver = driver_result.first()
@@ -298,7 +294,9 @@ class ExcelUploadService:
             waybill_number=str(payload_dict.get("waybill_number", "")) if payload_dict.get("waybill_number") else None,
             cargo_type=str(payload_dict.get("cargo_type", "")) if payload_dict.get("cargo_type") else None,
             cargo_weight=float(payload_dict["cargo_weight"]) if payload_dict.get("cargo_weight") else None,
-            cargo_description=str(payload_dict.get("cargo_description", "")) if payload_dict.get("cargo_description") else None,
+            cargo_description=str(payload_dict.get("cargo_description", ""))
+            if payload_dict.get("cargo_description")
+            else None,
             vehicle_type=str(payload_dict.get("vehicle_type", "")) if payload_dict.get("vehicle_type") else None,
             plate_number=str(payload_dict.get("plate_number", "")) if payload_dict.get("plate_number") else None,
             notes=str(payload_dict.get("notes", "")) if payload_dict.get("notes") else None,
@@ -330,10 +328,7 @@ class ExcelUploadService:
         session: AsyncSession,
     ) -> dict:
         """Get the status of an upload batch."""
-        statement = select(UploadBatch).where(
-            (UploadBatch.client_id == client.id)
-            & (UploadBatch.batch_id == batch_id)
-        )
+        statement = select(UploadBatch).where((UploadBatch.client_id == client.id) & (UploadBatch.batch_id == batch_id))
         result = await session.exec(statement)
         batch = result.first()
 
@@ -344,14 +339,14 @@ class ExcelUploadService:
             )
 
         jobs_stmt = select(WaybillJob).where(
-            (WaybillJob.client_id == client.id)
-            & (WaybillJob.correlation_id == batch_id)
+            (WaybillJob.client_id == client.id) & (WaybillJob.correlation_id == batch_id)
         )
         jobs_result = await session.exec(jobs_stmt)
         batch_jobs = jobs_result.all()
 
         jobs_completed = sum(
-            1 for j in batch_jobs
+            1
+            for j in batch_jobs
             if j.status in [TaskStatus.SUCCESS.value, TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value]
         )
 

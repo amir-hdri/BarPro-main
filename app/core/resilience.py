@@ -30,8 +30,10 @@ logger = logging.getLogger(__name__)
 # STEP STATE TRACKING
 # ============================================================================
 
+
 class StepStatus(str, Enum):
     """Status of a workflow step."""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -42,6 +44,7 @@ class StepStatus(str, Enum):
 
 class ErrorCategory(str, Enum):
     """Categorized error types for precise tracking."""
+
     AUTH_TIMEOUT = "AUTH_TIMEOUT"
     AUTH_INVALID = "AUTH_INVALID"
     AUTH_CAPTCHA_FAILED = "AUTH_CAPTCHA_FAILED"
@@ -69,6 +72,7 @@ class ErrorCategory(str, Enum):
 @dataclass
 class StepState:
     """Tracks the state of a single workflow step."""
+
     step_name: str
     step_id: str
     status: StepStatus = StepStatus.PENDING
@@ -144,6 +148,7 @@ class StepState:
 @dataclass
 class WorkflowState:
     """Tracks the state of an entire workflow."""
+
     workflow_id: str
     workflow_name: str
     status: StepStatus = StepStatus.PENDING
@@ -242,7 +247,7 @@ class WorkflowState:
 # EXPONENTIAL BACKOFF & RETRY ENGINE
 # ============================================================================
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class RetryConfig:
@@ -292,7 +297,7 @@ def calculate_backoff_delay(
         Delay in seconds
     """
     # Exponential backoff
-    delay = base_delay * (exponential_base ** attempt)
+    delay = base_delay * (exponential_base**attempt)
 
     # Add jitter (randomize by ±25%)
     if jitter:
@@ -307,11 +312,7 @@ def calculate_backoff_delay(
 
 
 async def retry_with_backoff(
-    func: Callable,
-    *args,
-    retry_config: RetryConfig | None = None,
-    on_retry: Callable | None = None,
-    **kwargs
+    func: Callable, *args, retry_config: RetryConfig | None = None, on_retry: Callable | None = None, **kwargs
 ) -> Any:
     """
     Execute function with exponential backoff retry.
@@ -343,9 +344,9 @@ async def retry_with_backoff(
 
             # Check if exception is retryable
             is_retryable = (
-                isinstance(exc, retry_config.retryable_exceptions) or
-                is_retryable_network_error(exc) or
-                (hasattr(exc, 'error_code') and exc.error_code in retry_config.retryable_error_codes)
+                isinstance(exc, retry_config.retryable_exceptions)
+                or is_retryable_network_error(exc)
+                or (hasattr(exc, "error_code") and exc.error_code in retry_config.retryable_error_codes)
             )
 
             if not is_retryable or attempt >= retry_config.max_retries:
@@ -371,7 +372,7 @@ async def retry_with_backoff(
                         "error": str(exc),
                         "error_type": type(exc).__name__,
                     }
-                }
+                },
             )
 
             # Call retry callback if provided
@@ -388,6 +389,7 @@ async def retry_with_backoff(
 # ============================================================================
 # EXPLICIT WAIT ENGINE
 # ============================================================================
+
 
 class ExplicitWaits:
     """Advanced explicit wait utilities (no hard sleeps)."""
@@ -490,6 +492,7 @@ class ExplicitWaits:
 # RESILIENT WORKFLOW EXECUTOR
 # ============================================================================
 
+
 class ResilientWorkflow:
     """
     Executes workflows with comprehensive error handling, state tracking,
@@ -522,7 +525,7 @@ class ResilientWorkflow:
         max_retries: int = 3,
         retryable_exceptions: tuple | None = None,
         capture_evidence: bool = True,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """
         Execute a workflow step with retry logic and state tracking.
@@ -561,16 +564,14 @@ class ResilientWorkflow:
                             "attempt": attempt + 1,
                             "duration_ms": step.duration_ms,
                         }
-                    }
+                    },
                 )
 
                 return result
 
             except Exception as exc:
                 # Categorize the error
-                error_code, error_category, is_retryable = self._categorize_error(
-                    exc, retryable_exceptions
-                )
+                error_code, error_category, is_retryable = self._categorize_error(exc, retryable_exceptions)
 
                 step.fail(
                     error_code=error_code,
@@ -593,7 +594,7 @@ class ResilientWorkflow:
                             "error_message": str(exc),
                             "retryable": is_retryable,
                         }
-                    }
+                    },
                 )
 
                 # Capture evidence on final failure
@@ -635,7 +636,7 @@ class ResilientWorkflow:
                         "workflow_name": self.workflow_name,
                         "duration_ms": self.state.duration_ms,
                     }
-                }
+                },
             )
 
             return {
@@ -647,7 +648,7 @@ class ResilientWorkflow:
 
         except Exception as exc:
             self.state.fail(
-                error_code=getattr(exc, 'error_code', 'UNKNOWN_ERROR'),
+                error_code=getattr(exc, "error_code", "UNKNOWN_ERROR"),
                 error_message=str(exc),
             )
 
@@ -666,7 +667,7 @@ class ResilientWorkflow:
                         "duration_ms": self.state.duration_ms,
                         "traceback": traceback.format_exc(),
                     }
-                }
+                },
             )
 
             return {
@@ -766,7 +767,7 @@ class ResilientWorkflow:
                 html_content = await self.page.content()
 
                 def _write_html():
-                    with open(html_path, 'w', encoding='utf-8') as f:
+                    with open(html_path, "w", encoding="utf-8") as f:
                         f.write(html_content)
 
                 loop = asyncio.get_running_loop()
@@ -779,10 +780,7 @@ class ResilientWorkflow:
             self._evidence_collected.append(evidence)
 
         except Exception as e:
-            logger.warning(
-                "evidence_capture_failed",
-                extra={"extra_fields": {"step_name": step_name, "error": str(e)}}
-            )
+            logger.warning("evidence_capture_failed", extra={"extra_fields": {"step_name": step_name, "error": str(e)}})
 
     def get_state(self) -> WorkflowState:
         """Get current workflow state."""
@@ -792,6 +790,7 @@ class ResilientWorkflow:
 # ============================================================================
 # DECORATOR-BASED RESILIENCE
 # ============================================================================
+
 
 def resilient_step(
     max_retries: int = 3,
@@ -808,6 +807,7 @@ def resilient_step(
         async def login(username, password):
             ...
     """
+
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
@@ -833,14 +833,12 @@ def resilient_step(
                                     "error": str(exc),
                                     "error_code": error_code or type(exc).__name__,
                                 }
-                            }
+                            },
                         )
                         raise
 
                     # Calculate delay
-                    delay = calculate_backoff_delay(
-                        attempt, base_delay, max_delay
-                    )
+                    delay = calculate_backoff_delay(attempt, base_delay, max_delay)
 
                     logger.warning(
                         "resilient_step_retrying",
@@ -851,7 +849,7 @@ def resilient_step(
                                 "delay_seconds": round(delay, 2),
                                 "error": str(exc),
                             }
-                        }
+                        },
                     )
 
                     await asyncio.sleep(delay)
@@ -860,12 +858,14 @@ def resilient_step(
                 raise last_exception
 
         return wrapper
+
     return decorator
 
 
 # ============================================================================
 # GRACEFUL DEGRADATION ENGINE
 # ============================================================================
+
 
 class GracefulDegradation:
     """Handles graceful degradation when external services are unavailable."""
@@ -902,7 +902,7 @@ class GracefulDegradation:
                         "pause_duration_seconds": self.pause_duration,
                         "error_code": error_code,
                     }
-                }
+                },
             )
             return True
 
@@ -938,5 +938,7 @@ class GracefulDegradation:
             "consecutive_failures": self.consecutive_failures,
             "max_consecutive_failures": self.max_consecutive_failures,
             "last_failure_time": self.last_failure_time,
-            "resume_in_seconds": max(0, self.pause_duration - (time.time() - self.last_failure_time)) if self.is_paused and self.last_failure_time else 0,
+            "resume_in_seconds": max(0, self.pause_duration - (time.time() - self.last_failure_time))
+            if self.is_paused and self.last_failure_time
+            else 0,
         }

@@ -270,7 +270,9 @@ class BarnameMlCaptchaSolver:
             scores[normalized_name] = max(float(probabilities[index]), scores.get(normalized_name, 0.0))
         return scores
 
-    def _predict_with_constraints(self, image: np.ndarray, allowed_classes: tuple[str, ...] | None) -> tuple[str, float]:
+    def _predict_with_constraints(
+        self, image: np.ndarray, allowed_classes: tuple[str, ...] | None
+    ) -> tuple[str, float]:
         scores = self._predict_scores(image)
         if not scores:
             return "", 0.0

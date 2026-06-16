@@ -22,7 +22,9 @@ class WaybillQueueManager:
     ) -> EnqueueWaybillResponse:
         payload = request.model_dump()
         payload["correlation_id"] = (payload.get("correlation_id") or generate_correlation_id()).strip()
-        payload["batch_id"] = (payload.get("batch_id") or payload.get("session_id") or payload["correlation_id"]).strip()
+        payload["batch_id"] = (
+            payload.get("batch_id") or payload.get("session_id") or payload["correlation_id"]
+        ).strip()
         normalized_key = task_service.build_idempotency_key(payload, idempotency_key)
         task, reused = await task_service.create_or_get_task(
             payload=payload,

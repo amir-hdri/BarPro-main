@@ -206,7 +206,7 @@ class ProxyInfo:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> 'ProxyInfo':
+    def from_dict(cls, data: dict[str, Any]) -> "ProxyInfo":
         """Create from dictionary"""
         return cls(**data)
 
@@ -228,6 +228,7 @@ class ProxyRotator:
         require_iran_ip: bool | None = None,
     ):
         import sys
+
         if require_iran_ip is None:
             # Auto-disable on-the-fly Geo-IP checks in test environments to prevent real web calls
             is_testing = "pytest" in sys.modules or "unittest" in sys.modules
@@ -250,7 +251,9 @@ class ProxyRotator:
         self._on_proxy_used: Callable[[ProxyInfo], Awaitable[None]] | None = None
         self._on_proxy_failed: Callable[[ProxyInfo, str], Awaitable[None]] | None = None
 
-        logger.info(f"ProxyRotator initialized with {len(self.proxies)} proxies (require_iran_ip={self.require_iran_ip})")
+        logger.info(
+            f"ProxyRotator initialized with {len(self.proxies)} proxies (require_iran_ip={self.require_iran_ip})"
+        )
 
     @property
     def lock(self) -> asyncio.Lock:
@@ -449,7 +452,9 @@ class ProxyRotator:
                 # Fetch country info outside of the lock to prevent blocking get_next for other tasks
                 success = await self.verify_country(chosen)
                 if not success or chosen.country != "IR":
-                    logger.warning(f"On-the-fly Geo-IP check failed or proxy {chosen.url[:40]} is not in Iran. Detected: {chosen.country}. Skipping.")
+                    logger.warning(
+                        f"On-the-fly Geo-IP check failed or proxy {chosen.url[:40]} is not in Iran. Detected: {chosen.country}. Skipping."
+                    )
                     # Mark as non-IR and record failure
                     chosen.record_failure("Not an Iran IP")
                     # Enforce cooldown on this proxy
@@ -463,7 +468,9 @@ class ProxyRotator:
                 except Exception as e:
                     logger.warning(f"Proxy used callback failed: {e}")
 
-            logger.debug(f"Selected proxy: {chosen.url[:50]}... (health: {chosen.health_score:.1f}, country: {chosen.country})")
+            logger.debug(
+                f"Selected proxy: {chosen.url[:50]}... (health: {chosen.health_score:.1f}, country: {chosen.country})"
+            )
             return chosen
 
         return None
@@ -502,7 +509,9 @@ class ProxyRotator:
                                             f"Proxy OK: {proxy.url[:40]}... IP: {data['ip']} Country: {proxy.country} ({latency:.2f}s)"
                                         )
                                 except Exception:
-                                    logger.debug(f"Proxy OK: {proxy.url[:40]}... Country: {proxy.country} ({latency:.2f}s)")
+                                    logger.debug(
+                                        f"Proxy OK: {proxy.url[:40]}... Country: {proxy.country} ({latency:.2f}s)"
+                                    )
 
                                 return True
                 except ClientError:

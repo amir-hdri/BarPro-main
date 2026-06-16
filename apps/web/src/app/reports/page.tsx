@@ -72,7 +72,7 @@ export default function ReportsPage() {
       <AuthGuard requiredRole="client">
         <section className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-[32px] border border-white/20 bg-slate-950 p-6 text-white shadow-2xl shadow-slate-900/20">
-            <p className="text-xs uppercase tracking-[0.35em] text-cyan-300">Analytics</p>
+            <p className="text-xs uppercase  text-cyan-300">Analytics</p>
             <h1 className="mt-4 text-3xl font-semibold">گزارش عملکرد مشتری</h1>
             <p className="mt-3 text-sm leading-7 text-slate-300">این صفحه به جای mock، از آمار واقعی مشتری و jobهای ثبت‌شده ساخته می‌شود و برای مرور روزانه عملیات مناسب است.</p>
             <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -86,19 +86,19 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <div className="rounded-[32px] border border-white/20 bg-white/80 p-6 shadow-lg shadow-slate-900/5 backdrop-blur">
-            <h2 className="text-2xl font-semibold text-slate-950">توزیع وضعیت‌ها</h2>
-            <p className="mt-1 text-sm text-slate-500">نمایی سریع از حجم کار بر اساس مرحله پردازش</p>
+          <div className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 shadow-2xl text-white">
+            <h2 className="text-2xl font-semibold text-white">توزیع وضعیت‌ها</h2>
+            <p className="mt-1 text-sm text-slate-400">نمایی سریع از حجم کار بر اساس مرحله پردازش</p>
             <div className="mt-6 space-y-3">
               {Object.keys(statusCounts).length === 0 ? (
-                <div className="rounded-3xl border border-dashed border-slate-200 px-5 py-8 text-sm text-slate-500">هنوز داده‌ای برای گزارش وضعیت وجود ندارد.</div>
+                <div className="rounded-[2rem] border border-dashed border-white/10 px-5 py-8 text-sm text-slate-555 text-slate-500">هنوز داده‌ای برای گزارش وضعیت وجود ندارد.</div>
               ) : (
                 Object.entries(statusCounts)
                   .sort((left, right) => right[1] - left[1])
                   .map(([status, count]) => (
-                    <div key={status} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
-                      <span className="text-sm text-slate-600">{statusLabel(status)}</span>
-                      <span className="text-sm font-semibold text-slate-950">{toPersianDigits(count)}</span>
+                    <div key={status} className="flex items-center justify-between rounded-2xl bg-slate-950/60 border border-white/5 px-4 py-3">
+                      <span className="text-sm text-slate-300">{statusLabel(status)}</span>
+                      <span className="text-sm font-semibold text-white">{toPersianDigits(count)}</span>
                     </div>
                   ))
               )}
@@ -106,14 +106,14 @@ export default function ReportsPage() {
           </div>
         </section>
 
-        <section className="mt-6 rounded-[32px] border border-white/20 bg-white/80 p-6 shadow-lg shadow-slate-900/5 backdrop-blur">
-          <h2 className="text-2xl font-semibold text-slate-950">شاخص‌های اجرایی</h2>
+        <section className="mt-6 relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 shadow-2xl text-white">
+          <h2 className="text-2xl font-semibold text-white">شاخص‌های اجرایی</h2>
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             <Metric label="کل رانندگان" value={toPersianDigits(stats.total_drivers)} hint="رانندگان تعریف‌شده برای این مشتری" />
             <Metric label="رانندگان فعال" value={toPersianDigits(stats.active_drivers)} hint="رانندگانی که آماده پردازش هستند" />
             <Metric label="کل jobها" value={toPersianDigits(stats.total_jobs)} hint="مجموع ماموریت‌های ثبت‌شده" />
           </div>
-          {error && <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
+          {error && <p className="mt-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 px-4 py-3 text-sm text-rose-400">{error}</p>}
         </section>
       </AuthGuard>
     </AppShell>
@@ -122,10 +122,10 @@ export default function ReportsPage() {
 
 function Metric({ hint, label, value }: { hint: string; label: string; value: string }) {
   return (
-    <article className="rounded-3xl bg-slate-50 p-5">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-3 text-3xl font-semibold text-slate-950">{value}</p>
-      <p className="mt-2 text-sm leading-6 text-slate-500">{hint}</p>
+    <article className="rounded-3xl bg-slate-950/60 border border-white/5 p-5 text-white">
+      <p className="text-sm text-slate-400">{label}</p>
+      <p className="mt-3 text-3xl font-semibold text-white">{value}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-400">{hint}</p>
     </article>
   );
 }

@@ -255,6 +255,7 @@ class LocationSelector:
     def _get_utcms_selectors(is_origin: bool) -> dict[str, list[str]]:
         """بازگشت انتخابگرهای مستقیم UTCMS برای مبدا یا مقصد"""
         from app.automation.selectors import LocationSelectors
+
         if is_origin:
             return LocationSelectors.UTCMS_ORIGIN_SELECTORS
         return LocationSelectors.UTCMS_DESTINATION_SELECTORS
@@ -375,7 +376,7 @@ class LocationSelector:
                     return true;
                 }""",
             )
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
             return True
         except Exception:
             return False
@@ -425,7 +426,7 @@ class LocationSelector:
         # Try clicking the tab
         try:
             await self.page.click(tab_selector, timeout=3000)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.1)
         except Exception:
             pass
 
@@ -449,7 +450,7 @@ class LocationSelector:
                 tab_id,
                 pane_id,
             )
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.06)
         except Exception:
             pass
 
@@ -496,7 +497,7 @@ class LocationSelector:
                 ]
                 if len(real_options) >= min_real_options:
                     return True
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.05)
         return False
 
     async def _log_select_diagnostics(self, selector: str, field_label: str, target_value: str) -> None:
@@ -606,7 +607,7 @@ class LocationSelector:
                     }
                     return null;
                 }""",
-                [lat, lng]
+                [lat, lng],
             )
         except Exception:
             return None
@@ -631,7 +632,7 @@ class LocationSelector:
 
         # Ensure the correct pill is visible before doing anything
         await self._ensure_location_tab_active(prefix)
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.06)
 
         coordinates = location_data.get("coordinates")
         if coordinates and (not location_data.get("province") or not location_data.get("city")):
@@ -1187,7 +1188,7 @@ class LocationSelector:
                     }
                     return called;
                 }""",
-                [lat, lng, prefix, province, city, address]
+                [lat, lng, prefix, province, city, address],
             )
 
             # 2. تزریق به فیلدهای مخفی DOM به عنوان پشتیبان
@@ -1213,7 +1214,7 @@ class LocationSelector:
                             }
                     except Exception:
                         pass
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.05)
 
             # 4. اگر فیلدها پر نشدند (مثلا به خاطر خطای سرویس نقشه سایت)، به صورت دستی آدرس را پر می‌کنیم
             parts = [p for p in [province, city, address] if p]
@@ -1347,7 +1348,7 @@ class LocationSelector:
         """تلاش برای انتخاب مکان با استفاده از نقشه و تزریق مختصات به متغیرهای بومی"""
         # اول پنل صحیح را فعال کنیم، سپس نقشه را تشخیص دهیم
         await self._ensure_location_tab_active(prefix)
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(0.08)
 
         map_type = await self.map_controller.detect_map_type()
         if not map_type:
@@ -1399,13 +1400,10 @@ class LocationSelector:
                 after_state = {}
                 for _ in range(15):
                     after_state = await self._get_form_state(selectors, prefix)
-                    has_changes = any(
-                        val and val != before_state.get(key)
-                        for key, val in after_state.items()
-                    )
+                    has_changes = any(val and val != before_state.get(key) for key, val in after_state.items())
                     if has_changes:
                         break
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.05)
 
                 if not after_state:
                     # after_state خالی = فیلدها در DOM نیستند → موفق فرض می‌کنیم
@@ -1420,14 +1418,24 @@ class LocationSelector:
                             extra={"extra_fields": {"prefix": prefix}},
                         )
                         # Fallback: پر کردن فیلد آدرس متنی
-                        parts = [p for p in [location_data.get("province"), location_data.get("city"), location_data.get("address")] if p]
+                        parts = [
+                            p
+                            for p in [
+                                location_data.get("province"),
+                                location_data.get("city"),
+                                location_data.get("address"),
+                            ]
+                            if p
+                        ]
                         full_address = "، ".join(parts) or "تهران"
-                        
+
                         addr_filled = False
-                        for sel in utcms["address"] + self._build_formatted_selectors(LocationSelectors.ADDRESS_TEMPLATES, prefix=prefix):
+                        for sel in utcms["address"] + self._build_formatted_selectors(
+                            LocationSelectors.ADDRESS_TEMPLATES, prefix=prefix
+                        ):
                             if await self._fill_input_like(sel, full_address, visible=False):
                                 addr_filled = True
-                        
+
                         if addr_filled:
                             logger.info(f"Map click had no effect, but manual address injection succeeded.")
                             return {
@@ -1448,14 +1456,24 @@ class LocationSelector:
                             "map_click_missing_address_falling_back",
                             extra={"extra_fields": {"prefix": prefix, "after_state": after_state}},
                         )
-                        parts = [p for p in [location_data.get("province"), location_data.get("city"), location_data.get("address")] if p]
+                        parts = [
+                            p
+                            for p in [
+                                location_data.get("province"),
+                                location_data.get("city"),
+                                location_data.get("address"),
+                            ]
+                            if p
+                        ]
                         full_address = "، ".join(parts) or "تهران"
-                        
+
                         addr_filled = False
-                        for sel in utcms["address"] + self._build_formatted_selectors(LocationSelectors.ADDRESS_TEMPLATES, prefix=prefix):
+                        for sel in utcms["address"] + self._build_formatted_selectors(
+                            LocationSelectors.ADDRESS_TEMPLATES, prefix=prefix
+                        ):
                             if await self._fill_input_like(sel, full_address, visible=False):
                                 addr_filled = True
-                                
+
                         if addr_filled:
                             logger.info(f"Map click missing address, but manual address injection succeeded.")
                             return {
@@ -1464,7 +1482,7 @@ class LocationSelector:
                                 "coordinates": {"lat": lat, "lng": lng},
                                 "map_type": map_type,
                             }
-                            
+
                         dropdown_result = await self._try_dropdown_selection(location_data, prefix, selectors=selectors)
                         if dropdown_result["success"]:
                             return {
@@ -1504,15 +1522,9 @@ class LocationSelector:
 
             # ساختن لیست انتخابگر با اولویت UTCMS direct selectors
             if selectors is None:
-                province_tmpl = self._build_formatted_selectors(
-                    LocationSelectors.PROVINCE_TEMPLATES, prefix=prefix
-                )
-                city_tmpl = self._build_formatted_selectors(
-                    LocationSelectors.CITY_TEMPLATES, prefix=prefix
-                )
-                district_tmpl = self._build_formatted_selectors(
-                    LocationSelectors.DISTRICT_TEMPLATES, prefix=prefix
-                )
+                province_tmpl = self._build_formatted_selectors(LocationSelectors.PROVINCE_TEMPLATES, prefix=prefix)
+                city_tmpl = self._build_formatted_selectors(LocationSelectors.CITY_TEMPLATES, prefix=prefix)
+                district_tmpl = self._build_formatted_selectors(LocationSelectors.DISTRICT_TEMPLATES, prefix=prefix)
             else:
                 province_tmpl = selectors["province"]
                 city_tmpl = selectors["city"]
@@ -1520,7 +1532,7 @@ class LocationSelector:
 
             # Merge UTCMS direct selectors at the head (highest priority)
             merged_province = self._unique_preserve_order(utcms["province"] + province_tmpl)
-            merged_city    = self._unique_preserve_order(utcms["city"]     + city_tmpl)
+            merged_city = self._unique_preserve_order(utcms["city"] + city_tmpl)
             merged_district = self._unique_preserve_order(utcms["district"] + district_tmpl)
 
             await self._wait_for_select_options(merged_province, timeout_ms=3000)
@@ -1551,8 +1563,7 @@ class LocationSelector:
 
             # پر کردن آدرس - ابتدا UTCMS direct, سپس template
             address_selectors = self._unique_preserve_order(
-                utcms["address"]
-                + self._build_formatted_selectors(LocationSelectors.ADDRESS_TEMPLATES, prefix=prefix)
+                utcms["address"] + self._build_formatted_selectors(LocationSelectors.ADDRESS_TEMPLATES, prefix=prefix)
             )
             address = location_data.get("address", "")
             if address:
@@ -1631,7 +1642,7 @@ class LocationSelector:
             except Exception:
                 # تلاش با JS در صورت شکست click
                 await self.page.eval_on_selector(btn_selector, "el => el && el.click()")
-            await asyncio.sleep(0.8)
+            await asyncio.sleep(0.16)
             return {"success": True, "method": "favorite", "row_index": best_index}
         except Exception as exc:
             return {"success": False, "method": "favorite", "error": str(exc)}
@@ -1648,10 +1659,10 @@ class LocationSelector:
                 await self.page.locator(
                     f"xpath=//select[@id='{select_selector.lstrip('#')}']/following-sibling::span[contains(@class,'select2')][1]//span[contains(@class,'select2-selection')]"
                 ).click(timeout=2500)
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.06)
             search_input = self.page.locator("input.select2-search__field").last
             await search_input.fill(search_value, timeout=3000)
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.2)
             results = self.page.locator(".select2-results__option")
             count = await results.count()
             for idx in range(count):
@@ -1660,7 +1671,7 @@ class LocationSelector:
                 target = self._normalize_text(search_value)
                 if target and (target in text or text in target):
                     await option.click(timeout=3000)
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.1)
                     try:
                         await self.page.eval_on_selector(
                             select_selector,
@@ -1671,7 +1682,7 @@ class LocationSelector:
                     return True
             if count > 0:
                 await results.nth(0).click(timeout=3000)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
                 try:
                     await self.page.eval_on_selector(
                         select_selector,
@@ -1701,7 +1712,7 @@ class LocationSelector:
                         return str(value)
                 except Exception:
                     continue
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.05)
         return None
 
     async def _try_internal_map_search(self, location_data: dict[str, Any], prefix: str) -> dict[str, Any]:
@@ -1773,8 +1784,8 @@ class LocationSelector:
                         if not selected:
                             continue
 
-                    await asyncio.sleep(0.5)
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.2)
 
                     suggestion_selectors = LocationSelectors.SUGGESTION_SELECTORS
                     for sugg_selector in suggestion_selectors:

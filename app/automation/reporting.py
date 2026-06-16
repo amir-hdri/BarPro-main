@@ -115,11 +115,9 @@ class ReportService:
                 # Track hourly trend
                 now = datetime.now()
                 hour_key = now.strftime("%Y-%m-%d %H:00")
-                self._hourly_samples.append({
-                    "timestamp": now.isoformat(),
-                    "latency": float(latency_ms),
-                    "hour": hour_key
-                })
+                self._hourly_samples.append(
+                    {"timestamp": now.isoformat(), "latency": float(latency_ms), "hour": hour_key}
+                )
 
             if category:
                 normalized_category = category if category in self._error_categories else "unknown"
@@ -135,11 +133,7 @@ class ReportService:
         await self._record_mode_event(mode=mode, event="success", latency_ms=latency_ms)
 
         # Track success time for trends
-        self._success_times.append({
-            "timestamp": datetime.now().isoformat(),
-            "mode": mode,
-            "latency": latency_ms
-        })
+        self._success_times.append({"timestamp": datetime.now().isoformat(), "mode": mode, "latency": latency_ms})
 
         await self._update_today_stats(
             lambda stats: setattr(stats, "successful_waybills", stats.successful_waybills + 1)
@@ -151,16 +145,16 @@ class ReportService:
 
         # Track error details
         if details:
-            self._error_details.append({
-                "timestamp": datetime.now().isoformat(),
-                "mode": mode,
-                "category": category,
-                "details": details[:200]  # Limit to 200 chars
-            })
+            self._error_details.append(
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "mode": mode,
+                    "category": category,
+                    "details": details[:200],  # Limit to 200 chars
+                }
+            )
 
-        await self._update_today_stats(
-            lambda stats: setattr(stats, "failed_attempts", stats.failed_attempts + 1)
-        )
+        await self._update_today_stats(lambda stats: setattr(stats, "failed_attempts", stats.failed_attempts + 1))
 
     async def record_map_usage(self, map_type: str):
         def _updater(stats: BotStats):
@@ -225,16 +219,15 @@ class ReportService:
                 "successful_waybills": successful_waybills,
                 "failed_attempts": failed_attempts,
                 "success_rate": self._calculate_rate(successful_waybills, failed_attempts),
-                "success_rate_percent": round((successful_waybills / max(1, successful_waybills + failed_attempts)) * 100, 2),
+                "success_rate_percent": round(
+                    (successful_waybills / max(1, successful_waybills + failed_attempts)) * 100, 2
+                ),
                 "map_usage_distribution": map_usage,
                 "performance": performance,
                 "hourly_trend": hourly_trend,
                 "daily_trend": daily_trend,
                 "recent_errors": recent_errors,
-                "current_mode_counters": {
-                    mode: values.copy()
-                    for mode, values in self._mode_counters.items()
-                },
+                "current_mode_counters": {mode: values.copy() for mode, values in self._mode_counters.items()},
             }
 
     async def get_daily_report(self) -> dict[str, Any]:
@@ -264,10 +257,7 @@ class ReportService:
     async def get_operational_report(self) -> dict[str, Any]:
         async with self.op_lock:
             latencies = list(self._latency_samples)
-            mode_counters = {
-                mode: values.copy()
-                for mode, values in self._mode_counters.items()
-            }
+            mode_counters = {mode: values.copy() for mode, values in self._mode_counters.items()}
             error_categories = self._error_categories.copy()
             error_details = list(self._error_details)
             success_times = list(self._success_times)
@@ -310,10 +300,7 @@ class ReportService:
         for error in error_details:
             category = error["category"]
             if category not in errors_by_category:
-                errors_by_category[category] = {
-                    "count": 0,
-                    "examples": []
-                }
+                errors_by_category[category] = {"count": 0, "examples": []}
             errors_by_category[category]["count"] += 1
             if len(errors_by_category[category]["examples"]) < 5:
                 errors_by_category[category]["examples"].append(error)
@@ -331,7 +318,7 @@ class ReportService:
             "by_category": errors_by_category,
             "category_totals": error_categories,
             "hourly_distribution": hourly_errors,
-            "most_recent": error_details[-10:] if error_details else []
+            "most_recent": error_details[-10:] if error_details else [],
         }
 
     async def get_performance_dashboard(self) -> dict[str, Any]:
@@ -343,10 +330,7 @@ class ReportService:
         # Calculate requests per minute (last 10 minutes)
         now = datetime.now()
         recent_window = now - timedelta(minutes=10)
-        recent_requests = [
-            s for s in success_times
-            if datetime.fromisoformat(s["timestamp"]) > recent_window
-        ]
+        recent_requests = [s for s in success_times if datetime.fromisoformat(s["timestamp"]) > recent_window]
         rpm = len(recent_requests) / 10.0
 
         return {
@@ -359,10 +343,7 @@ class ReportService:
         }
 
     def get_mode_counters(self) -> dict[str, dict[str, int]]:
-        return {
-            mode: values.copy()
-            for mode, values in self._mode_counters.items()
-        }
+        return {mode: values.copy() for mode, values in self._mode_counters.items()}
 
     def _calculate_rate(self, success: int, total_failed: int) -> str:
         total = success + total_failed
@@ -389,22 +370,20 @@ class ReportService:
         for sample in self._hourly_samples:
             hour = sample["hour"]
             if hour not in hourly_data:
-                hourly_data[hour] = {
-                    "count": 0,
-                    "total_latency": 0,
-                    "successes": 0
-                }
+                hourly_data[hour] = {"count": 0, "total_latency": 0, "successes": 0}
             hourly_data[hour]["count"] += 1
             hourly_data[hour]["total_latency"] += sample["latency"]
 
         # Calculate averages
         result = []
         for hour, data in sorted(hourly_data.items())[-24:]:  # Last 24 hours
-            result.append({
-                "hour": hour,
-                "count": data["count"],
-                "avg_latency": round(data["total_latency"] / data["count"], 2) if data["count"] > 0 else 0
-            })
+            result.append(
+                {
+                    "hour": hour,
+                    "count": data["count"],
+                    "avg_latency": round(data["total_latency"] / data["count"], 2) if data["count"] > 0 else 0,
+                }
+            )
 
         return result
 
@@ -413,13 +392,15 @@ class ReportService:
         trend = []
         for stat in sorted(all_stats, key=lambda x: x.report_date)[-7:]:  # Last 7 days
             total = stat.successful_waybills + stat.failed_attempts
-            trend.append({
-                "date": stat.report_date.isoformat(),
-                "total": total,
-                "success": stat.successful_waybills,
-                "failed": stat.failed_attempts,
-                "success_rate": round((stat.successful_waybills / max(1, total)) * 100, 2)
-            })
+            trend.append(
+                {
+                    "date": stat.report_date.isoformat(),
+                    "total": total,
+                    "success": stat.successful_waybills,
+                    "failed": stat.failed_attempts,
+                    "success_rate": round((stat.successful_waybills / max(1, total)) * 100, 2),
+                }
+            )
         return trend
 
     def _calculate_success_trend(self, success_times: list[dict]) -> list[dict[str, Any]]:
@@ -435,10 +416,7 @@ class ReportService:
                 hourly_counts[hour] = 0
             hourly_counts[hour] += 1
 
-        return [
-            {"hour": hour, "count": count}
-            for hour, count in sorted(hourly_counts.items())[-24:]
-        ]
+        return [{"hour": hour, "count": count} for hour, count in sorted(hourly_counts.items())[-24:]]
 
     @staticmethod
     def _std_dev(samples: list[float]) -> float:
@@ -447,7 +425,7 @@ class ReportService:
             return 0.0
         avg = mean(samples)
         variance = sum((x - avg) ** 2 for x in samples) / (len(samples) - 1)
-        return variance ** 0.5
+        return variance**0.5
 
     @staticmethod
     def _percentile(samples: list[float], percentile: int) -> float:

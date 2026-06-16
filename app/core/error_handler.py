@@ -1,4 +1,5 @@
 """Enhanced error handling utilities."""
+
 import logging
 import traceback
 from collections.abc import Callable
@@ -35,21 +36,21 @@ class ErrorReporter:
             logging.ERROR if severity == "error" else logging.CRITICAL,
             f"Centralized Error Report: {category.value} - {str(exception)}",
             extra={"extra_fields": error_data},
-            exc_info=True
+            exc_info=True,
         )
 
         # Critical errors trigger alerts
         critical_categories = {
             ErrorCategory.BOT_DETECTED,
             ErrorCategory.AUTH_FAILURE,
-            ErrorCategory.WORKER_RESOURCE_ERROR
+            ErrorCategory.WORKER_RESOURCE_ERROR,
         }
 
         if severity == "critical" or category in critical_categories:
             alert_manager.emit(
                 severity="critical" if severity == "critical" else "high",
                 title=f"Critical Automation Error: {category.value}",
-                payload=error_data
+                payload=error_data,
             )
 
 
@@ -111,6 +112,7 @@ def retry_on_exception(
         backoff: Multiplier for delay after each retry
         log_attempts: Whether to log retry attempts
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -160,6 +162,7 @@ def retry_on_exception(
             raise last_exception
 
         return wrapper
+
     return decorator
 
 
@@ -180,6 +183,7 @@ async def async_retry_on_exception(
         backoff: Multiplier for delay after each retry
         log_attempts: Whether to log retry attempts
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -229,6 +233,7 @@ async def async_retry_on_exception(
             raise last_exception
 
         return wrapper
+
     return decorator
 
 

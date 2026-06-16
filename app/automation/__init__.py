@@ -97,21 +97,18 @@ __all__ = [
     "WebGLFingerprint",
     "load_profiles",
     "load_gpus",
-
     # Proxy
     "ProxyInfo",
     "ProxyRotator",
     "get_proxy_rotator",
     "set_proxy_rotator",
     "test_proxy",
-
     # Headers
     "HeaderBuilder",
     "BrowserHeaderBuilder",
     "HeaderContext",
     "get_header_builder",
     "set_header_builder",
-
     # Stealth
     "apply_stealth_mode",
     "get_random_user_agent",
@@ -120,7 +117,6 @@ __all__ = [
     "human_like_mouse_movement",
     "random_scroll",
     "simulate_human_behavior",
-
     # Stealth Advanced
     "USER_AGENT_POOL",
     "WEBGL_FINGERPRINTS",
@@ -133,7 +129,6 @@ __all__ = [
     "get_random_screen_preset",
     "get_random_locale_preset",
     "get_random_webgl_fingerprint",
-
     # Human Interaction
     "human_type",
     "click_with_human_movement",
@@ -143,14 +138,12 @@ __all__ = [
     "TypingProfile",
     "HumanBehaviorSimulator",
     "HumanTiming",
-
     # Browser Management
     "BrowserManager",
     "PageInteractor",
     "managed_browser_session",
     "managed_page",
     "browser_manager",
-
     # Browser Pool
     "BrowserPool",
 ]

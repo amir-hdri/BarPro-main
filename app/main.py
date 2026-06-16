@@ -84,7 +84,6 @@ async def lifespan(app: FastAPI):
             extra={"extra_fields": {"count": len(AUTO_GENERATED_SECRETS)}},
         )
 
-
     # 1. Secrets initialization: initialize_secrets
     # Initialize Proxy Rotator from environment or file if configured
     proxy_rotator = get_proxy_rotator()
@@ -114,6 +113,7 @@ async def lifespan(app: FastAPI):
     # Initialize distributed traffic controller
     from app.core.distributed_traffic import distributed_traffic_controller
     from app.core.recovery import recovery_manager
+
     await distributed_traffic_controller.initialize()
     watchdog_task = asyncio.create_task(recovery_manager.watchdog_loop())
 
@@ -161,7 +161,9 @@ app.add_middleware(
     allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"] if os.getenv("ENVIRONMENT", "development").lower() != "production" else ["Authorization", "Content-Type", "X-API-Key", "X-Request-ID", utcms_config.TRACE_HEADER_NAME],
+    allow_headers=["*"]
+    if os.getenv("ENVIRONMENT", "development").lower() != "production"
+    else ["Authorization", "Content-Type", "X-API-Key", "X-Request-ID", utcms_config.TRACE_HEADER_NAME],
 )
 
 
@@ -295,9 +297,13 @@ async def general_exception_handler(request: Request, exc: Exception):
             "request_id": request.headers.get("X-Request-ID"),
             "correlation_id": request.headers.get(utcms_config.TRACE_HEADER_NAME),
             # Only expose error_type in non-production environments for debugging
-            **({
-                "error_type": type(exc).__name__,
-            } if not is_production else {}),
+            **(
+                {
+                    "error_type": type(exc).__name__,
+                }
+                if not is_production
+                else {}
+            ),
         },
     )
 

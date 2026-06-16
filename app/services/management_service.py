@@ -110,7 +110,9 @@ def _build_route_key(source: dict[str, Any], destination: dict[str, Any], fallba
         "destination": {
             "province": destination.get("province"),
             "city": destination.get("city"),
-            "address": destination.get("address_compact") or destination.get("postal_address") or destination.get("address"),
+            "address": destination.get("address_compact")
+            or destination.get("postal_address")
+            or destination.get("address"),
             "coordinates": (destination.get("geom") or {}).get("coordinates"),
         },
     }
@@ -139,7 +141,9 @@ def _location_to_management_details(location: Any) -> dict[str, Any]:
         "geom": {
             "type": "Point",
             "coordinates": [lng, lat],
-        } if lng is not None and lat is not None else {},
+        }
+        if lng is not None and lat is not None
+        else {},
     }
 
 
@@ -167,10 +171,7 @@ def _estimate_route_metrics(
     lat2 = math.radians(destination_lat)
     d_lat = math.radians(destination_lat - origin_lat)
     d_lng = math.radians(destination_lng - origin_lng)
-    hav = (
-        math.sin(d_lat / 2) ** 2
-        + math.cos(lat1) * math.cos(lat2) * math.sin(d_lng / 2) ** 2
-    )
+    hav = math.sin(d_lat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(d_lng / 2) ** 2
     distance_km = 6371 * 2 * math.atan2(math.sqrt(hav), math.sqrt(1 - hav))
     duration_minutes = max(1.0, distance_km)
     return round(distance_km, 2), round(duration_minutes, 0)
@@ -320,17 +321,29 @@ class ManagementService:
 
     async def list_customers(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
-            rows = (await session.execute(select(ManagedCustomer).order_by(col(ManagedCustomer.synced_at).desc()))).scalars().all()
+            rows = (
+                (await session.execute(select(ManagedCustomer).order_by(col(ManagedCustomer.synced_at).desc())))
+                .scalars()
+                .all()
+            )
             return [self._customer_to_dict(row) for row in rows]
 
     async def list_routes(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
-            rows = (await session.execute(select(ManagedRoute).order_by(col(ManagedRoute.synced_at).desc()))).scalars().all()
+            rows = (
+                (await session.execute(select(ManagedRoute).order_by(col(ManagedRoute.synced_at).desc())))
+                .scalars()
+                .all()
+            )
             return [self._route_to_dict(row) for row in rows]
 
     async def list_accounts(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
-            rows = (await session.execute(select(ManagedAccount).order_by(col(ManagedAccount.synced_at).desc()))).scalars().all()
+            rows = (
+                (await session.execute(select(ManagedAccount).order_by(col(ManagedAccount.synced_at).desc())))
+                .scalars()
+                .all()
+            )
             return [self._account_to_dict(row) for row in rows]
 
     async def warm_account_session(self, account_external_name: str) -> dict[str, Any]:
@@ -360,7 +373,9 @@ class ManagementService:
             await browser_manager.initialize()
             proxy_info = await get_proxy_rotator().get_next()
             proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
-            internal_session_id, context = await browser_manager.create_context(auth_state_path=auth_state_path, proxy_dict=proxy_dict)
+            internal_session_id, context = await browser_manager.create_context(
+                auth_state_path=auth_state_path, proxy_dict=proxy_dict
+            )
             page = await browser_manager.new_page(context)
             auth = UTCMSAuthenticator(page, context)
 
@@ -389,7 +404,11 @@ class ManagementService:
 
     async def list_queue(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
-            rows = (await session.execute(select(ManagedQueueItem).order_by(col(ManagedQueueItem.updated_at).desc()))).scalars().all()
+            rows = (
+                (await session.execute(select(ManagedQueueItem).order_by(col(ManagedQueueItem.updated_at).desc())))
+                .scalars()
+                .all()
+            )
             return [self._queue_to_dict(row) for row in rows]
 
     async def summary(self) -> dict[str, Any]:
@@ -422,13 +441,14 @@ class ManagementService:
         issues = {
             "accounts_missing_route": [item["external_name"] for item in accounts if not item.get("route_key")],
             "accounts_missing_phone": [item["external_name"] for item in accounts if not item.get("phone_number")],
-            "accounts_missing_national_code": [item["external_name"] for item in accounts if not item.get("national_code")],
+            "accounts_missing_national_code": [
+                item["external_name"] for item in accounts if not item.get("national_code")
+            ],
             "accounts_missing_location": [
                 item["external_name"]
                 for item in accounts
-                if item.get("has_valid_location") is False or (
-                    not item.get("source_details") and not item.get("destination_detail")
-                )
+                if item.get("has_valid_location") is False
+                or (not item.get("source_details") and not item.get("destination_detail"))
             ],
             "accounts_inactive": [item["external_name"] for item in accounts if item.get("start_shipping") is False],
             "accounts_waiting_otp": [item["external_name"] for item in accounts if item.get("otp_needed") is True],
@@ -446,9 +466,7 @@ class ManagementService:
             "routes_disabled": [item["route_key"] for item in routes if item.get("enabled") is False],
             "queue_missing_payload": [item["queue_item_id"] for item in queue if not item.get("payload")],
             "queue_failed_or_blocked": [
-                item["queue_item_id"]
-                for item in queue
-                if item.get("status") in {"failed", "blocked", "error"}
+                item["queue_item_id"] for item in queue if item.get("status") in {"failed", "blocked", "error"}
             ],
             "customers_without_wallet": [item["external_key"] for item in customers if not item.get("wallet")],
         }
@@ -456,24 +474,30 @@ class ManagementService:
         return {
             "summary": await self.summary(),
             "readiness": {
-                "accounts_ready_for_dispatch": len([
-                    item for item in accounts
-                    if item.get("start_shipping") is True
-                    and item.get("otp_needed") is not True
-                    and item.get("has_driver_data") is not False
-                    and item.get("has_truck_data") is not False
-                    and item.get("has_valid_location") is not False
-                    and item.get("route_key")
-                    and self._account_has_session_state(item)
-                ]),
-                "routes_ready": len([
-                    item for item in routes
-                    if item.get("enabled") is True
-                    and item.get("origin_lat") is not None
-                    and item.get("origin_lng") is not None
-                    and item.get("destination_lat") is not None
-                    and item.get("destination_lng") is not None
-                ]),
+                "accounts_ready_for_dispatch": len(
+                    [
+                        item
+                        for item in accounts
+                        if item.get("start_shipping") is True
+                        and item.get("otp_needed") is not True
+                        and item.get("has_driver_data") is not False
+                        and item.get("has_truck_data") is not False
+                        and item.get("has_valid_location") is not False
+                        and item.get("route_key")
+                        and self._account_has_session_state(item)
+                    ]
+                ),
+                "routes_ready": len(
+                    [
+                        item
+                        for item in routes
+                        if item.get("enabled") is True
+                        and item.get("origin_lat") is not None
+                        and item.get("origin_lng") is not None
+                        and item.get("destination_lat") is not None
+                        and item.get("destination_lng") is not None
+                    ]
+                ),
                 "queued_with_payload": len([item for item in queue if item.get("payload")]),
             },
             "issues": {
@@ -513,7 +537,9 @@ class ManagementService:
                     "relative_path": relative,
                     "size_bytes": path.stat().st_size,
                     "modified_at": datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat(),
-                    "content_type": "json" if path.suffix == ".json" else ("html" if path.suffix == ".html" else path.suffix.lstrip(".")),
+                    "content_type": "json"
+                    if path.suffix == ".json"
+                    else ("html" if path.suffix == ".html" else path.suffix.lstrip(".")),
                 }
             )
         files.sort(key=lambda item: item["modified_at"], reverse=True)
@@ -612,16 +638,30 @@ class ManagementService:
             or getattr(payload.vehicle, "driver_national_code", None)
             or _slug_text(getattr(payload.vehicle, "plate", None), "managed-account")
         )
-        account_phone_number = request.account_phone_number or getattr(payload.vehicle, "driver_phone", None) or getattr(payload.sender, "phone", None)
+        account_phone_number = (
+            request.account_phone_number
+            or getattr(payload.vehicle, "driver_phone", None)
+            or getattr(payload.sender, "phone", None)
+        )
         account_national_code = request.account_national_code or getattr(payload.vehicle, "driver_national_code", None)
         shipping_options = getattr(payload, "shipping_options", None)
         two_way = request.two_way if request.two_way is not None else getattr(shipping_options, "two_way", False)
-        time_interval = request.time_interval if request.time_interval is not None else getattr(shipping_options, "time_limit", None)
-        otp_needed = request.otp_needed if request.otp_needed is not None else bool(getattr(shipping_options, "otp", None))
+        time_interval = (
+            request.time_interval
+            if request.time_interval is not None
+            else getattr(shipping_options, "time_limit", None)
+        )
+        otp_needed = (
+            request.otp_needed if request.otp_needed is not None else bool(getattr(shipping_options, "otp", None))
+        )
         origin_lat = getattr(payload.origin.coordinates, "lat", None) if payload.origin.coordinates else None
         origin_lng = getattr(payload.origin.coordinates, "lng", None) if payload.origin.coordinates else None
-        destination_lat = getattr(payload.destination.coordinates, "lat", None) if payload.destination.coordinates else None
-        destination_lng = getattr(payload.destination.coordinates, "lng", None) if payload.destination.coordinates else None
+        destination_lat = (
+            getattr(payload.destination.coordinates, "lat", None) if payload.destination.coordinates else None
+        )
+        destination_lng = (
+            getattr(payload.destination.coordinates, "lng", None) if payload.destination.coordinates else None
+        )
         distance_km, duration_minutes = _estimate_route_metrics(
             origin_lat,
             origin_lng,
@@ -700,11 +740,13 @@ class ManagementService:
                 last_success=None,
                 source_details_json=_safe_json_dump(source_details),
                 destination_detail_json=_safe_json_dump(destination_details),
-                mobile_info_json=_safe_json_dump({
-                    "sender_phone": getattr(payload.sender, "phone", None),
-                    "receiver_phone": getattr(payload.receiver, "phone", None),
-                    "driver_phone": getattr(payload.vehicle, "driver_phone", None),
-                }),
+                mobile_info_json=_safe_json_dump(
+                    {
+                        "sender_phone": getattr(payload.sender, "phone", None),
+                        "receiver_phone": getattr(payload.receiver, "phone", None),
+                        "driver_phone": getattr(payload.vehicle, "driver_phone", None),
+                    }
+                ),
                 payment_details_json=_safe_json_dump(payload.financial.model_dump(mode="json")),
                 flags={
                     "source": "bootstrap_local_scenario",
@@ -752,7 +794,9 @@ class ManagementService:
             "queue_item": queue_item,
         }
 
-    async def import_excel_workbook(self, content: bytes, filename: str, options: ManagementExcelImportOptions) -> dict[str, Any]:
+    async def import_excel_workbook(
+        self, content: bytes, filename: str, options: ManagementExcelImportOptions
+    ) -> dict[str, Any]:
         suffix = os.path.splitext(filename or "")[1] or ".xlsx"
         temp_path = None
         geo_resolver = ReverseGeoResolver(enabled=options.reverse_geo_enabled)
@@ -791,7 +835,9 @@ class ManagementService:
                             bot_owner=options.bot_owner,
                             wallet=options.wallet,
                             driver_limit=options.driver_limit,
-                            account_external_name=excerpt.get("username") or excerpt.get("driver_national_code") or f"excel-row-{row_index}",
+                            account_external_name=excerpt.get("username")
+                            or excerpt.get("driver_national_code")
+                            or f"excel-row-{row_index}",
                             account_title=excerpt.get("sender"),
                             account_phone_number=getattr(waybill_payload.vehicle, "driver_phone", None),
                             account_national_code=excerpt.get("driver_national_code"),
@@ -924,10 +970,13 @@ class ManagementService:
             await session.refresh(record)
             return self._queue_to_dict(record)
 
-
     async def get_sync_logs(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
-            rows = (await session.execute(select(ManagedSyncLog).order_by(col(ManagedSyncLog.created_at).desc()))).scalars().all()
+            rows = (
+                (await session.execute(select(ManagedSyncLog).order_by(col(ManagedSyncLog.created_at).desc())))
+                .scalars()
+                .all()
+            )
             return [
                 {
                     "id": row.id,

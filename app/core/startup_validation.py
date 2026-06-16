@@ -1,4 +1,5 @@
 """Startup validation for critical configuration."""
+
 import logging
 import os
 
@@ -40,7 +41,9 @@ def validate_environment() -> tuple[bool, list[str]]:
     is_prod = os.getenv("NODE_ENV", "").lower() == "production" or os.getenv("ENVIRONMENT", "").lower() == "production"
     if not db_url or "sqlite" in db_url.lower():
         if is_prod:
-            errors.append("DATABASE_URL is not set or using SQLite in production. This is a critical security and scalability risk.")
+            errors.append(
+                "DATABASE_URL is not set or using SQLite in production. This is a critical security and scalability risk."
+            )
         elif not db_url:
             warnings.append("DATABASE_URL not set, using default SQLite")
 
@@ -54,15 +57,21 @@ def validate_environment() -> tuple[bool, list[str]]:
     utcms_user = os.getenv("UTCMS_USERNAME", "")
     utcms_pass = os.getenv("UTCMS_PASSWORD", "")
     if utcms_user or utcms_pass:
-        warnings.append("Global UTCMS_USERNAME/UTCMS_PASSWORD are legacy-only; prefer per-driver credentials in the database")
+        warnings.append(
+            "Global UTCMS_USERNAME/UTCMS_PASSWORD are legacy-only; prefer per-driver credentials in the database"
+        )
 
     master_pass = os.getenv("MASTER_ADMIN_PASSWORD", "master_bar")
 
     insecure_passwords = ["master_bar", "admin", "Amir123", "password", "123456", "admin123"]
     if master_pass in insecure_passwords:
-        is_prod = os.getenv("NODE_ENV", "").lower() == "production" or os.getenv("ENVIRONMENT", "").lower() == "production"
+        is_prod = (
+            os.getenv("NODE_ENV", "").lower() == "production" or os.getenv("ENVIRONMENT", "").lower() == "production"
+        )
         if is_prod:
-            errors.append("MASTER_ADMIN_PASSWORD is set to an insecure default value. This is a critical security risk. Change it before running in production.")
+            errors.append(
+                "MASTER_ADMIN_PASSWORD is set to an insecure default value. This is a critical security risk. Change it before running in production."
+            )
         else:
             warnings.append("MASTER_ADMIN_PASSWORD is using default credentials; change it before production")
 
@@ -94,4 +103,5 @@ def validate_or_exit() -> None:
     if not is_valid:
         logger.critical("Cannot start application due to configuration errors")
         import sys
+
         sys.exit(1)

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { useSession } from '@/hooks/useSession';
@@ -15,18 +15,23 @@ export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
   const router = useRouter();
   const { isAuthenticated, isReady, role } = useSession();
   const hasRequiredRole = requiredRole ? role === requiredRole : true;
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (isReady && !isAuthenticated) {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (mounted && isReady && !isAuthenticated) {
       router.replace('/auth');
       return;
     }
-    if (isReady && isAuthenticated && requiredRole && !hasRequiredRole) {
+    if (mounted && isReady && isAuthenticated && requiredRole && !hasRequiredRole) {
       router.replace(role === 'master_admin' ? '/admin' : '/');
     }
-  }, [hasRequiredRole, isAuthenticated, isReady, requiredRole, role, router]);
+  }, [hasRequiredRole, isAuthenticated, isReady, requiredRole, role, router, mounted]);
 
-  if (!isReady) {
+  if (!mounted || !isReady) {
     return <div className="rounded-[28px] border border-white/20 bg-white/70 p-8 text-sm text-slate-500">در حال آماده‌سازی پنل...</div>;
   }
 

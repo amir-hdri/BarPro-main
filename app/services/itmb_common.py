@@ -36,4 +36,3 @@ def resolve_itmb_auth(
         service_password=resolved_password,
     )
     return resolved_company_code, resolved_salt, generated_hash
-

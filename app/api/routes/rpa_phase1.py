@@ -1,4 +1,5 @@
 """Operational APIs for the Phase 1 hybrid multi-tenant RPA backend."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -52,7 +53,9 @@ async def get_driver_runtime_state(
         raise HTTPException(status_code=404, detail="Driver not found")
     runtime_state = (
         await session.exec(
-            select(DriverRuntimeState).where(DriverRuntimeState.client_id == client.id, DriverRuntimeState.driver_id == driver_id)
+            select(DriverRuntimeState).where(
+                DriverRuntimeState.client_id == client.id, DriverRuntimeState.driver_id == driver_id
+            )
         )
     ).first()
     if runtime_state is None:

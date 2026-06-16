@@ -9,6 +9,7 @@ This service:
 - Prevents duplicate execution via slot signatures
 - Reports results back to the database
 """
+
 import asyncio
 import json
 import logging
@@ -143,6 +144,7 @@ async def _execute_single_job(
     """Execute a single waybill job with retry logic."""
     if attempt == 1:
         import random
+
         start_jitter = random.uniform(1.0, 5.0)
         logger.info(f"Adding start jitter of {start_jitter:.2f}s for scheduled job {job.job_id}")
         await asyncio.sleep(start_jitter)
@@ -163,7 +165,10 @@ async def _execute_single_job(
     proxy_info = await get_proxy_rotator().get_next()
     proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
 
-    async with managed_browser_session(auth_state_path=auth_state_path, proxy_dict=proxy_dict) as (_session_id, context):
+    async with managed_browser_session(auth_state_path=auth_state_path, proxy_dict=proxy_dict) as (
+        _session_id,
+        context,
+    ):
         page = await browser_manager.new_page(context)
         try:
             bot = WaybillAutomationBot(page, context)
@@ -178,10 +183,17 @@ async def _execute_single_job(
 
             if status_str == "success":
                 await _add_log(session, job_id, client.id, "submit", "success", "Waybill submitted successfully")
-                await _record_event(session, client.id, driver.id, job_id, JOB_EXECUTION_SUCCEEDED, {
-                    "attempt": attempt,
-                    "steps": result.get("steps", []),
-                })
+                await _record_event(
+                    session,
+                    client.id,
+                    driver.id,
+                    job_id,
+                    JOB_EXECUTION_SUCCEEDED,
+                    {
+                        "attempt": attempt,
+                        "steps": result.get("steps", []),
+                    },
+                )
                 return result
             elif status_str == "otp_backoff":
                 retry_minutes = int(result.get("next_retry_at_minutes_add", 60))
@@ -193,19 +205,39 @@ async def _execute_single_job(
                 job.error_category = "otp_required"
                 job.attempt_count += 1
                 await session.commit()
-                await _add_log(session, job_id, client.id, "retry_scheduled", "success",
-                               f"Retry scheduled in {retry_minutes} minutes")
-                await _record_event(session, client.id, driver.id, job_id, JOB_RETRY_SCHEDULED, {
-                    "retry_at": retry_at.isoformat(),
-                    "attempt": attempt,
-                })
+                await _add_log(
+                    session,
+                    job_id,
+                    client.id,
+                    "retry_scheduled",
+                    "success",
+                    f"Retry scheduled in {retry_minutes} minutes",
+                )
+                await _record_event(
+                    session,
+                    client.id,
+                    driver.id,
+                    job_id,
+                    JOB_RETRY_SCHEDULED,
+                    {
+                        "retry_at": retry_at.isoformat(),
+                        "attempt": attempt,
+                    },
+                )
                 return {**result, "status": TaskStatus.WAITING_RETRY.value}
             else:
                 await _add_log(session, job_id, client.id, "submit", "failed", result.get("error", "Unknown error"))
-                await _record_event(session, client.id, driver.id, job_id, JOB_EXECUTION_FAILED, {
-                    "error": result.get("error"),
-                    "attempt": attempt,
-                })
+                await _record_event(
+                    session,
+                    client.id,
+                    driver.id,
+                    job_id,
+                    JOB_EXECUTION_FAILED,
+                    {
+                        "error": result.get("error"),
+                        "attempt": attempt,
+                    },
+                )
 
                 if _is_retryable(result) and attempt < MAX_RETRIES:
                     delay = min(RETRY_BASE_DELAY * (2 ** (attempt - 1)), RETRY_MAX_DELAY)
@@ -308,6 +340,7 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
 def dispatch_scheduled_job(job_id: int):
     """Dispatch a scheduled waybill job execution to Celery."""
     from app.workers.celery_app import celery_app
+
     if celery_app is not None:
         celery_app.send_task(
             "scheduled.waybill.run_job",
@@ -317,6 +350,7 @@ def dispatch_scheduled_job(job_id: int):
     else:
         logger.warning(f"Celery is not available. Executing scheduled job {job_id} synchronously in background task.")
         import asyncio
+
         asyncio.create_task(execute_scheduled_job_by_id(job_id))
 
 
@@ -345,9 +379,11 @@ async def evaluate_and_run_schedules() -> dict[str, Any]:
         "ended_at": None,
     }
     try:
-        stmt = select(DriverSchedule).where(
-            DriverSchedule.is_active.is_(True)
-        ).order_by(col(DriverSchedule.created_at).asc())
+        stmt = (
+            select(DriverSchedule)
+            .where(DriverSchedule.is_active.is_(True))
+            .order_by(col(DriverSchedule.created_at).asc())
+        )
         result = await session.exec(stmt)
         schedules = result.all()
 
@@ -442,7 +478,13 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
     )
     existing = (await session.exec(existing_stmt)).first()
     if existing:
-        return {"jobs_created": 0, "jobs_success": 0, "jobs_failed": 0, "skipped": True, "reason": "duplicate_idempotency"}
+        return {
+            "jobs_created": 0,
+            "jobs_success": 0,
+            "jobs_failed": 0,
+            "skipped": True,
+            "reason": "duplicate_idempotency",
+        }
 
     new_job = WaybillJob(
         job_id=f"job_{uuid.uuid4().hex[:16]}",
@@ -454,7 +496,9 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
         payload_json=json.dumps(payload, ensure_ascii=False),
         max_retries=3,
         correlation_id=f"schedule:{schedule.id}",
-        business_date=utcms_config.BUSINESS_DATE_PROVIDER() if hasattr(utcms_config, 'BUSINESS_DATE_PROVIDER') and callable(utcms_config.BUSINESS_DATE_PROVIDER) else _utcnow().strftime("%Y-%m-%d"),
+        business_date=utcms_config.BUSINESS_DATE_PROVIDER()
+        if hasattr(utcms_config, "BUSINESS_DATE_PROVIDER") and callable(utcms_config.BUSINESS_DATE_PROVIDER)
+        else _utcnow().strftime("%Y-%m-%d"),
         priority=5,
         schedule_id=schedule.id,
     )
@@ -462,11 +506,18 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
     await session.commit()
     await session.refresh(new_job)
 
-    await _record_event(session, schedule.client_id, driver.id, new_job.job_id, JOB_CREATED, {
-        "source": "scheduled",
-        "schedule_id": schedule.id,
-        "timeslot": target_slot,
-    })
+    await _record_event(
+        session,
+        schedule.client_id,
+        driver.id,
+        new_job.job_id,
+        JOB_CREATED,
+        {
+            "source": "scheduled",
+            "schedule_id": schedule.id,
+            "timeslot": target_slot,
+        },
+    )
 
     # Dispatch the job to Celery worker asynchronously
     dispatch_scheduled_job(new_job.id)
@@ -507,14 +558,20 @@ async def retry_failed_scheduled_jobs() -> dict[str, Any]:
     try:
         now = _utcnow()
 
-        stmt = select(WaybillJob).where(
-            col(WaybillJob.status).in_([
-                TaskStatus.WAITING_RETRY.value,
-                TaskStatus.RETRYING.value,
-            ]),
-            WaybillJob.schedule_id.is_not(None),
-            (col(WaybillJob.next_retry_at).is_(None)) | (col(WaybillJob.next_retry_at) <= now),
-        ).order_by(col(WaybillJob.priority).desc())
+        stmt = (
+            select(WaybillJob)
+            .where(
+                col(WaybillJob.status).in_(
+                    [
+                        TaskStatus.WAITING_RETRY.value,
+                        TaskStatus.RETRYING.value,
+                    ]
+                ),
+                WaybillJob.schedule_id.is_not(None),
+                (col(WaybillJob.next_retry_at).is_(None)) | (col(WaybillJob.next_retry_at) <= now),
+            )
+            .order_by(col(WaybillJob.priority).desc())
+        )
 
         result = await session.exec(stmt)
         retryable_jobs = result.all()

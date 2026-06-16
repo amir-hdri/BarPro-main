@@ -15,17 +15,18 @@ from playwright.async_api import Page
 # HUMAN-LIKE TYPING ENGINE
 # ============================================================================
 
+
 class TypingProfile:
     """Simulates different human typing profiles."""
 
-    # Typing speeds (characters per minute)
-    SLOW = {"min_delay": 0.08, "max_delay": 0.20, "name": "slow"}
-    AVERAGE = {"min_delay": 0.05, "max_delay": 0.15, "name": "average"}
-    FAST = {"min_delay": 0.03, "max_delay": 0.10, "name": "fast"}
+    # Typing speeds (characters per minute) - OPTIMIZED FOR SPEED
+    SLOW = {"min_delay": 0.02, "max_delay": 0.06, "name": "slow"}
+    AVERAGE = {"min_delay": 0.01, "max_delay": 0.04, "name": "average"}
+    FAST = {"min_delay": 0.005, "max_delay": 0.02, "name": "fast"}
 
     # Special patterns
-    HUNT_AND_PECK = {"min_delay": 0.12, "max_delay": 0.30, "name": "hunt_and_peck"}
-    PROFESSIONAL = {"min_delay": 0.02, "max_delay": 0.08, "name": "professional"}
+    HUNT_AND_PECK = {"min_delay": 0.03, "max_delay": 0.08, "name": "hunt_and_peck"}
+    PROFESSIONAL = {"min_delay": 0.002, "max_delay": 0.01, "name": "professional"}
 
 
 async def human_type(
@@ -57,7 +58,7 @@ async def human_type(
     await element.click()
 
     # Initial pause before typing (human thinks before typing)
-    await asyncio.sleep(random.uniform(0.2, 0.6))
+    await asyncio.sleep(random.uniform(0.05, 0.15))
 
     min_delay = profile["min_delay"]
     max_delay = profile["max_delay"]
@@ -83,15 +84,14 @@ async def human_type(
         else:
             # Normal typing with variable delays
             delay = _calculate_typing_delay(
-                char, min_delay, max_delay,
-                pause_on_punctuation, pause_on_capitals, random_hesitation
+                char, min_delay, max_delay, pause_on_punctuation, pause_on_capitals, random_hesitation
             )
             await element.press(char)
             await asyncio.sleep(delay)
             i += 1
 
     # Final pause after typing (human reviews what they typed)
-    await asyncio.sleep(random.uniform(0.1, 0.4))
+    await asyncio.sleep(random.uniform(0.05, 0.1))
 
 
 def _calculate_typing_delay(
@@ -100,7 +100,7 @@ def _calculate_typing_delay(
     max_delay: float,
     pause_on_punctuation: bool,
     pause_on_capitals: bool,
-    random_hesitation: bool
+    random_hesitation: bool,
 ) -> float:
     """Calculate realistic delay for typing a character."""
     base_delay = random.uniform(min_delay, max_delay)
@@ -131,14 +131,32 @@ def _calculate_typing_delay(
 def _generate_wrong_char(correct_char: str) -> str:
     """Generate a wrong character close to the correct one (keyboard proximity)."""
     keyboard_layout = {
-        'q': 'qwertasdfgzxcvb', 'w': 'qwertasdfgsdxcv', 'e': 'wertdfsrfcvbg',
-        'r': 'ertydfgvcbh', 't': 'tyrtfgvhn', 'y': 'yutghbnjm',
-        'u': 'uiyhjnmk', 'i': 'iojnmk,l', 'o': 'opkml,.', 'p': 'pol;./',
-        'a': 'aqwsxzdecfrv', 's': 'swaqxdecfrvgt', 'd': 'desrfcvgt',
-        'f': 'fdertgbvhn', 'g': 'gftybhnjm', 'h': 'hgyujnmk',
-        'j': 'jhuikm,l', 'k': 'kjio l,./', 'l': 'lkop;./',
-        'z': 'zaxscdefvb', 'x': 'xzsd cvfgb', 'c': 'cxdfvbg',
-        'v': 'vcfgbhn', 'b': 'bvgtnh', 'n': 'nbhjm', 'm': 'mnjk,',
+        "q": "qwertasdfgzxcvb",
+        "w": "qwertasdfgsdxcv",
+        "e": "wertdfsrfcvbg",
+        "r": "ertydfgvcbh",
+        "t": "tyrtfgvhn",
+        "y": "yutghbnjm",
+        "u": "uiyhjnmk",
+        "i": "iojnmk,l",
+        "o": "opkml,.",
+        "p": "pol;./",
+        "a": "aqwsxzdecfrv",
+        "s": "swaqxdecfrvgt",
+        "d": "desrfcvgt",
+        "f": "fdertgbvhn",
+        "g": "gftybhnjm",
+        "h": "hgyujnmk",
+        "j": "jhuikm,l",
+        "k": "kjio l,./",
+        "l": "lkop;./",
+        "z": "zaxscdefvb",
+        "x": "xzsd cvfgb",
+        "c": "cxdfvbg",
+        "v": "vcfgbhn",
+        "b": "bvgtnh",
+        "n": "nbhjm",
+        "m": "mnjk,",
     }
 
     lower_char = correct_char.lower()
@@ -153,6 +171,7 @@ def _generate_wrong_char(correct_char: str) -> str:
 # ============================================================================
 # ADVANCED MOUSE MOVEMENT ENGINE
 # ============================================================================
+
 
 class MouseMovementEngine:
     """Generates human-like mouse movement patterns."""
@@ -188,8 +207,8 @@ class MouseMovementEngine:
                 return None
 
             # Calculate target position (center of element with slight random offset)
-            target_x = box['x'] + box['width'] / 2 + random.uniform(-3, 3)
-            target_y = box['y'] + box['height'] / 2 + random.uniform(-3, 3)
+            target_x = box["x"] + box["width"] / 2 + random.uniform(-3, 3)
+            target_y = box["y"] + box["height"] / 2 + random.uniform(-3, 3)
 
             # Get current mouse position (or use random starting point)
             start_x = random.randint(100, 400)
@@ -197,13 +216,9 @@ class MouseMovementEngine:
 
             # Generate movement path
             if use_bezier:
-                path = _generate_bezier_path(
-                    start_x, start_y, target_x, target_y, steps
-                )
+                path = _generate_bezier_path(start_x, start_y, target_x, target_y, steps)
             else:
-                path = _generate_linear_path(
-                    start_x, start_y, target_x, target_y, steps
-                )
+                path = _generate_linear_path(start_x, start_y, target_x, target_y, steps)
 
             # Execute movement with variable speed
             for i, (x, y) in enumerate(path):
@@ -223,7 +238,7 @@ class MouseMovementEngine:
 
             # Hover pause before click (human behavior)
             if hover_before_click:
-                await asyncio.sleep(random.uniform(0.1, 0.4))
+                await asyncio.sleep(random.uniform(0.05, 0.1))
 
             return (target_x, target_y)
 
@@ -254,9 +269,7 @@ class MouseMovementEngine:
 
             if use_human_movement:
                 # Move mouse to element
-                target = await MouseMovementEngine.move_to_element(
-                    page, selector, hover_before_click=True
-                )
+                target = await MouseMovementEngine.move_to_element(page, selector, hover_before_click=True)
 
                 if target:
                     # Perform click
@@ -267,14 +280,14 @@ class MouseMovementEngine:
                         await page.mouse.click(target[0], target[1])
 
                     # Post-click pause
-                    await asyncio.sleep(random.uniform(0.2, 0.6))
+                    await asyncio.sleep(random.uniform(0.05, 0.15))
                     return True
             else:
                 # Direct click with small random offset
                 box = await element.bounding_box()
                 if box:
-                    x = box['x'] + box['width'] / 2 + random.uniform(-2, 2)
-                    y = box['y'] + box['height'] / 2 + random.uniform(-2, 2)
+                    x = box["x"] + box["width"] / 2 + random.uniform(-2, 2)
+                    y = box["y"] + box["height"] / 2 + random.uniform(-2, 2)
 
                     if wait_for_navigation:
                         async with page.expect_navigation(timeout=15000):
@@ -282,7 +295,7 @@ class MouseMovementEngine:
                     else:
                         await page.mouse.click(x, y)
 
-                    await asyncio.sleep(random.uniform(0.2, 0.6))
+                    await asyncio.sleep(random.uniform(0.05, 0.15))
                     return True
 
             return False
@@ -292,9 +305,7 @@ class MouseMovementEngine:
 
 
 def _generate_bezier_path(
-    start_x: float, start_y: float,
-    end_x: float, end_y: float,
-    steps: int
+    start_x: float, start_y: float, end_x: float, end_y: float, steps: int
 ) -> list[tuple[float, float]]:
     """Generate cubic bezier curve path for mouse movement."""
     # Control points for natural curve
@@ -315,8 +326,8 @@ def _generate_bezier_path(
         t = i / steps
 
         # Cubic bezier formula
-        x = (1-t)**3 * start_x + 3*(1-t)**2*t * cp1_x + 3*(1-t)*t**2 * cp2_x + t**3 * end_x
-        y = (1-t)**3 * start_y + 3*(1-t)**2*t * cp1_y + 3*(1-t)*t**2 * cp2_y + t**3 * end_y
+        x = (1 - t) ** 3 * start_x + 3 * (1 - t) ** 2 * t * cp1_x + 3 * (1 - t) * t**2 * cp2_x + t**3 * end_x
+        y = (1 - t) ** 3 * start_y + 3 * (1 - t) ** 2 * t * cp1_y + 3 * (1 - t) * t**2 * cp2_y + t**3 * end_y
 
         path.append((x, y))
 
@@ -324,9 +335,7 @@ def _generate_bezier_path(
 
 
 def _generate_linear_path(
-    start_x: float, start_y: float,
-    end_x: float, end_y: float,
-    steps: int
+    start_x: float, start_y: float, end_x: float, end_y: float, steps: int
 ) -> list[tuple[float, float]]:
     """Generate linear path with slight wobble."""
     path = []
@@ -345,13 +354,14 @@ def _calculate_mouse_delay(t: float) -> float:
     """
     # Parabolic speed curve: slower at edges, faster in middle
     speed_factor = 1.0 - 0.6 * (1 - 4 * (t - 0.5) ** 2)
-    base_delay = random.uniform(0.005, 0.02)
+    base_delay = random.uniform(0.001, 0.005)
     return base_delay / max(0.3, speed_factor)
 
 
 # ============================================================================
 # HUMAN BEHAVIOR SIMULATION
 # ============================================================================
+
 
 class HumanBehaviorSimulator:
     """Simulates comprehensive human browsing behavior."""
@@ -410,15 +420,12 @@ class HumanBehaviorSimulator:
 # TIMING & DELAY UTILITIES
 # ============================================================================
 
+
 class HumanTiming:
     """Manages realistic timing between actions."""
 
     @staticmethod
-    async def random_delay(
-        min_seconds: float = 0.5,
-        max_seconds: float = 2.0,
-        distribution: str = "uniform"
-    ) -> None:
+    async def random_delay(min_seconds: float = 0.5, max_seconds: float = 2.0, distribution: str = "uniform") -> None:
         """
         Add random delay with different distribution options.
 
@@ -454,13 +461,13 @@ class HumanTiming:
             action_type: Type of action ('page_load', 'click', 'form_fill', 'submit', 'default')
         """
         delays = {
-            "page_load": (1.0, 3.5),
-            "click": (0.3, 1.2),
-            "form_fill": (0.5, 2.0),
-            "submit": (1.0, 3.0),
-            "default": (0.5, 2.0),
-            "captcha_solve": (2.0, 5.0),
-            "navigation": (1.5, 4.0),
+            "page_load": (0.2, 0.5),
+            "click": (0.1, 0.3),
+            "form_fill": (0.1, 0.4),
+            "submit": (0.2, 0.6),
+            "default": (0.1, 0.4),
+            "captcha_solve": (0.5, 1.5),
+            "navigation": (0.3, 0.8),
         }
 
         min_delay, max_delay = delays.get(action_type, delays["default"])
@@ -471,12 +478,8 @@ class HumanTiming:
 # CONVENIENCE WRAPPERS
 # ============================================================================
 
-async def type_with_human_delays(
-    page: Page,
-    selector: str,
-    text: str,
-    speed: str = "average"
-) -> None:
+
+async def type_with_human_delays(page: Page, selector: str, text: str, speed: str = "average") -> None:
     """Convenience wrapper for human-like typing."""
     profiles = {
         "slow": TypingProfile.SLOW,
@@ -490,20 +493,11 @@ async def type_with_human_delays(
     await human_type(page, selector, text, profile=profile)
 
 
-async def click_with_human_movement(
-    page: Page,
-    selector: str,
-    wait_for_navigation: bool = False
-) -> bool:
+async def click_with_human_movement(page: Page, selector: str, wait_for_navigation: bool = False) -> bool:
     """Convenience wrapper for human-like clicking."""
-    return await MouseMovementEngine.click_element(
-        page, selector, wait_for_navigation=wait_for_navigation
-    )
+    return await MouseMovementEngine.click_element(page, selector, wait_for_navigation=wait_for_navigation)
 
 
-async def wait_like_human(
-    min_seconds: float = 1.0,
-    max_seconds: float = 3.0
-) -> None:
+async def wait_like_human(min_seconds: float = 1.0, max_seconds: float = 3.0) -> None:
     """Convenience wrapper for human-like waiting."""
     await HumanTiming.random_delay(min_seconds, max_seconds)

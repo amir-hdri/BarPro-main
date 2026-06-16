@@ -85,7 +85,8 @@ class WorkerHeartbeatRegistry:
                     "stalled_for_seconds": round(now - lease.last_heartbeat_at, 2),
                 }
                 for task_id, lease in self._leases.items()
-                if (now - lease.last_heartbeat_at) > timeout_seconds and lease.status not in {"succeeded", "failed", "dead_letter"}
+                if (now - lease.last_heartbeat_at) > timeout_seconds
+                and lease.status not in {"succeeded", "failed", "dead_letter"}
             }
         return stalled
 
@@ -109,4 +110,3 @@ def heartbeat_lease(task_id: str, worker_id: str, correlation_id: str, batch_id:
     finally:
         stop_event.set()
         thread.join(timeout=0.2)
-

@@ -183,13 +183,13 @@ export default function HistoryPage() {
     <AppShell>
       <AuthGuard requiredRole="client">
         <section className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
-          <div className="rounded-[40px] border border-slate-200 bg-white p-8 shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-50 pb-6">
+          <div className="relative overflow-hidden rounded-[2rem] lg:rounded-[3rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 md:p-8 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/5 pb-6">
               <div>
-                <h1 className="text-2xl font-black text-slate-900">پیگیری عملیات</h1>
-                <p className="mt-1 text-sm text-slate-500">مشاهده صف، خطاها و روند پیشرفت هر ماموریت</p>
+                <h1 className="text-2xl font-black text-white bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">پیگیری عملیات</h1>
+                <p className="mt-1 text-sm text-slate-400 font-medium">مشاهده صف, خطاها و روند پیشرفت هر ماموریت</p>
               </div>
-              <span className="rounded-full bg-slate-900 px-4 py-1.5 text-xs font-bold text-white shadow-lg shadow-slate-900/10">
+              <span className="rounded-full bg-cyan-500/10 border border-cyan-500/20 px-4 py-1.5 text-xs font-bold text-cyan-400 shadow-md">
                 {toPersianDigits(jobs.length)} مورد
               </span>
             </div>
@@ -197,12 +197,12 @@ export default function HistoryPage() {
             {loading ? (
               <div className="mt-6 space-y-4">
                 {[1, 2, 3, 4].map((item) => (
-                  <div key={item} className="h-28 animate-pulse rounded-[28px] bg-slate-50" />
+                  <div key={item} className="h-28 skeleton" />
                 ))}
               </div>
             ) : jobs.length === 0 ? (
-              <div className="mt-10 flex flex-col items-center justify-center rounded-[32px] border-2 border-dashed border-slate-100 py-16">
-                <p className="text-sm font-medium text-slate-400">هنوز ماموریتی برای نمایش وجود ندارد.</p>
+              <div className="mt-10 flex flex-col items-center justify-center rounded-[2rem] border-2 border-dashed border-white/5 py-16">
+                <p className="text-sm font-medium text-slate-500">هنوز ماموریتی برای نمایش وجود ندارد.</p>
               </div>
             ) : (
               <div className="mt-6 space-y-3">
@@ -211,23 +211,29 @@ export default function HistoryPage() {
                     key={job.job_id}
                     onClick={() => setSelectedJobId(job.job_id)}
                     className={[
-                      'group w-full cursor-pointer rounded-[28px] border p-5 text-right transition-all duration-200',
+                      'group w-full cursor-pointer rounded-2xl border p-5 text-right transition-all duration-200',
                       selectedJobId === job.job_id 
-                        ? 'border-cyan-200 bg-cyan-50 shadow-md' 
-                        : 'border-slate-50 bg-slate-50/50 hover:border-slate-200 hover:bg-white hover:shadow-sm',
+                        ? 'border-cyan-500/30 bg-slate-950/60 shadow-[0_0_15px_rgba(6,182,212,0.1)] text-cyan-400' 
+                        : 'border-white/5 bg-slate-950/30 hover:border-white/10 hover:bg-slate-950/50 hover:shadow-md',
                     ].join(' ')}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <p className="font-black text-slate-900 group-hover:text-cyan-600">#{job.job_id}</p>
-                        <p className="mt-0.5 text-xs font-medium text-slate-400">ایجاد در {formatDateTime(job.created_at)}</p>
+                        <p className={`font-black transition-colors ${selectedJobId === job.job_id ? 'text-cyan-400' : 'text-slate-100 group-hover:text-cyan-400'}`}>
+                          {job.driver_name ? `ثبت بارنامه برای ${job.driver_name}` : `عملیات ثبت بارنامه`}
+                        </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-medium text-slate-400">
+                          <span className="font-mono bg-slate-950/60 border border-white/5 text-slate-300 px-1.5 py-0.5 rounded">شناسه: #{job.job_id.slice(0, 8)}</span>
+                          <span>•</span>
+                          <span>ایجاد در {formatDateTime(job.created_at)}</span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         {(job.status === 'failed' || job.status === 'needs_review' || job.status === 'waiting_auth' || job.status === 'waiting_retry') && (
                           <button
                             onClick={(e) => { e.stopPropagation(); void handleRetry(job.job_id); }}
                             disabled={retryingJobId === job.job_id}
-                            className="rounded-lg bg-cyan-500 px-3 py-1.5 text-[10px] font-bold text-white shadow-sm transition hover:bg-cyan-600 disabled:opacity-50"
+                            className="rounded-lg bg-cyan-500 px-3 py-1.5 text-[10px] font-bold text-slate-950 shadow-sm transition hover:bg-cyan-400 disabled:opacity-50"
                           >
                             {retryingJobId === job.job_id ? '...' : 'تلاش مجدد'}
                           </button>
@@ -237,17 +243,17 @@ export default function HistoryPage() {
                         <div className="relative">
                           <button
                             onClick={(e) => { e.stopPropagation(); handleActionMenuOpen(job.job_id, e); }}
-                            className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors"
+                            className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-955 bg-slate-950 border border-white/5 text-slate-400 hover:bg-slate-900 transition-colors"
                           >
-                            <MoreVertical className="h-4 w-4 text-slate-600" />
+                            <MoreVertical className="h-4 w-4" />
                           </button>
                           
                           {actionMenuJobId === job.job_id && (
-                            <div className="absolute right-0 top-full mt-1 w-48 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg z-50" onClick={(e) => e.stopPropagation()}>
+                            <div className="absolute right-0 top-full mt-1 w-48 rounded-2xl border border-white/5 bg-slate-900/90 backdrop-blur-xl p-2 shadow-2xl z-50" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-end px-3 py-2">
                                 <button
                                   onClick={(e) => { e.stopPropagation(); handleActionMenuClose(e); }}
-                                  className="text-slate-400 hover:text-slate-600"
+                                  className="text-slate-400 hover:text-slate-200"
                                 >
                                   <X className="h-4 w-4" />
                                 </button>
@@ -255,15 +261,15 @@ export default function HistoryPage() {
                               
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleEditModalOpen(job, e); }}
-                                className="w-full flex items-center gap-3 rounded-xl px-4 py-2.5 text-right text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                                className="w-full flex items-center gap-3 rounded-xl px-4 py-2.5 text-right text-sm font-medium text-slate-300 hover:bg-white/5 transition-colors"
                               >
-                                <Edit2 className="h-4 w-4 text-slate-500" />
+                                <Edit2 className="h-4 w-4 text-slate-400" />
                                 ویرایش
                               </button>
                               
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleDeleteModalOpen(job.job_id, e); }}
-                                className="w-full flex items-center gap-3 rounded-xl px-4 py-2.5 text-right text-sm font-medium text-rose-600 hover:bg-rose-50 transition-colors"
+                                className="w-full flex items-center gap-3 rounded-xl px-4 py-2.5 text-right text-sm font-medium text-rose-400 hover:bg-rose-500/10 transition-colors"
                               >
                                 <Trash2 className="h-4 w-4" />
                                 حذف
@@ -278,18 +284,18 @@ export default function HistoryPage() {
                       </div>
                     </div>
                     {job.last_error && (
-                      <div className="mt-3 rounded-xl bg-rose-50/50 p-3 text-[11px] font-medium text-rose-600 border border-rose-100/50">
+                      <div className="mt-3 rounded-xl bg-rose-500/10 p-3 text-[11px] font-medium text-rose-400 border border-rose-500/20">
                         <span className="font-bold">علت خطا:</span> {job.last_error}
                       </div>
                     )}
-                    <div className="mt-4 flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    <div className="mt-4 flex items-center justify-between text-[11px] font-bold uppercase text-slate-500">
                       <div className="flex items-center gap-2">
                         <span>بروزرسانی:</span>
-                        <span className="text-slate-600">{formatDateTime(job.updated_at)}</span>
+                        <span className="text-slate-400">{formatDateTime(job.updated_at)}</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <span>تلاش:</span>
-                        <span className="text-slate-600">{toPersianDigits(job.attempt_count)} از {toPersianDigits(job.max_retries)}</span>
+                        <span className="text-slate-400">{toPersianDigits(job.attempt_count)} از {toPersianDigits(job.max_retries)}</span>
                       </div>
                     </div>
                   </div>
@@ -298,13 +304,13 @@ export default function HistoryPage() {
             )}
 
             {error && (
-              <div className="mt-6 rounded-2xl bg-rose-50 p-4 text-sm font-bold text-rose-700 shadow-sm shadow-rose-100">
+              <div className="mt-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 p-4 text-sm font-bold text-rose-400 shadow-sm shadow-rose-100">
                 {error}
               </div>
             )}
           </div>
 
-          <div className="relative overflow-hidden rounded-[40px] border border-slate-200 bg-slate-950 p-8 text-white shadow-2xl shadow-slate-900/10">
+          <div className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 md:p-8 text-white shadow-2xl">
             <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-cyan-500/10 blur-[80px]"></div>
             
             <div className="relative z-10">
@@ -319,8 +325,8 @@ export default function HistoryPage() {
               </div>
 
               {!selectedJobId ? (
-                <div className="mt-10 flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-white/5 py-20 text-center">
-                  <ListChecks className="h-12 w-12 text-slate-600" />
+                <div className="mt-10 flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/5 py-20 text-center">
+                  <ListChecks className="h-12 w-12 text-slate-500" />
                   <p className="mt-4 text-sm font-medium text-slate-400">برای مشاهده جزئیات، یکی از ماموریت‌ها را انتخاب کنید.</p>
                 </div>
               ) : timelineLoading ? (
@@ -330,7 +336,7 @@ export default function HistoryPage() {
                   ))}
                 </div>
               ) : !timeline || timeline.entries.length === 0 ? (
-                <div className="mt-10 flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-white/5 py-20 text-center">
+                <div className="mt-10 flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/5 py-20 text-center">
                   <p className="text-sm font-medium text-slate-400">هنوز رویدادی برای این ماموریت ثبت نشده است.</p>
                 </div>
               ) : (
@@ -342,7 +348,7 @@ export default function HistoryPage() {
                           <div className={`h-2 w-2 rounded-full ${entry.status === 'success' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.5)]'}`}></div>
                           <h4 className="text-sm font-bold text-slate-200">{entry.title || entry.event_type}</h4>
                         </div>
-                        <time className="text-[10px] font-bold tracking-widest text-slate-500">{formatDateTime(entry.created_at)}</time>
+                        <time className="text-[10px] font-bold text-slate-500">{formatDateTime(entry.created_at)}</time>
                       </div>
                       <p className="mt-3 text-sm leading-relaxed text-slate-400">{entry.message}</p>
                     </article>
@@ -354,31 +360,31 @@ export default function HistoryPage() {
 
           {/* Delete Confirmation Modal */}
           {deleteModalOpen && deletingJobId && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-              <div className="w-full max-w-md rounded-[40px] border border-slate-200 bg-white p-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-md animate-in fade-in">
+              <div className="w-full max-w-md rounded-[2rem] border border-white/5 bg-slate-900/95 backdrop-blur-xl p-6 md:p-8 text-white shadow-2xl animate-in zoom-in duration-200" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-500/10 text-rose-500 ring-1 ring-rose-500/20">
                       <AlertCircle className="h-5 w-5" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-slate-900">تایید حذف ماموریت</h3>
-                      <p className="mt-1 text-sm text-slate-500">آیا از حذف ماموریت #{deletingJobId} مطمئن هستید؟</p>
+                      <h3 className="text-lg font-bold text-white">تایید حذف ماموریت</h3>
+                      <p className="mt-1 text-sm text-slate-400">آیا از حذف ماموریت #{deletingJobId.slice(0, 8)} مطمئن هستید؟</p>
                     </div>
                   </div>
-                  <button onClick={handleDeleteModalClose} className="text-slate-400 hover:text-slate-600">
+                  <button onClick={handleDeleteModalClose} className="text-slate-400 hover:text-slate-200">
                     <X className="h-5 w-5" />
                   </button>
                 </div>
                 
                 {deleteError && (
-                  <div className="mt-4 rounded-xl bg-rose-50 p-3 text-sm font-medium text-rose-600">
+                  <div className="mt-4 rounded-xl bg-rose-500/10 border border-rose-500/20 p-3 text-sm font-bold text-rose-400">
                     {deleteError}
                   </div>
                 )}
                 
                 <div className="mt-6 flex justify-end gap-3">
-                  <button onClick={handleDeleteModalClose} className="rounded-xl bg-slate-100 px-6 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-200 transition-colors">
+                  <button onClick={handleDeleteModalClose} className="rounded-xl bg-slate-950 border border-white/10 px-6 py-2.5 text-sm font-bold text-slate-300 hover:bg-slate-900 transition-colors">
                     انصراف
                   </button>
                   <button
@@ -394,79 +400,79 @@ export default function HistoryPage() {
 
           {/* Edit Job Modal */}
           {editModalOpen && editingJob && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-              <div className="w-full max-w-md rounded-[40px] border border-slate-200 bg-white p-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-md animate-in fade-in">
+              <div className="w-full max-w-md rounded-[2rem] border border-white/5 bg-slate-900/95 backdrop-blur-xl p-6 md:p-8 text-white shadow-2xl animate-in zoom-in duration-200" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-500 ring-1 ring-cyan-500/20">
                       <Edit2 className="h-5 w-5" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-slate-900">ویرایش ماموریت</h3>
-                      <p className="mt-1 text-sm text-slate-500">ویرایش مشخصات ماموریت #{editingJob.job_id}</p>
+                      <h3 className="text-lg font-bold text-white">ویرایش ماموریت</h3>
+                      <p className="mt-1 text-sm text-slate-400">ویرایش مشخصات ماموریت #{editingJob.job_id.slice(0, 8)}</p>
                     </div>
                   </div>
-                  <button onClick={handleEditModalClose} className="text-slate-400 hover:text-slate-600">
+                  <button onClick={handleEditModalClose} className="text-slate-400 hover:text-slate-200">
                     <X className="h-5 w-5" />
                   </button>
                 </div>
                 
                 {editSuccess && (
-                  <div className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm font-medium text-emerald-600">
+                  <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-sm font-bold text-emerald-400">
                     <Check className="h-4 w-4 inline ml-1" />
                     {editSuccess}
                   </div>
                 )}
                 
                 {editError && (
-                  <div className="mt-4 rounded-xl bg-rose-50 p-3 text-sm font-medium text-rose-600">
+                  <div className="mt-4 rounded-xl bg-rose-500/10 border border-rose-500/20 p-3 text-sm font-bold text-rose-400">
                     {editError}
                   </div>
                 )}
                 
                 <div className="mt-6 space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700">اولویت (0-9)</label>
+                    <label className="block text-sm font-medium text-slate-300">اولویت (0-9)</label>
                     <input
                       type="number"
                       min="0"
                       max="9"
                       value={editForm.priority}
                       onChange={(e) => setEditForm({...editForm, priority: Number(e.target.value)})}
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 outline-none"
+                      className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm transition-colors focus:border-cyan-500 outline-none text-white"
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-slate-700">حداکثر تلاش مجدد (0-10)</label>
+                    <label className="block text-sm font-medium text-slate-300">حداکثر تلاش مجدد (0-10)</label>
                     <input
                       type="number"
                       min="0"
                       max="10"
                       value={editForm.max_retries}
                       onChange={(e) => setEditForm({...editForm, max_retries: Number(e.target.value)})}
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 outline-none"
+                      className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm transition-colors focus:border-cyan-500 outline-none text-white"
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-slate-700">دلیل پایان (اختیاری)</label>
+                    <label className="block text-sm font-medium text-slate-300">دلیل پایان (اختیاری)</label>
                     <input
                       value={editForm.terminal_reason || ''}
                       onChange={(e) => setEditForm({...editForm, terminal_reason: e.target.value})}
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 outline-none"
+                      className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm transition-colors focus:border-cyan-500 outline-none text-white"
                       placeholder="مثال: درخواست کاربر"
                     />
                   </div>
                 </div>
                 
                 <div className="mt-6 flex justify-end gap-3">
-                  <button onClick={handleEditModalClose} className="rounded-xl bg-slate-100 px-6 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-200 transition-colors">
+                  <button onClick={handleEditModalClose} className="rounded-xl bg-slate-955 bg-slate-950 border border-white/10 px-6 py-2.5 text-sm font-bold text-slate-300 hover:bg-slate-900 transition-colors">
                     انصراف
                   </button>
                   <button
                     onClick={() => void handleEdit(editingJob.job_id)}
-                    className="rounded-xl bg-cyan-500 px-6 py-2.5 text-sm font-bold text-white hover:bg-cyan-600 transition-colors"
+                    className="rounded-xl bg-cyan-500 hover:bg-cyan-400 px-6 py-2.5 text-sm font-bold text-slate-950 hover:text-slate-950 transition-colors"
                   >
                     ذخیره تغییرات
                   </button>

@@ -1,5 +1,6 @@
 # ruff: noqa: E402
 """Celery tasks for Phase 1 hybrid auth/submit orchestration."""
+
 from __future__ import annotations
 
 import asyncio
@@ -18,6 +19,7 @@ def _run(coro):
     try:
         asyncio.set_event_loop(loop)
         from app.core.database import engine
+
         loop.run_until_complete(engine.dispose())
         return loop.run_until_complete(coro)
     finally:
@@ -25,16 +27,16 @@ def _run(coro):
 
 
 if celery_app is not None:
+
     @celery_app.task(name="phase1.scheduler.plan")
     def plan_phase1_jobs():
         return _run(rpa_dispatch_service.dispatch_phase1_due_jobs())
 
-
     @celery_app.task(name="phase1.scheduler.cleanup")
     def cleanup_phase1_jobs():
         from app.services.rpa_scheduler_service import rpa_scheduler_service
-        return _run(rpa_scheduler_service.cleanup_stuck_jobs())
 
+        return _run(rpa_scheduler_service.cleanup_stuck_jobs())
 
     @celery_app.task(name="phase1.auth.process")
     def process_phase1_auth(client_id: int, driver_id: int, reason: str, resume_job_id: str | None = None):
@@ -45,7 +47,6 @@ if celery_app is not None:
             "expires_at": result.expires_at.isoformat() if result.expires_at else None,
             "session_version": result.session_bundle.session_version if result.session_bundle else None,
         }
-
 
     @celery_app.task(name="phase1.submit.process")
     def process_phase1_submit(client_id: int, job_id: str):
@@ -66,6 +67,7 @@ from app.services.scheduled_waybill_executor import (
 )
 
 if celery_app is not None:
+
     @celery_app.task(
         name="scheduled.waybill.evaluate_and_run",
         queue="scheduled_tasks",
@@ -133,6 +135,7 @@ if celery_app is not None:
         """Execute a single scheduled waybill job on worker."""
         try:
             from app.services.scheduled_waybill_executor import execute_scheduled_job_by_id
+
             result = _run(execute_scheduled_job_by_id(job_id))
             logger.info(
                 "scheduled_waybill_execution_complete",
@@ -144,4 +147,3 @@ if celery_app is not None:
             raise
 
 # Import other task files to ensure they are registered with the celery app
-

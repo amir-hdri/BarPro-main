@@ -1,4 +1,5 @@
 """Scheduler and orchestration helpers for Phase 1 multi-tenant RPA."""
+
 from __future__ import annotations
 
 import json
@@ -38,13 +39,25 @@ def _as_utc(value: datetime | None) -> datetime | None:
 
 
 class RPASchedulerService:
-    async def create_job(self, client_id: int, driver: Driver, payload: dict[str, Any], source: TaskSource, max_retries: int, priority: int = 5, correlation_id: str | None = None, idempotency_key: str | None = None) -> WaybillJob:
+    async def create_job(
+        self,
+        client_id: int,
+        driver: Driver,
+        payload: dict[str, Any],
+        source: TaskSource,
+        max_retries: int,
+        priority: int = 5,
+        correlation_id: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> WaybillJob:
         session = async_session_factory()
         try:
             normalized_key = build_job_idempotency_key(client_id, driver.id, payload, supplied=idempotency_key)
             existing = (
                 await session.exec(
-                    select(WaybillJob).where(WaybillJob.client_id == client_id, WaybillJob.idempotency_key == normalized_key)
+                    select(WaybillJob).where(
+                        WaybillJob.client_id == client_id, WaybillJob.idempotency_key == normalized_key
+                    )
                 )
             ).first()
             if existing:
@@ -66,7 +79,9 @@ class RPASchedulerService:
             )
             session.add(job)
             await self._ensure_runtime_state(session, client_id, driver.id)
-            await self._record_event(session, client_id, driver.id, job.job_id, JOB_CREATED, {"priority": priority, "source": source.value})
+            await self._record_event(
+                session, client_id, driver.id, job.job_id, JOB_CREATED, {"priority": priority, "source": source.value}
+            )
             await session.commit()
             await session.refresh(job)
             return job
@@ -80,13 +95,17 @@ class RPASchedulerService:
                 await session.exec(
                     select(WaybillJob, Driver)
                     .join(Driver, Driver.id == WaybillJob.driver_id)
-                    .where(col(WaybillJob.status).in_([
-                        TaskStatus.PENDING.value,
-                        TaskStatus.QUEUED.value,
-                        TaskStatus.WAITING_RETRY.value,
-                        TaskStatus.WAITING_AUTH.value,
-                        TaskStatus.OTP_BACKOFF.value,
-                    ]))
+                    .where(
+                        col(WaybillJob.status).in_(
+                            [
+                                TaskStatus.PENDING.value,
+                                TaskStatus.QUEUED.value,
+                                TaskStatus.WAITING_RETRY.value,
+                                TaskStatus.WAITING_AUTH.value,
+                                TaskStatus.OTP_BACKOFF.value,
+                            ]
+                        )
+                    )
                     .order_by(col(WaybillJob.priority).desc(), col(WaybillJob.created_at).asc())
                 )
             ).all()
@@ -119,7 +138,9 @@ class RPASchedulerService:
 
                 counter = await rpa_runtime.counter_snapshot(job.client_id, driver.id)
                 if persist:
-                    await self._upsert_counter_row(session, job.client_id, driver.id, counter.business_date, counter.attempts, counter.successes)
+                    await self._upsert_counter_row(
+                        session, job.client_id, driver.id, counter.business_date, counter.attempts, counter.successes
+                    )
                 if counter.successes >= utcms_config.DRIVER_DAILY_SUCCESS_CAP:
                     if persist:
                         await self._mark_driver_daily_limit(session, driver, job, "daily_success_limit_reached")
@@ -148,7 +169,14 @@ class RPASchedulerService:
                         runtime_state.state = DriverRuntimeStateValue.AUTH_REQUIRED.value
                         job.status = TaskStatus.WAITING_AUTH.value
                         job.submit_after = now + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
-                        await self._record_event(session, job.client_id, driver.id, job.job_id, JOB_QUEUED_AUTH, {"reason": reason, "queue": queue_name})
+                        await self._record_event(
+                            session,
+                            job.client_id,
+                            driver.id,
+                            job.job_id,
+                            JOB_QUEUED_AUTH,
+                            {"reason": reason, "queue": queue_name},
+                        )
                 else:
                     queue_name = utcms_config.RPA_SUBMIT_QUEUE
                     reason = "session_ready"
@@ -156,14 +184,30 @@ class RPASchedulerService:
                         driver.runtime_status = DriverStatus.READY.value
                         runtime_state.state = DriverRuntimeStateValue.READY.value
                         job.status = TaskStatus.QUEUED.value
-                        await self._record_event(session, job.client_id, driver.id, job.job_id, JOB_QUEUED_SUBMIT, {"reason": reason, "queue": queue_name})
+                        await self._record_event(
+                            session,
+                            job.client_id,
+                            driver.id,
+                            job.job_id,
+                            JOB_QUEUED_SUBMIT,
+                            {"reason": reason, "queue": queue_name},
+                        )
 
                 tenant_counts[job.client_id] += 1
                 if persist:
                     job.updated_at = _utcnow_naive()
                     runtime_state.updated_at = _utcnow_naive()
                     job.business_date = counter.business_date
-                decisions.append(SchedulerDecision(job_id=job.job_id, driver_id=driver.id, client_id=job.client_id, queue_name=queue_name, reason=reason, priority=job.priority))
+                decisions.append(
+                    SchedulerDecision(
+                        job_id=job.job_id,
+                        driver_id=driver.id,
+                        client_id=job.client_id,
+                        queue_name=queue_name,
+                        reason=reason,
+                        priority=job.priority,
+                    )
+                )
 
             if persist:
                 await session.commit()
@@ -184,12 +228,15 @@ class RPASchedulerService:
 
             # Find jobs stuck in various states with appropriate timeouts
             from sqlalchemy import or_
+
             stmt = select(WaybillJob).where(
                 or_(
                     (WaybillJob.status == TaskStatus.QUEUED.value) & (WaybillJob.updated_at < queued_cutoff),
                     (WaybillJob.status == TaskStatus.IN_PROGRESS.value) & (WaybillJob.updated_at < in_progress_cutoff),
-                    (WaybillJob.status == TaskStatus.WAITING_AUTH.value) & (WaybillJob.updated_at < waiting_auth_cutoff),
-                    (WaybillJob.status == TaskStatus.WAITING_RETRY.value) & (WaybillJob.updated_at < waiting_retry_cutoff),
+                    (WaybillJob.status == TaskStatus.WAITING_AUTH.value)
+                    & (WaybillJob.updated_at < waiting_auth_cutoff),
+                    (WaybillJob.status == TaskStatus.WAITING_RETRY.value)
+                    & (WaybillJob.updated_at < waiting_retry_cutoff),
                     (WaybillJob.status == TaskStatus.OTP_BACKOFF.value) & (WaybillJob.updated_at < otp_backoff_cutoff),
                 )
             )
@@ -201,11 +248,13 @@ class RPASchedulerService:
                 old_status = job.status
                 logger.warning(
                     "recovering_stuck_job",
-                    extra={"extra_fields": {
-                        "job_id": job.job_id,
-                        "old_status": old_status,
-                        "last_updated": job.updated_at.isoformat()
-                    }}
+                    extra={
+                        "extra_fields": {
+                            "job_id": job.job_id,
+                            "old_status": old_status,
+                            "last_updated": job.updated_at.isoformat(),
+                        }
+                    },
                 )
 
                 job.status = TaskStatus.PENDING.value
@@ -216,6 +265,7 @@ class RPASchedulerService:
 
                 # Add log for visibility
                 from app.models_multitenant import WaybillTaskLog
+
                 session.add(
                     WaybillTaskLog(
                         job_id=job.job_id,
@@ -234,7 +284,9 @@ class RPASchedulerService:
             await session.close()
 
     async def _ensure_runtime_state(self, session, client_id: int, driver_id: int) -> DriverRuntimeState:
-        state = (await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver_id))).first()
+        state = (
+            await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver_id))
+        ).first()
         if state is None:
             state = DriverRuntimeState(client_id=client_id, driver_id=driver_id)
             session.add(state)
@@ -243,15 +295,23 @@ class RPASchedulerService:
 
     async def _mark_driver_daily_limit(self, session, driver: Driver, job: WaybillJob, reason: str) -> None:
         runtime_state = await self._ensure_runtime_state(session, job.client_id, driver.id)
-        runtime_state.state = DriverRuntimeStateValue.DAILY_SUCCESS_LIMIT_REACHED.value if "success" in reason else DriverRuntimeStateValue.DAILY_ATTEMPT_LIMIT_REACHED.value
+        runtime_state.state = (
+            DriverRuntimeStateValue.DAILY_SUCCESS_LIMIT_REACHED.value
+            if "success" in reason
+            else DriverRuntimeStateValue.DAILY_ATTEMPT_LIMIT_REACHED.value
+        )
         runtime_state.updated_at = _utcnow_naive()
         driver.runtime_status = DriverStatus.DAILY_LIMIT_REACHED.value
         job.status = TaskStatus.DAILY_LIMIT_REACHED.value
         job.terminal_reason = reason
         job.finished_at = _utcnow_naive()
-        await self._record_event(session, job.client_id, driver.id, job.job_id, DRIVER_LIMIT_REACHED, {"reason": reason})
+        await self._record_event(
+            session, job.client_id, driver.id, job.job_id, DRIVER_LIMIT_REACHED, {"reason": reason}
+        )
 
-    async def _upsert_counter_row(self, session, client_id: int, driver_id: int, business_date: str, attempts: int, successes: int) -> None:
+    async def _upsert_counter_row(
+        self, session, client_id: int, driver_id: int, business_date: str, attempts: int, successes: int
+    ) -> None:
         row = (
             await session.exec(
                 select(DriverDailyCounter).where(
@@ -268,7 +328,9 @@ class RPASchedulerService:
         row.successes = successes
         row.updated_at = _utcnow_naive()
 
-    async def _record_event(self, session, client_id: int, driver_id: int, job_id: str | None, event_type: str, payload: dict[str, Any]) -> None:
+    async def _record_event(
+        self, session, client_id: int, driver_id: int, job_id: str | None, event_type: str, payload: dict[str, Any]
+    ) -> None:
         session.add(
             DomainEvent(
                 event_id=f"evt_{uuid.uuid4().hex[:24]}",

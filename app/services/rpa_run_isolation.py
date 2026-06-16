@@ -1,4 +1,5 @@
 """Utilities for isolating a live RPA run from stale queue/lock state."""
+
 from __future__ import annotations
 
 import logging

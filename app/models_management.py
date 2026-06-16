@@ -5,9 +5,7 @@ from sqlmodel import Field, SQLModel
 
 
 class ManagedCustomer(SQLModel, table=True):
-    __table_args__ = (
-        UniqueConstraint("source_system", "external_key", name="uq_managed_customer_source_external"),
-    )
+    __table_args__ = (UniqueConstraint("source_system", "external_key", name="uq_managed_customer_source_external"),)
 
     id: int | None = Field(default=None, primary_key=True)
     source_system: str = Field(default="local", index=True)
@@ -30,9 +28,7 @@ class ManagedCustomer(SQLModel, table=True):
 
 
 class ManagedRoute(SQLModel, table=True):
-    __table_args__ = (
-        UniqueConstraint("source_system", "route_key", name="uq_managed_route_source_key"),
-    )
+    __table_args__ = (UniqueConstraint("source_system", "route_key", name="uq_managed_route_source_key"),)
 
     id: int | None = Field(default=None, primary_key=True)
     source_system: str = Field(default="local", index=True)
@@ -67,9 +63,7 @@ class ManagedRoute(SQLModel, table=True):
 
 
 class ManagedAccount(SQLModel, table=True):
-    __table_args__ = (
-        UniqueConstraint("source_system", "external_name", name="uq_managed_account_source_external"),
-    )
+    __table_args__ = (UniqueConstraint("source_system", "external_name", name="uq_managed_account_source_external"),)
 
     id: int | None = Field(default=None, primary_key=True)
     source_system: str = Field(default="local", index=True)
@@ -108,9 +102,7 @@ class ManagedAccount(SQLModel, table=True):
 
 
 class ManagedQueueItem(SQLModel, table=True):
-    __table_args__ = (
-        UniqueConstraint("source_system", "external_key", name="uq_managed_queue_source_external"),
-    )
+    __table_args__ = (UniqueConstraint("source_system", "external_key", name="uq_managed_queue_source_external"),)
 
     id: int | None = Field(default=None, primary_key=True)
     queue_item_id: str = Field(index=True)

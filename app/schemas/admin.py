@@ -1,20 +1,24 @@
 """
 Schemas for Super Admin API
 """
+
 from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
 
 # ==================== Super Admin Schemas ====================
 
+
 class SuperAdminLogin(BaseModel):
     """Super Admin login request"""
+
     username: str
     password: str
 
 
 class SuperAdminResponse(BaseModel):
     """Super Admin response"""
+
     id: int
     username: str
     email: str
@@ -26,8 +30,10 @@ class SuperAdminResponse(BaseModel):
 
 # ==================== Client Management Schemas ====================
 
+
 class ClientCreateRequest(BaseModel):
     """Create new client request (by Super Admin)"""
+
     username: str = Field(min_length=3, max_length=50)
     email: EmailStr
     password: str = Field(min_length=6)
@@ -49,6 +55,7 @@ class ClientCreateRequest(BaseModel):
 
 class ClientUpdateRequest(BaseModel):
     """Update client request (by Super Admin)"""
+
     email: EmailStr | None = None
     password: str | None = Field(default=None, min_length=6)
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
@@ -72,12 +79,14 @@ class ClientUpdateRequest(BaseModel):
 
 class ClientStatusUpdate(BaseModel):
     """Update client status"""
+
     status: str = Field(pattern="^(active|suspended|inactive)$")
     reason: str | None = None
 
 
 class ClientDetailResponse(BaseModel):
     """Detailed client response"""
+
     id: int
     client_code: str
     username: str
@@ -117,6 +126,7 @@ class ClientDetailResponse(BaseModel):
 
 class ClientListResponse(BaseModel):
     """Client list item response"""
+
     id: int
     client_code: str
     username: str
@@ -135,8 +145,10 @@ class ClientListResponse(BaseModel):
 
 # ==================== Dashboard Schemas ====================
 
+
 class AdminDashboardStats(BaseModel):
     """Super Admin dashboard statistics"""
+
     total_clients: int
     active_clients: int
     suspended_clients: int
@@ -158,8 +170,10 @@ class AdminDashboardStats(BaseModel):
 
 # ==================== Subscription Plan Schemas ====================
 
+
 class SubscriptionPlanResponse(BaseModel):
     """Subscription plan response"""
+
     id: int
     name: str
     name_fa: str
@@ -176,8 +190,10 @@ class SubscriptionPlanResponse(BaseModel):
 
 # ==================== Activity Log Schemas ====================
 
+
 class ActivityLogResponse(BaseModel):
     """Activity log response"""
+
     id: int
     user_type: str
     user_id: int
@@ -193,6 +209,7 @@ class ActivityLogResponse(BaseModel):
 
 class ActivityLogFilter(BaseModel):
     """Activity log filter"""
+
     user_type: str | None = None
     user_id: int | None = None
     action: str | None = None
@@ -205,8 +222,10 @@ class ActivityLogFilter(BaseModel):
 
 # ==================== Analytics Schemas ====================
 
+
 class ClientAnalytics(BaseModel):
     """Client analytics data"""
+
     client_id: int
     client_name: str
     total_drivers: int
@@ -218,10 +237,9 @@ class ClientAnalytics(BaseModel):
     avg_waybills_per_day: float
 
 
-
-
 class DriverReportFilter(BaseModel):
     """Filter parameters for driver reports"""
+
     client_id: int | None = Field(default=None, description="Filter by client")
     driver_id: int | None = Field(default=None, description="Filter by driver")
     plate_id: int | None = Field(default=None, description="Filter by plate (uses driver_id)")
@@ -235,6 +253,7 @@ class DriverReportFilter(BaseModel):
 
 class SystemAnalytics(BaseModel):
     """System-wide analytics"""
+
     total_clients: int
     total_drivers: int
     total_waybills: int

@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BrowserHealthStatus:
     """Health status of a browser context."""
+
     context_id: str
     is_healthy: bool
     last_used_at: float | None = None
@@ -25,6 +26,7 @@ class BrowserHealthStatus:
 @dataclass
 class BrowserPoolHealth:
     """Overall health status of the browser pool."""
+
     total_contexts: int
     healthy_contexts: int
     unhealthy_contexts: int
@@ -155,9 +157,7 @@ class BrowserPool:
         if context_id and context_id in self._context_health:
             self._context_health[context_id].success_count += 1
             self._context_health[context_id].is_healthy = True
-            self._context_health[context_id].error_count = max(
-                0, self._context_health[context_id].error_count - 1
-            )
+            self._context_health[context_id].error_count = max(0, self._context_health[context_id].error_count - 1)
 
     def record_failure(self, context: BrowserContext, error: str) -> None:
         """Record a failure for a context."""
@@ -179,10 +179,7 @@ class BrowserPool:
         healed_count = 0
         context_args = context_args or {}
 
-        unhealthy_ids = [
-            ctx_id for ctx_id, health in self._context_health.items()
-            if not health.is_healthy
-        ]
+        unhealthy_ids = [ctx_id for ctx_id, health in self._context_health.items() if not health.is_healthy]
 
         for ctx_id in unhealthy_ids:
             try:

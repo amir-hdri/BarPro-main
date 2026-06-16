@@ -15,6 +15,7 @@ from typing import Any, Optional
 @dataclass
 class ScreenFingerprint:
     """Screen configuration for realistic browser fingerprint"""
+
     width: int = 1920
     height: int = 1080
     color_depth: int = 24
@@ -30,6 +31,7 @@ class ScreenFingerprint:
 @dataclass
 class WebGLFingerprint:
     """WebGL/GPU fingerprint configuration"""
+
     vendor: str = ""
     renderer: str = ""
     version: str = "WebGL 1.0"
@@ -43,6 +45,7 @@ class WebGLFingerprint:
 @dataclass
 class BrowserProfile:
     """Complete browser fingerprint profile"""
+
     name: str = "default"
     user_agent: str = ""
     platform: str = ""
@@ -64,16 +67,17 @@ class BrowserProfile:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         # Convert nested dataclasses to dicts
-        if hasattr(self.screen, 'to_dict'):
-            data['screen'] = self.screen.to_dict()
-        if hasattr(self.webgl, 'to_dict'):
-            data['webgl'] = self.webgl.to_dict()
+        if hasattr(self.screen, "to_dict"):
+            data["screen"] = self.screen.to_dict()
+        if hasattr(self.webgl, "to_dict"):
+            data["webgl"] = self.webgl.to_dict()
         return data
 
     def fingerprint_hash(self) -> str:
         """Generate unique hash for fingerprint identification"""
         import hashlib
         import json
+
         raw = json.dumps(self.to_dict(), sort_keys=True)
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
@@ -247,17 +251,14 @@ SCREEN_PRESETS = [
     {"width": 1440, "height": 900, "avail_width": 1440, "avail_height": 860, "color_depth": 24, "pixel_ratio": 1.0},
     {"width": 1536, "height": 864, "avail_width": 1536, "avail_height": 824, "color_depth": 24, "pixel_ratio": 1.25},
     {"width": 1680, "height": 1050, "avail_width": 1680, "avail_height": 1010, "color_depth": 24, "pixel_ratio": 1.0},
-
     # Desktop resolutions
     {"width": 1920, "height": 1080, "avail_width": 1920, "avail_height": 1040, "color_depth": 24, "pixel_ratio": 1.0},
     {"width": 1920, "height": 1200, "avail_width": 1920, "avail_height": 1160, "color_depth": 24, "pixel_ratio": 1.0},
     {"width": 2560, "height": 1440, "avail_width": 2560, "avail_height": 1400, "color_depth": 24, "pixel_ratio": 1.0},
     {"width": 3440, "height": 1440, "avail_width": 3440, "avail_height": 1400, "color_depth": 24, "pixel_ratio": 1.0},
-
     # 4K and high DPI
     {"width": 3840, "height": 2160, "avail_width": 3840, "avail_height": 2100, "color_depth": 24, "pixel_ratio": 1.5},
     {"width": 2880, "height": 1800, "avail_width": 2880, "avail_height": 1760, "color_depth": 24, "pixel_ratio": 2.0},
-
     # Common tablet resolutions
     {"width": 1024, "height": 768, "avail_width": 1024, "avail_height": 728, "color_depth": 24, "pixel_ratio": 2.0},
     {"width": 1080, "height": 1920, "avail_width": 1080, "avail_height": 1880, "color_depth": 24, "pixel_ratio": 2.0},
@@ -268,16 +269,43 @@ SCREEN_PRESETS = [
 # ============================================================================
 
 TIMEZONE_PROFILES = [
-    "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
-    "America/Phoenix", "America/Toronto", "America/Vancouver", "America/Mexico_City",
-    "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Madrid", "Europe/Rome",
-    "Europe/Amsterdam", "Europe/Stockholm", "Europe/Warsaw", "Europe/Moscow",
-    "Asia/Tehran", "Asia/Dubai", "Asia/Karachi", "Asia/Kolkata", "Asia/Dhaka",
-    "Asia/Bangkok", "Asia/Jakarta", "Asia/Manila", "Asia/Singapore", "Asia/Hong_Kong",
-    "Asia/Shanghai", "Asia/Tokyo", "Asia/Seoul", "Asia/Taipei",
-    "Australia/Sydney", "Australia/Melbourne", "Australia/Perth",
+    "America/New_York",
+    "America/Chicago",
+    "America/Denver",
+    "America/Los_Angeles",
+    "America/Phoenix",
+    "America/Toronto",
+    "America/Vancouver",
+    "America/Mexico_City",
+    "Europe/London",
+    "Europe/Paris",
+    "Europe/Berlin",
+    "Europe/Madrid",
+    "Europe/Rome",
+    "Europe/Amsterdam",
+    "Europe/Stockholm",
+    "Europe/Warsaw",
+    "Europe/Moscow",
+    "Asia/Tehran",
+    "Asia/Dubai",
+    "Asia/Karachi",
+    "Asia/Kolkata",
+    "Asia/Dhaka",
+    "Asia/Bangkok",
+    "Asia/Jakarta",
+    "Asia/Manila",
+    "Asia/Singapore",
+    "Asia/Hong_Kong",
+    "Asia/Shanghai",
+    "Asia/Tokyo",
+    "Asia/Seoul",
+    "Asia/Taipei",
+    "Australia/Sydney",
+    "Australia/Melbourne",
+    "Australia/Perth",
     "Pacific/Auckland",
-    "Africa/Cairo", "Africa/Johannesburg",
+    "Africa/Cairo",
+    "Africa/Johannesburg",
 ]
 
 LOCALE_PROFILES = [
@@ -321,7 +349,8 @@ SEC_CH_UA_VARIANTS = [
 # FILE I/O
 # ============================================================================
 
-CONFIG_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'config')
+CONFIG_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "config")
+
 
 def ensure_config_dir():
     """Ensure config directory exists"""
@@ -332,12 +361,13 @@ def save_profiles(profiles: list[dict], filename: str = "profiles.json"):
     """Save browser profiles to JSON file"""
     ensure_config_dir()
     filepath = os.path.join(CONFIG_DIR, filename)
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump({
-            "version": "1.0",
-            "created_at": datetime.now().isoformat(),
-            "profiles": profiles
-        }, f, indent=2, ensure_ascii=False)
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(
+            {"version": "1.0", "created_at": datetime.now().isoformat(), "profiles": profiles},
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
     return filepath
 
 
@@ -348,7 +378,7 @@ def load_profiles(filename: str = "profiles.json") -> dict:
         # Return default profiles if file doesn't exist
         return {"profiles": USER_AGENT_PROFILES}
 
-    with open(filepath, encoding='utf-8') as f:
+    with open(filepath, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -356,12 +386,13 @@ def save_gpus(gpu_profiles: list[dict], filename: str = "gpus.json"):
     """Save GPU profiles to JSON file"""
     ensure_config_dir()
     filepath = os.path.join(CONFIG_DIR, filename)
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump({
-            "version": "1.0",
-            "created_at": datetime.now().isoformat(),
-            "gpus": gpu_profiles
-        }, f, indent=2, ensure_ascii=False)
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(
+            {"version": "1.0", "created_at": datetime.now().isoformat(), "gpus": gpu_profiles},
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
     return filepath
 
 
@@ -371,13 +402,14 @@ def load_gpus(filename: str = "gpus.json") -> dict:
     if not os.path.exists(filepath):
         return {"gpus": GPU_PROFILES}
 
-    with open(filepath, encoding='utf-8') as f:
+    with open(filepath, encoding="utf-8") as f:
         return json.load(f)
 
 
 # ============================================================================
 # INITIALIZATION
 # ============================================================================
+
 
 def init_config_files():
     """Initialize config files with default profiles"""

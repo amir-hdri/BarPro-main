@@ -1,4 +1,5 @@
 """Shared dispatch facade for manual retries and scheduler-driven queueing."""
+
 from __future__ import annotations
 
 import json
@@ -67,7 +68,9 @@ class RPADispatchService:
             )
             return "queued"
         except Exception as exc:  # noqa: BLE001
-            logger.exception("dispatch_waybill_job_now_failed", extra={"extra_fields": {"job_id": job.job_id, "error": str(exc)}})
+            logger.exception(
+                "dispatch_waybill_job_now_failed", extra={"extra_fields": {"job_id": job.job_id, "error": str(exc)}}
+            )
             await self._record_dispatch_state(
                 session,
                 job,

@@ -25,9 +25,9 @@ async def validate_manual_entry(request: WaybillMapRequest):
         "warnings": validation["warnings"],
         "field_count": validation["field_count"],
         "completed_fields": validation["completed_fields"],
-        "completion_percent": round(
-            validation["completed_fields"] / validation["field_count"] * 100, 1
-        ) if validation["field_count"] > 0 else 0,
+        "completion_percent": round(validation["completed_fields"] / validation["field_count"] * 100, 1)
+        if validation["field_count"] > 0
+        else 0,
     }
 
 
@@ -162,9 +162,7 @@ async def submit_excel_waybills(
         )
 
     # Process Excel file
-    result = await excel_waybill_service.process_excel_waybills(
-        file, operation_mode, skip_invalid
-    )
+    result = await excel_waybill_service.process_excel_waybills(file, operation_mode, skip_invalid)
 
     if not result["success"]:
         raise HTTPException(
@@ -230,16 +228,20 @@ async def queue_excel_waybills(
 
             # Enqueue
             task = await queue_manager.enqueue_waybill(waybill)
-            queued.append({
-                "row": item["row"],
-                "task_id": task.task_id,
-                "status": "queued",
-            })
+            queued.append(
+                {
+                    "row": item["row"],
+                    "task_id": task.task_id,
+                    "status": "queued",
+                }
+            )
         except Exception as exc:
-            errors.append({
-                "row": item["row"],
-                "error": str(exc),
-            })
+            errors.append(
+                {
+                    "row": item["row"],
+                    "error": str(exc),
+                }
+            )
 
     return {
         "success": True,
@@ -354,6 +356,7 @@ async def download_excel_template():
 
     # Set column widths
     import openpyxl.utils
+
     for col_idx in range(1, len(columns) + 1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = 20
 

@@ -38,10 +38,30 @@ USER_AGENT_POOL = {
 
 # WebGL fingerprint database - realistic GPU signatures
 WEBGL_FINGERPRINTS = [
-    {"vendor": "Intel Inc.", "renderer": "Intel Iris OpenGL Engine", "unmasked_vendor": "Intel Inc.", "unmasked_renderer": "Intel Iris Pro 6200"},
-    {"vendor": "Google Inc. (Intel)", "renderer": "ANGLE (Intel, Intel(R) HD Graphics 620 Direct3D11 vs_5_0 ps_5_0)", "unmasked_vendor": "Intel", "unmasked_renderer": "Intel(R) HD Graphics 620"},
-    {"vendor": "Google Inc. (NVIDIA)", "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1050 Direct3D11 vs_5_0 ps_5_0)", "unmasked_vendor": "NVIDIA Corporation", "unmasked_renderer": "NVIDIA GeForce GTX 1050"},
-    {"vendor": "Google Inc. (AMD)", "renderer": "ANGLE (AMD, AMD Radeon RX 580 Direct3D11 vs_5_0 ps_5_0)", "unmasked_vendor": "ATI Technologies Inc.", "unmasked_renderer": "AMD Radeon RX 580"},
+    {
+        "vendor": "Intel Inc.",
+        "renderer": "Intel Iris OpenGL Engine",
+        "unmasked_vendor": "Intel Inc.",
+        "unmasked_renderer": "Intel Iris Pro 6200",
+    },
+    {
+        "vendor": "Google Inc. (Intel)",
+        "renderer": "ANGLE (Intel, Intel(R) HD Graphics 620 Direct3D11 vs_5_0 ps_5_0)",
+        "unmasked_vendor": "Intel",
+        "unmasked_renderer": "Intel(R) HD Graphics 620",
+    },
+    {
+        "vendor": "Google Inc. (NVIDIA)",
+        "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1050 Direct3D11 vs_5_0 ps_5_0)",
+        "unmasked_vendor": "NVIDIA Corporation",
+        "unmasked_renderer": "NVIDIA GeForce GTX 1050",
+    },
+    {
+        "vendor": "Google Inc. (AMD)",
+        "renderer": "ANGLE (AMD, AMD Radeon RX 580 Direct3D11 vs_5_0 ps_5_0)",
+        "unmasked_vendor": "ATI Technologies Inc.",
+        "unmasked_renderer": "AMD Radeon RX 580",
+    },
 ]
 
 # Screen resolution presets (realistic combinations)
@@ -442,6 +462,7 @@ WAF_BYPASS_SCRIPT = """
 # STEALTH INITIALIZATION & MANAGEMENT
 # ============================================================================
 
+
 class StealthConfig:
     """Configuration for stealth behavior."""
 
@@ -464,10 +485,7 @@ class StealthConfig:
         self.enable_behavior_simulation = enable_behavior_simulation
 
 
-async def apply_enterprise_stealth(
-    page: Page,
-    config: StealthConfig | None = None
-) -> dict[str, bool]:
+async def apply_enterprise_stealth(page: Page, config: StealthConfig | None = None) -> dict[str, bool]:
     """
     Apply comprehensive stealth modifications to hide all automation indicators.
     This is the enterprise-grade replacement for the basic apply_stealth_mode.
@@ -489,9 +507,9 @@ async def apply_enterprise_stealth(
         if config.enable_core_stealth:
             try:
                 await page.add_init_script(STEALTH_CORE_SCRIPT)
-                applied['core_stealth'] = True
+                applied["core_stealth"] = True
             except Exception:
-                applied['core_stealth'] = False
+                applied["core_stealth"] = False
 
         # 2. WebGL spoof
         if config.enable_webgl_spoof:
@@ -499,38 +517,38 @@ async def apply_enterprise_stealth(
                 fingerprint = random.choice(WEBGL_FINGERPRINTS)
                 await page.add_init_script(
                     WEBGL_SPOOF_SCRIPT,
-                    fingerprint['vendor'],
-                    fingerprint['renderer'],
-                    fingerprint['unmasked_vendor'],
-                    fingerprint['unmasked_renderer']
+                    fingerprint["vendor"],
+                    fingerprint["renderer"],
+                    fingerprint["unmasked_vendor"],
+                    fingerprint["unmasked_renderer"],
                 )
-                applied['webgl_spoof'] = True
+                applied["webgl_spoof"] = True
             except Exception:
-                applied['webgl_spoof'] = False
+                applied["webgl_spoof"] = False
 
         # 3. Canvas noise
         if config.enable_canvas_noise:
             try:
                 await page.add_init_script(CANVAS_NOISE_SCRIPT)
-                applied['canvas_noise'] = True
+                applied["canvas_noise"] = True
             except Exception:
-                applied['canvas_noise'] = False
+                applied["canvas_noise"] = False
 
         # 4. Audio spoof
         if config.enable_audio_spoof:
             try:
                 await page.add_init_script(AUDIO_SPOOF_SCRIPT)
-                applied['audio_spoof'] = True
+                applied["audio_spoof"] = True
             except Exception:
-                applied['audio_spoof'] = False
+                applied["audio_spoof"] = False
 
         # 5. WAF bypass
         if config.enable_waf_bypass:
             try:
                 await page.add_init_script(WAF_BYPASS_SCRIPT)
-                applied['waf_bypass'] = True
+                applied["waf_bypass"] = True
             except Exception:
-                applied['waf_bypass'] = False
+                applied["waf_bypass"] = False
 
         # 6. CDP leak patches (critical — must run after all other scripts)
         try:
@@ -539,12 +557,13 @@ async def apply_enterprise_stealth(
                 CDP_LEAK_PATCH_SCRIPT,
                 TLS_FINGERPRINT_PATCH,
             )
+
             await page.add_init_script(CDP_LEAK_PATCH_SCRIPT)
             await page.add_init_script(TLS_FINGERPRINT_PATCH)
             await page.add_init_script(ADVANCED_TIMING_PATCH)
-            applied['cdp_patches'] = True
+            applied["cdp_patches"] = True
         except Exception:
-            applied['cdp_patches'] = False
+            applied["cdp_patches"] = False
 
         # 7. Set realistic viewport and user agent
         if config.randomize_fingerprints:
@@ -561,9 +580,9 @@ async def apply_enterprise_stealth(
                     Object.defineProperty(screen, 'colorDepth', {{ get: () => {screen_preset['color_depth']} }});
                     Object.defineProperty(screen, 'pixelDepth', {{ get: () => {screen_preset['pixel_depth']} }});
                 """)
-                applied['screen_spoof'] = True
+                applied["screen_spoof"] = True
             except Exception:
-                applied['screen_spoof'] = False
+                applied["screen_spoof"] = False
 
     except Exception:
         # Log error but don't fail the entire operation
@@ -576,8 +595,10 @@ async def apply_enterprise_stealth(
 # WAF DETECTION & BYPASS STRATEGIES
 # ============================================================================
 
+
 class WAFType:
     """WAF detection identifiers."""
+
     CLOUDFLARE = "cloudflare"
     IMPERVA = "imperva"
     AKAMAI = "akamai"
@@ -588,7 +609,7 @@ class WAFType:
 async def detect_waf(page: Page) -> str:
     try:
         cookies = await page.context.cookies()
-        cookie_names = [c['name'] for c in cookies]
+        cookie_names = [c["name"] for c in cookies]
         cookie_str = " ".join(cookie_names)
 
         # Cookie-based detection
@@ -609,11 +630,17 @@ async def detect_waf(page: Page) -> str:
         # Content-based detection
         content = await page.content()
         content_lower = content.lower()
-        if any(m in content_lower for m in [
-            "cf-browser-verification", "checking your browser",
-            "just a moment", "enable javascript and cookies",
-            "cf_chl_opt", "cloudflare"
-        ]):
+        if any(
+            m in content_lower
+            for m in [
+                "cf-browser-verification",
+                "checking your browser",
+                "just a moment",
+                "enable javascript and cookies",
+                "cf_chl_opt",
+                "cloudflare",
+            ]
+        ):
             return WAFType.CLOUDFLARE
         if any(m in content_lower for m in ["incapsula", "imperva", "visid_incap"]):
             return WAFType.IMPERVA
@@ -681,6 +708,7 @@ async def handle_cloudflare_challenge(page: Page, timeout_seconds: float = 30.0)
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
+
 
 def get_random_user_agent(browser_type: str = "chrome_windows") -> str:
     """Get a random user agent from the specified pool."""

@@ -21,5 +21,6 @@ class ScriptLoader:
         with open(file_path, encoding="utf-8") as f:
             return f.read()
 
+
 # Global instance for easy access
 script_loader = ScriptLoader()

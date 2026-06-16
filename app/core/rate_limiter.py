@@ -52,9 +52,7 @@ class InMemoryRateLimiter:
                 self._requests[key] = []
 
             # Remove expired entries
-            self._requests[key] = [
-                ts for ts in self._requests[key] if ts > window_start
-            ]
+            self._requests[key] = [ts for ts in self._requests[key] if ts > window_start]
 
             current_count = len(self._requests[key])
             reset_at = now + config.window_seconds

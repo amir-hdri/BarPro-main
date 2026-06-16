@@ -1,4 +1,5 @@
 """HTTP-light submit worker for Phase 1 hybrid RPA."""
+
 from __future__ import annotations
 
 import hashlib
@@ -70,9 +71,13 @@ class SubmitAdapter:
         if session_bundle.csrf_token:
             headers["X-CSRF-Token"] = session_bundle.csrf_token
 
-        cookies = {cookie.get("name", ""): cookie.get("value", "") for cookie in session_bundle.cookies if cookie.get("name")}
+        cookies = {
+            cookie.get("name", ""): cookie.get("value", "") for cookie in session_bundle.cookies if cookie.get("name")
+        }
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            response = await client.post(utcms_config.RPA_SUBMIT_ENDPOINT, json=payload, headers=headers, cookies=cookies)
+            response = await client.post(
+                utcms_config.RPA_SUBMIT_ENDPOINT, json=payload, headers=headers, cookies=cookies
+            )
         latency_ms = int((time.perf_counter() - start) * 1000)
         return SubmitExecutionResult(
             classification=classify_submit_response(response.status_code, response.text),
@@ -114,7 +119,11 @@ class RPAHttpSubmitService:
     ) -> SubmitExecutionResult:
         session = async_session_factory()
         try:
-            job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == job_id, WaybillJob.client_id == client_id))).first()
+            job = (
+                await session.exec(
+                    select(WaybillJob).where(WaybillJob.job_id == job_id, WaybillJob.client_id == client_id)
+                )
+            ).first()
             if job is None:
                 raise ValueError(f"job {job_id} not found")
             if job.driver_id is None:
@@ -166,7 +175,14 @@ class RPAHttpSubmitService:
                     except Exception as exc:
                         logger.warning(
                             "submit_http_adapter_failed_falling_back_to_browser",
-                            extra={"extra_fields": {"job_id": job.job_id, "client_id": client_id, "driver_id": job.driver_id, "error": str(exc)}},
+                            extra={
+                                "extra_fields": {
+                                    "job_id": job.job_id,
+                                    "client_id": client_id,
+                                    "driver_id": job.driver_id,
+                                    "error": str(exc),
+                                }
+                            },
                         )
                         result = await self._execute_browser_submit(
                             session=session,
@@ -208,15 +224,26 @@ class RPAHttpSubmitService:
                     runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
                     driver.runtime_status = DriverStatus.READY.value
                     driver.last_error_code = None
-                    await self._record_event(session, client_id, job.driver_id, job.job_id, SUBMIT_SUCCEEDED, {"reason": classification.reason_code})
+                    await self._record_event(
+                        session,
+                        client_id,
+                        job.driver_id,
+                        job.job_id,
+                        SUBMIT_SUCCEEDED,
+                        {"reason": classification.reason_code},
+                    )
                 elif classification.outcome == SubmitOutcome.AUTH_EXPIRED:
                     await rpa_runtime.delete_session(client_id, job.driver_id)
-                    return await self._mark_waiting_auth(session, job, driver, runtime_state, classification.reason_code)
+                    return await self._mark_waiting_auth(
+                        session, job, driver, runtime_state, classification.reason_code
+                    )
                 elif classification.outcome in {SubmitOutcome.TRANSIENT_FAILURE, SubmitOutcome.RATE_LIMITED}:
                     job.status = TaskStatus.WAITING_RETRY.value
                     job.error_category = _map_error_category(classification.outcome, classification.reason_code)
                     job.last_error = classification.message or classification.reason_code
-                    job.next_retry_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
+                    job.next_retry_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(
+                        seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS
+                    )
                     job.submit_after = job.next_retry_at
                     job.finished_at = None
                     job.celery_task_id = None
@@ -238,10 +265,23 @@ class RPAHttpSubmitService:
                     driver.runtime_status = DriverStatus.WAITING_RETRY.value
                     driver.last_error_code = classification.reason_code
                     if classification.outcome == SubmitOutcome.RATE_LIMITED:
-                        await rpa_runtime.apply_cooldown("tenant", str(client_id), utcms_config.RPA_PROXY_COOLDOWN_SECONDS)
-                    await self._record_event(session, client_id, job.driver_id, job.job_id, SUBMIT_DELAYED, {"reason": classification.reason_code, "retry_at": job.next_retry_at.isoformat()})
+                        await rpa_runtime.apply_cooldown(
+                            "tenant", str(client_id), utcms_config.RPA_PROXY_COOLDOWN_SECONDS
+                        )
+                    await self._record_event(
+                        session,
+                        client_id,
+                        job.driver_id,
+                        job.job_id,
+                        SUBMIT_DELAYED,
+                        {"reason": classification.reason_code, "retry_at": job.next_retry_at.isoformat()},
+                    )
                 else:
-                    job.status = TaskStatus.NEEDS_REVIEW.value if classification.outcome == SubmitOutcome.VALIDATION_ERROR else TaskStatus.FAILED.value
+                    job.status = (
+                        TaskStatus.NEEDS_REVIEW.value
+                        if classification.outcome == SubmitOutcome.VALIDATION_ERROR
+                        else TaskStatus.FAILED.value
+                    )
                     job.error_category = _map_error_category(classification.outcome, classification.reason_code)
                     job.last_error = classification.message or classification.reason_code
                     job.finished_at = datetime.now(UTC).replace(tzinfo=None)
@@ -265,7 +305,14 @@ class RPAHttpSubmitService:
                     runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
                     driver.runtime_status = DriverStatus.READY.value
                     driver.last_error_code = classification.reason_code
-                    await self._record_event(session, client_id, job.driver_id, job.job_id, SUBMIT_FAILED, {"reason": classification.reason_code})
+                    await self._record_event(
+                        session,
+                        client_id,
+                        job.driver_id,
+                        job.job_id,
+                        SUBMIT_FAILED,
+                        {"reason": classification.reason_code},
+                    )
 
                 counter = await self._sync_counter_row(session, client_id, job.driver_id)
                 if counter.successes >= utcms_config.DRIVER_DAILY_SUCCESS_CAP:
@@ -280,7 +327,14 @@ class RPAHttpSubmitService:
             except Exception as core_exc:
                 logger.exception(
                     "submit_execution_unhandled_crash",
-                    extra={"extra_fields": {"job_id": job.job_id, "client_id": client_id, "driver_id": job.driver_id, "error": str(core_exc)}}
+                    extra={
+                        "extra_fields": {
+                            "job_id": job.job_id,
+                            "client_id": client_id,
+                            "driver_id": job.driver_id,
+                            "error": str(core_exc),
+                        }
+                    },
                 )
                 try:
                     # Mark job as failed to prevent sticking in IN_PROGRESS
@@ -295,18 +349,24 @@ class RPAHttpSubmitService:
                     driver.runtime_status = DriverStatus.READY.value
                     await session.commit()
                 except Exception as db_exc:
-                    logger.warning("failed_to_mark_job_as_failed_after_crash", extra={"extra_fields": {"error": str(db_exc)}})
+                    logger.warning(
+                        "failed_to_mark_job_as_failed_after_crash", extra={"extra_fields": {"error": str(db_exc)}}
+                    )
                 raise
         finally:
-            if 'driver' in locals() and getattr(driver, 'id', None):
+            if "driver" in locals() and getattr(driver, "id", None):
                 await rpa_runtime.release_lock(rpa_runtime.submit_lock_key(client_id, driver.id))
             await session.close()
 
-    async def _mark_waiting_auth(self, session, job: WaybillJob, driver: Driver, runtime_state: DriverRuntimeState, reason: str) -> SubmitExecutionResult:
+    async def _mark_waiting_auth(
+        self, session, job: WaybillJob, driver: Driver, runtime_state: DriverRuntimeState, reason: str
+    ) -> SubmitExecutionResult:
         job.status = TaskStatus.WAITING_AUTH.value
         job.error_category = "utcms_login_error"
         job.last_error = reason
-        job.submit_after = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
+        job.submit_after = datetime.now(UTC).replace(tzinfo=None) + timedelta(
+            seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS
+        )
         job.next_retry_at = None
         job.finished_at = None
         job.celery_task_id = None
@@ -368,7 +428,9 @@ class RPAHttpSubmitService:
             await browser_manager.initialize()
             proxy_info = await get_proxy_rotator().get_next()
             proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
-            internal_session_id, context = await browser_manager.create_context(auth_state_path=auth_state_path, proxy_dict=proxy_dict)
+            internal_session_id, context = await browser_manager.create_context(
+                auth_state_path=auth_state_path, proxy_dict=proxy_dict
+            )
             page = await browser_manager.new_page(context)
             res = await self._execute_browser_submit_with_page(
                 page=page,
@@ -380,7 +442,7 @@ class RPAHttpSubmitService:
                 job_id=job.job_id,
             )
             if proxy_info:
-                success = (res.classification.outcome == SubmitOutcome.SUCCESS)
+                success = res.classification.outcome == SubmitOutcome.SUCCESS
                 latency = time.perf_counter() - start
                 proxy_info.record_waybill_result(success=success, latency=latency, error=res.classification.message)
             return res
@@ -477,7 +539,9 @@ class RPAHttpSubmitService:
             raw_payload=manager_result,
         )
 
-    async def _mark_daily_limit(self, session, job, driver, runtime_state, counter, success_limit: bool) -> SubmitExecutionResult:
+    async def _mark_daily_limit(
+        self, session, job, driver, runtime_state, counter, success_limit: bool
+    ) -> SubmitExecutionResult:
         reason = "daily_success_limit_reached" if success_limit else "daily_attempt_limit_reached"
         job.status = TaskStatus.DAILY_LIMIT_REACHED.value
         job.terminal_reason = reason
@@ -486,19 +550,39 @@ class RPAHttpSubmitService:
         job.next_retry_at = None
         job.celery_task_id = None
         job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-        runtime_state.state = DriverRuntimeStateValue.DAILY_SUCCESS_LIMIT_REACHED.value if success_limit else DriverRuntimeStateValue.DAILY_ATTEMPT_LIMIT_REACHED.value
+        runtime_state.state = (
+            DriverRuntimeStateValue.DAILY_SUCCESS_LIMIT_REACHED.value
+            if success_limit
+            else DriverRuntimeStateValue.DAILY_ATTEMPT_LIMIT_REACHED.value
+        )
         runtime_state.next_retry_at = None
         runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
         driver.runtime_status = DriverStatus.DAILY_LIMIT_REACHED.value
         driver.last_error_code = reason
-        await self._record_event(session, job.client_id, driver.id, job.job_id, DRIVER_LIMIT_REACHED, {"reason": reason, "attempts": counter.attempts, "successes": counter.successes})
+        await self._record_event(
+            session,
+            job.client_id,
+            driver.id,
+            job.job_id,
+            DRIVER_LIMIT_REACHED,
+            {"reason": reason, "attempts": counter.attempts, "successes": counter.successes},
+        )
         await session.commit()
         return SubmitExecutionResult(
-            classification=SubmitClassification(outcome=SubmitOutcome.VALIDATION_ERROR, reason_code=reason, retryable=False),
+            classification=SubmitClassification(
+                outcome=SubmitOutcome.VALIDATION_ERROR, reason_code=reason, retryable=False
+            ),
             latency_ms=0,
         )
 
-    async def _record_attempt(self, session, job: WaybillJob, runtime_state: DriverRuntimeState, classification: SubmitClassification, latency_ms: int) -> None:
+    async def _record_attempt(
+        self,
+        session,
+        job: WaybillJob,
+        runtime_state: DriverRuntimeState,
+        classification: SubmitClassification,
+        latency_ms: int,
+    ) -> None:
         session.add(
             WaybillAttempt(
                 attempt_id=f"att_{hashlib.sha256(f'{job.job_id}:{job.attempt_count + 1}:{time.time()}'.encode()).hexdigest()[:24]}",
@@ -519,7 +603,9 @@ class RPAHttpSubmitService:
         job.attempt_count += 1
 
     async def _get_or_create_runtime_state(self, session, client_id: int, driver_id: int) -> DriverRuntimeState:
-        state = (await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver_id))).first()
+        state = (
+            await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver_id))
+        ).first()
         if state is None:
             state = DriverRuntimeState(client_id=client_id, driver_id=driver_id)
             session.add(state)
@@ -549,7 +635,9 @@ class RPAHttpSubmitService:
             counter.last_success_at = datetime.now(UTC).replace(tzinfo=None)
         return counter
 
-    async def _record_event(self, session, client_id: int, driver_id: int, job_id: str | None, event_type: str, payload: dict) -> None:
+    async def _record_event(
+        self, session, client_id: int, driver_id: int, job_id: str | None, event_type: str, payload: dict
+    ) -> None:
         session.add(
             DomainEvent(
                 event_id=f"evt_{hashlib.sha256(f'{event_type}:{job_id}:{time.time()}'.encode()).hexdigest()[:24]}",
@@ -562,36 +650,53 @@ class RPAHttpSubmitService:
         )
 
 
-
 def classify_submit_response(status_code: int, body: str) -> SubmitClassification:
     lowered = (body or "").lower()
     excerpt = (body or "")[:1000]
     if status_code in {200, 201} and "success" in lowered:
-        return SubmitClassification(SubmitOutcome.SUCCESS, "portal_success", False, status_code, response_excerpt=excerpt)
-    if status_code in {401, 403} or any(token in lowered for token in ("session expired", "login", "unauthorized", "دوباره وارد")):
-        return SubmitClassification(SubmitOutcome.AUTH_EXPIRED, "session_expired", True, status_code, response_excerpt=excerpt)
+        return SubmitClassification(
+            SubmitOutcome.SUCCESS, "portal_success", False, status_code, response_excerpt=excerpt
+        )
+    if status_code in {401, 403} or any(
+        token in lowered for token in ("session expired", "login", "unauthorized", "دوباره وارد")
+    ):
+        return SubmitClassification(
+            SubmitOutcome.AUTH_EXPIRED, "session_expired", True, status_code, response_excerpt=excerpt
+        )
     if status_code == 409 or "duplicate" in lowered or "تکراری" in lowered:
-        return SubmitClassification(SubmitOutcome.DUPLICATE, "duplicate_registration", False, status_code, response_excerpt=excerpt)
+        return SubmitClassification(
+            SubmitOutcome.DUPLICATE, "duplicate_registration", False, status_code, response_excerpt=excerpt
+        )
     if status_code == 429 or "rate limit" in lowered or "too many" in lowered:
-        return SubmitClassification(SubmitOutcome.RATE_LIMITED, "rate_limited", True, status_code, response_excerpt=excerpt)
+        return SubmitClassification(
+            SubmitOutcome.RATE_LIMITED, "rate_limited", True, status_code, response_excerpt=excerpt
+        )
     if 400 <= status_code < 500:
-        return SubmitClassification(SubmitOutcome.VALIDATION_ERROR, "validation_error", False, status_code, response_excerpt=excerpt)
+        return SubmitClassification(
+            SubmitOutcome.VALIDATION_ERROR, "validation_error", False, status_code, response_excerpt=excerpt
+        )
     if status_code >= 500:
-        return SubmitClassification(SubmitOutcome.TRANSIENT_FAILURE, "portal_server_error", True, status_code, response_excerpt=excerpt)
-    return SubmitClassification(SubmitOutcome.UNKNOWN_ERROR, "unknown_response", False, status_code, response_excerpt=excerpt)
+        return SubmitClassification(
+            SubmitOutcome.TRANSIENT_FAILURE, "portal_server_error", True, status_code, response_excerpt=excerpt
+        )
+    return SubmitClassification(
+        SubmitOutcome.UNKNOWN_ERROR, "unknown_response", False, status_code, response_excerpt=excerpt
+    )
 
 
-
-def build_job_idempotency_key(client_id: int, driver_id: int, payload: dict[str, Any], supplied: str | None = None) -> str:
+def build_job_idempotency_key(
+    client_id: int, driver_id: int, payload: dict[str, Any], supplied: str | None = None
+) -> str:
     if supplied and supplied.strip():
         candidate = supplied.strip()
         scoped = f"tenant:{client_id}:{candidate}"
         if len(scoped) <= 100:
             return scoped
         return hashlib.sha256(scoped.encode()).hexdigest()
-    stable_json = json.dumps({"client_id": client_id, "driver_id": driver_id, "payload": payload}, ensure_ascii=False, sort_keys=True)
+    stable_json = json.dumps(
+        {"client_id": client_id, "driver_id": driver_id, "payload": payload}, ensure_ascii=False, sort_keys=True
+    )
     return hashlib.sha256(stable_json.encode()).hexdigest()
-
 
 
 def _map_attempt_result(outcome: SubmitOutcome) -> str:

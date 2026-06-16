@@ -27,18 +27,17 @@ engine_kwargs = {
 if "celery" in sys.modules or (len(sys.argv) > 0 and "celery" in sys.argv[0]):
     engine_kwargs["poolclass"] = NullPool
 elif "sqlite" not in utcms_config.DATABASE_URL.lower():
-    engine_kwargs.update({
-        "pool_size": 20,  # Base pool size for concurrent connections
-        "max_overflow": 10,  # Additional connections during peak load
-        "pool_timeout": 30,  # Wait time before raising timeout error
-        "pool_recycle": 3600,  # Recycle connections after 1 hour
-        "pool_pre_ping": True,  # Verify connection health before use
-    })
+    engine_kwargs.update(
+        {
+            "pool_size": 20,  # Base pool size for concurrent connections
+            "max_overflow": 10,  # Additional connections during peak load
+            "pool_timeout": 30,  # Wait time before raising timeout error
+            "pool_recycle": 3600,  # Recycle connections after 1 hour
+            "pool_pre_ping": True,  # Verify connection health before use
+        }
+    )
 
-engine = create_async_engine(
-    utcms_config.DATABASE_URL,
-    **engine_kwargs
-)
+engine = create_async_engine(utcms_config.DATABASE_URL, **engine_kwargs)
 async_session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -68,7 +67,10 @@ async def run_migrations() -> None:
     import sys
 
     if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ or os.getenv("ENVIRONMENT") == "test":
-        logger.info("database_migrations_skipped", extra={"extra_fields": {"note": "Skipped programmatic migrations in test environment."}})
+        logger.info(
+            "database_migrations_skipped",
+            extra={"extra_fields": {"note": "Skipped programmatic migrations in test environment."}},
+        )
         return
 
     try:
@@ -97,21 +99,21 @@ async def run_migrations() -> None:
         # Solution: Only use create_all() for SQLite (fresh DB), fail fast on PostgreSQL
         logger.error(
             "migration_failed_postgresql",
-            extra={"extra_fields": {
-                "error": str(exc),
-                "solution": "Fix migrations manually: alembic downgrade base && alembic upgrade head"
-            }},
+            extra={
+                "extra_fields": {
+                    "error": str(exc),
+                    "solution": "Fix migrations manually: alembic downgrade base && alembic upgrade head",
+                }
+            },
         )
         raise RuntimeError(
-            f"Database migration failed on PostgreSQL: {exc}\n"
-            "Please fix migrations manually or reset database."
+            f"Database migration failed on PostgreSQL: {exc}\n" "Please fix migrations manually or reset database."
         ) from exc
 
 
 async def init_db():
     """Initialize database with Alembic migrations, fallback to legacy creation."""
     await run_migrations()
-
 
 
 async def get_session() -> AsyncSession:

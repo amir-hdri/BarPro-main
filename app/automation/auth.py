@@ -264,7 +264,7 @@ class UTCMSAuthenticator:
                     curr_url = await self._current_url()
                     if curr_url and not self._is_login_url(curr_url):
                         return True
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.05)
                 return True
             return False
 
@@ -275,7 +275,7 @@ class UTCMSAuthenticator:
             try:
                 await self.page.wait_for_load_state("networkidle", timeout=8000)
             except Exception:
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(0.3)
         except Exception:
             return False
 
@@ -299,7 +299,7 @@ class UTCMSAuthenticator:
             self.last_error = "صفحه بارنامه به‌جای فرم، خطای سامانه برگرداند"
             return False
 
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(0.08)
         if await self._looks_like_login_page() or await self._looks_like_error_page():
             return False
         return await self._has_auth_cookie()
@@ -339,12 +339,9 @@ class UTCMSAuthenticator:
                 self.last_error = login_error
                 return False
 
-            await asyncio.sleep(0.35)
+            await asyncio.sleep(0.07)
 
-        return (
-            not await self._looks_like_login_page()
-            and not self._is_login_url(await self._current_url())
-        )
+        return not await self._looks_like_login_page() and not self._is_login_url(await self._current_url())
 
     async def _complete_post_login_steps(self) -> bool:
         """
@@ -363,7 +360,7 @@ class UTCMSAuthenticator:
                 while asyncio.get_running_loop().time() < deadline:
                     if not self._is_login_url(await self._current_url()):
                         return True
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.06)
                 return False
         except Exception as error:
             self.last_error = f"تایید قوانین پس از لاگین ناموفق بود: {error}"
@@ -506,7 +503,15 @@ class UTCMSAuthenticator:
         )
         logger.info(
             "captcha_debug_saved",
-            extra={"extra_fields": {"image_path": os.fspath(image_path), "meta_path": os.fspath(meta_path), "phase": phase, "attempt": attempt, "stage": stage}},
+            extra={
+                "extra_fields": {
+                    "image_path": os.fspath(image_path),
+                    "meta_path": os.fspath(meta_path),
+                    "phase": phase,
+                    "attempt": attempt,
+                    "stage": stage,
+                }
+            },
         )
 
     async def _save_login_debug_snapshot(self, stage: str) -> None:
@@ -561,7 +566,9 @@ class UTCMSAuthenticator:
 
         normalized = normalized.replace(" ", "").replace("=", "").replace("؟", "").replace("?", "")
 
-        if any(token in normalized for token in ("+", "-", "*", "/", "x", "X", "×", "÷")) and not self._captcha_value_pattern.match(normalized):
+        if any(
+            token in normalized for token in ("+", "-", "*", "/", "x", "X", "×", "÷")
+        ) and not self._captcha_value_pattern.match(normalized):
             decision = captcha_engine.solve_text_with_confidence(normalized)
             min_confidence = self._captcha_math_min_confidence()
             if decision.value and decision.confidence >= min_confidence:
@@ -587,7 +594,16 @@ class UTCMSAuthenticator:
         lowered = raw.lower()
         host_hint = url.strip() or "UTCMS"
 
-        if any(marker in lowered for marker in ("err_name_not_resolved", "name_not_resolved", "dns", "could not resolve host", "nodename nor servname provided")):
+        if any(
+            marker in lowered
+            for marker in (
+                "err_name_not_resolved",
+                "name_not_resolved",
+                "dns",
+                "could not resolve host",
+                "nodename nor servname provided",
+            )
+        ):
             return (
                 f"دسترسی به صفحه ورود UTCMS ممکن نشد؛ دامنه/شبکه برای {host_hint} resolve نشد "
                 "(ERR_NAME_NOT_RESOLVED)."
@@ -689,7 +705,9 @@ class UTCMSAuthenticator:
         )
         logger.warning(
             "captcha_provider_failed",
-            extra={"extra_fields": {"provider": result.provider, "error": result.error, "phase": phase, "attempt": attempt}},
+            extra={
+                "extra_fields": {"provider": result.provider, "error": result.error, "phase": phase, "attempt": attempt}
+            },
         )
         track_captcha_failure(
             result.error or "provider_invalid_value",
@@ -884,7 +902,14 @@ class UTCMSAuthenticator:
                 )
                 logger.info(
                     "math_captcha_solved",
-                    extra={"extra_fields": {"confidence": decision.confidence, "strategy": decision.strategy, "phase": phase, "attempt": attempt}},
+                    extra={
+                        "extra_fields": {
+                            "confidence": decision.confidence,
+                            "strategy": decision.strategy,
+                            "phase": phase,
+                            "attempt": attempt,
+                        }
+                    },
                 )
                 return solved
 
@@ -1006,7 +1031,7 @@ class UTCMSAuthenticator:
             current = await self._captcha_image_fingerprint()
             if current and current != previous_fingerprint:
                 return
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
 
         await asyncio.sleep(timeout_seconds)
 
@@ -1081,7 +1106,7 @@ class UTCMSAuthenticator:
                 if solved:
                     logger.info("کپچای CapJS با موفقیت در مرورگر حل شد.")
                     return True
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
 
             self.last_error = "زمان حل خودکار کپچای CapJS به پایان رسید (Timeout)."
             logger.error("CapJS solving timed out after 30 seconds.")
@@ -1105,7 +1130,9 @@ class UTCMSAuthenticator:
                 await asyncio.sleep(retry_delay)
 
             if allow_provider:
-                solved_provider = await self._solve_captcha_with_provider(captcha_selector=captcha_selector, phase="login", attempt=attempt)
+                solved_provider = await self._solve_captcha_with_provider(
+                    captcha_selector=captcha_selector, phase="login", attempt=attempt
+                )
                 if solved_provider and await self._set_captcha_value(captcha_selector, solved_provider):
                     return True
 
@@ -1114,10 +1141,7 @@ class UTCMSAuthenticator:
                 if solved_math and await self._set_captcha_value(captcha_selector, solved_math):
                     return True
 
-        self.last_error = (
-            "حل خودکار کپچا ناموفق بود. "
-            "کیفیت تصویر کپچا یا مدل CNN را بررسی کنید."
-        )
+        self.last_error = "حل خودکار کپچا ناموفق بود. " "کیفیت تصویر کپچا یا مدل CNN را بررسی کنید."
         logger.warning(
             "captcha_auto_solve_failed",
             extra={"extra_fields": {"phase": "login", "max_attempts": max_attempts, "mode": mode}},
@@ -1232,9 +1256,7 @@ class UTCMSAuthenticator:
                 return False
             solved = await self._wait_for_manual_captcha_input(captcha_selector)
             if not solved:
-                self.last_error = (
-                    "کپچا در بازه مجاز تکمیل نشد. لطفاً کپچا را دستی وارد کنید و مجدد تلاش کنید."
-                )
+                self.last_error = "کپچا در بازه مجاز تکمیل نشد. لطفاً کپچا را دستی وارد کنید و مجدد تلاش کنید."
                 track_captcha_failure("manual_timeout", phase="login", strategy="manual")
                 return False
             track_captcha_success("manual", phase="login")
@@ -1242,8 +1264,7 @@ class UTCMSAuthenticator:
 
         if captcha_mode == "provider_only":
             self.last_error = (
-                "کپچا در حالت provider_only حل نشد. "
-                "مقدار `CAPTCHA_PROVIDER` و فایل مدل CNN را بررسی کنید."
+                "کپچا در حالت provider_only حل نشد. " "مقدار `CAPTCHA_PROVIDER` و فایل مدل CNN را بررسی کنید."
             )
         elif captcha_mode == "manual_only":
             self.last_error = (
@@ -1252,8 +1273,7 @@ class UTCMSAuthenticator:
             )
         else:
             self.last_error = (
-                "کپچا در صفحه ورود فعال است اما حل خودکار CNN موفق نشد. "
-                "فایل مدل و کیفیت تصویر کپچا را بررسی کنید."
+                "کپچا در صفحه ورود فعال است اما حل خودکار CNN موفق نشد. " "فایل مدل و کیفیت تصویر کپچا را بررسی کنید."
             )
         track_captcha_failure("captcha_not_solved", phase="login", strategy=captcha_mode or "unknown")
         return False
@@ -1313,7 +1333,9 @@ class UTCMSAuthenticator:
                 return True
 
             if not self.last_error:
-                self.last_error = await self._extract_login_error() or "لاگین تکمیل نشد و دسترسی به فرم بارنامه تایید نشد."
+                self.last_error = (
+                    await self._extract_login_error() or "لاگین تکمیل نشد و دسترسی به فرم بارنامه تایید نشد."
+                )
             await self._save_login_debug_snapshot("post_submit_not_verified")
             return False
 
@@ -1345,12 +1367,7 @@ class UTCMSAuthenticator:
             return None
 
         success = bool(payload.get("success"))
-        message = (
-            payload.get("message")
-            or payload.get("detail")
-            or payload.get("resultMessage")
-            or None
-        )
+        message = payload.get("message") or payload.get("detail") or payload.get("resultMessage") or None
         if not success:
             self.last_error = str(message or "لاگین ناموفق بود")
             return False
@@ -1365,7 +1382,7 @@ class UTCMSAuthenticator:
                 return True
             if not self._is_login_url(await self._current_url()):
                 break
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.06)
 
         if await self._is_logged_in(probe_login_url=False):
             return True
@@ -1390,7 +1407,7 @@ class UTCMSAuthenticator:
                 try:
                     await self.page.wait_for_load_state("networkidle", timeout=8000)
                 except Exception:
-                    await asyncio.sleep(1.5)
+                    await asyncio.sleep(0.3)
             except Exception as exc:
                 if is_retryable_network_error(exc):
                     navigation_errors.append((candidate_login_url, exc))
@@ -1441,7 +1458,9 @@ class UTCMSAuthenticator:
                     await asyncio.sleep(max(0.1, utcms_config.CAPTCHA_SUBMIT_RETRY_DELAY_SECONDS))
                     if not await self._handle_captcha(captcha_selector, force_auto=True):
                         break
-                if self._is_captcha_related_error(self.last_error) or self._is_credential_related_error(self.last_error):
+                if self._is_captcha_related_error(self.last_error) or self._is_credential_related_error(
+                    self.last_error
+                ):
                     if self._is_captcha_related_error(self.last_error):
                         self.last_state = "captcha_failed"
                     break

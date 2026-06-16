@@ -135,7 +135,9 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
-def configure_logging(log_level: str = "INFO", log_file: str | None = None, max_bytes: int = 100 * 1024 * 1024, backup_count: int = 5) -> None:
+def configure_logging(
+    log_level: str = "INFO", log_file: str | None = None, max_bytes: int = 100 * 1024 * 1024, backup_count: int = 5
+) -> None:
     level = getattr(logging, (log_level or "INFO").upper(), logging.INFO)
     root = logging.getLogger()
     root.setLevel(level)
@@ -158,6 +160,7 @@ def configure_logging(log_level: str = "INFO", log_file: str | None = None, max_
         try:
             # Create parent directories if they don't exist
             import os
+
             log_dir = os.path.dirname(log_file)
             if log_dir:
                 os.makedirs(log_dir, exist_ok=True)
@@ -167,7 +170,7 @@ def configure_logging(log_level: str = "INFO", log_file: str | None = None, max_
                 filename=log_file,
                 maxBytes=max_bytes,  # 100MB by default
                 backupCount=backup_count,
-                encoding='utf-8',
+                encoding="utf-8",
             )
             file_handler.setLevel(level)
             file_handler.setFormatter(formatter)

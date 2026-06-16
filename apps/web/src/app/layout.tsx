@@ -1,8 +1,15 @@
 import type { Metadata } from 'next';
+import { Vazirmatn } from 'next/font/google';
 
 import './globals.css';
 import { QueryProvider } from '@/providers/QueryProvider';
 import { Toaster } from 'react-hot-toast';
+
+const vazirmatn = Vazirmatn({ 
+  subsets: ['arabic', 'latin'],
+  display: 'swap',
+  variable: '--font-vazirmatn',
+});
 
 export const metadata: Metadata = {
   title: 'UTCMS Automation Console',
@@ -11,11 +18,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="fa" dir="rtl">
-      <body>
+    <html lang="fa" dir="rtl" className={vazirmatn.variable}>
+      <body className="font-sans antialiased text-slate-800">
         <QueryProvider>
           {children}
-          <Toaster />
+          <Toaster position="bottom-center" />
         </QueryProvider>
       </body>
     </html>

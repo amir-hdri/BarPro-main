@@ -118,7 +118,9 @@ class WaybillService:
                         )
                         proxy_info = await get_proxy_rotator().get_next()
                         proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
-                        internal_session_id, context = await browser_manager.create_context(auth_state_path=auth_state_path, proxy_dict=proxy_dict)
+                        internal_session_id, context = await browser_manager.create_context(
+                            auth_state_path=auth_state_path, proxy_dict=proxy_dict
+                        )
                         page = await browser_manager.new_page(context)
 
                         from app.automation.auth import UTCMSAuthenticator
@@ -193,7 +195,9 @@ class WaybillService:
 
                 except HTTPException as exc:
                     if proxy_info:
-                        proxy_info.record_waybill_result(success=False, latency=time.perf_counter() - started_at, error=str(exc))
+                        proxy_info.record_waybill_result(
+                            success=False, latency=time.perf_counter() - started_at, error=str(exc)
+                        )
                     is_temporary = exc.status_code in (429, 503)
                     if is_temporary and attempt < max_attempts:
                         await waybill_traffic_controller.mark_temporary_block(multiplier=2.0)
@@ -215,7 +219,9 @@ class WaybillService:
 
                 except WaybillError as exc:
                     if proxy_info:
-                        proxy_info.record_waybill_result(success=False, latency=time.perf_counter() - started_at, error=str(exc))
+                        proxy_info.record_waybill_result(
+                            success=False, latency=time.perf_counter() - started_at, error=str(exc)
+                        )
                     retryable = is_retryable_network_error(exc)
                     if retryable and attempt < max_attempts:
                         await waybill_traffic_controller.mark_temporary_block(multiplier=1.0)
@@ -243,7 +249,9 @@ class WaybillService:
 
                 except Exception as exc:
                     if proxy_info:
-                        proxy_info.record_waybill_result(success=False, latency=time.perf_counter() - started_at, error=str(exc))
+                        proxy_info.record_waybill_result(
+                            success=False, latency=time.perf_counter() - started_at, error=str(exc)
+                        )
                     if _is_retryable_exception(exc) and attempt < max_attempts:
                         await waybill_traffic_controller.mark_temporary_block(multiplier=1.0)
                         await asyncio.sleep(_retry_delay_seconds(attempt))
@@ -307,7 +315,6 @@ class WaybillService:
         finally:
             reset_execution_context(execution_tokens)
 
-
     @staticmethod
     def _resolve_operation_mode(request: WaybillMapRequest) -> str:
         operation_mode = request.operation_mode
@@ -321,9 +328,7 @@ class WaybillService:
         request_auth = request.utcms_auth
 
         has_request_auth = bool(
-            request_auth
-            and (request_auth.username or "").strip()
-            and (request_auth.password or "").strip()
+            request_auth and (request_auth.username or "").strip() and (request_auth.password or "").strip()
         )
         checks = {
             "has_driver_data": bool((request.vehicle.driver_national_code or "").strip()),

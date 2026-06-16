@@ -61,7 +61,6 @@ class CaptchaCNN(nn.Module):
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2),
-
             nn.Conv2d(32, 64, 3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
@@ -133,9 +132,7 @@ def _train_model(
     dataset_y = torch.from_numpy(labels.astype(np.int64)).to(_DEVICE)
 
     optimizer = torch.optim.Adam(net.parameters(), lr=config.lr, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=config.epochs, eta_min=1e-5
-    )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.epochs, eta_min=1e-5)
     label_smooth = 0.05
     criterion = nn.CrossEntropyLoss(label_smoothing=label_smooth)
 
@@ -146,7 +143,7 @@ def _train_model(
         indices = torch.randperm(num_samples, device=_DEVICE)
         net.train()
         for start in range(0, num_samples, config.batch_size):
-            batch_idx = indices[start:start + config.batch_size]
+            batch_idx = indices[start : start + config.batch_size]
             bx = dataset_x[batch_idx]
             by = dataset_y[batch_idx]
 
@@ -176,9 +173,10 @@ def _train_model(
         net.load_state_dict(best_state)
     net.eval()
 
-    logger.info("neural_captcha_training_complete",
-                extra={"extra_fields": {"best_accuracy": round(best_acc, 4),
-                                        "epochs": _epoch_idx + 1}})
+    logger.info(
+        "neural_captcha_training_complete",
+        extra={"extra_fields": {"best_accuracy": round(best_acc, 4), "epochs": _epoch_idx + 1}},
+    )
 
 
 def _discover_fonts() -> list[str]:
@@ -237,8 +235,7 @@ def _augment_image(arr: np.ndarray, rng: np.random.RandomState) -> np.ndarray:
     scale = rng.uniform(0.85, 1.15)
     center = (_IMG_SIZE / 2, _IMG_SIZE / 2)
     rot_mat = cv2.getRotationMatrix2D(center, angle, scale)
-    arr = cv2.warpAffine(arr, rot_mat, (_IMG_SIZE, _IMG_SIZE),
-                         borderValue=255, flags=cv2.INTER_LINEAR)
+    arr = cv2.warpAffine(arr, rot_mat, (_IMG_SIZE, _IMG_SIZE), borderValue=255, flags=cv2.INTER_LINEAR)
 
     noise_level = rng.uniform(3, 25)
     arr = arr + rng.randn(_IMG_SIZE, _IMG_SIZE).astype(np.float32) * noise_level
@@ -296,9 +293,7 @@ def _generate_training_data(
 
     for char_idx, char in enumerate(_CHAR_SET):
         is_operator = char in _OPERATOR_CHARS
-        effective_count = (
-            num_per_class * operator_multiplier if is_operator else num_per_class
-        )
+        effective_count = num_per_class * operator_multiplier if is_operator else num_per_class
 
         for _ in range(effective_count):
             font_path = fonts[rng.randint(0, len(fonts))] if fonts else None
@@ -347,8 +342,7 @@ def _load_or_train_model() -> MiniMLP:
             model = MiniMLP()
             model._model.load_state_dict(state_dict)
             model._model.eval()
-            logger.info("neural_captcha_model_loaded",
-                        extra={"extra_fields": {"path": str(cache_path)}})
+            logger.info("neural_captcha_model_loaded", extra={"extra_fields": {"path": str(cache_path)}})
             return model
         except Exception:
             logger.warning("neural_captcha_cache_corrupt")
@@ -356,19 +350,13 @@ def _load_or_train_model() -> MiniMLP:
     logger.info("neural_captcha_training_start")
     images, labels = _generate_training_data(num_per_class=500)
     model = MiniMLP()
-    _train_model(
-        model,
-        images,
-        labels,
-        config=TrainingConfig(epochs=35, batch_size=128, lr=0.002)
-    )
+    _train_model(model, images, labels, config=TrainingConfig(epochs=35, batch_size=128, lr=0.002))
 
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         with open(cache_path, "wb") as fh:
             torch.save(model._model.state_dict(), fh)
-        logger.info("neural_captcha_model_saved",
-                     extra={"extra_fields": {"path": str(cache_path)}})
+        logger.info("neural_captcha_model_saved", extra={"extra_fields": {"path": str(cache_path)}})
     except Exception:
         logger.warning("neural_captcha_model_save_failed")
 
@@ -412,7 +400,7 @@ def predict_chars_batch(images: list[np.ndarray]) -> list[tuple[str, float]]:
         if flat.shape[0] >= _FLAT_SIZE:
             batch[idx] = flat[:_FLAT_SIZE]
         else:
-            batch[idx, :flat.shape[0]] = flat
+            batch[idx, : flat.shape[0]] = flat
 
     preds, confs = model.predict(batch)
     return [(_IDX_TO_CHAR[int(p)], float(c)) for p, c in zip(preds, confs, strict=False)]

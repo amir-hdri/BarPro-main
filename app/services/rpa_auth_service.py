@@ -1,4 +1,5 @@
 """Playwright-heavy auth worker for Phase 1 hybrid RPA."""
+
 from __future__ import annotations
 
 import json
@@ -25,10 +26,17 @@ logger = logging.getLogger(__name__)
 
 
 class RPAAuthService:
-    async def authenticate_driver(self, client_id: int, driver_id: int, reason: str, resume_job_id: str | None = None) -> AuthResult:
+    async def authenticate_driver(
+        self, client_id: int, driver_id: int, reason: str, resume_job_id: str | None = None
+    ) -> AuthResult:
         lock_key = rpa_runtime.auth_lock_key(client_id, driver_id)
         if not await rpa_runtime.acquire_lock(lock_key, utcms_config.RPA_LOCK_TTL_SECONDS):
-            return AuthResult(ok=False, session_bundle=None, reason_code="auth_in_progress", message="Authentication already in progress")
+            return AuthResult(
+                ok=False,
+                session_bundle=None,
+                reason_code="auth_in_progress",
+                message="Authentication already in progress",
+            )
 
         session = async_session_factory()
         session_id = None
@@ -53,10 +61,14 @@ class RPAAuthService:
             await browser_manager.initialize()
             proxy_info = await get_proxy_rotator().get_next()
             proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
-            session_id, context = await browser_manager.create_context(auth_state_path=auth_state_path, proxy_dict=proxy_dict)
+            session_id, context = await browser_manager.create_context(
+                auth_state_path=auth_state_path, proxy_dict=proxy_dict
+            )
             page = await browser_manager.new_page(context)
             authenticator = UTCMSAuthenticator(page, context)
-            ok = await authenticator.login(driver.utcms_username, decrypt_driver_password(driver.utcms_password_encrypted))
+            ok = await authenticator.login(
+                driver.utcms_username, decrypt_driver_password(driver.utcms_password_encrypted)
+            )
             if not ok:
                 message = authenticator.last_error or "login_failed"
                 await self._mark_auth_failure(session, driver, runtime_state, message)
@@ -64,7 +76,9 @@ class RPAAuthService:
                 return AuthResult(ok=False, session_bundle=None, reason_code="login_failed", message=message)
 
             cookies = await context.cookies()
-            expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=utcms_config.RPA_SESSION_TTL_SECONDS)
+            expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(
+                seconds=utcms_config.RPA_SESSION_TTL_SECONDS
+            )
             bundle = SessionBundle(
                 cookies=cookies,
                 user_agent=await page.evaluate("() => navigator.userAgent"),
@@ -110,7 +124,9 @@ class RPAAuthService:
 
             inline_submit_result = None
             if resume_job_id:
-                statement = select(WaybillJob).where(WaybillJob.job_id == resume_job_id, WaybillJob.client_id == client_id)
+                statement = select(WaybillJob).where(
+                    WaybillJob.job_id == resume_job_id, WaybillJob.client_id == client_id
+                )
                 job = (await session.exec(statement)).first()
                 if job and job.status == TaskStatus.WAITING_AUTH.value:
                     now = datetime.now(UTC).replace(tzinfo=None)
@@ -144,16 +160,26 @@ class RPAAuthService:
                 )
             return AuthResult(ok=True, session_bundle=bundle, reason_code="authenticated", expires_at=expires_at)
         except Exception as exc:  # pragma: no cover - integration-heavy path
-            logger.exception("phase1_auth_failed", extra={"extra_fields": {"client_id": client_id, "driver_id": driver_id, "error": str(exc)}})
+            logger.exception(
+                "phase1_auth_failed",
+                extra={"extra_fields": {"client_id": client_id, "driver_id": driver_id, "error": str(exc)}},
+            )
             try:
                 await session.rollback()
             except Exception:
-                logger.warning("phase1_auth_rollback_failed", extra={"extra_fields": {"client_id": client_id, "driver_id": driver_id}})
+                logger.warning(
+                    "phase1_auth_rollback_failed",
+                    extra={"extra_fields": {"client_id": client_id, "driver_id": driver_id}},
+                )
 
             recovery_session = async_session_factory()
             try:
                 # Reset runtime state to prevent sticking in AUTH_IN_PROGRESS
-                rs = (await recovery_session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver_id))).first()
+                rs = (
+                    await recovery_session.exec(
+                        select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver_id)
+                    )
+                ).first()
                 if rs:
                     rs.state = DriverRuntimeStateValue.AUTH_REQUIRED.value
                     rs.updated_at = datetime.now(UTC).replace(tzinfo=None)
@@ -180,9 +206,15 @@ class RPAAuthService:
             await session.close()
             await rpa_runtime.release_lock(lock_key)
 
-    async def _mark_auth_failure(self, session, driver: Driver, runtime_state: DriverRuntimeState, message: str) -> None:
+    async def _mark_auth_failure(
+        self, session, driver: Driver, runtime_state: DriverRuntimeState, message: str
+    ) -> None:
         retry_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
-        runtime_state.state = DriverRuntimeStateValue.ERROR_REVIEW.value if "selector" in message.lower() else DriverRuntimeStateValue.AUTH_REQUIRED.value
+        runtime_state.state = (
+            DriverRuntimeStateValue.ERROR_REVIEW.value
+            if "selector" in message.lower()
+            else DriverRuntimeStateValue.AUTH_REQUIRED.value
+        )
         runtime_state.last_error_code = "login_failed"
         runtime_state.next_retry_at = retry_at
         runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
@@ -229,7 +261,9 @@ class RPAAuthService:
         await session.commit()
 
     async def _get_or_create_runtime_state(self, session, client_id: int, driver_id: int) -> DriverRuntimeState:
-        state = (await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver_id))).first()
+        state = (
+            await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver_id))
+        ).first()
         if state is None:
             state = DriverRuntimeState(client_id=client_id, driver_id=driver_id)
             session.add(state)
@@ -237,14 +271,18 @@ class RPAAuthService:
         return state
 
     async def _get_or_create_session_metadata(self, session, client_id: int, driver_id: int) -> DriverSessionMetadata:
-        item = (await session.exec(select(DriverSessionMetadata).where(DriverSessionMetadata.driver_id == driver_id))).first()
+        item = (
+            await session.exec(select(DriverSessionMetadata).where(DriverSessionMetadata.driver_id == driver_id))
+        ).first()
         if item is None:
             item = DriverSessionMetadata(client_id=client_id, driver_id=driver_id)
             session.add(item)
             await session.flush()
         return item
 
-    async def _record_event(self, session, client_id: int, driver_id: int, job_id: str | None, event_type: str, payload: dict) -> None:
+    async def _record_event(
+        self, session, client_id: int, driver_id: int, job_id: str | None, event_type: str, payload: dict
+    ) -> None:
         session.add(
             DomainEvent(
                 event_id=f"evt_{datetime.now(UTC).replace(tzinfo=None).timestamp():.6f}_{driver_id}",

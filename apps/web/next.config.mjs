@@ -32,16 +32,12 @@ const __dirname = path.dirname(__filename);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   reactStrictMode: true,
   output: "standalone",
   outputFileTracingRoot: process.cwd(),
   images: {
     remotePatterns: [],
   },
-
 };
 
 export default withPWA(nextConfig);

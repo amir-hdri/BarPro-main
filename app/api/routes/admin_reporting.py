@@ -6,6 +6,7 @@ Provides endpoints for the master admin to:
 - View detailed driver reports with filters
 - View failure analysis across all tenants
 """
+
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -90,6 +91,7 @@ async def get_client_detail(
     client = await session.get(Client, client_id)
     if not client:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail="Client not found")
 
     drivers_stmt = select(Driver).where(Driver.client_id == client_id)
@@ -125,15 +127,17 @@ async def get_client_detail(
         driver_success = sum(1 for j in driver_jobs if j.status == "success")
         driver_failed = sum(1 for j in driver_jobs if j.status in ("failed", "dead_letter", "needs_review"))
 
-        driver_breakdown.append({
-            "driver_id": driver.id,
-            "driver_name": driver.full_name,
-            "national_code": driver.driver_national_code,
-            "total_jobs": len(driver_jobs),
-            "success": driver_success,
-            "failed": driver_failed,
-            "success_rate": round(driver_success / max(1, len(driver_jobs)) * 100, 2),
-        })
+        driver_breakdown.append(
+            {
+                "driver_id": driver.id,
+                "driver_name": driver.full_name,
+                "national_code": driver.driver_national_code,
+                "total_jobs": len(driver_jobs),
+                "success": driver_success,
+                "failed": driver_failed,
+                "success_rate": round(driver_success / max(1, len(driver_jobs)) * 100, 2),
+            }
+        )
 
     # Top failure reasons
     failure_reasons = {}

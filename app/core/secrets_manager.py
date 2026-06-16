@@ -214,8 +214,7 @@ class SecretsManager:
 
         return {
             "api_key_configured": bool(
-                current_env.get("API_KEY", "").strip()
-                and not current_env.get("API_KEY", "").startswith("change-me")
+                current_env.get("API_KEY", "").strip() and not current_env.get("API_KEY", "").startswith("change-me")
             ),
             "jwt_secret_configured": bool(
                 current_env.get("JWT_SECRET", "").strip()

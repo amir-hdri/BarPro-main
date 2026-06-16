@@ -1,6 +1,7 @@
 """
 Enhanced OCR with advanced preprocessing and ensemble methods.
 """
+
 import asyncio
 import base64
 import logging
@@ -71,17 +72,13 @@ class EnhancedOcrProvider(CaptchaProvider):
                     decision = captcha_engine.solve_text_with_confidence(text)
                     if decision.value:
                         boost = decision.confidence * 0.3
-                        candidates.append(SolveCandidate(
-                            value=decision.value,
-                            confidence=confidence + boost,
-                            source=f"math_{text}"
-                        ))
+                        candidates.append(
+                            SolveCandidate(value=decision.value, confidence=confidence + boost, source=f"math_{text}")
+                        )
                 elif text.replace(" ", "").replace("-", "").isdigit():
-                    candidates.append(SolveCandidate(
-                        value=text.replace(" ", ""),
-                        confidence=confidence,
-                        source="digit"
-                    ))
+                    candidates.append(
+                        SolveCandidate(value=text.replace(" ", ""), confidence=confidence, source="digit")
+                    )
 
         best = self.ensemble.vote_best_solution(candidates, self.min_confidence)
 

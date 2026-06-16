@@ -84,7 +84,9 @@ class UTCMSConfig:
         self.CAPTCHA_ADAPTIVE_MAX_ATTEMPTS = int(os.getenv("CAPTCHA_ADAPTIVE_MAX_ATTEMPTS", "5"))
         self.CAPTCHA_ADAPTIVE_MAX_DELAY_SECONDS = float(os.getenv("CAPTCHA_ADAPTIVE_MAX_DELAY_SECONDS", "2.5"))
         self.CAPTCHA_DEBUG_SAVE_IMAGES = _to_bool(os.getenv("CAPTCHA_DEBUG_SAVE_IMAGES", "True"), default=True)
-        self.CAPTCHA_DEBUG_DIR = os.getenv("CAPTCHA_DEBUG_DIR", "output/captcha_debug").strip() or "output/captcha_debug"
+        self.CAPTCHA_DEBUG_DIR = (
+            os.getenv("CAPTCHA_DEBUG_DIR", "output/captcha_debug").strip() or "output/captcha_debug"
+        )
 
         self.AUTH_STATE_PATH = os.getenv("AUTH_STATE_PATH", ".auth/utcms_state.json")
         self.USE_PERSISTENT_AUTH_STATE = _to_bool(os.getenv("USE_PERSISTENT_AUTH_STATE", "True"), default=True)
@@ -102,20 +104,21 @@ class UTCMSConfig:
 
         # Security check for default passwords
         if self.MASTER_ADMIN_PASSWORD in ["master_bar", "admin", "Amir123", "password", "123456", "admin123"]:
-            is_prod = os.getenv("NODE_ENV", "").lower() == "production" or os.getenv("ENVIRONMENT", "").lower() == "production"
+            is_prod = (
+                os.getenv("NODE_ENV", "").lower() == "production"
+                or os.getenv("ENVIRONMENT", "").lower() == "production"
+            )
             msg = (
                 "MASTER_ADMIN_PASSWORD is set to an insecure default value. "
                 "This is a critical security risk. Please configure a strong, unique MASTER_ADMIN_PASSWORD in your environment."
             )
             if is_prod:
                 from app.core.exceptions import ErrorCode, UTCMSException
-                raise UTCMSException(
-                    msg,
-                    error_code=ErrorCode.INTERNAL_CONFIG_ERROR,
-                    status_code=500
-                )
+
+                raise UTCMSException(msg, error_code=ErrorCode.INTERNAL_CONFIG_ERROR, status_code=500)
             else:
                 import logging
+
                 logging.warning(f"⚠️ SECURITY WARNING: {msg}")
 
         self.ALLOW_LIVE_SUBMIT = _to_bool(os.getenv("ALLOW_LIVE_SUBMIT", "False"), default=False)
@@ -149,17 +152,22 @@ class UTCMSConfig:
 
         self.DATABASE_URL = os.getenv("DATABASE_URL", "")
         if not self.DATABASE_URL or "sqlite" in self.DATABASE_URL.lower():
-            is_prod = os.getenv("NODE_ENV", "").lower() == "production" or os.getenv("ENVIRONMENT", "").lower() == "production"
+            is_prod = (
+                os.getenv("NODE_ENV", "").lower() == "production"
+                or os.getenv("ENVIRONMENT", "").lower() == "production"
+            )
             if is_prod:
                 from app.core.exceptions import ErrorCode, UTCMSException
+
                 raise UTCMSException(
                     "DATABASE_URL is not set or using SQLite in production. "
                     "This is a critical security and scalability risk. Please configure a secure PostgreSQL DATABASE_URL.",
                     error_code=ErrorCode.INTERNAL_CONFIG_ERROR,
-                    status_code=500
+                    status_code=500,
                 )
             if not self.DATABASE_URL:
                 import logging
+
                 logging.warning("DATABASE_URL not set, using default SQLite database for development.")
                 self.DATABASE_URL = "sqlite+aiosqlite:///./bot_stats.db"
         self.POSTGRES_DSN = os.getenv("POSTGRES_DSN", "").strip()
@@ -275,7 +283,10 @@ class UTCMSConfig:
         # Map bypass settings
         self.MAP_BYPASS_ENABLED = _to_bool(os.getenv("MAP_BYPASS_ENABLED", "True"), default=True)
         self.ORIGIN_TEXT_SELECTOR = os.getenv("ORIGIN_TEXT_SELECTOR", "input[name='Origin'], #OriginInput")
-        self.DESTINATION_TEXT_SELECTOR = os.getenv("DESTINATION_TEXT_SELECTOR", "input[name='Destination'], #DestinationInput")
+        self.DESTINATION_TEXT_SELECTOR = os.getenv(
+            "DESTINATION_TEXT_SELECTOR", "input[name='Destination'], #DestinationInput"
+        )
+
 
 AUTO_GENERATED_SECRETS = _bootstrap_environment()
 utcms_config = UTCMSConfig()

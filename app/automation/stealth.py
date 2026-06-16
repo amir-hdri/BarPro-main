@@ -18,10 +18,26 @@ from app.automation.stealth_common import (
 # ---------------------------------------------------------------------------
 
 _UA_POOL = [
-    ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "win", "124"),
-    ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36", "mac", "123"),
-    ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36", "win", "122"),
-    ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0", "win", "124"),
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "win",
+        "124",
+    ),
+    (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        "mac",
+        "123",
+    ),
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "win",
+        "122",
+    ),
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+        "win",
+        "124",
+    ),
 ]
 
 _VIEWPORTS = [
@@ -33,8 +49,14 @@ _VIEWPORTS = [
 ]
 
 _WEBGL = [
-    {"vendor": "Google Inc. (Intel)", "renderer": "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)"},
-    {"vendor": "Google Inc. (NVIDIA)", "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11 vs_5_0 ps_5_0, D3D11)"},
+    {
+        "vendor": "Google Inc. (Intel)",
+        "renderer": "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    },
+    {
+        "vendor": "Google Inc. (NVIDIA)",
+        "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    },
     {"vendor": "Google Inc. (AMD)", "renderer": "ANGLE (AMD, AMD Radeon RX 580 Direct3D11 vs_5_0 ps_5_0, D3D11)"},
     {"vendor": "Apple", "renderer": "Apple M1"},
 ]
@@ -75,6 +97,7 @@ def _build_init_script(fp: dict) -> str:
 # Public API — same names as original, no import changes needed elsewhere
 # ---------------------------------------------------------------------------
 
+
 async def apply_stealth_mode(page: Page) -> None:
     """
     Apply full stealth fingerprint to a page. Must be called before navigation.
@@ -102,8 +125,7 @@ async def add_random_delay(_page: Page, min_seconds: float = 0.5, max_seconds: f
 
 
 async def human_like_typing(
-    page: Page, selector: str, text: str,
-    min_delay: float = 0.04, max_delay: float = 0.13
+    page: Page, selector: str, text: str, min_delay: float = 0.04, max_delay: float = 0.13
 ) -> None:
     """
     Type text with human-like delays.
@@ -150,8 +172,8 @@ async def human_like_mouse_movement(page: Page, target_selector: str) -> None:
         for i in range(1, steps + 1):
             t = i / steps
             u = 1 - t
-            x = u**3*sx + 3*u**2*t*cp1x + 3*u*t**2*cp2x + t**3*ex
-            y = u**3*sy + 3*u**2*t*cp1y + 3*u*t**2*cp2y + t**3*ey
+            x = u**3 * sx + 3 * u**2 * t * cp1x + 3 * u * t**2 * cp2x + t**3 * ex
+            y = u**3 * sy + 3 * u**2 * t * cp1y + 3 * u * t**2 * cp2y + t**3 * ey
             await page.mouse.move(x, y)
             await asyncio.sleep(random.uniform(0.008, 0.022))
         await page.mouse.move(ex, ey)

@@ -1,4 +1,5 @@
 """Performance monitoring and optimization utilities."""
+
 import asyncio
 import functools
 import logging
@@ -65,6 +66,7 @@ def measure_time(func: Callable | None = None, *, operation_name: str | None = N
         def another_function():
             ...
     """
+
     def decorator(f: Callable) -> Callable:
         name = operation_name or f.__name__
 
@@ -89,6 +91,7 @@ def measure_async_time(func: Callable | None = None, *, operation_name: str | No
         async def my_async_function():
             ...
     """
+
     def decorator(f: Callable) -> Callable:
         name = operation_name or f.__name__
 
@@ -152,6 +155,7 @@ def log_slow_operation(threshold_ms: float = 1000):
     Args:
         threshold_ms: Threshold in milliseconds
     """
+
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:

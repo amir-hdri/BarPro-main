@@ -1,6 +1,7 @@
 """
 Improved neural network with better architecture.
 """
+
 import torch
 import torch.nn as nn
 
@@ -20,7 +21,7 @@ class ImprovedCNN(nn.Module):
             nn.Conv2d(64, 64, 3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.MaxPool2d(2)
+            nn.MaxPool2d(2),
         )
 
         self.conv2 = nn.Sequential(
@@ -30,7 +31,7 @@ class ImprovedCNN(nn.Module):
             nn.Conv2d(128, 128, 3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
-            nn.MaxPool2d(2)
+            nn.MaxPool2d(2),
         )
 
         self.classifier = nn.Sequential(
@@ -42,7 +43,7 @@ class ImprovedCNN(nn.Module):
             nn.Linear(512, 128),
             nn.BatchNorm1d(128),
             nn.ReLU(),
-            nn.Linear(128, num_classes)
+            nn.Linear(128, num_classes),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

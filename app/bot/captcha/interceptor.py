@@ -1,4 +1,5 @@
 """Captcha interception + solver integration with circuit breaker protection."""
+
 from __future__ import annotations
 
 import base64

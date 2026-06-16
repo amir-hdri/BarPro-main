@@ -57,9 +57,7 @@ class BrowserResourceGuard:
         async with self.lock:
             if resource_id in self._resources:
                 self._resources[resource_id]["last_accessed"] = time.time()
-                self._resources[resource_id]["pages_opened"] = len(
-                    self._resources[resource_id]["context"].pages
-                )
+                self._resources[resource_id]["pages_opened"] = len(self._resources[resource_id]["context"].pages)
 
     async def cleanup_stale_resources(self, browser_manager) -> int:
         """Clean up stale/orphaned browser contexts."""
@@ -139,7 +137,12 @@ class BrowserManager:
 
     def _ensure_loop_resources(self):
         current_loop = asyncio.get_running_loop()
-        if not hasattr(self, "_loop") or self._loop != current_loop or self._state_lock is None or self._init_lock is None:
+        if (
+            not hasattr(self, "_loop")
+            or self._loop != current_loop
+            or self._state_lock is None
+            or self._init_lock is None
+        ):
             if hasattr(self, "_loop") and self._loop is not None and self._loop != current_loop:
                 self.playwright = None
                 self.browser = None
@@ -153,9 +156,7 @@ class BrowserManager:
     async def initialize(self):
         """Initialize the browser instance"""
         self._ensure_loop_resources()
-        if self.playwright and self.browser and (
-            not utcms_config.BROWSER_POOL_ENABLED or self._pool is not None
-        ):
+        if self.playwright and self.browser and (not utcms_config.BROWSER_POOL_ENABLED or self._pool is not None):
             return
 
         async with self._init_lock:
@@ -282,10 +283,9 @@ class BrowserManager:
         }
 
         # Add anti-detection launch args
-        if hasattr(self, 'browser') and self.browser:
+        if hasattr(self, "browser") and self.browser:
             # These are set at launch time, but we document them here
             pass
-
 
         if proxy_dict:
             context_args["proxy"] = proxy_dict
@@ -296,7 +296,9 @@ class BrowserManager:
                 context_args["storage_state"] = effective_auth_state_path
         return context_args
 
-    async def create_context(self, auth_state_path: str | None = None, proxy_dict: dict | None = None) -> tuple[str, BrowserContext]:
+    async def create_context(
+        self, auth_state_path: str | None = None, proxy_dict: dict | None = None
+    ) -> tuple[str, BrowserContext]:
         """Create a new browser context with a secure session ID"""
         if not self.browser:
             await self.initialize()
@@ -306,7 +308,9 @@ class BrowserManager:
             context = await self._pool.acquire()
             self._pooled_sessions.add(session_id)
         else:
-            context = await self.browser.new_context(**self._build_context_args(auth_state_path=auth_state_path, proxy_dict=proxy_dict))
+            context = await self.browser.new_context(
+                **self._build_context_args(auth_state_path=auth_state_path, proxy_dict=proxy_dict)
+            )
         self._contexts[session_id] = context
 
         # Register with resource guard
@@ -443,14 +447,11 @@ class BrowserManager:
                 if (is_map_domain or is_tile_path) and resource_type in ("image", "media", "font"):
                     # Fulfill with a 1x1 transparent PNG
                     import base64
+
                     blank_png = base64.b64decode(
                         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
                     )
-                    await route.fulfill(
-                        status=200,
-                        content_type="image/png",
-                        body=blank_png
-                    )
+                    await route.fulfill(status=200, content_type="image/png", body=blank_png)
                     return
             except Exception as e:
                 logger.debug(f"Error in request interceptor: {e}")
@@ -462,7 +463,7 @@ class BrowserManager:
 
         # Route interceptor for blocking heavy map tiles and trackers
         # Can be disabled via BLOCK_MAP_TILES enabled flag (default: True)
-        if getattr(utcms_config, 'BLOCK_MAP_TILES', True):
+        if getattr(utcms_config, "BLOCK_MAP_TILES", True):
             try:
                 await page.route("**/*", block_map_tiles_and_trackers)
             except Exception as route_exc:
@@ -642,7 +643,9 @@ async def managed_browser_session(auth_state_path: str | None = None, proxy_dict
     context = None
     try:
         await browser_manager.initialize()
-        session_id, context = await browser_manager.create_context(auth_state_path=auth_state_path, proxy_dict=proxy_dict)
+        session_id, context = await browser_manager.create_context(
+            auth_state_path=auth_state_path, proxy_dict=proxy_dict
+        )
         yield session_id, context
     finally:
         if session_id:

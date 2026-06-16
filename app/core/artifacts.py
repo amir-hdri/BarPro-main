@@ -27,13 +27,7 @@ class FailureArtifactService:
     ) -> dict[str, str | None]:
         context = get_execution_context()
         timestamp = datetime.now(UTC).replace(tzinfo=None).strftime("%Y%m%dT%H%M%S%fZ")
-        bundle_dir = (
-            self.base_dir
-            / context.tenant_id
-            / context.batch_id
-            / context.task_id
-            / timestamp
-        )
+        bundle_dir = self.base_dir / context.tenant_id / context.batch_id / context.task_id / timestamp
         bundle_dir.mkdir(parents=True, exist_ok=True)
 
         paths = {
@@ -86,7 +80,9 @@ class FailureArtifactService:
 
             console_path = bundle_dir / "console.json"
             try:
-                console_events = list(getattr(page, "_telemetry_console_messages", []))[-_MAX_CAPTURED_TELEMETRY_EVENTS:]
+                console_events = list(getattr(page, "_telemetry_console_messages", []))[
+                    -_MAX_CAPTURED_TELEMETRY_EVENTS:
+                ]
                 console_path.write_text(json.dumps(console_events, ensure_ascii=False, indent=2), encoding="utf-8")
                 paths["console_log_path"] = str(console_path)
             except Exception as exc:

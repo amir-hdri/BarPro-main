@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 # MEMORY TRACKER
 # ============================================================================
 
+
 class MemoryTracker:
     """Tracks and prevents memory leaks in browser contexts."""
 
@@ -43,10 +44,12 @@ class MemoryTracker:
         """Get current process memory usage in MB."""
         try:
             import resource
+
             # ru_maxrss is in KB on macOS, bytes on Linux
             usage = resource.getrusage(resource.RUSAGE_SELF)
             import sys
-            if sys.platform == 'darwin':
+
+            if sys.platform == "darwin":
                 return usage.ru_maxrss / 1024  # KB to MB
             else:
                 return usage.ru_maxrss / (1024 * 1024)  # bytes to MB
@@ -56,14 +59,7 @@ class MemoryTracker:
     def set_baseline(self) -> None:
         """Set baseline memory measurement."""
         self._baseline_memory = self.get_process_memory_mb()
-        logger.info(
-            "memory_baseline_set",
-            extra={
-                "extra_fields": {
-                    "baseline_mb": round(self._baseline_memory, 2)
-                }
-            }
-        )
+        logger.info("memory_baseline_set", extra={"extra_fields": {"baseline_mb": round(self._baseline_memory, 2)}})
 
     def check_memory_usage(self) -> dict[str, Any]:
         """
@@ -106,10 +102,7 @@ class MemoryTracker:
             }
             self._leak_warnings.append(warning_msg)
 
-            logger.warning(
-                "memory_usage_high",
-                extra={"extra_fields": warning_msg}
-            )
+            logger.warning("memory_usage_high", extra={"extra_fields": warning_msg})
 
         return result
 
@@ -123,7 +116,7 @@ class MemoryTracker:
                     "objects_collected": collected,
                     "memory_after_mb": round(self.get_process_memory_mb(), 2),
                 }
-            }
+            },
         )
         return collected
 
@@ -145,9 +138,11 @@ class MemoryTracker:
 # CONTEXT LIFECYCLE MANAGER
 # ============================================================================
 
+
 @dataclass
 class ContextLifecycle:
     """Tracks the lifecycle of a browser context."""
+
     context_id: str
     created_at: float
     last_accessed: float
@@ -331,9 +326,7 @@ class ContextLifecycleManager:
             "total_operations": total_operations,
             "total_successes": total_successes,
             "total_failures": total_failures,
-            "overall_success_rate": round(
-                (total_successes / max(1, total_successes + total_failures)) * 100, 2
-            ),
+            "overall_success_rate": round((total_successes / max(1, total_successes + total_failures)) * 100, 2),
             "contexts": [lc.to_dict() for lc in self._lifecycles.values()],
         }
 
@@ -341,6 +334,7 @@ class ContextLifecycleManager:
 # ============================================================================
 # ADVANCED BROWSER POOL (ENHANCED)
 # ============================================================================
+
 
 class OptimizedBrowserPool:
     """
@@ -407,7 +401,7 @@ class OptimizedBrowserPool:
                     "memory_tracking": self.enable_memory_tracking,
                     "lifecycle_management": self.enable_lifecycle_management,
                 }
-            }
+            },
         )
 
         return pool
@@ -441,7 +435,7 @@ class OptimizedBrowserPool:
                     "context_id": context_id,
                     "workflow_id": workflow_id,
                 }
-            }
+            },
         )
 
         return context, context_id
@@ -479,7 +473,7 @@ class OptimizedBrowserPool:
                     "context_id": context_id,
                     "success": success,
                 }
-            }
+            },
         )
 
     async def _cleanup_context_pages(self, context: BrowserContext, context_id: str) -> None:
@@ -500,7 +494,7 @@ class OptimizedBrowserPool:
                                 "context_id": context_id,
                                 "error": str(e),
                             }
-                        }
+                        },
                     )
         except Exception as e:
             logger.warning(
@@ -510,7 +504,7 @@ class OptimizedBrowserPool:
                         "context_id": context_id,
                         "error": str(e),
                     }
-                }
+                },
             )
 
     async def auto_cleanup(self, pool: Any, browser: Browser | None = None) -> dict[str, Any]:
@@ -569,7 +563,7 @@ class OptimizedBrowserPool:
                                         "context_id": context_id,
                                         "total_recycled": self._total_contexts_recycled,
                                     }
-                                }
+                                },
                             )
                         except Exception as e:
                             logger.warning(
@@ -579,7 +573,7 @@ class OptimizedBrowserPool:
                                         "context_id": context_id,
                                         "error": str(e),
                                     }
-                                }
+                                },
                             )
 
             return cleanup_stats
@@ -620,6 +614,7 @@ class OptimizedBrowserPool:
 # ============================================================================
 # CONTEXT MANAGER FOR SAFE RESOURCE USAGE
 # ============================================================================
+
 
 @asynccontextmanager
 async def managed_browser_resource(
@@ -662,7 +657,7 @@ async def managed_browser_resource(
                     "workflow_id": workflow_id,
                     "error": str(e),
                 }
-            }
+            },
         )
         raise
 

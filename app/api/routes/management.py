@@ -45,7 +45,6 @@ async def operator_artifact_content(path: str):
     return await management_service.read_artifact_content(path)
 
 
-
 @router.post("/bootstrap/local", dependencies=[Depends(require_sensitive_auth)])
 async def bootstrap_local(request: ManagementBootstrapRequest):
     return await management_service.bootstrap_local_scenario(request)

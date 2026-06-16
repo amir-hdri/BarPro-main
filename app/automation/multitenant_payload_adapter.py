@@ -1,4 +1,5 @@
 """Adapters that map the compact multi-tenant job payload into the full waybill schema."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -71,10 +72,17 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
     cargo_weight = _first_value(payload.get("cargo_weight"), cargo_meta.get("weight")) or "1"
     vehicle_type = _first_value(payload.get("vehicle_type"), vehicle_meta.get("type")) or ""
     plate_number = _first_value(payload.get("plate_number"), vehicle_meta.get("plate")) or ""
-    driver_code = str(_first_value(payload.get("driver_national_code"), vehicle_meta.get("driver_national_code")) or "").strip()
+    driver_code = str(
+        _first_value(payload.get("driver_national_code"), vehicle_meta.get("driver_national_code")) or ""
+    ).strip()
 
-    default_sender_name = _first_value(sender_meta.get("name"), metadata.get("company_name")) or f"فرستنده {origin_text or 'نامشخص'}"
-    default_receiver_name = _first_value(receiver_meta.get("name"), metadata.get("customer_name")) or f"گیرنده {destination_text or 'نامشخص'}"
+    default_sender_name = (
+        _first_value(sender_meta.get("name"), metadata.get("company_name")) or f"فرستنده {origin_text or 'نامشخص'}"
+    )
+    default_receiver_name = (
+        _first_value(receiver_meta.get("name"), metadata.get("customer_name"))
+        or f"گیرنده {destination_text or 'نامشخص'}"
+    )
 
     return {
         "sender": {
@@ -90,17 +98,27 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "national_code": _first_value(receiver_meta.get("national_code"), metadata.get("receiver_national_code")),
         },
         "origin": {
-            "province": str(_first_value(origin_meta.get("province"), metadata.get("origin_province"), origin_text) or "نامشخص"),
+            "province": str(
+                _first_value(origin_meta.get("province"), metadata.get("origin_province"), origin_text) or "نامشخص"
+            ),
             "city": str(_first_value(origin_meta.get("city"), origin_text) or "نامشخص"),
             "district": _first_value(origin_meta.get("district")),
-            "address": str(_first_value(origin_meta.get("address"), metadata.get("origin_address"), origin_text) or "نامشخص"),
+            "address": str(
+                _first_value(origin_meta.get("address"), metadata.get("origin_address"), origin_text) or "نامشخص"
+            ),
             "coordinates": origin_meta.get("coordinates"),
         },
         "destination": {
-            "province": str(_first_value(destination_meta.get("province"), metadata.get("destination_province"), destination_text) or "نامشخص"),
+            "province": str(
+                _first_value(destination_meta.get("province"), metadata.get("destination_province"), destination_text)
+                or "نامشخص"
+            ),
             "city": str(_first_value(destination_meta.get("city"), destination_text) or "نامشخص"),
             "district": _first_value(destination_meta.get("district")),
-            "address": str(_first_value(destination_meta.get("address"), metadata.get("destination_address"), destination_text) or "نامشخص"),
+            "address": str(
+                _first_value(destination_meta.get("address"), metadata.get("destination_address"), destination_text)
+                or "نامشخص"
+            ),
             "coordinates": destination_meta.get("coordinates"),
         },
         "cargo": {
@@ -108,22 +126,40 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "weight": cargo_weight,
             "count": _first_value(cargo_meta.get("count"), metadata.get("cargo_count")) or "1",
             "description": _first_value(payload.get("cargo_description"), cargo_meta.get("description")),
-            "value": _first_value(payload.get("cargo_value"), cargo_meta.get("value"), financial_meta.get("cargo_value"), metadata.get("cargo_value")),
+            "value": _first_value(
+                payload.get("cargo_value"),
+                cargo_meta.get("value"),
+                financial_meta.get("cargo_value"),
+                metadata.get("cargo_value"),
+            ),
         },
         "vehicle": {
             "driver_national_code": driver_code or None,
-            "driver_phone": _first_value(payload.get("driver_phone"), vehicle_meta.get("driver_phone"), metadata.get("driver_phone")),
+            "driver_phone": _first_value(
+                payload.get("driver_phone"), vehicle_meta.get("driver_phone"), metadata.get("driver_phone")
+            ),
             "plate": plate_number or None,
             "type": vehicle_type or None,
         },
         "financial": {
             "cost": _first_value(financial_meta.get("cost"), metadata.get("financial_cost")),
-            "payment_method": _first_value(financial_meta.get("payment_method"), metadata.get("payment_method"), metadata.get("financial_payment_method")),
+            "payment_method": _first_value(
+                financial_meta.get("payment_method"),
+                metadata.get("payment_method"),
+                metadata.get("financial_payment_method"),
+            ),
         },
         "shipping_options": {
-            "two_way": bool(_first_value(shipping_meta.get("two_way"), metadata.get("two_way"), metadata.get("shipping_two_way")) or False),
-            "time_limit": _first_value(shipping_meta.get("time_limit"), metadata.get("time_limit"), metadata.get("shipping_time_limit")),
-            "end_shipping": _first_value(shipping_meta.get("end_shipping"), metadata.get("end_shipping"), metadata.get("shipping_end_shipping")),
+            "two_way": bool(
+                _first_value(shipping_meta.get("two_way"), metadata.get("two_way"), metadata.get("shipping_two_way"))
+                or False
+            ),
+            "time_limit": _first_value(
+                shipping_meta.get("time_limit"), metadata.get("time_limit"), metadata.get("shipping_time_limit")
+            ),
+            "end_shipping": _first_value(
+                shipping_meta.get("end_shipping"), metadata.get("end_shipping"), metadata.get("shipping_end_shipping")
+            ),
             "otp": _first_value(shipping_meta.get("otp"), metadata.get("otp"), metadata.get("shipping_otp")),
         },
     }

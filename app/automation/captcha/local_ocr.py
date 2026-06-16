@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 
 class LocalOcrCaptchaProvider(CaptchaProvider):
-
     def __init__(
         self,
         min_char_score: float = 0.35,
@@ -116,12 +115,20 @@ class LocalOcrCaptchaProvider(CaptchaProvider):
             _, fixed = cv2.threshold(blurred, 200, 255, cv2.THRESH_BINARY_INV)
             _, otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
             adaptive = cv2.adaptiveThreshold(
-                enlarged, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY_INV, 31, 11,
+                enlarged,
+                255,
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY_INV,
+                31,
+                11,
             )
             adaptive2 = cv2.adaptiveThreshold(
-                enlarged, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
-                cv2.THRESH_BINARY_INV, 21, 8,
+                enlarged,
+                255,
+                cv2.ADAPTIVE_THRESH_MEAN_C,
+                cv2.THRESH_BINARY_INV,
+                21,
+                8,
             )
 
             for variant in (fixed, otsu, adaptive, adaptive2):

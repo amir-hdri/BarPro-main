@@ -68,4 +68,3 @@ class WaybillEventHub:
 
 
 event_hub = WaybillEventHub()
-

@@ -88,7 +88,7 @@ function Field({
   required?: boolean;
 }) {
   return (
-    <label className="block text-sm font-semibold text-slate-700">
+    <label className="block text-sm font-semibold text-slate-200">
       <span className="mb-2 flex items-center gap-1">
         {label}
         {required && <span className="text-rose-500 text-xs">*</span>}
@@ -139,12 +139,12 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
 // ─── Section header ────────────────────────────────────────────────────────────
 function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle: string }) {
   return (
-    <div className="flex items-start gap-4 mb-6 pb-5 border-b border-slate-100">
+    <div className="flex items-start gap-4 mb-6 pb-5 border-b border-white/5">
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-cyan-400 shadow-md shadow-slate-900/20">
         <Icon className="h-5 w-5" />
       </div>
       <div>
-        <h2 className="text-lg font-bold text-slate-900">{title}</h2>
+        <h2 className="text-lg font-bold text-white">{title}</h2>
         <p className="text-sm text-slate-400 font-normal mt-0.5">{subtitle}</p>
       </div>
     </div>
@@ -336,7 +336,7 @@ export default function NewWaybillPage() {
             <div className="absolute -left-16 -bottom-16 h-48 w-48 rounded-full bg-indigo-400/10 blur-[80px]" />
             <div className="relative z-10 flex items-center justify-between">
               <div>
-                <div className="inline-flex items-center gap-2 rounded-full bg-cyan-400/10 px-4 py-1.5 text-xs font-bold tracking-widest text-cyan-400 uppercase mb-4">
+                <div className="inline-flex items-center gap-2 rounded-full bg-cyan-400/10 px-4 py-1.5 text-xs font-bold  text-cyan-400 uppercase mb-4">
                   <SparklesIcon className="h-3.5 w-3.5" />
                   ثبت ماموریت جدید
                 </div>
@@ -376,7 +376,7 @@ export default function NewWaybillPage() {
               {STEPS.map((s) => (
                 <span
                   key={s.id}
-                  className={`text-[10px] font-bold text-center flex-1 transition-colors ${s.id === currentStep ? "text-slate-900" : s.id < currentStep ? "text-cyan-600" : "text-slate-300"}`}
+                  className={`text-[10px] font-bold text-center flex-1 transition-colors ${s.id === currentStep ? "text-cyan-400 font-black" : s.id < currentStep ? "text-cyan-600/70" : "text-slate-500"}`}
                 >
                   {s.label}
                 </span>
@@ -444,13 +444,13 @@ export default function NewWaybillPage() {
                   </div>
 
                   {selectedDriver && (
-                    <div className="mt-2 flex items-center gap-3 rounded-xl bg-slate-50 border border-slate-100 px-4 py-3">
+                    <div className="mt-2 flex items-center gap-3 rounded-xl bg-slate-950/60 border border-white/5 px-4 py-3">
                       <div className="h-2 w-2 rounded-full bg-emerald-400 pulse-dot" />
                       <div className="text-sm">
-                        <span className="font-semibold text-slate-700">{selectedDriver.full_name}</span>
-                        <span className="mx-2 text-slate-300">|</span>
+                        <span className="font-semibold text-slate-200">{selectedDriver.full_name}</span>
+                        <span className="mx-2 text-slate-700">|</span>
                         <span className="text-xs text-slate-400 font-mono">{selectedDriver.utcms_username}</span>
-                        <span className={`mr-2 badge ${selectedDriver.status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                        <span className={`mr-2 badge ${selectedDriver.status === "active" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-amber-500/10 text-amber-400 border border-amber-500/20"}`}>
                           {selectedDriver.status === "active" ? "فعال" : selectedDriver.status}
                         </span>
                       </div>
@@ -474,7 +474,7 @@ export default function NewWaybillPage() {
                     title="مبدا بارگیری"
                     subtitle="اطلاعات دقیق مکان مبدا — ربات این اطلاعات را در مرحله ۵ فرم UTCMS پر می‌کند"
                   />
-                  <div className="rounded-xl bg-cyan-50 border border-cyan-100 px-4 py-3 text-xs text-cyan-700 font-medium flex items-start gap-2">
+                  <div className="rounded-xl bg-cyan-500/10 border border-cyan-500/20 px-4 py-3 text-xs text-cyan-400 font-medium flex items-start gap-2">
                     <SparklesIcon className="h-4 w-4 shrink-0 mt-0.5" />
                     <span>
                       ربات ابتدا <strong>ddStateSource</strong> (استان) را انتخاب می‌کند، سپس <strong>ddCitySource</strong> (شهر) را بار می‌زند و در نهایت <strong>txtAddressSource</strong> را پر می‌کند.
@@ -528,7 +528,7 @@ export default function NewWaybillPage() {
                     title="مقصد تحویل"
                     subtitle="اطلاعات دقیق مکان مقصد — ربات در مرحله ۶ فرم UTCMS این اطلاعات را تکمیل می‌کند"
                   />
-                  <div className="rounded-xl bg-cyan-50 border border-cyan-100 px-4 py-3 text-xs text-cyan-700 font-medium flex items-start gap-2">
+                  <div className="rounded-xl bg-cyan-500/10 border border-cyan-500/20 px-4 py-3 text-xs text-cyan-400 font-medium flex items-start gap-2">
                     <SparklesIcon className="h-4 w-4 shrink-0 mt-0.5" />
                     <span>
                       ربات <strong>ddStateDest</strong> (استان) و <strong>ddCityDest</strong> (شهر) را به ترتیب انتخاب کرده و <strong>txtAddressDest</strong> را پر می‌کند.
@@ -645,7 +645,7 @@ export default function NewWaybillPage() {
                     subtitle="مشخصات کامل طرفین قرارداد حمل"
                   />
                   <div>
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">فرستنده</p>
+                    <p className="text-xs font-bold text-cyan-400 uppercase mb-3">فرستنده</p>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <Field label="نام و نام خانوادگی" error={errors.sender_name} required>
                         <input className={`field ${errors.sender_name ? "error" : ""}`} value={form.sender_name} onChange={(e) => handleChange("sender_name", e.target.value)} />
@@ -662,8 +662,8 @@ export default function NewWaybillPage() {
                     </div>
                   </div>
 
-                  <div className="border-t border-slate-100 pt-5">
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">گیرنده</p>
+                  <div className="border-t border-white/5 pt-5">
+                    <p className="text-xs font-bold text-cyan-400 uppercase mb-3">گیرنده</p>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <Field label="نام و نام خانوادگی" error={errors.receiver_name} required>
                         <input className={`field ${errors.receiver_name ? "error" : ""}`} value={form.receiver_name} onChange={(e) => handleChange("receiver_name", e.target.value)} />
@@ -714,21 +714,21 @@ export default function NewWaybillPage() {
                     </div>
 
                     <div className="sm:col-span-2">
-                      <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3.5 cursor-pointer hover:bg-slate-100 transition-colors">
+                      <label className="flex items-center gap-3 rounded-xl border border-white/5 bg-slate-950/60 px-4 py-3.5 cursor-pointer hover:bg-slate-950/80 transition-colors">
                         <input
                           type="checkbox"
                           checked={form.shipping_two_way}
                           onChange={(e) => handleChange("shipping_two_way", e.target.checked)}
                           className="w-4 h-4 accent-cyan-500"
                         />
-                        <span className="text-sm font-semibold text-slate-700">ثبت حمل رفت و برگشت</span>
+                        <span className="text-sm font-semibold text-slate-300">ثبت حمل رفت و برگشت</span>
                       </label>
                     </div>
                   </div>
 
                   {/* Summary before submit */}
                   <div className="rounded-2xl bg-slate-950 text-white p-5 mt-2">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">خلاصه ماموریت</p>
+                    <p className="text-xs font-bold text-slate-400 uppercase r mb-3">خلاصه ماموریت</p>
                     <div className="grid gap-2 text-sm">
                       <div className="flex justify-between">
                         <span className="text-slate-400">راننده</span>
@@ -778,7 +778,7 @@ export default function NewWaybillPage() {
                 type="button"
                 onClick={goPrev}
                 disabled={currentStep === 1}
-                className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
+                className="flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-950 px-6 py-3 text-sm font-semibold text-slate-300 transition hover:bg-slate-900 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
               >
                 <ChevronRightIcon className="h-4 w-4" />
                 مرحله قبل
@@ -792,7 +792,7 @@ export default function NewWaybillPage() {
                   <button
                     type="submit"
                     disabled={submitting || drivers.length === 0}
-                    className="flex items-center gap-2 rounded-2xl bg-slate-950 px-8 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-slate-900/20 active:scale-[0.98]"
+                    className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-8 py-3.5 text-sm font-black text-slate-950 transition active:scale-[0.98] disabled:opacity-50 shadow-lg shadow-cyan-500/20"
                   >
                     {submitting ? (
                       <>
@@ -809,7 +809,7 @@ export default function NewWaybillPage() {
                 ) : (
                   <button
                     type="submit"
-                    className="flex items-center gap-2 rounded-2xl bg-slate-950 px-7 py-3 text-sm font-bold text-white transition hover:bg-cyan-600 shadow-md active:scale-[0.98]"
+                    className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-7 py-3 text-sm font-black text-slate-950 transition shadow-md active:scale-[0.98]"
                   >
                     مرحله بعد
                     <ChevronLeftIcon className="h-4 w-4" />
@@ -821,7 +821,7 @@ export default function NewWaybillPage() {
             {/* automation hint footer */}
             <div className="mt-4 flex items-center justify-center gap-2 text-xs text-slate-400">
               <div className="h-1.5 w-1.5 rounded-full bg-cyan-400 pulse-dot" />
-              <span>ربات اتوماسیون پس از ثبت، فرم UTCMS را با روش <strong className="text-slate-600">utcms_direct</strong> پر می‌کند</span>
+              <span>ربات اتوماسیون پس از ثبت، فرم UTCMS را با روش <strong className="text-slate-300">utcms_direct</strong> پر می‌کند</span>
             </div>
           </form>
         </div>
