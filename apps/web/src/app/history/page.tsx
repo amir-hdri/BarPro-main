@@ -310,7 +310,7 @@ export default function HistoryPage() {
             )}
           </div>
 
-          <div className="relative overflow-hidden rounded-[40px] border border-slate-200 bg-slate-950 p-8 text-white shadow-2xl shadow-slate-900/10">
+          <div className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-950 p-8 text-white shadow-2xl shadow-slate-900/10">
             <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-cyan-500/10 blur-[80px]"></div>
             
             <div className="relative z-10">
@@ -361,30 +361,30 @@ export default function HistoryPage() {
           {/* Delete Confirmation Modal */}
           {deleteModalOpen && deletingJobId && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-              <div className="w-full max-w-md rounded-[40px] border border-slate-200 bg-white p-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900/90 p-8 shadow-2xl backdrop-blur-2xl text-white" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-500/10 text-rose-500 ring-1 ring-rose-500/20">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
                       <AlertCircle className="h-5 w-5" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-slate-900">تایید حذف ماموریت</h3>
-                      <p className="mt-1 text-sm text-slate-500">آیا از حذف ماموریت #{deletingJobId} مطمئن هستید؟</p>
+                      <h3 className="text-lg font-black text-white">تایید حذف ماموریت</h3>
+                      <p className="mt-1 text-sm text-slate-400">آیا از حذف ماموریت #{deletingJobId} مطمئن هستید؟</p>
                     </div>
                   </div>
-                  <button onClick={handleDeleteModalClose} className="text-slate-400 hover:text-slate-600">
+                  <button onClick={handleDeleteModalClose} className="text-slate-400 hover:text-slate-200 transition">
                     <X className="h-5 w-5" />
                   </button>
                 </div>
                 
                 {deleteError && (
-                  <div className="mt-4 rounded-xl bg-rose-50 p-3 text-sm font-medium text-rose-600">
+                  <div className="mt-4 rounded-xl bg-rose-500/10 border border-rose-500/20 p-3 text-sm font-medium text-rose-400">
                     {deleteError}
                   </div>
                 )}
                 
                 <div className="mt-6 flex justify-end gap-3">
-                  <button onClick={handleDeleteModalClose} className="rounded-xl bg-slate-100 px-6 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-200 transition-colors">
+                  <button onClick={handleDeleteModalClose} className="rounded-xl bg-slate-950 border border-white/5 px-6 py-2.5 text-sm font-bold text-slate-300 hover:bg-slate-900 transition-colors">
                     انصراف
                   </button>
                   <button
@@ -401,78 +401,78 @@ export default function HistoryPage() {
           {/* Edit Job Modal */}
           {editModalOpen && editingJob && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-              <div className="w-full max-w-md rounded-[40px] border border-slate-200 bg-white p-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center justify-between">
+              <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900/90 p-8 shadow-2xl backdrop-blur-2xl text-white" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between border-b border-white/5 pb-4">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-500 ring-1 ring-cyan-500/20">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
                       <Edit2 className="h-5 w-5" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-slate-900">ویرایش ماموریت</h3>
-                      <p className="mt-1 text-sm text-slate-500">ویرایش مشخصات ماموریت #{editingJob.job_id}</p>
+                      <h3 className="text-lg font-black text-white">ویرایش ماموریت</h3>
+                      <p className="mt-1 text-sm text-slate-400">ویرایش مشخصات ماموریت #{editingJob.job_id}</p>
                     </div>
                   </div>
-                  <button onClick={handleEditModalClose} className="text-slate-400 hover:text-slate-600">
+                  <button onClick={handleEditModalClose} className="text-slate-400 hover:text-slate-200 transition">
                     <X className="h-5 w-5" />
                   </button>
                 </div>
                 
                 {editSuccess && (
-                  <div className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm font-medium text-emerald-600">
+                  <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-sm font-medium text-emerald-400">
                     <Check className="h-4 w-4 inline ml-1" />
                     {editSuccess}
                   </div>
                 )}
                 
                 {editError && (
-                  <div className="mt-4 rounded-xl bg-rose-50 p-3 text-sm font-medium text-rose-600">
+                  <div className="mt-4 rounded-xl bg-rose-500/10 border border-rose-500/20 p-3 text-sm font-medium text-rose-400">
                     {editError}
                   </div>
                 )}
                 
                 <div className="mt-6 space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700">اولویت (0-9)</label>
+                    <label className="block text-xs font-bold text-slate-400">اولویت (0-9)</label>
                     <input
                       type="number"
                       min="0"
                       max="9"
                       value={editForm.priority}
                       onChange={(e) => setEditForm({...editForm, priority: Number(e.target.value)})}
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 outline-none"
+                      className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm text-white outline-none focus:border-cyan-500 transition-all"
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-slate-700">حداکثر تلاش مجدد (0-10)</label>
+                    <label className="block text-xs font-bold text-slate-400">حداکثر تلاش مجدد (0-10)</label>
                     <input
                       type="number"
                       min="0"
                       max="10"
                       value={editForm.max_retries}
                       onChange={(e) => setEditForm({...editForm, max_retries: Number(e.target.value)})}
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 outline-none"
+                      className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm text-white outline-none focus:border-cyan-500 transition-all"
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-slate-700">دلیل پایان (اختیاری)</label>
+                    <label className="block text-xs font-bold text-slate-400">دلیل پایان (اختیاری)</label>
                     <input
                       value={editForm.terminal_reason || ''}
                       onChange={(e) => setEditForm({...editForm, terminal_reason: e.target.value})}
-                      className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 outline-none"
+                      className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm text-white outline-none focus:border-cyan-500 transition-all"
                       placeholder="مثال: درخواست کاربر"
                     />
                   </div>
                 </div>
                 
-                <div className="mt-6 flex justify-end gap-3">
-                  <button onClick={handleEditModalClose} className="rounded-xl bg-slate-100 px-6 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-200 transition-colors">
+                <div className="mt-6 flex justify-end gap-3 border-t border-white/5 pt-4">
+                  <button onClick={handleEditModalClose} className="rounded-xl bg-slate-950 border border-white/5 px-6 py-2.5 text-sm font-bold text-slate-300 hover:bg-slate-900 transition-colors">
                     انصراف
                   </button>
                   <button
                     onClick={() => void handleEdit(editingJob.job_id)}
-                    className="rounded-xl bg-cyan-500 px-6 py-2.5 text-sm font-bold text-white hover:bg-cyan-600 transition-colors"
+                    className="rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-2.5 text-sm font-bold transition-all shadow-lg"
                   >
                     ذخیره تغییرات
                   </button>
