@@ -376,7 +376,7 @@ export default function NewWaybillPage() {
               {STEPS.map((s) => (
                 <span
                   key={s.id}
-                  className={`text-[10px] font-bold text-center flex-1 transition-colors ${s.id === currentStep ? "text-cyan-400 font-black" : s.id < currentStep ? "text-cyan-600/70" : "text-slate-500"}`}
+                  className={`text-[10px] font-bold text-center flex-1 transition-colors ${s.id === currentStep ? "text-cyan-400" : s.id < currentStep ? "text-cyan-600/80" : "text-slate-500"}`}
                 >
                   {s.label}
                 </span>
@@ -475,7 +475,7 @@ export default function NewWaybillPage() {
                     subtitle="اطلاعات دقیق مکان مبدا — ربات این اطلاعات را در مرحله ۵ فرم UTCMS پر می‌کند"
                   />
                   <div className="rounded-xl bg-cyan-500/10 border border-cyan-500/20 px-4 py-3 text-xs text-cyan-400 font-medium flex items-start gap-2">
-                    <SparklesIcon className="h-4 w-4 shrink-0 mt-0.5" />
+                    <SparklesIcon className="h-4 w-4 shrink-0 mt-0.5 text-cyan-400" />
                     <span>
                       ربات ابتدا <strong>ddStateSource</strong> (استان) را انتخاب می‌کند، سپس <strong>ddCitySource</strong> (شهر) را بار می‌زند و در نهایت <strong>txtAddressSource</strong> را پر می‌کند.
                     </span>
@@ -529,7 +529,7 @@ export default function NewWaybillPage() {
                     subtitle="اطلاعات دقیق مکان مقصد — ربات در مرحله ۶ فرم UTCMS این اطلاعات را تکمیل می‌کند"
                   />
                   <div className="rounded-xl bg-cyan-500/10 border border-cyan-500/20 px-4 py-3 text-xs text-cyan-400 font-medium flex items-start gap-2">
-                    <SparklesIcon className="h-4 w-4 shrink-0 mt-0.5" />
+                    <SparklesIcon className="h-4 w-4 shrink-0 mt-0.5 text-cyan-400" />
                     <span>
                       ربات <strong>ddStateDest</strong> (استان) و <strong>ddCityDest</strong> (شهر) را به ترتیب انتخاب کرده و <strong>txtAddressDest</strong> را پر می‌کند.
                     </span>
@@ -645,7 +645,7 @@ export default function NewWaybillPage() {
                     subtitle="مشخصات کامل طرفین قرارداد حمل"
                   />
                   <div>
-                    <p className="text-xs font-bold text-cyan-400 uppercase mb-3">فرستنده</p>
+                    <p className="text-xs font-black text-cyan-400 uppercase r mb-3">فرستنده</p>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <Field label="نام و نام خانوادگی" error={errors.sender_name} required>
                         <input className={`field ${errors.sender_name ? "error" : ""}`} value={form.sender_name} onChange={(e) => handleChange("sender_name", e.target.value)} />
@@ -663,7 +663,7 @@ export default function NewWaybillPage() {
                   </div>
 
                   <div className="border-t border-white/5 pt-5">
-                    <p className="text-xs font-bold text-cyan-400 uppercase mb-3">گیرنده</p>
+                    <p className="text-xs font-black text-cyan-400 uppercase r mb-3">گیرنده</p>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <Field label="نام و نام خانوادگی" error={errors.receiver_name} required>
                         <input className={`field ${errors.receiver_name ? "error" : ""}`} value={form.receiver_name} onChange={(e) => handleChange("receiver_name", e.target.value)} />
@@ -721,7 +721,7 @@ export default function NewWaybillPage() {
                           onChange={(e) => handleChange("shipping_two_way", e.target.checked)}
                           className="w-4 h-4 accent-cyan-500"
                         />
-                        <span className="text-sm font-semibold text-slate-300">ثبت حمل رفت و برگشت</span>
+                        <span className="text-sm font-semibold text-slate-200">ثبت حمل رفت و برگشت</span>
                       </label>
                     </div>
                   </div>
@@ -792,7 +792,7 @@ export default function NewWaybillPage() {
                   <button
                     type="submit"
                     disabled={submitting || drivers.length === 0}
-                    className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-8 py-3.5 text-sm font-black text-slate-950 transition active:scale-[0.98] disabled:opacity-50 shadow-lg shadow-cyan-500/20"
+                    className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-8 py-3.5 text-sm font-black text-slate-950 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20 active:scale-[0.98]"
                   >
                     {submitting ? (
                       <>
@@ -809,7 +809,7 @@ export default function NewWaybillPage() {
                 ) : (
                   <button
                     type="submit"
-                    className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-7 py-3 text-sm font-black text-slate-950 transition shadow-md active:scale-[0.98]"
+                    className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-7 py-3.5 text-sm font-black text-slate-950 transition-all shadow-lg shadow-cyan-500/20 active:scale-[0.98]"
                   >
                     مرحله بعد
                     <ChevronLeftIcon className="h-4 w-4" />
@@ -821,7 +821,7 @@ export default function NewWaybillPage() {
             {/* automation hint footer */}
             <div className="mt-4 flex items-center justify-center gap-2 text-xs text-slate-400">
               <div className="h-1.5 w-1.5 rounded-full bg-cyan-400 pulse-dot" />
-              <span>ربات اتوماسیون پس از ثبت، فرم UTCMS را با روش <strong className="text-slate-300">utcms_direct</strong> پر می‌کند</span>
+              <span>ربات اتوماسیون پس از ثبت، فرم UTCMS را با روش <strong className="text-cyan-400">utcms_direct</strong> پر می‌کند</span>
             </div>
           </form>
         </div>
