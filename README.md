@@ -87,14 +87,14 @@ cd apps/web && npm install
 Create a `.env` file in the root directory. Configure your database, Redis, and security keys based on the provided `.env.example` (or internal documentation).
 
 ### 3. Running the System
-The system is managed via unified shell scripts for easy operation:
+The system is managed via a unified management script for easy operations:
 
 ```bash
 # Start all services (Backend, Frontend, Workers, Redis, Postgres)
-./scripts/start_system.sh
+bash manage.sh start
 
-# Stop all services gracefully
-./scripts/stop_system.sh
+# Check real-time service status and resources
+bash manage.sh status
 ```
 
 ---
@@ -103,11 +103,13 @@ The system is managed via unified shell scripts for easy operation:
 
 | Command | Description |
 | :--- | :--- |
-| `./scripts/start_system.sh` | Full system bootstrap in the background. |
-| `./scripts/stop_system.sh` | Graceful shutdown of all components. |
-| `./scripts/check_health.sh` | Instant health check of DB, Redis, and API. |
-| `pytest` | Run comprehensive integration & unit tests (Optimized to be extremely fast). |
-| `alembic upgrade head` | Apply the latest database schema migrations. |
+| `bash manage.sh start` | Full system bootstrap in the background. |
+| `bash manage.sh stop` | Graceful shutdown of all components (retaining data). |
+| `bash manage.sh status` | Show CPU, RAM, disk usage, and container status. |
+| `bash manage.sh health` | Verify active database, Redis, API, and UI endpoints. |
+| `bash manage.sh deploy` | Smart pull and deployment from GitHub repository. |
+| `bash manage.sh backup-db` | Quick Postgres database snapshot compression. |
+| `pytest` | Run comprehensive integration & unit tests. |
 
 ---
 
@@ -132,7 +134,11 @@ The system is managed via unified shell scripts for easy operation:
    ```
 2. **نصب مرورگر مورد نیاز ربات:** `playwright install chromium`
 3. **نصب وابستگی‌های رابط کاربری (Frontend):** `cd apps/web && npm install`
-4. **اجرای سیستم:** `./scripts/start_system.sh`
+4. **اجرای سیستم:** 
+   ```bash
+   # راه‌اندازی کل سرویس‌ها با اسکریپت مدیریت
+   bash manage.sh start
+   ```
 
 ---
 *For extensive architecture and operational documentation, please refer to the `docs/` folder.*

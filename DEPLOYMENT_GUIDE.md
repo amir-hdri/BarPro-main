@@ -1,11 +1,11 @@
 # راهنمای استقرار سیستم BarPro در محیط عملیاتی (معماری مبتنی بر ۲ سرور ابری)
 
-این سند راهنمای گام‌به‌گام برای استقرار سیستم اتوماسیون **BarPro** بر روی دو سرور ابری (ابرک) تهیه‌شده در ابر آروان با مشخصات زیر است:
+این سند راهنمای گام‌به‌گام برای استقرار، مدیریت و بروزرسانی سیستم اتوماسیون **BarPro** بر روی دو سرور ابری (ابرک) تهیه‌شده در ابر آروان با مشخصات زیر است:
 
 *   **سرور اصلی (Node 1):**
     *   آی‌پی اینترنتی: `188.121.123.16`
     *   سخت‌افزار: 4 vCPU - 12 GB RAM
-    *   وظیفه: اجرای کل پایگاه داده، ردیس، بک‌اند، فرانت‌اند، ورکر شماره ۱، ورکر شماره ۲ و سرویس‌های کمکی.
+    *   وظیفه: اجرای پایگاه داده، ردیس، بک‌اند، فرانت‌اند، ورکر شماره ۱، ورکر شماره ۲ و سرویس‌های کمکی.
 *   **سرور کمکی/پروکسی (Node 2):**
     *   آی‌پی اینترنتی: `95.38.233.90`
     *   سخت‌افزار: 4 vCPU - 12 GB RAM
@@ -38,6 +38,13 @@ graph TD
 
 ---
 
+## 🔒 امنیت و ایزوله‌سازی پورت‌ها (جدید)
+در راستای افزایش امنیت پروژه در محیط عملیاتی:
+- پورت‌های حساس پایگاه‌داده PostgreSQL (`5432`) و Redis (`6379`) به طور کامل روی شبکه عمومی اینترنت بسته شده‌اند و فقط داخل شبکه داخلی داکر (Bridge network) قابل دسترسی هستند.
+- فقط پورت‌های استاندارد وب (`80` و `443` در صورت نیاز) و پورت مانیتورینگ Prometheus (`9090`) روی سطح وب عمومی در دسترس قرار دارند.
+
+---
+
 ## 🔒 مرحله ۱: تنظیمات فایروال و امنیت در پنل ابر آروان
 
 برای جلوگیری از سوءاستفاده از پراکسی سرور کمکی، باید پورت `3128` سرور دوم را **فقط و فقط** به روی آی‌پی سرور اول باز کنید.
@@ -58,10 +65,10 @@ graph TD
 بر روی سرور دوم فقط کافیست سرویس پراکسی Squid را با داکر بالا بیاورید.
 
 1.  وارد سرور دوم شوید (از طریق SSH).
-2.  داکر و داکر کامپوز را نصب کنید (در صورت عدم نصب):
+2.  داکر را نصب کنید (در صورت عدم نصب):
     ```bash
     sudo apt update
-    sudo apt install -y docker.io docker-compose
+    sudo apt install -y docker.io docker-compose-v2
     ```
 3.  یک پوشه برای تنظیمات پراکسی بسازید:
     ```bash
@@ -119,66 +126,47 @@ graph TD
 ## 🚀 مرحله ۳: آماده‌سازی و اجرای سرور اصلی (Node 1 - `188.121.123.16`)
 
 1.  وارد سرور اصلی شوید.
-2.  کد پروژه را در مسیر `/opt/barpro` یا هر مسیر دلخواه دیگری کلون یا آپلود کنید.
-3.  فایل تنظیمات محیطی `.env` را به صورت زیر پیکربندی کنید:
-    ```env
-    API_KEY="utcms_10c6461a53a0197c821d3cd3515f58b4f6bca2b4d9d7a366d6e3db9274178ccb"
-    JWT_SECRET="Nf9o^A=9Ze)mAvK3)2AeCd(9yxRJhJ(CI85NneA$@Gqb1bGWF*(H8NSs&Oo#kTRQ"
-    DRIVER_ENCRYPTION_KEY="xmq4TjTW_G@T9Yo@tCZgZ7HT)YjBKft9R4^va3n(6x-fzeh=2Fp$-5dqfojMP^G0"
-    POSTGRES_PASSWORD="your_secure_postgres_password_here"
-    REDIS_PASSWORD="your_secure_redis_password_here"
-    DATABASE_URL="postgresql+asyncpg://postgres:your_secure_postgres_password_here@postgres:5432/utcms_rpa"
-    REDIS_URL="redis://:your_secure_redis_password_here@redis:6379/0"
-    FRONTEND_URL="http://188.121.123.16"
-    NEXT_PUBLIC_API_URL="http://188.121.123.16:8000"
-    ENVIRONMENT="production"
-    MASTER_ADMIN_USERNAME=admin
-    MASTER_ADMIN_PASSWORD=your_master_admin_password
-
-    # تنظیمات معماری دو آی‌پی
-    AVAILABLE_IP_INDICES="1,2"
-    WORKER_1_PROXY="http://squid_1:3128"
-    WORKER_2_PROXY="http://95.38.233.90:3128" # آدرس سرور دوم
-
-    # تلگرام جهت دریافت هشدارهای خرابی آی‌پی یا مصرف رم بالا
-    TELEGRAM_BOT_TOKEN="your_bot_token"
-    TELEGRAM_CHAT_ID="your_chat_id"
-
-    # تنظیمات مرورگر در سرور
-    HEADLESS=true
-    BLOCK_MAP_TILES=true
-    ```
-4.  فایل پراکسی محلی سرور اول `infra/squid/squid_1.conf` را ویرایش کرده و آی‌پی این سرور را جایگزین کنید:
-    ```squid
-    # Squid proxy configuration for IP 1
-    http_port 3128
-
-    acl localnet src 10.0.0.0/8
-    acl localnet src 172.16.0.0/12
-    acl localnet src 192.168.0.0/16
-
-    http_access allow localnet
-    http_access allow localhost
-    http_access deny all
-
-    # آی‌پی اینترنتی همین سرور
-    tcp_outgoing_address 188.121.123.16
-
-    cache deny all
-    ```
-
-5.  اجرای سرویس‌ها به استثنای سرویس‌های مربوط به آی‌پی شماره ۳ (زیرا فقط ۲ آی‌پی داریم):
+2.  آخرین نسخه ابزار Docker Compose V2 را بر روی سیستم نصب کنید:
     ```bash
-    # اجرای بک‌اند، دیتابیس، ردیس، پراکسی محلی و ۲ ورکر
-    docker compose --profile docker-backend up -d --build postgres redis squid_1 backend celery_worker_1 celery_worker_2 celery_beat frontend nginx prometheus
+    sudo apt update
+    sudo apt install -y docker-compose-v2
     ```
-
-    > [!NOTE]
-    > با اجرای دستور بالا، سرویس‌های غیرضروری مانند `squid_2` (چون پراکسی سرور دوم مستقل روی سرور خودش است)، `squid_3` و `celery_worker_3` اجرا نخواهند شد تا منابع رم سرور اصلی بیهوده هدر نرود.
+3.  کد پروژه را در مسیر `/opt/barpro` کلون یا آپلود کنید.
+4.  فایل تنظیمات محیطی `.env` را بر اساس نمونه `.env.example` پیکربندی کنید.
+5.  فایل پراکسی محلی سرور اول `infra/squid/squid_1.conf` را ویرایش کرده و آی‌پی سرور اول را در فیلد `tcp_outgoing_address` جایگزین کنید.
+6.  بهینه‌سازی حجم بیلد (جدید):
+    به منظور تسریع چشمگیر زمان انتقال فایل‌ها به داکر کانتینر، فایل‌های `.dockerignore` در پروژه تعبیه شده‌اند که از انتقال پوشه‌های سنگین نظیر `node_modules` جلوگیری کرده و سرعت بیلد داکر را از چند دقیقه به کمتر از ۱ ثانیه می‌رساند.
 
 ---
 
-## 💾 مرحله ۴: راه‌اندازی نسخه‌های پشتیبان روزانه (Google Drive Backups)
+## 🛠️ مرحله ۴: اسکریپت مدیریت هوشمند و دیپلوی (`manage.sh`) (جدید)
+
+برای ساده‌سازی فرآیندهای مدیریت، عیب‌یابی و آپدیت پروژه، یک اسکریپت متمرکز به نام `manage.sh` در ریشه پروژه قرار گرفته است.
+
+### راه‌اندازی گیت روی سرور
+برای اتصال مستقیم سرور به مخزن گیت‌هاب و دیپلوی خودکار تغییرات جدید:
+```bash
+cd /opt/barpro
+bash manage.sh git-setup
+```
+
+### عملیات‌های متداول با `manage.sh`
+
+| دستور | شرح عملکرد |
+| :--- | :--- |
+| `bash manage.sh status` | نمایش وضعیت زنده تمام کانتینرها، مصرف دیسک و مصرف RAM سرور. |
+| `bash manage.sh health` | تست خودکار سلامت اتصالات فرانت‌اند، API بک‌اند، دیتابیس و ردیس. |
+| `bash manage.sh logs [service]` | مشاهده زنده لاگ‌های کل پروژه یا یک کانتینر خاص (مثلاً: `backend`). |
+| `bash manage.sh deploy` | **دریافت خودکار کدهای جدید از گیت‌هاب و بیلد و ری‌استارت هوشمند بخش‌های تغییریافته.** |
+| `bash manage.sh update-ui` | بیلد سریع Next.js و آپدیت خودکار فرانت‌اند بدون تأثیرگذاری روی دیتابیس یا بک‌اند. |
+| `bash manage.sh update-api` | آپدیت کدهای بک‌اند، ورکرها و اجرای خودکار مایگریشن‌های دیتابیس (Alembic). |
+| `bash manage.sh backup-db` | تهیه نسخه پشتیبان از پایگاه داده با حجم فشرده شده در مسیر `output/backups/`. |
+| `bash manage.sh restore-db <file>` | بازنشانی پایگاه داده از روی یک فایل پشتیبان دلخواه. |
+| `bash manage.sh start` / `stop` | شروع یا توقف کل سرویس‌های پروژه به صورت امن بدون از دست رفتن داده‌ها. |
+
+---
+
+## 💾 مرحله ۵: راه‌اندازی نسخه‌های پشتیبان روزانه (Google Drive Backups)
 
 برای بکاپ‌گیری منظم و ارسال مستقیم فایل‌ها به گوگل درایو:
 
@@ -210,7 +198,7 @@ graph TD
 
 ---
 
-## 📊 مرحله ۵: راه‌اندازی مانیتورینگ و هشدارهای تلگرام
+## 📊 مرحله ۶: راه‌اندازی مانیتورینگ و هشدارهای تلگرام
 
 برای دریافت لحظه‌ای وضعیت قطع شدن موقت آی‌پی‌ها (توسط Circuit Breaker) یا پر شدن رم سرور:
 
@@ -218,7 +206,7 @@ graph TD
     ```bash
     pip3 install redis psutil
     ```
-2.  برای اجرای مانیتور به‌صورت یک پس‌زمینه (Background Daemon) دائمی:
+2.  برای اجرای مانیطور به‌صورت یک پس‌زمینه (Background Daemon) دائمی:
     ```bash
     nohup python3 /opt/barpro/scripts/monitor_alerts.py > /opt/barpro/output/monitor.log 2>&1 &
     ```
