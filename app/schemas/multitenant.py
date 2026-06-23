@@ -569,3 +569,40 @@ class TaskTimelineResponse(BaseModel):
     page: int
     page_size: int
     entries: list[TaskTimelineEntry]
+
+
+# ==================== FUEL INQUIRY SCHEMAS ====================
+
+
+class FuelInquiryCreateRequest(BaseModel):
+    """Request to trigger a fuel inquiry."""
+
+    driver_id: int
+
+
+class FuelInquiryResponse(BaseModel):
+    """Response representing a fuel inquiry."""
+
+    id: int
+    client_id: int
+    driver_id: int
+    driver_name: str | None = None
+    status: str
+    error_message: str | None = None
+    quota_data: dict | None = None
+    screenshot_url: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FuelInquiryListResponse(BaseModel):
+    """Paginated list of fuel inquiries."""
+
+    items: list[FuelInquiryResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+

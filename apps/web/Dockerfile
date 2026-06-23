@@ -1,49 +1,21 @@
-FROM node:20-alpine AS base
-
-# Install dependencies only when needed
-FROM base AS deps
-WORKDIR /app
-
-COPY package.json package-lock.json* ./
-RUN npm ci --fetch-retries=5 --fetch-retry-maxtimeout=120000
-
-# Rebuild the source code only when needed
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-
-# Production env for build
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-ENV NODE_ENV=production
-
-RUN npm run build
-
-# Production image, copy all the files and run next
-FROM base AS runner
+FROM node:20-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN addgroup --system --gid 1001 nodejs \
+ && adduser  --system --uid 1001 nextjs
 
-COPY --from=builder /app/public ./public
+# فایل‌های بیلد شده از قبل آپلود شده‌اند (بیلد روی Mac انجام می‌شود)
+COPY public               ./public
+COPY .next/static         ./.next/static
+COPY .next/standalone/.   ./
 
-# Set the correct permission for prerender cache
-RUN mkdir .next
-RUN chown nextjs:nodejs .next
-
-# Automatically leverage output traces to reduce image size
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+RUN mkdir -p .next && chown nextjs:nodejs .next
 
 USER nextjs
 
 EXPOSE 3000
-
-ENV NODE_ENV=production
 
 CMD ["node", "server.js"]

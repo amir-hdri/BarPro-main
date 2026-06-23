@@ -93,6 +93,11 @@ def process_waybill_job(self, job_id: str):
         return result
     except Exception as e:
         logger.error(f"Job {job_id} failed with exception: {e}", exc_info=True)
+        from app.core.circuit_breaker import check_and_report_failure
+        try:
+            loop.run_until_complete(check_and_report_failure(str(e)))
+        except Exception:
+            pass
         loop.run_until_complete(_update_job_status(job_id, TaskStatus.FAILED.value, str(e), "unknown"))
         raise
     finally:
@@ -244,6 +249,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                     )
 
                     logger.info(f"Job {job_id} completed successfully")
+                    await browser_manager.record_success_for_recycle()
                     return result
 
                 job.last_error = result.get("error", "Unknown error")
@@ -339,12 +345,16 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                 )
 
                 logger.warning(f"Job {job_id} failed permanently: {result.get('error')}")
+                from app.core.circuit_breaker import check_and_report_failure
+                await check_and_report_failure(result.get("error", "Unknown error"))
                 return result
             finally:
                 await _close_page_quickly(page)
 
     except Exception as e:
         logger.error(f"Job {job_id} execution error: {e}", exc_info=True)
+        from app.core.circuit_breaker import check_and_report_failure
+        await check_and_report_failure(str(e))
 
         try:
             if job is not None:

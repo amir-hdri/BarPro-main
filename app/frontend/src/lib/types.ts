@@ -43,6 +43,7 @@ export interface Driver {
   last_error_code?: string;
   created_at: string;
   updated_at: string;
+  plates?: { id: number; plate_number: string; vehicle_type?: string; status: string }[];
 }
 
 export interface DriverCreateRequest {
@@ -98,6 +99,7 @@ export interface WaybillJob {
   started_at?: string;
   finished_at?: string;
   schedule_id?: number;
+  result_json?: Record<string, any> | null;
 }
 
 export interface WaybillJobCreateRequest {
@@ -323,3 +325,9 @@ export interface DashboardStats {
   today_failed: number;
   success_rate: number;
 }
+
+export interface WaybillJobResponse extends WaybillJob {
+  driver_name?: string;
+}
+
+export interface ClientStatsResponse extends ClientStats {}

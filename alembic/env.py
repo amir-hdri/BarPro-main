@@ -15,6 +15,8 @@ from alembic import context
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.core.config import utcms_config  # noqa: E402
+import app.models_multitenant  # noqa: F401
+
 
 # Alembic Config object
 config = context.config

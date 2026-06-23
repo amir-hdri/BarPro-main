@@ -14,6 +14,7 @@ export default function HistoryPage() {
   const { client } = useSession();
   const [jobs, setJobs] = useState<WaybillJob[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [mobileTimelineOpen, setMobileTimelineOpen] = useState(false);
   const [timeline, setTimeline] = useState<JobTimelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [timelineLoading, setTimelineLoading] = useState(false);
@@ -209,7 +210,7 @@ export default function HistoryPage() {
                 {jobs.map((job) => (
                   <div
                     key={job.job_id}
-                    onClick={() => setSelectedJobId(job.job_id)}
+                    onClick={() => { setSelectedJobId(job.job_id); setMobileTimelineOpen(true); }}
                     className={[
                       'group w-full cursor-pointer rounded-2xl border p-5 text-right transition-all duration-200',
                       selectedJobId === job.job_id 
@@ -310,7 +311,7 @@ export default function HistoryPage() {
             )}
           </div>
 
-          <div className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-950 p-8 text-white shadow-2xl shadow-slate-900/10">
+          <div className="hidden xl:block relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-950 p-8 text-white shadow-2xl shadow-slate-900/10">
             <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-cyan-500/10 blur-[80px]"></div>
             
             <div className="relative z-10">
@@ -356,6 +357,69 @@ export default function HistoryPage() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Mobile Bottom Sheet for Timeline */}
+          <div
+            className={`fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300 xl:hidden ${
+              mobileTimelineOpen && selectedJobId ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+            }`}
+            onClick={() => setMobileTimelineOpen(false)}
+          />
+
+          <div
+            className={`fixed bottom-0 left-0 right-0 z-50 max-h-[85vh] rounded-t-[2rem] border-t border-white/10 bg-slate-950 p-6 sm:p-8 shadow-2xl transition-transform duration-300 ease-out xl:hidden overflow-y-auto text-right ${
+              mobileTimelineOpen && selectedJobId ? 'translate-y-0' : 'translate-y-full'
+            }`}
+          >
+            <div className="flex justify-center mb-4">
+              <div className="w-12 h-1.5 rounded-full bg-white/10" />
+            </div>
+
+            <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/20">
+                  <Activity className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">تایم‌لاین اجرایی</h2>
+                  <p className="text-xs font-medium text-slate-400">رهگیری لحظه‌ای گام‌های عملیاتی ربات</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setMobileTimelineOpen(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-900 border border-white/5 text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {timelineLoading ? (
+              <div className="space-y-4">
+                {[1, 2, 3].map((item) => (
+                  <div key={item} className="h-24 animate-pulse rounded-3xl bg-white/5" />
+                ))}
+              </div>
+            ) : !timeline || timeline.entries.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-white/5 py-20 text-center">
+                <p className="text-sm font-medium text-slate-400">هنوز رویدادی برای این ماموریت ثبت نشده است.</p>
+              </div>
+            ) : (
+              <div className="space-y-4 pb-8">
+                {timeline.entries.map((entry) => (
+                  <article key={entry.entry_id} className="group relative rounded-3xl border border-white/10 bg-white/5 p-6 transition-all hover:bg-white/10 text-right">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`h-2 w-2 rounded-full ${entry.status === 'success' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.5)]'}`}></div>
+                        <h4 className="text-sm font-bold text-slate-200">{entry.title || entry.event_type}</h4>
+                      </div>
+                      <time className="text-[10px] font-bold text-slate-500">{formatDateTime(entry.created_at)}</time>
+                    </div>
+                    <p className="mt-3 text-sm leading-relaxed text-slate-400">{entry.message}</p>
+                  </article>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Delete Confirmation Modal */}

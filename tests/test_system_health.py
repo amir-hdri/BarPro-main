@@ -176,3 +176,22 @@ def test_errors_stats_endpoint():
     assert "supported_categories" in payload
     assert isinstance(payload["supported_categories"], list)
     assert "AUTH_FAILURE" in payload["supported_categories"]
+
+
+def test_toggle_circuit_breaker_endpoint():
+    with patch("app.core.config.utcms_config.API_AUTH_MODE", "off"):
+        response = client.post("/circuit-breaker/toggle?enabled=false")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["enabled"] is False
+
+    from app.services.itmb_ws_service import itmb_ws_service
+    assert itmb_ws_service._circuit_breaker.enabled is False
+
+    # Restore enabled state
+    with patch("app.core.config.utcms_config.API_AUTH_MODE", "off"):
+        response = client.post("/circuit-breaker/toggle?enabled=true")
+    assert response.status_code == 200
+    assert itmb_ws_service._circuit_breaker.enabled is True
+

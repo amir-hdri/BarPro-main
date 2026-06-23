@@ -58,14 +58,16 @@ class AdminReportingService:
     ) -> dict[str, Any]:
         session = async_session_factory()
         try:
-            stmt = select(Client).order_by(col(Client.created_at).desc())
+            from sqlalchemy import func
+            total_clients = (await session.exec(select(func.count(Client.id)))).one()
+            active_clients = (await session.exec(select(func.count(Client.id)).where(Client.status == "active"))).one()
+
+            # Paginate clients at database level
+            stmt = select(Client).order_by(col(Client.created_at).desc()).offset((page - 1) * page_size).limit(page_size)
             result = await session.exec(stmt)
             clients = result.all()
 
-            total_clients = len(clients)
-            active_clients = sum(1 for c in clients if c.status == "active")
-
-            # Extract all client IDs to fetch related data in bulk (avoid N+1)
+            # Extract paginated client IDs to fetch related data in bulk (avoid N+1)
             client_ids = [c.id for c in clients]
 
             # Fetch all drivers for these clients
@@ -163,18 +165,13 @@ class AdminReportingService:
                     }
                 )
 
-            total_rows = len(rows)
-            start = (page - 1) * page_size
-            end = start + page_size
-            paginated = rows[start:end]
-
             return {
                 "total_clients": total_clients,
                 "active_clients": active_clients,
                 "page": page,
                 "page_size": page_size,
-                "total_rows": total_rows,
-                "rows": paginated,
+                "total_rows": total_clients,
+                "rows": rows,
             }
         finally:
             await session.close()
@@ -204,13 +201,34 @@ class AdminReportingService:
                 stmt = stmt.where(WaybillJob.source == filters.operation_type)
             stmt = stmt.order_by(col(WaybillJob.created_at).desc())
 
-            result = await session.exec(stmt)
-            jobs = result.all()
+            # Get total count using a light aggregate query
+            from sqlalchemy import func
+            count_stmt = select(func.count(WaybillJob.id))
+            if filters.client_id:
+                count_stmt = count_stmt.where(WaybillJob.client_id == filters.client_id)
+            if filters.driver_id:
+                count_stmt = count_stmt.where(WaybillJob.driver_id == filters.driver_id)
+            if filters.plate_id:
+                count_stmt = count_stmt.where(WaybillJob.driver_id == filters.plate_id)
+            if filters.status:
+                count_stmt = count_stmt.where(WaybillJob.status == filters.status)
+            if filters.date_from:
+                dt = datetime.fromisoformat(filters.date_from)
+                count_stmt = count_stmt.where(WaybillJob.created_at >= dt)
+            if filters.date_to:
+                dt = datetime.fromisoformat(filters.date_to) + timedelta(days=1)
+                count_stmt = count_stmt.where(WaybillJob.created_at < dt)
+            if filters.operation_type:
+                count_stmt = count_stmt.where(WaybillJob.source == filters.operation_type)
+            
+            count_result = await session.exec(count_stmt)
+            total = count_result.one()
 
-            total = len(jobs)
+            # Paginate jobs at database level
             start = (filters.page - 1) * filters.page_size
-            end = start + filters.page_size
-            paginated = jobs[start:end]
+            stmt = stmt.offset(start).limit(filters.page_size)
+            result = await session.exec(stmt)
+            paginated = result.all()
 
             # Bulk fetch clients and drivers to prevent N+1 queries
             client_ids = list({job.client_id for job in paginated if job.client_id})

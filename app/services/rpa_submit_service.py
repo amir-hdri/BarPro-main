@@ -445,11 +445,20 @@ class RPAHttpSubmitService:
                 success = res.classification.outcome == SubmitOutcome.SUCCESS
                 latency = time.perf_counter() - start
                 proxy_info.record_waybill_result(success=success, latency=latency, error=res.classification.message)
+            
+            if res.classification.outcome == SubmitOutcome.SUCCESS:
+                await browser_manager.record_success_for_recycle()
+            else:
+                from app.core.circuit_breaker import check_and_report_failure
+                await check_and_report_failure(res.classification.message)
+                
             return res
         except WaybillError as exc:
             latency_ms = int((time.perf_counter() - start) * 1000)
             if proxy_info:
                 proxy_info.record_waybill_result(success=False, latency=latency_ms / 1000.0, error=str(exc))
+            from app.core.circuit_breaker import check_and_report_failure
+            await check_and_report_failure(str(exc))
             return SubmitExecutionResult(
                 classification=SubmitClassification(
                     outcome=SubmitOutcome.VALIDATION_ERROR,
@@ -463,6 +472,8 @@ class RPAHttpSubmitService:
             latency_ms = int((time.perf_counter() - start) * 1000)
             if proxy_info:
                 proxy_info.record_waybill_result(success=False, latency=latency_ms / 1000.0, error=str(exc))
+            from app.core.circuit_breaker import check_and_report_failure
+            await check_and_report_failure(str(exc))
             return SubmitExecutionResult(
                 classification=SubmitClassification(
                     outcome=SubmitOutcome.TRANSIENT_FAILURE,

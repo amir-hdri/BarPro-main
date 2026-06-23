@@ -331,7 +331,7 @@ export default function NewWaybillPage() {
         <div className="max-w-3xl mx-auto">
 
           {/* ── Hero header ──────────────────────────────────────── */}
-          <div className="relative overflow-hidden rounded-[2rem] bg-slate-950 px-8 py-10 text-white shadow-2xl shadow-slate-900/20 mb-8">
+          <div className="relative overflow-hidden rounded-[2rem] bg-slate-950 px-5 py-6 sm:px-8 sm:py-10 text-white shadow-2xl shadow-slate-900/20 mb-6 md:mb-8">
             <div className="absolute -right-24 -top-24 h-64 w-64 rounded-full bg-cyan-400/10 blur-[80px]" />
             <div className="absolute -left-16 -bottom-16 h-48 w-48 rounded-full bg-indigo-400/10 blur-[80px]" />
             <div className="relative z-10 flex items-center justify-between">
@@ -340,7 +340,7 @@ export default function NewWaybillPage() {
                   <SparklesIcon className="h-3.5 w-3.5" />
                   ثبت ماموریت جدید
                 </div>
-                <h1 className="text-3xl font-black leading-tight">اتوماسیون هوشمند بارنامه</h1>
+                <h1 className="text-2xl sm:text-3xl font-black leading-tight">اتوماسیون هوشمند بارنامه</h1>
                 <p className="mt-2 text-sm text-slate-400 leading-relaxed max-w-sm">
                   اطلاعات را در {toPersianDigits(STEPS.length)} مرحله وارد کنید. ربات به صورت خودکار فرم UTCMS را تکمیل می‌کند.
                 </p>
@@ -372,7 +372,7 @@ export default function NewWaybillPage() {
           {/* ── Step dots ────────────────────────────────────────── */}
           <div className="section-card mb-6 py-4">
             <StepIndicator current={currentStep} total={STEPS.length} />
-            <div className="flex justify-between mt-3 px-1">
+            <div className="hidden sm:flex justify-between mt-3 px-1">
               {STEPS.map((s) => (
                 <span
                   key={s.id}
@@ -381,6 +381,11 @@ export default function NewWaybillPage() {
                   {s.label}
                 </span>
               ))}
+            </div>
+            <div className="sm:hidden text-center mt-3">
+              <span className="text-xs font-black text-cyan-400">
+                مرحله {toPersianDigits(currentStep)}: {step?.label}
+              </span>
             </div>
           </div>
 

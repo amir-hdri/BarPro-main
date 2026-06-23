@@ -30,7 +30,7 @@ def test_create_driver_success(test_client):
 
     # Mock for existing drivers count -> returns 0
     mock_existing_drivers = MagicMock()
-    mock_existing_drivers.all.return_value = []
+    mock_existing_drivers.one.return_value = 0
 
     # Mock for existing national code -> returns None
     mock_existing_national_code = MagicMock()
@@ -89,7 +89,7 @@ def test_create_driver_limit_reached(test_client):
 
     # Mock for existing drivers count
     mock_existing_drivers = MagicMock()
-    mock_existing_drivers.all.return_value = [Driver()]
+    mock_existing_drivers.one.return_value = 1
     mock_session.exec.return_value = mock_existing_drivers
 
     app.dependency_overrides[get_current_client] = lambda: mock_client
@@ -128,7 +128,7 @@ def test_create_driver_duplicate_national_code(test_client):
 
     # Mock for existing drivers count
     mock_existing_drivers = MagicMock()
-    mock_existing_drivers.all.return_value = []
+    mock_existing_drivers.one.return_value = 0
 
     # Mock for existing national code -> returns a driver
     mock_existing_national_code = MagicMock()

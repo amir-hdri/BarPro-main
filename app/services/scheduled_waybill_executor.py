@@ -194,6 +194,7 @@ async def _execute_single_job(
                         "steps": result.get("steps", []),
                     },
                 )
+                await browser_manager.record_success_for_recycle()
                 return result
             elif status_str == "otp_backoff":
                 retry_minutes = int(result.get("next_retry_at_minutes_add", 60))
@@ -238,6 +239,8 @@ async def _execute_single_job(
                         "attempt": attempt,
                     },
                 )
+                from app.core.circuit_breaker import check_and_report_failure
+                await check_and_report_failure(result.get("error", ""))
 
                 if _is_retryable(result) and attempt < MAX_RETRIES:
                     delay = min(RETRY_BASE_DELAY * (2 ** (attempt - 1)), RETRY_MAX_DELAY)
@@ -323,6 +326,8 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
         return result
     except Exception as exc:
         logger.exception(f"Scheduled job {job_id} execution exception: {exc}")
+        from app.core.circuit_breaker import check_and_report_failure
+        await check_and_report_failure(str(exc))
         try:
             job = await session.get(WaybillJob, job_id)
             if job:
@@ -340,12 +345,14 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
 def dispatch_scheduled_job(job_id: int):
     """Dispatch a scheduled waybill job execution to Celery."""
     from app.workers.celery_app import celery_app
+    from app.core.circuit_breaker import get_routed_queue
 
     if celery_app is not None:
+        routed_queue = get_routed_queue("scheduled_tasks")
         celery_app.send_task(
             "scheduled.waybill.run_job",
             args=[job_id],
-            queue="scheduled_tasks",
+            queue=routed_queue,
         )
     else:
         logger.warning(f"Celery is not available. Executing scheduled job {job_id} synchronously in background task.")

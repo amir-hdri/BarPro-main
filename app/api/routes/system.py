@@ -2,8 +2,9 @@ import asyncio
 import logging
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from fastapi.responses import JSONResponse, Response
+from app.core.security import require_sensitive_auth
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
@@ -494,3 +495,15 @@ def _generate_security_recommendations(report: dict) -> list[str]:
         recommendations.append("Security configuration looks good!")
 
     return recommendations
+
+
+@router.post("/circuit-breaker/toggle", dependencies=[Depends(require_sensitive_auth)])
+async def toggle_circuit_breaker(enabled: bool = Query(...)):
+    """فعال یا غیرفعال کردن موقت قطع‌کننده مدار."""
+    from app.services.itmb_ws_service import itmb_ws_service
+    itmb_ws_service.toggle_circuit_breaker(enabled)
+    return {
+        "success": True,
+        "enabled": enabled,
+        "message": f"Circuit breaker {'enabled' if enabled else 'disabled'} successfully",
+    }

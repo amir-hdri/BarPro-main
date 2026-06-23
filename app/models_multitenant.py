@@ -393,3 +393,41 @@ class UploadBatch(SQLModel, table=True):
         default=None,
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )
+
+
+class FuelInquiry(SQLModel, table=True):
+    """
+    Represents a fuel inquiry (استعلام سهمیه سوخت) made for a driver.
+    """
+
+    __tablename__ = "fuel_inquiries"
+    __table_args__ = (
+        Index("idx_fuel_inquiries_client_id", "client_id"),
+        Index("idx_fuel_inquiries_driver_id", "driver_id"),
+        Index("idx_fuel_inquiries_status", "status"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    client_id: int = Field(foreign_key="clients.id", index=True)
+    driver_id: int = Field(foreign_key="drivers.id", index=True)
+
+    # Status of the inquiry (pending, processing, success, failed)
+    status: str = Field(default="pending", max_length=20, index=True)
+    error_message: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+
+    # Quota details (stored as a JSON string)
+    quota_data_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+
+    # Path or URL to screenshot of the fuel quota page
+    screenshot_url: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+
+    # Timestamps
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
+

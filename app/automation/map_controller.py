@@ -58,63 +58,67 @@ class MapController:
 
     async def detect_map_type(self) -> str | None:
         """
-        تشخیص نوع نقشه مورد استفاده
+        تشخیص نوع نقشه مورد استفاده با قابلیت تلاش مجدد برای بارگذاری ناهمزمان
 
         Returns:
             نوع نقشه: 'google_maps', 'openlayers', 'leaflet', 'mapbox' یا None
         """
-        # بررسی وجود Google Maps
-        has_google = await self.page.evaluate("""
-            () => typeof google !== 'undefined' &&
-                 typeof google.maps !== 'undefined'
-        """)
-        has_google_container = await self.page.query_selector(".gm-style")
-        if has_google or has_google_container:
-            self.map_selector = ".gm-style" if has_google_container else self.map_selector
-            self.map_type = "google_maps"
-            return "google_maps"
+        for _ in range(5):
+            # بررسی وجود Google Maps
+            has_google = await self.page.evaluate("""
+                () => typeof google !== 'undefined' &&
+                     typeof google.maps !== 'undefined'
+            """)
+            has_google_container = await self.page.query_selector(".gm-style")
+            if has_google or has_google_container:
+                self.map_selector = ".gm-style" if has_google_container else self.map_selector
+                self.map_type = "google_maps"
+                return "google_maps"
 
-        # بررسی وجود OpenLayers
-        has_ol = await self.page.evaluate("""
-            () => typeof ol !== 'undefined' &&
-                 typeof ol.Map !== 'undefined'
-        """)
-        has_ol_container = await self.page.query_selector(".ol-map, .ol-viewport")
-        if has_ol or has_ol_container:
-            self.map_selector = ".ol-map" if has_ol_container else self.map_selector
-            self.map_type = "openlayers"
-            return "openlayers"
+            # بررسی وجود OpenLayers
+            has_ol = await self.page.evaluate("""
+                () => typeof ol !== 'undefined' &&
+                     typeof ol.Map !== 'undefined'
+            """)
+            has_ol_container = await self.page.query_selector(".ol-map, .ol-viewport")
+            if has_ol or has_ol_container:
+                self.map_selector = ".ol-map" if has_ol_container else self.map_selector
+                self.map_type = "openlayers"
+                return "openlayers"
 
-        # بررسی وجود Leaflet
-        has_leaflet = await self.page.evaluate("""
-            () => typeof L !== 'undefined' &&
-                 typeof L.Map !== 'undefined'
-        """)
-        has_leaflet_container = await self.page.query_selector(".leaflet-container")
-        if has_leaflet or has_leaflet_container:
-            self.map_selector = ".leaflet-container" if has_leaflet_container else self.map_selector
-            self.map_type = "leaflet"
-            return "leaflet"
+            # بررسی وجود Leaflet
+            has_leaflet = await self.page.evaluate("""
+                () => typeof L !== 'undefined' &&
+                     typeof L.Map !== 'undefined'
+            """)
+            has_leaflet_container = await self.page.query_selector(".leaflet-container")
+            if has_leaflet or has_leaflet_container:
+                self.map_selector = ".leaflet-container" if has_leaflet_container else self.map_selector
+                self.map_type = "leaflet"
+                return "leaflet"
 
-        # بررسی وجود Mapbox
-        has_mapbox = await self.page.evaluate("""
-            () => typeof mapboxgl !== 'undefined'
-        """)
-        has_mapbox_container = await self.page.query_selector(".mapboxgl-map")
-        if has_mapbox or has_mapbox_container:
-            self.map_selector = ".mapboxgl-map" if has_mapbox_container else self.map_selector
-            self.map_type = "mapbox"
-            return "mapbox"
+            # بررسی وجود Mapbox
+            has_mapbox = await self.page.evaluate("""
+                () => typeof mapboxgl !== 'undefined'
+            """)
+            has_mapbox_container = await self.page.query_selector(".mapboxgl-map")
+            if has_mapbox or has_mapbox_container:
+                self.map_selector = ".mapboxgl-map" if has_mapbox_container else self.map_selector
+                self.map_type = "mapbox"
+                return "mapbox"
 
-        # بررسی وجود کانتینر نقشه با انتخابگرهای رایج
-        for selector in self.MAP_CONTAINER_SELECTORS:
-            element = await self.page.query_selector(selector)
-            if element:
-                self.map_selector = selector
-                self.map_type = "unknown_map"
-                return "unknown_map"
+            # بررسی وجود کانتینر نقشه با انتخابگرهای رایج
+            for selector in self.MAP_CONTAINER_SELECTORS:
+                element = await self.page.query_selector(selector)
+                if element:
+                    self.map_selector = selector
+                    self.map_type = "unknown_map"
+                    return "unknown_map"
+
+            await asyncio.sleep(0.5)
 
         return None
+
 
     async def _resolve_map_selector(self, preferred_selector: str | None = None) -> str | None:
         """Resolve a usable map selector with runtime discovery fallback."""
@@ -272,6 +276,12 @@ class MapController:
             click_target = None
         if click_target is None:
             click_target = map_element
+
+        # اسکرول به عنصر نقشه در صورت لزوم
+        try:
+            await click_target.scroll_into_view_if_needed()
+        except Exception:
+            pass
 
         # دریافت ابعاد نقشه
         box = await click_target.bounding_box()

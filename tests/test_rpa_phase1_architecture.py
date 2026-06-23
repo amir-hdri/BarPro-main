@@ -295,6 +295,9 @@ async def test_phase1_dispatch_due_jobs_enqueues_auth_task_and_persists_task_id(
     ), patch("app.services.rpa_runtime_service.redis_manager.get", new=AsyncMock(return_value=None)), patch(
         "app.services.rpa_dispatch_service.celery_app",
         fake_celery,
+    ), patch(
+        "app.core.circuit_breaker.get_routed_queue",
+        side_effect=lambda x: x,
     ):
         rpa_runtime._memory.clear()
         await rpa_scheduler_service.create_job(client.id, driver, {"x": 1}, TaskSource.MANUAL, 1, idempotency_key="idem-dispatch")

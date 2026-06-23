@@ -20,13 +20,13 @@ class TypingProfile:
     """Simulates different human typing profiles."""
 
     # Typing speeds (characters per minute) - OPTIMIZED FOR SPEED
-    SLOW = {"min_delay": 0.02, "max_delay": 0.06, "name": "slow"}
-    AVERAGE = {"min_delay": 0.01, "max_delay": 0.04, "name": "average"}
-    FAST = {"min_delay": 0.005, "max_delay": 0.02, "name": "fast"}
+    SLOW = {"min_delay": 0.01, "max_delay": 0.03, "name": "slow"}
+    AVERAGE = {"min_delay": 0.005, "max_delay": 0.02, "name": "average"}
+    FAST = {"min_delay": 0.001, "max_delay": 0.01, "name": "fast"}
 
     # Special patterns
-    HUNT_AND_PECK = {"min_delay": 0.03, "max_delay": 0.08, "name": "hunt_and_peck"}
-    PROFESSIONAL = {"min_delay": 0.002, "max_delay": 0.01, "name": "professional"}
+    HUNT_AND_PECK = {"min_delay": 0.02, "max_delay": 0.05, "name": "hunt_and_peck"}
+    PROFESSIONAL = {"min_delay": 0.001, "max_delay": 0.005, "name": "professional"}
 
 
 async def human_type(
@@ -107,25 +107,25 @@ def _calculate_typing_delay(
 
     # Punctuation causes longer delays (thinking about sentence structure)
     if pause_on_punctuation and char in ".,;:!?\"'()[]{}":
-        base_delay *= random.uniform(1.5, 3.0)
+        base_delay *= random.uniform(1.1, 1.5)
 
     # Capital letters cause slight delays (shift key)
     if pause_on_capitals and char.isupper():
-        base_delay *= random.uniform(1.2, 1.8)
+        base_delay *= random.uniform(1.1, 1.3)
 
     # Space bar is usually faster
     if char == " ":
         base_delay *= random.uniform(0.5, 0.9)
 
     # Random hesitation (human-like pauses)
-    if random_hesitation and random.random() < 0.05:  # 5% chance
-        base_delay += random.uniform(0.3, 1.2)  # Longer hesitation
+    if random_hesitation and random.random() < 0.02:  # 2% chance
+        base_delay += random.uniform(0.1, 0.3)  # Short hesitation
 
     # Word boundary pauses (after spaces)
     if char == " ":
-        base_delay += random.uniform(0.05, 0.15)
+        base_delay += random.uniform(0.01, 0.05)
 
-    return max(0.01, base_delay)
+    return max(0.005, base_delay)
 
 
 def _generate_wrong_char(correct_char: str) -> str:

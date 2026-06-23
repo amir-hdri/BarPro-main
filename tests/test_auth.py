@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from app.automation.auth import UTCMSAuthenticator
 from app.automation.selectors import AuthSelectors
@@ -323,6 +323,120 @@ class TestUTCMSAuthenticator(unittest.IsolatedAsyncioTestCase):
             solved = await self.auth._solve_math_captcha()
 
         self.assertEqual(solved, "10")
+
+    async def test_detect_and_solve_checkbox_captcha_turnstile(self):
+        mock_iframe = AsyncMock()
+        mock_iframe.bounding_box = AsyncMock(return_value={"x": 100, "y": 200, "width": 300, "height": 80})
+        self.page.query_selector = AsyncMock(return_value=mock_iframe)
+        self.page.mouse = AsyncMock()
+
+        result = await self.auth._detect_and_solve_checkbox_captcha()
+
+        self.assertTrue(result)
+        self.page.query_selector.assert_called_with('iframe[src*="challenges.cloudflare.com"]')
+        self.page.mouse.click.assert_called()
+
+    async def test_detect_and_solve_checkbox_captcha_google_recaptcha(self):
+        def query_selector_side_effect(selector):
+            if "challenges.cloudflare.com" in selector:
+                return None
+            if "recaptcha" in selector:
+                return AsyncMock()
+            return None
+        self.page.query_selector = AsyncMock(side_effect=query_selector_side_effect)
+
+        mock_locator = AsyncMock()
+        mock_locator.count = AsyncMock(return_value=1)
+        mock_locator.click = AsyncMock()
+
+        mock_frame = MagicMock()
+        mock_frame.locator = MagicMock(return_value=mock_locator)
+        self.page.frame_locator = MagicMock(return_value=mock_frame)
+
+        result = await self.auth._detect_and_solve_checkbox_captcha()
+
+        self.assertTrue(result)
+        self.page.frame_locator.assert_called_with('iframe[src*="recaptcha"], iframe[src*="google.com/recaptcha"]')
+        mock_locator.click.assert_awaited_once()
+
+    async def test_detect_and_solve_checkbox_captcha_hcaptcha(self):
+        def query_selector_side_effect(selector):
+            if "challenges.cloudflare.com" in selector or "recaptcha" in selector:
+                return None
+            if "hcaptcha" in selector:
+                return AsyncMock()
+            return None
+        self.page.query_selector = AsyncMock(side_effect=query_selector_side_effect)
+
+        mock_locator = AsyncMock()
+        mock_locator.count = AsyncMock(return_value=1)
+        mock_locator.click = AsyncMock()
+
+        mock_frame = MagicMock()
+        mock_frame.locator = MagicMock(return_value=mock_locator)
+        self.page.frame_locator = MagicMock(return_value=mock_frame)
+
+        result = await self.auth._detect_and_solve_checkbox_captcha()
+
+        self.assertTrue(result)
+        self.page.frame_locator.assert_called_with('iframe[src*="hcaptcha"]')
+        mock_locator.click.assert_awaited_once()
+
+    async def test_detect_and_solve_checkbox_captcha_custom_selector(self):
+        self.page.query_selector = AsyncMock(return_value=None)
+        self.page.evaluate = AsyncMock(return_value={"selector": "#my-checkbox", "clickText": False})
+        self.page.click = AsyncMock()
+
+        result = await self.auth._detect_and_solve_checkbox_captcha()
+
+        self.assertTrue(result)
+        self.page.click.assert_called_with("#my-checkbox")
+
+    async def test_detect_and_solve_checkbox_captcha_custom_text(self):
+        self.page.query_selector = AsyncMock(return_value=None)
+        self.page.evaluate = AsyncMock(return_value={"selector": None, "clickText": "من ربات نیستم"})
+
+        mock_locator = MagicMock()
+        mock_first = AsyncMock()
+        mock_locator.first = mock_first
+        self.page.locator = MagicMock(return_value=mock_locator)
+
+        result = await self.auth._detect_and_solve_checkbox_captcha()
+
+        self.assertTrue(result)
+        self.page.locator.assert_called_with("text=من ربات نیستم")
+        mock_first.click.assert_awaited_once()
+
+    async def test_solve_capjs_captcha_success(self):
+        mock_locator = AsyncMock()
+        mock_locator.count = AsyncMock(return_value=1)
+        mock_locator.first = AsyncMock()
+        self.page.locator = MagicMock(return_value=mock_locator)
+
+        # evaluate side effect: solve() first, then token value
+        self.page.evaluate = AsyncMock(side_effect=[
+            None,
+            "mock-token-xyz"
+        ])
+
+        result = await self.auth._solve_capjs_captcha()
+        self.assertTrue(result)
+        mock_locator.first.click.assert_awaited_once()
+
+    async def test_solve_capjs_captcha_timeout(self):
+        mock_locator = AsyncMock()
+        mock_locator.count = AsyncMock(return_value=1)
+        mock_locator.first = AsyncMock()
+        self.page.locator = MagicMock(return_value=mock_locator)
+
+        # evaluate always returns None for token
+        self.page.evaluate = AsyncMock(return_value=None)
+
+        with patch("app.automation.auth.asyncio.sleep", AsyncMock()):
+            result = await self.auth._solve_capjs_captcha()
+
+        self.assertFalse(result)
+        self.assertIn("Timeout", self.auth.last_error)
 
 
 if __name__ == "__main__":

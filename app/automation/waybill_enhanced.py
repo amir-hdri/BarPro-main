@@ -518,7 +518,7 @@ class EnhancedWaybillManager:
                     await locator.press("Backspace")
                 except Exception:
                     pass
-                await locator.type(str(value), delay=60)
+                await locator.type(str(value), delay=10)
             else:
                 await locator.fill(str(value))
 
@@ -536,7 +536,7 @@ class EnhancedWaybillManager:
             except Exception:
                 pass
 
-            await asyncio.sleep(0.05)  # Reduced from 0.2
+            await asyncio.sleep(0.01)  # Reduced from 0.05
             current = await self._locator_current_value(locator)
             normalized_current = normalizer(current) if callable(normalizer) else current
             if normalized_current == expected or self._normalize_text(str(normalized_current)) == self._normalize_text(
@@ -567,7 +567,7 @@ class EnhancedWaybillManager:
                 if prefer_type:
                     filler_chain.append(
                         lambda selector=selector: self.page.locator(selector).first.type(
-                            str(value), delay=60, timeout=1000
+                            str(value), delay=10, timeout=1000
                         )
                     )
                 filler_chain.extend(

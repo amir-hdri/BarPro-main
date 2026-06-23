@@ -179,8 +179,8 @@ export default function DashboardPage() {
   return (
     <AppShell>
       <AuthGuard requiredRole="client">
-        <section className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr] mb-8">
-          <div className="relative overflow-hidden rounded-[2rem] lg:rounded-[3rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl px-6 py-8 lg:px-10 lg:py-14 shadow-2xl">
+        <section className="grid gap-4 sm:gap-6 xl:gap-8 xl:grid-cols-[1.2fr_0.8fr] mb-6 md:mb-8">
+          <div className="relative overflow-hidden rounded-[2rem] lg:rounded-[3rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl px-5 py-6 sm:px-8 sm:py-10 lg:px-10 lg:py-14 shadow-2xl">
             <div className="absolute -right-32 -top-32 h-96 w-96 rounded-full bg-gradient-to-br from-cyan-400/10 to-blue-500/10 blur-[100px] animate-pulse-glow"></div>
             <div className="relative z-10">
               <span className="inline-flex items-center gap-2 rounded-2xl bg-cyan-500/10 px-4 py-2 text-[11px] font-black uppercase text-cyan-400 border border-cyan-500/20 shadow-sm animate-in fade-in slide-in-from-bottom-4">
@@ -197,7 +197,7 @@ export default function DashboardPage() {
               <p className="mt-4 lg:mt-6 max-w-xl text-sm md:text-base lg:text-lg leading-relaxed text-slate-300 font-medium animate-in fade-in slide-in-from-bottom-8">
                 سیستم جامع مانیتورینگ ناوگان و تحلیل دقیق ثبت‌ها. عملیات خود را با بالاترین سرعت و دقت مدیریت کنید.
               </p>
-              <div className="mt-10 flex flex-wrap gap-4 animate-in fade-in slide-in-from-bottom-10">
+              <div className="mt-8 md:mt-10 flex flex-wrap gap-4 animate-in fade-in slide-in-from-bottom-10">
                 <Link
                   href="/new"
                   className="group relative flex-1 sm:flex-none inline-flex items-center justify-center overflow-hidden rounded-2xl bg-slate-950 border border-white/10 px-6 lg:px-8 py-3.5 lg:py-4 text-sm font-bold text-white transition-transform hover:scale-105 active:scale-95 shadow-[0_10px_20px_-10px_rgba(0,0,0,0.5)]"
@@ -215,7 +215,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-1">
+          <div className="grid gap-4 sm:gap-5 sm:grid-cols-2 xl:grid-cols-1">
             {cards.map((card, idx) => (
               <article
                 key={card.label}
@@ -243,7 +243,7 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
+        <section className="grid gap-4 sm:gap-6 lg:gap-8 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="section-card">
             <div className="flex items-center justify-between border-b border-white/5 pb-6 mb-6">
               <div>

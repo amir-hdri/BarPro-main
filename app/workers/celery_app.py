@@ -19,6 +19,7 @@ def _build_celery() -> Celery | None:
         "utcms",
         broker=utcms_config.CELERY_BROKER_URL,
         backend=utcms_config.CELERY_RESULT_BACKEND,
+        include=["app.workers.tasks"],
     )
     app.conf.update(
         task_serializer="json",

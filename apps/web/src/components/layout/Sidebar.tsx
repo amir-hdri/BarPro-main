@@ -11,6 +11,7 @@ import {
   TruckIcon,
   UserCircleIcon,
   Cog6ToothIcon,
+  FireIcon,
 } from '@heroicons/react/24/outline';
 import { SparklesIcon } from '@heroicons/react/24/solid';
 
@@ -19,11 +20,13 @@ import { useSession } from '@/hooks/useSession';
 const clientNavigation = [
   { href: '/', icon: HomeIcon, label: 'داشبورد', badge: null },
   { href: '/new', icon: DocumentPlusIcon, label: 'ثبت بارنامه', badge: 'جدید' },
+  { href: '/fuel', icon: FireIcon, label: 'استعلام سوخت', badge: null },
   { href: '/history', icon: ClockIcon, label: 'پیگیری کارها', badge: null },
   { href: '/drivers', icon: TruckIcon, label: 'رانندگان', badge: null },
   { href: '/reports', icon: ChartBarIcon, label: 'گزارش‌ها', badge: null },
   { href: '/settings', icon: UserCircleIcon, label: 'حساب کاربری', badge: null },
 ];
+
 
 const adminNavigation = [
   { href: '/admin', icon: BuildingOffice2Icon, label: 'مدیریت مشتری‌ها', badge: null },

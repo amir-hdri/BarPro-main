@@ -226,6 +226,12 @@ class AuthSelectors:
         "input[name*='SecurityCode' i]",
         "input[id*='captcha' i][type='text']",
     )
+    ROBOT_CHECKBOX_SELECTORS = (
+        "iframe[src*='challenges.cloudflare.com']",
+        "iframe[src*='recaptcha']",
+        "iframe[src*='google.com/recaptcha']",
+        "iframe[src*='hcaptcha']",
+    )
     CAPTCHA_IMAGE_SELECTORS = (
         "img[id*='captcha' i]",
         "img[src*='captcha' i]",

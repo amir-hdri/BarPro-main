@@ -62,7 +62,7 @@ export default function ErrorsPage() {
     }
   };
 
-  const getDriverName = (driverId: number | null) => {
+  const getDriverName = (driverId: number | null | undefined) => {
     if (!driverId) return "ثبت دستی";
     const d = drivers.find(drv => drv.id === driverId);
     return d ? d.full_name : `راننده شناسه ${driverId}`;

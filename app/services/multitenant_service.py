@@ -342,37 +342,30 @@ class ClientService:
         today = datetime.now(UTC).replace(tzinfo=None).date()
         today_start = datetime.combine(today, datetime.min.time())
 
-        # Count drivers
-        drivers_stmt = select(Driver).where(Driver.client_id == client.id)
-        drivers_result = await session.exec(drivers_stmt)
-        all_drivers = drivers_result.all()
-        total_drivers = len(all_drivers)
-        active_drivers = sum(1 for d in all_drivers if d.status == DriverStatus.ACTIVE.value)
+        # Count drivers using db aggregate
+        from sqlmodel import func
+        total_drivers = (await session.exec(select(func.count(Driver.id)).where(Driver.client_id == client.id))).one()
+        active_drivers = (await session.exec(select(func.count(Driver.id)).where(Driver.client_id == client.id, Driver.status == DriverStatus.ACTIVE.value))).one()
 
-        # Count jobs
-        jobs_stmt = select(WaybillJob).where(WaybillJob.client_id == client.id)
+        # Group jobs by status to get counts in one database trip
+        jobs_stmt = select(WaybillJob.status, func.count(WaybillJob.id)).where(WaybillJob.client_id == client.id).group_by(WaybillJob.status)
         jobs_result = await session.exec(jobs_stmt)
-        all_jobs = jobs_result.all()
-        total_jobs = len(all_jobs)
+        status_counts = dict(jobs_result.all())
 
-        pending_jobs = sum(1 for j in all_jobs if j.status == TaskStatus.PENDING.value)
-        in_progress_jobs = sum(1 for j in all_jobs if j.status == TaskStatus.IN_PROGRESS.value)
-        success_jobs = sum(1 for j in all_jobs if j.status == TaskStatus.SUCCESS.value)
-        failed_jobs = sum(
-            1
-            for j in all_jobs
-            if j.status in [TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.NEEDS_REVIEW.value]
-        )
+        total_jobs = sum(status_counts.values())
+        pending_jobs = status_counts.get(TaskStatus.PENDING.value, 0)
+        in_progress_jobs = status_counts.get(TaskStatus.IN_PROGRESS.value, 0)
+        success_jobs = status_counts.get(TaskStatus.SUCCESS.value, 0)
+        failed_jobs = sum(status_counts.get(s, 0) for s in [TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.NEEDS_REVIEW.value])
 
         # Today's stats
-        today_jobs = [j for j in all_jobs if j.created_at >= today_start]
-        today_jobs_count = len(today_jobs)
-        today_success = sum(1 for j in today_jobs if j.status == TaskStatus.SUCCESS.value)
-        today_failed = sum(
-            1
-            for j in today_jobs
-            if j.status in [TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.NEEDS_REVIEW.value]
-        )
+        today_stmt = select(WaybillJob.status, func.count(WaybillJob.id)).where(WaybillJob.client_id == client.id, WaybillJob.created_at >= today_start).group_by(WaybillJob.status)
+        today_result = await session.exec(today_stmt)
+        today_counts = dict(today_result.all())
+
+        today_jobs_count = sum(today_counts.values())
+        today_success = today_counts.get(TaskStatus.SUCCESS.value, 0)
+        today_failed = sum(today_counts.get(s, 0) for s in [TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.NEEDS_REVIEW.value])
 
         # Success rate
         success_rate = (success_jobs / total_jobs * 100) if total_jobs > 0 else 0.0
@@ -563,8 +556,9 @@ class DriverService:
     ) -> DriverResponse:
         """Create a new driver for the client."""
         # Check driver limit
-        existing_drivers = await session.exec(select(Driver).where(Driver.client_id == client.id))
-        if len(existing_drivers.all()) >= client.max_drivers:
+        from sqlmodel import func
+        driver_count = (await session.exec(select(func.count(Driver.id)).where(Driver.client_id == client.id))).one()
+        if driver_count >= client.max_drivers:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Driver limit reached. Maximum allowed: {client.max_drivers}",
@@ -870,8 +864,9 @@ class PlateService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found")
         verify_tenant_ownership(client, driver, Driver)
 
-        existing_plates = await session.exec(select(DriverPlate).where(DriverPlate.client_id == client.id))
-        if len(existing_plates.all()) >= client.max_plates:
+        from sqlmodel import func
+        plate_count = (await session.exec(select(func.count(DriverPlate.id)).where(DriverPlate.client_id == client.id))).one()
+        if plate_count >= client.max_plates:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Plate limit reached. Maximum allowed: {client.max_plates}",
@@ -1174,9 +1169,18 @@ class WaybillJobService:
             statement = statement.where(WaybillJob.created_at <= filters.date_to)
 
         # Get total count
-        count_stmt = statement
+        from sqlmodel import func
+        count_stmt = select(func.count(WaybillJob.id)).where(WaybillJob.client_id == client.id)
+        if filters.status:
+            count_stmt = count_stmt.where(WaybillJob.status == filters.status)
+        if filters.driver_id:
+            count_stmt = count_stmt.where(WaybillJob.driver_id == filters.driver_id)
+        if filters.date_from:
+            count_stmt = count_stmt.where(WaybillJob.created_at >= filters.date_from)
+        if filters.date_to:
+            count_stmt = count_stmt.where(WaybillJob.created_at <= filters.date_to)
         count_result = await session.exec(count_stmt)
-        total = len(count_result.all())
+        total = count_result.one()
 
         # Get paginated results
         statement = statement.order_by(col(WaybillJob.created_at).desc())

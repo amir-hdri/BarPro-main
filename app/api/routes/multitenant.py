@@ -38,6 +38,9 @@ from app.schemas.multitenant import (
     DriverScheduleResponse,
     DriverScheduleUpdateRequest,
     DriverUpdateRequest,
+    FuelInquiryCreateRequest,
+    FuelInquiryResponse,
+    FuelInquiryListResponse,
     PlateCreateRequest,
     PlateResponse,
     PlateUpdateRequest,
@@ -59,6 +62,8 @@ from app.services.multitenant_service import (
     PlateService,
     WaybillJobService,
 )
+from app.services.fuel_inquiry_service import fuel_inquiry_service
+
 
 logger = logging.getLogger(__name__)
 
@@ -739,3 +744,45 @@ async def get_driver_performance(
         )
 
     return {"client_id": client.id, "drivers": performance}
+
+
+# ==================== FUEL INQUIRY ENDPOINTS ====================
+
+
+@router.post("/fuel-inquiries", response_model=FuelInquiryResponse, status_code=status.HTTP_201_CREATED)
+async def create_fuel_inquiry(
+    request: FuelInquiryCreateRequest,
+    client: Client = Depends(get_current_client),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    سفارش استعلام سهمیه سوخت جدید برای یک راننده.
+    این کار در پس‌زمینه اجرا می‌شود و وضعیت آن در ابتدا pending خواهد بود.
+    """
+    return await fuel_inquiry_service.create_inquiry(client, request, session)
+
+
+@router.get("/fuel-inquiries", response_model=FuelInquiryListResponse)
+async def list_fuel_inquiries(
+    page: int = 1,
+    page_size: int = 20,
+    client: Client = Depends(get_current_client),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    دریافت لیست تاریخچه استعلام‌های سوخت مربوط به این مشتری (مستاجر).
+    """
+    return await fuel_inquiry_service.list_inquiries(client, page, page_size, session)
+
+
+@router.get("/fuel-inquiries/{inquiry_id}", response_model=FuelInquiryResponse)
+async def get_fuel_inquiry(
+    inquiry_id: int,
+    client: Client = Depends(get_current_client),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    دریافت وضعیت و اطلاعات استخراج‌شده یک استعلام سوخت خاص.
+    """
+    return await fuel_inquiry_service.get_inquiry(client, inquiry_id, session)
+

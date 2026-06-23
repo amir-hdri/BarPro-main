@@ -8,8 +8,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-utcms_rpa}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - '5432:5432'
+    # فقط داخل شبکه Docker — پورت 5432 به اینترنت باز نیست
+    expose: ['5432']
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres -d ${POSTGRES_DB:-utcms_rpa}']
       interval: 10s
@@ -20,17 +20,44 @@ services:
   redis:
     image: redis:7
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}", "--maxmemory", "1gb", "--maxmemory-policy", "allkeys-lru"]
     volumes:
       - redis_data:/data
-    ports:
-      - '6379:6379'
+    # فقط داخل شبکه Docker — پورت 6379 به اینترنت باز نیست
+    expose: ['6379']
     healthcheck:
       test: ['CMD-SHELL', 'redis-cli -a ${REDIS_PASSWORD} ping']
       interval: 10s
       timeout: 5s
       retries: 5
     networks: [platform]
+
+  squid_1:
+    image: ubuntu/squid:latest
+    restart: unless-stopped
+    volumes:
+      - ./infra/squid/squid_1.conf:/etc/squid/squid.conf:ro
+    networks: [platform]
+    expose:
+      - '3128'
+
+  squid_2:
+    image: ubuntu/squid:latest
+    restart: unless-stopped
+    volumes:
+      - ./infra/squid/squid_2.conf:/etc/squid/squid.conf:ro
+    networks: [platform]
+    expose:
+      - '3128'
+
+  squid_3:
+    image: ubuntu/squid:latest
+    restart: unless-stopped
+    volumes:
+      - ./infra/squid/squid_3.conf:/etc/squid/squid.conf:ro
+    networks: [platform]
+    expose:
+      - '3128'
 
   backend:
     shm_size: '2gb'
@@ -63,6 +90,148 @@ services:
       - '8000'
     ports:
       - '8000:8000'
+    networks: [platform]
+
+  celery_worker_1:
+    shm_size: '2gb'
+    profiles: ["docker-backend"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 10m
+    command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "--loglevel=info", "-Q", "waybill_tasks_1,rpa_auth_1,rpa_submit_1,scheduled_tasks_1,rpa_scheduler,scheduled_tasks"]
+    deploy:
+      resources:
+        limits:
+          memory: 3g
+    env_file:
+      - .env
+    environment:
+      PYTHON_ENV: production
+      DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-utcms_rpa}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      DRIVER_ENCRYPTION_KEY: ${DRIVER_ENCRYPTION_KEY}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      LOGIN_URL: ${LOGIN_URL:-https://barname.utcms.ir/Barname/Account/Login}
+      HEADLESS: ${HEADLESS:-true}
+      ALLOW_LIVE_SUBMIT: ${ALLOW_LIVE_SUBMIT:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      WORKER_IP_INDEX: 1
+      RPA_PROXIES: ${WORKER_1_PROXY:-http://squid_1:3128}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      squid_1:
+        condition: service_started
+    networks: [platform]
+
+  celery_worker_2:
+    shm_size: '2gb'
+    profiles: ["docker-backend"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 10m
+    command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "--loglevel=info", "-Q", "waybill_tasks_2,rpa_auth_2,rpa_submit_2,scheduled_tasks_2"]
+    deploy:
+      resources:
+        limits:
+          memory: 3g
+    env_file:
+      - .env
+    environment:
+      PYTHON_ENV: production
+      DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-utcms_rpa}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      DRIVER_ENCRYPTION_KEY: ${DRIVER_ENCRYPTION_KEY}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      LOGIN_URL: ${LOGIN_URL:-https://barname.utcms.ir/Barname/Account/Login}
+      HEADLESS: ${HEADLESS:-true}
+      ALLOW_LIVE_SUBMIT: ${ALLOW_LIVE_SUBMIT:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      WORKER_IP_INDEX: 2
+      RPA_PROXIES: ${WORKER_2_PROXY:-http://squid_2:3128}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      squid_2:
+        condition: service_started
+    networks: [platform]
+
+  celery_worker_3:
+    shm_size: '2gb'
+    profiles: ["docker-backend"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 10m
+    command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "--loglevel=info", "-Q", "waybill_tasks_3,rpa_auth_3,rpa_submit_3,scheduled_tasks_3"]
+    deploy:
+      resources:
+        limits:
+          memory: 3g
+    env_file:
+      - .env
+    environment:
+      PYTHON_ENV: production
+      DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-utcms_rpa}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      DRIVER_ENCRYPTION_KEY: ${DRIVER_ENCRYPTION_KEY}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      LOGIN_URL: ${LOGIN_URL:-https://barname.utcms.ir/Barname/Account/Login}
+      HEADLESS: ${HEADLESS:-true}
+      ALLOW_LIVE_SUBMIT: ${ALLOW_LIVE_SUBMIT:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      WORKER_IP_INDEX: 3
+      RPA_PROXIES: ${WORKER_3_PROXY:-http://squid_3:3128}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      squid_3:
+        condition: service_started
+    networks: [platform]
+
+  celery_beat:
+    profiles: ["docker-backend"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["celery", "-A", "app.workers.celery_app:celery_app", "beat", "--loglevel=info"]
+    env_file:
+      - .env
+    environment:
+      PYTHON_ENV: production
+      DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-utcms_rpa}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      DRIVER_ENCRYPTION_KEY: ${DRIVER_ENCRYPTION_KEY}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      LOGIN_URL: ${LOGIN_URL:-https://barname.utcms.ir/Barname/Account/Login}
+      HEADLESS: ${HEADLESS:-true}
+      ALLOW_LIVE_SUBMIT: ${ALLOW_LIVE_SUBMIT:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks: [platform]
 
   frontend:

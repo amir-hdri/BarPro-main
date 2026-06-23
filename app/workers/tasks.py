@@ -48,6 +48,9 @@ def _error_category(exc: Exception) -> str:
     return classify_exception(exc)[0].value
 
 
+import logging
+logger = logging.getLogger(__name__)
+
 if celery_app is not None:
 
     @celery_app.task(bind=True, name="app.workers.tasks.process_waybill_task")
@@ -124,9 +127,29 @@ if celery_app is not None:
                 return result
         finally:
             reset_execution_context(execution_tokens)
+
+    @celery_app.task(bind=True, name="app.workers.tasks.process_fuel_inquiry_task")
+    def process_fuel_inquiry_task(self, inquiry_id: int) -> Any:
+        from app.services.fuel_inquiry_service import fuel_inquiry_service
+        from app.core.database import async_session_factory
+
+        async def _run():
+            async with async_session_factory() as session:
+                try:
+                    await fuel_inquiry_service.run_automation(inquiry_id, session)
+                    await session.commit()
+                except Exception as e:
+                    await session.rollback()
+                    logger.error(f"Failed in process_fuel_inquiry_task: {e}")
+                    raise
+
+        return _run_async(_run())
 else:
 
     def process_waybill_task(*_args, **_kwargs):
+        raise RuntimeError("Celery is not installed")
+
+    def process_fuel_inquiry_task(*_args, **_kwargs):
         raise RuntimeError("Celery is not installed")
 
 
@@ -139,12 +162,49 @@ def dispatch_waybill_task(task_id: str, priority: int | None = None):
     )
 
     import random
+    from app.core.circuit_breaker import get_routed_queue
 
     jitter_countdown = random.randint(3, 10)
+    routed_queue = get_routed_queue(utcms_config.CELERY_TASK_QUEUE)
 
     return process_waybill_task.apply_async(
         args=[task_id],
-        queue=utcms_config.CELERY_TASK_QUEUE,
+        queue=routed_queue,
         priority=normalized_priority,
         countdown=jitter_countdown,
     )
+
+
+def dispatch_fuel_inquiry_task(inquiry_id: int):
+    if celery_app is None:
+        import threading
+        from app.services.fuel_inquiry_service import fuel_inquiry_service
+        from app.core.database import async_session_factory
+
+        def run_in_thread():
+            async def _run():
+                async with async_session_factory() as session:
+                    try:
+                        await fuel_inquiry_service.run_automation(inquiry_id, session)
+                        await session.commit()
+                    except Exception as e:
+                        await session.rollback()
+                        logger.error(f"Thread fuel inquiry failed: {e}")
+
+            _run_async(_run())
+
+        threading.Thread(target=run_in_thread, daemon=True).start()
+        return None
+
+    import random
+    from app.core.circuit_breaker import get_routed_queue
+    
+    jitter_countdown = random.randint(1, 3)
+    routed_queue = get_routed_queue(utcms_config.CELERY_TASK_QUEUE)
+
+    return process_fuel_inquiry_task.apply_async(
+        args=[inquiry_id],
+        queue=routed_queue,
+        countdown=jitter_countdown,
+    )
+

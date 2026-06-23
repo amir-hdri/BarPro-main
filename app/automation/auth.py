@@ -1081,6 +1081,15 @@ class UTCMSAuthenticator:
         """حل خودکار کپچای وب‌اسمبلی CapJS (Proof-of-Work) با اجرای مستقیم در مرورگر."""
         logger.info("CapJS Proof-of-Work captcha widget detected. Initiating automated solution...")
         try:
+            # Try to click the widget first to simulate user checking "من ربات نیستم"
+            try:
+                widget_locator = self.page.locator("cap-widget")
+                if await widget_locator.count() > 0:
+                    await widget_locator.first.click(timeout=3000)
+                    logger.info("Clicked on cap-widget.")
+            except Exception as e:
+                logger.warning(f"Could not click cap-widget: {e}")
+
             # ۱. فراخوانی متد حل کپچا روی کامپوننت cap-widget
             await self.page.evaluate(
                 """() => {
@@ -1093,18 +1102,27 @@ class UTCMSAuthenticator:
 
             # ۲. پولینگ (Polling) برای اتمام حل و تولید توکن
             # زمان حداکثر ۳۰ ثانیه برای اجرای وب‌اسمبلی روی مرورگر کلاینت
-            for _attempt in range(60):  # 60 * 0.5s = 30s
-                solved = await self.page.evaluate(
+            for _attempt in range(300):  # 300 * 0.1s = 30s
+                token = await self.page.evaluate(
                     """() => {
                         const widget = document.querySelector('cap-widget');
-                        if (!widget) return false;
-                        const state = widget.getAttribute('data-state');
+                        if (!widget) return null;
                         const token = widget.token || (widget.querySelector('input[type="hidden"]') ? widget.querySelector('input[type="hidden"]').value : null);
-                        return state === 'done' || !!token;
+                        if (token) {
+                            // Copy to the main hidden input validated by ASP.NET model binder
+                            const capInput = document.querySelector('#CapToken') || document.querySelector('input[name="CapToken"]');
+                            if (capInput && capInput.value !== token) {
+                                capInput.value = token;
+                                capInput.dispatchEvent(new Event('input', { bubbles: true }));
+                                capInput.dispatchEvent(new Event('change', { bubbles: true }));
+                            }
+                            return token;
+                        }
+                        return null;
                     }"""
                 )
-                if solved:
-                    logger.info("کپچای CapJS با موفقیت در مرورگر حل شد.")
+                if token:
+                    logger.info("کپچای CapJS با موفقیت در مرورگر حل شد و توکن در فرم ثبت گردید.")
                     return True
                 await asyncio.sleep(0.1)
 
@@ -1226,6 +1244,124 @@ class UTCMSAuthenticator:
         if u_ok and p_ok:
             return True
         self.last_error = "تکمیل فرم ورود با خطا مواجه شد: عناصر ورود پیدا یا پر نشدند"
+        return False
+
+    async def _detect_and_solve_checkbox_captcha(self) -> bool:
+        """Detect and solve 'I am not a robot' or other checkbox/iframe-based captchas."""
+        logger.info("checking_for_checkbox_captcha")
+
+        # 1. Cloudflare Turnstile
+        try:
+            turnstile_iframe = await self.page.query_selector('iframe[src*="challenges.cloudflare.com"]')
+            if turnstile_iframe:
+                logger.info("detected_cloudflare_turnstile")
+                box = await turnstile_iframe.bounding_box()
+                if box:
+                    click_x = box["x"] + 30 + random.uniform(-3, 3)
+                    click_y = box["y"] + box["height"] / 2 + random.uniform(-3, 3)
+                    await self.page.mouse.click(click_x, click_y)
+                    await asyncio.sleep(random.uniform(2.0, 4.0))
+                    logger.info("clicked_cloudflare_turnstile_checkbox")
+                    return True
+        except Exception as e:
+            logger.warning(f"error_handling_cloudflare_turnstile: {e}")
+
+        # 2. Google reCAPTCHA
+        try:
+            recaptcha_iframe = await self.page.query_selector('iframe[src*="recaptcha"], iframe[src*="google.com/recaptcha"]')
+            if recaptcha_iframe:
+                logger.info("detected_google_recaptcha")
+                frame = self.page.frame_locator('iframe[src*="recaptcha"], iframe[src*="google.com/recaptcha"]')
+                checkbox = frame.locator("#recaptcha-anchor, .recaptcha-checkbox")
+                if await checkbox.count() > 0:
+                    await checkbox.click()
+                    await asyncio.sleep(random.uniform(2.0, 4.0))
+                    logger.info("clicked_google_recaptcha_checkbox")
+                    return True
+        except Exception as e:
+            logger.warning(f"error_handling_google_recaptcha: {e}")
+
+        # 3. hCaptcha
+        try:
+            hcaptcha_iframe = await self.page.query_selector('iframe[src*="hcaptcha"]')
+            if hcaptcha_iframe:
+                logger.info("detected_hcaptcha")
+                frame = self.page.frame_locator('iframe[src*="hcaptcha"]')
+                checkbox = frame.locator("#checkbox, #anchor")
+                if await checkbox.count() > 0:
+                    await checkbox.click()
+                    await asyncio.sleep(random.uniform(2.0, 4.0))
+                    logger.info("clicked_hcaptcha_checkbox")
+                    return True
+        except Exception as e:
+            logger.warning(f"error_handling_hcaptcha: {e}")
+
+        # 4. Custom "من ربات نیستم" Checkbox / Element
+        try:
+            js_info = await self.page.evaluate("""() => {
+                const robotTexts = ["من ربات نیستم", "ربات نیستم", "من ربات‌نیستم", "ربات‌نیستم"];
+                const elements = Array.from(document.querySelectorAll('label, span, div, p, a, button, input'));
+                
+                let target = null;
+                for (const el of elements) {
+                    const text = (el.innerText || el.textContent || '').trim();
+                    if (robotTexts.some(rt => text.includes(rt))) {
+                        target = el;
+                        break;
+                    }
+                }
+                
+                if (!target) return null;
+                
+                if (target.tagName.toLowerCase() === 'label' && target.htmlFor) {
+                    return { selector: `#${CSS.escape(target.htmlFor)}`, clickText: false };
+                }
+                
+                if (target.tagName.toLowerCase() === 'input' && target.type === 'checkbox') {
+                    return { selector: `input[type="checkbox"]`, clickText: false };
+                }
+                
+                const inside = target.querySelector('input[type="checkbox"]');
+                if (inside) {
+                    if (inside.id) return { selector: `#${CSS.escape(inside.id)}`, clickText: false };
+                }
+                
+                let parent = target.parentElement;
+                let depth = 0;
+                while (parent && depth < 3) {
+                    const near = parent.querySelector('input[type="checkbox"]');
+                    if (near) {
+                        if (near.id) return { selector: `#${CSS.escape(near.id)}`, clickText: false };
+                    }
+                    parent = parent.parentElement;
+                    depth++;
+                }
+                
+                if (target.id) {
+                    return { selector: `#${CSS.escape(target.id)}`, clickText: false };
+                }
+                
+                return { selector: null, clickText: target.innerText || target.textContent || '' };
+            }""")
+
+            if js_info:
+                logger.info(f"detected_custom_robot_checkbox: {js_info}")
+                if js_info.get("selector"):
+                    selector = js_info["selector"]
+                    await self.page.click(selector)
+                    await asyncio.sleep(random.uniform(1.0, 2.5))
+                    logger.info(f"clicked_custom_robot_checkbox_by_selector: {selector}")
+                    return True
+                elif js_info.get("clickText"):
+                    click_text = js_info["clickText"].strip()
+                    locator = self.page.locator(f"text={click_text}").first
+                    await locator.click()
+                    await asyncio.sleep(random.uniform(1.0, 2.5))
+                    logger.info(f"clicked_custom_robot_checkbox_by_text: {click_text}")
+                    return True
+        except Exception as e:
+            logger.warning(f"error_handling_custom_robot_checkbox: {e}")
+
         return False
 
     async def _handle_captcha(self, captcha_selector: str, force_auto: bool = False) -> bool:
@@ -1423,8 +1559,24 @@ class UTCMSAuthenticator:
             if not await self._fill_credentials(username_selector, password_selector, username, password):
                 continue
 
+            # Detect captcha type and route solving dynamically
+            has_cap_widget = await self.page.query_selector("cap-widget")
+            if has_cap_widget:
+                logger.info("Detected CapJS 'I am not a robot' checkbox widget. Solving...")
+                if not await self._solve_capjs_captcha():
+                    self.last_state = "captcha_failed"
+                    return False
+            else:
+                # Check for other iframe/custom checkboxes ("من ربات نیستم")
+                checkbox_solved = await self._detect_and_solve_checkbox_captcha()
+                if checkbox_solved:
+                    logger.info("Detected and solved checkbox/iframe captcha successfully.")
+                    await asyncio.sleep(0.5)
+
+            # Detect standard text/image-based math captcha if present
             captcha_selector = await self._find_selector(AuthSelectors.CAPTCHA_SELECTORS)
-            if captcha_selector:
+            if captcha_selector and captcha_selector != "cap-widget":
+                logger.info("Detected standard math/image captcha. Solving using OCR/CNN...")
                 interceptor_result = await self.captcha_interceptor.solve_and_fill(
                     self.page,
                     captcha_input_selectors=AuthSelectors.CAPTCHA_SELECTORS,

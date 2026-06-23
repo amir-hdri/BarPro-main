@@ -87,6 +87,14 @@ class UTCMSConfig:
         self.CAPTCHA_DEBUG_DIR = (
             os.getenv("CAPTCHA_DEBUG_DIR", "output/captcha_debug").strip() or "output/captcha_debug"
         )
+        self.KERAS_PYTHON_PATH = os.getenv(
+            "KERAS_PYTHON_PATH",
+            "/Users/amirheidari/Documents/captcha_OCR/.venv/bin/python",
+        ).strip()
+        self.KERAS_MODEL_PATH = os.getenv(
+            "KERAS_MODEL_PATH",
+            "persian_captcha_ocr_model.keras",
+        ).strip()
 
         self.AUTH_STATE_PATH = os.getenv("AUTH_STATE_PATH", ".auth/utcms_state.json")
         self.USE_PERSISTENT_AUTH_STATE = _to_bool(os.getenv("USE_PERSISTENT_AUTH_STATE", "True"), default=True)

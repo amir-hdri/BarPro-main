@@ -39,8 +39,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <AuthGuard requiredRole="master_admin">
       <div className="flex min-h-screen bg-gradient-to-br from-indigo-900 via-slate-900 to-purple-900">
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 right-0 z-50 w-64 transform border-r border-white/10 bg-slate-900/80 backdrop-blur-xl transition-transform duration-300 md:translate-x-0 ${
-        mobileOpen ? "translate-x-0" : "translate-x-full"
+      <aside className={`fixed inset-y-0 right-0 z-50 w-64 border-l border-white/10 bg-slate-900/80 backdrop-blur-xl transition-all duration-300 md:opacity-100 md:translate-x-0 md:scale-100 origin-right ${
+        mobileOpen ? "opacity-100 translate-x-0 scale-100 visible" : "opacity-0 translate-x-8 scale-95 invisible md:visible"
       }`}>
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
@@ -111,12 +111,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </div>
 
       {/* Mobile overlay */}
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
+      <div
+        onClick={() => setMobileOpen(false)}
+        className={`fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300 md:hidden ${
+          mobileOpen ? "opacity-100 visible pointer-events-auto" : "opacity-0 invisible pointer-events-none"
+        }`}
+      />
       </div>
     </AuthGuard>
   );

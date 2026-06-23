@@ -196,7 +196,7 @@ class TestLocationSelector(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["success"])
         selector.map_controller.select_on_map.assert_awaited_once()
         call = selector.map_controller.select_on_map.await_args
-        self.assertIsNone(call.kwargs["search_input_selector"])
+        self.assertEqual(call.kwargs["search_input_selector"], "#AddressSearch")
         selector._find_map_search_input.assert_not_called()
         selector._geocode_address.assert_not_called()
 

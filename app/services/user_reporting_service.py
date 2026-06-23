@@ -49,49 +49,7 @@ class UserReportingService:
 
         driver_ids = [d.id for d in drivers]
 
-        # Bulk fetch all related data to avoid multiple N+1 query problems
-        jobs_stmt = select(WaybillJob).where(
-            WaybillJob.client_id == client.id,
-            col(WaybillJob.driver_id).in_(driver_ids),
-        )
-        jobs_result = session.exec(jobs_stmt)
-        jobs_by_driver = defaultdict(list)
-        for j in jobs_result.all():
-            jobs_by_driver[j.driver_id].append(j)
-
-        schedules_stmt = select(DriverSchedule).where(
-            DriverSchedule.client_id == client.id,
-            col(DriverSchedule.driver_id).in_(driver_ids),
-        )
-        schedules_result = session.exec(schedules_stmt)
-        schedules_by_driver = defaultdict(list)
-        for s in schedules_result.all():
-            schedules_by_driver[s.driver_id].append(s)
-
-        plates_stmt = select(DriverPlate).where(
-            DriverPlate.client_id == client.id,
-            col(DriverPlate.driver_id).in_(driver_ids),
-        )
-        plates_result = session.exec(plates_stmt)
-        plates_by_driver = defaultdict(list)
-        for p in plates_result.all():
-            plates_by_driver[p.driver_id].append(p)
-
-        # Optimization: Bulk fetch runtime states
-        runtime_states_stmt = select(DriverRuntimeState).where(
-            DriverRuntimeState.client_id == client.id,
-            col(DriverRuntimeState.driver_id).in_(driver_ids),
-        )
-        runtime_states_result = session.exec(runtime_states_stmt)
-        runtime_states_map = {rs.driver_id: rs for rs in runtime_states_result.all()}
-
-        output = []
-        if not drivers:
-            return output
-
-        driver_ids = [d.id for d in drivers]
-
-        # Fetch all related WaybillJobs
+        # Fetch all related WaybillJobs (aggregated)
         failed_statuses = [TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.NEEDS_REVIEW.value]
         pending_statuses = [TaskStatus.PENDING.value, TaskStatus.QUEUED.value, TaskStatus.IN_PROGRESS.value]
 
@@ -113,8 +71,7 @@ class UserReportingService:
         # Fetch all DriverRuntimeStates
         runtime_stmt = select(DriverRuntimeState).where(col(DriverRuntimeState.driver_id).in_(driver_ids))
         runtime_result = session.exec(runtime_stmt)
-        all_runtimes = runtime_result.all()
-        runtime_by_driver = {r.driver_id: r for r in all_runtimes}
+        runtime_by_driver = {r.driver_id: r for r in runtime_result.all()}
 
         # Fetch all DriverSchedules
         schedules_stmt = select(DriverSchedule).where(
@@ -122,9 +79,8 @@ class UserReportingService:
             col(DriverSchedule.driver_id).in_(driver_ids),
         )
         schedules_result = session.exec(schedules_stmt)
-        all_schedules = schedules_result.all()
         schedules_by_driver = defaultdict(list)
-        for schedule in all_schedules:
+        for schedule in schedules_result.all():
             schedules_by_driver[schedule.driver_id].append(schedule)
 
         # Fetch all DriverPlates
@@ -133,11 +89,11 @@ class UserReportingService:
             col(DriverPlate.driver_id).in_(driver_ids),
         )
         plates_result = session.exec(plates_stmt)
-        all_plates = plates_result.all()
         plates_by_driver = defaultdict(list)
-        for plate in all_plates:
+        for plate in plates_result.all():
             plates_by_driver[plate.driver_id].append(plate)
 
+        output = []
         for driver in drivers:
             stats = jobs_by_driver.get(driver.id)
 
@@ -147,16 +103,12 @@ class UserReportingService:
             pending = int(stats.pending_jobs) if stats and stats.pending_jobs else 0
             last_job_at = stats.last_job_at.isoformat() if stats and stats.last_job_at else None
 
-            schedules = schedules_by_driver[driver.id]
-            plates = plates_by_driver[driver.id]
-
-            # Using bulk-fetched runtime state if available, falling back to driver's cached state
-            runtime_state = runtime_states_map.get(driver.id)
-            runtime_status = runtime_state.state if runtime_state else driver.runtime_status
-            runtime_state = runtime_by_driver.get(driver.id)
-
             schedules = schedules_by_driver.get(driver.id, [])
             plates = plates_by_driver.get(driver.id, [])
+
+            # Using bulk-fetched runtime state if available, falling back to driver's cached state
+            runtime_state = runtime_by_driver.get(driver.id)
+            runtime_status = runtime_state.state if runtime_state else driver.runtime_status
 
             output.append(
                 {
@@ -225,9 +177,19 @@ class UserReportingService:
             stmt = stmt.where(WaybillJob.created_at < dt)
         stmt = stmt.order_by(col(WaybillJob.created_at).desc())
 
-        count_stmt = stmt
+        count_stmt = select(func.count(WaybillJob.id)).where(WaybillJob.client_id == client.id)
+        if driver_id:
+            count_stmt = count_stmt.where(WaybillJob.driver_id == driver_id)
+        if status:
+            count_stmt = count_stmt.where(WaybillJob.status == status)
+        if date_from:
+            dt = datetime.fromisoformat(date_from)
+            count_stmt = count_stmt.where(WaybillJob.created_at >= dt)
+        if date_to:
+            dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+            count_stmt = count_stmt.where(WaybillJob.created_at < dt)
         count_result = session.exec(count_stmt)
-        total = len(count_result.all())
+        total = count_result.one()
 
         start = (page - 1) * page_size
         stmt = stmt.offset(start).limit(page_size)

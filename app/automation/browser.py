@@ -134,6 +134,54 @@ class BrowserManager:
             max_age_seconds=300,
             max_pages=5,
         )
+        self._success_count_recycle = 0
+
+    async def recycle_browser(self):
+        """Force close the browser and all contexts to free memory (RAM recycling)."""
+        self._ensure_loop_resources()
+        async with self._init_lock:
+            logger.info("Recycling browser process to free up memory (RAM recycling)...")
+            
+            # Close all contexts
+            for session_id in list(self._contexts.keys()):
+                try:
+                    context = self._contexts[session_id]
+                    await context.close()
+                except Exception:
+                    pass
+            self._contexts.clear()
+            self._pooled_sessions.clear()
+            
+            if self._pool:
+                try:
+                    await self._pool.stop()
+                except Exception:
+                    pass
+                self._pool = None
+                
+            if self.browser:
+                try:
+                    await self.browser.close()
+                except Exception:
+                    pass
+                self.browser = None
+                
+            if self.playwright:
+                try:
+                    await self.playwright.stop()
+                except Exception:
+                    pass
+                self.playwright = None
+            
+            logger.info("Browser successfully recycled.")
+
+    async def record_success_for_recycle(self):
+        """Increment success counter and recycle browser if it reaches 5."""
+        self._success_count_recycle += 1
+        logger.info(f"Incremented successful submission counter for recycle: {self._success_count_recycle}/5")
+        if self._success_count_recycle >= 5:
+            self._success_count_recycle = 0
+            await self.recycle_browser()
 
     def _ensure_loop_resources(self):
         current_loop = asyncio.get_running_loop()

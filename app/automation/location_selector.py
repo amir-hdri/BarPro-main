@@ -637,10 +637,16 @@ class LocationSelector:
         coordinates = location_data.get("coordinates")
         if coordinates and (not location_data.get("province") or not location_data.get("city")):
             rev = await self._fetch_reverse_geocode(coordinates.get("lat"), coordinates.get("lng"))
+            if not rev:
+                logger.info(
+                    "native_reverse_geocode_failed_falling_back_to_osm",
+                    extra={"extra_fields": {"lat": coordinates.get("lat"), "lng": coordinates.get("lng")}},
+                )
+                rev = await self._reverse_geocode(coordinates.get("lat"), coordinates.get("lng"))
             if rev:
                 location_data["province"] = location_data.get("province") or rev.get("province")
                 location_data["city"] = location_data.get("city") or rev.get("city") or rev.get("county")
-                location_data["address"] = location_data.get("address") or rev.get("address_compact")
+                location_data["address"] = location_data.get("address") or rev.get("address_compact") or rev.get("district")
                 logger.info(
                     "location_augmented_with_reverse_geocode",
                     extra={"extra_fields": {"prefix": prefix, "location_data": location_data}},
@@ -1350,7 +1356,18 @@ class LocationSelector:
         """تلاش برای انتخاب مکان با استفاده از نقشه و تزریق مختصات به متغیرهای بومی"""
         # اول پنل صحیح را فعال کنیم، سپس نقشه را تشخیص دهیم
         await self._ensure_location_tab_active(prefix)
-        await asyncio.sleep(0.08)
+
+        # انتظار برای نمایان شدن کانتینر نقشه در DOM
+        map_selector = "#MapSource" if prefix == "Origin" else "#MapDestination"
+        map_visible = False
+        for _ in range(30):  # حداکثر ۳ ثانیه انتظار
+            if await self._is_selector_visible(map_selector):
+                map_visible = True
+                break
+            await asyncio.sleep(0.1)
+
+        if not map_visible:
+            logger.warning(f"Map container {map_selector} not visible after tab activation. Proceeding anyway.")
 
         map_type = await self.map_controller.detect_map_type()
         if not map_type:
@@ -1376,12 +1393,15 @@ class LocationSelector:
             utcms = self._get_utcms_selectors(is_origin)
             before_state = await self._get_form_state(selectors, prefix) if selectors else {}
 
-            map_selector = "#MapSource" if is_origin else "#MapDestination"
+            # ادغام کادر جستجوی نقشه به عنوان راهکار فیزیکی جایگزین
+            search_input_selector = utcms.get("map_search", [None])[0] if utcms.get("map_search") else None
+
             selected = await self.map_controller.select_on_map(
                 selector=map_selector,
                 location=location,
-                search_input_selector=None,
+                search_input_selector=search_input_selector,
             )
+
 
             if not selected:
                 return {
@@ -1439,7 +1459,7 @@ class LocationSelector:
                                 addr_filled = True
 
                         if addr_filled:
-                            logger.info(f"Map click had no effect, but manual address injection succeeded.")
+                            logger.info("Map click had no effect, but manual address injection succeeded.")
                             return {
                                 "success": True,
                                 "method": "map_manual_address_injection",
@@ -1477,7 +1497,7 @@ class LocationSelector:
                                 addr_filled = True
 
                         if addr_filled:
-                            logger.info(f"Map click missing address, but manual address injection succeeded.")
+                            logger.info("Map click missing address, but manual address injection succeeded.")
                             return {
                                 "success": True,
                                 "method": "map_manual_address_injection",

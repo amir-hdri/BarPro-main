@@ -8,6 +8,7 @@ from app.automation.captcha.cnn_provider import CnnCaptchaProvider
 from app.automation.captcha.engine import CaptchaEngine, captcha_engine
 from app.automation.captcha.enhanced_ocr import EnhancedOcrProvider
 from app.automation.captcha.local_ocr import LocalOcrCaptchaProvider
+from app.automation.captcha.keras_ocr import KerasOcrCaptchaProvider
 from app.core.config import utcms_config
 
 _provider_lock = Lock()
@@ -43,6 +44,8 @@ class CompositeCaptchaProvider(CaptchaProvider):
 
 
 def _build_provider(provider_name: str) -> CaptchaProvider | None:
+    if provider_name == "keras_ocr":
+        return KerasOcrCaptchaProvider()
     if provider_name == "cnn":
         return CnnCaptchaProvider()
     if provider_name == "local_ocr":
@@ -52,6 +55,7 @@ def _build_provider(provider_name: str) -> CaptchaProvider | None:
     if provider_name in ("auto", "ensemble", "composite"):
         return CompositeCaptchaProvider(
             [
+                KerasOcrCaptchaProvider(),
                 CnnCaptchaProvider(),
                 EnhancedOcrProvider(),
                 LocalOcrCaptchaProvider(),
@@ -92,6 +96,7 @@ __all__ = [
     "CaptchaEngine",
     "EnhancedOcrProvider",
     "LocalOcrCaptchaProvider",
+    "KerasOcrCaptchaProvider",
     "get_captcha_provider",
     "barname_ml_solver",
     "captcha_engine",

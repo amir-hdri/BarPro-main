@@ -43,10 +43,12 @@ class RPADispatchService:
             return "celery_unavailable"
 
         try:
+            from app.core.circuit_breaker import get_routed_queue
+            routed_queue = get_routed_queue("waybill_tasks")
             result = celery_app.send_task(
                 "waybill.process_job",
                 args=[job.job_id],
-                queue="waybill_tasks",
+                queue=routed_queue,
             )
             job.status = TaskStatus.QUEUED.value
             job.submit_after = requested_at
@@ -62,7 +64,7 @@ class RPADispatchService:
                 "Job dispatched to worker immediately",
                 {
                     "requested_at": requested_at.isoformat(),
-                    "queue": "waybill_tasks",
+                    "queue": routed_queue,
                     "celery_task_id": job.celery_task_id,
                 },
             )
@@ -176,7 +178,9 @@ class RPADispatchService:
             return {"job_id": job.job_id, "queue_name": queue_name, "status": "skipped"}
 
         try:
-            result = celery_app.send_task(task_name, args=args, queue=queue_name)
+            from app.core.circuit_breaker import get_routed_queue
+            routed_queue = get_routed_queue(queue_name)
+            result = celery_app.send_task(task_name, args=args, queue=routed_queue)
             job.celery_task_id = getattr(result, "id", None)
             job.updated_at = datetime.now(UTC).replace(tzinfo=None)
             session.add(job)
@@ -187,11 +191,11 @@ class RPADispatchService:
                 step,
                 "queued",
                 "Phase 1 job dispatched",
-                {**payload, "status": "queued", "celery_task_id": job.celery_task_id},
+                {**payload, "status": "queued", "queue": routed_queue, "celery_task_id": job.celery_task_id},
             )
             return {
                 "job_id": job.job_id,
-                "queue_name": queue_name,
+                "queue_name": routed_queue,
                 "task_name": task_name,
                 "status": "queued",
                 "celery_task_id": job.celery_task_id,

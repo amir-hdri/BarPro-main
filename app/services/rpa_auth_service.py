@@ -71,6 +71,8 @@ class RPAAuthService:
             )
             if not ok:
                 message = authenticator.last_error or "login_failed"
+                from app.core.circuit_breaker import check_and_report_failure
+                await check_and_report_failure(message)
                 await self._mark_auth_failure(session, driver, runtime_state, message)
                 await self._mark_resume_job_for_auth_retry(session, client_id, resume_job_id, message)
                 return AuthResult(ok=False, session_bundle=None, reason_code="login_failed", message=message)
@@ -164,6 +166,8 @@ class RPAAuthService:
                 "phase1_auth_failed",
                 extra={"extra_fields": {"client_id": client_id, "driver_id": driver_id, "error": str(exc)}},
             )
+            from app.core.circuit_breaker import check_and_report_failure
+            await check_and_report_failure(str(exc))
             try:
                 await session.rollback()
             except Exception:

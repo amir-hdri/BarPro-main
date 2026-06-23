@@ -184,8 +184,11 @@ class ITMBWSService:
             "state": snapshot.state,
             "failure_count": snapshot.failure_count,
             "retry_after_seconds": round(snapshot.retry_after_seconds, 2),
-            "enabled": utcms_config.CIRCUIT_BREAKER_ENABLED,
+            "enabled": self._circuit_breaker.enabled,
         }
+
+    def toggle_circuit_breaker(self, enabled: bool) -> None:
+        self._circuit_breaker.enabled = enabled
 
 
 itmb_ws_service = ITMBWSService()
