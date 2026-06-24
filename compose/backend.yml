@@ -1,0 +1,193 @@
+# ═══════════════════════════════════════════════════════════════
+#  لایه ۳: بک‌اند (Backend)
+#  شامل: FastAPI Backend, Celery Workers x3, Celery Beat
+#
+#  هر ورکر از صف Celery متفاوتی استفاده می‌کند:
+#    backend        → API اصلی (FastAPI)
+#    celery_worker_1 → صف‌های IP اول (waybill_tasks_1, rpa_auth_1, ...)
+#    celery_worker_2 → صف‌های IP دوم (waybill_tasks_2, rpa_auth_2, ...)
+#    celery_worker_3 → صف‌های IP سوم (waybill_tasks_3, rpa_auth_3, ...)
+#    celery_beat     → زمان‌بند وظایف دوره‌ای
+#
+#  دیباگ مستقل (نیاز به infra.yml و proxy.yml):
+#    docker compose -f compose/infra.yml -f compose/proxy.yml -f compose/backend.yml up
+#    docker compose -f compose/backend.yml logs -f backend
+#    docker compose -f compose/backend.yml logs -f celery_worker_1
+#    docker compose -f compose/backend.yml exec backend python -c "from app.main import app; print('OK')"
+#
+#  ری‌استارت فقط بک‌اند:
+#    docker compose -f compose/backend.yml restart backend
+# ═══════════════════════════════════════════════════════════════
+
+networks:
+  platform:
+    external: true
+    name: barpro_platform
+
+# ── متغیرهای مشترک بین تمام سرویس‌های بک‌اند ─────────────────
+x-backend-common: &backend-common
+  image: barpro_backend:latest
+  restart: unless-stopped
+  env_file: [.env]
+  environment: &backend-env
+    PYTHON_ENV: production
+    # ✅ استفاده از نام سرویس (postgres) به عنوان hostname در شبکه داکر
+    DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-utcms_rpa}
+    REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    REDIS_PASSWORD: ${REDIS_PASSWORD}
+    JWT_SECRET: ${JWT_SECRET}
+    DRIVER_ENCRYPTION_KEY: ${DRIVER_ENCRYPTION_KEY}
+    FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+    LOGIN_URL: ${LOGIN_URL:-https://barname.utcms.ir/Barname/Account/Login}
+    HEADLESS: ${HEADLESS:-true}
+    ALLOW_LIVE_SUBMIT: ${ALLOW_LIVE_SUBMIT:-false}
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    MASTER_ADMIN_USERNAME: ${MASTER_ADMIN_USERNAME}
+    MASTER_ADMIN_PASSWORD: ${MASTER_ADMIN_PASSWORD}
+  networks: [platform]
+  volumes:
+    - ../scripts:/app/scripts:ro
+    - ../app:/app/app:ro
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+services:
+
+  # ── API اصلی ─────────────────────────────────────────────────
+  backend:
+    <<: *backend-common
+    container_name: barpro-backend
+    shm_size: '2gb'
+    environment:
+      <<: *backend-env
+      PORT: 8000
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--timeout-keep-alive", "30"]
+    # ✅ امنیت: فقط از طریق nginx در دسترس است
+    expose: ['8000']
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:8000/healthz || exit 1']
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+  # ── ورکر IP اول ──────────────────────────────────────────────
+  celery_worker_1:
+    <<: *backend-common
+    image: barpro_celery_worker_1:latest
+    container_name: barpro-worker-1
+    shm_size: '2gb'
+    stop_grace_period: 10m
+    command:
+      - celery
+      - -A
+      - app.workers.celery_app:celery_app
+      - worker
+      - --loglevel=info
+      - -Q
+      - waybill_tasks_1,rpa_auth_1,rpa_submit_1,scheduled_tasks_1,rpa_scheduler,scheduled_tasks
+      - --concurrency=1
+      - -n
+      - worker_1@%h
+    environment:
+      <<: *backend-env
+      WORKER_IP_INDEX: 1
+      RPA_PROXIES: ${WORKER_1_PROXY:-http://barpro-squid-1:3128}
+    healthcheck:
+      test: ['CMD-SHELL', 'celery -A app.workers.celery_app:celery_app inspect ping 2>/dev/null | grep -q pong || exit 1']
+      interval: 60s
+      timeout: 20s
+      start_period: 90s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 3g
+
+  # ── ورکر IP دوم ──────────────────────────────────────────────
+  celery_worker_2:
+    <<: *backend-common
+    image: barpro_celery_worker_2:latest
+    container_name: barpro-worker-2
+    shm_size: '2gb'
+    stop_grace_period: 10m
+    command:
+      - celery
+      - -A
+      - app.workers.celery_app:celery_app
+      - worker
+      - --loglevel=info
+      - -Q
+      - waybill_tasks_2,rpa_auth_2,rpa_submit_2,scheduled_tasks_2
+      - --concurrency=1
+      - -n
+      - worker_2@%h
+    environment:
+      <<: *backend-env
+      WORKER_IP_INDEX: 2
+      RPA_PROXIES: ${WORKER_2_PROXY:-http://barpro-squid-2:3128}
+    healthcheck:
+      test: ['CMD-SHELL', 'celery -A app.workers.celery_app:celery_app inspect ping 2>/dev/null | grep -q pong || exit 1']
+      interval: 60s
+      timeout: 20s
+      start_period: 90s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 3g
+
+  # ── ورکر IP سوم ──────────────────────────────────────────────
+  celery_worker_3:
+    <<: *backend-common
+    image: barpro_celery_worker_3:latest
+    container_name: barpro-worker-3
+    shm_size: '2gb'
+    stop_grace_period: 10m
+    command:
+      - celery
+      - -A
+      - app.workers.celery_app:celery_app
+      - worker
+      - --loglevel=info
+      - -Q
+      - waybill_tasks_3,rpa_auth_3,rpa_submit_3,scheduled_tasks_3
+      - --concurrency=1
+      - -n
+      - worker_3@%h
+    environment:
+      <<: *backend-env
+      WORKER_IP_INDEX: 3
+      RPA_PROXIES: ${WORKER_3_PROXY:-http://barpro-squid-3:3128}
+    healthcheck:
+      test: ['CMD-SHELL', 'celery -A app.workers.celery_app:celery_app inspect ping 2>/dev/null | grep -q pong || exit 1']
+      interval: 60s
+      timeout: 20s
+      start_period: 90s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 3g
+
+  # ── زمان‌بند وظایف دوره‌ای ───────────────────────────────────
+  celery_beat:
+    <<: *backend-common
+    image: barpro_celery_beat:latest
+    container_name: barpro-beat
+    healthcheck:
+      test: ['CMD-SHELL', 'test -f /tmp/celerybeat-schedule && echo ok || exit 1']
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    command:
+      - celery
+      - -A
+      - app.workers.celery_app:celery_app
+      - beat
+      - --loglevel=info
+      - --schedule=/tmp/celerybeat-schedule
