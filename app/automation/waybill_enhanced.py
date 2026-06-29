@@ -2558,7 +2558,7 @@ class EnhancedWaybillManager:
                         ['input[id="pelakFirst"]', 'input[name="pelakFirst"]'],
                         plate_parts["first"],
                         "دو رقم ابتدایی پلاک",
-                        required=False,
+                        required=True,
                         normalizer=self._digits_only,
                         prefer_type=True,
                     )
@@ -2566,13 +2566,13 @@ class EnhancedWaybillManager:
                         ['select[id="pelakCombo"]', 'select[name="pelakCombo"]'],
                         plate_parts["letter"],
                         "حرف پلاک",
-                        required=False,
+                        required=True,
                     )
                     await self._fill_verified_text_field(
                         ['input[id="pelakCenter"]', 'input[name="pelakCenter"]'],
                         plate_parts["center"],
                         "سه رقم میانی پلاک",
-                        required=False,
+                        required=True,
                         normalizer=self._digits_only,
                         prefer_type=True,
                     )
@@ -2580,7 +2580,7 @@ class EnhancedWaybillManager:
                         ['input[id="pelakIrNum"]', 'input[name="pelakIrNum"]'],
                         plate_parts["iran"],
                         "کد ایران پلاک",
-                        required=False,
+                        required=True,
                         normalizer=self._digits_only,
                         prefer_type=True,
                     )
@@ -2615,7 +2615,7 @@ class EnhancedWaybillManager:
                         "#btnShowDetailspelaq",
                     ],
                     "مشاهده مشخصات پلاک",
-                    required=False,
+                    required=True,
                 )
                 plate_lookup_value = await self._wait_for_non_empty_value(
                     ["#TypeofLoader", "#CapacityFrom", "#TypeofLoaderTajmi", "#CapacityTajmi"],
@@ -2635,7 +2635,7 @@ class EnhancedWaybillManager:
                 ],
                 vehicle.get("plate", ""),
                 "پلاک خودرو",
-                required=False,
+                required=True,
             )
 
     async def _handle_tajmi_driver_selection(self, driver_code: str) -> bool:
@@ -3464,6 +3464,7 @@ class EnhancedWaybillManager:
             ],
             "مرحله نهایی",
             wait_after=0.5,
+            max_retries=1,
         )
 
         # ── Step 1.5: Wait for final stage loading ──
@@ -3532,6 +3533,23 @@ class EnhancedWaybillManager:
         submission_confirmed = await self._is_submission_successful()
 
         if not tracking_code and not submission_confirmed:
+            import os
+            import time
+            try:
+                debug_dir = "/app/output/screenshots/debug"
+                os.makedirs(debug_dir, exist_ok=True)
+                ts = int(time.time())
+                debug_html_path = os.path.join(debug_dir, f"{job_id or 'unknown'}_{ts}.html")
+                debug_png_path = os.path.join(debug_dir, f"{job_id or 'unknown'}_{ts}.png")
+                
+                html_content = await self.page.content()
+                with open(debug_html_path, "w", encoding="utf-8") as f:
+                    f.write(html_content)
+                await self.page.screenshot(path=debug_png_path, full_page=True)
+                logger.error(f"Saved submit failure debug info to {debug_html_path} and {debug_png_path}")
+            except Exception as e:
+                logger.error(f"Failed to save debug info: {e}")
+
             form_errors = await self._extract_form_errors()
             if form_errors:
                 raise WaybillError(f"ثبت بارنامه با خطا مواجه شد: {form_errors}")

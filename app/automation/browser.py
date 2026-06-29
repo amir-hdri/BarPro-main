@@ -154,7 +154,7 @@ class BrowserManager:
             
             if self._pool:
                 try:
-                    await self._pool.stop()
+                    await self._pool.close()
                 except Exception:
                     pass
                 self._pool = None
@@ -296,6 +296,9 @@ class BrowserManager:
             "headless": utcms_config.HEADLESS,
             "args": launch_args,
         }
+        env_executable = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")
+        if env_executable:
+            launch_options["executable_path"] = env_executable
 
         try:
             return await self._try_standard_launch(launch_options)
@@ -386,14 +389,17 @@ class BrowserManager:
                     extra={"extra_fields": {"error": str(exc), "path": effective_auth_state_path}},
                 )
 
-    async def close_context(self, session_id: str):
+    async def close_context(self, session_id: str, success: bool = True, error: str = ""):
         """Close a specific browser context"""
         if session_id in self._contexts:
             context = self._contexts[session_id]
 
-            # Record success in pool if healthy
-            if self._pool and session_id not in self._pooled_sessions:
-                self._pool.record_success(context)
+            # Record success or failure in pool if healthy
+            if self._pool and session_id in self._pooled_sessions:
+                if success:
+                    self._pool.record_success(context)
+                else:
+                    self._pool.record_failure(context, error or "Context execution failed")
 
             if session_id in self._pooled_sessions and self._pool is not None:
                 await self._pool.release(context)
@@ -519,9 +525,12 @@ class BrowserManager:
         else:
             logger.info("Route interceptor disabled via BLOCK_MAP_TILES=False")
 
-        # Apply stealth mode to hide automation indicators
         try:
-            await apply_stealth_mode(page)
+            if os.getenv("ENTERPRISE_STEALTH", "true").lower() == "true":
+                from app.automation.stealth_advanced import apply_enterprise_stealth
+                await apply_enterprise_stealth(page)
+            else:
+                await apply_stealth_mode(page)
         except Exception as e:
             logger.warning(
                 "stealth_mode_apply_failed",
@@ -689,16 +698,22 @@ async def managed_browser_session(auth_state_path: str | None = None, proxy_dict
     """Context manager for safe browser session lifecycle with automatic cleanup."""
     session_id = None
     context = None
+    success = True
+    error_msg = ""
     try:
         await browser_manager.initialize()
         session_id, context = await browser_manager.create_context(
             auth_state_path=auth_state_path, proxy_dict=proxy_dict
         )
         yield session_id, context
+    except Exception as exc:
+        success = False
+        error_msg = str(exc)
+        raise
     finally:
         if session_id:
             try:
-                await browser_manager.close_context(session_id)
+                await browser_manager.close_context(session_id, success=success, error=error_msg)
             except Exception as exc:
                 logger.warning(
                     "managed_session_close_failed",

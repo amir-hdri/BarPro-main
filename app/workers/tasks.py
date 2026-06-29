@@ -17,15 +17,25 @@ from app.workers.celery_app import celery_app
 
 
 def _run_async(coro):
+    async def wrapped_coro():
+        try:
+            return await coro
+        finally:
+            from app.automation.browser import browser_manager
+            try:
+                await browser_manager.recycle_browser()
+            except Exception:
+                pass
+
     try:
         asyncio.get_running_loop()
         import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(asyncio.run, coro)
+            future = executor.submit(asyncio.run, wrapped_coro())
             return future.result()
     except RuntimeError:
-        return asyncio.run(coro)
+        return asyncio.run(wrapped_coro())
 
 
 def _retry_delay_seconds(attempt_number: int) -> float:

@@ -1,0 +1,80 @@
+# ═══════════════════════════════════════════════════════════════
+#  لایه ۱: زیرساخت داده (Infrastructure)
+#  شامل: PostgreSQL, Redis
+#
+#  دیباگ مستقل:
+#    docker compose -f compose/infra.yml up
+#    docker compose -f compose/infra.yml logs -f postgres
+#    docker compose -f compose/infra.yml exec postgres psql -U postgres
+# ═══════════════════════════════════════════════════════════════
+
+networks:
+  platform:
+    external: true
+    name: barpro_platform
+
+volumes:
+  postgres_data:
+    external: true
+    name: barpro_postgres_data
+  redis_data:
+    external: true
+    name: barpro_redis_data
+
+services:
+
+  # ── پایگاه داده اصلی ─────────────────────────────────────────
+  postgres:
+    image: postgres:16
+    container_name: barpro-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-utcms_rpa}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # ✅ امنیت: هیچ پورتی به اینترنت باز نیست — فقط داخل شبکه داکر
+    expose: ['5432']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d ${POSTGRES_DB:-utcms_rpa}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [platform]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── صف پیام و کش ─────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: barpro-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly yes
+      - --requirepass ${REDIS_PASSWORD}
+      - --maxmemory 1gb
+      - --maxmemory-policy allkeys-lru
+      - --save 60 1
+    volumes:
+      - redis_data:/data
+    # ✅ امنیت: هیچ پورتی به اینترنت باز نیست — فقط داخل شبکه داکر
+    expose: ['6379']
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a ${REDIS_PASSWORD} ping | grep PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [platform]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

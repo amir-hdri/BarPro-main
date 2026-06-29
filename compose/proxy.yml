@@ -1,0 +1,81 @@
+# ═══════════════════════════════════════════════════════════════
+#  لایه ۲: پروکسی خروجی (Proxy)
+#  شامل: Squid Proxy 1, 2, 3
+#
+#  هر ورکر از IP متفاوتی برای ارسال درخواست استفاده می‌کند:
+#    squid_1 → IP اول (188.121.123.16) — ورکر ۱
+#    squid_2 → IP دوم (95.38.233.90)  — ورکر ۲ (از سرور ۲)
+#    squid_3 → IP سوم               — ورکر ۳
+#
+#  دیباگ مستقل:
+#    docker compose -f compose/proxy.yml up
+#    docker compose -f compose/proxy.yml logs -f squid_1
+#    docker compose -f compose/proxy.yml exec squid_1 squidclient -h localhost mgr:info
+# ═══════════════════════════════════════════════════════════════
+
+networks:
+  platform:
+    external: true
+    name: barpro_platform
+
+services:
+
+  # ── پروکسی خروجی IP اول ──────────────────────────────────────
+  squid_1:
+    image: ubuntu/squid:latest
+    container_name: barpro-squid-1
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ../infra/squid/squid_1.conf:/etc/squid/squid.conf:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'squid -k check || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── پروکسی خروجی IP دوم ──────────────────────────────────────
+  squid_2:
+    image: ubuntu/squid:latest
+    container_name: barpro-squid-2
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ../infra/squid/squid_2.conf:/etc/squid/squid.conf:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'squid -k check || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── پروکسی خروجی IP سوم ──────────────────────────────────────
+  squid_3:
+    image: ubuntu/squid:latest
+    container_name: barpro-squid-3
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ../infra/squid/squid_3.conf:/etc/squid/squid.conf:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'squid -k check || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

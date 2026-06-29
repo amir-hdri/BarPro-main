@@ -141,25 +141,38 @@ class RPAAuthService:
 
             await session.commit()
             if resume_job_id:
-                inline_submit_result = await rpa_submit_service.process_job_live(
-                    client_id=client_id,
-                    job_id=resume_job_id,
-                    page=page,
-                    context=context,
-                    session_bundle=bundle,
-                )
-                logger.info(
-                    "phase1_auth_inline_submit_finished",
-                    extra={
-                        "extra_fields": {
-                            "client_id": client_id,
-                            "driver_id": driver_id,
-                            "job_id": resume_job_id,
-                            "outcome": inline_submit_result.classification.outcome.value,
-                            "reason_code": inline_submit_result.classification.reason_code,
-                        }
-                    },
-                )
+                try:
+                    inline_submit_result = await rpa_submit_service.process_job_live(
+                        client_id=client_id,
+                        job_id=resume_job_id,
+                        page=page,
+                        context=context,
+                        session_bundle=bundle,
+                    )
+                    logger.info(
+                        "phase1_auth_inline_submit_finished",
+                        extra={
+                            "extra_fields": {
+                                "client_id": client_id,
+                                "driver_id": driver_id,
+                                "job_id": resume_job_id,
+                                "outcome": inline_submit_result.classification.outcome.value,
+                                "reason_code": inline_submit_result.classification.reason_code,
+                            }
+                        },
+                    )
+                except Exception as submit_exc:
+                    logger.warning(
+                        "phase1_auth_inline_submit_failed_but_auth_succeeded",
+                        extra={
+                            "extra_fields": {
+                                "client_id": client_id,
+                                "driver_id": driver_id,
+                                "job_id": resume_job_id,
+                                "error": str(submit_exc),
+                            }
+                        },
+                    )
             return AuthResult(ok=True, session_bundle=bundle, reason_code="authenticated", expires_at=expires_at)
         except Exception as exc:  # pragma: no cover - integration-heavy path
             logger.exception(

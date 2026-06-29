@@ -51,29 +51,54 @@ logger = logging.getLogger(__name__)
 
 
 def _frontend_origins() -> list[str]:
-    """Allow the configured frontend origin plus common localhost variants."""
-    configured = utcms_config.FRONTEND_URL.strip().rstrip("/")
-    if not configured:
+    """Allow the configured frontend origin(s) plus common localhost variants.
+
+    Reads from:
+    - FRONTEND_URL   : primary origin (single value)
+    - FRONTEND_URLS  : additional comma-separated origins (e.g. for dual-IP servers)
+    - FRONTEND_URL_ALT: alternate origin for dual-IP server setups
+    """
+    raw_origins: list[str] = []
+
+    # Primary origin
+    primary = utcms_config.FRONTEND_URL.strip().rstrip("/")
+    if primary:
+        raw_origins.append(primary)
+
+    # Additional origins via FRONTEND_URLS (comma-separated)
+    extra_urls = os.getenv("FRONTEND_URLS", "").strip()
+    if extra_urls:
+        raw_origins.extend(u.strip().rstrip("/") for u in extra_urls.split(",") if u.strip())
+
+    # Alternate URL (dual-IP server support)
+    alt_url = os.getenv("FRONTEND_URL_ALT", "").strip().rstrip("/")
+    if alt_url:
+        raw_origins.append(alt_url)
+
+    if not raw_origins:
         return []
 
-    try:
-        parsed = urlparse(configured)
-        if not parsed.scheme or not parsed.netloc:
-            return [configured]
+    origins: set[str] = set()
+    for configured in raw_origins:
+        try:
+            parsed = urlparse(configured)
+            if not parsed.scheme or not parsed.netloc:
+                origins.add(configured)
+                continue
 
-        origin = f"{parsed.scheme}://{parsed.netloc}"
-        origins = {origin}
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+            origins.add(origin)
 
-        if parsed.hostname == "localhost":
-            variant_netloc = parsed.netloc.replace("localhost", "127.0.0.1", 1)
-            origins.add(f"{parsed.scheme}://{variant_netloc}")
-        elif parsed.hostname == "127.0.0.1":
-            variant_netloc = parsed.netloc.replace("127.0.0.1", "localhost", 1)
-            origins.add(f"{parsed.scheme}://{variant_netloc}")
+            if parsed.hostname == "localhost":
+                variant_netloc = parsed.netloc.replace("localhost", "127.0.0.1", 1)
+                origins.add(f"{parsed.scheme}://{variant_netloc}")
+            elif parsed.hostname == "127.0.0.1":
+                variant_netloc = parsed.netloc.replace("127.0.0.1", "localhost", 1)
+                origins.add(f"{parsed.scheme}://{variant_netloc}")
+        except Exception:
+            origins.add(configured)
 
-        return sorted(origins)
-    except Exception:
-        return [configured]
+    return sorted(origins)
 
 
 @asynccontextmanager

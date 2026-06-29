@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { AuthGuard } from "@/components/layout/AuthGuard";
 import { useSession } from "@/hooks/useSession";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, statusLabel, statusTone } from "@/lib/format";
 import type { ClientStats, WaybillJob } from "@/lib/types";
 import {
   ClockIcon,
@@ -46,13 +46,13 @@ export default function DashboardPage() {
       today_success: 0,
       today_failed: 0,
       success_rate: 0,
-      created_at: new Date().toISOString(),
+      created_at: new Date(0).toISOString(),
     } as ClientStats,
     refetch: refetchStats,
   } = useQuery({
     queryKey: ["client-stats"],
     queryFn: async () => {
-      const res = await api.get<ClientStats>("/api/v1/client/stats");
+      const res = await api.get<ClientStats>("/api/v1/auth/stats");
       if (!res.success || !res.data) {
         throw new Error(res.error || "Query data cannot be undefined");
       }
@@ -70,7 +70,7 @@ export default function DashboardPage() {
     queryKey: ["recent-jobs"],
     queryFn: async () => {
       const res = await api.get<{ tasks: WaybillJob[] }>(
-        "/api/v1/client/waybills?page=1&page_size=5"
+        "/api/v1/waybill-jobs?page=1&page_size=5"
       );
       if (!res.success || !res.data) {
         throw new Error(res.error || "Query data cannot be undefined");
@@ -84,7 +84,7 @@ export default function DashboardPage() {
   async function handleRetry(jobId: string) {
     setRetryingJobId(jobId);
     setError(null);
-    const res = await api.post(`/api/v1/client/waybills/${jobId}/retry`, {});
+    const res = await api.post(`/api/v1/waybill-jobs/${jobId}/retry`, {});
     setRetryingJobId(null);
     if (!res.success) {
       setError(res.error || "خطا در ارسال مجدد درخواست");
@@ -94,49 +94,7 @@ export default function DashboardPage() {
     }
   }
 
-  // Label Formatter for UI
-  const statusLabel = (status: string) => {
-    switch (status) {
-      case "pending":
-        return "در صف پردازش";
-      case "in_progress":
-        return "در حال اجرا";
-      case "success":
-        return "ثبت موفق";
-      case "failed":
-        return "خطا در ثبت";
-      case "waiting_auth":
-        return "در انتظار تایید";
-      case "waiting_retry":
-        return "در انتظار تلاش مجدد";
-      case "needs_review":
-        return "نیازمند بازبینی";
-      case "rpa_bot":
-        return "ربات هوشمند";
-      case "manual":
-        return "ثبت دستی";
-      case "scheduler":
-        return "زمان‌بندی شده";
-      default:
-        return status;
-    }
-  };
 
-  const statusTone = (status: string) => {
-    switch (status) {
-      case "success":
-        return "bg-emerald-500/10 border-emerald-500/20 text-emerald-400";
-      case "failed":
-        return "bg-rose-500/10 border-rose-500/20 text-rose-400";
-      case "in_progress":
-        return "bg-cyan-500/10 border-cyan-500/20 text-cyan-400";
-      case "waiting_auth":
-      case "needs_review":
-        return "bg-amber-500/10 border-amber-500/20 text-amber-400";
-      default:
-        return "bg-slate-500/10 border-slate-500/20 text-slate-400";
-    }
-  };
 
   const cards = useMemo(
     () => [
@@ -177,8 +135,8 @@ export default function DashboardPage() {
   );
 
   return (
-    <AppShell>
-      <AuthGuard requiredRole="client">
+    <AuthGuard requiredRole="client">
+      <AppShell>
         <section className="grid gap-4 sm:gap-6 xl:gap-8 xl:grid-cols-[1.2fr_0.8fr] mb-6 md:mb-8">
           <div className="relative overflow-hidden rounded-[2rem] lg:rounded-[3rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl px-5 py-6 sm:px-8 sm:py-10 lg:px-10 lg:py-14 shadow-2xl">
             <div className="absolute -right-32 -top-32 h-96 w-96 rounded-full bg-gradient-to-br from-cyan-400/10 to-blue-500/10 blur-[100px] animate-pulse-glow"></div>
@@ -394,7 +352,7 @@ export default function DashboardPage() {
             )}
           </div>
         </section>
-      </AuthGuard>
-    </AppShell>
+      </AppShell>
+    </AuthGuard>
   );
 }

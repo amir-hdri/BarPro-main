@@ -1,0 +1,50 @@
+# ═══════════════════════════════════════════════════════════════
+#  لایه ۵: مانیتورینگ (Monitoring)
+#  شامل: Prometheus
+#
+#  دیباگ مستقل:
+#    docker compose -f compose/monitoring.yml up
+#    docker compose -f compose/monitoring.yml logs -f prometheus
+#
+#  دسترسی:
+#    Prometheus UI: http://<server-ip>:9090
+# ═══════════════════════════════════════════════════════════════
+
+networks:
+  platform:
+    external: true
+    name: barpro_platform
+
+volumes:
+  prometheus_data:
+    external: true
+    name: barpro_prometheus_data
+
+services:
+
+  # ── Prometheus — جمع‌آوری متریک‌ها ──────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: barpro-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ../infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - '9090:9090'
+    networks: [platform]
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO/dev/null http://localhost:9090/-/healthy || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

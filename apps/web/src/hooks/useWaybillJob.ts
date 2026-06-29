@@ -2,14 +2,21 @@ import { useEffect, useState, useRef, useCallback } from "react";
 
 // Determine the WebSocket URL based on the current environment and API_URL
 function getWebSocketUrl(): string {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
   try {
-    const url = new URL(apiUrl);
-    // Replace http:// with ws:// and https:// with wss://
-    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    return `${url.origin}/ws/waybill`;
+    // اگر API URL ست شده و localhost نباشد، از آن استفاده کن
+    if (apiUrl && !apiUrl.includes("localhost") && !apiUrl.includes("127.0.0.1")) {
+      const url = new URL(apiUrl);
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+      return `${url.origin}/ws/waybill`;
+    }
+    // در browser: از origin فعلی استفاده می‌کنیم
+    if (typeof window !== "undefined") {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      return `${protocol}//${window.location.host}/ws/waybill`;
+    }
+    return "ws://localhost:8000/ws/waybill";
   } catch {
-    // Fallback if URL parsing fails
     return "ws://localhost:8000/ws/waybill";
   }
 }

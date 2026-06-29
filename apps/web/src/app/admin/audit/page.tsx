@@ -34,7 +34,7 @@ export default function AdminAuditPage() {
       <div className="overflow-hidden rounded-xl border border-white/10 bg-slate-900/30">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="border-b border-white/10 bg-slate-800/50">
+            <thead className="border-b border-white/10 bg-slate-800/50 whitespace-nowrap">
               <tr>
                 <th className="px-4 py-3 text-right font-medium text-slate-300">تاریخ</th>
                 <th className="px-4 py-3 text-right font-medium text-slate-300">نوع کاربر</th>
@@ -50,7 +50,7 @@ export default function AdminAuditPage() {
                 <tr><td colSpan={5} className="py-8 text-center text-slate-400">لاگی یافت نشد</td></tr>
               ) : (
                 (entries || []).map((e) => (
-                  <tr key={e.id} className="border-b border-white/5 hover:bg-white/5">
+                  <tr key={e.id} className="border-b border-white/5 hover:bg-white/5 whitespace-nowrap">
                     <td className="px-4 py-3 text-slate-300">{e.created_at.slice(0, 19).replace("T", " ")}</td>
                     <td className="px-4 py-3 text-slate-200">{e.user_type}</td>
                     <td className="px-4 py-3 font-mono text-xs text-amber-300">{e.action}</td>

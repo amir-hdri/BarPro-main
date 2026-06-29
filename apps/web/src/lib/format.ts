@@ -55,9 +55,11 @@ export function statusLabel(status: string): string {
     incomplete_waybill_info: 'ناقص بودن اطلاعات بارنامه',
     system_or_network_error: 'خطای سیستمی یا ارتباطی',
     destination_service_limit: 'محدودیت سرویس مقصد',
-    manual: 'دستی',
+    manual: 'ثبت دستی',
     bulk_upload: 'اکسل',
     api: 'API',
+    rpa_bot: 'ربات هوشمند',
+    scheduler: 'زمان‌بندی شده',
   };
 
   return map[status] || status;

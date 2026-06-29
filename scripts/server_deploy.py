@@ -129,7 +129,7 @@ def main():
     run(
         ssh,
         f"cd {REMOTE_DIR}/apps/web && "
-        f"NODE_ENV=production NEXT_PUBLIC_API_URL=http://{PRIMARY_IP}/api "
+        f"NODE_ENV=production NEXT_PUBLIC_API_URL=/api "
         f"npm run build 2>&1",
         "بیلد Next.js",
         timeout=900

@@ -230,9 +230,7 @@ class ProxyRotator:
         import sys
 
         if require_iran_ip is None:
-            # Auto-disable on-the-fly Geo-IP checks in test environments to prevent real web calls
-            is_testing = "pytest" in sys.modules or "unittest" in sys.modules
-            require_iran_ip = not is_testing
+            require_iran_ip = False
 
         self.proxies: list[ProxyInfo] = []
         self.cooldown = cooldown

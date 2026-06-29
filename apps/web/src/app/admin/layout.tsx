@@ -49,7 +49,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <X className="h-5 w-5" />
             </button>
           </div>
-          <nav className="flex-1 space-y-1 px-3 py-4">
+          <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto overflow-x-hidden scrollbar-none">
             {adminNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");

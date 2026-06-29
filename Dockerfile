@@ -8,6 +8,7 @@
 # ── مرحله ۱: نصب وابستگی‌های Python ──────────────────────────
 FROM python:3.11-slim AS builder
 
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -15,23 +16,24 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /build
 
-# ابزارهای build
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ libffi-dev libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
 
 # نصب وابستگی‌ها — سرور آروان‌کلود به PyPI دسترسی مستقیم دارد
 # PyTorch CPU wheel از مخزن رسمی pytorch.org
 RUN pip install --no-cache-dir \
+    --index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+    --extra-index-url https://pypi.org/simple \
     --extra-index-url https://download.pytorch.org/whl/cpu \
-    --retries 5 \
-    --timeout 180 \
+    --retries 20 \
+    --timeout 300 \
     -r requirements.txt
 
 # ── مرحله ۲: image تولید ──────────────────────────────────────
 FROM python:3.11-slim AS production
+
+RUN sed -i 's/deb.debian.org/mirror.iranserver.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's/deb.debian.org/mirror.iranserver.com/g' /etc/apt/sources.list 2>/dev/null || true
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -44,7 +46,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # کتابخانه‌های سیستمی مورد نیاز Playwright/Chromium و خود Chromium
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get -o Acquire::Check-Valid-Until=false update && apt-get install -y --no-install-recommends \
     # Chromium core
     libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
     libcups2 libdrm2 libdbus-1-3 libxkbcommon0 \
@@ -65,6 +67,7 @@ RUN mkdir -p /opt/playwright-browsers
 
 # کپی کد اپلیکیشن
 COPY app         ./app
+COPY scripts     ./scripts
 COPY alembic     ./alembic
 COPY alembic.ini ./alembic.ini
 COPY persian_captcha_ocr_model.keras ./persian_captcha_ocr_model.keras

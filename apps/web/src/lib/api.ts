@@ -7,7 +7,7 @@ export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhos
 function getStoredTokenCandidate(): string | null {
   if (typeof window === 'undefined') return null;
   return (
-    localStorage.getItem('utcms_auth_token') ||  // <-- این خط را اضافه کنید
+    localStorage.getItem('utcms_auth_token') ||
     localStorage.getItem('utcms_token') ||
     localStorage.getItem('access_token') ||
     localStorage.getItem('token') ||
@@ -134,11 +134,16 @@ function createApiClient(): AxiosInstance {
     (res) => res,
     (err) => {
       const status = err?.response?.status;
-      if (status === 401 || status === 403) {
+      // Only clear session on 401 (Unauthorized) — not 403 (Forbidden)
+      // 403 means authenticated but lacking permission, redirect without logout
+      if (status === 401) {
         clearAllAuthTokens();
         if (typeof window !== 'undefined') {
           try {
-            window.location.href = '/auth';
+            // Prevent redirect loop if already on /auth
+            if (!window.location.pathname.startsWith('/auth')) {
+              window.location.href = '/auth';
+            }
           } catch {
             // ignore
           }

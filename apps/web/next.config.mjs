@@ -6,7 +6,7 @@ import withPWAInit from "@ducanh2912/next-pwa";
 const withPWA = withPWAInit({
   dest: "public",
   cacheOnFrontEndNav: true,
-  disable: process.env.NODE_ENV === "development",
+  disable: true,
   registerInDev: false,
   dynamicStartUrl: true,
   buildExcludes: [/middleware-manifest\.json$/],

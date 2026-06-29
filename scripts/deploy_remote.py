@@ -38,6 +38,8 @@ def connect_ssh_with_retry(ip, username, password=None, key_path=None, retries=5
             else:
                 ssh.connect(ip, username=username, password=password, timeout=15)
             print(f"✅ Connected to {ip}!")
+            if ssh.get_transport():
+                ssh.get_transport().set_keepalive(30)
             return ssh
         except Exception as e:
             print(f"⚠️ Attempt {attempt+1} failed: {e}")
@@ -172,7 +174,7 @@ def make_tarfile(output_filename, source_dir):
     exclude_dirs = {
         '.git', '.venv', 'venv', 'node_modules', '.mypy_cache', 
         '.pytest_cache', '.ruff_cache', '__pycache__', '.next',
-        '.auth', 'output', 'build', 'dist'
+        '.auth', 'output', 'build', 'dist', 'playwright-browsers', 'playwright-zips'
     }
     exclude_files = {'backend.log', 'celerybeat-schedule.db', 'rpa_inspector.log', '.env'}
     
@@ -182,7 +184,7 @@ def make_tarfile(output_filename, source_dir):
             dirs[:] = [d for d in dirs if d not in exclude_dirs]
             
             for file in files:
-                if file in exclude_files or file.endswith('.pyc') or file.endswith('.pid'):
+                if file in exclude_files or file.endswith('.pyc') or file.endswith('.pid') or file.endswith('.tar.gz') or file.endswith('.keras') or file.endswith('.zip'):
                     continue
                 full_path = os.path.join(root, file)
                 rel_path = os.path.relpath(full_path, source_dir)
@@ -229,7 +231,7 @@ def deploy_node1(username, password, key_path=None):
             env_content += f"""
 ENVIRONMENT="production"
 FRONTEND_URL="http://{NODE1_IP}"
-NEXT_PUBLIC_API_URL="http://{NODE1_IP}:8000"
+NEXT_PUBLIC_API_URL="/api"
 AVAILABLE_IP_INDICES="1,2"
 WORKER_1_PROXY="http://squid_1:3128"
 WORKER_2_PROXY="http://{NODE2_IP}:3128"

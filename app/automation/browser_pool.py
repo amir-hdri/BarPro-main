@@ -96,11 +96,17 @@ class BrowserPool:
                 extra={"extra_fields": {"context_id": context_id, "error": str(exc)}},
             )
 
-        # Update health on release
+        # Update health on release and only enqueue if still tracked (healthy/active)
         if context_id and context_id in self._context_health:
             self._context_health[context_id].pages_open = 0
-
-        await self._queue.put(context)
+            await self._queue.put(context)
+        else:
+            # If the context is no longer tracked, it was retired/healed. Close it.
+            try:
+                await context.close()
+                logger.info(f"Closed retired browser context {context_id}")
+            except Exception as exc:
+                logger.warning(f"Failed to close retired browser context {context_id}: {exc}")
 
     async def close(self) -> None:
         while not self._queue.empty():
@@ -175,15 +181,81 @@ class BrowserPool:
                 )
 
     async def heal_unhealthy_contexts(self, browser: Browser, context_args: dict[str, Any] | None = None) -> int:
-        """Recreate unhealthy browser contexts."""
+        """Recreate unhealthy browser contexts, draining them from queue and closing old ones."""
         healed_count = 0
         context_args = context_args or {}
 
-        unhealthy_ids = [ctx_id for ctx_id, health in self._context_health.items() if not health.is_healthy]
+        # 1. Get all unhealthy tracked IDs
+        unhealthy_ids = {ctx_id for ctx_id, health in self._context_health.items() if not health.is_healthy}
+        if not unhealthy_ids:
+            return 0
 
-        for ctx_id in unhealthy_ids:
+        # 2. Drain all currently available contexts from the queue
+        available_contexts = []
+        while not self._queue.empty():
             try:
-                # Create new context with new proxy
+                available_contexts.append(self._queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+
+        # 3. Process drained contexts: close unhealthy ones, keep healthy ones
+        for context in available_contexts:
+            ctx_id = getattr(context, "_pool_context_id", None)
+            if ctx_id in unhealthy_ids:
+                # Close the old unhealthy context
+                try:
+                    await context.close()
+                    logger.info(f"Closed unhealthy context {ctx_id} during heal")
+                except Exception as exc:
+                    logger.warning(f"Error closing unhealthy context {ctx_id}: {exc}")
+
+                # Recreate replacement context
+                try:
+                    proxy_info = await get_proxy_rotator().get_next()
+                    ctx_args_copy = context_args.copy()
+                    if proxy_info:
+                        ctx_args_copy["proxy"] = proxy_info.to_playwright_proxy()
+                    new_context = await browser.new_context(**ctx_args_copy)
+                    self._context_counter += 1
+                    new_id = f"ctx_{self._context_counter}"
+
+                    # Update health tracking
+                    if ctx_id in self._context_health:
+                        del self._context_health[ctx_id]
+                    self._context_health[new_id] = BrowserHealthStatus(
+                        context_id=new_id,
+                        is_healthy=True,
+                    )
+                    new_context._pool_context_id = new_id
+
+                    # Enqueue new context
+                    await self._queue.put(new_context)
+                    healed_count += 1
+                    unhealthy_ids.discard(ctx_id)
+
+                    logger.info(
+                        "browser_context_healed",
+                        extra={"extra_fields": {"old_id": ctx_id, "new_id": new_id}},
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "browser_context_heal_failed",
+                        extra={"extra_fields": {"old_id": ctx_id, "error": str(exc)}},
+                    )
+                    # Put the old one back so we don't shrink pool size on launch failure
+                    await self._queue.put(context)
+            else:
+                # Healthy context, put it back
+                await self._queue.put(context)
+
+        # 4. Handle unhealthy contexts that are currently acquired (in-use)
+        #    We remove their tracking now so that release() will close them when released.
+        #    We preemptively create replacement contexts now to keep pool size stable.
+        for ctx_id in list(unhealthy_ids):
+            if ctx_id in self._context_health:
+                del self._context_health[ctx_id]
+
+            try:
                 proxy_info = await get_proxy_rotator().get_next()
                 ctx_args_copy = context_args.copy()
                 if proxy_info:
@@ -192,25 +264,21 @@ class BrowserPool:
                 self._context_counter += 1
                 new_id = f"ctx_{self._context_counter}"
 
-                # Update health tracking
-                del self._context_health[ctx_id]
                 self._context_health[new_id] = BrowserHealthStatus(
                     context_id=new_id,
                     is_healthy=True,
                 )
                 new_context._pool_context_id = new_id
 
-                # Add to queue
                 await self._queue.put(new_context)
                 healed_count += 1
-
                 logger.info(
-                    "browser_context_healed",
+                    "browser_context_preemptively_healed",
                     extra={"extra_fields": {"old_id": ctx_id, "new_id": new_id}},
                 )
             except Exception as exc:
                 logger.error(
-                    "browser_context_heal_failed",
+                    "browser_context_preemptive_heal_failed",
                     extra={"extra_fields": {"old_id": ctx_id, "error": str(exc)}},
                 )
 

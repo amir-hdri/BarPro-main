@@ -52,7 +52,7 @@ hdr "قدم ۳ — بیلد Next.js (روی سرور)"
 cd "$WEB_DIR"
 inf "بیلد Next.js..."
 NODE_ENV=production \
-  NEXT_PUBLIC_API_URL="http://$PRIMARY_IP/api" \
+  NEXT_PUBLIC_API_URL="/api" \
   npm run build 2>&1
 
 if [ -d "$WEB_DIR/.next/standalone" ]; then

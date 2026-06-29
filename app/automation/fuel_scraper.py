@@ -104,7 +104,7 @@ class FuelScraper:
             plate_info = parse_plate(plate_number)
         except Exception as e:
             logger.error(f"Failed to parse plate number {plate_number}: {e}")
-            raise WaybillError(f"فرمت پلاک خودرو نامعتبر است: {e}", category="form_fill_failed")
+            raise WaybillError(f"فرمت پلاک خودرو نامعتبر است: {e}")
 
         # Determine Jalali date
         j_year, j_month = get_current_jalali()
@@ -225,7 +225,7 @@ class FuelScraper:
             except Exception as e:
                 logger.warning(f"Timeout loading ShowFuelQuota.aspx on attempt {attempt}: {e}")
                 if attempt == max_attempts:
-                    raise WaybillError(f"صفحه استعلام سوخت بارگذاری نشد: {e}", category="form_fill_failed")
+                    raise WaybillError(f"صفحه استعلام سوخت بارگذاری نشد: {e}")
                 continue
 
             try:
@@ -351,22 +351,21 @@ class FuelScraper:
                 if attempt == max_attempts:
                     if isinstance(e, WaybillError):
                         raise e
-                    raise WaybillError(f"خطا در پر کردن فرم استعلام سوخت: {e}", category="form_fill_failed")
+                    raise WaybillError(f"خطا در پر کردن فرم استعلام سوخت: {e}")
 
         logger.error(f"Failed to solve captcha after {max_attempts} attempts for quota type {quota_type}")
         raise WaybillError(
-            f"عدم موفقیت در حل کپچا پس از {max_attempts} تلاش برای سهمیه {quota_type}",
-            category="captcha_failed",
+            f"عدم موفقیت در حل کپچا پس از {max_attempts} تلاش برای سهمیه {quota_type}"
         )
 
     async def _solve_page_captcha(self) -> tuple[str, str]:
         provider = get_captcha_provider()
         if not provider:
-            raise WaybillError("کلاس حل کپچا پیکربندی نشده است", category="captcha_failed")
+            raise WaybillError("کلاس حل کپچا پیکربندی نشده است")
 
         captcha_element = await self.page.query_selector("#imgCapchaEdit1")
         if not captcha_element:
-            raise WaybillError("تصویر کپچا در صفحه یافت نشد", category="captcha_failed")
+            raise WaybillError("تصویر کپچا در صفحه یافت نشد")
 
         # Capture element screenshot
         image_bytes = await captcha_element.screenshot(type="png")
@@ -377,8 +376,7 @@ class FuelScraper:
         result = await provider.solve_text_captcha(image_base64)
         if not result.solved or not result.value:
             raise WaybillError(
-                result.error or "مدل موفق به حل کپچا نشد",
-                category="captcha_failed",
+                result.error or "مدل موفق به حل کپچا نشد"
             )
 
         return result.value, result.provider

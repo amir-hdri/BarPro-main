@@ -147,8 +147,8 @@ export default function SettingsPage() {
   };
 
   return (
-    <AppShell>
-      <AuthGuard requiredRole="client">
+    <AuthGuard requiredRole="client">
+      <AppShell>
         <div className="mx-auto max-w-7xl px-3 py-4 sm:px-6 sm:py-8 lg:px-8">
           
           {/* Header */}
@@ -414,8 +414,8 @@ export default function SettingsPage() {
             </div>
           )}
         </div>
-      </AuthGuard>
-    </AppShell>
+      </AppShell>
+    </AuthGuard>
   );
 }
 

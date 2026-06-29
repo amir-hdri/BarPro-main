@@ -326,8 +326,8 @@ export default function NewWaybillPage() {
   const isLastStep = currentStep === STEPS.length;
 
   return (
-    <AppShell>
-      <AuthGuard requiredRole="client">
+    <AuthGuard requiredRole="client">
+      <AppShell>
         <div className="max-w-3xl mx-auto">
 
           {/* ── Hero header ──────────────────────────────────────── */}
@@ -778,46 +778,46 @@ export default function NewWaybillPage() {
             </div>
 
             {/* ── Navigation buttons ────────────────────────────── */}
-            <div className="flex items-center justify-between mt-5 gap-4">
+            <div className="flex items-center justify-between mt-5 gap-3">
               <button
                 type="button"
                 onClick={goPrev}
                 disabled={currentStep === 1}
-                className="flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-950 px-6 py-3 text-sm font-semibold text-slate-300 transition hover:bg-slate-900 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
+                className="flex items-center gap-1.5 rounded-2xl border border-white/10 bg-slate-950 px-4 py-2.5 sm:px-6 sm:py-3 text-xs sm:text-sm font-semibold text-slate-300 transition hover:bg-slate-900 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
               >
-                <ChevronRightIcon className="h-4 w-4" />
+                <ChevronRightIcon className="h-3.5 w-3.5" />
                 مرحله قبل
               </button>
 
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400 font-medium">
+                <span className="text-[11px] sm:text-xs text-slate-400 font-medium whitespace-nowrap">
                   {toPersianDigits(currentStep)}/{toPersianDigits(STEPS.length)}
                 </span>
                 {isLastStep ? (
                   <button
                     type="submit"
                     disabled={submitting || drivers.length === 0}
-                    className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-8 py-3.5 text-sm font-black text-slate-950 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20 active:scale-[0.98]"
+                    className="flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-4 py-2.5 sm:px-8 sm:py-3.5 text-xs sm:text-sm font-black text-slate-950 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20 active:scale-[0.98]"
                   >
                     {submitting ? (
                       <>
-                        <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                        <div className="h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
                         در حال ارسال...
                       </>
                     ) : (
                       <>
-                        <CheckIcon className="h-4 w-4" />
-                        ثبت و ارسال به صف
+                        <CheckIcon className="h-3.5 w-3.5" />
+                        ثبت و ارسال
                       </>
                     )}
                   </button>
                 ) : (
                   <button
                     type="submit"
-                    className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-7 py-3.5 text-sm font-black text-slate-950 transition-all shadow-lg shadow-cyan-500/20 active:scale-[0.98]"
+                    className="flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-4 py-2.5 sm:px-7 sm:py-3.5 text-xs sm:text-sm font-black text-slate-950 transition-all shadow-lg shadow-cyan-500/20 active:scale-[0.98]"
                   >
                     مرحله بعد
-                    <ChevronLeftIcon className="h-4 w-4" />
+                    <ChevronLeftIcon className="h-3.5 w-3.5" />
                   </button>
                 )}
               </div>
@@ -830,7 +830,7 @@ export default function NewWaybillPage() {
             </div>
           </form>
         </div>
-      </AuthGuard>
-    </AppShell>
+      </AppShell>
+    </AuthGuard>
   );
 }

@@ -13,6 +13,7 @@ from app.core.config import utcms_config
 from app.core.database import engine
 from app.core.execution_context import generate_correlation_id
 from app.models_legacy import WaybillTask
+from app.models_multitenant import WaybillJob
 from app.monitoring.metrics import set_queue_depth, summarize_queue_depth, track_task_status
 from app.realtime.events import event_hub
 from app.schemas.task import TaskStatus
@@ -191,6 +192,14 @@ class WaybillTaskService:
 
     async def get_task_status(self, task_id: str) -> dict[str, Any] | None:
         async with AsyncSession(engine) as session:
+            if task_id.startswith("job_"):
+                statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
+                result = await session.execute(statement)
+                job = result.scalars().first()
+                if not job:
+                    return None
+                return self._to_public_dict(job)
+                
             statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
             result = await session.execute(statement)
             task = result.scalars().first()
@@ -200,6 +209,14 @@ class WaybillTaskService:
 
     async def get_payload(self, task_id: str) -> dict[str, Any] | None:
         async with AsyncSession(engine) as session:
+            if task_id.startswith("job_"):
+                statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
+                result = await session.execute(statement)
+                job = result.scalars().first()
+                if not job:
+                    return None
+                return self._safe_json_load(job.payload_json)
+            
             statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
             result = await session.execute(statement)
             task = result.scalars().first()
@@ -245,14 +262,24 @@ class WaybillTaskService:
 
     async def _update_task(self, task_id: str, updater, metric_status: str | None = None) -> None:
         async with AsyncSession(engine) as session:
-            statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
-            result = await session.execute(statement)
-            task = result.scalars().first()
-            if not task:
-                return
-            updater(task)
-            session.add(task)
-            await session.commit()
+            if task_id.startswith("job_"):
+                statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
+                result = await session.execute(statement)
+                job = result.scalars().first()
+                if not job:
+                    return
+                updater(job)
+                session.add(job)
+                await session.commit()
+            else:
+                statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
+                result = await session.execute(statement)
+                task = result.scalars().first()
+                if not task:
+                    return
+                updater(task)
+                session.add(task)
+                await session.commit()
 
         if metric_status:
             track_task_status(metric_status)
@@ -277,9 +304,10 @@ class WaybillTaskService:
         for key, value in updates.items():
             setattr(task, key, value)
 
-    def _to_public_dict(self, task: WaybillTask) -> dict[str, Any]:
+    def _to_public_dict(self, task) -> dict[str, Any]:
+        is_job = hasattr(task, "job_id")
         return {
-            "task_id": task.task_id,
+            "task_id": task.job_id if is_job else task.task_id,
             "idempotency_key": task.idempotency_key,
             "status": task.status,
             "correlation_id": self._extract_correlation_id(task),

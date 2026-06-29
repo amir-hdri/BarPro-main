@@ -131,9 +131,15 @@ select.field {
 
 .step-line {
   height: 2px;
-  width: 4rem;
+  width: 1.5rem;
   background: rgba(255, 255, 255, 0.1);
   transition: background 400ms ease;
+}
+
+@media (min-width: 640px) {
+  .step-line {
+    width: 4rem;
+  }
 }
 
 .step-line.completed {

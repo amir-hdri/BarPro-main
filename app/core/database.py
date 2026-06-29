@@ -74,16 +74,12 @@ async def run_migrations() -> None:
         return
 
     try:
-        alembic_cfg = _get_alembic_config()
-
         # Run migrations in a separate thread to avoid event loop conflicts
         # since alembic env.py uses asyncio.run()
-        import asyncio
-
-        from alembic import command
-
-        logger.info("Running pending database migrations programmatically...")
-        await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
+        # NOTE: Programmatic migrations during startup with multiple workers cause deadlocks.
+        # Migrations are run via deploy.sh externally instead.
+        logger.info("Skipping programmatic migrations (handled by deploy.sh)")
+        # await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
 
         logger.info("database_migrations_applied", extra={"extra_fields": {"status": "success"}})
     except Exception as exc:

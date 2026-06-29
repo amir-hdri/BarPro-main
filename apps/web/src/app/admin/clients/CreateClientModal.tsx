@@ -137,8 +137,8 @@ export function CreateClientModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-md animate-in fade-in">
-      <div className="relative w-full max-w-xl rounded-[2rem] border border-white/10 bg-slate-900/90 p-[1px] shadow-2xl backdrop-blur-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-md animate-in fade-in overflow-y-auto">
+      <div className="relative w-full max-w-xl rounded-[2rem] border border-white/10 bg-slate-900/90 p-[1px] shadow-2xl backdrop-blur-2xl my-auto">
         <div className="absolute inset-0 rounded-[2rem] bg-gradient-to-b from-white/10 to-transparent pointer-events-none" />
         
         <div className="relative bg-slate-950/90 rounded-[1.95rem] p-6 sm:p-8">

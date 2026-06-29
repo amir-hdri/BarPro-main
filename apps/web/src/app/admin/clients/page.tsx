@@ -142,7 +142,7 @@ export default function AdminClientsPage() {
       </div>
 
       {/* Stats Dashboard Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         
         {/* Stat 1 */}
         <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-slate-900/40 p-5 backdrop-blur-md">
@@ -233,7 +233,7 @@ export default function AdminClientsPage() {
       <div className="overflow-hidden rounded-3xl border border-white/10 bg-slate-900/30 backdrop-blur-md shadow-2xl">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-slate-300">
-            <thead className="border-b border-white/10 bg-slate-950/60">
+            <thead className="border-b border-white/10 bg-slate-950/60 whitespace-nowrap">
               <tr>
                 <th className="px-6 py-4.5 text-right font-black text-slate-200">کد مشتری</th>
                 <th className="px-6 py-4.5 text-right font-black text-slate-200">اطلاعات حساب</th>
@@ -265,7 +265,7 @@ export default function AdminClientsPage() {
                 </tr>
               ) : (
                 filtered.map((c) => (
-                  <tr key={c.id} className="border-b border-white/5 hover:bg-white/5 transition-colors duration-200">
+                  <tr key={c.id} className="border-b border-white/5 hover:bg-white/5 transition-colors duration-200 whitespace-nowrap">
                     <td className="px-6 py-4 font-mono text-[13px] font-black text-cyan-300">{c.client_code}</td>
                     <td className="px-6 py-4">
                       <div className="font-bold text-slate-200">{c.name}</div>

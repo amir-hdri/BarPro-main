@@ -91,7 +91,7 @@ export default function AdminDashboardPage() {
       <div className="overflow-hidden rounded-xl border border-white/10 bg-slate-900/30">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="border-b border-white/10 bg-slate-800/50">
+            <thead className="border-b border-white/10 bg-slate-800/50 whitespace-nowrap">
               <tr>
                 <th className="px-4 py-3 text-right font-medium text-slate-300">کد مشتری</th>
                 <th className="px-4 py-3 text-right font-medium text-slate-300">نام</th>
@@ -117,7 +117,7 @@ export default function AdminDashboardPage() {
                 </tr>
               ) : (
                 (filtered || []).map((c) => (
-                  <tr key={c.client_id} className="border-b border-white/5 transition-colors hover:bg-white/5">
+                  <tr key={c.client_id} className="border-b border-white/5 transition-colors hover:bg-white/5 whitespace-nowrap">
                     <td className="px-4 py-3 text-slate-200">{c.client_code}</td>
                     <td className="px-4 py-3 text-slate-200">
                       <div className="font-medium">{c.name}</div>

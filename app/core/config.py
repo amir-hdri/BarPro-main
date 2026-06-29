@@ -89,7 +89,9 @@ class UTCMSConfig:
         )
         self.KERAS_PYTHON_PATH = os.getenv(
             "KERAS_PYTHON_PATH",
-            "/Users/amirheidari/Documents/captcha_OCR/.venv/bin/python",
+            # Default to system python3; override via KERAS_PYTHON_PATH env var on server
+            # (e.g. /opt/barpro/venv/bin/python or a dedicated keras venv)
+            "python3",
         ).strip()
         self.KERAS_MODEL_PATH = os.getenv(
             "KERAS_MODEL_PATH",

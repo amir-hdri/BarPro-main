@@ -100,6 +100,7 @@ class WaybillService:
             for attempt in range(1, max_attempts + 1):
                 internal_session_id: str | None = None
                 page = None
+                proxy_info = None
                 started_at = time.perf_counter()
 
                 try:

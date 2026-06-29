@@ -285,7 +285,7 @@ export default function FuelInquiryPage() {
   }, [selectedInquiry]);
 
   return (
-    <AuthGuard>
+    <AuthGuard requiredRole="client">
       <AppShell>
         <div className="mx-auto max-w-7xl px-3 py-4 sm:px-6 sm:py-8 lg:px-8">
           {/* Header */}
@@ -344,8 +344,10 @@ export default function FuelInquiryPage() {
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             {/* Control Panel / Active Task */}
             <div className="lg:col-span-1 space-y-6">
-              <div className="rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-xl backdrop-blur-md relative overflow-hidden">
-                <div className="absolute -top-20 -left-20 h-40 w-40 rounded-full bg-cyan-500/10 blur-[50px] pointer-events-none" />
+              <div className="rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-xl backdrop-blur-md relative">
+                <div className="absolute inset-0 overflow-hidden rounded-3xl pointer-events-none">
+                  <div className="absolute -top-20 -left-20 h-40 w-40 rounded-full bg-cyan-500/10 blur-[50px]" />
+                </div>
                 
                 <h2 className="text-base sm:text-lg font-black text-white flex items-center gap-3 mb-6 relative z-10">
                   <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">

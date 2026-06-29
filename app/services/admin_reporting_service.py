@@ -188,7 +188,9 @@ class AdminReportingService:
             if filters.driver_id:
                 stmt = stmt.where(WaybillJob.driver_id == filters.driver_id)
             if filters.plate_id:
-                stmt = stmt.where(WaybillJob.driver_id == filters.plate_id)
+                from app.models_multitenant import DriverPlate
+                plate_driver_subquery = select(DriverPlate.driver_id).where(DriverPlate.id == filters.plate_id)
+                stmt = stmt.where(WaybillJob.driver_id.in_(plate_driver_subquery))
             if filters.status:
                 stmt = stmt.where(WaybillJob.status == filters.status)
             if filters.date_from:
@@ -209,7 +211,9 @@ class AdminReportingService:
             if filters.driver_id:
                 count_stmt = count_stmt.where(WaybillJob.driver_id == filters.driver_id)
             if filters.plate_id:
-                count_stmt = count_stmt.where(WaybillJob.driver_id == filters.plate_id)
+                from app.models_multitenant import DriverPlate
+                plate_driver_subquery = select(DriverPlate.driver_id).where(DriverPlate.id == filters.plate_id)
+                count_stmt = count_stmt.where(WaybillJob.driver_id.in_(plate_driver_subquery))
             if filters.status:
                 count_stmt = count_stmt.where(WaybillJob.status == filters.status)
             if filters.date_from:

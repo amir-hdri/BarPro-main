@@ -68,8 +68,8 @@ export default function ReportsPage() {
   );
 
   return (
-    <AppShell>
-      <AuthGuard requiredRole="client">
+    <AuthGuard requiredRole="client">
+      <AppShell>
         <section className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-[32px] border border-white/20 bg-slate-950 p-6 text-white shadow-2xl shadow-slate-900/20">
             <p className="text-xs uppercase  text-cyan-300">Analytics</p>
@@ -115,8 +115,8 @@ export default function ReportsPage() {
           </div>
           {error && <p className="mt-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 px-4 py-3 text-sm text-rose-400">{error}</p>}
         </section>
-      </AuthGuard>
-    </AppShell>
+      </AppShell>
+    </AuthGuard>
   );
 }
 

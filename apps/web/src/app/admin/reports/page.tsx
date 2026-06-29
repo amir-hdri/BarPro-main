@@ -103,7 +103,7 @@ export default function AdminReportsPage() {
               <div className="overflow-hidden rounded-xl border border-white/10 bg-slate-900/30">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead className="border-b border-white/10 bg-slate-800/50">
+                    <thead className="border-b border-white/10 bg-slate-800/50 whitespace-nowrap">
                       <tr>
                         <th className="px-4 py-3 text-right font-medium text-slate-300">شناسه</th>
                         <th className="px-4 py-3 text-right font-medium text-slate-300">مشتری</th>
@@ -116,7 +116,7 @@ export default function AdminReportsPage() {
                     </thead>
                     <tbody>
                       {(driverReport?.jobs || []).map((j) => (
-                        <tr key={j.job_id} className="border-b border-white/5 hover:bg-white/5">
+                        <tr key={j.job_id} className="border-b border-white/5 hover:bg-white/5 whitespace-nowrap">
                           <td className="px-4 py-3 font-mono text-xs text-slate-400">{j.job_id.slice(0, 16)}</td>
                           <td className="px-4 py-3 text-slate-200">{j.client_name || `#${j.client_id}`}</td>
                           <td className="px-4 py-3 text-slate-200">{j.driver_name || "-"}</td>
@@ -155,19 +155,19 @@ export default function AdminReportsPage() {
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-xl border border-white/10 bg-slate-900/30 p-5">
+                <div className="rounded-xl border border-white/10 bg-slate-900/30 p-5 overflow-x-auto">
                   <h3 className="mb-3 font-semibold text-slate-200">تفکیک بر اساس نوع خطا</h3>
                   {Object.entries((failureAnalysis?.by_category || {})).map(([cat, count]) => (
-                    <div key={cat} className="mb-2 flex items-center justify-between text-sm">
+                    <div key={cat} className="mb-2 flex items-center justify-between text-sm whitespace-nowrap min-w-max gap-4">
                       <span className="text-slate-300">{cat}</span>
                       <span className="font-mono text-red-300">{count}</span>
                     </div>
                   ))}
                 </div>
-                <div className="rounded-xl border border-white/10 bg-slate-900/30 p-5">
+                <div className="rounded-xl border border-white/10 bg-slate-900/30 p-5 overflow-x-auto">
                   <h3 className="mb-3 font-semibold text-slate-200">تفکیک بر اساس مشتری</h3>
                   {Object.entries((failureAnalysis?.by_client || {})).map(([name, count]) => (
-                    <div key={name} className="mb-2 flex items-center justify-between text-sm">
+                    <div key={name} className="mb-2 flex items-center justify-between text-sm whitespace-nowrap min-w-max gap-4">
                       <span className="text-slate-300">{name}</span>
                       <span className="font-mono text-red-300">{count}</span>
                     </div>

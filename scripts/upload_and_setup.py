@@ -14,7 +14,7 @@ REMOTE = "/opt/barpro"
 
 EXCLUDE = {".git",".venv","venv","node_modules","__pycache__",".next",
            ".auth","output","build","dist","evidence",".github","examples","docs",
-           ".mypy_cache",".pytest_cache",".ruff_cache"}
+           ".mypy_cache",".pytest_cache",".ruff_cache",".temp_playwright",".agents"}
 
 GR="\033[92m"; RD="\033[91m"; CY="\033[96m"; RS="\033[0m"; BD="\033[1m"
 ok  = lambda m: print(f"  {GR}✓{RS}  {m}")
@@ -56,7 +56,7 @@ def build_archive():
             dirs[:] = [d for d in dirs if d not in EXCLUDE]
             for f in files:
                 if f in {".env","backend.log","celerybeat-schedule.db"}: continue
-                if any(f.endswith(e) for e in {".pyc",".log",".pid"}): continue
+                if any(f.endswith(e) for e in {".pyc",".log",".pid",".tar.gz",".zip",".save"}): continue
                 full = os.path.join(r, f)
                 rel  = os.path.relpath(full, root)
                 tar.add(full, arcname=rel)
@@ -75,7 +75,7 @@ def main():
     inf(f"آپلود به سرور...")
     transport = ssh.get_transport()
     transport.default_window_size = 4 * 1024 * 1024
-    with SCPClient(transport, progress=lambda f,s,t: print(f"\r  {int(s/t*100)}%", end="", flush=True)) as scp:
+    with SCPClient(transport, progress=lambda f,s,t: print(f"\r  {int(s/t*100)}%" if t > 0 else "", end="", flush=True)) as scp:
         scp.put(archive, f"{REMOTE}/update.tar.gz")
     print()
     os.unlink(archive)

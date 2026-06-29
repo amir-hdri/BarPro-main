@@ -95,6 +95,11 @@ class KerasOcrCaptchaProvider(CaptchaProvider):
             
         except subprocess.TimeoutExpired:
             logger.error("Keras solver script timed out after 15 seconds")
+            try:
+                process.kill()
+                process.communicate()
+            except Exception as e:
+                logger.error(f"Failed to kill Keras solver subprocess: {e}")
             return CaptchaResult(
                 solved=False,
                 provider="keras_ocr",

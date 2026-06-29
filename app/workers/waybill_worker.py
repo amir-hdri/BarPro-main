@@ -101,6 +101,10 @@ def process_waybill_job(self, job_id: str):
         loop.run_until_complete(_update_job_status(job_id, TaskStatus.FAILED.value, str(e), "unknown"))
         raise
     finally:
+        try:
+            loop.run_until_complete(browser_manager.recycle_browser())
+        except Exception:
+            pass
         loop.close()
 
 

@@ -181,8 +181,8 @@ export default function HistoryPage() {
   }, [selectedJobId]);
 
   return (
-    <AppShell>
-      <AuthGuard requiredRole="client">
+    <AuthGuard requiredRole="client">
+      <AppShell>
         <section className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
           <div className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 sm:p-8 shadow-2xl text-white">
             <div className="flex items-center justify-between border-b border-white/5 pb-6">
@@ -424,8 +424,8 @@ export default function HistoryPage() {
 
           {/* Delete Confirmation Modal */}
           {deleteModalOpen && deletingJobId && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-              <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900/90 p-8 shadow-2xl backdrop-blur-2xl text-white" onClick={(e) => e.stopPropagation()}>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm overflow-y-auto p-4">
+              <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900/90 p-8 shadow-2xl backdrop-blur-2xl text-white my-auto" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
@@ -464,8 +464,8 @@ export default function HistoryPage() {
 
           {/* Edit Job Modal */}
           {editModalOpen && editingJob && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-              <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900/90 p-8 shadow-2xl backdrop-blur-2xl text-white" onClick={(e) => e.stopPropagation()}>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm overflow-y-auto p-4">
+              <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900/90 p-8 shadow-2xl backdrop-blur-2xl text-white my-auto" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between border-b border-white/5 pb-4">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
@@ -545,7 +545,7 @@ export default function HistoryPage() {
             </div>
           )}
         </section>
-      </AuthGuard>
-    </AppShell>
+      </AppShell>
+    </AuthGuard>
   );
 }

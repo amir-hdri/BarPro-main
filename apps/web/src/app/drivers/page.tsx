@@ -219,8 +219,8 @@ export default function DriversPage() {
   }, [role, loadDrivers]);
 
   return (
-    <AppShell>
-      <AuthGuard requiredRole="client">
+    <AuthGuard requiredRole="client">
+      <AppShell>
         <section className="flex flex-col gap-6 md:gap-10">
           
           {/* Segmented Control for Mobile */}
@@ -514,8 +514,8 @@ export default function DriversPage() {
           </div>
 
         </section>
-      </AuthGuard>
-    </AppShell>
+      </AppShell>
+    </AuthGuard>
   );
 }
 

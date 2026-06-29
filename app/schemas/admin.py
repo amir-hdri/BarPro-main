@@ -4,7 +4,7 @@ Schemas for Super Admin API
 
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 # ==================== Super Admin Schemas ====================
 
@@ -35,7 +35,7 @@ class ClientCreateRequest(BaseModel):
     """Create new client request (by Super Admin)"""
 
     username: str = Field(min_length=3, max_length=50)
-    email: EmailStr
+    email: str
     password: str = Field(min_length=6)
     full_name: str = Field(min_length=2, max_length=255)
     company_name: str | None = Field(default=None, max_length=255)
@@ -56,7 +56,7 @@ class ClientCreateRequest(BaseModel):
 class ClientUpdateRequest(BaseModel):
     """Update client request (by Super Admin)"""
 
-    email: EmailStr | None = None
+    email: str | None = None
     password: str | None = Field(default=None, min_length=6)
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
     company_name: str | None = Field(default=None, max_length=255)

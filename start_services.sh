@@ -6,6 +6,19 @@
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
+if [ "$PROJECT_DIR" = "/opt/barpro" ]; then
+    echo "=================================================="
+    echo "⚠️  WARNING: Production Environment Detected ⚠️ "
+    echo "=================================================="
+    echo "Do NOT run start_services.sh on the production server."
+    echo "This script is for local development without Docker."
+    echo ""
+    echo "Please use the Docker setup via manage.sh:"
+    echo "👉 bash manage.sh start"
+    echo "=================================================="
+    exit 1
+fi
+
 # Export HEADLESS=false to run browsers in headful mode (visible) when starting services
 export HEADLESS=false
 
