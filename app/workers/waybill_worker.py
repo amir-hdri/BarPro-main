@@ -86,9 +86,6 @@ def process_waybill_job(self, job_id: str):
     loop = asyncio.new_event_loop()
     try:
         asyncio.set_event_loop(loop)
-        from app.core.database import engine
-
-        loop.run_until_complete(engine.dispose())
         result = loop.run_until_complete(_execute_job(self, job_id))
         return result
     except Exception as e:
@@ -104,7 +101,7 @@ def process_waybill_job(self, job_id: str):
         try:
             loop.run_until_complete(browser_manager.recycle_browser())
         except Exception:
-            pass
+            logger.warning("recycle_failed_in_finally", exc_info=True)
         loop.close()
 
 

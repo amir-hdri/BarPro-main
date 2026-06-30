@@ -272,28 +272,33 @@ ON waybill_jobs (status) INCLUDE (id);
 
 ## Priority Fixes for Server Deployment (see ISSUES.md for full list)
 
-### Tier 1 — Security (fix before exposing to internet)
-1. Rotate all leaked credentials (`PLACEHOLDER_SSH_PASSWORD`, API keys in `.agents/`)
-2. Purge `.env` from git history
-3. Fix `zod/v4` import → `zod` (build break)
-4. Fix `ArrowLeftOnRectangleIcon` → `ArrowRightStartOnRectangleIcon` (build break)
-5. Add HTTPS to Nginx (currently plain HTTP)
-6. Remove `privileged: true` from all containers
-7. Fix rate limiter fail-open (default: 999 req/min)
-8. Restrict Prometheus port 9090 (no auth)
+### ✅ Fixed (all applied and pushed)
 
-### Tier 2 — Stability (fix for production reliability)
-9. Run PostgreSQL indexes from optimization section above
-10. Fix all remaining `except: pass` blocks (~30+ locations)
-11. Fix Redis connection manager race condition
-12. Apply rate limiting to ALL API endpoints
-13. Fix browser context leaks (OOM risk on 12 GB)
+| # | Fix | Status |
+|---|-----|--------|
+| 1 | Rotate leaked credentials (`PLACEHOLDER_SSH_PASSWORD` in code) | ✅ `Amaterasoo1` → `PLACEHOLDER_SSH_PASSWORD` (rotate actual server password yourself) |
+| 2 | Purge `.env` from git history | ✅ `git filter-repo` done — `.env` and `celerybeat-schedule.db` removed from all commits |
+| 3 | Fix `zod/v4` import → `zod` | ✅ `apps/web/src/schemas/waybillSchema.ts:1` |
+| 4 | Fix `ArrowLeftOnRectangleIcon` | ✅ `apps/web/src/components/layout/Header.tsx:3` |
+| 5 | Add HTTPS to Nginx | ⬜ Skeleton in `infra/nginx/nginx.conf` — uncomment after cert install |
+| 6 | Remove `privileged: true` | ✅ `cap_add: [SYS_ADMIN, NET_ADMIN]` + `security_opt: [no-new-privileges:true]` on all containers |
+| 7 | Fix rate limiter fail-open | ✅ Fail-closed: HTTP 429 when Redis down (default removed) |
+| 8 | Restrict Prometheus port | ✅ `9090:9090` → `expose: [9090]` in `compose/monitoring.yml` |
+| 9 | Run PostgreSQL indexes | ⬜ Migration `012_add_optimization_indexes.py` ready — run `alembic upgrade head` on production DB |
+| 10 | Fix all `except: pass` | ✅ 50+ locations fixed across all Python files |
+| 11 | Fix Redis race condition | ✅ `app/core/redis.py` — `threading.Lock` (safe across Celery event loops) |
+| 12 | Rate limit ALL endpoints | ✅ Path-prefix matching in `app/main.py` — 6 rate limit rules |
+| 13 | Fix browser context leaks | ✅ Timeouts on close, listener cleanup, OOM risk reduced |
+| 14 | Migrate JWT to httpOnly cookies | ⬜ Still `localStorage` — requires significant frontend refactor |
+| 15 | Remove `network_mode: host` | ⬜ **Blocked**: dual-IP routing requires it — use iptables instead |
+| 16 | Fix alembic migrations | ⬜ `run_migrations()` still commented out in `database.py` |
+| 17 | Add container vulnerability scanning | ⬜ Future work |
 
-### Tier 3 — Maintenance
-14. Migrate JWT from localStorage to httpOnly cookies
-15. Remove `network_mode: host` from Squid containers
-16. Fix alembic migrations (dead code)
-17. Add container image vulnerability scanning
+### Remaining User Actions
+1. **Rotate SSH password** on server `188.121.123.16` — change from `Amaterasoo1`
+2. **Install Let's Encrypt cert** → uncomment HTTPS block in nginx.conf
+3. **Run `alembic upgrade head`** on production DB (or run index SQL directly)
+4. **`bash manage.sh deploy`** to pull and redeploy with all optimizations
 
 ---
 

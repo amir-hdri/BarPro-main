@@ -177,8 +177,8 @@ class BrowserManager:
     async def record_success_for_recycle(self):
         """Increment success counter and recycle browser if it reaches 5."""
         self._success_count_recycle += 1
-        logger.info(f"Incremented successful submission counter for recycle: {self._success_count_recycle}/5")
-        if self._success_count_recycle >= 5:
+        logger.info(f"Incremented successful submission counter for recycle: {self._success_count_recycle}/20")
+        if self._success_count_recycle >= 20:
             self._success_count_recycle = 0
             await self.recycle_browser()
 
