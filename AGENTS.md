@@ -145,6 +145,9 @@ BarPro/
 │   ├── automation/         # RPA engine (browser, auth, captcha, proxy_rotator)
 │   ├── core/               # Config, database, redis, security, rate_limiter
 │   ├── models/             # SQLModel database models
+│   ├── bot/                # Bot automation (captcha interception, smart locators)
+│   │   ├── captcha/        # CAPTCHA interception & solving (interceptor, provider registry)
+│   │   └── core/           # Smart element locators with fallback strategies
 │   ├── services/           # Business logic layer
 │   ├── workers/            # Celery tasks (waybill_worker, phase1_tasks, tasks)
 │   ├── realtime/           # WebSocket event hub
@@ -206,9 +209,24 @@ docker compose -f compose/monitoring.yml up  # Prometheus only
 | `POSTGRES_PASSWORD` | Database password |
 | `REDIS_PASSWORD` | Redis password |
 | `HEADLESS` | Browser headless mode (true/false) |
-| `CAPTCHA_PROVIDER` | OCR engine: keras_ocr / cnn / local_ocr / enhanced_ocr / ensemble |
+| `CAPTCHA_PROVIDER` | Solver: auto/ensemble/cnn/keras_ocr/enhanced_ocr/local_ocr/off |
+| `CAPTCHA_MODE` | provider_only / manual_fallback |
+| `CAPTCHA_TIMEOUT_SECONDS` | Max time to solve captcha (default 120) |
+| `CAPTCHA_MAX_RETRIES` | Max auto retries (default 2) |
+| `KERAS_PYTHON_PATH` | Python 3.12 path for Keras OCR (e.g. /opt/barpro/venv/bin/python) |
+| `KERAS_MODEL_PATH` | Keras .keras model file for fuel inquiry captchas |
+| `CAPTCHA_LOCAL_FALLBACK_ENABLED` | Enable Tesseract/local OCR fallback |
 | `AVAILABLE_IP_INDICES` | Comma-separated IP indices for proxy routing (e.g., "1,2") |
 | `RPA_PROXIES` | Comma-separated proxy URLs for workers (SSRF risk — see ISSUES.md) |
+
+## Two Captcha Models
+
+| Page | Solver | Model | Provider Name |
+|------|--------|-------|---------------|
+| **Login** (math: "2+3") | PyTorch CNN | `app/automation/captcha/assets/captcha_cnn.pth` | `cnn` |
+| **Fuel Inquiry** (text/numeric) | Keras OCR | `persian_captcha_ocr_model.keras` (project root) | `keras_ocr` |
+
+Default `CAPTCHA_PROVIDER=auto` tries CNN → Keras → Enhanced → Local in sequence.
 
 ## Optimization Applied (2026-06-30)
 
