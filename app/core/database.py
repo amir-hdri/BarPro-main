@@ -1,6 +1,8 @@
 """Database configuration and session management with Alembic migrations support."""
 
+import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -9,7 +11,6 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import AsyncAdaptedQueuePool
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from alembic.config import Config
 from app.core.config import utcms_config
 
 logger = logging.getLogger(__name__)
@@ -62,14 +63,12 @@ def _get_alembic_config() -> Config:
 
 
 async def run_migrations() -> None:
-    """Run pending Alembic migrations programmatically.
+    """Run pending Alembic migrations programmatically using a distributed lock.
 
-    CRITICAL: On PostgreSQL, we MUST NOT fallback to create_all() if migrations fail,
-    because partial schema may already exist, causing duplicate constraint errors.
+    Uses Redis to ensure only ONE Celery worker runs migrations at startup,
+    preventing deadlocks when multiple workers start simultaneously.
+    On PostgreSQL, we MUST NOT fallback to create_all() if migrations fail.
     """
-    import os
-    import sys
-
     if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ or os.getenv("ENVIRONMENT") == "test":
         logger.info(
             "database_migrations_skipped",
@@ -77,26 +76,43 @@ async def run_migrations() -> None:
         )
         return
 
+    # Try to acquire a distributed lock via Redis (only one worker runs migrations)
+    lock_acquired = False
     try:
-        # Run migrations in a separate thread to avoid event loop conflicts
-        # since alembic env.py uses asyncio.run()
-        # NOTE: Programmatic migrations during startup with multiple workers cause deadlocks.
-        # Migrations are run via deploy.sh externally instead.
-        logger.info("Skipping programmatic migrations (handled by deploy.sh)")
-        # await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
+        from app.core.redis import redis_manager
 
+        if redis_manager is not None and redis_manager._redis is not None:
+            lock_acquired = await redis_manager._redis.setnx("migration_lock", "1")
+            if lock_acquired:
+                await redis_manager._redis.expire("migration_lock", 300)  # 5 min TTL
+                logger.info("migration_lock_acquired", extra={"extra_fields": {"note": "Running migrations..."}})
+            else:
+                logger.info("migration_lock_held_by_another_worker", extra={"extra_fields": {"note": "Skipping migrations — another worker is handling them."}})
+                return
+        else:
+            logger.info("migration_redis_unavailable_running_directly", extra={"extra_fields": {"note": "Redis not available, running migrations directly."}})
+    except Exception:
+        logger.warning("migration_lock_check_failed_running_directly", exc_info=True)
+
+    try:
+        from alembic.config import Config
+        from alembic import command
+
+        alembic_ini_path = os.path.join(os.path.dirname(__file__), "..", "..", "alembic.ini")
+        if not os.path.exists(alembic_ini_path):
+            logger.warning("alembic_ini_not_found", extra={"extra_fields": {"path": alembic_ini_path}})
+            return
+
+        alembic_cfg = Config(str(alembic_ini_path))
+        alembic_cfg.set_main_option("sqlalchemy.url", utcms_config.DATABASE_URL)
+
+        def _run_upgrade(cfg: Config) -> None:
+            command.upgrade(cfg, "head")
+
+        await asyncio.to_thread(_run_upgrade, alembic_cfg)
         logger.info("database_migrations_applied", extra={"extra_fields": {"status": "success"}})
     except Exception as exc:
-        logger.error(
-            "database_migration_failed",
-            extra={"extra_fields": {"error": str(exc)}},
-        )
-        # On PostgreSQL, create_all() fallback is dangerous because:
-        # 1. Partial migrations may have already created some tables/constraints
-        # 2. create_all() will try to recreate them, causing duplicate errors
-        # 3. Multiple models may share constraint names (e.g., uq_waybill_task_task_id)
-        #
-        # Solution: Only use create_all() for SQLite (fresh DB), fail fast on PostgreSQL
+        logger.error("database_migration_failed", extra={"extra_fields": {"error": str(exc)}})
         logger.error(
             "migration_failed_postgresql",
             extra={
@@ -109,6 +125,14 @@ async def run_migrations() -> None:
         raise RuntimeError(
             f"Database migration failed on PostgreSQL: {exc}\n" "Please fix migrations manually or reset database."
         ) from exc
+    finally:
+        if lock_acquired:
+            try:
+                from app.core.redis import redis_manager
+                if redis_manager is not None and redis_manager._redis is not None:
+                    await redis_manager._redis.delete("migration_lock")
+            except Exception:
+                logger.warning("migration_lock_release_failed", exc_info=True)
 
 
 async def init_db():

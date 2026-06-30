@@ -280,25 +280,36 @@ ON waybill_jobs (status) INCLUDE (id);
 | 2 | Purge `.env` from git history | ✅ `git filter-repo` done — `.env` and `celerybeat-schedule.db` removed from all commits |
 | 3 | Fix `zod/v4` import → `zod` | ✅ `apps/web/src/schemas/waybillSchema.ts:1` |
 | 4 | Fix `ArrowLeftOnRectangleIcon` | ✅ `apps/web/src/components/layout/Header.tsx:3` |
-| 5 | Add HTTPS to Nginx | ⬜ Skeleton in `infra/nginx/nginx.conf` — uncomment after cert install |
+| 5 | Add HTTPS to Nginx | ⬜ Config ready (`infra/nginx/nginx.conf` + `http-server.conf` + compose volume) — uncomment `listen 443` and `ssl` volume after cert install |
 | 6 | Remove `privileged: true` | ✅ `cap_add: [SYS_ADMIN, NET_ADMIN]` + `security_opt: [no-new-privileges:true]` on all containers |
 | 7 | Fix rate limiter fail-open | ✅ Fail-closed: HTTP 429 when Redis down (default removed) |
 | 8 | Restrict Prometheus port | ✅ `9090:9090` → `expose: [9090]` in `compose/monitoring.yml` |
-| 9 | Run PostgreSQL indexes | ⬜ Migration `012_add_optimization_indexes.py` ready — run `alembic upgrade head` on production DB |
-| 10 | Fix all `except: pass` | ✅ 50+ locations fixed across all Python files |
+| 9 | Run PostgreSQL indexes | ⬜ Migration `012_add_optimization_indexes.py` ready — run `bash manage.sh migrate` on production DB |
+| 10 | Fix all `except: pass` | ✅ 55 blocks fixed across 19 files (auth.py, location_selector.py, browser.py, etc.) |
 | 11 | Fix Redis race condition | ✅ `app/core/redis.py` — `threading.Lock` (safe across Celery event loops) |
 | 12 | Rate limit ALL endpoints | ✅ Path-prefix matching in `app/main.py` — 6 rate limit rules |
 | 13 | Fix browser context leaks | ✅ Timeouts on close, listener cleanup, OOM risk reduced |
 | 14 | Migrate JWT to httpOnly cookies | ⬜ Still `localStorage` — requires significant frontend refactor |
-| 15 | Remove `network_mode: host` | ⬜ **Blocked**: dual-IP routing requires it — use iptables instead |
-| 16 | Fix alembic migrations | ⬜ `run_migrations()` still commented out in `database.py` |
+| 15 | Remove `network_mode: host` | ⬜ **Blocked**: dual-IP routing requires it — use `scripts/secure_squid_ports.sh` (iptables) instead |
+| 16 | Fix alembic migrations | ✅ `run_migrations()` now functional with Redis distributed lock — runs on startup via `database.py` |
 | 17 | Add container vulnerability scanning | ⬜ Future work |
 
-### Remaining User Actions
-1. **Rotate SSH password** on server `188.121.123.16` — change from `Amaterasoo1`
-2. **Install Let's Encrypt cert** → uncomment HTTPS block in nginx.conf
-3. **Run `alembic upgrade head`** on production DB (or run index SQL directly)
-4. **`bash manage.sh deploy`** to pull and redeploy with all optimizations
+### ✅ Optimizations Applied
+
+| Change | File(s) |
+|--------|---------|
+| Nginx: separated HTTP/HTTPS config via include | `infra/nginx/nginx.conf`, `infra/nginx/http-server.conf` |
+| Migrations: Redis distributed lock prevents multi-worker deadlock | `app/core/database.py` |
+| Deploy: `manage.sh deploy` now auto-runs `alembic upgrade head` | `manage.sh` |
+| New: `manage.sh migrate` — run migrations manually | `manage.sh` |
+| New: `scripts/run_migrations.sh` — standalone migration runner | `scripts/run_migrations.sh` |
+| New: `scripts/secure_squid_ports.sh` — iptables for Squid 3129/3130 | `scripts/secure_squid_ports.sh` |
+
+### Remaining User Actions (server-level, cannot automate)
+1. **Rotate SSH password** on server `188.121.123.16` — currently `Amaterasoo1` in server's passwd, change it
+2. **Install Let's Encrypt cert** → uncomment `listen 443` + `ssl` volume in `compose/web.yml`, then `bash manage.sh deploy`
+3. **Run `bash manage.sh migrate`** on production DB (or just `bash manage.sh deploy` which auto-runs it)
+4. **Run `sudo bash scripts/secure_squid_ports.sh`** to lock down Squid 3129/3130
 
 ---
 

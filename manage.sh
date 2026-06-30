@@ -273,12 +273,32 @@ cmd_deploy() {
   log_info "بیلد ایمیج فرانت‌اند..."
   layer_compose web build
 
+  log_info "اعمال migrationهای دیتابیس..."
+  layer_compose backend run --rm celery_beat alembic upgrade head 2>/dev/null || \
+    log_warn "migration خودکار انجام نشد. دستی اجرا کنید: bash manage.sh migrate"
+
   log_info "اعمال تغییرات با zero-downtime..."
   layer_compose backend up -d --remove-orphans
   layer_compose web up -d --remove-orphans
 
   log_ok "استقرار با موفقیت انجام شد!"
   cmd_status
+}
+
+cmd_migrate() {
+  log_section "🗄️ اجرای migrationهای دیتابیس"
+  check_docker; check_env
+
+  if ! docker inspect barpro-postgres &>/dev/null; then
+    log_error "کانتینر postgres در حال اجرا نیست. ابتدا infra را راه‌اندازی کنید."
+    exit 1
+  fi
+
+  log_info "اجرای دستی: alembic upgrade head"
+  # Run inside the backend container (or celery_beat which has alembic config)
+  local target="${1:-celery_beat}"
+  layer_compose backend run --rm "$target" alembic upgrade head
+  log_ok "migration‌ها با موفقیت اجرا شدند!"
 }
 
 cmd_backup() {
@@ -361,6 +381,7 @@ case "$CMD" in
   logs)    cmd_logs    "$ARG2" ;;
   build)   cmd_build   "$ARG2" ;;
   deploy)  cmd_deploy          ;;
+  migrate) cmd_migrate  "$ARG2" ;;
   backup)  cmd_backup          ;;
   shell)   cmd_shell   "$ARG2" ;;
   netcheck) cmd_netcheck       ;;
@@ -376,7 +397,8 @@ case "$CMD" in
     echo "  bash manage.sh status           وضعیت سرویس‌ها"
     echo "  bash manage.sh health           بررسی سلامت"
     echo "  bash manage.sh logs [سرویس]     نمایش لاگ‌ها"
-    echo "  bash manage.sh deploy           استقرار نسخه جدید"
+    echo "  bash manage.sh deploy           استقرار نسخه جدید (بیلد + migration + راه‌اندازی)"
+    echo "  bash manage.sh migrate          اجرای migrationهای دیتابیس"
     echo "  bash manage.sh backup           پشتیبان‌گیری"
     echo ""
     echo -e "${BOLD}دستورات لایه‌ای (برای دیباگ):${RESET}"
