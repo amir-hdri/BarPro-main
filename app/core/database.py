@@ -6,7 +6,7 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import AsyncAdaptedQueuePool
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from alembic.config import Config
@@ -23,9 +23,13 @@ engine_kwargs = {
     "future": True,
 }
 
-# If Celery worker is running, use NullPool to prevent event loop mismatch errors across tasks
+# If Celery worker is running, use AsyncAdaptedQueuePool with optimized pool settings
 if "celery" in sys.modules or (len(sys.argv) > 0 and "celery" in sys.argv[0]):
-    engine_kwargs["poolclass"] = NullPool
+    engine_kwargs["poolclass"] = AsyncAdaptedQueuePool
+    engine_kwargs["pool_size"] = 2
+    engine_kwargs["max_overflow"] = 2
+    engine_kwargs["pool_recycle"] = 600
+    engine_kwargs["pool_pre_ping"] = True
 elif "sqlite" not in utcms_config.DATABASE_URL.lower():
     engine_kwargs.update(
         {

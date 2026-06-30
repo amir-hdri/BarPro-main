@@ -58,7 +58,7 @@ async def _close_page_quickly(page) -> None:
 class WaybillTask(Task):
     """Base task for waybill processing with common utilities."""
 
-    autoretry_for = (Exception,)
+    autoretry_for = (ConnectionError, TimeoutError, OSError, IOError)
     max_retries = utcms_config.CELERY_MAX_RETRIES
     retry_backoff = True
     retry_backoff_max = 300
@@ -96,8 +96,8 @@ def process_waybill_job(self, job_id: str):
         from app.core.circuit_breaker import check_and_report_failure
         try:
             loop.run_until_complete(check_and_report_failure(str(e)))
-        except Exception:
-            pass
+        except Exception as cb_err:
+            logger.warning("circuit_breaker_report_failed", extra={"extra_fields": {"error": str(cb_err)}})
         loop.run_until_complete(_update_job_status(job_id, TaskStatus.FAILED.value, str(e), "unknown"))
         raise
     finally:
@@ -378,8 +378,8 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                     event_type="worker.exception",
                     payload={"error": str(e)},
                 )
-        except Exception:
-            pass
+        except Exception as persist_err:
+            logger.warning("job_failed_state_persist_error", extra={"extra_fields": {"error": str(persist_err)}})
 
         raise
     finally:

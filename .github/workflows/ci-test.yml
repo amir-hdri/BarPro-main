@@ -15,8 +15,8 @@ env:
   NODE_VERSION: "20"
   DATABASE_URL: "sqlite+aiosqlite:///./test.db"
   ENVIRONMENT: "test"
-  JWT_SECRET: "test-secret-change-in-production"
-  DRIVER_ENCRYPTION_KEY: "test-encryption-key-change-in-production"
+  JWT_SECRET: ${{ secrets.JWT_SECRET || 'test-jwt-secret-for-ci-only' }}
+  DRIVER_ENCRYPTION_KEY: ${{ secrets.DRIVER_ENCRYPTION_KEY || 'test-encryption-key-for-ci-only' }}
 
 jobs:
   backend-test:

@@ -69,36 +69,42 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 
-def encrypt_driver_password(plain_password: str) -> str:
-    """
-    Encrypt driver's UTCMS password for storage.
-    Uses a simple hash-based approach suitable for automation injection.
-    """
-    # For automation purposes, we store a reversible encryption
-    # In production, use proper encryption like Fernet
+def _build_fernet() -> "Fernet":
+    from base64 import urlsafe_b64decode, urlsafe_b64encode
     from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-    # Derive a key from a master encryption key
-    master_key = utcms_config.DRIVER_ENCRYPTION_KEY.encode("utf-8")
-    key = hashlib.sha256(master_key).digest()
-    from base64 import urlsafe_b64encode
+    raw_key = utcms_config.DRIVER_ENCRYPTION_KEY.encode("utf-8")
+    try:
+        decoded = urlsafe_b64decode(raw_key)
+        if len(decoded) == 32:
+            return Fernet(raw_key.decode())
+    except Exception:
+        pass
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=b"barpro-fernet-kdf", iterations=600000)
+    derived = urlsafe_b64encode(kdf.derive(raw_key))
+    return Fernet(derived.decode())
 
-    fernet = Fernet(urlsafe_b64encode(key[:32]))
 
-    return fernet.encrypt(plain_password.encode("utf-8")).decode("utf-8")
+_fernet_instance: "Fernet | None" = None
+
+
+def _get_fernet() -> "Fernet":
+    global _fernet_instance
+    if _fernet_instance is None:
+        _fernet_instance = _build_fernet()
+    return _fernet_instance
+
+
+def encrypt_driver_password(plain_password: str) -> str:
+    """Encrypt driver's UTCMS password for storage using Fernet."""
+    return _get_fernet().encrypt(plain_password.encode("utf-8")).decode("utf-8")
 
 
 def decrypt_driver_password(encrypted_password: str) -> str:
     """Decrypt driver's UTCMS password."""
-    from base64 import urlsafe_b64encode
-
-    from cryptography.fernet import Fernet
-
-    master_key = utcms_config.DRIVER_ENCRYPTION_KEY.encode("utf-8")
-    key = hashlib.sha256(master_key).digest()
-    fernet = Fernet(urlsafe_b64encode(key[:32]))
-
-    return fernet.decrypt(encrypted_password.encode("utf-8")).decode("utf-8")
+    return _get_fernet().decrypt(encrypted_password.encode("utf-8")).decode("utf-8")
 
 
 def create_access_token(

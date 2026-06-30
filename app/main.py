@@ -186,9 +186,7 @@ app.add_middleware(
     allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"]
-    if os.getenv("ENVIRONMENT", "development").lower() != "production"
-    else ["Authorization", "Content-Type", "X-API-Key", "X-Request-ID", utcms_config.TRACE_HEADER_NAME],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID", utcms_config.TRACE_HEADER_NAME],
 )
 
 
@@ -202,20 +200,25 @@ async def request_context_middleware(request: Request, call_next):
     response = None
     rate_limit_state = None
 
-    # Apply rate limiting for public and auth endpoints
+    # Apply rate limiting to ALL endpoints with categorized rules
     path = request.url.path
-    rate_rule = None
-    if path.startswith("/waybill/calculate-route") or path == "/":
-        rate_rule = "public"
-    elif path in ("/api/v1/auth/login", "/api/v1/admin/login", "/admin/login"):
+    from app.core.rate_limiter import rate_limit_dependency
+
+    rate_rule = "public"
+    if any(path.startswith(p) for p in ("/api/v1/admin", "/admin", "/management")):
+        rate_rule = "admin"
+    elif any(path.startswith(p) for p in ("/api/v1/auth/login", "/admin/login")):
         rate_rule = "auth"
+    elif any(path.startswith(p) for p in ("/api/v1/waybill", "/api/v1/waybills")):
+        rate_rule = "waybill"
+    elif any(path.startswith(p) for p in ("/api/v1/driver", "/api/v1/client/driver")):
+        rate_rule = "driver"
+    elif any(path.startswith(p) for p in ("/api/v1/client", "/api/v1/tenant")):
+        rate_rule = "tenant"
 
-    if rate_rule is not None:
-        from app.core.rate_limiter import rate_limit_dependency
-
-        try:
-            rate_limit_state = await rate_limit_dependency(request, rule=rate_rule)
-        except HTTPException as exc:
+    try:
+        rate_limit_state = await rate_limit_dependency(request, rule=rate_rule)
+    except HTTPException as exc:
             content = exc.detail if isinstance(exc.detail, dict) else {"detail": exc.detail}
             response = JSONResponse(status_code=exc.status_code, content=content)
             for header_name, header_value in (exc.headers or {}).items():

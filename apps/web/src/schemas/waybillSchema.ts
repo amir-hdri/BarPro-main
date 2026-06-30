@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 import { canonicalizePlate, isValidIranPlate, normalizeDigits } from "@/lib/plate";
 
 const optionalText = (max: number, message: string) =>

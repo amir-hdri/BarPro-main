@@ -1,6 +1,6 @@
 'use client';
 
-import { Bars3Icon, ArrowLeftOnRectangleIcon, SignalIcon } from '@heroicons/react/24/outline';
+import { Bars3Icon, ArrowRightStartOnRectangleIcon, SignalIcon } from '@heroicons/react/24/outline';
 import type { StoredClient } from '@/lib/auth';
 
 interface HeaderProps {
@@ -58,7 +58,7 @@ export function Header({ client, role, onLogout, onOpenMenu }: HeaderProps) {
             onClick={onLogout}
             className="group relative inline-flex h-10 w-10 md:h-12 md:w-12 items-center justify-center gap-2 rounded-xl md:rounded-[1.25rem] bg-rose-500/10 border border-rose-500/20 text-rose-400 transition-all hover:bg-rose-600 hover:text-white hover:border-rose-600 shadow-sm hover:shadow-[0_0_15px_rgba(225,29,72,0.3)] sm:w-auto sm:px-5"
           >
-            <ArrowLeftOnRectangleIcon className="h-4 w-4 md:h-5 md:w-5 transition-transform group-hover:-translate-x-1" />
+            <ArrowRightStartOnRectangleIcon className="h-4 w-4 md:h-5 md:w-5 transition-transform group-hover:-translate-x-1" />
             <span className="hidden text-sm font-bold sm:inline">خروج</span>
           </button>
         )}

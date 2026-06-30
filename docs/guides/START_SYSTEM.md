@@ -51,8 +51,8 @@ docker compose up -d postgres redis prometheus
 cd /Users/amirheidari/Desktop/Automation-Barname-main
 
 export DATABASE_URL="postgresql+asyncpg://postgres:<DB_PASSWORD>@127.0.0.1:5432/utcms_rpa"
-export REDIS_URL="redis://:_Ll7-cZKf4b_l0oJ0UIJAMJ3C7Y3B-JS@127.0.0.1:6379/0"
-export REDIS_PASSWORD="_Ll7-cZKf4b_l0oJ0UIJAMJ3C7Y3B-JS"
+export REDIS_URL="redis://:${REDIS_PASSWORD}@127.0.0.1:6379/0"
+export REDIS_PASSWORD="your_secure_redis_password_here"
 export PORT=8000
 
 /Users/amirheidari/Python-ML/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000

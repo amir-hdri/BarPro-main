@@ -338,7 +338,7 @@ curl http://localhost:3000/
 docker exec automation-barname-main-postgres-1 psql -U postgres -d utcms_rpa -c "SELECT COUNT(*) FROM clients;"
 
 # Redis
-docker exec automation-barname-main-redis-1 redis-cli -a _Ll7-cZKf4b_l0oJ0UIJAMJ3C7Y3B-JS ping
+docker exec automation-barname-main-redis-1 redis-cli -a "${REDIS_PASSWORD}" ping
 ```
 
 ### لاگ‌ها

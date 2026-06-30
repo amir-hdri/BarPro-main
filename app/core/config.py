@@ -109,27 +109,14 @@ class UTCMSConfig:
         self.JWT_AUDIENCE = os.getenv("JWT_AUDIENCE", "")
         self.JWT_ISSUER = os.getenv("JWT_ISSUER", "")
         self.JWT_LEEWAY_SECONDS = int(os.getenv("JWT_LEEWAY_SECONDS", "10"))
-        self.MASTER_ADMIN_USERNAME = os.getenv("MASTER_ADMIN_USERNAME", "master_bar").strip() or "master_bar"
-        self.MASTER_ADMIN_PASSWORD = os.getenv("MASTER_ADMIN_PASSWORD", "master_bar").strip() or "master_bar"
-
-        # Security check for default passwords
-        if self.MASTER_ADMIN_PASSWORD in ["master_bar", "admin", "Amir123", "password", "123456", "admin123"]:
-            is_prod = (
-                os.getenv("NODE_ENV", "").lower() == "production"
-                or os.getenv("ENVIRONMENT", "").lower() == "production"
+        self.MASTER_ADMIN_USERNAME = os.getenv("MASTER_ADMIN_USERNAME", "").strip() or "admin"
+        self.MASTER_ADMIN_PASSWORD = os.getenv("MASTER_ADMIN_PASSWORD", "").strip()
+        if not self.MASTER_ADMIN_PASSWORD:
+            raise RuntimeError(
+                "MASTER_ADMIN_PASSWORD is not set. "
+                "This environment variable is required — no default value is allowed. "
+                "Set a strong, unique password before starting the service."
             )
-            msg = (
-                "MASTER_ADMIN_PASSWORD is set to an insecure default value. "
-                "This is a critical security risk. Please configure a strong, unique MASTER_ADMIN_PASSWORD in your environment."
-            )
-            if is_prod:
-                from app.core.exceptions import ErrorCode, UTCMSException
-
-                raise UTCMSException(msg, error_code=ErrorCode.INTERNAL_CONFIG_ERROR, status_code=500)
-            else:
-                import logging
-
-                logging.warning(f"⚠️ SECURITY WARNING: {msg}")
 
         self.ALLOW_LIVE_SUBMIT = _to_bool(os.getenv("ALLOW_LIVE_SUBMIT", "False"), default=False)
         self.ITMBOL_SERVICE_URL = os.getenv("ITMBOL_SERVICE_URL", "https://services2.sipaad.ir/ITMBOL.asmx")

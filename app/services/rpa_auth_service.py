@@ -214,12 +214,12 @@ class RPAAuthService:
                 try:
                     await page.close()
                 except Exception:
-                    pass
+                    logger.warning("phase1_auth_page_close_failed", exc_info=True)
             if session_id:
                 try:
                     await browser_manager.close_context(session_id)
                 except Exception:
-                    pass
+                    logger.warning("phase1_auth_context_close_failed", exc_info=True)
             await session.close()
             await rpa_runtime.release_lock(lock_key)
 

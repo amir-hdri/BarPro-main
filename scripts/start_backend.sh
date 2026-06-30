@@ -65,7 +65,7 @@ fi
 
 # Set default values if not already defined in .env
 export DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@127.0.0.1:5432/utcms_rpa}"
-export REDIS_URL="${REDIS_URL:-redis://:_Ll7-cZKf4b_l0oJ0UIJAMJ3C7Y3B-JS@127.0.0.1:6379/0}"
+export REDIS_URL="${REDIS_URL:-redis://:${REDIS_PASSWORD}@127.0.0.1:6379/0}"
 
 echo "🔍 اجرای migrations دیتابیس..."
 alembic upgrade head

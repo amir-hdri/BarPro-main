@@ -1,5 +1,4 @@
 import asyncio
-import inspect
 import logging
 import os
 import time
@@ -390,11 +389,11 @@ class BrowserManager:
                 )
 
     async def close_context(self, session_id: str, success: bool = True, error: str = ""):
-        """Close a specific browser context"""
-        if session_id in self._contexts:
-            context = self._contexts[session_id]
-
-            # Record success or failure in pool if healthy
+        """Close a specific browser context with timeout."""
+        if session_id not in self._contexts:
+            return
+        context = self._contexts[session_id]
+        try:
             if self._pool and session_id in self._pooled_sessions:
                 if success:
                     self._pool.record_success(context)
@@ -402,13 +401,22 @@ class BrowserManager:
                     self._pool.record_failure(context, error or "Context execution failed")
 
             if session_id in self._pooled_sessions and self._pool is not None:
-                await self._pool.release(context)
+                await asyncio.wait_for(self._pool.release(context), timeout=30)
                 self._pooled_sessions.discard(session_id)
             else:
-                await context.close()
-            del self._contexts[session_id]
-
-            # Unregister from resource guard
+                await asyncio.wait_for(context.close(), timeout=30)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "close_context_timeout",
+                extra={"extra_fields": {"session_id": session_id}},
+            )
+        except Exception as exc:
+            logger.warning(
+                "close_context_error",
+                extra={"extra_fields": {"session_id": session_id, "error": str(exc)}},
+            )
+        finally:
+            self._contexts.pop(session_id, None)
             await self._resource_guard.unregister(session_id)
 
     async def new_page(self, context: BrowserContext) -> Page:
@@ -597,9 +605,7 @@ class BrowserManager:
     @staticmethod
     async def _register_page_listener(page: Page, event_name: str, callback) -> None:
         try:
-            result = page.on(event_name, callback)
-            if inspect.isawaitable(result):
-                await result
+            page.on(event_name, callback)
         except Exception as exc:
             logger.warning(
                 "page_listener_registration_failed",

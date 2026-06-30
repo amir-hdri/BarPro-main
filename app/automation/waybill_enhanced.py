@@ -227,7 +227,7 @@ class EnhancedWaybillManager:
                     )
                 )
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
     async def _current_url(self) -> str:
         raw_url = getattr(self.page, "url", "")
@@ -415,13 +415,13 @@ class EnhancedWaybillManager:
             if is_visible:
                 return
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         try:
             await self.page.click(tab_selector)
             await asyncio.sleep(0.08)
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
     async def _wait_for_step_marker(
         self,
@@ -474,7 +474,7 @@ class EnhancedWaybillManager:
             if value is not None:
                 return str(value)
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
         try:
             value = await locator.evaluate("""el => {
                     if (!el) return '';
@@ -513,11 +513,11 @@ class EnhancedWaybillManager:
                 try:
                     await locator.press("ControlOrMeta+A")
                 except Exception:
-                    pass
+                    logger.warning("waybill_enhanced_silent_error", exc_info=True)
                 try:
                     await locator.press("Backspace")
                 except Exception:
-                    pass
+                    logger.warning("waybill_enhanced_silent_error", exc_info=True)
                 await locator.type(str(value), delay=10)
             else:
                 await locator.fill(str(value))
@@ -534,7 +534,7 @@ class EnhancedWaybillManager:
                         }
                     }""")
             except Exception:
-                pass
+                logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
             await asyncio.sleep(0.01)  # Reduced from 0.05
             current = await self._locator_current_value(locator)
@@ -551,7 +551,7 @@ class EnhancedWaybillManager:
                 )
                 return True
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         for selector in selectors:
             try:
@@ -1040,7 +1040,7 @@ class EnhancedWaybillManager:
                 },
             )
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
         return False, clicked_selector, button_text
 
     async def _try_click_next_scoped_selectors(
@@ -1228,7 +1228,7 @@ class EnhancedWaybillManager:
                 if isinstance(visible, bool):
                     return visible
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
         try:
             locator = await self.smart_locator.locate(self.page, [selector], timeout=1200)
             return bool(await locator.is_visible())
@@ -1257,7 +1257,7 @@ class EnhancedWaybillManager:
             if isinstance(payload, dict):
                 return payload
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         try:
             raw_text = await response.text()
@@ -1275,7 +1275,7 @@ class EnhancedWaybillManager:
             await self.page.wait_for_load_state("networkidle", timeout=primary_timeout_ms)
             return
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         try:
             await self.page.wait_for_load_state("domcontentloaded", timeout=max(2000, primary_timeout_ms // 2))
@@ -1370,7 +1370,7 @@ class EnhancedWaybillManager:
             await asyncio.sleep(wait_after_seconds)
             return True
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         if locator is not None:
             try:
@@ -1378,7 +1378,7 @@ class EnhancedWaybillManager:
                 await asyncio.sleep(wait_after_seconds)
                 return True
             except Exception:
-                pass
+                logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         for selector in selectors:
             clicked = await self.interactor.safe_click(
@@ -1459,7 +1459,7 @@ class EnhancedWaybillManager:
             try:
                 await self.page.wait_for_load_state("networkidle", timeout=1500)
             except Exception:
-                pass
+                logger.warning("waybill_enhanced_silent_error", exc_info=True)
             await self._ensure_waybill_form_page()
             await self._check_account_eligibility()
             await self._wait_for_step_marker(
@@ -1658,7 +1658,7 @@ class EnhancedWaybillManager:
                 with open("waybill_notfound_snapshot.html", "w", encoding="utf-8") as f:
                     f.write(html)
             except Exception:
-                pass
+                logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
             recovery_selectors = (
                 "a:has-text('ورود مجدد به سامانه')",
@@ -1704,7 +1704,7 @@ class EnhancedWaybillManager:
         except WaybillError:
             raise
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         menu_selectors = (
             "a:has-text('حمل بارنامه')",
@@ -1820,7 +1820,7 @@ class EnhancedWaybillManager:
         except WaybillError:
             raise
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
     async def _is_waybill_form_ready(self) -> bool:
         markers = (
@@ -1908,7 +1908,7 @@ class EnhancedWaybillManager:
                 "el => { el.dispatchEvent(new Event('change', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('change'); } }",
             )
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         # بعد از انتخاب نوع فرستنده، ممکن است فیلدهای نام و نام خانوادگی ظاهر شوند
         await self._wait_until_any_visible(
@@ -2023,7 +2023,7 @@ class EnhancedWaybillManager:
                 "el => { el.dispatchEvent(new Event('change', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('change'); } }",
             )
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         await self._wait_until_any_visible(
             ["#txtReceiverFirstName", "#txtReceiverLastName", "#txtReceiverMobile"],
@@ -2162,7 +2162,7 @@ class EnhancedWaybillManager:
                     dropdown_selected = True
                     logger.info("cargo_autocomplete_selected_via_ui")
             except Exception:
-                pass
+                logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
             # If UI selection didn't work/happen, fall back to API-based lookup and manual JS set
             if not dropdown_selected:
@@ -2345,7 +2345,7 @@ class EnhancedWaybillManager:
                 }
             }""")
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         await self._click_with_fallback(
             [
@@ -2647,7 +2647,7 @@ class EnhancedWaybillManager:
             await self._wait_for_select_options_count("#DriverListTajmi", timeout_ms=12000)
             await self._log_select_options("#DriverListTajmi", "tajmi_driver_after_plate")
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         # Fetch all options first
         try:
@@ -3024,7 +3024,7 @@ class EnhancedWaybillManager:
                     "}"
                 )
             except Exception:
-                pass
+                logger.warning("waybill_enhanced_silent_error", exc_info=True)
             await asyncio.sleep(0.05)
             self._record_selector_inventory(
                 field_label=field_label,
@@ -3035,7 +3035,7 @@ class EnhancedWaybillManager:
             )
             return
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         for selector in selectors:
             fill_success = await self.interactor.safe_fill(selector, value)
@@ -3160,7 +3160,7 @@ class EnhancedWaybillManager:
                 await locator.select_option(value=value_text)
                 return True
             except Exception:
-                pass
+                logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         try:
             options = await self.page.eval_on_selector_all(
@@ -3202,7 +3202,7 @@ class EnhancedWaybillManager:
                         "el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); el.dispatchEvent(new Event('input', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('change').trigger('keydown').trigger('keyup').trigger('input'); } }"
                     )
                 except Exception:
-                    pass
+                    logger.warning("waybill_enhanced_silent_error", exc_info=True)
                 return True
             except Exception:
                 try:
@@ -3217,23 +3217,23 @@ class EnhancedWaybillManager:
                             "el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); el.dispatchEvent(new Event('input', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('change').trigger('keydown').trigger('keyup').trigger('input'); } }"
                         )
                     except Exception:
-                        pass
+                        logger.warning("waybill_enhanced_silent_error", exc_info=True)
                     return True
                 except Exception:
-                    pass
+                    logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         try:
             if await self._set_select_value_with_js(selector, value_text):
                 return True
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         if best_value:
             try:
                 if await self._set_select_value_with_js(selector, best_value):
                     return True
             except Exception:
-                pass
+                logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         return False
 
@@ -3261,7 +3261,7 @@ class EnhancedWaybillManager:
             if modal_open and await self._is_selector_visible("#submitOtp"):
                 return True
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
         return False
 
     async def _fill_otp_value(self, otp_value: str) -> bool:
@@ -3405,7 +3405,7 @@ class EnhancedWaybillManager:
                 if value:
                     return {"success": True, "handled": True, "document_id": (submit_state or {}).get("document_id")}
             except Exception:
-                pass
+                logger.warning("waybill_enhanced_silent_error", exc_info=True)
             await asyncio.sleep(poll_seconds)
 
         raise WaybillError("OTP در بازه زمانی مجاز وارد نشد")
@@ -3432,7 +3432,7 @@ class EnhancedWaybillManager:
                     ):
                         return True
                 except Exception:
-                    pass
+                    logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
                 # Check & close blocking overlays
                 await self._close_blocking_overlays()
@@ -3471,7 +3471,7 @@ class EnhancedWaybillManager:
         try:
             await self.page.locator("#btnRegisterFinished").first.wait_for(state="visible", timeout=8000)
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         # ── Step 2: Solve captcha (if present) ──
         await self._handle_submit_captcha_if_present()
@@ -3660,7 +3660,7 @@ class EnhancedWaybillManager:
                 closeBtns.forEach(btn => btn.click());
             }""")
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
     async def _check_otp_after_submit(self) -> dict[str, Any] | None:
         """
@@ -3689,7 +3689,7 @@ class EnhancedWaybillManager:
             try:
                 await self.context.close()
             except Exception:
-                pass
+                logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
             return {
                 "success": False,
@@ -3796,7 +3796,7 @@ class EnhancedWaybillManager:
             if cleaned:
                 candidates.extend(self._hint_candidates_from_text(cleaned))
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         try:
             body_text = await self.page.evaluate("() => ((document.body && document.body.innerText) || '')")
@@ -3804,7 +3804,7 @@ class EnhancedWaybillManager:
             if cleaned:
                 candidates.extend(self._hint_candidates_from_text(cleaned[:1500]))
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         unique: list[str] = []
         seen = set()
@@ -4203,7 +4203,7 @@ class EnhancedWaybillManager:
                     captcha_selector = selector
                     break
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         if not captcha_selector:
             logger.info("No captcha input found on submit stage, skipping captcha solving.")
@@ -4220,7 +4220,7 @@ class EnhancedWaybillManager:
                         await asyncio.sleep(0.05)
                     break
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         if utcms_config.UTCMS_CAPTCHA_VALUE:
             filled = await self._fill_with_selector(captcha_selector, utcms_config.UTCMS_CAPTCHA_VALUE)
@@ -4257,7 +4257,7 @@ class EnhancedWaybillManager:
                 if value:
                     return
             except Exception:
-                pass
+                logger.warning("waybill_enhanced_silent_error", exc_info=True)
             await asyncio.sleep(poll_seconds)
 
         raise WaybillError("کپچا در بازه زمانی مجاز تکمیل نشد")
@@ -4268,7 +4268,7 @@ class EnhancedWaybillManager:
             await locator.fill(value)
             return True
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         if await self.interactor.safe_fill(selector, value):
             return True
@@ -4398,7 +4398,7 @@ class EnhancedWaybillManager:
                 if err_key in body_text.lower():
                     return err_msg
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         return None
 
@@ -4442,7 +4442,7 @@ class EnhancedWaybillManager:
                 if labeled:
                     return labeled[0]
         except Exception:
-            pass
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         # تلاش با استفاده از URL
         url = await self._current_url()

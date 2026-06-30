@@ -36,7 +36,7 @@ def _is_jwt_valid(token: str | None) -> bool:
         return False
 
     kwargs = {
-        "algorithms": [utcms_config.JWT_ALGORITHM],
+        "algorithms": ["HS256"],
         "leeway": utcms_config.JWT_LEEWAY_SECONDS,
     }
     if utcms_config.JWT_AUDIENCE:

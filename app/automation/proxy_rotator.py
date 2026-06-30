@@ -6,14 +6,17 @@ and intelligent rotation for maximum anonymity and reliability.
 """
 
 import asyncio
+import ipaddress
 import json
 import logging
 import random
+import socket
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
 
@@ -342,8 +345,24 @@ class ProxyRotator:
         logger.info(f"Loaded {loaded} proxies from JSON")
         return loaded
 
+    @staticmethod
+    def _is_safe_proxy_url(url: str) -> bool:
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        try:
+            ip = ipaddress.ip_address(host)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
+                return False
+        except ValueError:
+            pass
+        return True
+
     def add_proxy(self, config: ProxyConfig) -> ProxyInfo:
         """Add a single proxy using ProxyConfig."""
+        if not self._is_safe_proxy_url(config.url):
+            logger.warning("blocked_private_proxy_url", extra={"extra_fields": {"url": config.url[:60]}})
+            raise ValueError(f"Proxy URL points to a private/reserved IP range: {config.url[:60]}")
+
         proxy = ProxyInfo(
             url=config.url,
             protocol=config.protocol,
@@ -352,7 +371,9 @@ class ProxyRotator:
             tags=config.tags or [],
         )
         self.proxies.append(proxy)
-        logger.debug(f"Added proxy: {config.url[:50]}...")
+        parsed = urlparse(config.url)
+        safe_url = parsed._replace(netloc=f"{parsed.hostname}:{parsed.port}") if parsed.password else config.url
+        logger.debug(f"Added proxy: {safe_url}")
         return proxy
 
     async def verify_country(self, proxy: ProxyInfo) -> bool:

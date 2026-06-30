@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
+import logging
+import threading
 
 from app.core.config import utcms_config
 
@@ -10,6 +11,8 @@ try:
     import redis.asyncio as aioredis
 except ImportError:  # pragma: no cover
     aioredis = None
+
+logger = logging.getLogger(__name__)
 
 
 def _build_redis_kwargs() -> dict:
@@ -24,40 +27,37 @@ def _build_redis_kwargs() -> dict:
 
 
 class RedisConnectionManager:
+    """Thread-safe Redis connection manager that works across Celery event loops."""
+
     def __init__(self) -> None:
         self._redis: aioredis.Redis | None = None
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._lock: asyncio.Lock | None = None
+        self._lock = threading.Lock()
+
+    async def _close_existing(self) -> None:
+        if self._redis is not None:
+            try:
+                await self._redis.close()
+            except Exception as exc:
+                logger.warning("Error closing Redis connection: %s", exc)
+            self._redis = None
 
     async def get(self):
         if aioredis is None:
             return None
-
-        current_loop = asyncio.get_running_loop()
-        if self._lock is None or self._loop != current_loop:
-            self._lock = asyncio.Lock()
-
-        if self._redis is None or self._loop != current_loop:
-            async with self._lock:
-                if self._redis is None or self._loop != current_loop:
-                    if self._redis is not None:
-                        try:
-                            await self._redis.close()
-                        except Exception:
-                            pass
-                        self._redis = None
-                    self._redis = aioredis.from_url(
-                        utcms_config.REDIS_URL,
-                        **_build_redis_kwargs(),
-                    )
-                    self._loop = current_loop
+        if self._redis is None:
+            with self._lock:
+                if self._redis is not None:
+                    return self._redis
+                await self._close_existing()
+                self._redis = aioredis.from_url(
+                    utcms_config.REDIS_URL,
+                    **_build_redis_kwargs(),
+                )
         return self._redis
 
     async def close(self) -> None:
-        if self._redis is not None:
-            await self._redis.close()
-            self._redis = None
-            self._loop = None
+        with self._lock:
+            await self._close_existing()
 
 
 redis_manager = RedisConnectionManager()

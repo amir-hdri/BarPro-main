@@ -31,8 +31,11 @@ x-backend-common: &backend-common
     context: ..
     dockerfile: Dockerfile
   restart: unless-stopped
-  privileged: true
+  cap_add: [SYS_ADMIN, NET_ADMIN]
+  security_opt: [no-new-privileges:true]
   env_file: [.env]
+  mem_limit: 512m
+  mem_reservation: 256m
   environment: &backend-env
     PYTHON_ENV: production
     # ✅ استفاده از نام سرویس (postgres) به عنوان hostname در شبکه داکر
@@ -102,7 +105,7 @@ services:
       - worker
       - --loglevel=info
       - -Q
-      - waybill_tasks_1,rpa_auth_1,rpa_submit_1,scheduled_tasks_1,rpa_scheduler,scheduled_tasks
+      - waybill_tasks_1,rpa_auth_1,rpa_submit_1
       - --concurrency=1
       - -n
       - worker_1@%h
@@ -168,7 +171,7 @@ services:
       - worker
       - --loglevel=info
       - -Q
-      - waybill_tasks_3,rpa_auth_3,rpa_submit_3,scheduled_tasks_3
+      - waybill_tasks_3,rpa_auth_3,rpa_submit_3,scheduled_tasks_3,rpa_scheduler,scheduled_tasks
       - --concurrency=1
       - -n
       - worker_3@%h

@@ -332,12 +332,24 @@ class WaybillPayload(BaseModel):
     notes: str | None = Field(default=None, max_length=500)
     metadata_json: dict | None = Field(None)
 
+    @staticmethod
+    def _validate_iran_national_code(code: str) -> bool:
+        if not re.fullmatch(r"\d{10}", code):
+            return False
+        if code in {"0000000000", "1111111111", "2222222222", "3333333333", "4444444444",
+                     "5555555555", "6666666666", "7777777777", "8888888888", "9999999999"}:
+            return False
+        checksum = sum(int(code[i]) * (10 - i) for i in range(9))
+        remainder = checksum % 11
+        control = int(code[9])
+        return control == remainder if remainder < 2 else control == 11 - remainder
+
     @field_validator("driver_national_code", mode="before")
     @classmethod
     def validate_driver_national_code(cls, value: str) -> str:
         normalized = _normalize_national_code(str(value))
-        if not re.fullmatch(r"\d{10}", normalized):
-            raise ValueError("کد ملی راننده باید دقیقاً ۱۰ رقم باشد")
+        if not cls._validate_iran_national_code(normalized):
+            raise ValueError("کد ملی راننده معتبر نیست (checksum نامعتبر)")
         return normalized
 
     @field_validator("driver_phone", mode="before")
@@ -384,8 +396,8 @@ class WaybillJobCreateRequest(BaseModel):
     @classmethod
     def validate_driver_national_code(cls, value: str) -> str:
         normalized = _normalize_national_code(str(value))
-        if not re.fullmatch(r"\d{10}", normalized):
-            raise ValueError("کد ملی راننده باید دقیقاً ۱۰ رقم باشد")
+        if not DriverCreateRequest._validate_iran_national_code(normalized):
+            raise ValueError("کد ملی راننده معتبر نیست (checksum نامعتبر)")
         return normalized
 
 

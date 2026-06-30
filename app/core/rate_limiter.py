@@ -217,6 +217,21 @@ rate_limiter.register_rule(
     max_requests=30,
     window_seconds=60,
 )
+rate_limiter.register_rule(
+    name="driver",
+    max_requests=60,
+    window_seconds=60,
+)
+rate_limiter.register_rule(
+    name="tenant",
+    max_requests=100,
+    window_seconds=60,
+)
+rate_limiter.register_rule(
+    name="admin",
+    max_requests=200,
+    window_seconds=60,
+)
 
 
 async def rate_limit_dependency(
@@ -232,11 +247,13 @@ async def rate_limit_dependency(
     try:
         state = await rate_limiter.check(rule, client_ip)
     except Exception:
-        # Fail open - allow request if rate limiter fails
-        return RateLimitState(
-            remaining=999,
-            limit=999,
-            reset_at=time.time() + 60,
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "rate_limiter_unavailable",
+                "message": "سیاست محدودیت نرخ در دسترس نیست، لطفاً بعداً تلاش کنید",
+            },
+            headers={"Retry-After": "10"},
         )
 
     if state.remaining < 0 or state.retry_after is not None:

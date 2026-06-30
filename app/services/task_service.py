@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -17,6 +18,8 @@ from app.models_multitenant import WaybillJob
 from app.monitoring.metrics import set_queue_depth, summarize_queue_depth, track_task_status
 from app.realtime.events import event_hub
 from app.schemas.task import TaskStatus
+
+logger = logging.getLogger(__name__)
 
 
 class WaybillTaskService:

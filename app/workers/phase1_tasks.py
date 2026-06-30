@@ -18,16 +18,8 @@ def _run(coro):
     loop = asyncio.new_event_loop()
     try:
         asyncio.set_event_loop(loop)
-        from app.core.database import engine
-
-        loop.run_until_complete(engine.dispose())
         return loop.run_until_complete(coro)
     finally:
-        from app.automation.browser import browser_manager
-        try:
-            loop.run_until_complete(browser_manager.recycle_browser())
-        except Exception:
-            pass
         loop.close()
 
 

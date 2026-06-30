@@ -515,11 +515,13 @@ class ManagementService:
 
     @classmethod
     def _safe_artifact_path(cls, relative_path: str) -> Path:
-        root = cls._artifact_root().resolve()
-        candidate = (root / relative_path).resolve()
-        if root not in candidate.parents and candidate != root:
+        root = os.path.realpath(cls._artifact_root())
+        candidate = os.path.realpath(os.path.join(root, relative_path))
+        if not candidate.startswith(root):
             raise HTTPException(status_code=400, detail="artifact path invalid")
-        return candidate
+        if os.path.islink(candidate):
+            raise HTTPException(status_code=400, detail="symlinks not allowed")
+        return Path(candidate)
 
     @classmethod
     def _list_artifacts_for_task(cls, task_id: str) -> list[dict[str, Any]]:
@@ -797,6 +799,12 @@ class ManagementService:
     async def import_excel_workbook(
         self, content: bytes, filename: str, options: ManagementExcelImportOptions
     ) -> dict[str, Any]:
+        EXCEL_MAGIC_BYTES = {b'\x50\x4B\x03\x04', b'\x50\x4B\x05\x06', b'\xD0\xCF\x11\xE0'}
+        MAX_FILE_SIZE = 10 * 1024 * 1024
+        if len(content) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail="File too large (max 10 MB)")
+        if len(content) >= 4 and content[:4] not in EXCEL_MAGIC_BYTES:
+            raise HTTPException(status_code=400, detail="Invalid file format — must be Excel (.xlsx/.xls)")
         suffix = os.path.splitext(filename or "")[1] or ".xlsx"
         temp_path = None
         geo_resolver = ReverseGeoResolver(enabled=options.reverse_geo_enabled)

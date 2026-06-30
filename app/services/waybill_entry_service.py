@@ -427,11 +427,14 @@ class ExcelWaybillService:
         operation_mode: OperationMode = OperationMode.SAFE,
     ) -> dict[str, Any]:
         """Parse uploaded Excel file and return waybill requests."""
+        EXCEL_MAGIC_BYTES = {b'\x50\x4B\x03\x04', b'\x50\x4B\x05\x06', b'\xD0\xCF\x11\xE0'}
+        MAX_FILE_SIZE = 10 * 1024 * 1024
         try:
-            # Read file content
             content = await file.read()
-
-            # Save to temp file for parsing
+            if len(content) > MAX_FILE_SIZE:
+                return {"success": False, "error": "File too large (max 10 MB)", "row_count": 0}
+            if len(content) >= 4 and content[:4] not in EXCEL_MAGIC_BYTES:
+                return {"success": False, "error": "Invalid file format — must be Excel (.xlsx/.xls)", "row_count": 0}
             temp_dir = Path("tmp")
             temp_dir.mkdir(exist_ok=True)
             temp_file = temp_dir / f"upload_{uuid.uuid4().hex[:8]}_{file.filename}"

@@ -48,15 +48,15 @@ class WaybillEventHub:
             for channel in self._channel_keys(envelope):
                 targets.update(self._connections.get(channel, set()))
 
-        stale: list[WebSocket] = []
-        for websocket in targets:
-            try:
-                await websocket.send_json(envelope)
-            except Exception:
-                stale.append(websocket)
-        for websocket in stale:
-            await self.disconnect(websocket)
-            logger.warning("websocket_disconnected_during_publish")
+            stale: list[WebSocket] = []
+            for websocket in targets:
+                try:
+                    await websocket.send_json(envelope)
+                except Exception:
+                    stale.append(websocket)
+            for websocket in stale:
+                await self.disconnect(websocket)
+                logger.warning("websocket_disconnected_during_publish")
 
     def history(self, *, task_id: str | None = None, batch_id: str | None = None) -> list[dict[str, Any]]:
         events = list(self._history)

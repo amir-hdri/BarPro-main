@@ -16,26 +16,20 @@ from app.services.waybill_service import waybill_service
 from app.workers.celery_app import celery_app
 
 
-def _run_async(coro):
-    async def wrapped_coro():
-        try:
-            return await coro
-        finally:
-            from app.automation.browser import browser_manager
-            try:
-                await browser_manager.recycle_browser()
-            except Exception:
-                pass
+_TASK_EVENT_LOOP: asyncio.AbstractEventLoop | None = None
 
-    try:
-        asyncio.get_running_loop()
-        import concurrent.futures
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(asyncio.run, wrapped_coro())
-            return future.result()
-    except RuntimeError:
-        return asyncio.run(wrapped_coro())
+def _get_task_event_loop() -> asyncio.AbstractEventLoop:
+    global _TASK_EVENT_LOOP
+    if _TASK_EVENT_LOOP is None or _TASK_EVENT_LOOP.is_closed():
+        _TASK_EVENT_LOOP = asyncio.new_event_loop()
+        asyncio.set_event_loop(_TASK_EVENT_LOOP)
+    return _TASK_EVENT_LOOP
+
+
+def _run_async(coro) -> Any:
+    loop = _get_task_event_loop()
+    return loop.run_until_complete(coro)
 
 
 def _retry_delay_seconds(attempt_number: int) -> float:
