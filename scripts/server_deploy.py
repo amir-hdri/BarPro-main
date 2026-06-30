@@ -16,7 +16,7 @@ import paramiko
 # ═══════════════════════════════════════════════════════════════════
 PRIMARY_IP   = "188.121.123.16"
 SSH_USER     = "ubuntu"
-SSH_PASS     = "Amaterasoo1"
+SSH_PASS     = "PLACEHOLDER_SSH_PASSWORD"
 REMOTE_DIR   = "/opt/barpro"
 DB_NAME      = "utcms_rpa"
 # ═══════════════════════════════════════════════════════════════════

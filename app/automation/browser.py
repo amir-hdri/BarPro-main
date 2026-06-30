@@ -147,7 +147,7 @@ class BrowserManager:
                     context = self._contexts[session_id]
                     await context.close()
                 except Exception:
-                    pass
+                    logger.warning("browser_operation_failed", exc_info=True)
             self._contexts.clear()
             self._pooled_sessions.clear()
             
@@ -155,21 +155,21 @@ class BrowserManager:
                 try:
                     await self._pool.close()
                 except Exception:
-                    pass
+                    logger.warning("browser_operation_failed", exc_info=True)
                 self._pool = None
                 
             if self.browser:
                 try:
                     await self.browser.close()
                 except Exception:
-                    pass
+                    logger.warning("browser_operation_failed", exc_info=True)
                 self.browser = None
                 
             if self.playwright:
                 try:
                     await self.playwright.stop()
                 except Exception:
-                    pass
+                    logger.warning("browser_operation_failed", exc_info=True)
                 self.playwright = None
             
             logger.info("Browser successfully recycled.")
@@ -521,7 +521,7 @@ class BrowserManager:
             try:
                 await route.continue_()
             except Exception:
-                pass
+                logger.warning("browser_operation_failed", exc_info=True)
 
         # Route interceptor for blocking heavy map tiles and trackers
         # Can be disabled via BLOCK_MAP_TILES enabled flag (default: True)
@@ -759,7 +759,7 @@ class PageInteractor:
             try:
                 await human_like_mouse_movement(self.page, selector)
             except Exception:
-                pass  # Fallback to normal click if movement fails
+                logger.warning("browser_operation_failed", exc_info=True)  # Fallback to normal click if movement fails
 
             element = await self.page.wait_for_selector(selector, state="visible", timeout=timeout)
             if element:

@@ -61,7 +61,7 @@ def validate_environment() -> tuple[bool, list[str]]:
             "Global UTCMS_USERNAME/UTCMS_PASSWORD are legacy-only; prefer per-driver credentials in the database"
         )
 
-    master_pass = os.getenv("MASTER_ADMIN_PASSWORD", "master_bar")
+    master_pass = os.getenv("MASTER_ADMIN_PASSWORD", "")
 
     insecure_passwords = ["master_bar", "admin", "Amir123", "password", "123456", "admin123"]
     if master_pass in insecure_passwords:

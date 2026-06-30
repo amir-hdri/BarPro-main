@@ -45,7 +45,7 @@ PRIMARY_GW   = "188.121.120.1"
 SECONDARY_GW = "95.38.232.1"
 
 SSH_USER   = "ubuntu"
-SSH_PASS   = "Amaterasoo1"
+SSH_PASS   = "PLACEHOLDER_SSH_PASSWORD"
 
 REMOTE_DIR = "/opt/barpro"          # محل استقرار روی سرور
 DB_NAME    = "utcms_rpa"
