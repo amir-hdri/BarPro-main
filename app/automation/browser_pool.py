@@ -114,7 +114,7 @@ class BrowserPool:
             try:
                 await context.close()
             except Exception:
-                pass
+                logger.warning("browser_pool_context_close_failed", exc_info=True)
         self._context_health.clear()
         self._started = False
         logger.info("browser_pool_closed")

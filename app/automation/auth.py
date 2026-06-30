@@ -379,7 +379,7 @@ class UTCMSAuthenticator:
                 if value:
                     return True
             except Exception:
-                pass
+                logger.warning("auth_operation_failed", exc_info=True)
             await asyncio.sleep(poll_seconds)
 
         return False
@@ -818,7 +818,7 @@ class UTCMSAuthenticator:
             if around_cleaned:
                 candidates.extend(self._hint_candidates_from_text(around_cleaned))
         except Exception:
-            pass
+            logger.warning("auth_operation_failed", exc_info=True)
 
         try:
             around_input = await self.page.evaluate(
@@ -843,7 +843,7 @@ class UTCMSAuthenticator:
             if around_cleaned:
                 candidates.extend(self._hint_candidates_from_text(around_cleaned))
         except Exception:
-            pass
+            logger.warning("auth_operation_failed", exc_info=True)
 
         try:
             body_text = await self.page.evaluate("() => ((document.body && document.body.innerText) || '')")
@@ -851,7 +851,7 @@ class UTCMSAuthenticator:
             if cleaned:
                 candidates.extend(self._hint_candidates_from_text(cleaned[:1500]))
         except Exception:
-            pass
+            logger.warning("auth_operation_failed", exc_info=True)
 
         unique: list[str] = []
         seen = set()
@@ -995,7 +995,7 @@ class UTCMSAuthenticator:
                 field = await self.smart_locator.locate(self.page, [captcha_selector], timeout=1000)
                 await field.fill("")
             except Exception:
-                pass
+                logger.warning("auth_operation_failed", exc_info=True)
 
         if await self._fill_input_like(captcha_selector, normalized):
             return True
@@ -1178,7 +1178,7 @@ class UTCMSAuthenticator:
             )
             return True
         except Exception:
-            pass
+            logger.warning("auth_operation_failed", exc_info=True)
 
         try:
             locator = self.page.locator(selector).first
@@ -1190,7 +1190,7 @@ class UTCMSAuthenticator:
             )
             return True
         except Exception:
-            pass
+            logger.warning("auth_operation_failed", exc_info=True)
 
         try:
             updated = await self.page.eval_on_selector(
@@ -1434,7 +1434,7 @@ class UTCMSAuthenticator:
             try:
                 await self.page.wait_for_load_state("domcontentloaded", timeout=3000)
             except Exception:
-                pass
+                logger.warning("auth_operation_failed", exc_info=True)
         except Exception:
             try:
                 submit_locator = await self.smart_locator.locate(self.page, [submit_selector], timeout=5000)
@@ -1443,7 +1443,7 @@ class UTCMSAuthenticator:
                 try:
                     await self.page.wait_for_load_state("domcontentloaded", timeout=3000)
                 except Exception:
-                    pass
+                    logger.warning("auth_operation_failed", exc_info=True)
             except Exception:
                 clicked = False
 

@@ -6,11 +6,14 @@ Implements multi-layered stealth for Cloudflare, Imperva, and custom WAFs.
 """
 
 import asyncio
+import logging
 import random
 import time
 from typing import Any
 
 from playwright.async_api import Page
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # ENHANCED USER AGENT & FINGERPRINT POOLS
@@ -585,8 +588,7 @@ async def apply_enterprise_stealth(page: Page, config: StealthConfig | None = No
                 applied["screen_spoof"] = False
 
     except Exception:
-        # Log error but don't fail the entire operation
-        pass
+        logger.warning("enterprise_stealth_apply_failed", exc_info=True)
 
     return applied
 
@@ -682,7 +684,7 @@ async def handle_cloudflare_challenge(page: Page, timeout_seconds: float = 30.0)
             try:
                 await simulate_human_behavior(page, duration=0.5)
             except Exception:
-                pass
+                logger.warning("stealth_simulate_human_failed", exc_info=True)
 
             # Try clicking the Turnstile checkbox if present
             try:
@@ -696,7 +698,7 @@ async def handle_cloudflare_challenge(page: Page, timeout_seconds: float = 30.0)
                         await asyncio.sleep(random.uniform(2.0, 4.0))
                         continue
             except Exception:
-                pass
+                logger.warning("stealth_turnstile_click_failed", exc_info=True)
 
             await asyncio.sleep(random.uniform(1.5, 3.0))
 

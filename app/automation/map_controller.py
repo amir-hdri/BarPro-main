@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,6 +12,8 @@ from playwright.async_api import Page
 
 from app.automation.script_loader import script_loader
 from app.core.exceptions import MapInteractionError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -281,7 +284,7 @@ class MapController:
         try:
             await click_target.scroll_into_view_if_needed()
         except Exception:
-            pass
+            logger.warning("map_scroll_into_view_failed", exc_info=True)
 
         # دریافت ابعاد نقشه
         box = await click_target.bounding_box()
@@ -362,8 +365,7 @@ class MapController:
                 await asyncio.sleep(0.5)
 
         except Exception:
-            # در صورت بروز هرگونه خطا، ادامه دهید تا روند متوقف نشود
-            pass
+            logger.warning("map_wait_for_idle_failed", exc_info=True)
 
     async def wait_for_route_calculation(self, timeout: int = 5000) -> None:
         """
@@ -386,8 +388,7 @@ class MapController:
             # استفاده از wait_for_function برای انتظار شرطی
             await self.page.wait_for_function(script, timeout=timeout)
         except Exception:
-            # اگر نتیجه‌ای یافت نشد، ادامه دهید (شاید خطا در محاسبه باشد)
-            pass
+            logger.warning("map_wait_for_route_failed", exc_info=True)
 
     async def set_route(
         self,

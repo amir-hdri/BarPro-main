@@ -17,6 +17,8 @@ from typing import Any
 
 from playwright.async_api import Page
 
+logger = logging.getLogger(__name__)
+
 # ============================================================================
 # EVIDENCE COLLECTOR
 # ============================================================================
@@ -374,7 +376,7 @@ class EvidenceCollector:
                         file_path.unlink()
                         cleaned += 1
                     except Exception:
-                        pass
+                        logger.warning("evidence_cleanup_file_unlink_failed", exc_info=True)
 
         return cleaned
 

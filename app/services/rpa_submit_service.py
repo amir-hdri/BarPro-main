@@ -488,12 +488,12 @@ class RPAHttpSubmitService:
                 try:
                     await page.close()
                 except Exception:
-                    pass
+                    logger.warning("submit_page_close_failed", exc_info=True)
             if internal_session_id:
                 try:
                     await browser_manager.close_context(internal_session_id)
                 except Exception:
-                    pass
+                    logger.warning("submit_context_close_failed", exc_info=True)
 
     async def _execute_browser_submit_with_page(
         self,

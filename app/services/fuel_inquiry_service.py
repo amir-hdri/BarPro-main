@@ -111,7 +111,7 @@ class FuelInquiryService:
                 try:
                     resp.quota_data = json.loads(i.quota_data_json)
                 except Exception:
-                    pass
+                    logger.warning("fuel_inquiry_parse_json_list_failed", exc_info=True)
             items.append(resp)
 
         total_pages = (total + page_size - 1) // page_size
@@ -151,7 +151,7 @@ class FuelInquiryService:
             try:
                 resp.quota_data = json.loads(inquiry.quota_data_json)
             except Exception:
-                pass
+                logger.warning("fuel_inquiry_parse_json_get_failed", exc_info=True)
         return resp
 
     @classmethod

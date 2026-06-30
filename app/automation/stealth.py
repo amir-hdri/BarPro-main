@@ -5,9 +5,12 @@ Uses common stealth scripts to avoid duplication.
 """
 
 import asyncio
+import logging
 import random
 
 from playwright.async_api import Page
+
+logger = logging.getLogger(__name__)
 
 from app.automation.stealth_common import (
     build_core_stealth_script,
@@ -178,7 +181,7 @@ async def human_like_mouse_movement(page: Page, target_selector: str) -> None:
             await asyncio.sleep(random.uniform(0.008, 0.022))
         await page.mouse.move(ex, ey)
     except Exception:
-        pass
+        logger.warning("stealth_mouse_movement_failed", exc_info=True)
 
 
 async def random_scroll(page: Page) -> None:
@@ -189,7 +192,7 @@ async def random_scroll(page: Page) -> None:
         await asyncio.sleep(random.uniform(0.12, 0.35))
         await page.mouse.wheel(0, -(amount // 2))
     except Exception:
-        pass
+        logger.warning("stealth_random_scroll_failed", exc_info=True)
 
 
 async def simulate_human_behavior(page: Page, duration: float = 1.0) -> None:

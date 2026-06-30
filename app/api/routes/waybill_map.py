@@ -1,8 +1,11 @@
 """مسیرهای API برای عملیات بارنامه مبتنی بر نقشه"""
 
+import logging
 import math
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+
+logger = logging.getLogger(__name__)
 
 from app.automation.reporting import report_service
 from app.automation.traffic_control import waybill_traffic_controller
@@ -161,7 +164,7 @@ async def reverse_geocode(lat: float, lng: float):
                 if resp.status == 200:
                     data = await resp.json()
     except Exception:
-        pass
+        logger.warning("reverse_geocode_direct_failed", exc_info=True)
 
     # 2. تلاش با پروکسی چرخشی در صورت شکست مستقیم
     if data is None:
@@ -175,7 +178,7 @@ async def reverse_geocode(lat: float, lng: float):
                         if resp.status == 200:
                             data = await resp.json()
         except Exception:
-            pass
+            logger.warning("reverse_geocode_proxy_failed", exc_info=True)
 
     if data:
         address = data.get("address", {})

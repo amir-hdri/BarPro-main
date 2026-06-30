@@ -261,7 +261,7 @@ async def _execute_single_job(
             try:
                 await asyncio.wait_for(page.close(), timeout=3)
             except Exception:
-                pass
+                logger.warning("scheduled_job_page_close_failed", exc_info=True)
 
 
 async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
@@ -336,7 +336,7 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
                 job.finished_at = _utcnow()
                 await session.commit()
         except Exception:
-            pass
+            logger.warning("scheduled_job_mark_failed_failed", exc_info=True)
         return {"status": "failed", "error": str(exc)}
     finally:
         await session.close()

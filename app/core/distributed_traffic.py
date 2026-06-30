@@ -164,7 +164,7 @@ class DistributedTrafficController:
                     try:
                         await self._redis.close()
                     except Exception:
-                        pass
+                        logger.warning("distributed_redis_close_failed", exc_info=True)
                     self._redis = None
 
                 self._redis = aioredis.from_url(

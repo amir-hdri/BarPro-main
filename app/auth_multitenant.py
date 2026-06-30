@@ -81,7 +81,7 @@ def _build_fernet() -> "Fernet":
         if len(decoded) == 32:
             return Fernet(raw_key.decode())
     except Exception:
-        pass
+        logger.warning("fernet_decode_failed_using_pbkdf2", exc_info=True)
     kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=b"barpro-fernet-kdf", iterations=600000)
     derived = urlsafe_b64encode(kdf.derive(raw_key))
     return Fernet(derived.decode())

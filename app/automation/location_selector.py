@@ -333,7 +333,7 @@ class LocationSelector:
             if updated:
                 return True
         except Exception:
-            pass
+            logger.warning("location_selector_error", exc_info=True)
 
         if not visible:
             # For hidden inputs, do not call page.fill (it will hang waiting for visibility)
@@ -348,7 +348,7 @@ class LocationSelector:
             )
             return True
         except Exception:
-            pass
+            logger.warning("location_selector_error", exc_info=True)
 
         # 3. Fallback to locator fill
         try:
@@ -361,7 +361,7 @@ class LocationSelector:
             )
             return True
         except Exception:
-            pass
+            logger.warning("location_selector_error", exc_info=True)
 
         return False
 
@@ -421,14 +421,14 @@ class LocationSelector:
             if is_visible:
                 return
         except Exception:
-            pass
+            logger.warning("location_selector_error", exc_info=True)
 
         # Try clicking the tab
         try:
             await self.page.click(tab_selector, timeout=3000)
             await asyncio.sleep(0.1)
         except Exception:
-            pass
+            logger.warning("location_selector_error", exc_info=True)
 
         # Force activate via JS if click didn't work
         try:
@@ -452,7 +452,7 @@ class LocationSelector:
             )
             await asyncio.sleep(0.06)
         except Exception:
-            pass
+            logger.warning("location_selector_error", exc_info=True)
 
     async def _read_select_options(self, selector: str) -> list[dict[str, str]]:
         try:
@@ -1219,7 +1219,7 @@ class LocationSelector:
                                 "coordinates": {"lat": lat, "lng": lng},
                             }
                     except Exception:
-                        pass
+                        logger.warning("location_selector_error", exc_info=True)
                     await asyncio.sleep(0.05)
 
             # 4. اگر فیلدها پر نشدند (مثلا به خاطر خطای سرویس نقشه سایت)، به صورت دستی آدرس را پر می‌کنیم
@@ -1249,7 +1249,7 @@ class LocationSelector:
             try:
                 addr_val = await self.page.locator(addr_selector).input_value()
             except Exception:
-                pass
+                logger.warning("location_selector_error", exc_info=True)
 
             if addr_val:
                 logger.info(f"Successfully populated location inputs for {prefix} via manual address injection.")
@@ -1700,7 +1700,7 @@ class LocationSelector:
                             "el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); el.dispatchEvent(new Event('input', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('change').trigger('keydown').trigger('keyup').trigger('input'); } }",
                         )
                     except Exception:
-                        pass
+                        logger.warning("location_selector_error", exc_info=True)
                     return True
             if count > 0:
                 await results.nth(0).click(timeout=3000)
@@ -1711,7 +1711,7 @@ class LocationSelector:
                         "el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); el.dispatchEvent(new Event('input', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('change').trigger('keydown').trigger('keyup').trigger('input'); } }",
                     )
                 except Exception:
-                    pass
+                    logger.warning("location_selector_error", exc_info=True)
                 return True
         except Exception:
             return False
@@ -1882,7 +1882,7 @@ class LocationSelector:
                                         await self.page.select_option(visible_selector, label=best_value)
                                         success = True
                                     except Exception:
-                                        pass
+                                        logger.warning("location_selector_error", exc_info=True)
 
                 if success:
                     try:
@@ -1891,7 +1891,7 @@ class LocationSelector:
                             "el => { el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('keydown', { bubbles: true })); el.dispatchEvent(new Event('keyup', { bubbles: true })); el.dispatchEvent(new Event('input', { bubbles: true })); if (window.jQuery) { window.jQuery(el).trigger('change').trigger('keydown').trigger('keyup').trigger('input'); } }",
                         )
                     except Exception:
-                        pass
+                        logger.warning("location_selector_error", exc_info=True)
                     return True
 
                 logger.info(

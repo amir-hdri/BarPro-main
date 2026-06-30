@@ -484,7 +484,7 @@ class ExplicitWaits:
             try:
                 await page.wait_for_load_state("domcontentloaded", timeout=max(2000, timeout / 2))
             except Exception:
-                pass
+                logger.warning("wait_for_load_state_fallback_failed", exc_info=True)
             await asyncio.sleep(max(0.5, fallback_sleep))
 
 
