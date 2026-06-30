@@ -59,6 +59,7 @@ login captch/
 
 # ML model files
 *.keras
+!persian_number_ocr.keras
 
 # Scratch notes
 frontend_apis.txt
