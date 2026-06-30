@@ -40,3 +40,27 @@ celerybeat-schedule.db
 # Auth & State
 .auth/
 utcms_state_*.json
+
+# Agent credentials (leaked passwords)
+.agents/
+
+# Scratch docs with leaked credentials
+ORIGINAL_REQUEST.md
+deploy_changes.py
+upload_tar.py
+
+# Build artifacts
+*.tar.gz
+
+# Temp browser/captcha dirs
+.temp_playwright/
+fuel captcha/
+login captch/
+
+# ML model files
+*.keras
+
+# Scratch notes
+frontend_apis.txt
+PERSIAN_OCR_USAGE.md
+PROJECT.md
