@@ -354,7 +354,7 @@ class ProxyRotator:
             if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
                 return False
         except ValueError:
-            pass
+            logger.debug("proxy_host_not_an_ip_treating_as_safe", extra={"extra_fields": {"host": host}})
         return True
 
     def add_proxy(self, config: ProxyConfig) -> ProxyInfo:

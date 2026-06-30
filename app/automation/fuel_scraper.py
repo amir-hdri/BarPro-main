@@ -165,7 +165,7 @@ class FuelScraper:
                     try:
                         total_liters += float(liters_str)
                     except ValueError:
-                        pass
+                        logger.debug("fuel_liters_parse_failed_skipping", extra={"extra_fields": {"raw": liters_str}})
             return f"{total_liters:.1f}" if total_liters > 0 else ""
 
         base_quota_sum = parse_liters(base_rows)
