@@ -22,6 +22,8 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    op.execute('SET statement_timeout = 0')
+    op.execute('COMMIT')
     op.execute(
         """
         CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wj_status_priority_created
