@@ -30,6 +30,7 @@ x-backend-common: &backend-common
   build:
     context: ..
     dockerfile: Dockerfile
+    network: host
   restart: unless-stopped
   cap_add: [SYS_ADMIN, NET_ADMIN]
   security_opt: [no-new-privileges:true]
