@@ -79,7 +79,7 @@ services:
     environment:
       <<: *backend-env
       PORT: 8000
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--timeout-keep-alive", "30"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--timeout-keep-alive", "30"]
     # ✅ امنیت: فقط از طریق nginx در دسترس است
     expose: ['8000']
     healthcheck:
