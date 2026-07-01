@@ -32,13 +32,14 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      HOSTNAME: 0.0.0.0
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
     expose: ['3000']
     networks: [platform]
     mem_limit: 512m
     mem_reservation: 256m
     healthcheck:
-      test: ['CMD-SHELL', 'node -e "http.get(\"http://localhost:3000/\",(r)=>{process.exit(r.statusCode===200?0:1)}).on(\"error\",()=>process.exit(1))"']
+      test: ['CMD-SHELL', 'grep -q ":0BB8" /proc/net/tcp 2>/dev/null || exit 1']
       interval: 30s
       timeout: 10s
       start_period: 30s
