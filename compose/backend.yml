@@ -60,6 +60,9 @@ x-backend-common: &backend-common
   extra_hosts:
     - "host.docker.internal:host-gateway"
   volumes:
+    - /opt/barpro/app:/app/app:ro
+    - /opt/barpro/alembic:/app/alembic:ro
+    - /opt/barpro/alembic.ini:/app/alembic.ini:ro
     - /opt/barpro/playwright-browsers:/opt/playwright-browsers
   logging:
     driver: json-file
