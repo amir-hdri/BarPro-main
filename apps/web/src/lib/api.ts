@@ -160,7 +160,7 @@ const axiosClient = createApiClient();
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   data?: T;
   error?: string;
   success?: boolean;
@@ -168,55 +168,60 @@ export interface ApiResponse<T = any> {
 
 // ─── CRUD wrappers ────────────────────────────────────────────────────────────
 
-export async function get<T = any>(
+export async function get<T = unknown>(
   path: string,
   params?: Record<string, string | number | boolean | undefined | null>
 ): Promise<ApiResponse<T>> {
   try {
     const res = await axiosClient.get<T>(path, { params });
     return { data: res.data, success: true };
-  } catch (e: any) {
-    const payload = e?.response?.data ?? e;
+  } catch (e: unknown) {
+    const axiosError = e as { response?: { data?: unknown } };
+    const payload = axiosError?.response?.data ?? e;
     return { error: extractErrorMessage(payload), success: false };
   }
 }
 
-export async function post<T = any>(path: string, body?: any): Promise<ApiResponse<T>> {
+export async function post<T = unknown>(path: string, body?: unknown): Promise<ApiResponse<T>> {
   try {
     const res = await axiosClient.post<T>(path, body);
     return { data: res.data, success: true };
-  } catch (e: any) {
-    const payload = e?.response?.data ?? e;
+  } catch (e: unknown) {
+    const axiosError = e as { response?: { data?: unknown } };
+    const payload = axiosError?.response?.data ?? e;
     return { error: extractErrorMessage(payload), success: false };
   }
 }
 
-export async function put<T = any>(path: string, body?: any): Promise<ApiResponse<T>> {
+export async function put<T = unknown>(path: string, body?: unknown): Promise<ApiResponse<T>> {
   try {
     const res = await axiosClient.put<T>(path, body);
     return { data: res.data, success: true };
-  } catch (e: any) {
-    const payload = e?.response?.data ?? e;
+  } catch (e: unknown) {
+    const axiosError = e as { response?: { data?: unknown } };
+    const payload = axiosError?.response?.data ?? e;
     return { error: extractErrorMessage(payload), success: false };
   }
 }
 
-export async function patch<T = any>(path: string, body?: any): Promise<ApiResponse<T>> {
+export async function patch<T = unknown>(path: string, body?: unknown): Promise<ApiResponse<T>> {
   try {
     const res = await axiosClient.patch<T>(path, body);
     return { data: res.data, success: true };
-  } catch (e: any) {
-    const payload = e?.response?.data ?? e;
+  } catch (e: unknown) {
+    const axiosError = e as { response?: { data?: unknown } };
+    const payload = axiosError?.response?.data ?? e;
     return { error: extractErrorMessage(payload), success: false };
   }
 }
 
-export async function del<T = any>(path: string): Promise<ApiResponse<T>> {
+export async function del<T = unknown>(path: string): Promise<ApiResponse<T>> {
   try {
     const res = await axiosClient.delete<T>(path);
     return { data: res.data, success: true };
-  } catch (e: any) {
-    const payload = e?.response?.data ?? e;
+  } catch (e: unknown) {
+    const axiosError = e as { response?: { data?: unknown } };
+    const payload = axiosError?.response?.data ?? e;
     return { error: extractErrorMessage(payload), success: false };
   }
 }

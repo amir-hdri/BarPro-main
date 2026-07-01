@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import os
 import sys
 import time
 import paramiko
@@ -16,7 +17,7 @@ import paramiko
 # ═══════════════════════════════════════════════════════════════════
 PRIMARY_IP   = "188.121.123.16"
 SSH_USER     = "ubuntu"
-SSH_PASS     = "PLACEHOLDER_SSH_PASSWORD"
+SSH_PASS     = os.environ.get("SSH_PASSWORD", "")
 REMOTE_DIR   = "/opt/barpro"
 DB_NAME      = "utcms_rpa"
 # ═══════════════════════════════════════════════════════════════════

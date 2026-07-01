@@ -79,6 +79,8 @@ class ClientRegisterRequest(BaseModel):
     password: str = Field(..., min_length=8, max_length=100)
     max_drivers: int | None = Field(default=10, ge=1, le=10000)
     max_plates: int | None = Field(default=20, ge=1, le=20000)
+    max_concurrent_tasks: int = Field(default=2, ge=1, le=20)
+    max_daily_tasks: int = Field(default=100, ge=1, le=1000)
     access_level: str | None = Field(default="standard", max_length=50)
     status: str | None = Field(default="active", max_length=20)
 

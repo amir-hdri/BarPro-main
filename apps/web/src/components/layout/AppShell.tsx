@@ -28,19 +28,16 @@ export function AppShell({ children }: AppShellProps) {
           <Sidebar />
         </div>
 
-        {/* Mobile Sidebar Drawer */}
         <div className={`fixed inset-0 z-50 xl:hidden transition-all duration-300 ${mobileOpen ? 'visible pointer-events-auto' : 'invisible pointer-events-none'}`}>
-          {/* Backdrop */}
           <button
             type="button"
             onClick={() => setMobileOpen(false)}
             className={`absolute inset-0 w-full h-full bg-slate-950/40 backdrop-blur-sm transition-opacity duration-300 ${mobileOpen ? 'opacity-100' : 'opacity-0'}`}
             aria-label="close navigation"
           />
-          {/* Sidebar container */}
           <div
             className={`absolute right-4 top-4 h-[calc(100vh-2rem)] w-[min(320px,calc(100vw-2rem))] transition-all duration-300 origin-right ${
-              mobileOpen ? 'opacity-100 translate-x-0 scale-100' : 'opacity-0 translate-x-8 scale-95'
+              mobileOpen ? 'opacity-100 translate-x-0 scale-100' : 'opacity-0 translate-x-full scale-95'
             }`}
           >
             <Sidebar onNavigate={() => setMobileOpen(false)} />

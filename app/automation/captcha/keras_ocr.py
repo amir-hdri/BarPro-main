@@ -1,8 +1,9 @@
 import asyncio
 import logging
-import subprocess
 import os
+import subprocess
 from pathlib import Path
+
 from app.automation.captcha.base import CaptchaProvider, CaptchaResult
 from app.core.config import utcms_config
 
@@ -23,26 +24,26 @@ class KerasOcrCaptchaProvider(CaptchaProvider):
     def _solve_sync(self, image_base64: str) -> CaptchaResult:
         python_path = utcms_config.KERAS_PYTHON_PATH
         model_path = utcms_config.KERAS_MODEL_PATH
-        
+
         # Resolve model path to absolute path if relative
         if not os.path.isabs(model_path):
             model_path = str(Path(os.getcwd()) / model_path)
-            
+
         script_path = str(Path(__file__).parent / "solve_keras.py")
 
         if not os.path.exists(python_path):
             logger.error(f"Keras Python path not found: {python_path}")
             return CaptchaResult(
-                solved=False, 
-                provider="keras_ocr", 
+                solved=False,
+                provider="keras_ocr",
                 error="python_env_not_found"
             )
 
         if not os.path.exists(model_path):
             logger.error(f"Keras model path not found: {model_path}")
             return CaptchaResult(
-                solved=False, 
-                provider="keras_ocr", 
+                solved=False,
+                provider="keras_ocr",
                 error="model_file_not_found"
             )
 
@@ -64,9 +65,9 @@ class KerasOcrCaptchaProvider(CaptchaProvider):
                 text=True,
                 env=env
             )
-            
+
             stdout, stderr = process.communicate(input=image_base64, timeout=15)
-            
+
             if process.returncode != 0:
                 logger.error(f"Keras solver script failed with exit code {process.returncode}: {stderr.strip()}")
                 return CaptchaResult(
@@ -74,7 +75,7 @@ class KerasOcrCaptchaProvider(CaptchaProvider):
                     provider="keras_ocr",
                     error="script_execution_error"
                 )
-                
+
             # Get last non-empty line of stdout to avoid TF/Keras startup logs
             stdout_lines = [line.strip() for line in stdout.splitlines() if line.strip()]
             prediction = stdout_lines[-1] if stdout_lines else ""
@@ -85,14 +86,14 @@ class KerasOcrCaptchaProvider(CaptchaProvider):
                     provider="keras_ocr",
                     error="model_decoding_failed"
                 )
-                
+
             logger.info(f"Keras OCR model successfully solved captcha: {prediction}")
             return CaptchaResult(
                 solved=True,
                 provider="keras_ocr",
                 value=prediction
             )
-            
+
         except subprocess.TimeoutExpired:
             logger.error("Keras solver script timed out after 15 seconds")
             try:

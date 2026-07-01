@@ -224,7 +224,7 @@ class AdminReportingService:
                 count_stmt = count_stmt.where(WaybillJob.created_at < dt)
             if filters.operation_type:
                 count_stmt = count_stmt.where(WaybillJob.source == filters.operation_type)
-            
+
             count_result = await session.exec(count_stmt)
             total = count_result.one()
 

@@ -144,6 +144,21 @@ class SecretsManager:
         if not secrets_to_apply:
             return False
 
+        import os as _os
+
+        if _os.environ.get("ENVIRONMENT", "").lower() == "production":
+            logger.warning(
+                "secrets_apply_skipped_production",
+                extra={
+                    "extra_fields": {
+                        "reason": "ENVIRONMENT=production — refusing to write secrets to .env file; "
+                        "set secrets via environment variables or a secure secrets manager instead.",
+                        "skipped_keys": list(secrets_to_apply.keys()),
+                    }
+                },
+            )
+            return False
+
         try:
             # Read current content
             if self.env_file.exists():

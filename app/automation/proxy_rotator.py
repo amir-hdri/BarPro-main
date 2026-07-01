@@ -6,13 +6,14 @@ and intelligent rotation for maximum anonymity and reliability.
 """
 
 import asyncio
+import contextlib
 import ipaddress
 import json
 import logging
 import random
-import socket
+import threading
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
@@ -230,7 +231,6 @@ class ProxyRotator:
         max_fail_count: int = 3,
         require_iran_ip: bool | None = None,
     ):
-        import sys
 
         if require_iran_ip is None:
             require_iran_ip = False
@@ -245,8 +245,7 @@ class ProxyRotator:
         self.max_fail_count = max_fail_count
         self.require_iran_ip = require_iran_ip
 
-        self._lock = None
-        self._loop = None
+        self._lock = threading.Lock()
         self._health_check_task: asyncio.Task | None = None
         self._running = False
         self._on_proxy_used: Callable[[ProxyInfo], Awaitable[None]] | None = None
@@ -256,13 +255,10 @@ class ProxyRotator:
             f"ProxyRotator initialized with {len(self.proxies)} proxies (require_iran_ip={self.require_iran_ip})"
         )
 
-    @property
-    def lock(self) -> asyncio.Lock:
-        current_loop = asyncio.get_running_loop()
-        if not hasattr(self, "_loop") or self._loop != current_loop or self._lock is None:
-            self._lock = asyncio.Lock()
-            self._loop = current_loop
-        return self._lock
+    @contextlib.asynccontextmanager
+    async def lock(self) -> AsyncIterator[None]:
+        with self._lock:
+            yield
 
     def load_from_list(self, proxy_urls: list[str]) -> int:
         """Load proxies from URL list."""
@@ -414,7 +410,7 @@ class ProxyRotator:
         max_verification_attempts = 3
         for _attempt in range(max_verification_attempts):
             chosen = None
-            async with self.lock:
+            async with self.lock():
                 now = time.time()
 
                 available = []

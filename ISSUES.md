@@ -1,7 +1,10 @@
 # BarPro — Comprehensive Issue Report
 
 **Total: 115 issues** (25 HIGH · 34 MEDIUM · 56 LOW)
-**Generated**: 2026-06-30
+**Generated**: 2026-06-30 · **Last updated**: 2026-07-01
+
+> **2026-07-01 Update**: ~105 of 115 issues resolved. See [REMAINING_WORK.md](./REMAINING_WORK.md) for current status.
+> Remaining: 5 items requiring server-level action, 5 low-priority code items.
 
 ---
 
@@ -519,7 +522,7 @@ if self._redis is None or self._loop != current_loop:
 |-------|-------|
 | **Category** | Security — Credential Leak |
 | **File** | `.agents/orchestrator/handoff.md:53`, `.agents/orchestrator/comprehensive_audit.py:66` |
-| **Code** | `utcms_10c6461a53a0197c821d3cd3515f58b4f6bca2b4d9d7a366d6e3db9274178ccb` |
+| **Code** | `PLACEHOLDER_API_KEY` |
 | **Issue** | A long hex string that appears to be an API key is hardcoded in agent documentation and Python files. |
 | **Fix** | 1. Revoke the API key 2. Replace with placeholder 3. Scan repo for similar patterns |
 
@@ -1420,5 +1423,6 @@ The CI/CD pipeline has no container image scanning (Trivy, Snyk, Docker Scout). 
 
 ---
 
-*Report generated: 2026-06-30 · Issues found: 115 (25 HIGH, 34 MEDIUM, 56 LOW)*
+*Report generated: 2026-06-30 · Last updated: 2026-07-01*
+*Issues found: 115 (25 HIGH, 34 MEDIUM, 56 LOW) — ~105 resolved*
 *Target server: single host, dual IP (188.121.123.16 + 95.38.233.90), 4 vCPU, 12 GB RAM*

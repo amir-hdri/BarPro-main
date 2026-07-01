@@ -3,6 +3,7 @@ import logging
 import random
 import time
 import uuid
+from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi import HTTPException
@@ -21,6 +22,18 @@ from app.schemas.waybill import OperationMode, WaybillMapRequest
 from app.services.session_vault import session_vault
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class BrowserSession:
+    internal_session_id: str
+    context: Any
+    page: Any
+    proxy_info: Any
+    auth_state_key: str
+    auth_state_path: str
+    is_logged_in: bool
+    auth: Any = field(default=None)
 
 
 def _retry_delay_seconds(attempt_number: int) -> float:
@@ -98,83 +111,23 @@ class WaybillService:
             max_attempts = max(1, utcms_config.WAYBILL_MAX_RETRIES + 1)
 
             for attempt in range(1, max_attempts + 1):
-                internal_session_id: str | None = None
-                page = None
-                proxy_info = None
+                session: BrowserSession | None = None
                 started_at = time.perf_counter()
 
                 try:
                     async with waybill_traffic_controller.slot(mode=mode):
-                        await browser_manager.initialize()
-                        request_auth = request.utcms_auth
-                        auth_state_key = session_vault.build_account_key(
-                            username=request_auth.username if request_auth else None,
-                            national_code=request.vehicle.driver_national_code,
-                            fallback=getattr(request.vehicle, "plate", None),
+                        session = await self._create_browser_session(request)
+                        waybill_payload = self._build_waybill_payload(request)
+
+                        manager_result = await self._solve_waybill_captcha(
+                            session.page, session.context, waybill_payload, dry_run,
                         )
-                        auth_state_path = session_vault.auth_state_path_for_account(
-                            username=request_auth.username if request_auth else None,
-                            national_code=request.vehicle.driver_national_code,
-                            fallback=getattr(request.vehicle, "plate", None),
-                        )
-                        proxy_info = await get_proxy_rotator().get_next()
-                        proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
-                        internal_session_id, context = await browser_manager.create_context(
-                            auth_state_path=auth_state_path, proxy_dict=proxy_dict
-                        )
-                        page = await browser_manager.new_page(context)
-
-                        from app.automation.auth import UTCMSAuthenticator
-                        from app.automation.waybill_enhanced import EnhancedWaybillManager
-
-                        auth = UTCMSAuthenticator(page, context)
-                        login_url = None
-                        if request_auth and request_auth.login_url:
-                            login_url = request_auth.login_url.strip() or None
-
-                        is_logged_in = await auth._is_logged_in()
-
-                        if not is_logged_in:
-                            username = (request_auth.username if request_auth else "").strip()
-                            password = (request_auth.password if request_auth else "").strip()
-
-                            if not username or not password:
-                                raise HTTPException(
-                                    status_code=401,
-                                    detail="اطلاعات ورود UTCMS باید به صورت صریح در درخواست ارسال شود",
-                                )
-
-                            login_success = await auth.login(
-                                username,
-                                password,
-                                login_url=login_url,
-                            )
-                            if not login_success:
-                                if auth.last_error and is_retryable_network_error(auth.last_error):
-                                    raise HTTPException(
-                                        status_code=503,
-                                        detail=f"اتصال به سامانه بارنامه ناموفق بود: {auth.last_error}",
-                                    )
-
-                                detail = "خطا در ورود به سامانه بارنامه"
-                                if auth.last_error:
-                                    detail = f"{detail}: {auth.last_error}"
-                                raise HTTPException(status_code=401, detail=detail)
-
-                            await browser_manager.save_auth_state(context, auth_state_path=auth_state_path)
-                        else:
-                            await browser_manager.save_auth_state(context, auth_state_path=auth_state_path)
-
-                        manager = EnhancedWaybillManager(page, context)
-                        manager_result = await manager.create_waybill_with_map(
-                            self._build_waybill_payload(request),
-                            dry_run=dry_run,
-                        )
+                        await self._inject_map_into_page(session.page, waybill_payload)
 
                         latency_ms = (time.perf_counter() - started_at) * 1000
                         await report_service.record_success(mode=mode, latency_ms=latency_ms)
-                        if proxy_info:
-                            proxy_info.record_waybill_result(success=True, latency=latency_ms / 1000.0)
+                        if session.proxy_info:
+                            session.proxy_info.record_waybill_result(success=True, latency=latency_ms / 1000.0)
 
                         if manager_result.get("origin_method") == "map":
                             map_type = (
@@ -189,57 +142,33 @@ class WaybillService:
                             correlation_id=correlation_id,
                             mode=mode,
                             manager_result=manager_result,
-                            auth_state_key=auth_state_key,
-                            session_reused=is_logged_in,
+                            auth_state_key=session.auth_state_key,
+                            session_reused=session.is_logged_in,
                             preflight=preflight,
                         )
 
                 except HTTPException as exc:
-                    if proxy_info:
-                        proxy_info.record_waybill_result(
-                            success=False, latency=time.perf_counter() - started_at, error=str(exc)
-                        )
+                    self._record_proxy_failure(session, started_at, exc)
                     is_temporary = exc.status_code in (429, 503)
                     if is_temporary and attempt < max_attempts:
                         await waybill_traffic_controller.mark_temporary_block(multiplier=2.0)
                         await asyncio.sleep(_retry_delay_seconds(attempt))
                         continue
 
-                    await report_service.record_failure(
-                        mode=mode,
-                        category=self._categorize_http_exception(exc),
-                    )
-                    if page:
-                        await failure_artifact_service.capture_failure_bundle(
-                            page,
-                            error=exc,
-                            stage="waybill_http_exception",
-                            metadata={"mode": mode, "attempt": attempt},
-                        )
+                    await report_service.record_failure(mode=mode, category=self._categorize_http_exception(exc))
+                    await self._capture_failure(session, exc, "waybill_http_exception", {"mode": mode, "attempt": attempt})
                     raise
 
                 except WaybillError as exc:
-                    if proxy_info:
-                        proxy_info.record_waybill_result(
-                            success=False, latency=time.perf_counter() - started_at, error=str(exc)
-                        )
+                    self._record_proxy_failure(session, started_at, exc)
                     retryable = is_retryable_network_error(exc)
                     if retryable and attempt < max_attempts:
                         await waybill_traffic_controller.mark_temporary_block(multiplier=1.0)
                         await asyncio.sleep(_retry_delay_seconds(attempt))
                         continue
 
-                    await report_service.record_failure(
-                        mode=mode,
-                        category="network" if retryable else "form",
-                    )
-                    if page:
-                        await failure_artifact_service.capture_failure_bundle(
-                            page,
-                            error=exc,
-                            stage="waybill_error",
-                            metadata={"mode": mode, "attempt": attempt},
-                        )
+                    await report_service.record_failure(mode=mode, category="network" if retryable else "form")
+                    await self._capture_failure(session, exc, "waybill_error", {"mode": mode, "attempt": attempt})
                     if retryable:
                         raise HTTPException(
                             status_code=503,
@@ -249,19 +178,13 @@ class WaybillService:
                     raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
                 except Exception as exc:
-                    if proxy_info:
-                        proxy_info.record_waybill_result(
-                            success=False, latency=time.perf_counter() - started_at, error=str(exc)
-                        )
+                    self._record_proxy_failure(session, started_at, exc)
                     if _is_retryable_exception(exc) and attempt < max_attempts:
                         await waybill_traffic_controller.mark_temporary_block(multiplier=1.0)
                         await asyncio.sleep(_retry_delay_seconds(attempt))
                         continue
 
-                    await report_service.record_failure(
-                        mode=mode,
-                        category=classify_exception(exc)[0].value,
-                    )
+                    await report_service.record_failure(mode=mode, category=classify_exception(exc)[0].value)
                     logger.exception(
                         "create_waybill_with_map_failed",
                         extra={
@@ -273,48 +196,137 @@ class WaybillService:
                             }
                         },
                     )
-                    if page:
-                        category, retryable = classify_exception(exc)
-                        await failure_artifact_service.capture_failure_bundle(
-                            page,
-                            error=exc,
-                            stage="waybill_unhandled_exception",
-                            metadata={
-                                "mode": mode,
-                                "attempt": attempt,
-                                "category": category.value,
-                                "retryable": retryable,
-                            },
-                        )
+                    category, retryable = classify_exception(exc)
+                    await self._capture_failure(
+                        session, exc, "waybill_unhandled_exception",
+                        {"mode": mode, "attempt": attempt, "category": category.value, "retryable": retryable},
+                    )
                     raise HTTPException(status_code=500, detail="خطای داخلی سرور در ثبت بارنامه") from exc
 
                 finally:
-                    if page:
-                        try:
-                            await page.close()
-                        except Exception:
-                            logger.warning(
-                                "page_close_failed",
-                                extra={"extra_fields": {"request_id": request_id}},
-                            )
-
-                    if internal_session_id:
-                        try:
-                            await browser_manager.close_context(internal_session_id)
-                        except Exception:
-                            logger.warning(
-                                "context_close_failed",
-                                extra={
-                                    "extra_fields": {
-                                        "request_id": request_id,
-                                        "session_id": internal_session_id,
-                                    }
-                                },
-                            )
+                    if session:
+                        await self._cleanup_browser_session(session, request_id)
 
             raise HTTPException(status_code=500, detail="خطای داخلی سرور در ثبت بارنامه")
         finally:
             reset_execution_context(execution_tokens)
+
+    @staticmethod
+    def _record_proxy_failure(session: BrowserSession | None, started_at: float, error: Exception) -> None:
+        if session and session.proxy_info:
+            session.proxy_info.record_waybill_result(
+                success=False, latency=time.perf_counter() - started_at, error=str(error),
+            )
+
+    @staticmethod
+    async def _capture_failure(
+        session: BrowserSession | None, error: Exception, stage: str, metadata: dict,
+    ) -> None:
+        if session and session.page:
+            await failure_artifact_service.capture_failure_bundle(
+                session.page, error=error, stage=stage, metadata=metadata,
+            )
+
+    async def _create_browser_session(self, request: WaybillMapRequest) -> BrowserSession:
+        await browser_manager.initialize()
+        request_auth = request.utcms_auth
+        auth_state_key = session_vault.build_account_key(
+            username=request_auth.username if request_auth else None,
+            national_code=request.vehicle.driver_national_code,
+            fallback=getattr(request.vehicle, "plate", None),
+        )
+        auth_state_path = session_vault.auth_state_path_for_account(
+            username=request_auth.username if request_auth else None,
+            national_code=request.vehicle.driver_national_code,
+            fallback=getattr(request.vehicle, "plate", None),
+        )
+        proxy_info = await get_proxy_rotator().get_next()
+        proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
+        internal_session_id, context = await browser_manager.create_context(
+            auth_state_path=auth_state_path, proxy_dict=proxy_dict
+        )
+        page = await browser_manager.new_page(context)
+
+        from app.automation.auth import UTCMSAuthenticator
+
+        auth = UTCMSAuthenticator(page, context)
+        login_url = None
+        if request_auth and request_auth.login_url:
+            login_url = request_auth.login_url.strip() or None
+
+        is_logged_in = await auth._is_logged_in()
+
+        if not is_logged_in:
+            username = (request_auth.username if request_auth else "").strip()
+            password = (request_auth.password if request_auth else "").strip()
+
+            if not username or not password:
+                raise HTTPException(
+                    status_code=401,
+                    detail="اطلاعات ورود UTCMS باید به صورت صریح در درخواست ارسال شود",
+                )
+
+            login_success = await auth.login(username, password, login_url=login_url)
+            if not login_success:
+                if auth.last_error and is_retryable_network_error(auth.last_error):
+                    raise HTTPException(
+                        status_code=503,
+                        detail=f"اتصال به سامانه بارنامه ناموفق بود: {auth.last_error}",
+                    )
+                detail = "خطا در ورود به سامانه بارنامه"
+                if auth.last_error:
+                    detail = f"{detail}: {auth.last_error}"
+                raise HTTPException(status_code=401, detail=detail)
+
+            await browser_manager.save_auth_state(context, auth_state_path=auth_state_path)
+        else:
+            await browser_manager.save_auth_state(context, auth_state_path=auth_state_path)
+
+        return BrowserSession(
+            internal_session_id=internal_session_id,
+            context=context,
+            page=page,
+            proxy_info=proxy_info,
+            auth_state_key=auth_state_key,
+            auth_state_path=auth_state_path,
+            is_logged_in=is_logged_in,
+            auth=auth,
+        )
+
+    async def _solve_waybill_captcha(
+        self, page, context, waybill_payload: dict, dry_run: bool,
+    ) -> dict[str, Any]:
+        from app.automation.waybill_enhanced import EnhancedWaybillManager
+
+        manager = EnhancedWaybillManager(page, context)
+        return await manager.create_waybill_with_map(waybill_payload, dry_run=dry_run)
+
+    async def _inject_map_into_page(self, page, waybill_data: dict) -> None:
+        pass
+
+    @staticmethod
+    async def _cleanup_browser_session(session: BrowserSession, request_id: str) -> None:
+        if session.page:
+            try:
+                await session.page.close()
+            except Exception:
+                logger.warning(
+                    "page_close_failed",
+                    extra={"extra_fields": {"request_id": request_id}},
+                )
+        if session.internal_session_id:
+            try:
+                await browser_manager.close_context(session.internal_session_id)
+            except Exception:
+                logger.warning(
+                    "context_close_failed",
+                    extra={
+                        "extra_fields": {
+                            "request_id": request_id,
+                            "session_id": session.internal_session_id,
+                        }
+                    },
+                )
 
     @staticmethod
     def _resolve_operation_mode(request: WaybillMapRequest) -> str:

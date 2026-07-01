@@ -7,12 +7,14 @@ This module provides:
 3. `AsyncCircuitBreaker`: In-memory circuit breaker pattern for external service isolation.
 """
 
-import os
-import logging
-import redis
 import asyncio
+import logging
+import os
 import time
 from dataclasses import dataclass
+
+import redis
+
 from app.core.config import utcms_config
 from app.core.redis_client import redis_manager
 
@@ -125,6 +127,17 @@ class AsyncCircuitBreaker:
 
 logger = logging.getLogger(__name__)
 
+# Cached synchronous Redis client for get_next_ip_index_sync
+_redis_sync_client: "redis.Redis | None" = None
+
+
+def _get_redis_sync() -> "redis.Redis":
+    global _redis_sync_client
+    if _redis_sync_client is None:
+        _redis_sync_client = redis.Redis.from_url(utcms_config.REDIS_URL, decode_responses=True)
+    return _redis_sync_client
+
+
 # Typical block or network/timeout indicators from UTCMS
 IP_BLOCK_PATTERNS = [
     "blocked",
@@ -184,23 +197,22 @@ def get_next_ip_index_sync() -> int:
     """
     available_indices = get_available_ip_indices()
     try:
-        # Create a synchronous connection to avoid blocking inside Celery dispatch
-        r = redis.Redis.from_url(utcms_config.REDIS_URL, decode_responses=True)
-        
+        r = _get_redis_sync()
+
         # Check blocked keys in Redis
         healthy_ips = []
         for i in available_indices:
             if not r.exists(f"utcms:circuit_breaker:blocked:{i}"):
                 healthy_ips.append(i)
-        
+
         if not healthy_ips:
             logger.warning(f"All IP addresses are currently blocked! Falling back to all {available_indices}")
             healthy_ips = available_indices
 
         # Increment global counter
         counter = r.incr("utcms:dispatcher:counter")
-        # Select IP
-        selected_ip = healthy_ips[counter % len(healthy_ips)]
+        # Select IP (safe: healthy_ips has at least one entry from fallback above)
+        selected_ip = healthy_ips[counter % max(len(healthy_ips), 1)]
         return selected_ip
     except Exception as exc:
         logger.error(f"Failed to get next IP index from Redis (sync): {exc}")
@@ -212,7 +224,8 @@ def get_routed_queue(base_queue: str) -> str:
     Suffix the base queue with a healthy IP index (e.g. waybill_tasks_2).
     """
     # Exclude system queues that shouldn't be partitioned
-    if base_queue in ["rpa_scheduler", "scheduled_tasks"] and not base_queue.startswith("scheduled_tasks"):
+    EXEMPT_QUEUES = {"rpa_scheduler", "scheduled_tasks"}
+    if base_queue in EXEMPT_QUEUES:
         return base_queue
 
     ip_index = get_next_ip_index_sync()

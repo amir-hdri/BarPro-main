@@ -1,6 +1,6 @@
 # BarPro — Remaining Work Checklist (Agent-Friendly)
 
-> ✅ = Done (2026-06-30) · ⬜ = Still needs doing
+> ✅ = Done (2026-07-01) · ⬜ = Still needs doing · ❌ = Blocked / Skipped
 
 ---
 
@@ -574,7 +574,7 @@ async def report_pool_stats():
 
 ---
 
-## Current Status (2026-06-30)
+## Current Status (2026-07-01)
 
 | Phase | Items | Status |
 |-------|-------|--------|
@@ -582,18 +582,21 @@ async def report_pool_stats():
 | Phase 1 — Security | credential rotation, purge .env, HTTPS, privileged, network_mode, etc. | ✅ **Done** (code changes) + ⬜ **Rotate actual server password manually + HTTPS cert** |
 | Phase 2 — Stability | except:pass, rate limiting, Fernet, Redis password, config, .env.example | ✅ **Done** (8/8 items) |
 | Phase 3 — Code Quality | Event hub race, isawaitable, proxy logging, CI/CD secrets, etc. | ✅ **Done** (10/10 items) |
-| Phase 4 — Security (safe) | privileged→cap_add, Prometheus, JWT, CORS, path traversal, SSRF, HTTPS config, national code, WaybillEnhanced except fix | ✅ **Done** (12/12 items) |
+| Phase 4 — Security (safe) | privileged->cap_add, Prometheus, JWT, CORS, path traversal, SSRF, HTTPS config, national code, WaybillEnhanced except fix | ✅ **Done** (12/12 items) |
 | Phase 4 — Verification | All fixes verified by python3 AST parse | ✅ **Done** |
-| **Post-apply verification** | 3 bugs found + fixed (waybill_worker engine.dispose, browser recycle threshold 5→20, waybill_worker silent except) | ✅ **Done** |
+| **Post-apply verification** | 3 bugs found + fixed (waybill_worker engine.dispose, browser recycle threshold 5->20, waybill_worker silent except) | ✅ **Done** |
+| **Phase 5 (2026-07-01)** | SSH passwords removed from scripts, `ENVIRONMENT` field added, index-as-key fixed, console.error wrapper, `__init__.py` added to tests, ruff autofix run | ✅ **Done** |
 
 ### Still Remaining (requires user action or DB access):
-1. 🔴 **Rotate SSH password** on server `188.121.123.16` — change from `Amaterasoo1` to new password; update `PLACEHOLDER_SSH_PASSWORD` if needed
-2. 🔴 **Install Let's Encrypt cert** → uncomment HTTPS block in nginx.conf
-3. 🟡 **Run `alembic upgrade head`** on production DB (or run index SQL directly from AGENTS.md)
-4. 🟢 **`bash manage.sh deploy`** to pull and redeploy with all optimizations
+1. 🔴 **Install Let's Encrypt cert** → uncomment HTTPS block in nginx.conf:75-90 and `compose/web.yml:65,69`
+2. 🟡 **Run `alembic upgrade head`** on production DB (or `bash manage.sh migrate`)
+3. 🟡 **`sudo bash scripts/secure_squid_ports.sh`** to lock down Squid 3129/3130 ports
+4. 🟡 **Add to crontab**: `@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh`
+5. 🟡 **`bash manage.sh deploy`** to pull and redeploy with all optimizations
+6. 🔴 **JWT localStorage -> httpOnly cookie** — requires 4-8 hour frontend refactor
 
 ### Skipped / Blocked:
-- `network_mode: host` removal from Squid — would break dual-IP routing. Use iptables instead: `iptables -A INPUT -p tcp --dport 3129 -j DROP` (and 3130)
+- `network_mode: host` removal from Squid — would break dual-IP routing. Use iptables instead (script at `scripts/secure_squid_ports.sh`)
 - `run_migrations()` dead code — marked as intentional in deploy.sh
 
 ---

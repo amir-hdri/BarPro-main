@@ -55,6 +55,10 @@ if celery_app is not None:
             "latency_ms": result.latency_ms,
         }
 
+    @celery_app.task(name="rpa.session.keepalive")
+    def keepalive_sessions():
+        return _run(rpa_auth_service.keepalive_sessions())
+
 
 # ==================== SCHEDULED WAYBILL EXECUTION TASKS ====================
 from app.services.scheduled_waybill_executor import (

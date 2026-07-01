@@ -2,9 +2,8 @@ import asyncio
 import logging
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, Response
-from app.core.security import require_sensitive_auth
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
@@ -13,6 +12,7 @@ from app.automation.captcha import barname_ml_solver, captcha_engine
 from app.core.config import utcms_config
 from app.core.database import engine
 from app.core.recovery import recovery_manager
+from app.core.security import require_sensitive_auth
 from app.core.worker_heartbeat import worker_heartbeat_registry
 from app.monitoring.metrics import (
     METRICS_CONTENT_TYPE,

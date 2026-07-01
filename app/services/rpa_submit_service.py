@@ -145,8 +145,17 @@ class RPAHttpSubmitService:
                 return await self._mark_daily_limit(session, job, driver, runtime_state, counter, success_limit=False)
 
             lock_key = rpa_runtime.submit_lock_key(client_id, job.driver_id)
-            if not await rpa_runtime.acquire_lock(lock_key, utcms_config.RPA_LOCK_TTL_SECONDS):
-                raise RuntimeError("submit_already_in_progress")
+            lock_acquired = False
+            lock_acquired = await rpa_runtime.acquire_lock(lock_key, utcms_config.RPA_LOCK_TTL_SECONDS)
+            if not lock_acquired:
+                return SubmitExecutionResult(
+                    classification=SubmitClassification(
+                        outcome=SubmitOutcome.TRANSIENT_FAILURE,
+                        reason_code="submit_already_in_progress",
+                        retryable=True,
+                    ),
+                    latency_ms=0,
+                )
 
             session_bundle = session_bundle_override or await rpa_runtime.get_session(client_id, job.driver_id)
             if session_bundle is None:
@@ -354,7 +363,7 @@ class RPAHttpSubmitService:
                     )
                 raise
         finally:
-            if "driver" in locals() and getattr(driver, "id", None):
+            if lock_acquired and "driver" in locals() and getattr(driver, "id", None):
                 await rpa_runtime.release_lock(rpa_runtime.submit_lock_key(client_id, driver.id))
             await session.close()
 
@@ -445,13 +454,13 @@ class RPAHttpSubmitService:
                 success = res.classification.outcome == SubmitOutcome.SUCCESS
                 latency = time.perf_counter() - start
                 proxy_info.record_waybill_result(success=success, latency=latency, error=res.classification.message)
-            
+
             if res.classification.outcome == SubmitOutcome.SUCCESS:
                 await browser_manager.record_success_for_recycle()
             else:
                 from app.core.circuit_breaker import check_and_report_failure
                 await check_and_report_failure(res.classification.message)
-                
+
             return res
         except WaybillError as exc:
             latency_ms = int((time.perf_counter() - start) * 1000)
@@ -664,7 +673,11 @@ class RPAHttpSubmitService:
 def classify_submit_response(status_code: int, body: str) -> SubmitClassification:
     lowered = (body or "").lower()
     excerpt = (body or "")[:1000]
-    if status_code in {200, 201} and "success" in lowered:
+    persian_body = body or ""
+    # Persian success indicators from UTCMS portal
+    _ps_tokens = ("موفق", "ثبت شد", "کد پیگیری", "شماره پیگیری", "انجام شد", "تایید")
+    persian_success = any(t in persian_body for t in _ps_tokens)
+    if status_code in {200, 201} and ("success" in lowered or persian_success):
         return SubmitClassification(
             SubmitOutcome.SUCCESS, "portal_success", False, status_code, response_excerpt=excerpt
         )

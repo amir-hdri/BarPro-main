@@ -46,7 +46,7 @@ engine = create_async_engine(utcms_config.DATABASE_URL, **engine_kwargs)
 async_session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
-def _get_alembic_config() -> Config:
+def _get_alembic_config() -> "Config":
     """Get Alembic configuration with current database URL."""
     project_root = Path(__file__).resolve().parent.parent.parent
     alembic_ini_path = project_root / "alembic.ini"
@@ -96,6 +96,7 @@ async def run_migrations() -> None:
 
     try:
         from alembic.config import Config
+
         from alembic import command
 
         alembic_ini_path = os.path.join(os.path.dirname(__file__), "..", "..", "alembic.ini")

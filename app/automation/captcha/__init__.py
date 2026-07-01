@@ -7,8 +7,8 @@ from app.automation.captcha.base import CaptchaProvider, CaptchaResult
 from app.automation.captcha.cnn_provider import CnnCaptchaProvider
 from app.automation.captcha.engine import CaptchaEngine, captcha_engine
 from app.automation.captcha.enhanced_ocr import EnhancedOcrProvider
-from app.automation.captcha.local_ocr import LocalOcrCaptchaProvider
 from app.automation.captcha.keras_ocr import KerasOcrCaptchaProvider
+from app.automation.captcha.local_ocr import LocalOcrCaptchaProvider
 from app.core.config import utcms_config
 
 _provider_lock = Lock()

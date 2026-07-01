@@ -31,8 +31,10 @@ def _bootstrap_environment() -> dict[str, str]:
     return generated
 
 
-def _to_bool(value: str, default: bool = False) -> bool:
+def _to_bool(value: str | None, default: bool = False, required: bool = False) -> bool:
     if value is None:
+        if required:
+            raise ValueError("Missing required boolean environment variable (no default)")
         return default
     return value.strip().lower() == "true"
 
@@ -45,7 +47,7 @@ class UTCMSConfig:
         )
         self.BASE_URL = os.getenv("BASE_URL", "https://barname.utcms.ir")
         self.LOGIN_URL = os.getenv("LOGIN_URL", f"{self.BASE_URL.rstrip('/')}/Barname/Account/Login")
-        self.HEADLESS = _to_bool(os.getenv("HEADLESS"), default=False)
+        self.HEADLESS = _to_bool(os.getenv("HEADLESS"), default=True, required=True)
 
         self.UTCMS_USERNAME = os.getenv("UTCMS_USERNAME", "")
         self.UTCMS_PASSWORD = os.getenv("UTCMS_PASSWORD", "")
@@ -56,6 +58,12 @@ class UTCMSConfig:
         self.UTCMS_MANUAL_CAPTCHA_POLL_SECONDS = float(os.getenv("UTCMS_MANUAL_CAPTCHA_POLL_SECONDS", "0.7"))
         self.CAPTCHA_MODE = os.getenv("CAPTCHA_MODE", "provider_only").strip().lower()
         self.CAPTCHA_PROVIDER = os.getenv("CAPTCHA_PROVIDER", "auto").strip().lower()
+        _valid_captcha_providers = {"auto", "ensemble", "cnn", "keras_ocr", "enhanced_ocr", "local_ocr", "off"}
+        if self.CAPTCHA_PROVIDER not in _valid_captcha_providers:
+            raise ValueError(
+                f"Invalid CAPTCHA_PROVIDER '{self.CAPTCHA_PROVIDER}'. "
+                f"Must be one of: {', '.join(sorted(_valid_captcha_providers))}"
+            )
         self.TWOCAPTCHA_API_KEY = os.getenv("TWOCAPTCHA_API_KEY", "").strip()
         self.CAPTCHA_TIMEOUT_SECONDS = int(os.getenv("CAPTCHA_TIMEOUT_SECONDS", "120"))
         self.CAPTCHA_POLL_SECONDS = float(os.getenv("CAPTCHA_POLL_SECONDS", "5"))
@@ -95,7 +103,7 @@ class UTCMSConfig:
         ).strip()
         self.KERAS_MODEL_PATH = os.getenv(
             "KERAS_MODEL_PATH",
-            "persian_captcha_ocr_model.keras",
+            "persian_number_ocr.keras",
         ).strip()
 
         self.AUTH_STATE_PATH = os.getenv("AUTH_STATE_PATH", ".auth/utcms_state.json")
@@ -104,7 +112,6 @@ class UTCMSConfig:
         self.API_AUTH_MODE = os.getenv("API_AUTH_MODE", "api_key_or_jwt").lower()
         self.API_KEY_HEADER = os.getenv("API_KEY_HEADER", "X-API-Key")
         self.API_KEY = os.getenv("API_KEY", "")
-        self.JWT_SECRET = os.getenv("JWT_SECRET", "")
         self.JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
         self.JWT_AUDIENCE = os.getenv("JWT_AUDIENCE", "")
         self.JWT_ISSUER = os.getenv("JWT_ISSUER", "")
@@ -112,10 +119,14 @@ class UTCMSConfig:
         self.MASTER_ADMIN_USERNAME = os.getenv("MASTER_ADMIN_USERNAME", "").strip() or "admin"
         self.MASTER_ADMIN_PASSWORD = os.getenv("MASTER_ADMIN_PASSWORD", "").strip()
         if not self.MASTER_ADMIN_PASSWORD:
-            raise RuntimeError(
+            from app.core.exceptions import ErrorCode, UTCMSException
+
+            raise UTCMSException(
                 "MASTER_ADMIN_PASSWORD is not set. "
                 "This environment variable is required — no default value is allowed. "
-                "Set a strong, unique password before starting the service."
+                "Set a strong, unique password before starting the service.",
+                error_code=ErrorCode.INTERNAL_CONFIG_ERROR,
+                status_code=500,
             )
 
         self.ALLOW_LIVE_SUBMIT = _to_bool(os.getenv("ALLOW_LIVE_SUBMIT", "False"), default=False)
@@ -147,11 +158,12 @@ class UTCMSConfig:
         # Browser route interceptor settings
         self.BLOCK_MAP_TILES = _to_bool(os.getenv("BLOCK_MAP_TILES", "True"), default=True)
 
+        self.ENVIRONMENT = os.getenv("ENVIRONMENT", "development").strip().lower()
         self.DATABASE_URL = os.getenv("DATABASE_URL", "")
         if not self.DATABASE_URL or "sqlite" in self.DATABASE_URL.lower():
             is_prod = (
                 os.getenv("NODE_ENV", "").lower() == "production"
-                or os.getenv("ENVIRONMENT", "").lower() == "production"
+                or self.ENVIRONMENT == "production"
             )
             if is_prod:
                 from app.core.exceptions import ErrorCode, UTCMSException
@@ -167,7 +179,7 @@ class UTCMSConfig:
 
                 logging.warning("DATABASE_URL not set, using default SQLite database for development.")
                 self.DATABASE_URL = "sqlite+aiosqlite:///./bot_stats.db"
-        self.POSTGRES_DSN = os.getenv("POSTGRES_DSN", "").strip()
+        # self.POSTGRES_DSN = os.getenv("POSTGRES_DSN", "").strip()  # unused — kept as reference
 
         self.QUEUE_ENABLED = _to_bool(os.getenv("QUEUE_ENABLED", "False"), default=False)
         self.QUEUE_INLINE_FALLBACK = _to_bool(os.getenv("QUEUE_INLINE_FALLBACK", "True"), default=True)
@@ -196,6 +208,8 @@ class UTCMSConfig:
         self.CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS = int(os.getenv("CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS", "2"))
 
         self.FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").strip()
+        self.FRONTEND_URLS = os.getenv("FRONTEND_URLS", "").strip()
+        self.FRONTEND_URL_ALT = os.getenv("FRONTEND_URL_ALT", "").strip()
 
         self.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
         self.LATENCY_SAMPLE_MAX = int(os.getenv("LATENCY_SAMPLE_MAX", "2000"))

@@ -224,7 +224,7 @@ docker compose -f compose/monitoring.yml up  # Prometheus only
 | Page | Solver | Model | Provider Name |
 |------|--------|-------|---------------|
 | **Login** (math: "2+3") | PyTorch CNN | `app/automation/captcha/assets/captcha_cnn.pth` | `cnn` |
-| **Fuel Inquiry** (text/numeric) | Keras OCR | `persian_captcha_ocr_model.keras` (project root) | `keras_ocr` |
+| **Fuel Inquiry** (text/numeric) | Keras OCR | `persian_number_ocr.keras` (project root) | `keras_ocr` |
 
 Default `CAPTCHA_PROVIDER=auto` tries CNN → Keras → Enhanced → Local in sequence.
 
@@ -242,6 +242,13 @@ The following optimizations have been implemented in this codebase:
 | Event loop per worker process (not per task) | `workers/tasks.py:4-15` | No event loop churn on 4 vCPU |
 | `_run_async` no longer creates ThreadPoolExecutor per call | `workers/tasks.py:16-27` | No thread churn |
 | `NullPool` replaced with `AsyncAdaptedQueuePool(2,2)` | `core/database.py` | Connection reuse across tasks |
+| `React.memo` on table rows/cards | `fuel/page.tsx` | No full re-render on every state tick |
+| WebSocket event buffer capped at 100 | `useWaybillJob.ts:65` | No linear memory growth on long-lived connections |
+| Aggressive 3s polling → MAX_POLLS=60 | `fuel/page.tsx:151` | Stuck jobs stop after 3 min, not forever |
+| `client_max_body_size` 50m → 10m | `http-server.conf:9` | 40 MB nginx memory saved per upload |
+| Rate-limit zones 20m → 10m (×3) | `nginx.conf:48-50` | 30 MB nginx shared memory saved |
+| Chromium V8 heap capped at 1 GB | `browser.py:251` | No unbounded JS heap growth |
+| WebSocket send moved outside asyncio.Lock | `events.py:46-59` | No blocking concurrent publishes |
 
 ### Memory / Stability
 | Change | File | Impact |
@@ -249,7 +256,7 @@ The following optimizations have been implemented in this codebase:
 | Page listeners removed on page close | `automation/browser.py:463-465` | No listener leak over 1000+ pages |
 | Timeouts added to all browser close operations | `automation/browser.py:139-176` | No hang on context/browser close |
 | `except: pass` replaced with logging in recycle_browser | `automation/browser.py:139-176` | Errors visible in logs |
-| Container resource limits added (all services) | `compose/*.yml` | No OOM risk on 12 GB |
+| Container resource limits tuned for 12 GB | `compose/*.yml` | Total 10.5 GB limits, 1.5 GB headroom |
 | Queue routing: scheduler moved to Worker 3 | `compose/backend.yml:107,173` | Worker 1 not blocked by scheduler |
 
 ### Database
@@ -273,20 +280,20 @@ ON waybill_jobs (status) INCLUDE (id);
 
 ## Memory Budget (12 GB RAM)
 
-| Container | Limit | Reservation |
-|-----------|-------|-------------|
-| PostgreSQL | 1 GB | 512 MB |
-| Redis | 512 MB | 256 MB |
-| Backend API | 512 MB | 256 MB |
-| Celery Worker 1 | 3 GB | 2 GB |
-| Celery Worker 2 | 3 GB | 2 GB |
-| Celery Worker 3 | 3 GB | 2 GB |
-| Celery Beat | 256 MB | 128 MB |
-| Frontend (Next.js) | 512 MB | 256 MB |
-| Nginx | 256 MB | 128 MB |
-| Squid ×3 | 256 MB each | 128 MB each |
-| Prometheus | 512 MB | 256 MB |
-| **Total** | **~12.8 GB** | **~8.9 GB** |
+| Container | Limit | Reservation | shm_size |
+|-----------|-------|-------------|----------|
+| PostgreSQL | 1 GB | 512 MB | — |
+| Redis | 256 MB | 128 MB | — |
+| Backend API | 256 MB | 128 MB | 256 MB |
+| Celery Worker 1 | 2.5 GB | 2 GB | 512 MB |
+| Celery Worker 2 | 2.5 GB | 2 GB | 512 MB |
+| Celery Worker 3 | 2.5 GB | 2 GB | 512 MB |
+| Celery Beat | 128 MB | 64 MB | — |
+| Frontend (Next.js) | 512 MB | 256 MB | — |
+| Nginx | 256 MB | 128 MB | — |
+| Squid ×3 | 128 MB each | 64 MB each | — |
+| Prometheus | 256 MB | 128 MB | — |
+| **Total limits** | **~10.5 GB** ← fits in 12 GB with ~1.5 GB headroom | | |
 
 ## Priority Fixes for Server Deployment (see ISSUES.md for full list)
 
@@ -294,7 +301,7 @@ ON waybill_jobs (status) INCLUDE (id);
 
 | # | Fix | Status |
 |---|-----|--------|
-| 1 | Rotate leaked credentials (`PLACEHOLDER_SSH_PASSWORD` in code) | ✅ `Amaterasoo1` → `PLACEHOLDER_SSH_PASSWORD` (rotate actual server password yourself) |
+| 1 | Rotate leaked credentials (`PLACEHOLDER_SSH_PASSWORD` in code) | ✅ Previous leaked password → `PLACEHOLDER_SSH_PASSWORD` (rotate actual server password yourself) |
 | 2 | Purge `.env` from git history | ✅ `git filter-repo` done — `.env` and `celerybeat-schedule.db` removed from all commits |
 | 3 | Fix `zod/v4` import → `zod` | ✅ `apps/web/src/schemas/waybillSchema.ts:1` |
 | 4 | Fix `ArrowLeftOnRectangleIcon` | ✅ `apps/web/src/components/layout/Header.tsx:3` |
@@ -324,11 +331,26 @@ ON waybill_jobs (status) INCLUDE (id);
 | New: `scripts/secure_squid_ports.sh` — iptables for Squid 3129/3130 | `scripts/secure_squid_ports.sh` |
 
 ### Remaining User Actions (server-level, cannot automate)
-1. **Rotate SSH password** on server `188.121.123.16` — currently `Amaterasoo1` in server's passwd, change it
-2. **Install Let's Encrypt cert** → uncomment `listen 443` + `ssl` volume in `compose/web.yml`, then `bash manage.sh deploy`
-3. **Run `bash manage.sh migrate`** on production DB (or just `bash manage.sh deploy` which auto-runs it)
-4. **Run `sudo bash scripts/secure_squid_ports.sh`** to lock down Squid 3129/3130
+1. **Install Let's Encrypt cert** → uncomment `listen 443` + `ssl` volume in `compose/web.yml` and `infra/nginx/nginx.conf:75-90`, then `bash manage.sh deploy`
+2. **Run `bash manage.sh migrate`** on production DB (or just `bash manage.sh deploy` which auto-runs it)
+3. **Run `sudo bash scripts/secure_squid_ports.sh`** to lock down Squid 3129/3130
+4. **Add to crontab**: `@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh`
+5. **Migrate JWT from localStorage to httpOnly cookies** — requires frontend refactor (~4-8 hours)
+
+### Additional Fixes Applied (2026-07-01)
+
+| Change | File(s) |
+|--------|---------|
+| SSH passwords replaced with env vars in 5 script files | `scripts/upload_and_setup.py`, `scripts/server_deploy.py`, `scripts/deploy_single_vm.py`, `upload_tar.py`, `deploy_changes.py` |
+| `ENVIRONMENT` added as a config field | `app/core/config.py` |
+| `console.error` wrapped in environment guard | `apps/web/src/hooks/useWaybillJob.ts` |
+| React index-as-key replaced with unique keys | `apps/web/src/app/fuel/page.tsx` (7 instances) |
+| `__init__.py` added to test directories | `tests/`, `tests/core/`, `tests/load/` |
+| `asyncio` marker registered in pytest.ini | `pytest.ini` |
+| `python-multipart` added to dependencies | `requirements.txt` |
+| Ruff autofix applied (isort, unused imports) | Multiple files |
+| `except: pass` fixed in change_expired_password.py | `scripts/change_expired_password.py:47` |
 
 ---
 
-*Last updated: 2026-06-30 · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*
+*Last updated: 2026-07-01 · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*

@@ -3541,7 +3541,7 @@ class EnhancedWaybillManager:
                 ts = int(time.time())
                 debug_html_path = os.path.join(debug_dir, f"{job_id or 'unknown'}_{ts}.html")
                 debug_png_path = os.path.join(debug_dir, f"{job_id or 'unknown'}_{ts}.png")
-                
+
                 html_content = await self.page.content()
                 with open(debug_html_path, "w", encoding="utf-8") as f:
                     f.write(html_content)

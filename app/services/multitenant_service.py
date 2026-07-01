@@ -894,11 +894,14 @@ class PlateService:
         return PlateResponse.model_validate(plate)
 
     @staticmethod
-    async def list_plates(client: Client, session: AsyncSession, driver_id: int | None = None) -> list[PlateResponse]:
+    async def list_plates(
+        client: Client, session: AsyncSession, driver_id: int | None = None, page: int = 1, page_size: int = 20
+    ) -> list[PlateResponse]:
         statement = select(DriverPlate).where(DriverPlate.client_id == client.id)
         if driver_id:
             statement = statement.where(DriverPlate.driver_id == driver_id)
         statement = statement.order_by(col(DriverPlate.created_at).desc())
+        statement = statement.offset((page - 1) * page_size).limit(page_size)
         rows = (await session.exec(statement)).all()
         return [PlateResponse.model_validate(item) for item in rows]
 
@@ -986,12 +989,13 @@ class DriverScheduleService:
 
     @staticmethod
     async def list_schedules(
-        client: Client, session: AsyncSession, driver_id: int | None = None
+        client: Client, session: AsyncSession, driver_id: int | None = None, page: int = 1, page_size: int = 20
     ) -> list[DriverScheduleResponse]:
         statement = select(DriverSchedule).where(DriverSchedule.client_id == client.id)
         if driver_id:
             statement = statement.where(DriverSchedule.driver_id == driver_id)
         statement = statement.order_by(col(DriverSchedule.created_at).desc())
+        statement = statement.offset((page - 1) * page_size).limit(page_size)
         rows = (await session.exec(statement)).all()
         return [DriverScheduleService._schedule_response(item) for item in rows]
 
@@ -1409,6 +1413,8 @@ class WaybillJobService:
         client: Client,
         job_id: str,
         session: AsyncSession,
+        page: int = 1,
+        page_size: int = 20,
     ) -> TaskLogsResponse:
         """Get execution logs for a job."""
         # Verify job belongs to client
@@ -1420,11 +1426,13 @@ class WaybillJobService:
                 detail="Job not found",
             )
 
-        # Get logs
+        # Get paginated logs
         logs_stmt = (
             select(WaybillTaskLog)
             .where((WaybillTaskLog.client_id == client.id) & (WaybillTaskLog.job_id == job_id))
             .order_by(col(WaybillTaskLog.created_at).asc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         )
         logs_result = await session.exec(logs_stmt)
         logs = logs_result.all()

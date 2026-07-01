@@ -349,8 +349,15 @@ cmd_netcheck() {
     2>/dev/null && log_ok "nginx → frontend: متصل" || log_warn "nginx → frontend: قطع"
 
   echo -e "\n${BOLD}بررسی ارتباط worker → squid:${RESET}"
-  docker exec barpro-worker-1 curl -sx http://barpro-squid-1:3128 http://httpbin.org/ip \
-    2>/dev/null | grep -q origin && log_ok "worker_1 → squid_1: متصل" || log_warn "worker_1 → squid_1: قطع"
+  docker exec barpro-worker-1 python3 -c "
+import urllib.request
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({'http': 'http://host.docker.internal:3128'}))
+try:
+    opener.open('http://checkip.amazonaws.com/', timeout=10)
+    print('OK')
+except Exception:
+    exit(1)
+" 2>/dev/null && log_ok "worker_1 → squid_1: متصل" || log_warn "worker_1 → squid_1: قطع"
 }
 
 cmd_inspect() {

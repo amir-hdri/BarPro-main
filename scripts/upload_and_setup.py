@@ -9,7 +9,7 @@ from scp import SCPClient
 
 HOST = "188.121.123.16"
 USER = "ubuntu"
-PASS = "PLACEHOLDER_SSH_PASSWORD"
+PASS = os.environ.get("SSH_PASSWORD", "")
 REMOTE = "/opt/barpro"
 
 EXCLUDE = {".git",".venv","venv","node_modules","__pycache__",".next",

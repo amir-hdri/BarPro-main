@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-import paramiko
-import sys
+"""
+⚠️  SECURITY WARNING ⚠️
+This script was previously hardcoded with production SSH passwords.
+All credentials have been replaced with environment variable references.
+Usage: SSH_PASSWORD="your-old-password" SSH_NEW_PASSWORD="your-new-password" python3 scripts/change_expired_password.py
+"""
 
-old_password = "vvlwrOyBWm"
-new_password = "giItT1WQy@!-/#"
-ip = "188.121.123.16"
-username = "ubuntu"
+import os
+import paramiko
+
+old_password = os.environ.get("SSH_PASSWORD", "")
+new_password = os.environ.get("SSH_NEW_PASSWORD", "")
+ip = os.environ.get("SSH_HOST", "188.121.123.16")
+username = os.environ.get("SSH_USER", "ubuntu")
 
 def handler(title, instructions, prompt_list):
     print("--- auth_interactive handler ---")
@@ -44,5 +51,5 @@ except Exception as e:
 finally:
     try:
         transport.close()
-    except:
-        pass
+    except Exception:
+        pass  # Transport may already be closed

@@ -140,7 +140,7 @@ class BrowserManager:
         self._ensure_loop_resources()
         async with self._init_lock:
             logger.info("Recycling browser process to free up memory (RAM recycling)...")
-            
+
             # Close all contexts
             for session_id in list(self._contexts.keys()):
                 try:
@@ -150,28 +150,28 @@ class BrowserManager:
                     logger.warning("browser_operation_failed", exc_info=True)
             self._contexts.clear()
             self._pooled_sessions.clear()
-            
+
             if self._pool:
                 try:
                     await self._pool.close()
                 except Exception:
                     logger.warning("browser_operation_failed", exc_info=True)
                 self._pool = None
-                
+
             if self.browser:
                 try:
                     await self.browser.close()
                 except Exception:
                     logger.warning("browser_operation_failed", exc_info=True)
                 self.browser = None
-                
+
             if self.playwright:
                 try:
                     await self.playwright.stop()
                 except Exception:
                     logger.warning("browser_operation_failed", exc_info=True)
                 self.playwright = None
-            
+
             logger.info("Browser successfully recycled.")
 
     async def record_success_for_recycle(self):
@@ -249,6 +249,7 @@ class BrowserManager:
 
     async def _launch_browser_with_fallback(self) -> Browser:
         launch_args = [
+            "--js-flags=--max_old_space_size=1024",
             "--disable-crashpad-for-testing",
             "--disable-crash-reporter",
             # --- Anti-detection launch flags ---
@@ -405,7 +406,7 @@ class BrowserManager:
                 self._pooled_sessions.discard(session_id)
             else:
                 await asyncio.wait_for(context.close(), timeout=30)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "close_context_timeout",
                 extra={"extra_fields": {"session_id": session_id}},

@@ -29,8 +29,8 @@ fi
 # انتخاب کانتینر برای اجرای migration
 if docker inspect barpro-backend &>/dev/null; then
   CONTAINER="barpro-backend"
-elif docker inspect barpro-celery-beat &>/dev/null; then
-  CONTAINER="barpro-celery-beat"
+elif docker inspect barpro-beat &>/dev/null; then
+  CONTAINER="barpro-beat"
 else
   log_error "هیچ کانتینر بک‌اندی (backend/celery_beat) در حال اجرا نیست."
   log_info "دستور: bash manage.sh start backend"

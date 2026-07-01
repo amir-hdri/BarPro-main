@@ -30,7 +30,7 @@ router = APIRouter(prefix="/admin/reports", tags=["admin-reports"])
 )
 async def get_clients_summary(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    page_size: int = Query(50, ge=1, le=100),
     date_from: str | None = Query(None, description="Start date (YYYY-MM-DD)"),
     date_to: str | None = Query(None, description="End date (YYYY-MM-DD)"),
     session: AsyncSession = Depends(get_session),

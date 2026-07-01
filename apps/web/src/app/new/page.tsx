@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckIcon,
@@ -63,7 +63,6 @@ const initialForm: WaybillFormValues = {
   notes: "",
 };
 
-// ─── Step definitions ────────────────────────────────────────────────────────
 const STEPS = [
   { id: 1, label: "راننده و خودرو", icon: TruckIcon, fields: ["driver_national_code", "plate_number", "vehicle_type", "driver_phone"] },
   { id: 2, label: "مبدا", icon: MapPinIcon, fields: ["origin_province", "origin", "origin_address", "origin_district"] },
@@ -73,8 +72,7 @@ const STEPS = [
   { id: 6, label: "مالی و تکمیلی", icon: BanknotesIcon, fields: ["financial_cost", "financial_payment_method", "shipping_time_limit", "shipping_two_way"] },
 ];
 
-// ─── Field component ──────────────────────────────────────────────────────────
-function Field({
+const Field = memo(function Field({
   children,
   error,
   hint,
@@ -108,10 +106,9 @@ function Field({
       )}
     </label>
   );
-}
+});
 
-// ─── Step indicator ───────────────────────────────────────────────────────────
-function StepIndicator({ current, total }: { current: number; total: number }) {
+const StepIndicator = memo(function StepIndicator({ current, total }: { current: number; total: number }) {
   return (
     <div className="flex items-center justify-center gap-0 mb-2">
       {Array.from({ length: total }, (_, i) => {
@@ -134,10 +131,9 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
       })}
     </div>
   );
-}
+});
 
-// ─── Section header ────────────────────────────────────────────────────────────
-function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle: string }) {
+const SectionHeader = memo(function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle: string }) {
   return (
     <div className="flex items-start gap-4 mb-6 pb-5 border-b border-white/5">
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-cyan-400 shadow-md shadow-slate-900/20">
@@ -149,9 +145,8 @@ function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementTyp
       </div>
     </div>
   );
-}
+});
 
-// ─── Main page ────────────────────────────────────────────────────────────────
 export default function NewWaybillPage() {
   const { role } = useSession();
   const router = useRouter();
@@ -207,7 +202,6 @@ export default function NewWaybillPage() {
     setErrors((current) => { const next = { ...current }; delete next[name]; return next; });
   };
 
-  // Validate only the fields of the current step
   const validateCurrentStep = (): boolean => {
     const stepFields = STEPS[currentStep - 1]?.fields ?? [];
     const parsed = waybillSchema.safeParse(form);
@@ -330,7 +324,6 @@ export default function NewWaybillPage() {
       <AppShell>
         <div className="max-w-3xl mx-auto">
 
-          {/* ── Hero header ──────────────────────────────────────── */}
           <div className="relative overflow-hidden rounded-[2rem] bg-slate-950 px-5 py-6 sm:px-8 sm:py-10 text-white shadow-2xl shadow-slate-900/20 mb-6 md:mb-8">
             <div className="absolute -right-24 -top-24 h-64 w-64 rounded-full bg-cyan-400/10 blur-[80px]" />
             <div className="absolute -left-16 -bottom-16 h-48 w-48 rounded-full bg-indigo-400/10 blur-[80px]" />
@@ -369,7 +362,6 @@ export default function NewWaybillPage() {
             </div>
           </div>
 
-          {/* ── Step dots ────────────────────────────────────────── */}
           <div className="section-card mb-6 py-4">
             <StepIndicator current={currentStep} total={STEPS.length} />
             <div className="hidden sm:flex justify-between mt-3 px-1">
@@ -389,11 +381,9 @@ export default function NewWaybillPage() {
             </div>
           </div>
 
-          {/* ── Form ─────────────────────────────────────────────── */}
           <form onSubmit={isLastStep ? handleSubmit : (e) => { e.preventDefault(); goNext(); }}>
             <div className="section-card space-y-5">
 
-              {/* Step 1: راننده و خودرو */}
               {currentStep === 1 && (
                 <>
                   <SectionHeader
@@ -440,6 +430,7 @@ export default function NewWaybillPage() {
                     <Field label="تلفن راننده" error={errors.driver_phone} required>
                       <input
                         dir="ltr"
+                        aria-label="تلفن راننده"
                         className={`field ${errors.driver_phone ? "error" : ""}`}
                         placeholder="09123456789"
                         value={form.driver_phone}
@@ -471,7 +462,6 @@ export default function NewWaybillPage() {
                 </>
               )}
 
-              {/* Step 2: مبدا */}
               {currentStep === 2 && (
                 <>
                   <SectionHeader
@@ -525,7 +515,6 @@ export default function NewWaybillPage() {
                 </>
               )}
 
-              {/* Step 3: مقصد */}
               {currentStep === 3 && (
                 <>
                   <SectionHeader
@@ -579,7 +568,6 @@ export default function NewWaybillPage() {
                 </>
               )}
 
-              {/* Step 4: بار */}
               {currentStep === 4 && (
                 <>
                   <SectionHeader
@@ -600,6 +588,7 @@ export default function NewWaybillPage() {
                     <Field label="وزن بار (تن)" error={errors.cargo_weight} hint="عدد صحیح یا اعشاری" required>
                       <input
                         dir="ltr"
+                        aria-label="وزن بار"
                         className={`field ${errors.cargo_weight ? "error" : ""}`}
                         placeholder="مثال: ۳.۵"
                         value={form.cargo_weight}
@@ -610,6 +599,7 @@ export default function NewWaybillPage() {
                     <Field label="تعداد" error={errors.cargo_count} required>
                       <input
                         dir="ltr"
+                        aria-label="تعداد"
                         className={`field ${errors.cargo_count ? "error" : ""}`}
                         placeholder="۱"
                         value={form.cargo_count}
@@ -620,6 +610,7 @@ export default function NewWaybillPage() {
                     <Field label="ارزش بار (ریال)" error={errors.cargo_value} required>
                       <input
                         dir="ltr"
+                        aria-label="ارزش بار"
                         className={`field ${errors.cargo_value ? "error" : ""}`}
                         placeholder="۱۰,۰۰۰,۰۰۰"
                         value={form.cargo_value}
@@ -641,7 +632,6 @@ export default function NewWaybillPage() {
                 </>
               )}
 
-              {/* Step 5: فرستنده و گیرنده */}
               {currentStep === 5 && (
                 <>
                   <SectionHeader
@@ -656,10 +646,10 @@ export default function NewWaybillPage() {
                         <input className={`field ${errors.sender_name ? "error" : ""}`} value={form.sender_name} onChange={(e) => handleChange("sender_name", e.target.value)} />
                       </Field>
                       <Field label="تلفن" error={errors.sender_phone} required>
-                        <input dir="ltr" className={`field ${errors.sender_phone ? "error" : ""}`} placeholder="09120000000" value={form.sender_phone} onChange={(e) => handleChange("sender_phone", e.target.value)} />
+                        <input dir="ltr" aria-label="تلفن فرستنده" className={`field ${errors.sender_phone ? "error" : ""}`} placeholder="09120000000" value={form.sender_phone} onChange={(e) => handleChange("sender_phone", e.target.value)} />
                       </Field>
                       <Field label="کد ملی" error={errors.sender_national_code} required>
-                        <input dir="ltr" className={`field ${errors.sender_national_code ? "error" : ""}`} value={form.sender_national_code} onChange={(e) => handleChange("sender_national_code", e.target.value)} />
+                        <input dir="ltr" aria-label="کد ملی فرستنده" className={`field ${errors.sender_national_code ? "error" : ""}`} value={form.sender_national_code} onChange={(e) => handleChange("sender_national_code", e.target.value)} />
                       </Field>
                       <Field label="آدرس" error={errors.sender_address} required>
                         <input className={`field ${errors.sender_address ? "error" : ""}`} value={form.sender_address} onChange={(e) => handleChange("sender_address", e.target.value)} />
@@ -674,10 +664,10 @@ export default function NewWaybillPage() {
                         <input className={`field ${errors.receiver_name ? "error" : ""}`} value={form.receiver_name} onChange={(e) => handleChange("receiver_name", e.target.value)} />
                       </Field>
                       <Field label="تلفن" error={errors.receiver_phone} required>
-                        <input dir="ltr" className={`field ${errors.receiver_phone ? "error" : ""}`} placeholder="09120000000" value={form.receiver_phone} onChange={(e) => handleChange("receiver_phone", e.target.value)} />
+                        <input dir="ltr" aria-label="تلفن گیرنده" className={`field ${errors.receiver_phone ? "error" : ""}`} placeholder="09120000000" value={form.receiver_phone} onChange={(e) => handleChange("receiver_phone", e.target.value)} />
                       </Field>
                       <Field label="کد ملی" error={errors.receiver_national_code} hint="اختیاری">
-                        <input dir="ltr" className="field" value={form.receiver_national_code} onChange={(e) => handleChange("receiver_national_code", e.target.value)} />
+                        <input dir="ltr" aria-label="کد ملی گیرنده" className="field" value={form.receiver_national_code} onChange={(e) => handleChange("receiver_national_code", e.target.value)} />
                       </Field>
                       <Field label="آدرس" error={errors.receiver_address} required>
                         <input className={`field ${errors.receiver_address ? "error" : ""}`} value={form.receiver_address} onChange={(e) => handleChange("receiver_address", e.target.value)} />
@@ -687,7 +677,6 @@ export default function NewWaybillPage() {
                 </>
               )}
 
-              {/* Step 6: مالی و تکمیلی */}
               {currentStep === 6 && (
                 <>
                   <SectionHeader
@@ -697,7 +686,7 @@ export default function NewWaybillPage() {
                   />
                   <div className="grid gap-5 sm:grid-cols-2">
                     <Field label="هزینه حمل (ریال)" error={errors.financial_cost} required>
-                      <input dir="ltr" className={`field ${errors.financial_cost ? "error" : ""}`} placeholder="۵,۰۰۰,۰۰۰" value={form.financial_cost} onChange={(e) => handleChange("financial_cost", e.target.value)} />
+                      <input dir="ltr" aria-label="هزینه حمل" className={`field ${errors.financial_cost ? "error" : ""}`} placeholder="۵,۰۰۰,۰۰۰" value={form.financial_cost} onChange={(e) => handleChange("financial_cost", e.target.value)} />
                     </Field>
 
                     <Field label="روش پرداخت" error={errors.financial_payment_method}>
@@ -709,7 +698,7 @@ export default function NewWaybillPage() {
                     </Field>
 
                     <Field label="شماره بارنامه" error={errors.waybill_number} hint="در صورت وجود">
-                      <input dir="ltr" className="field" value={form.waybill_number} onChange={(e) => handleChange("waybill_number", e.target.value)} />
+                      <input dir="ltr" aria-label="شماره بارنامه" className="field" value={form.waybill_number} onChange={(e) => handleChange("waybill_number", e.target.value)} />
                     </Field>
 
                     <div className="sm:col-span-2">
@@ -756,7 +745,6 @@ export default function NewWaybillPage() {
                 </>
               )}
 
-              {/* ── Feedback messages ─────────────────────────── */}
               {serverError && (
                 <div className="status-bar error">
                   <ExclamationTriangleIcon className="h-5 w-5 shrink-0" />
@@ -777,13 +765,12 @@ export default function NewWaybillPage() {
               )}
             </div>
 
-            {/* ── Navigation buttons ────────────────────────────── */}
             <div className="flex items-center justify-between mt-5 gap-3">
               <button
                 type="button"
                 onClick={goPrev}
                 disabled={currentStep === 1}
-                className="flex items-center gap-1.5 rounded-2xl border border-white/10 bg-slate-950 px-4 py-2.5 sm:px-6 sm:py-3 text-xs sm:text-sm font-semibold text-slate-300 transition hover:bg-slate-900 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
+                className="flex items-center gap-1.5 rounded-2xl border border-white/10 bg-slate-950 px-4 py-3.5 sm:px-6 sm:py-3 text-xs sm:text-sm font-semibold text-slate-300 transition hover:bg-slate-900 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
               >
                 <ChevronRightIcon className="h-3.5 w-3.5" />
                 مرحله قبل
@@ -797,7 +784,7 @@ export default function NewWaybillPage() {
                   <button
                     type="submit"
                     disabled={submitting || drivers.length === 0}
-                    className="flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-4 py-2.5 sm:px-8 sm:py-3.5 text-xs sm:text-sm font-black text-slate-950 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20 active:scale-[0.98]"
+                    className="flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-4 py-3 sm:px-8 sm:py-3.5 text-xs sm:text-sm font-black text-slate-950 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20 active:scale-[0.98] min-h-[44px]"
                   >
                     {submitting ? (
                       <>
@@ -814,7 +801,7 @@ export default function NewWaybillPage() {
                 ) : (
                   <button
                     type="submit"
-                    className="flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-4 py-2.5 sm:px-7 sm:py-3.5 text-xs sm:text-sm font-black text-slate-950 transition-all shadow-lg shadow-cyan-500/20 active:scale-[0.98]"
+                    className="flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-4 py-3 sm:px-7 sm:py-3.5 text-xs sm:text-sm font-black text-slate-950 transition-all shadow-lg shadow-cyan-500/20 active:scale-[0.98]"
                   >
                     مرحله بعد
                     <ChevronLeftIcon className="h-3.5 w-3.5" />
@@ -823,7 +810,6 @@ export default function NewWaybillPage() {
               </div>
             </div>
 
-            {/* automation hint footer */}
             <div className="mt-4 flex items-center justify-center gap-2 text-xs text-slate-400">
               <div className="h-1.5 w-1.5 rounded-full bg-cyan-400 pulse-dot" />
               <span>ربات اتوماسیون پس از ثبت، فرم UTCMS را با روش <strong className="text-cyan-400">utcms_direct</strong> پر می‌کند</span>

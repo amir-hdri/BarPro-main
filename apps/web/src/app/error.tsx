@@ -10,13 +10,17 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Check if it's a Server Action mismatch error due to a new deployment
     if (error.message?.includes('Failed to find Server Action') || 
         error.message?.includes('server action')) {
-      console.warn('Deployment mismatch detected, reloading the page...');
-      window.location.reload();
+      const count = parseInt(sessionStorage.getItem('error_reload_count') || '0', 10);
+      if (count >= 3) {
+        console.warn('Max auto-reload attempts reached (3). Showing error page instead.');
+      } else {
+        sessionStorage.setItem('error_reload_count', String(count + 1));
+        console.warn('Deployment mismatch detected, reloading the page...');
+        window.location.reload();
+      }
     } else {
-      // Log other errors
       console.error('An unexpected error occurred:', error);
     }
   }, [error]);

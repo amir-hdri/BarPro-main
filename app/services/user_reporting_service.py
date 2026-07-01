@@ -39,8 +39,11 @@ class UserReportingService:
         self,
         client: Client,
         session: AsyncSession,
+        page: int = 1,
+        page_size: int = 20,
     ) -> list[dict[str, Any]]:
         stmt = select(Driver).where(Driver.client_id == client.id).order_by(col(Driver.created_at).desc())
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         result = session.exec(stmt)
         drivers = result.all()
 
@@ -327,10 +330,12 @@ class UserReportingService:
         self,
         client: Client,
         session: AsyncSession,
+        page: int = 1,
+        page_size: int = 20,
     ) -> dict[str, Any]:
         schedules_stmt = select(DriverSchedule).where(
             DriverSchedule.client_id == client.id,
-        )
+        ).offset((page - 1) * page_size).limit(page_size)
         result = session.exec(schedules_stmt)
         schedules = result.all()
 
@@ -435,8 +440,10 @@ class UserReportingService:
         self,
         client: Client,
         session: AsyncSession,
+        page: int = 1,
+        page_size: int = 20,
     ) -> list[dict[str, Any]]:
-        drivers_stmt = select(Driver).where(Driver.client_id == client.id)
+        drivers_stmt = select(Driver).where(Driver.client_id == client.id).offset((page - 1) * page_size).limit(page_size)
         drivers_result = session.exec(drivers_stmt)
         drivers = drivers_result.all()
 

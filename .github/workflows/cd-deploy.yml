@@ -207,7 +207,8 @@ jobs:
             docker-compose -f docker-compose.yml exec backend alembic upgrade head
             
             # Clear caches
-            docker-compose -f docker-compose.yml exec redis redis-cli FLUSHALL || true
+            # docker-compose -f docker-compose.yml exec redis redis-cli FLUSHALL || true
+            # FLUSHALL disabled: clearing all Redis data during deployment destroys active sessions and task state.
             
             # Health check
             sleep 15

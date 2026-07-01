@@ -202,7 +202,7 @@ class WaybillTaskService:
                 if not job:
                     return None
                 return self._to_public_dict(job)
-                
+
             statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
             result = await session.execute(statement)
             task = result.scalars().first()
@@ -219,7 +219,7 @@ class WaybillTaskService:
                 if not job:
                     return None
                 return self._safe_json_load(job.payload_json)
-            
+
             statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
             result = await session.execute(statement)
             task = result.scalars().first()

@@ -66,14 +66,14 @@ def _frontend_origins() -> list[str]:
         raw_origins.append(primary)
 
     # Additional origins via FRONTEND_URLS (comma-separated)
-    extra_urls = os.getenv("FRONTEND_URLS", "").strip()
-    if extra_urls:
-        raw_origins.extend(u.strip().rstrip("/") for u in extra_urls.split(",") if u.strip())
+    if utcms_config.FRONTEND_URLS:
+        raw_origins.extend(
+            u.strip().rstrip("/") for u in utcms_config.FRONTEND_URLS.split(",") if u.strip()
+        )
 
     # Alternate URL (dual-IP server support)
-    alt_url = os.getenv("FRONTEND_URL_ALT", "").strip().rstrip("/")
-    if alt_url:
-        raw_origins.append(alt_url)
+    if utcms_config.FRONTEND_URL_ALT:
+        raw_origins.append(utcms_config.FRONTEND_URL_ALT.rstrip("/"))
 
     if not raw_origins:
         return []
@@ -82,21 +82,26 @@ def _frontend_origins() -> list[str]:
     for configured in raw_origins:
         try:
             parsed = urlparse(configured)
-            if not parsed.scheme or not parsed.netloc:
-                origins.add(configured)
+            if not parsed.scheme or not parsed.netloc or parsed.hostname is None:
+                logger.warning("Ignoring invalid CORS origin", extra={"extra_fields": {"origin": configured}})
                 continue
 
-            origin = f"{parsed.scheme}://{parsed.netloc}"
+            scheme = parsed.scheme
+            if scheme not in ("http", "https"):
+                logger.warning("Ignoring CORS origin with invalid scheme", extra={"extra_fields": {"origin": configured}})
+                continue
+
+            origin = f"{scheme}://{parsed.netloc}"
             origins.add(origin)
 
             if parsed.hostname == "localhost":
                 variant_netloc = parsed.netloc.replace("localhost", "127.0.0.1", 1)
-                origins.add(f"{parsed.scheme}://{variant_netloc}")
+                origins.add(f"{scheme}://{variant_netloc}")
             elif parsed.hostname == "127.0.0.1":
                 variant_netloc = parsed.netloc.replace("127.0.0.1", "localhost", 1)
-                origins.add(f"{parsed.scheme}://{variant_netloc}")
-        except Exception:
-            origins.add(configured)
+                origins.add(f"{scheme}://{variant_netloc}")
+        except Exception as exc:
+            logger.warning("Failed to parse CORS origin", extra={"extra_fields": {"origin": configured, "error": str(exc)}})
 
     return sorted(origins)
 
@@ -205,15 +210,16 @@ async def request_context_middleware(request: Request, call_next):
     from app.core.rate_limiter import rate_limit_dependency
 
     rate_rule = "public"
-    if any(path.startswith(p) for p in ("/api/v1/admin", "/admin", "/management")):
-        rate_rule = "admin"
-    elif any(path.startswith(p) for p in ("/api/v1/auth/login", "/admin/login")):
+    # Order matters: first match wins
+    if any(path.startswith(p) for p in ("/api/v1/admin/login", "/admin/login")):
         rate_rule = "auth"
-    elif any(path.startswith(p) for p in ("/api/v1/waybill", "/api/v1/waybills")):
+    elif any(path.startswith(p) for p in ("/api/v1/admin", "/admin", "/management")):
+        rate_rule = "admin"
+    elif any(path.startswith(p) for p in ("/waybill/", "/api/v1/waybill-jobs/")):
         rate_rule = "waybill"
-    elif any(path.startswith(p) for p in ("/api/v1/driver", "/api/v1/client/driver")):
+    elif path.startswith("/api/v1/drivers/"):
         rate_rule = "driver"
-    elif any(path.startswith(p) for p in ("/api/v1/client", "/api/v1/tenant")):
+    elif path.startswith("/api/v1/"):
         rate_rule = "tenant"
 
     try:

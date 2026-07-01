@@ -37,7 +37,7 @@ export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
       <div className="rounded-[2rem] border border-amber-500/20 bg-amber-500/5 p-8 text-right shadow-2xl backdrop-blur-xl">
         <h3 className="text-lg font-bold text-amber-400">برای ادامه وارد حساب شوید</h3>
         <p className="mt-2 text-sm leading-6 text-slate-300 font-medium">این بخش به توکن JWT چندمستاجره متصل است و بدون ورود امکان بارگذاری داده‌ها ندارد.</p>
-        <Link href="/auth" className="mt-6 inline-flex rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 px-6 py-3.5 text-sm font-black text-slate-950 transition shadow-lg shadow-amber-500/20 active:scale-95">
+        <Link href="/auth" className="mt-6 inline-flex rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 px-6 py-4 text-sm font-black text-slate-950 transition shadow-lg shadow-amber-500/20 active:scale-95">
           رفتن به صفحه ورود
         </Link>
       </div>

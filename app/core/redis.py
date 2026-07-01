@@ -19,6 +19,7 @@ def _build_redis_kwargs() -> dict:
     kwargs = {
         "encoding": "utf-8",
         "decode_responses": True,
+        "max_connections": 20,
     }
     password = (utcms_config.REDIS_PASSWORD or "").strip()
     if password:

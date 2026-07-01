@@ -14,7 +14,7 @@ All endpoints enforce tenant isolation - clients can only access their own data.
 import logging
 from datetime import UTC, datetime, time, timedelta
 
-from fastapi import APIRouter, Body, Depends, UploadFile, status
+from fastapi import APIRouter, Body, Depends, Query, UploadFile, status
 from fastapi.responses import Response
 from fastapi.security import HTTPBearer
 from sqlmodel import case, func, select
@@ -39,8 +39,8 @@ from app.schemas.multitenant import (
     DriverScheduleUpdateRequest,
     DriverUpdateRequest,
     FuelInquiryCreateRequest,
-    FuelInquiryResponse,
     FuelInquiryListResponse,
+    FuelInquiryResponse,
     PlateCreateRequest,
     PlateResponse,
     PlateUpdateRequest,
@@ -55,6 +55,7 @@ from app.schemas.multitenant import (
     WaybillRetryRequest,
 )
 from app.services.excel_upload_service import ExcelUploadService
+from app.services.fuel_inquiry_service import fuel_inquiry_service
 from app.services.multitenant_service import (
     ClientService,
     DriverScheduleService,
@@ -62,8 +63,6 @@ from app.services.multitenant_service import (
     PlateService,
     WaybillJobService,
 )
-from app.services.fuel_inquiry_service import fuel_inquiry_service
-
 
 logger = logging.getLogger(__name__)
 
@@ -113,8 +112,8 @@ async def login_master_admin(request: AdminLoginRequest):
 async def list_clients_for_admin(
     q: str | None = None,
     status_filter: str | None = None,
-    page: int = 1,
-    page_size: int = 20,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     admin=Depends(get_current_admin),
     session: AsyncSession = Depends(get_session),
 ):
@@ -168,8 +167,8 @@ async def delete_client_for_admin(
 async def list_clients_for_admin_alias(
     q: str | None = None,
     status_filter: str | None = None,
-    page: int = 1,
-    page_size: int = 20,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     admin=Depends(get_current_admin),
     session: AsyncSession = Depends(get_session),
 ):
@@ -265,8 +264,8 @@ async def create_driver(
 @router.get("/drivers", response_model=list[DriverResponse])
 async def list_drivers(
     status_filter: str | None = None,
-    page: int = 1,
-    page_size: int = 20,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ):
@@ -328,10 +327,12 @@ async def create_plate(
 @router.get("/plates", response_model=list[PlateResponse])
 async def list_plates(
     driver_id: int | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ):
-    return await PlateService.list_plates(client, session, driver_id=driver_id)
+    return await PlateService.list_plates(client, session, driver_id=driver_id, page=page, page_size=page_size)
 
 
 @router.put("/plates/{plate_id}", response_model=PlateResponse)
@@ -366,10 +367,12 @@ async def create_driver_schedule(
 @router.get("/driver-schedules", response_model=list[DriverScheduleResponse])
 async def list_driver_schedules(
     driver_id: int | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ):
-    return await DriverScheduleService.list_schedules(client, session, driver_id=driver_id)
+    return await DriverScheduleService.list_schedules(client, session, driver_id=driver_id, page=page, page_size=page_size)
 
 
 @router.put("/driver-schedules/{schedule_id}", response_model=DriverScheduleResponse)
@@ -424,8 +427,8 @@ async def list_waybill_jobs(
     driver_id: int | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
-    page: int = 1,
-    page_size: int = 20,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ):
@@ -485,8 +488,8 @@ async def get_waybill_job_timeline(
     source: str | None = None,
     q: str | None = None,
     include_payload: bool = True,
-    page: int = 1,
-    page_size: int = 50,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ):
@@ -506,6 +509,8 @@ async def get_waybill_job_timeline(
 @router.get("/waybill-jobs/{job_id}/logs", response_model=TaskLogsResponse)
 async def get_waybill_job_logs(
     job_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ):
@@ -514,7 +519,7 @@ async def get_waybill_job_logs(
 
     Provides detailed step-by-step execution history for audit purposes.
     """
-    return await WaybillJobService.get_job_logs(client, job_id, session)
+    return await WaybillJobService.get_job_logs(client, job_id, session, page=page, page_size=page_size)
 
 
 @router.patch("/waybill-jobs/{job_id}", response_model=WaybillJobResponse)
@@ -764,8 +769,8 @@ async def create_fuel_inquiry(
 
 @router.get("/fuel-inquiries", response_model=FuelInquiryListResponse)
 async def list_fuel_inquiries(
-    page: int = 1,
-    page_size: int = 20,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ):

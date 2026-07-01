@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
 import { api } from '@/lib/api';
 import { formatDateTime, statusLabel, toPersianDigits } from '@/lib/format';
-import type { ClientProfile } from '@/lib/types';
+import type { ClientProfile, ReadyzResponse } from '@/lib/types';
 import { useSession } from "@/hooks/useSession";
 import { 
   Settings, 
@@ -51,7 +51,6 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'account' | 'system'>('account');
   const [error, setError] = useState<string | null>(null);
 
-  // System status states
   const [cacheStatus, setCacheStatus] = useState<CacheStatus | null>(null);
   const [circuitStatus, setCircuitStatus] = useState<CircuitBreakerStatus | null>(null);
   const [loadingCache, setLoadingCache] = useState(false);
@@ -74,19 +73,16 @@ export default function SettingsPage() {
     loadProfile();
   }, [role]);
 
-  // Load system and cache status
   const loadSystemStatus = async () => {
     if (role !== "client") return;
     setLoadingCache(true);
     
-    // Fetch baseinfo status
     const cacheRes = await api.get<CacheStatus>('/waybill/baseinfo/status');
     if (cacheRes.success && cacheRes.data) {
       setCacheStatus(cacheRes.data);
     }
 
-    // Fetch circuit breaker status from readyz (which runs the circuit check)
-    const readyzRes = await api.get<any>('/readyz');
+    const readyzRes = await api.get<ReadyzResponse>('/readyz');
     if (readyzRes.success && readyzRes.data) {
       const cb = readyzRes.data?.details?.circuit_breaker?.status;
       if (cb) {
@@ -103,7 +99,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (activeTab === 'system') {
-      void loadSystemStatus();
+      void loadSystemStatus().catch(e => console.error("Failed to load system status:", e));
     }
   }, [activeTab]);
 
@@ -111,10 +107,10 @@ export default function SettingsPage() {
     setRefreshingCache(true);
     setSystemMessage(null);
     
-    const response = await api.post<any>('/waybill/baseinfo/refresh', {});
+    const response = await api.post('/waybill/baseinfo/refresh', {});
     if (response.success) {
       setSystemMessage('کش اطلاعات پایه وب‌سرویس ITMB با موفقیت بروزرسانی شد.');
-      void loadSystemStatus();
+      void loadSystemStatus().catch(e => console.error("Failed to load system status:", e));
     } else {
       setSystemMessage(`بروزرسانی کش ناموفق بود: ${response.error || 'خطای سرور'}`);
     }
@@ -125,10 +121,10 @@ export default function SettingsPage() {
     setTogglingCB(true);
     setSystemMessage(null);
     const targetEnabled = !currentEnabled;
-    const response = await api.post<any>(`/system/circuit-breaker/toggle?enabled=${targetEnabled}`, {});
+    const response = await api.post(`/circuit-breaker/toggle?enabled=${targetEnabled}`, {});
     if (response.success) {
       setSystemMessage(`سیستم قطع‌کننده مدار با موفقیت ${targetEnabled ? 'فعال' : 'غیرفعال'} شد.`);
-      void loadSystemStatus();
+      void loadSystemStatus().catch(e => console.error("Failed to load system status:", e));
     } else {
       setSystemMessage(`خطا در تغییر وضعیت قطع‌کننده مدار: ${response.error || 'خطای سرور'}`);
     }
@@ -151,7 +147,6 @@ export default function SettingsPage() {
       <AppShell>
         <div className="mx-auto max-w-7xl px-3 py-4 sm:px-6 sm:py-8 lg:px-8">
           
-          {/* Header */}
           <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
               <h1 className="text-3xl font-black text-white bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
@@ -163,11 +158,10 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Navigation Tabs */}
           <div className="mb-8 flex border-b border-white/5 pb-2 gap-6">
             <button
               onClick={() => setActiveTab('account')}
-              className={`flex items-center gap-2 pb-4 text-sm font-bold transition-all relative ${
+              className={`flex items-center gap-2 pb-4 py-3 text-sm font-bold transition-all relative ${
                 activeTab === 'account' ? 'text-cyan-400' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -179,7 +173,7 @@ export default function SettingsPage() {
             </button>
             <button
               onClick={() => setActiveTab('system')}
-              className={`flex items-center gap-2 pb-4 text-sm font-bold transition-all relative ${
+              className={`flex items-center gap-2 pb-4 py-3 text-sm font-bold transition-all relative ${
                 activeTab === 'system' ? 'text-cyan-400' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -191,7 +185,6 @@ export default function SettingsPage() {
             </button>
           </div>
 
-          {/* Tab 1: Account Profile */}
           {activeTab === 'account' && (
             <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr] animate-in fade-in duration-300">
               <div className="rounded-[2.5rem] border border-white/10 bg-slate-950 p-8 text-white shadow-2xl relative overflow-hidden">
@@ -257,11 +250,9 @@ export default function SettingsPage() {
             </section>
           )}
 
-          {/* Tab 2: System Status & Cache Config */}
           {activeTab === 'system' && (
             <div className="space-y-8 animate-in fade-in duration-300">
               
-              {/* Circuit Breaker & Controls */}
               <section className="grid gap-6 md:grid-cols-3">
                 <div className="md:col-span-2 rounded-[2.5rem] border border-white/5 bg-slate-900/40 backdrop-blur-xl p-8 text-white shadow-2xl relative overflow-hidden">
                   <div className="absolute -left-20 -top-20 h-40 w-40 rounded-full bg-emerald-500/10 blur-[50px] pointer-events-none" />
@@ -298,7 +289,7 @@ export default function SettingsPage() {
                           type="button"
                           disabled={togglingCB}
                           onClick={() => void handleToggleCircuitBreaker(circuitStatus.enabled)}
-                          className={`mt-4 w-full rounded-xl px-4 py-2 text-[10px] sm:text-xs font-bold transition-all active:scale-95 text-center ${
+                          className={`mt-4 w-full rounded-xl px-4 py-3.5 text-[10px] sm:text-xs font-bold transition-all active:scale-95 text-center ${
                             circuitStatus.enabled 
                               ? 'bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20' 
                               : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20'
@@ -341,7 +332,7 @@ export default function SettingsPage() {
                     <button
                       onClick={handleRefreshCache}
                       disabled={refreshingCache}
-                      className="w-full flex items-center justify-center gap-2 rounded-2xl bg-cyan-500 px-6 py-4 text-sm font-bold text-slate-950 transition hover:bg-cyan-400 active:scale-95 disabled:opacity-50 shadow-[0_10px_20px_-10px_rgba(6,182,212,0.4)]"
+                      className="w-full flex items-center justify-center gap-2 rounded-2xl bg-cyan-500 px-6 py-3.5 text-sm font-bold text-slate-950 transition hover:bg-cyan-400 active:scale-95 disabled:opacity-50 shadow-[0_10px_20px_-10px_rgba(6,182,212,0.4)] min-h-[44px]"
                     >
                       <RefreshCw className={`h-4 w-4 ${refreshingCache ? 'animate-spin' : ''}`} />
                       <span>{refreshingCache ? 'در حال بروزرسانی...' : 'بارگذاری مجدد کش اطلاعات پایه'}</span>
@@ -357,7 +348,6 @@ export default function SettingsPage() {
                 </div>
               )}
 
-              {/* Cache Items Detail */}
               <section className="rounded-[2.5rem] border border-white/5 bg-slate-900/40 backdrop-blur-xl p-8 text-white shadow-2xl">
                 <div className="border-b border-white/5 pb-6 mb-6">
                   <h2 className="text-xl font-black flex items-center gap-3">
@@ -419,11 +409,11 @@ export default function SettingsPage() {
   );
 }
 
-function InfoCard({ label, value }: { label: string; value: string }) {
+const InfoCard = memo(function InfoCard({ label, value }: { label: string; value: string }) {
   return (
     <article className="rounded-3xl bg-slate-950/60 p-6 border border-white/5 shadow-sm group hover:border-cyan-500/20 transition-all duration-300">
       <p className="text-xs text-slate-400 font-medium">{label}</p>
       <p className="mt-3 text-base font-bold text-white group-hover:text-cyan-400 transition-colors">{value}</p>
     </article>
   );
-}
+});

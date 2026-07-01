@@ -2,15 +2,12 @@
 
 import json
 import logging
-import time
 from datetime import UTC, datetime
-from typing import Any
 
 from fastapi import HTTPException, status
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.auth_multitenant import decrypt_driver_password
 from app.automation.browser import browser_manager, managed_browser_session
 from app.automation.fuel_scraper import FuelScraper
 from app.automation.proxy_rotator import get_proxy_rotator
@@ -203,7 +200,7 @@ class FuelInquiryService:
         proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
 
         logger.info(f"Launching browser session for fuel inquiry {inquiry_id}")
-        
+
         try:
             await browser_manager.initialize()
             async with managed_browser_session(
@@ -211,7 +208,7 @@ class FuelInquiryService:
                 proxy_dict=proxy_dict,
             ) as (_session_id, context):
                 page = await browser_manager.new_page(context)
-                
+
                 scraper = FuelScraper(page, context)
                 result = await scraper.scrape_fuel_quota(
                     username=username,

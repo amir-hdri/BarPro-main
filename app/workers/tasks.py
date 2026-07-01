@@ -15,7 +15,6 @@ from app.services.task_service import task_service
 from app.services.waybill_service import waybill_service
 from app.workers.celery_app import celery_app
 
-
 _TASK_EVENT_LOOP: asyncio.AbstractEventLoop | None = None
 
 
@@ -53,6 +52,7 @@ def _error_category(exc: Exception) -> str:
 
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 if celery_app is not None:
@@ -134,8 +134,8 @@ if celery_app is not None:
 
     @celery_app.task(bind=True, name="app.workers.tasks.process_fuel_inquiry_task")
     def process_fuel_inquiry_task(self, inquiry_id: int) -> Any:
-        from app.services.fuel_inquiry_service import fuel_inquiry_service
         from app.core.database import async_session_factory
+        from app.services.fuel_inquiry_service import fuel_inquiry_service
 
         async def _run():
             async with async_session_factory() as session:
@@ -166,6 +166,7 @@ def dispatch_waybill_task(task_id: str, priority: int | None = None):
     )
 
     import random
+
     from app.core.circuit_breaker import get_routed_queue
 
     jitter_countdown = random.randint(3, 10)
@@ -182,8 +183,9 @@ def dispatch_waybill_task(task_id: str, priority: int | None = None):
 def dispatch_fuel_inquiry_task(inquiry_id: int):
     if celery_app is None:
         import threading
-        from app.services.fuel_inquiry_service import fuel_inquiry_service
+
         from app.core.database import async_session_factory
+        from app.services.fuel_inquiry_service import fuel_inquiry_service
 
         def run_in_thread():
             async def _run():
@@ -201,8 +203,9 @@ def dispatch_fuel_inquiry_task(inquiry_id: int):
         return None
 
     import random
+
     from app.core.circuit_breaker import get_routed_queue
-    
+
     jitter_countdown = random.randint(1, 3)
     routed_queue = get_routed_queue(utcms_config.CELERY_TASK_QUEUE)
 

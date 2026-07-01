@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
@@ -10,6 +10,147 @@ import { formatDateTime, statusLabel, statusTone, toPersianDigits } from '@/lib/
 import type { JobTimelineResponse, WaybillJob, WaybillJobUpdateRequest, WaybillTaskListResponse } from '@/lib/types';
 import { Activity, ListChecks, MoreVertical, Edit2, Trash2, X, Check, AlertCircle } from 'lucide-react';
 
+const JobCard = memo(function JobCard({
+  job,
+  selectedJobId,
+  retryingJobId,
+  actionMenuJobId,
+  onCardClick,
+  onRetry,
+  onActionMenuOpen,
+  onActionMenuClose,
+  onEditModalOpen,
+  onDeleteModalOpen,
+}: {
+  job: WaybillJob;
+  selectedJobId: string | null;
+  retryingJobId: string | null;
+  actionMenuJobId: string | null;
+  onCardClick: (jobId: string) => void;
+  onRetry: (jobId: string) => Promise<void>;
+  onActionMenuOpen: (jobId: string, e: React.MouseEvent) => void;
+  onActionMenuClose: (e: React.MouseEvent) => void;
+  onEditModalOpen: (job: WaybillJob, e: React.MouseEvent) => void;
+  onDeleteModalOpen: (jobId: string, e: React.MouseEvent) => void;
+}) {
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const jobId = e.currentTarget.dataset.jobId;
+    if (jobId) onCardClick(jobId);
+  };
+
+  const handleRetryClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    const jobId = e.currentTarget.dataset.jobId;
+    if (jobId) void onRetry(jobId);
+  };
+
+  const handleActionOpen = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const jobId = e.currentTarget.dataset.jobId;
+    if (jobId) onActionMenuOpen(jobId, e);
+  };
+
+  const handleActionClose = (e: React.MouseEvent<HTMLButtonElement>) => {
+    onActionMenuClose(e);
+  };
+
+  const handleEditOpen = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    onEditModalOpen(job, e);
+  };
+
+  const handleDeleteOpen = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const jobId = e.currentTarget.dataset.jobId;
+    if (jobId) onDeleteModalOpen(jobId, e);
+  };
+
+  return (
+    <div
+      data-job-id={job.job_id}
+      onClick={handleClick}
+      className={[
+        'group w-full cursor-pointer rounded-2xl border p-5 text-right transition-all duration-200',
+        selectedJobId === job.job_id
+          ? 'border-cyan-500/30 bg-slate-950/60 shadow-[0_0_15px_rgba(6,182,212,0.1)]'
+          : 'border-white/5 bg-slate-950/30 hover:border-white/10 hover:bg-slate-950/50 hover:shadow-md',
+      ].join(' ')}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className={['font-black transition-colors', selectedJobId === job.job_id ? 'text-cyan-400' : 'text-white group-hover:text-cyan-400'].join(' ')}>
+            {job.driver_name ? `ثبت بارنامه برای ${job.driver_name}` : `عملیات ثبت بارنامه`}
+          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-medium text-slate-400">
+            <span className="font-mono bg-slate-950/60 border border-white/5 text-slate-300 px-1.5 py-0.5 rounded">شناسه: #{job.job_id.slice(0, 8)}</span>
+            <span>•</span>
+            <span>ایجاد در {formatDateTime(job.created_at)}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {(job.status === 'failed' || job.status === 'needs_review' || job.status === 'waiting_auth' || job.status === 'waiting_retry') && (
+            <button
+              data-job-id={job.job_id}
+              onClick={handleRetryClick}
+              disabled={retryingJobId === job.job_id}
+              className="rounded-lg bg-cyan-500 px-4 py-3 text-[10px] font-bold text-white shadow-sm transition hover:bg-cyan-600 disabled:opacity-50"
+            >
+              {retryingJobId === job.job_id ? '...' : 'تلاش مجدد'}
+            </button>
+          )}
+
+          <div className="relative">
+            <button
+              data-job-id={job.job_id}
+              onClick={handleActionOpen}
+              className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 hover:bg-slate-800 transition-colors border border-white/5"
+            >
+              <MoreVertical className="h-4 w-4 text-slate-400" />
+            </button>
+
+            {actionMenuJobId === job.job_id && (
+              <div className="absolute right-0 top-full mt-1 w-48 max-w-[calc(100vw-2rem)] rounded-2xl border border-white/10 bg-slate-950 p-2 shadow-2xl z-50" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-end px-3 py-1">
+                  <button onClick={handleActionClose} className="text-slate-500 hover:text-slate-300">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <button onClick={handleEditOpen} className="w-full flex items-center gap-3 rounded-xl px-4 py-2.5 text-right text-sm font-medium text-slate-300 hover:bg-white/5 transition-colors">
+                  <Edit2 className="h-4 w-4 text-slate-400" />
+                  ویرایش
+                </button>
+
+                <button data-job-id={job.job_id} onClick={handleDeleteOpen} className="w-full flex items-center gap-3 rounded-xl px-4 py-2.5 text-right text-sm font-medium text-rose-400 hover:bg-rose-500/10 transition-colors">
+                  <Trash2 className="h-4 w-4" />
+                  حذف
+                </button>
+              </div>
+            )}
+          </div>
+
+          <span className={['rounded-xl px-4 py-2 text-xs font-bold shadow-sm', statusTone(job.status)].join(' ')}>
+            {statusLabel(job.status)}
+          </span>
+        </div>
+      </div>
+      {job.last_error && (
+        <div className="mt-3 rounded-xl bg-rose-500/10 p-3 text-[11px] font-medium text-rose-400 border border-rose-500/20">
+          <span className="font-bold">علت خطا:</span> {job.last_error}
+        </div>
+      )}
+      <div className="mt-4 flex items-center justify-between text-[11px] font-bold uppercase r text-slate-500">
+        <div className="flex items-center gap-2">
+          <span>بروزرسانی:</span>
+          <span className="text-slate-400">{formatDateTime(job.updated_at)}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span>تلاش:</span>
+          <span className="text-slate-400">{toPersianDigits(job.attempt_count)} از {toPersianDigits(job.max_retries)}</span>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 export default function HistoryPage() {
   const { client } = useSession();
   const [jobs, setJobs] = useState<WaybillJob[]>([]);
@@ -18,18 +159,16 @@ export default function HistoryPage() {
   const [timeline, setTimeline] = useState<JobTimelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [timelineLoading, setTimelineLoading] = useState(false);
+  const [timelineError, setTimelineError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
   
-  // Action menu states
   const [actionMenuJobId, setActionMenuJobId] = useState<string | null>(null);
   
-  // Delete modal states
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   
-  // Edit modal states
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<WaybillJob | null>(null);
   const [editForm, setEditForm] = useState<WaybillJobUpdateRequest>({
@@ -60,52 +199,47 @@ export default function HistoryPage() {
     }
     setError(null);
     setLoading(false);
-  }, [client?.role, selectedJobId]);
+  }, [client?.role]);
 
   useEffect(() => {
     loadJobs();
   }, [client?.role, loadJobs]);
 
-  async function handleRetry(jobId: string) {
+  const handleRetry = useCallback(async (jobId: string) => {
     setRetryingJobId(jobId);
     const response = await api.post(`/api/v1/waybill-jobs/${jobId}/retry`, { dispatch_now: true });
     setRetryingJobId(null);
     if (response.success) {
       await loadJobs();
     } else {
-      alert(response.error || 'تلاش مجدد ناموفق بود');
+      setError(response.error || 'تلاش مجدد ناموفق بود');
     }
-  }
+  }, [loadJobs]);
   
-  // Open action menu
-  const handleActionMenuOpen = (jobId: string, e: React.MouseEvent) => {
+  const handleActionMenuOpen = useCallback((jobId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setActionMenuJobId(actionMenuJobId === jobId ? null : jobId);
-  };
+    setActionMenuJobId(prev => prev === jobId ? null : jobId);
+  }, []);
   
-  // Close action menu
-  const handleActionMenuClose = (e: React.MouseEvent) => {
+  const handleActionMenuClose = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     setActionMenuJobId(null);
-  };
+  }, []);
   
-  // Open delete modal
-  const handleDeleteModalOpen = (jobId: string, e: React.MouseEvent) => {
+  const handleDeleteModalOpen = useCallback((jobId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setDeletingJobId(jobId);
     setDeleteModalOpen(true);
     setActionMenuJobId(null);
-  };
+  }, []);
   
-  // Close delete modal
-  const handleDeleteModalClose = () => {
+  const handleDeleteModalClose = useCallback(() => {
     setDeleteModalOpen(false);
     setDeletingJobId(null);
     setDeleteError(null);
-  };
+  }, []);
   
-  // Confirm delete
-  async function handleDelete(jobId: string) {
+  const handleDelete = useCallback(async (jobId: string) => {
     const response = await api.delete(`/api/v1/waybill-jobs/${jobId}`);
     if (response.success) {
       await loadJobs();
@@ -113,10 +247,9 @@ export default function HistoryPage() {
     } else {
       setDeleteError(response.error || 'حذف ناموفق بود');
     }
-  }
+  }, [loadJobs, handleDeleteModalClose]);
   
-  // Open edit modal
-  const handleEditModalOpen = (job: WaybillJob, e: React.MouseEvent) => {
+  const handleEditModalOpen = useCallback((job: WaybillJob, e: React.MouseEvent) => {
     e.stopPropagation();
     setEditingJob(job);
     setEditForm({
@@ -129,9 +262,8 @@ export default function HistoryPage() {
     });
     setEditModalOpen(true);
     setActionMenuJobId(null);
-  };
+  }, []);
   
-  // Close edit modal
   const handleEditModalClose = () => {
     setEditModalOpen(false);
     setEditingJob(null);
@@ -147,9 +279,10 @@ export default function HistoryPage() {
     });
   };
   
-  // Confirm edit
   async function handleEdit(jobId: string) {
-    const response = await api.patch(`/api/v1/waybill-jobs/${jobId}`, editForm);
+    const payload = { ...editForm };
+    if (payload.status === '') delete payload.status;
+    const response = await api.patch(`/api/v1/waybill-jobs/${jobId}`, payload);
     if (response.success) {
       setEditSuccess('تغییرات با موفقیت ذخیره شد');
       setTimeout(() => {
@@ -161,24 +294,33 @@ export default function HistoryPage() {
     }
   }
 
-  useEffect(() => {
-    async function loadTimeline(jobId: string) {
-      setTimelineLoading(true);
-      const response = await api.get<JobTimelineResponse>(`/api/v1/waybill-jobs/${jobId}/timeline`, {
-        include_payload: 'true',
-        page:' 1',
-        page_size: '20',
-      });
-      setTimelineLoading(false);
-      if (response.success && response.data) {
-        setTimeline(response.data);
-      }
+  const loadTimeline = useCallback(async (jobId: string) => {
+    setTimelineLoading(true);
+    setTimelineError(null);
+    setTimeline(null);
+    const response = await api.get<JobTimelineResponse>(`/api/v1/waybill-jobs/${jobId}/timeline`, {
+      include_payload: 'true',
+      page:' 1',
+      page_size: '20',
+    });
+    if (response.success && response.data) {
+      setTimeline(response.data);
+    } else {
+      setTimelineError(response.error || 'تایم‌لاین بارگذاری نشد');
     }
+    setTimelineLoading(false);
+  }, []);
 
+  useEffect(() => {
     if (selectedJobId) {
       void loadTimeline(selectedJobId);
     }
-  }, [selectedJobId]);
+  }, [selectedJobId, loadTimeline]);
+
+  const handleCardClick = useCallback((jobId: string) => {
+    setSelectedJobId(jobId);
+    setMobileTimelineOpen(true);
+  }, []);
 
   return (
     <AuthGuard requiredRole="client">
@@ -208,98 +350,19 @@ export default function HistoryPage() {
             ) : (
               <div className="mt-6 space-y-3">
                 {jobs.map((job) => (
-                  <div
+                  <JobCard
                     key={job.job_id}
-                    onClick={() => { setSelectedJobId(job.job_id); setMobileTimelineOpen(true); }}
-                    className={[
-                      'group w-full cursor-pointer rounded-2xl border p-5 text-right transition-all duration-200',
-                      selectedJobId === job.job_id 
-                        ? 'border-cyan-500/30 bg-slate-950/60 shadow-[0_0_15px_rgba(6,182,212,0.1)]' 
-                        : 'border-white/5 bg-slate-950/30 hover:border-white/10 hover:bg-slate-950/50 hover:shadow-md',
-                    ].join(' ')}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className={['font-black transition-colors', selectedJobId === job.job_id ? 'text-cyan-400' : 'text-white group-hover:text-cyan-400'].join(' ')}>
-                          {job.driver_name ? `ثبت بارنامه برای ${job.driver_name}` : `عملیات ثبت بارنامه`}
-                        </p>
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-medium text-slate-400">
-                          <span className="font-mono bg-slate-950/60 border border-white/5 text-slate-300 px-1.5 py-0.5 rounded">شناسه: #{job.job_id.slice(0, 8)}</span>
-                          <span>•</span>
-                          <span>ایجاد در {formatDateTime(job.created_at)}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {(job.status === 'failed' || job.status === 'needs_review' || job.status === 'waiting_auth' || job.status === 'waiting_retry') && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); void handleRetry(job.job_id); }}
-                            disabled={retryingJobId === job.job_id}
-                            className="rounded-lg bg-cyan-500 px-3 py-1.5 text-[10px] font-bold text-white shadow-sm transition hover:bg-cyan-600 disabled:opacity-50"
-                          >
-                            {retryingJobId === job.job_id ? '...' : 'تلاش مجدد'}
-                          </button>
-                        )}
-                        
-                        {/* Action menu dropdown */}
-                        <div className="relative">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleActionMenuOpen(job.job_id, e); }}
-                            className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-900 hover:bg-slate-800 transition-colors border border-white/5"
-                          >
-                            <MoreVertical className="h-4 w-4 text-slate-400" />
-                          </button>
-                          
-                          {actionMenuJobId === job.job_id && (
-                            <div className="absolute right-0 top-full mt-1 w-48 rounded-2xl border border-white/10 bg-slate-950 p-2 shadow-2xl z-50" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center justify-end px-3 py-1">
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleActionMenuClose(e); }}
-                                  className="text-slate-500 hover:text-slate-300"
-                                >
-                                  <X className="h-4 w-4" />
-                                </button>
-                              </div>
-                              
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleEditModalOpen(job, e); }}
-                                className="w-full flex items-center gap-3 rounded-xl px-4 py-2.5 text-right text-sm font-medium text-slate-300 hover:bg-white/5 transition-colors"
-                              >
-                                <Edit2 className="h-4 w-4 text-slate-400" />
-                                ویرایش
-                              </button>
-                              
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleDeleteModalOpen(job.job_id, e); }}
-                                className="w-full flex items-center gap-3 rounded-xl px-4 py-2.5 text-right text-sm font-medium text-rose-400 hover:bg-rose-500/10 transition-colors"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                                حذف
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                        
-                        <span className={['rounded-xl px-4 py-2 text-xs font-bold shadow-sm', statusTone(job.status)].join(' ')}>
-                          {statusLabel(job.status)}
-                        </span>
-                      </div>
-                    </div>
-                    {job.last_error && (
-                      <div className="mt-3 rounded-xl bg-rose-500/10 p-3 text-[11px] font-medium text-rose-400 border border-rose-500/20">
-                        <span className="font-bold">علت خطا:</span> {job.last_error}
-                      </div>
-                    )}
-                    <div className="mt-4 flex items-center justify-between text-[11px] font-bold uppercase r text-slate-500">
-                      <div className="flex items-center gap-2">
-                        <span>بروزرسانی:</span>
-                        <span className="text-slate-400">{formatDateTime(job.updated_at)}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span>تلاش:</span>
-                        <span className="text-slate-400">{toPersianDigits(job.attempt_count)} از {toPersianDigits(job.max_retries)}</span>
-                      </div>
-                    </div>
-                  </div>
+                    job={job}
+                    selectedJobId={selectedJobId}
+                    retryingJobId={retryingJobId}
+                    actionMenuJobId={actionMenuJobId}
+                    onCardClick={handleCardClick}
+                    onRetry={handleRetry}
+                    onActionMenuOpen={handleActionMenuOpen}
+                    onActionMenuClose={handleActionMenuClose}
+                    onEditModalOpen={handleEditModalOpen}
+                    onDeleteModalOpen={handleDeleteModalOpen}
+                  />
                 ))}
               </div>
             )}
@@ -336,6 +399,14 @@ export default function HistoryPage() {
                     <div key={item} className="h-24 animate-pulse rounded-3xl bg-white/5" />
                   ))}
                 </div>
+              ) : timelineError ? (
+                <div className="mt-10 flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-rose-500/20 py-20 text-center">
+                  <AlertCircle className="h-12 w-12 text-rose-400" />
+                  <p className="mt-4 text-sm font-medium text-rose-400">{timelineError}</p>
+                  <button onClick={() => selectedJobId && void loadTimeline(selectedJobId)} className="mt-4 rounded-xl bg-cyan-500 px-6 py-3 text-xs font-bold text-white hover:bg-cyan-600 transition">
+                    تلاش مجدد
+                  </button>
+                </div>
               ) : !timeline || timeline.entries.length === 0 ? (
                 <div className="mt-10 flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-white/5 py-20 text-center">
                   <p className="text-sm font-medium text-slate-400">هنوز رویدادی برای این ماموریت ثبت نشده است.</p>
@@ -359,7 +430,6 @@ export default function HistoryPage() {
             </div>
           </div>
 
-          {/* Mobile Bottom Sheet for Timeline */}
           <div
             className={`fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300 xl:hidden ${
               mobileTimelineOpen && selectedJobId ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
@@ -400,6 +470,14 @@ export default function HistoryPage() {
                   <div key={item} className="h-24 animate-pulse rounded-3xl bg-white/5" />
                 ))}
               </div>
+            ) : timelineError ? (
+              <div className="flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-rose-500/20 py-20 text-center">
+                <AlertCircle className="h-12 w-12 text-rose-400" />
+                <p className="mt-4 text-sm font-medium text-rose-400">{timelineError}</p>
+                <button onClick={() => selectedJobId && void loadTimeline(selectedJobId)} className="mt-4 rounded-xl bg-cyan-500 px-6 py-3 text-xs font-bold text-white hover:bg-cyan-600 transition">
+                  تلاش مجدد
+                </button>
+              </div>
             ) : !timeline || timeline.entries.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-white/5 py-20 text-center">
                 <p className="text-sm font-medium text-slate-400">هنوز رویدادی برای این ماموریت ثبت نشده است.</p>
@@ -422,9 +500,8 @@ export default function HistoryPage() {
             )}
           </div>
 
-          {/* Delete Confirmation Modal */}
           {deleteModalOpen && deletingJobId && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm overflow-y-auto p-4">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm overflow-y-auto p-4" role="dialog" aria-modal="true" aria-label="تایید حذف ماموریت">
               <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900/90 p-8 shadow-2xl backdrop-blur-2xl text-white my-auto" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -448,12 +525,12 @@ export default function HistoryPage() {
                 )}
                 
                 <div className="mt-6 flex justify-end gap-3">
-                  <button onClick={handleDeleteModalClose} className="rounded-xl bg-slate-950 border border-white/5 px-6 py-2.5 text-sm font-bold text-slate-300 hover:bg-slate-900 transition-colors">
+                  <button onClick={handleDeleteModalClose} className="rounded-xl bg-slate-950 border border-white/5 px-6 py-3.5 text-sm font-bold text-slate-300 hover:bg-slate-900 transition-colors">
                     انصراف
                   </button>
                   <button
                     onClick={() => void handleDelete(deletingJobId)}
-                    className="rounded-xl bg-rose-500 px-6 py-2.5 text-sm font-bold text-white hover:bg-rose-600 transition-colors"
+                    className="rounded-xl bg-rose-500 px-6 py-3.5 text-sm font-bold text-white hover:bg-rose-600 transition-colors"
                   >
                     حذف ماموریت
                   </button>
@@ -462,9 +539,8 @@ export default function HistoryPage() {
             </div>
           )}
 
-          {/* Edit Job Modal */}
           {editModalOpen && editingJob && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm overflow-y-auto p-4">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm overflow-y-auto p-4" role="dialog" aria-modal="true" aria-label="ویرایش ماموریت">
               <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900/90 p-8 shadow-2xl backdrop-blur-2xl text-white my-auto" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between border-b border-white/5 pb-4">
                   <div className="flex items-center gap-3">
@@ -531,12 +607,12 @@ export default function HistoryPage() {
                 </div>
                 
                 <div className="mt-6 flex justify-end gap-3 border-t border-white/5 pt-4">
-                  <button onClick={handleEditModalClose} className="rounded-xl bg-slate-950 border border-white/5 px-6 py-2.5 text-sm font-bold text-slate-300 hover:bg-slate-900 transition-colors">
+                  <button onClick={handleEditModalClose} className="rounded-xl bg-slate-950 border border-white/5 px-6 py-3.5 text-sm font-bold text-slate-300 hover:bg-slate-900 transition-colors">
                     انصراف
                   </button>
                   <button
                     onClick={() => void handleEdit(editingJob.job_id)}
-                    className="rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-2.5 text-sm font-bold transition-all shadow-lg"
+                    className="rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-3.5 text-sm font-bold transition-all shadow-lg"
                   >
                     ذخیره تغییرات
                   </button>

@@ -3,7 +3,7 @@
 #  secure_squid_ports.sh — مسدودسازی پورت‌های Squid از دسترسی خارجی
 #
 #  مشکل: Squid 2 (3129) و Squid 3 (3130) از IP ثانویه (95.38.233.90)
-# 向外 سرویس می‌دهند و باید فقط از لوکال‌هاست قابل دسترسی باشند.
+#  خارج سرویس می‌دهند و باید فقط از لوکال‌هاست و شبکه Docker قابل دسترسی باشند.
 #  از آنجا که `network_mode: host` برای مسیریابی dual-IP لازم است،
 #  از iptables برای محدود کردن دسترسی استفاده می‌کنیم.
 #
@@ -17,6 +17,8 @@
 set -euo pipefail
 
 RULES_APPLIED=0
+# Detect Docker bridge subnet automatically
+DOCKER_BRIDGE=$(docker network inspect bridge --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' 2>/dev/null || echo "172.17.0.0/16")
 
 log_info()  { echo -e "\033[1;34mℹ️  $*\033[0m"; }
 log_ok()    { echo -e "\033[1;32m✅  $*\033[0m"; }
@@ -41,27 +43,32 @@ log_section() {
 
 log_section "🔒 مسدودسازی پورت‌های Squid از دسترسی خارجی"
 
-# Squid 2 (3129) — فقط localhost
-if iptables -C INPUT -p tcp --dport 3129 ! -s 127.0.0.1 -j DROP 2>/dev/null; then
+# Squid 1 (3128) — فقط localhost + Docker bridge
+if iptables -C INPUT -p tcp --dport 3128 ! -s 127.0.0.1 ! -s $DOCKER_BRIDGE -j DROP 2>/dev/null; then
+  log_info "قانون 3128 قبلاً اعمال شده است."
+else
+  iptables -A INPUT -p tcp --dport 3128 ! -s 127.0.0.1 ! -s $DOCKER_BRIDGE -j DROP
+  log_ok "پورت 3128: فقط localhost + Docker bridge مجاز شد."
+  RULES_APPLIED=$((RULES_APPLIED + 1))
+fi
+
+# Squid 2 (3129) — فقط localhost + Docker bridge
+if iptables -C INPUT -p tcp --dport 3129 ! -s 127.0.0.1 ! -s $DOCKER_BRIDGE -j DROP 2>/dev/null; then
   log_info "قانون 3129 قبلاً اعمال شده است."
 else
-  iptables -A INPUT -p tcp --dport 3129 ! -s 127.0.0.1 -j DROP
-  log_ok "پورت 3129: فقط localhost مجاز شد."
+  iptables -A INPUT -p tcp --dport 3129 ! -s 127.0.0.1 ! -s $DOCKER_BRIDGE -j DROP
+  log_ok "پورت 3129: فقط localhost + Docker bridge مجاز شد."
   RULES_APPLIED=$((RULES_APPLIED + 1))
 fi
 
-# Squid 3 (3130) — فقط localhost
-if iptables -C INPUT -p tcp --dport 3130 ! -s 127.0.0.1 -j DROP 2>/dev/null; then
+# Squid 3 (3130) — فقط localhost + Docker bridge
+if iptables -C INPUT -p tcp --dport 3130 ! -s 127.0.0.1 ! -s $DOCKER_BRIDGE -j DROP 2>/dev/null; then
   log_info "قانون 3130 قبلاً اعمال شده است."
 else
-  iptables -A INPUT -p tcp --dport 3130 ! -s 127.0.0.1 -j DROP
-  log_ok "پورت 3130: فقط localhost مجاز شد."
+  iptables -A INPUT -p tcp --dport 3130 ! -s 127.0.0.1 ! -s $DOCKER_BRIDGE -j DROP
+  log_ok "پورت 3130: فقط localhost + Docker bridge مجاز شد."
   RULES_APPLIED=$((RULES_APPLIED + 1))
 fi
-
-# Squid 1 (3128) — اگر در معرض اینترنت است، محدود کنید
-# (فقط در صورتی که Worker 1 نیاز به دسترسی خارجی ندارد)
-# iptables -A INPUT -p tcp --dport 3128 ! -s 127.0.0.1 -j DROP
 
 log_section "📋 خلاصه"
 if [[ $RULES_APPLIED -gt 0 ]]; then

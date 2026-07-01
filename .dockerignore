@@ -6,11 +6,16 @@ apps/web/node_modules
 apps/web/.next
 output
 __pycache__
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
 .pytest_cache
+.pytest_cache/
 .mypy_cache
+.mypy_cache/
 .ruff_cache
+.ruff_cache/
+.env
 temp
 *.log

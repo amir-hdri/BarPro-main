@@ -17,7 +17,7 @@ export function Header({ client, role, onLogout, onOpenMenu }: HeaderProps) {
         <button
           type="button"
           onClick={onOpenMenu}
-          className="inline-flex h-10 w-10 md:h-12 md:w-12 items-center justify-center rounded-xl md:rounded-[1.25rem] border border-white/10 bg-slate-950 text-slate-300 shadow-sm transition-all hover:bg-slate-900 hover:scale-105 active:scale-95 xl:hidden"
+          className="inline-flex h-11 w-11 md:h-12 md:w-12 items-center justify-center rounded-xl md:rounded-[1.25rem] border border-white/10 bg-slate-950 text-slate-300 shadow-sm transition-all hover:bg-slate-900 hover:scale-105 active:scale-95 xl:hidden"
         >
           <Bars3Icon className="h-5 w-5 md:h-6 md:w-6" />
         </button>
@@ -36,13 +36,11 @@ export function Header({ client, role, onLogout, onOpenMenu }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-3 md:gap-4">
-        {/* System status pill */}
         <div className="hidden items-center gap-2 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-2 sm:flex shadow-sm">
           <SignalIcon className="h-4 w-4 text-cyan-400 animate-pulse" />
           <span className="text-xs font-bold text-cyan-400">سیستم آنلاین</span>
         </div>
 
-        {/* User info */}
         <div className="hidden flex-col items-end rounded-[1.25rem] bg-slate-950 px-5 py-3 text-white shadow-[0_5px_15px_-5px_rgba(2,6,23,0.5)] md:flex border border-slate-800">
           <p className="text-sm font-black">{client?.name || 'مهمان'}</p>
           <p className="mt-1 text-[10px] font-bold text-cyan-400 opacity-90 uppercase">
@@ -56,7 +54,7 @@ export function Header({ client, role, onLogout, onOpenMenu }: HeaderProps) {
           <button
             type="button"
             onClick={onLogout}
-            className="group relative inline-flex h-10 w-10 md:h-12 md:w-12 items-center justify-center gap-2 rounded-xl md:rounded-[1.25rem] bg-rose-500/10 border border-rose-500/20 text-rose-400 transition-all hover:bg-rose-600 hover:text-white hover:border-rose-600 shadow-sm hover:shadow-[0_0_15px_rgba(225,29,72,0.3)] sm:w-auto sm:px-5"
+            className="group relative inline-flex h-11 w-11 md:h-12 md:w-12 items-center justify-center gap-2 rounded-xl md:rounded-[1.25rem] bg-rose-500/10 border border-rose-500/20 text-rose-400 transition-all hover:bg-rose-600 hover:text-white hover:border-rose-600 shadow-sm hover:shadow-[0_0_15px_rgba(225,29,72,0.3)] sm:w-auto sm:px-5"
           >
             <ArrowRightStartOnRectangleIcon className="h-4 w-4 md:h-5 md:w-5 transition-transform group-hover:-translate-x-1" />
             <span className="hidden text-sm font-bold sm:inline">خروج</span>

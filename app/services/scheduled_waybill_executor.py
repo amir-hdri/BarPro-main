@@ -13,10 +13,12 @@ This service:
 import asyncio
 import json
 import logging
+import random
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+import jdatetime
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -25,7 +27,6 @@ from app.automation.browser import browser_manager, managed_browser_session
 from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload
 from app.automation.proxy_rotator import get_proxy_rotator
 from app.automation.waybill_bot_multitenant import WaybillAutomationBot
-from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.models_multitenant import (
     Client,
@@ -60,7 +61,7 @@ def _resolve_run_times(schedule: DriverSchedule) -> list[str]:
     if schedule.run_times_csv:
         parts = [p.strip() for p in schedule.run_times_csv.split(",") if p.strip()]
         if parts:
-            return sorted(parts)
+            return sorted(parts, key=lambda t: tuple(map(int, t.split(":"))))
     return [schedule.run_time] if schedule.run_time else ["08:00"]
 
 
@@ -143,8 +144,6 @@ async def _execute_single_job(
 ) -> dict[str, Any]:
     """Execute a single waybill job with retry logic."""
     if attempt == 1:
-        import random
-
         start_jitter = random.uniform(1.0, 5.0)
         logger.info(f"Adding start jitter of {start_jitter:.2f}s for scheduled job {job.job_id}")
         await asyncio.sleep(start_jitter)
@@ -344,8 +343,8 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
 
 def dispatch_scheduled_job(job_id: int):
     """Dispatch a scheduled waybill job execution to Celery."""
-    from app.workers.celery_app import celery_app
     from app.core.circuit_breaker import get_routed_queue
+    from app.workers.celery_app import celery_app
 
     if celery_app is not None:
         routed_queue = get_routed_queue("scheduled_tasks")
@@ -429,18 +428,37 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
     today = now.date()
     current_hhmm = now.strftime("%H:%M")
 
-    # Check date range
-    if schedule.start_date and today < datetime.fromisoformat(schedule.start_date).date():
+    # Check date range (dates in DB are Persian Solar Hijri)
+    def _parse_schedule_date(date_str: str | None) -> date | None:
+        if not date_str:
+            return None
+        try:
+            return jdatetime.date.fromisoformat(date_str).togregorian()
+        except (ValueError, TypeError):
+            try:
+                return datetime.fromisoformat(date_str).date()
+            except (ValueError, TypeError):
+                return None
+
+    start = _parse_schedule_date(schedule.start_date)
+    if start and today < start:
         return {"jobs_created": 0, "jobs_success": 0, "jobs_failed": 0, "skipped": True}
-    if schedule.end_date and today > datetime.fromisoformat(schedule.end_date).date():
+    end = _parse_schedule_date(schedule.end_date)
+    if end and today > end:
         return {"jobs_created": 0, "jobs_success": 0, "jobs_failed": 0, "skipped": True}
 
-    # Check specific dates
+    # Check specific dates (dates in DB are Persian Solar Hijri)
     specific_dates = _parse_csv_list(schedule.specific_dates_csv)
-    if specific_dates and today.isoformat() not in specific_dates:
-        return {"jobs_created": 0, "jobs_success": 0, "jobs_failed": 0, "skipped": True}
+    if specific_dates:
+        today_persian = jdatetime.date.fromgregorian(date=today).isoformat()
+        if today_persian not in specific_dates:
+            return {"jobs_created": 0, "jobs_success": 0, "jobs_failed": 0, "skipped": True}
 
     # Check weekdays for weekly schedules
+    # Note: Python weekday(): Monday=0..Sunday=6.
+    # Persian calendar uses Saturday=0..Friday=6.
+    # The database stores Python-convention weekdays. If Persian convention is used,
+    # adjust by adding 2: (now.weekday() + 2) % 7 maps Mon=0→Sat=2.
     if schedule.frequency == ScheduleFrequency.WEEKLY.value:
         allowed = _parse_weekdays_csv(schedule.weekdays_csv)
         if allowed and now.weekday() not in allowed:
@@ -503,9 +521,7 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
         payload_json=json.dumps(payload, ensure_ascii=False),
         max_retries=3,
         correlation_id=f"schedule:{schedule.id}",
-        business_date=utcms_config.BUSINESS_DATE_PROVIDER()
-        if hasattr(utcms_config, "BUSINESS_DATE_PROVIDER") and callable(utcms_config.BUSINESS_DATE_PROVIDER)
-        else _utcnow().strftime("%Y-%m-%d"),
+        business_date=_utcnow().strftime("%Y-%m-%d"),
         priority=5,
         schedule_id=schedule.id,
     )

@@ -1,10 +1,10 @@
 """Playwright automation scraper for fuel quota inquiries on UTCMS using public ShowFuelQuota.aspx page."""
 
+import asyncio
 import logging
 import os
-import asyncio
 import re
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from playwright.async_api import BrowserContext, Page
@@ -29,24 +29,24 @@ def parse_plate(plate_number: str) -> dict[str, str]:
     for index, digit in enumerate("٠١٢٣٤٥٦٧٨٩"):
         norm = norm.replace(digit, str(index))
     norm = norm.replace("ایران", "")
-    
+
     # Match pattern like: 12ب34567
     match = re.fullmatch(r"(\d{2})([^\d]+)(\d{3})(\d{2})", norm)
     if not match:
         raise ValueError(f"فرمت پلاک نامعتبر است: {plate_number}")
-        
+
     letter_map = {
         "الف": "1", "ب": "2", "ت": "4", "ج": "6", "ح": "8", "د": "10",
         "ژ": "14", "س": "15", "ص": "17", "ط": "19", "ع": "21", "ق": "24",
         "ک": "25", "ل": "27", "م": "28", "ن": "29", "و": "30", "ه": "31",
         "ی": "32"
     }
-    
+
     char = match.group(2)
     char_val = letter_map.get(char)
     if not char_val:
         raise ValueError(f"حرف پلاک نامعتبر است: {char}")
-        
+
     return {
         "first": match.group(1),
         "char_val": char_val,
@@ -57,26 +57,26 @@ def parse_plate(plate_number: str) -> dict[str, str]:
 
 def get_current_jalali() -> tuple[int, int]:
     # Determine current Jalali year and month from Gregorian (using Tehran offset)
-    tehran_time = datetime.now(timezone.utc) + timedelta(hours=3.5)
+    tehran_time = datetime.now(UTC) + timedelta(hours=3.5)
     gy, gm, gd = tehran_time.year, tehran_time.month, tehran_time.day
-    
+
     g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 335]
     jy = gy - 621
     g_day_no = 365 * (gy - 1) + (gy - 1) // 4 - (gy - 1) // 100 + (gy - 1) // 400 + g_d_m[gm - 1] + gd
     if gm > 2 and ((gy % 4 == 0 and gy % 100 != 0) or gy % 400 == 0):
         g_day_no += 1
-    
+
     j_day_no = g_day_no - (365 * (jy + 620) + (jy + 620) // 4 - (jy + 620) // 100 + (jy + 620) // 400) - 79
     if j_day_no < 0:
         jy -= 1
         j_day_no += 366 if ((jy % 33) in [1, 5, 9, 13, 17, 22, 26, 30]) else 365
-        
+
     if j_day_no < 186:
         jm = 1 + j_day_no // 31
     else:
         j_day_no -= 186
         jm = 7 + j_day_no // 30
-        
+
     return jy, jm
 
 
@@ -112,7 +112,7 @@ class FuelScraper:
 
         base_rows = []
         perf_rows = []
-        
+
         # Pass 1: Query Base Quota (1)
         logger.info("Querying base quota...")
         base_rows = await self._query_quota_type(
@@ -138,14 +138,14 @@ class FuelScraper:
         # Build tables output compatible with frontend schema
         tables_data = []
         headers = ["ردیف", "دوره", "سهمیه (لیتر)"]
-        
+
         if base_rows:
             tables_data.append({
                 "table_index": 0,
                 "headers": headers,
                 "rows": base_rows
             })
-            
+
         if perf_rows:
             tables_data.append({
                 "table_index": 1,
@@ -176,7 +176,7 @@ class FuelScraper:
         os.makedirs(screenshots_dir, exist_ok=True)
         screenshot_filename = f"fuel_inquiry_{inquiry_id}.png"
         screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
-        
+
         screenshot_url = None
         try:
             await self.page.screenshot(path=screenshot_path, full_page=True)
@@ -233,16 +233,16 @@ class FuelScraper:
                 await self.page.fill("#NationalCode", username)
                 await self.page.select_option("#Year", str(j_year))
                 await self.page.select_option("#Month", str(j_month))
-                
+
                 # Select plate type (mili = value 1)
                 await self.page.check("input[name='pelakSelected'][value='1']")
-                
+
                 # Fill plate components
                 await self.page.fill("#pelakFirstLogin", plate_info["first"])
                 await self.page.select_option("#pelakComboLogin", plate_info["char_val"])
                 await self.page.fill("#pelakCenterLogin", plate_info["center"])
                 await self.page.fill("#pelakIrNumLogin", plate_info["ir"])
-                
+
                 # Select Quota Type
                 await self.page.check(f"input[name='QoutaType'][value='{quota_type}']")
 
@@ -271,7 +271,7 @@ class FuelScraper:
                 # Submit
                 await self.page.click("#Login")
                 await asyncio.sleep(1.0)  # Wait for submission processing
-                
+
                 # Detect result modal or error
                 try:
                     # Wait for either result modal or Swall error / validation summary error
@@ -283,7 +283,7 @@ class FuelScraper:
                 # Check if modal is visible
                 modal = await self.page.query_selector("#ViewShowFuelQuota")
                 is_modal_visible = modal and await modal.is_visible()
-                
+
                 if is_modal_visible:
                     # Scrape table rows
                     rows = []
@@ -295,13 +295,13 @@ class FuelScraper:
                             if any(row_data):
                                 rows.append(row_data)
                     logger.info(f"Successfully scraped {len(rows)} rows of quota data")
-                    
+
                     # Close modal so we can query again
                     close_btn = await self.page.query_selector("#ViewShowFuelQuota button[data-bs-dismiss='modal'], #ViewShowFuelQuota .btn-default")
                     if close_btn:
                         await close_btn.click()
                         await asyncio.sleep(0.5)
-                        
+
                     elapsed = asyncio.get_running_loop().time() - solve_start
                     track_captcha_success(
                         strategy="provider",
@@ -319,7 +319,7 @@ class FuelScraper:
                         error_msg = (await element.inner_text()).strip()
                         if error_msg:
                             break
-                            
+
                 if error_msg:
                     logger.warning(f"Error returned on attempt {attempt}: {error_msg}")
                     elapsed = asyncio.get_running_loop().time() - solve_start

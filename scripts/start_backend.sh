@@ -94,8 +94,25 @@ if not asyncio.run(test_db()):
 PYTHON
 
 echo "🚀 راه‌اندازی Backend API..."
-echo "📍 Backend در حال اجرا: http://localhost:8000"
+echo "📍 Backend: http://localhost:8000"
 echo "📍 API Docs: http://localhost:8000/docs"
 echo ""
 
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload &
+UVICORN_PID=$!
+echo $UVICORN_PID > /tmp/uvicorn.pid
+
+echo "⏳ در انتظار آماده‌شدن Backend..."
+for i in $(seq 1 10); do
+    if curl -sf http://localhost:8000/healthz > /dev/null 2>&1; then
+        echo "✅ Backend با موفقیت راه‌اندازی شد (PID: $UVICORN_PID)"
+        break
+    fi
+    if [ $i -eq 10 ]; then
+        echo "❌ Backend در زمان مقرر آماده نشد"
+        exit 1
+    fi
+    sleep 1
+done
+
+wait $UVICORN_PID

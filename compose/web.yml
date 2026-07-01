@@ -37,6 +37,12 @@ services:
     networks: [platform]
     mem_limit: 512m
     mem_reservation: 256m
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO/dev/null http://localhost:3000/healthz 2>&1 || exit 1']
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
 
     logging:
       driver: json-file
@@ -46,7 +52,7 @@ services:
 
   # ── Nginx — تنها درگاه ورودی به سیستم ──────────────────────
   nginx:
-    image: nginx:1.27-alpine
+    image: nginx:1.27.0-alpine
     container_name: barpro-nginx
     restart: unless-stopped
     depends_on:
@@ -66,7 +72,7 @@ services:
     mem_limit: 256m
     mem_reservation: 128m
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO/dev/null http://localhost/healthz 2>&1 | grep -q "200\\|301\\|302" || curl -sf http://localhost/healthz || exit 0']
+      test: ['CMD-SHELL', 'wget -qO/dev/null http://localhost/healthz 2>&1 | grep -q "200\\|301\\|302" || curl -sf http://localhost/healthz']
       interval: 30s
       timeout: 5s
       start_period: 10s

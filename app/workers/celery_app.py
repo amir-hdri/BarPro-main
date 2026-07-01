@@ -3,15 +3,15 @@ from __future__ import annotations
 import logging
 import os
 
-from app.core.config import utcms_config
 from app.automation.proxy_rotator import get_proxy_rotator
+from app.core.config import utcms_config
 
 logger = logging.getLogger(__name__)
 
 try:
     from celery import Celery
-    from celery.signals import worker_process_init
     from celery.schedules import crontab, schedule
+    from celery.signals import worker_process_init
 except Exception:
     Celery = None  # type: ignore
     schedule = None  # type: ignore
@@ -23,7 +23,7 @@ if worker_process_init is not None:
     def configure_worker_proxies(**kwargs):
         """Initialize proxies in the worker process when it boots."""
         proxy_rotator = get_proxy_rotator()
-        
+
         # Load from file if configured
         if os.getenv("RPA_PROXY_LIST_FILE"):
             proxy_rotator.load_from_file(os.getenv("RPA_PROXY_LIST_FILE"))
@@ -31,7 +31,7 @@ if worker_process_init is not None:
         elif os.getenv("RPA_PROXIES"):
             proxy_urls = [p.strip() for p in os.getenv("RPA_PROXIES").split(",") if p.strip()]
             proxy_rotator.load_from_list(proxy_urls)
-            
+
         if proxy_rotator.proxies:
             logger.info(f"Worker initialized with {len(proxy_rotator.proxies)} RPA proxies.")
         else:
@@ -88,6 +88,11 @@ def _build_celery() -> Celery | None:
                 "task": "scheduled.waybill.clear_expired",
                 "schedule": crontab(hour="0", minute="0"),
                 "options": {"queue": "scheduled_tasks"},
+            },
+            "rpa-session-keepalive": {
+                "task": "rpa.session.keepalive",
+                "schedule": crontab(minute="*/30"),
+                "options": {"queue": utcms_config.RPA_SCHEDULER_QUEUE},
             },
         },
     )

@@ -1,4 +1,11 @@
 import { useEffect, useState, useRef, useCallback } from "react";
+import type { WebSocketEvent } from "@/lib/types";
+
+function logError(...args: unknown[]) {
+  if (process.env.NODE_ENV !== "production") {
+    console.error(...args);
+  }
+}
 
 // Determine the WebSocket URL based on the current environment and API_URL
 function getWebSocketUrl(): string {
@@ -29,10 +36,12 @@ interface UseWaybillJobOptions {
 
 export type WebSocketStatus = "connecting" | "connected" | "disconnected" | "error";
 
+const MAX_WS_EVENTS = 100;
+
 export function useWaybillJob(options: UseWaybillJobOptions = {}) {
   const [status, setStatus] = useState<WebSocketStatus>("disconnected");
-  const [lastEvent, setLastEvent] = useState<any>(null);
-  const [events, setEvents] = useState<any[]>([]);
+  const [lastEvent, setLastEvent] = useState<WebSocketEvent | null>(null);
+  const [events, setEvents] = useState<WebSocketEvent[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
 
   const { taskId, batchId, correlationId } = options;
@@ -62,9 +71,12 @@ export function useWaybillJob(options: UseWaybillJobOptions = {}) {
         try {
           const data = JSON.parse(event.data);
           setLastEvent(data);
-          setEvents((prev) => [...prev, data]);
+          setEvents((prev) => {
+            const next = [...prev, data];
+            return next.length > MAX_WS_EVENTS ? next.slice(-MAX_WS_EVENTS) : next;
+          });
         } catch (e) {
-          console.error("Failed to parse WebSocket message", e);
+          logError("Failed to parse WebSocket message", e);
         }
       };
 
@@ -73,11 +85,11 @@ export function useWaybillJob(options: UseWaybillJobOptions = {}) {
       };
 
       ws.onerror = (error) => {
-        console.error("WebSocket error:", error);
+        logError("WebSocket error:", error);
         setStatus("error");
       };
     } catch (error) {
-      console.error("Failed to initialize WebSocket:", error);
+      logError("Failed to initialize WebSocket:", error);
       setStatus("error");
     }
   }, [taskId, batchId, correlationId]);

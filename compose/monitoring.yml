@@ -24,7 +24,7 @@ services:
 
   # ── Prometheus — جمع‌آوری متریک‌ها ──────────────────────────
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.53.0
     container_name: barpro-prometheus
     restart: unless-stopped
     command:
@@ -37,8 +37,8 @@ services:
       - prometheus_data:/prometheus
     expose: ['9090']
     networks: [platform]
-    mem_limit: 512m
-    mem_reservation: 256m
+    mem_limit: 256m
+    mem_reservation: 128m
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO/dev/null http://localhost:9090/-/healthy || exit 1']
       interval: 30s

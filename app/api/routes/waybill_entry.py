@@ -255,7 +255,7 @@ async def queue_excel_waybills(
     }
 
 
-@router.get("/excel-template", tags=["templates"])
+@router.get("/excel-template", tags=["templates"], dependencies=[Depends(require_sensitive_auth)])
 async def download_excel_template():
     """دانلود قالب اکسل برای ورود اطلاعات بارنامه."""
     import io

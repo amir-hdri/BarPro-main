@@ -1,4 +1,5 @@
 from app.api.routes import (
+    admin_reporting,
     itmb_ws,
     management,
     multitenant,
@@ -7,6 +8,7 @@ from app.api.routes import (
     rpa_phase1,
     system,
     ui,
+    user_reporting,
     waybill_entry,
     waybill_map,
 )
@@ -22,4 +24,6 @@ __all__ = [
     "system",
     "ui",
     "realtime",
+    "admin_reporting",
+    "user_reporting",
 ]

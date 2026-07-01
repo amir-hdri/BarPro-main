@@ -33,6 +33,9 @@ def _sanitize_string(value: str) -> str:
         (r"(?i)(jwt[_-]?secret\s*[:=]\s*)[^\s,;]+", r"\1***"),
         (r"(?i)(password\s*[:=]\s*)[^\s,;]+", r"\1***"),
         (r"(?i)(token\s*[:=]\s*)[^\s,;]+", r"\1***"),
+        (r"(?i)(secret\s*[:=]\s*)[^\s,;]+", r"\1***"),
+        (r"\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b", "****-****-****-****"),
+        (r"\b\d{4}[- ]?\d{6}[- ]?\d{5}\b", "****-******-*****"),
     ]
     try:
         for pattern, replacement in patterns:
@@ -94,6 +97,15 @@ def monitoring_extra(
     return {"extra_fields": merged}
 
 
+class SensitiveDataFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        sanitized = _sanitize_string(record.getMessage())
+        if sanitized != record.msg:
+            record.msg = sanitized
+            record.args = None
+        return True
+
+
 class RequestIdFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         record.request_id = get_request_id()
@@ -123,7 +135,7 @@ class JsonFormatter(logging.Formatter):
         }
 
         if record.exc_info:
-            payload["exc_info"] = self.formatException(record.exc_info)
+            payload["exc_info"] = sanitize(self.formatException(record.exc_info))
 
         extra_fields = getattr(record, "extra_fields", None)
         if extra_fields:

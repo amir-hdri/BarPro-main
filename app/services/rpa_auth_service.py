@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlmodel import select
 
@@ -78,14 +79,14 @@ class RPAAuthService:
                 return AuthResult(ok=False, session_bundle=None, reason_code="login_failed", message=message)
 
             cookies = await context.cookies()
-            expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(
+            session_expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(
                 seconds=utcms_config.RPA_SESSION_TTL_SECONDS
             )
             bundle = SessionBundle(
                 cookies=cookies,
                 user_agent=await page.evaluate("() => navigator.userAgent"),
                 issued_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
-                expires_at=expires_at.isoformat(),
+                expires_at=session_expires_at.isoformat(),
                 session_version=runtime_state.session_version + 1,
                 proxy_key=runtime_state.proxy_key,
             )
@@ -96,7 +97,7 @@ class RPAAuthService:
             metadata.session_version = bundle.session_version
             metadata.auth_state_path = auth_state_path
             metadata.user_agent = bundle.user_agent
-            metadata.expires_at = expires_at
+            metadata.expires_at = session_expires_at
             metadata.last_auth_result = "success"
             metadata.last_auth_at = datetime.now(UTC).replace(tzinfo=None)
             metadata.proxy_key = runtime_state.proxy_key
@@ -105,14 +106,14 @@ class RPAAuthService:
             runtime_state.state = DriverRuntimeStateValue.READY.value
             runtime_state.session_version = bundle.session_version
             runtime_state.last_auth_at = datetime.now(UTC).replace(tzinfo=None)
-            runtime_state.session_expires_at = expires_at
+            runtime_state.session_expires_at = session_expires_at
             runtime_state.last_error_code = None
             runtime_state.next_retry_at = None
             runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
 
             driver.runtime_status = DriverStatus.READY.value
             driver.last_auth_at = runtime_state.last_auth_at
-            driver.last_session_expires_at = expires_at
+            driver.last_session_expires_at = session_expires_at
             driver.last_error_code = None
 
             await self._record_event(
@@ -235,7 +236,7 @@ class RPAAuthService:
         runtime_state.last_error_code = "login_failed"
         runtime_state.next_retry_at = retry_at
         runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
-        driver.runtime_status = runtime_state.state
+        driver.runtime_status = DriverStatus.AUTH_REQUIRED.value
         driver.last_error_code = "login_failed"
         await self._record_event(
             session,
@@ -296,6 +297,68 @@ class RPAAuthService:
             session.add(item)
             await session.flush()
         return item
+
+    async def keepalive_sessions(self) -> dict[str, Any]:
+        """Proactively refresh driver sessions that are close to expiring.
+
+        Runs every 30 minutes via Celery Beat. Queries all active drivers whose
+        sessions expire within the next 35 minutes and re-authenticates them.
+        """
+        session = async_session_factory()
+        results: dict[str, Any] = {"checked": 0, "refreshed": 0, "errors": 0, "details": []}
+        try:
+            now = datetime.now(UTC).replace(tzinfo=None)
+            skew = utcms_config.RPA_SESSION_REFRESH_SKEW_SECONDS
+            threshold = now + timedelta(seconds=utcms_config.RPA_SESSION_TTL_SECONDS - skew)
+            stmt = (
+                select(DriverRuntimeState)
+                .where(DriverRuntimeState.session_expires_at.isnot(None))
+                .where(DriverRuntimeState.session_expires_at < threshold)
+                .where(
+                    DriverRuntimeState.state.in_([
+                        DriverRuntimeStateValue.READY.value,
+                        DriverRuntimeStateValue.ACTIVE.value,
+                    ])
+                )
+            )
+            rows = (await session.exec(stmt)).all()
+            results["checked"] = len(rows)
+            for drs in rows:
+                try:
+                    auth_result = await self.authenticate_driver(
+                        drs.client_id, drs.driver_id, "session_keepalive"
+                    )
+                    if auth_result.ok:
+                        results["refreshed"] += 1
+                        results["details"].append({
+                            "driver_id": drs.driver_id,
+                            "client_id": drs.client_id,
+                            "outcome": "refreshed",
+                        })
+                    else:
+                        results["errors"] += 1
+                        results["details"].append({
+                            "driver_id": drs.driver_id,
+                            "client_id": drs.client_id,
+                            "outcome": "failed",
+                            "reason": auth_result.reason_code,
+                        })
+                except Exception as e:
+                    results["errors"] += 1
+                    results["details"].append({
+                        "driver_id": drs.driver_id,
+                        "client_id": drs.client_id,
+                        "outcome": "exception",
+                        "error": str(e),
+                    })
+                    logger.exception(f"Session keepalive failed for driver {drs.driver_id}")
+        except Exception:
+            logger.exception("Session keepalive query failed")
+            results["error"] = "query_failed"
+        finally:
+            await session.close()
+        logger.info("session_keepalive_complete", extra={"extra_fields": results})
+        return results
 
     async def _record_event(
         self, session, client_id: int, driver_id: int, job_id: str | None, event_type: str, payload: dict

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
+import threading
 import time
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
@@ -17,14 +17,9 @@ from app.rpa.contracts import RuntimeCounterSnapshot, SessionBundle
 class RPADistributedRuntime:
     def __init__(self) -> None:
         self._memory: dict[str, tuple[str, float | None]] = {}
-        self._lock = None
-        self._loop = None
+        self._lock = threading.Lock()
 
-    def _get_lock(self) -> asyncio.Lock:
-        current_loop = asyncio.get_running_loop()
-        if not hasattr(self, "_lock") or self._lock is None or self._loop != current_loop:
-            self._lock = asyncio.Lock()
-            self._loop = current_loop
+    def _get_lock(self) -> threading.Lock:
         return self._lock
 
     @staticmethod

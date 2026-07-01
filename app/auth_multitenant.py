@@ -5,7 +5,6 @@ Provides JWT-based authentication for clients with tenant isolation enforcement.
 Each client can only access their own drivers and waybill tasks.
 """
 
-import hashlib
 import logging
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -71,6 +70,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def _build_fernet() -> "Fernet":
     from base64 import urlsafe_b64decode, urlsafe_b64encode
+
     from cryptography.fernet import Fernet
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC

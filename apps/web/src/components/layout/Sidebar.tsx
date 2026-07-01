@@ -43,13 +43,10 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
   return (
     <aside className="relative flex h-full flex-col rounded-[2.5rem] bg-slate-950 p-6 text-white shadow-[0_20px_60px_-15px_rgba(2,6,23,0.6)] border border-white/10 overflow-hidden">
-      {/* Background glow effects */}
       <div className="absolute -top-32 -left-32 h-64 w-64 rounded-full bg-cyan-500/20 blur-[80px] pointer-events-none" />
       <div className="absolute -bottom-32 -right-32 h-64 w-64 rounded-full bg-blue-500/10 blur-[80px] pointer-events-none" />
 
-      {/* Scrollable inner container for all content to prevent overflow on short viewports */}
       <div className="relative z-10 flex flex-col flex-1 overflow-y-auto overflow-x-hidden gap-6 scrollbar-none">
-        {/* Logo */}
         <div className="px-2 pt-2">
           <div className="flex items-center gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-[1.25rem] bg-gradient-to-br from-cyan-400 to-cyan-600 shadow-[0_0_30px_rgba(6,182,212,0.5)]">
@@ -61,7 +58,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             </div>
           </div>
 
-          {/* automation status dot */}
           <div className="mt-6 flex items-center justify-between rounded-2xl bg-white/5 border border-white/10 px-4 py-3 backdrop-blur-md">
             <div className="flex items-center gap-3">
               <span className="relative flex h-2.5 w-2.5">
@@ -74,7 +70,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           </div>
         </div>
 
-        {/* Navigation */}
         <nav className="space-y-2 flex-1">
           {navigation.map((item) => {
             const active = pathname === item.href;
@@ -84,7 +79,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                 href={item.href}
                 onClick={onNavigate}
                 className={[
-                  'group flex items-center gap-4 rounded-2xl px-5 py-3.5 text-sm font-bold transition-all duration-300 relative overflow-hidden',
+                  'group flex items-center gap-4 rounded-2xl px-5 py-5 text-sm font-bold transition-all duration-300 relative overflow-hidden',
                   active
                     ? 'bg-gradient-to-r from-cyan-500/10 to-transparent text-cyan-400 border border-cyan-500/20 shadow-[inset_4px_0_0_0_rgba(6,182,212,1)]'
                     : 'text-slate-400 hover:bg-white/5 hover:text-white',
@@ -107,7 +102,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           })}
         </nav>
 
-        {/* Footer info */}
         <div className="rounded-3xl bg-gradient-to-br from-cyan-900/40 to-slate-900/40 border border-cyan-500/20 p-5 backdrop-blur-md shrink-0">
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 shrink-0">

@@ -43,20 +43,25 @@ class WaybillEventHub:
             **event,
         }
         self._history.append(envelope)
+
+        # Collect targets under lock, then send outside lock to avoid blocking
         async with self._lock:
             targets: set[WebSocket] = set()
             for channel in self._channel_keys(envelope):
                 targets.update(self._connections.get(channel, set()))
+            targets_copy = set(targets)
 
-            stale: list[WebSocket] = []
-            for websocket in targets:
-                try:
-                    await websocket.send_json(envelope)
-                except Exception:
-                    stale.append(websocket)
-            for websocket in stale:
-                await self.disconnect(websocket)
-                logger.warning("websocket_disconnected_during_publish")
+        stale: list[WebSocket] = []
+        for websocket in targets_copy:
+            try:
+                await websocket.send_json(envelope)
+            except Exception:
+                stale.append(websocket)
+        if stale:
+            async with self._lock:
+                for websocket in stale:
+                    await self.disconnect(websocket)
+                    logger.warning("websocket_disconnected_during_publish")
 
     def history(self, *, task_id: str | None = None, batch_id: str | None = None) -> list[dict[str, Any]]:
         events = list(self._history)

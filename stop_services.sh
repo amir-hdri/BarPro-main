@@ -32,7 +32,22 @@ if [ -f "$PROJECT_DIR/output/frontend.pid" ]; then
     rm "$PROJECT_DIR/output/frontend.pid"
 fi
 
-# 2. Sweep/Clean up any remaining orphaned processes on port 8000 (Backend) and port 3000 (Frontend)
+# 2. Sweep/Clean up using PID files first
+if [ -f /tmp/uvicorn.pid ]; then
+    UVI_PID=$(cat /tmp/uvicorn.pid)
+    echo "Stopping uvicorn (PID: $UVI_PID)..."
+    kill "$UVI_PID" 2>/dev/null || true
+    rm -f /tmp/uvicorn.pid
+fi
+
+if [ -f /tmp/next-server.pid ]; then
+    NEXT_PID=$(cat /tmp/next-server.pid)
+    echo "Stopping next-server (PID: $NEXT_PID)..."
+    kill "$NEXT_PID" 2>/dev/null || true
+    rm -f /tmp/next-server.pid
+fi
+
+# 3. Fallback: sweep remaining orphaned processes
 echo "Sweeping any remaining orphaned processes on port 8000 and 3000..."
 pkill -f "uvicorn" 2>/dev/null || true
 pkill -f "next-server" 2>/dev/null || true

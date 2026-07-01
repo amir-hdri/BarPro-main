@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { X, Loader2, ShieldAlert } from "lucide-react";
 import { api } from "@/lib/api";
+import type { ClientEditData } from "@/lib/types";
 
 const schema = z.object({
   client_code: z.string().trim().min(1, "کد مشتری الزامی است"),
@@ -27,7 +28,7 @@ interface CreateClientModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  editingClient?: any | null;
+  editingClient?: ClientEditData | null;
 }
 
 export function CreateClientModal({
@@ -73,7 +74,7 @@ export function CreateClientModal({
           max_concurrent_tasks: editingClient.max_concurrent_tasks ?? 5,
           max_daily_tasks: editingClient.max_daily_tasks ?? 100,
           status: editingClient.status === "active" ? "active" : "inactive",
-          access_level: editingClient.access_level || "standard",
+          access_level: (editingClient.access_level as "standard" | "premium" | "enterprise") || "standard",
         });
       } else {
         reset({
@@ -106,7 +107,7 @@ export function CreateClientModal({
       return;
     }
 
-    const payload: any = {
+    const payload: Record<string, unknown> = {
       ...data,
       phone: data.phone?.trim() || undefined,
       client_code: data.client_code.trim(),

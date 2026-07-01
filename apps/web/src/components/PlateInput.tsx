@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { normalizeDigits } from "@/lib/plate";
+import { toPersianDigits } from "@/lib/format";
 
 interface PlateInputProps {
   value: string;
@@ -11,19 +12,8 @@ interface PlateInputProps {
 }
 
 
-// Helper to convert English digits to Persian for display if needed, 
-// but usually inputs are better kept as they are if inputmode is numeric.
-// However, the user specifically asked for Persian digits in the display.
-const toPersianDigits = (str: string) => {
-  const id = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
-  const fa = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
-  return str.replace(/[0-9]/g, (w) => fa[id.indexOf(w)]);
-};
-
 export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, className }) => {
   const parseValue = (val: string) => {
-    // Expected format: 12ب345ایران67
-    // We normalize digits to English for internal processing
     const normalized = normalizeDigits(val);
     const match = normalized.match(/^(\d{0,2})([^\d]*)(\d{0,3})(?:ایران)?(\d{0,2})$/u);
     
@@ -40,7 +30,6 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
 
   const [parts, setParts] = useState(parseValue(value));
 
-  // Update internal state when external value changes
   useEffect(() => {
     const nextParts = parseValue(value);
     if (JSON.stringify(nextParts) !== JSON.stringify(parts)) {
@@ -58,7 +47,6 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
   const updateParts = (newParts: typeof parts) => {
     setParts(newParts);
     const { part1, part2, part3, part4 } = newParts;
-    // We emit the format expected by the backend: 12ب345ایران67
     const fullPlate = `${part1}${part2}${part3}ایران${part4}`;
     onChange(fullPlate);
   };
@@ -68,16 +56,13 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
     const newParts = { ...parts };
 
     if (index === 0 || index === 2 || index === 3) {
-      // Numeric fields: allow only digits
       nextValue = nextValue.replace(/[^\d]/g, "");
     } else {
-      // Letter field: allow Persian letters
       nextValue = nextValue.replace(/[^\u0600-\u06FF]/g, "");
     }
 
     if (index === 0) newParts.part1 = nextValue.slice(0, 2);
     if (index === 1) {
-      // Allow 'الف' as a multi-character plate letter step-by-step
       const allowedPrefixes = ["ا", "ال", "الف"];
       if (allowedPrefixes.includes(nextValue)) {
         newParts.part2 = nextValue;
@@ -90,7 +75,6 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
 
     updateParts(newParts);
 
-    // Auto-tab logic supporting multi-character 'الف' letter
     let shouldTab = false;
     if (index === 0) shouldTab = nextValue.length >= 2;
     else if (index === 1) {
@@ -115,7 +99,6 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
         className="flex items-stretch h-14 bg-white border-2 border-slate-950 rounded-xl overflow-hidden shadow-sm font-sans"
         style={{ direction: 'ltr' }}
       >
-        {/* Blue Bar (Flag Area) */}
         <div className="w-8 bg-[#003399] flex flex-col items-center justify-end pb-1 relative select-none">
            <div className="absolute top-0 left-0 w-full h-[3px] bg-emerald-600"></div>
            <div className="absolute top-[3px] left-0 w-full h-[3px] bg-white"></div>
@@ -124,7 +107,6 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
            <span className="text-[7px] font-black text-white leading-none mt-0.5">IRAN</span>
         </div>
 
-        {/* Part 1 (2 digits) */}
         <input
           ref={part1Ref}
           type="text"
@@ -137,7 +119,6 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
           placeholder="--"
         />
 
-        {/* Part 2 (Letter) */}
         <input
           ref={part2Ref}
           type="text"
@@ -150,7 +131,6 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
           style={{ direction: 'rtl' }}
         />
 
-        {/* Part 3 (3 digits) */}
         <input
           ref={part3Ref}
           type="text"
@@ -163,7 +143,6 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
           placeholder="---"
         />
 
-        {/* Part 4 (City Code) */}
         <div className="flex flex-col flex-1 min-w-[50px] items-center justify-center bg-transparent relative">
           <span className="text-[10px] font-black text-slate-800 absolute top-1 font-sans select-none">ایران</span>
           <input

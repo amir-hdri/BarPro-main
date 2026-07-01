@@ -7,31 +7,25 @@ import { api } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { AuthGuard } from "@/components/layout/AuthGuard";
 import { useSession } from "@/hooks/useSession";
-import { formatDateTime, statusLabel, statusTone } from "@/lib/format";
+import { formatDateTime, statusLabel, statusTone, toPersianDigits } from "@/lib/format";
 import type { ClientStats, WaybillJob } from "@/lib/types";
 import {
   ClockIcon,
   TruckIcon,
   CheckCircleIcon,
   XCircleIcon,
-  ArrowPathIcon,
+
   ChartBarIcon,
   UsersIcon,
   QueueListIcon,
 } from "@heroicons/react/24/outline";
 import { Zap, ShieldCheck, XCircle } from "lucide-react";
 
-function toPersianDigits(num: number | string): string {
-  const id = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
-  return String(num).replace(/[0-9]/g, (w) => id[+w]);
-}
-
 export default function DashboardPage() {
   const { client } = useSession();
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // 1. Fetch Client Stats
   const {
     data: stats = {
       client_id: 0,
@@ -48,6 +42,7 @@ export default function DashboardPage() {
       success_rate: 0,
       created_at: new Date(0).toISOString(),
     } as ClientStats,
+    isLoading: statsLoading,
     refetch: refetchStats,
   } = useQuery({
     queryKey: ["client-stats"],
@@ -58,10 +53,11 @@ export default function DashboardPage() {
       }
       return res.data;
     },
+    staleTime: 30000,
+    gcTime: 60000,
     enabled: !!client,
   });
 
-  // 2. Fetch Recent Waybill Jobs (Limit to 5)
   const {
     data: recentJobs = [] as WaybillJob[],
     isLoading,
@@ -77,10 +73,11 @@ export default function DashboardPage() {
       }
       return res.data.tasks || [];
     },
+    staleTime: 30000,
+    gcTime: 60000,
     enabled: !!client,
   });
 
-  // Handle Action Trigger (Retry Job)
   async function handleRetry(jobId: string) {
     setRetryingJobId(jobId);
     setError(null);
@@ -89,12 +86,10 @@ export default function DashboardPage() {
     if (!res.success) {
       setError(res.error || "خطا در ارسال مجدد درخواست");
     } else {
-      void refetchJobs();
-      void refetchStats();
+      void refetchJobs().catch(e => console.error("Failed to refetch jobs:", e));
+      void refetchStats().catch(e => console.error("Failed to refetch stats:", e));
     }
   }
-
-
 
   const cards = useMemo(
     () => [
@@ -174,30 +169,38 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid gap-4 sm:gap-5 sm:grid-cols-2 xl:grid-cols-1">
-            {cards.map((card, idx) => (
-              <article
-                key={card.label}
-                className="stat-card group relative overflow-hidden"
-                style={{ animationDelay: `${idx * 100}ms` }}
-              >
-                <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-0 blur-2xl transition-opacity duration-500 group-hover:opacity-100" style={{ backgroundColor: 'currentColor', color: card.color.replace('text-', 'bg-') }}></div>
-                <div className="relative z-10 flex items-start justify-between">
-                  <div>
-                    <p className="text-sm font-bold text-slate-400">{card.label}</p>
-                    <p className="mt-2 text-3xl xl:text-4xl font-black text-white group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-slate-300 transition-all">
-                      {card.value}
-                    </p>
+            {statsLoading ? (
+              <>
+                {[1, 2, 3, 4].map((item) => (
+                  <div key={item} className="h-32 skeleton rounded-[2rem]" />
+                ))}
+              </>
+            ) : (
+              cards.map((card, idx) => (
+                <article
+                  key={card.label}
+                  className="stat-card group relative overflow-hidden"
+                  style={{ animationDelay: `${idx * 100}ms` }}
+                >
+                  <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-0 blur-2xl transition-opacity duration-500 group-hover:opacity-100" style={{ backgroundColor: 'currentColor', color: card.color.replace('text-', 'bg-') }}></div>
+                  <div className="relative z-10 flex items-start justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-slate-400">{card.label}</p>
+                      <p className="mt-2 text-3xl xl:text-4xl font-black text-white group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-slate-300 transition-all">
+                        {card.value}
+                      </p>
+                    </div>
+                    <div className={`rounded-[1.25rem] ${card.bg} border p-4 ${card.color} transition-transform duration-500 group-hover:scale-110 group-hover:-rotate-3 shadow-sm`}>
+                      <card.icon className="h-7 w-7" strokeWidth={2} />
+                    </div>
                   </div>
-                  <div className={`rounded-[1.25rem] ${card.bg} border p-4 ${card.color} transition-transform duration-500 group-hover:scale-110 group-hover:-rotate-3 shadow-sm`}>
-                    <card.icon className="h-7 w-7" strokeWidth={2} />
+                  <div className="relative z-10 mt-6 flex items-center gap-2">
+                    <div className={`h-1.5 w-1.5 rounded-full ${card.color.replace('text-', 'bg-')}`}></div>
+                    <p className="text-xs font-bold text-slate-400">{card.hint}</p>
                   </div>
-                </div>
-                <div className="relative z-10 mt-6 flex items-center gap-2">
-                  <div className={`h-1.5 w-1.5 rounded-full ${card.color.replace('text-', 'bg-')}`}></div>
-                  <p className="text-xs font-bold text-slate-400">{card.hint}</p>
-                </div>
-              </article>
-            ))}
+                </article>
+              ))
+            )}
           </div>
         </section>
 
@@ -214,7 +217,7 @@ export default function DashboardPage() {
               </div>
               <Link
                 href="/history"
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-xs font-bold text-slate-400 transition hover:bg-slate-900 hover:text-white border border-white/5"
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-3.5 text-xs font-bold text-slate-400 transition hover:bg-slate-900 hover:text-white border border-white/5"
               >
                 مشاهده آرشیو کامل
               </Link>
@@ -273,9 +276,9 @@ export default function DashboardPage() {
                       {(job.status === 'failed' || job.status === 'needs_review') && (
                         <button
                           type="button"
-                          onClick={(e) => { e.stopPropagation(); void handleRetry(job.job_id); }}
+                          onClick={(e) => { e.stopPropagation(); void handleRetry(job.job_id).catch(e => console.error("Failed to retry job:", e)); }}
                           disabled={retryingJobId === job.job_id}
-                          className="rounded-xl bg-slate-950 border border-white/10 px-5 py-2.5 text-xs font-bold text-white shadow-md transition hover:bg-slate-900 disabled:opacity-50 active:scale-95"
+                          className="rounded-xl bg-slate-950 border border-white/10 px-5 py-3.5 text-xs font-bold text-white shadow-md transition hover:bg-slate-900 disabled:opacity-50 active:scale-95"
                         >
                           {retryingJobId === job.job_id ? 'در حال ارسال...' : 'تلاش مجدد'}
                         </button>

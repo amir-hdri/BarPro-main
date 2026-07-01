@@ -13,25 +13,20 @@
 #    docker compose -f compose/proxy.yml exec squid_1 squidclient -h localhost mgr:info
 # ═══════════════════════════════════════════════════════════════
 
-networks:
-  platform:
-    external: true
-    name: barpro_platform
-
 services:
 
   # ── پروکسی خروجی IP اول ──────────────────────────────────────
   squid_1:
-    image: ubuntu/squid:latest
+    image: ubuntu/squid:6.6-ubuntu22.04
     container_name: barpro-squid-1
     restart: unless-stopped
     network_mode: host
     volumes:
       - ../infra/squid/squid_1.conf:/etc/squid/squid.conf:ro
-    mem_limit: 256m
-    mem_reservation: 128m
+    mem_limit: 128m
+    mem_reservation: 64m
     healthcheck:
-      test: ['CMD-SHELL', 'squid -k check || exit 1']
+      test: ['CMD-SHELL', 'exec 3<>/dev/tcp/127.0.0.1/3128 2>/dev/null || exit 1']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -44,16 +39,16 @@ services:
 
   # ── پروکسی خروجی IP دوم ──────────────────────────────────────
   squid_2:
-    image: ubuntu/squid:latest
+    image: ubuntu/squid:6.6-ubuntu22.04
     container_name: barpro-squid-2
     restart: unless-stopped
     network_mode: host
     volumes:
       - ../infra/squid/squid_2.conf:/etc/squid/squid.conf:ro
-    mem_limit: 256m
-    mem_reservation: 128m
+    mem_limit: 128m
+    mem_reservation: 64m
     healthcheck:
-      test: ['CMD-SHELL', 'squid -k check || exit 1']
+      test: ['CMD-SHELL', 'exec 3<>/dev/tcp/127.0.0.1/3129 2>/dev/null || exit 1']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -66,16 +61,16 @@ services:
 
   # ── پروکسی خروجی IP سوم ──────────────────────────────────────
   squid_3:
-    image: ubuntu/squid:latest
+    image: ubuntu/squid:6.6-ubuntu22.04
     container_name: barpro-squid-3
     restart: unless-stopped
     network_mode: host
     volumes:
       - ../infra/squid/squid_3.conf:/etc/squid/squid.conf:ro
-    mem_limit: 256m
-    mem_reservation: 128m
+    mem_limit: 128m
+    mem_reservation: 64m
     healthcheck:
-      test: ['CMD-SHELL', 'squid -k check || exit 1']
+      test: ['CMD-SHELL', 'exec 3<>/dev/tcp/127.0.0.1/3130 2>/dev/null || exit 1']
       interval: 30s
       timeout: 10s
       retries: 3

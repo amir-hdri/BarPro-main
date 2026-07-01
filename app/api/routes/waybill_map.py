@@ -111,7 +111,7 @@ async def get_traffic_status():
     }
 
 
-@router.post("/calculate-route")
+@router.post("/calculate-route", dependencies=[Depends(require_sensitive_auth)])
 async def calculate_route(origin: GeoCoordinateModel, destination: GeoCoordinateModel):
     """محاسبه مسیر بین دو مختصات جغرافیایی."""
     earth_radius_km = 6371
@@ -138,7 +138,7 @@ async def calculate_route(origin: GeoCoordinateModel, destination: GeoCoordinate
     }
 
 
-@router.get("/reverse-geocode")
+@router.get("/reverse-geocode", dependencies=[Depends(require_sensitive_auth)])
 async def reverse_geocode(lat: float, lng: float):
     """تبدیل مختصات به آدرس (استان، شهر، منطقه)."""
     import aiohttp

@@ -28,11 +28,13 @@ router = APIRouter(prefix="/user/reports", tags=["user-reports"])
     summary="لیست رانندگان با وضعیت",
 )
 async def get_driver_list_with_status(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, Any]]:
     """Get all drivers with their status, jobs, schedules, and plates."""
-    return await user_reporting_service.driver_list_with_status(client, session)
+    return await user_reporting_service.driver_list_with_status(client, session, page=page, page_size=page_size)
 
 
 @router.get(
@@ -45,7 +47,7 @@ async def get_waybill_history(
     date_from: str | None = Query(None, description="Start date (YYYY-MM-DD)"),
     date_to: str | None = Query(None, description="End date (YYYY-MM-DD)"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    page_size: int = Query(50, ge=1, le=100),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
@@ -90,11 +92,13 @@ async def get_error_details(
     summary="تاریخچه اجراهای خودکار",
 )
 async def get_scheduled_execution_history(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Get scheduled execution history and status."""
-    return await user_reporting_service.scheduled_execution_history(client, session)
+    return await user_reporting_service.scheduled_execution_history(client, session, page=page, page_size=page_size)
 
 
 @router.get(
@@ -102,11 +106,13 @@ async def get_scheduled_execution_history(
     summary="عملکرد رانندگان",
 )
 async def get_driver_performance(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict[str, Any]]:
     """Get per-driver performance summary."""
-    return await user_reporting_service.driver_performance(client, session)
+    return await user_reporting_service.driver_performance(client, session, page=page, page_size=page_size)
 
 
 @router.get(

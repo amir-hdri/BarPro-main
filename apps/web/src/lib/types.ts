@@ -325,6 +325,7 @@ export interface DriverReport {
     source: string;
     last_error?: string;
     error_category?: string;
+    attempt_count?: number;
     created_at: string;
     finished_at?: string;
   }>;
@@ -344,4 +345,44 @@ export interface FailureAnalysis {
     created_at: string;
   }>>;
   total_failed: number;
+}
+
+export interface WebSocketEvent {
+  type: string;
+  job_id?: string;
+  status?: string;
+  message?: string;
+  data?: Record<string, unknown>;
+  timestamp?: string;
+  [key: string]: unknown;
+}
+
+export interface CircuitBreakerDetail {
+  state: string;
+  failure_count: number;
+  retry_after_seconds: number;
+  enabled: boolean;
+}
+
+export interface ReadyzResponse {
+  status: string;
+  details?: {
+    circuit_breaker?: {
+      status: CircuitBreakerDetail;
+    };
+  };
+}
+
+export interface ClientEditData {
+  id: string | number;
+  client_code: string;
+  name: string;
+  email: string;
+  phone?: string;
+  max_drivers: number;
+  max_plates: number;
+  max_concurrent_tasks: number;
+  max_daily_tasks: number;
+  status: string;
+  access_level?: string;
 }

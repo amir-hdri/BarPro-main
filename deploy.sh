@@ -29,6 +29,7 @@ hdr "قدم ۱ — بررسی ابزارهای لازم"
 node --version && ok "Node: $(node --version)" || { err "Node نصب نیست"; exit 1; }
 npm  --version && ok "npm : $(npm  --version)" || { err "npm نصب نیست";  exit 1; }
 docker --version       && ok "Docker موجود است" || { err "Docker نصب نیست"; exit 1; }
+docker compose version >/dev/null 2>&1 && ok "docker compose v2 موجود است" || { err "docker compose v2 نصب نیست — لطفاً Docker Engine 25+ را نصب کنید: https://docs.docker.com/engine/install/"; exit 1; }
 ls "$WEB_DIR/package.json" &>/dev/null && ok "پوشه وب موجود است" || { err "پوشه $WEB_DIR پیدا نشد"; exit 1; }
 
 # ───────────────────────────────────────────────────────────────────
@@ -77,13 +78,8 @@ hdr "قدم ۵ — ساخت و راه‌اندازی Docker Compose"
 # ───────────────────────────────────────────────────────────────────
 cd "$DIR"
 
-# تشخیص docker compose
-if docker compose version &>/dev/null; then
-  COMPOSE="docker compose"
-else
-  COMPOSE="docker-compose"
-fi
-inf "استفاده از: $COMPOSE"
+COMPOSE="docker compose"
+inf "استفاده از: $COMPOSE (v2)"
 
 # Pull ایمیج‌های خارجی
 inf "دریافت ایمیج‌های پایه..."

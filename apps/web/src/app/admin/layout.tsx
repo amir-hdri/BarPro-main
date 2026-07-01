@@ -40,7 +40,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <div className="flex min-h-screen bg-gradient-to-br from-indigo-900 via-slate-900 to-purple-900">
       {/* Sidebar */}
       <aside className={`fixed inset-y-0 right-0 z-50 w-64 border-l border-white/10 bg-slate-900/80 backdrop-blur-xl transition-all duration-300 md:opacity-100 md:translate-x-0 md:scale-100 origin-right ${
-        mobileOpen ? "opacity-100 translate-x-0 scale-100 visible" : "opacity-0 translate-x-8 scale-95 invisible md:visible"
+        mobileOpen ? "opacity-100 translate-x-0 scale-100 visible" : "opacity-0 translate-x-full scale-95 invisible md:visible"
       }`}>
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
