@@ -18,7 +18,10 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-import jdatetime
+try:
+    import jdatetime
+except ImportError:
+    jdatetime = None
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -432,13 +435,15 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
     def _parse_schedule_date(date_str: str | None) -> date | None:
         if not date_str:
             return None
-        try:
-            return jdatetime.date.fromisoformat(date_str).togregorian()
-        except (ValueError, TypeError):
+        if jdatetime is not None:
             try:
-                return datetime.fromisoformat(date_str).date()
+                return jdatetime.date.fromisoformat(date_str).togregorian()
             except (ValueError, TypeError):
-                return None
+                pass
+        try:
+            return datetime.fromisoformat(date_str).date()
+        except (ValueError, TypeError):
+            return None
 
     start = _parse_schedule_date(schedule.start_date)
     if start and today < start:
@@ -449,7 +454,7 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
 
     # Check specific dates (dates in DB are Persian Solar Hijri)
     specific_dates = _parse_csv_list(schedule.specific_dates_csv)
-    if specific_dates:
+    if specific_dates and jdatetime is not None:
         today_persian = jdatetime.date.fromgregorian(date=today).isoformat()
         if today_persian not in specific_dates:
             return {"jobs_created": 0, "jobs_success": 0, "jobs_failed": 0, "skipped": True}
