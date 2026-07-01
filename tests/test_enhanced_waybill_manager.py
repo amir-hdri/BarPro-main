@@ -75,7 +75,9 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         self.manager._handle_submit_captcha_if_present = AsyncMock()
         self.manager.smart_locator = AsyncMock()
 
-        def mock_locate(*args, **kwargs):
+        def mock_locate(page, selectors, *args, **kwargs):
+            if any("otp" in str(sel).lower() for sel in selectors):
+                raise Exception("OTP selector not present in mock")
             return AsyncMock()
 
         self.manager.smart_locator.locate = AsyncMock(side_effect=mock_locate)

@@ -9,6 +9,13 @@ from app.core.circuit_breaker import (
     IP_BLOCK_PATTERNS
 )
 
+@pytest.fixture(autouse=True)
+def clean_redis_cache():
+    import app.core.circuit_breaker
+    app.core.circuit_breaker._redis_sync_client = None
+    yield
+    app.core.circuit_breaker._redis_sync_client = None
+
 @pytest.fixture
 def mock_redis():
     with patch("redis.Redis.from_url") as mock_from_url:

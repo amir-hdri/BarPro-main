@@ -10,7 +10,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel
@@ -24,7 +24,7 @@ from app.models_multitenant import Client, ClientStatus
 logger = logging.getLogger(__name__)
 
 # Security scheme
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 class TokenPayload(BaseModel):
@@ -161,11 +161,12 @@ def decode_access_token(token: str) -> dict:
 
 
 async def get_current_client(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request = None,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     session: AsyncSession = Depends(get_session),
 ) -> Client:
     """
-    Get the current authenticated client from JWT token.
+    Get the current authenticated client from JWT token (header or cookie).
     Enforces tenant isolation by validating the token and returning the client.
     """
     credentials_exception = HTTPException(
@@ -174,9 +175,18 @@ async def get_current_client(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+    token = None
+    if credentials:
+        token = credentials.credentials
+    elif request is not None:
+        token = request.cookies.get("utcms_auth_token")
+
+    if not token:
+        raise credentials_exception
+
     try:
         payload = jwt.decode(
-            credentials.credentials,
+            token,
             utcms_config.JWT_SECRET,
             algorithms=[utcms_config.JWT_ALGORITHM],
         )
@@ -244,18 +254,28 @@ def is_master_admin(username: str, password: str) -> bool:
 
 
 async def get_current_admin(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request = None,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ):
-    """Validate and return the current master admin identity from JWT token."""
+    """Validate and return the current master admin identity from JWT token (header or cookie)."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate admin credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+    token = None
+    if credentials:
+        token = credentials.credentials
+    elif request is not None:
+        token = request.cookies.get("utcms_auth_token")
+
+    if not token:
+        raise credentials_exception
+
     try:
         payload = jwt.decode(
-            credentials.credentials,
+            token,
             utcms_config.JWT_SECRET,
             algorithms=[utcms_config.JWT_ALGORITHM],
         )

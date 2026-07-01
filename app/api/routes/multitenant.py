@@ -92,6 +92,7 @@ async def register_client(
 @router.post("/auth/login")
 async def login_client(
     request: ClientLoginRequest,
+    response: Response,
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -99,13 +100,46 @@ async def login_client(
 
     The token is used for all subsequent API calls to enforce tenant isolation.
     """
-    return await ClientService.login_client(request, session)
+    result = await ClientService.login_client(request, session)
+    response.set_cookie(
+        key="utcms_auth_token",
+        value=result["access_token"],
+        httponly=True,
+        max_age=86400,
+        expires=86400,
+        samesite="lax",
+        secure=False,
+    )
+    return result
 
 
 @router.post("/admin/login")
-async def login_master_admin(request: AdminLoginRequest):
+async def login_master_admin(
+    request: AdminLoginRequest,
+    response: Response,
+):
     """Authenticate the singleton master admin account."""
-    return await ClientService.login_master_admin(request)
+    result = await ClientService.login_master_admin(request)
+    response.set_cookie(
+        key="utcms_auth_token",
+        value=result["access_token"],
+        httponly=True,
+        max_age=86400,
+        expires=86400,
+        samesite="lax",
+        secure=False,
+    )
+    return result
+
+
+@router.post("/auth/logout")
+async def logout_client(response: Response):
+    """Log out the current user/admin and clear the authentication cookie."""
+    response.delete_cookie(
+        key="utcms_auth_token",
+        samesite="lax",
+    )
+    return {"success": True, "detail": "Logged out successfully"}
 
 
 @router.get("/admin/clients", response_model=list[ClientResponse])

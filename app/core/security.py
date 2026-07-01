@@ -81,6 +81,8 @@ async def require_sensitive_auth(request: Request) -> None:
 
     api_key = request.headers.get(utcms_config.API_KEY_HEADER)
     token = _extract_bearer_token(request.headers.get("Authorization"))
+    if not token:
+        token = request.cookies.get("utcms_auth_token")
 
     has_api_key = _is_api_key_valid(api_key)
     has_jwt = _is_jwt_valid(token)

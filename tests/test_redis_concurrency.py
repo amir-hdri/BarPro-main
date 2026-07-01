@@ -8,6 +8,13 @@ from app.core.redis import redis_manager
 async def test_redis_connection_manager_thread_safety():
     if redis_manager is None:
         pytest.skip("redis is not available")
+    try:
+        client = await redis_manager.get()
+        if client is None:
+            pytest.skip("redis is not available")
+        await client.ping()
+    except Exception:
+        pytest.skip("redis is not running/available")
 
     errors = []
 

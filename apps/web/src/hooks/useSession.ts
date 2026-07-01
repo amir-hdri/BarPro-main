@@ -60,7 +60,7 @@ export function useSession() {
 
   return {
     client: session.client,
-    isAuthenticated: Boolean(session.token),
+    isAuthenticated: Boolean(session.client),
     isAdmin: role === 'master_admin',
     isClient: role === 'client',
     isReady: isReady,

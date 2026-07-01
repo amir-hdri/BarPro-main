@@ -586,6 +586,7 @@ async def report_pool_stats():
 | Phase 4 — Verification | All fixes verified by python3 AST parse | ✅ **Done** |
 | **Post-apply verification** | 3 bugs found + fixed (waybill_worker engine.dispose, browser recycle threshold 5->20, waybill_worker silent except) | ✅ **Done** |
 | **Phase 5 (2026-07-01)** | SSH passwords removed from scripts, `ENVIRONMENT` field added, index-as-key fixed, console.error wrapper, `__init__.py` added to tests, ruff autofix run | ✅ **Done** |
+| **Phase 6 (2026-07-01)** | JWT localStorage -> httpOnly cookie refactor, RPADistributedRuntime lock TypeError fix, rpa_auth NameError fix, Keras command path resolution | ✅ **Done** |
 
 ### Still Remaining (requires user action or DB access):
 1. 🔴 **Install Let's Encrypt cert** → uncomment HTTPS block in nginx.conf:75-90 and `compose/web.yml:65,69`
@@ -593,7 +594,7 @@ async def report_pool_stats():
 3. 🟡 **`sudo bash scripts/secure_squid_ports.sh`** to lock down Squid 3129/3130 ports
 4. 🟡 **Add to crontab**: `@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh`
 5. 🟡 **`bash manage.sh deploy`** to pull and redeploy with all optimizations
-6. 🔴 **JWT localStorage -> httpOnly cookie** — requires 4-8 hour frontend refactor
+6. ✅ **JWT localStorage -> httpOnly cookie** — refactored successfully
 
 ### Skipped / Blocked:
 - `network_mode: host` removal from Squid — would break dual-IP routing. Use iptables instead (script at `scripts/secure_squid_ports.sh`)

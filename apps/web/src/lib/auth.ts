@@ -1,3 +1,5 @@
+import { post } from './api';
+
 export const AUTH_TOKEN_KEY = 'utcms_auth_token';
 export const AUTH_CLIENT_KEY = 'utcms_auth_client';
 export const AUTH_SESSION_EVENT = 'utcms:session-change';
@@ -13,11 +15,7 @@ export interface StoredClient {
 }
 
 export function getStoredToken(): string | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  return window.localStorage.getItem(AUTH_TOKEN_KEY);
+  return null;
 }
 
 export function getStoredClient(): StoredClient | null {
@@ -42,7 +40,7 @@ export function persistSession(token: string, client: StoredClient): void {
     return;
   }
 
-  window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+  // Token is stored in httpOnly cookie, not in localStorage to prevent XSS
   window.localStorage.setItem(AUTH_CLIENT_KEY, JSON.stringify(client));
   window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
 }
@@ -51,6 +49,9 @@ export function clearSession(): void {
   if (typeof window === 'undefined') {
     return;
   }
+
+  // Clear cookie in backend
+  post('/api/v1/auth/logout').catch(() => {});
 
   window.localStorage.removeItem(AUTH_TOKEN_KEY);
   window.localStorage.removeItem(AUTH_CLIENT_KEY);

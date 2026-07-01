@@ -174,7 +174,7 @@ class RPAAuthService:
                             }
                         },
                     )
-            return AuthResult(ok=True, session_bundle=bundle, reason_code="authenticated", expires_at=expires_at)
+            return AuthResult(ok=True, session_bundle=bundle, reason_code="authenticated", expires_at=session_expires_at)
         except Exception as exc:  # pragma: no cover - integration-heavy path
             logger.exception(
                 "phase1_auth_failed",

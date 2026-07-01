@@ -22,6 +22,7 @@ class KerasOcrCaptchaProvider(CaptchaProvider):
         return await asyncio.to_thread(self._solve_sync, image_base64)
 
     def _solve_sync(self, image_base64: str) -> CaptchaResult:
+        import shutil
         python_path = utcms_config.KERAS_PYTHON_PATH
         model_path = utcms_config.KERAS_MODEL_PATH
 
@@ -31,8 +32,9 @@ class KerasOcrCaptchaProvider(CaptchaProvider):
 
         script_path = str(Path(__file__).parent / "solve_keras.py")
 
-        if not os.path.exists(python_path):
-            logger.error(f"Keras Python path not found: {python_path}")
+        resolved_python = shutil.which(python_path) or python_path
+        if not os.path.exists(resolved_python):
+            logger.error(f"Keras Python path not found: {python_path} (resolved: {resolved_python})")
             return CaptchaResult(
                 solved=False,
                 provider="keras_ocr",
@@ -58,7 +60,7 @@ class KerasOcrCaptchaProvider(CaptchaProvider):
 
             # Run the solve_keras.py script with subprocess
             process = subprocess.Popen(
-                [python_path, script_path, model_path, "-"],
+                [resolved_python, script_path, model_path, "-"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -66,7 +68,7 @@ class KerasOcrCaptchaProvider(CaptchaProvider):
                 env=env
             )
 
-            stdout, stderr = process.communicate(input=image_base64, timeout=15)
+            stdout, stderr = process.communicate(input=image_base64, timeout=35)
 
             if process.returncode != 0:
                 logger.error(f"Keras solver script failed with exit code {process.returncode}: {stderr.strip()}")
