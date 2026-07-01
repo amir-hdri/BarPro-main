@@ -61,7 +61,7 @@ x-backend-common: &backend-common
     - "host.docker.internal:host-gateway"
   volumes:
     - /opt/barpro/app/services:/app/app/services:ro
-    - /opt/barpro/workers:/app/app/workers:ro
+    - /opt/barpro/app/workers:/app/app/workers:ro
     - /opt/barpro/playwright-browsers:/opt/playwright-browsers
   logging:
     driver: json-file
@@ -192,8 +192,8 @@ services:
     <<: *backend-common
     image: barpro_celery_beat:latest
     container_name: barpro-beat
-    mem_limit: 128m
-    mem_reservation: 64m
+    mem_limit: 256m
+    mem_reservation: 128m
     healthcheck:
       test: ['CMD-SHELL', 'pgrep -f "celery.*beat" > /dev/null 2>&1 || exit 1']
       interval: 30s
