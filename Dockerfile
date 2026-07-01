@@ -1,7 +1,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  BarPro — Dockerfile
 #  Registry : docker.arvancloud.ir  (مخزن ایرانی)
-#  PyPI     : pypi.org (قابل دسترس از سرور آروان‌کلود)
+# PyPI     : pypi.org (قابل دسترس از سرور آروان‌کلود — Tsinghua mirror unstable from Iran)
 #  PyTorch  : download.pytorch.org/whl/cpu
 # ═══════════════════════════════════════════════════════════════
 
@@ -22,11 +22,10 @@ COPY requirements.txt ./
 # نصب وابستگی‌ها — سرور آروان‌کلود به PyPI دسترسی مستقیم دارد
 # PyTorch CPU wheel از مخزن رسمی pytorch.org
 RUN pip install --no-cache-dir \
-    --index-url https://pypi.tuna.tsinghua.edu.cn/simple \
-    --extra-index-url https://pypi.org/simple \
+    --index-url https://pypi.org/simple \
     --extra-index-url https://download.pytorch.org/whl/cpu \
-    --retries 20 \
-    --timeout 300 \
+    --retries 30 \
+    --timeout 120 \
     -r requirements.txt
 
 # ── مرحله ۲: image تولید ──────────────────────────────────────
