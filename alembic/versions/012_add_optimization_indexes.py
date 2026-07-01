@@ -16,7 +16,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision: str = "012_add_optimization_indexes"
-down_revision: str | None = "5b6c7d8e9f0a_add_fuel_inquiries"
+down_revision: str | None = "5b6c7d8e9f0a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
