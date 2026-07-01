@@ -17,7 +17,7 @@ services:
 
   # ── پروکسی خروجی IP اول ──────────────────────────────────────
   squid_1:
-    image: ubuntu/squid:6.6-ubuntu22.04
+    image: ubuntu/squid:latest
     container_name: barpro-squid-1
     restart: unless-stopped
     network_mode: host
@@ -39,7 +39,7 @@ services:
 
   # ── پروکسی خروجی IP دوم ──────────────────────────────────────
   squid_2:
-    image: ubuntu/squid:6.6-ubuntu22.04
+    image: ubuntu/squid:latest
     container_name: barpro-squid-2
     restart: unless-stopped
     network_mode: host
@@ -61,7 +61,7 @@ services:
 
   # ── پروکسی خروجی IP سوم ──────────────────────────────────────
   squid_3:
-    image: ubuntu/squid:6.6-ubuntu22.04
+    image: ubuntu/squid:latest
     container_name: barpro-squid-3
     restart: unless-stopped
     network_mode: host
