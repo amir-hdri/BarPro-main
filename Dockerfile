@@ -22,7 +22,8 @@ COPY requirements.txt ./
 # نصب وابستگی‌ها — سرور آروان‌کلود به PyPI دسترسی مستقیم دارد
 # PyTorch CPU wheel از مخزن رسمی pytorch.org
 RUN pip install --no-cache-dir \
-    --index-url https://pypi.org/simple \
+    --index-url https://mirror-pypi.runflare.com/simple \
+    --extra-index-url https://pypi.org/simple \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     --retries 30 \
     --timeout 120 \
