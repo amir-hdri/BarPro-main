@@ -43,32 +43,25 @@ log_section() {
 
 log_section "🔒 مسدودسازی پورت‌های Squid از دسترسی خارجی"
 
-# Squid 1 (3128) — فقط localhost + Docker bridge
-if iptables -C INPUT -p tcp --dport 3128 ! -s 127.0.0.1 ! -s $DOCKER_BRIDGE -j DROP 2>/dev/null; then
-  log_info "قانون 3128 قبلاً اعمال شده است."
-else
-  iptables -A INPUT -p tcp --dport 3128 ! -s 127.0.0.1 ! -s $DOCKER_BRIDGE -j DROP
-  log_ok "پورت 3128: فقط localhost + Docker bridge مجاز شد."
+_apply_squid_rule() {
+  local port=$1
+  if iptables -C INPUT -p tcp --dport "$port" -j DROP 2>/dev/null; then
+    log_info "قانون $port قبلاً اعمال شده است."
+    return
+  fi
+  # Accept from localhost
+  iptables -A INPUT -p tcp --dport "$port" -s 127.0.0.1 -j ACCEPT 2>/dev/null || true
+  # Accept from Docker bridge
+  iptables -A INPUT -p tcp --dport "$port" -s "$DOCKER_BRIDGE" -j ACCEPT 2>/dev/null || true
+  # Drop everything else
+  iptables -A INPUT -p tcp --dport "$port" -j DROP
+  log_ok "پورت $port: فقط localhost + Docker bridge مجاز شد."
   RULES_APPLIED=$((RULES_APPLIED + 1))
-fi
+}
 
-# Squid 2 (3129) — فقط localhost + Docker bridge
-if iptables -C INPUT -p tcp --dport 3129 ! -s 127.0.0.1 ! -s $DOCKER_BRIDGE -j DROP 2>/dev/null; then
-  log_info "قانون 3129 قبلاً اعمال شده است."
-else
-  iptables -A INPUT -p tcp --dport 3129 ! -s 127.0.0.1 ! -s $DOCKER_BRIDGE -j DROP
-  log_ok "پورت 3129: فقط localhost + Docker bridge مجاز شد."
-  RULES_APPLIED=$((RULES_APPLIED + 1))
-fi
-
-# Squid 3 (3130) — فقط localhost + Docker bridge
-if iptables -C INPUT -p tcp --dport 3130 ! -s 127.0.0.1 ! -s $DOCKER_BRIDGE -j DROP 2>/dev/null; then
-  log_info "قانون 3130 قبلاً اعمال شده است."
-else
-  iptables -A INPUT -p tcp --dport 3130 ! -s 127.0.0.1 ! -s $DOCKER_BRIDGE -j DROP
-  log_ok "پورت 3130: فقط localhost + Docker bridge مجاز شد."
-  RULES_APPLIED=$((RULES_APPLIED + 1))
-fi
+_apply_squid_rule 3128
+_apply_squid_rule 3129
+_apply_squid_rule 3130
 
 log_section "📋 خلاصه"
 if [[ $RULES_APPLIED -gt 0 ]]; then

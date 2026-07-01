@@ -38,7 +38,7 @@ services:
     mem_limit: 512m
     mem_reservation: 256m
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO/dev/null http://localhost:3000/healthz 2>&1 || exit 1']
+      test: ['CMD-SHELL', 'node -e "http.get(\"http://localhost:3000/\",(r)=>{process.exit(r.statusCode===200?0:1)}).on(\"error\",()=>process.exit(1))"']
       interval: 30s
       timeout: 10s
       start_period: 30s
