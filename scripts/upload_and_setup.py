@@ -56,7 +56,7 @@ def build_archive():
             dirs[:] = [d for d in dirs if d not in EXCLUDE]
             for f in files:
                 if f in {".env","backend.log","celerybeat-schedule.db"}: continue
-                if any(f.endswith(e) for e in {".pyc",".log",".pid",".tar.gz",".zip",".save"}): continue
+                if any(f.endswith(e) for e in {".pyc",".log",".pid",".tar.gz",".zip",".save",".keras",".pth"}): continue
                 full = os.path.join(r, f)
                 rel  = os.path.relpath(full, root)
                 tar.add(full, arcname=rel)

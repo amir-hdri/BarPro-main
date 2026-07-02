@@ -19,14 +19,31 @@ WORKDIR /build
 
 COPY requirements.txt ./
 
-# نصب وابستگی‌ها — سرور آروان‌کلود به PyPI دسترسی مستقیم دارد
-# PyTorch CPU wheel از مخزن رسمی pytorch.org
+# First install torch (CPU version) which is the heaviest
 RUN pip install --no-cache-dir \
     --index-url https://mirror-pypi.runflare.com/simple \
     --extra-index-url https://pypi.org/simple \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     --retries 30 \
-    --timeout 120 \
+    --timeout 1000 \
+    "torch>=2.5.1"
+
+# Then install tensorflow-cpu and playwright which are also heavy
+RUN pip install --no-cache-dir \
+    --index-url https://mirror-pypi.runflare.com/simple \
+    --extra-index-url https://pypi.org/simple \
+    --retries 30 \
+    --timeout 1000 \
+    "tensorflow-cpu>=2.16.0" "playwright>=1.49.0"
+
+# Finally copy requirements.txt and install the rest of the packages
+COPY requirements.txt ./
+RUN pip install --no-cache-dir \
+    --index-url https://mirror-pypi.runflare.com/simple \
+    --extra-index-url https://pypi.org/simple \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    --retries 30 \
+    --timeout 1000 \
     -r requirements.txt
 
 # ── مرحله ۲: image تولید ──────────────────────────────────────
