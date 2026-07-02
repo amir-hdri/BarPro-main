@@ -23,14 +23,14 @@ export function getStoredClient(): StoredClient | null {
     return null;
   }
 
-  const rawValue = window.localStorage.getItem(AUTH_CLIENT_KEY);
-  if (!rawValue) {
-    return null;
-  }
-
   try {
+    const rawValue = window.localStorage.getItem(AUTH_CLIENT_KEY);
+    if (!rawValue) {
+      return null;
+    }
     return JSON.parse(rawValue) as StoredClient;
-  } catch {
+  } catch (e) {
+    console.error('Failed to get stored client:', e);
     return null;
   }
 }
@@ -40,9 +40,13 @@ export function persistSession(token: string, client: StoredClient): void {
     return;
   }
 
-  // Token is stored in httpOnly cookie, not in localStorage to prevent XSS
-  window.localStorage.setItem(AUTH_CLIENT_KEY, JSON.stringify(client));
-  window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
+  try {
+    // Token is stored in httpOnly cookie, not in localStorage to prevent XSS
+    window.localStorage.setItem(AUTH_CLIENT_KEY, JSON.stringify(client));
+    window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
+  } catch (e) {
+    console.error('Failed to persist session:', e);
+  }
 }
 
 export function clearSession(): void {
@@ -53,7 +57,11 @@ export function clearSession(): void {
   // Clear cookie in backend
   post('/api/v1/auth/logout').catch(() => {});
 
-  window.localStorage.removeItem(AUTH_TOKEN_KEY);
-  window.localStorage.removeItem(AUTH_CLIENT_KEY);
-  window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
+  try {
+    window.localStorage.removeItem(AUTH_TOKEN_KEY);
+    window.localStorage.removeItem(AUTH_CLIENT_KEY);
+    window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
+  } catch (e) {
+    console.error('Failed to clear session:', e);
+  }
 }

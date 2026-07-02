@@ -19,13 +19,14 @@ function readClientFromStorage(): StoredClient | null {
   if (typeof window === 'undefined') {
     return null;
   }
-  const rawValue = window.localStorage.getItem(AUTH_CLIENT_KEY);
-  if (!rawValue) {
-    return null;
-  }
   try {
+    const rawValue = window.localStorage.getItem(AUTH_CLIENT_KEY);
+    if (!rawValue) {
+      return null;
+    }
     return JSON.parse(rawValue) as StoredClient;
-  } catch {
+  } catch (e) {
+    console.error('Failed to read client from storage:', e);
     return null;
   }
 }
@@ -35,16 +36,25 @@ export function useSession() {
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    // Read initial session on mount (client-side only)
-    const client = readClientFromStorage();
-    const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
-    setSession({ client, token });
-    setIsReady(true);
+    try {
+      // Read initial session on mount (client-side only)
+      const client = readClientFromStorage();
+      const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
+      setSession({ client, token });
+    } catch (e) {
+      console.error('Failed to read session from storage:', e);
+    } finally {
+      setIsReady(true);
+    }
 
     const handler = () => {
-      const updatedClient = readClientFromStorage();
-      const updatedToken = window.localStorage.getItem(AUTH_TOKEN_KEY);
-      setSession({ client: updatedClient, token: updatedToken });
+      try {
+        const updatedClient = readClientFromStorage();
+        const updatedToken = window.localStorage.getItem(AUTH_TOKEN_KEY);
+        setSession({ client: updatedClient, token: updatedToken });
+      } catch (e) {
+        console.error('Failed to update session from storage:', e);
+      }
     };
 
     window.addEventListener('storage', handler);

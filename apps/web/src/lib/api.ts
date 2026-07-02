@@ -6,22 +6,31 @@ export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhos
 
 function getStoredTokenCandidate(): string | null {
   if (typeof window === 'undefined') return null;
-  return (
-    localStorage.getItem('utcms_auth_token') ||
-    localStorage.getItem('utcms_token') ||
-    localStorage.getItem('access_token') ||
-    localStorage.getItem('token') ||
-    null
-  );
+  try {
+    return (
+      localStorage.getItem('utcms_auth_token') ||
+      localStorage.getItem('utcms_token') ||
+      localStorage.getItem('access_token') ||
+      localStorage.getItem('token') ||
+      null
+    );
+  } catch (e) {
+    console.error('Failed to get stored token candidate:', e);
+    return null;
+  }
 }
 
 function clearAllAuthTokens() {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem('utcms_auth_token');
-  localStorage.removeItem('utcms_auth_client');
-  localStorage.removeItem('utcms_token');
-  localStorage.removeItem('access_token');
-  localStorage.removeItem('token');
+  try {
+    localStorage.removeItem('utcms_auth_token');
+    localStorage.removeItem('utcms_auth_client');
+    localStorage.removeItem('utcms_token');
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('token');
+  } catch (e) {
+    console.error('Failed to clear auth tokens:', e);
+  }
 }
 
 // ─── URL helpers ─────────────────────────────────────────────────────────────
