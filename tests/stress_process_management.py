@@ -152,7 +152,7 @@ def test_graceful_cleanup_readyz():
             r = requests.get("http://localhost:8000/healthz", timeout=1)
             if r.status_code == 200:
                 backend_up = True
-        except:
+        except Exception:
             pass
 
         # Check frontend
@@ -160,7 +160,7 @@ def test_graceful_cleanup_readyz():
             r = requests.get("http://localhost:3000", timeout=1)
             if r.status_code in [200, 304]:
                 frontend_up = True
-        except:
+        except Exception:
             pass
 
         if backend_up and frontend_up:
@@ -216,7 +216,7 @@ def test_unexpected_crash_recovery():
             if r.status_code == 200:
                 backend_up = True
                 break
-        except:
+        except Exception:
             pass
 
     if not backend_up:
@@ -255,7 +255,7 @@ def test_unexpected_crash_recovery():
     time.sleep(3)
 
     # List active processes (we expect Playwright's Chromium/node driver to be orphaned now)
-    orphans = print_active_processes("Orphaned processes after crash")
+    print_active_processes("Orphaned processes after crash")
 
     # Now run stop_services.sh and scripts/stop_system.sh to see if they can sweep the orphans
     print("Running stop_services.sh to perform orphaned sweep...")

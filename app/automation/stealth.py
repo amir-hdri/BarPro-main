@@ -10,11 +10,11 @@ import random
 
 from playwright.async_api import Page
 
-logger = logging.getLogger(__name__)
-
 from app.automation.stealth_common import (
     build_core_stealth_script,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Fingerprint pools (kept for backward compatibility)

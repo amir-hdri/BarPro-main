@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 from typing import Any
 
@@ -50,8 +51,6 @@ def _is_retryable_exception(exc: Exception) -> bool:
 def _error_category(exc: Exception) -> str:
     return classify_exception(exc)[0].value
 
-
-import logging
 
 logger = logging.getLogger(__name__)
 

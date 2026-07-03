@@ -104,7 +104,7 @@ class FuelScraper:
             plate_info = parse_plate(plate_number)
         except Exception as e:
             logger.error(f"Failed to parse plate number {plate_number}: {e}")
-            raise WaybillError(f"فرمت پلاک خودرو نامعتبر است: {e}")
+            raise WaybillError(f"فرمت پلاک خودرو نامعتبر است: {e}") from e
 
         # Determine Jalali date
         j_year, j_month = get_current_jalali()
@@ -225,7 +225,7 @@ class FuelScraper:
             except Exception as e:
                 logger.warning(f"Timeout loading ShowFuelQuota.aspx on attempt {attempt}: {e}")
                 if attempt == max_attempts:
-                    raise WaybillError(f"صفحه استعلام سوخت بارگذاری نشد: {e}")
+                    raise WaybillError(f"صفحه استعلام سوخت بارگذاری نشد: {e}") from e
                 continue
 
             try:
@@ -351,7 +351,7 @@ class FuelScraper:
                 if attempt == max_attempts:
                     if isinstance(e, WaybillError):
                         raise e
-                    raise WaybillError(f"خطا در پر کردن فرم استعلام سوخت: {e}")
+                    raise WaybillError(f"خطا در پر کردن فرم استعلام سوخت: {e}") from e
 
         logger.error(f"Failed to solve captcha after {max_attempts} attempts for quota type {quota_type}")
         raise WaybillError(

@@ -254,7 +254,7 @@ async def rate_limit_dependency(
                 "message": "سیاست محدودیت نرخ در دسترس نیست، لطفاً بعداً تلاش کنید",
             },
             headers={"Retry-After": "10"},
-        )
+        ) from None
 
     if state.remaining < 0 or state.retry_after is not None:
         retry_after = state.retry_after or 60

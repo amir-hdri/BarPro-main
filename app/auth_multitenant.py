@@ -10,6 +10,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
+from cryptography.fernet import Fernet
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt

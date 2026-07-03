@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import AsyncAdaptedQueuePool
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from alembic.config import Config
 from app.core.config import utcms_config
 
 logger = logging.getLogger(__name__)

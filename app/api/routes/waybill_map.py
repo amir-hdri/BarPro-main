@@ -5,8 +5,6 @@ import math
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
-logger = logging.getLogger(__name__)
-
 from app.automation.reporting import report_service
 from app.automation.traffic_control import waybill_traffic_controller
 from app.core.config import utcms_config
@@ -27,6 +25,8 @@ from app.schemas.waybill import (
     WaybillMapRequest,
 )
 from app.services.waybill_service import waybill_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/waybill", tags=["waybill-map"])
 
