@@ -16,7 +16,7 @@ client = TestClient(app_for_test)
 
 def test_get_driver_report_unauthorized():
     """Test that the endpoint rejects requests without admin authentication."""
-    response = client.get("/admin/reports/drivers/report")
+    response = client.get("/api/v1/admin/reports/drivers/report")
     assert response.status_code == 401
 
 
@@ -39,11 +39,13 @@ def test_get_driver_report_success_no_filters():
     # Mock the admin dependency
     app_for_test.dependency_overrides[get_current_admin] = lambda: {"sub": "admin123", "role": "admin"}
 
-    with patch("app.api.routes.admin_reporting.admin_reporting_service.driver_report", new_callable=AsyncMock) as mock_driver_report:
+    with patch(
+        "app.api.routes.admin_reporting.admin_reporting_service.driver_report", new_callable=AsyncMock
+    ) as mock_driver_report:
         mock_driver_report.return_value = mock_report_data
 
         try:
-            response = client.get("/admin/reports/drivers/report")
+            response = client.get("/api/v1/admin/reports/drivers/report")
 
             assert response.status_code == 200
             assert response.json() == mock_report_data
@@ -74,12 +76,14 @@ def test_get_driver_report_success_with_filters():
     # Mock the admin dependency
     app_for_test.dependency_overrides[get_current_admin] = lambda: {"sub": "admin123", "role": "admin"}
 
-    with patch("app.api.routes.admin_reporting.admin_reporting_service.driver_report", new_callable=AsyncMock) as mock_driver_report:
+    with patch(
+        "app.api.routes.admin_reporting.admin_reporting_service.driver_report", new_callable=AsyncMock
+    ) as mock_driver_report:
         mock_driver_report.return_value = mock_report_data
 
         try:
             response = client.get(
-                "/admin/reports/drivers/report",
+                "/api/v1/admin/reports/drivers/report",
                 params={
                     "client_id": 10,
                     "driver_id": 42,
@@ -90,7 +94,7 @@ def test_get_driver_report_success_with_filters():
                     "operation_type": "api",
                     "page": 2,
                     "page_size": 20,
-                }
+                },
             )
 
             assert response.status_code == 200

@@ -86,7 +86,7 @@ export default function AdminClientsPage() {
   async function loadClientDetail(id: number) {
     if (clientDetails[id]) return;
     setDetailLoading(prev => ({ ...prev, [id]: true }));
-    const res = await api.get<ClientDetail>(`/admin/reports/clients/${id}/detail`);
+    const res = await api.get<ClientDetail>(`/api/v1/admin/reports/clients/${id}/detail`);
     if (res.data) {
       setClientDetails(prev => ({ ...prev, [id]: res.data as ClientDetail }));
     }

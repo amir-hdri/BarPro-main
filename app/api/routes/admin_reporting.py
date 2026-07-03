@@ -20,7 +20,7 @@ from app.models_multitenant import Client, Driver, DriverPlate, WaybillJob
 from app.schemas.admin import DriverReportFilter
 from app.services.admin_reporting_service import admin_reporting_service
 
-router = APIRouter(prefix="/admin/reports", tags=["admin-reports"])
+router = APIRouter(prefix="/api/v1/admin/reports", tags=["admin-reports"])
 
 
 @router.get(

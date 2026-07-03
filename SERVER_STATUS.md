@@ -1,5 +1,5 @@
 # BarPro — وضعیت سرور
-# آخرین بروزرسانی: ۱۱ تیر ۱۴۰۵ (2026-07-02)
+# آخرین بروزرسانی: ۱۲ تیر ۱۴۰۵ (2026-07-03)
 
 ## 📊 اطلاعات سرور
 
@@ -10,10 +10,11 @@
 | هر دو IP | یک سرور فیزیکی — 4 vCPU، 12 GB RAM |
 | مسیر پروژه | `/opt/barpro` |
 | دیسک | 21 GB used / 70 GB total (31%) |
+| URL قابل دسترسی | http://95.38.233.90 |
 
 ---
 
-## 🐳 وضعیت کانتینرها (2026-07-02)
+## 🐳 وضعیت کانتینرها (2026-07-03)
 
 | Container | Image | وضعیت |
 |-----------|-------|--------|
@@ -36,10 +37,66 @@
 ## ✅ تست‌های سلامت
 
 ```
-GET http://188.121.123.16/healthz → {"status":"ok"}  ✅
-GET http://188.121.123.16/        → HTTP 200         ✅
-Alembic: 013_add_admin_driver_schedules (head)        ✅
+GET http://95.38.233.90/              → HTTP 200         ✅ (Next.js صفحه اصلی)
+GET http://95.38.233.90/auth          → HTTP 200         ✅ (صفحه ورود)
+GET http://95.38.233.90/api/healthz   → {"status":"ok"}  ✅
+GET http://95.38.233.90/api/v1/healthz→ {"status":"ok"}  ✅
 ```
+
+---
+
+## ❌ مشکلات شناسایی‌شده و علت‌ها (2026-07-03)
+
+### 1. CSP مسدودکننده اسکریپت‌های Next.js (علت اصلی صفحه سفید)
+| | |
+|---|---|
+| **مشکل** | صفحه خالی برگردانده می‌شد (`<body>` بدون محتوا)، خطای `Refused to execute inline script` در کنسول مرورگر |
+| **علت ریشه‌ای** | هدر `Content-Security-Policy: script-src 'self'` تمام اسکریپت‌های inline Next.js (از جمله chunks، webpack runtime) را مسدود می‌کرد |
+| **فایل** | `infra/nginx/http-server.conf:8` |
+| **راهکار** | تغییر به `script-src 'self' 'unsafe-inline' 'unsafe-eval'` |
+| **وضعیت** | ✅ رفع شد |
+
+### 2. عدم Resolution DNS در Nginx (علت اصلی قطعی API)
+| | |
+|---|---|
+| **مشکل** | درخواست‌های `/api/*` به‌خطای 500 با `invalid URL prefix` منجر می‌شدند |
+| **علت ریشه‌ای** | Nginx از upstream-name های داکر (`backend:8000`) استفاده می‌کرد اما `resolver` در بلاک http تعریف نشده بود؛ همچنین `proxy_pass` متغیر (`$backend_addr`) بدون `set` متناظر باعث خطای `uninitialized variable` شد |
+| **فایل** | `infra/nginx/nginx.conf` و `infra/nginx/http-server.conf` |
+| **راهکار** | افزودن `resolver 127.0.0.11 ipv6=off valid=30s;` در http block و بازگشت به `proxy_pass http://backend_upstream;` |
+| **وضعیت** | ✅ رفع شد |
+
+### 3. Config Stale در کانتینر (علت 500 بعد از رفع مشکل بالا)
+| | |
+|---|---|
+| **مشکل** | بعد از اعمال تغییرات با `sed` روی host و `nginx -s reload`، بعضی location ها همچنان خطا می‌دادند |
+| **علت ریشه‌ای** | Docker bind-mount از inode فایل پیروی می‌کند؛ `sed` یک inode جدید ایجاد می‌کند ولی کانتینر هنوز فایل قدیمی را می‌بیند. `nginx -s reload` کافی نیست |
+| **راهکار** | حذف و ایجاد مجدد کانتینر با `docker rm -f barpro-nginx` سپس `manage.sh start web` |
+| **وضعیت** | ✅ رفع شد |
+
+### 4. IP اصلی (188.121.123.16:80) قابل دسترسی نیست
+| | |
+|---|---|
+| **مشکل** | اتصال به http://188.121.123.16 از خارج از سرور timeout می‌خورد |
+| **علت ریشه‌ای** | احتمالاً Hairpin NAT/محدودیت routing در دیتاسنتر؛ امکان DNAT مفقود یا فیلتر upstream |
+| **راهکار موقت** | استفاده از http://95.38.233.90 به‌جای IP اصلی |
+| **وضعیت** | ❌ رفع نشده — نیازمند بررسی provider دیتاسنتر |
+
+### 5. مقادیر اشتباه در Deploy Scripts
+| | |
+|---|---|
+| **مشکل** | `NEXT_PUBLIC_API_URL` در چندین deploy script مقدار `http://188.121.123.16:8000` داشت (باید `/api` باشد) |
+| **علت ریشه‌ای** | scripts پروژه absolute URL هاردکد شده بودند که برای معماری Nginx-reverse-proxy نادرست است |
+| **فایل‌ها** | `scripts/deploy_remote.sh`، `deploy_remote.py`، `deploy_single_vm.py` |
+| **راهکار** | تغییر از `http://$IP:8000` به `/api` در ۶ مکان مختلف + افزودن `FRONTEND_URLS` |
+| **وضعیت** | ✅ رفع شد |
+
+### 6. `.env.example` مقادیر پیش‌فرض نادرست
+| | |
+|---|---|
+| **مشکل** | `FRONTEND_URL` لوکال‌هاست و `NEXT_PUBLIC_API_URL` پورت 8000 داشت |
+| **علت ریشه‌ای** | مخصوص development نوشته شده بود نه production |
+| **راهکار** | بروزرسانی به `FRONTEND_URL=http://YOUR_SERVER_IP` و `NEXT_PUBLIC_API_URL=/api` |
+| **وضعیت** | ✅ رفع شد |
 
 ---
 
@@ -95,4 +152,15 @@ ssh ubuntu@188.121.123.16  # یا localhost از داخل سرور
 
 ---
 
-*آخرین بروزرسانی: 2026-07-02 — توسط Antigravity AI Agent*
+## 👤 دسترسی ادمین
+
+| کاربر | رمز عبور |
+|-------|----------|
+| `admin` | `BarPro2026!SecurePwd` |
+| endpoint ورود | `POST /api/admin/login` |
+
+> ⚠️ این رمز عبور در فایل `.env` روی سرور ذخیره شده است. برای امنیت بیشتر، توصیه می‌شود در environment های حساس از bcrypt-hashed password استفاده شود.
+
+---
+
+*آخرین بروزرسانی: 2026-07-03 — توسط Antigravity AI Agent*

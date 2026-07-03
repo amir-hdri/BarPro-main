@@ -394,7 +394,8 @@ BLOCK_MAP_TILES="true"
 
 # URLs
 FRONTEND_URL="http://{PRIMARY_IP}"
-NEXT_PUBLIC_API_URL="http://{PRIMARY_IP}/api"
+FRONTEND_URLS="http://{SECONDARY_IP}"
+NEXT_PUBLIC_API_URL="/api"
 
 # اتصال‌های داخلی داکر
 DATABASE_URL="postgresql+asyncpg://postgres:{pg_pass}@postgres:5432/{DB_NAME}"
@@ -452,7 +453,7 @@ def step_build_frontend() -> bool:
     info("در حال بیلد Next.js...")
     env = os.environ.copy()
     env["NODE_ENV"] = "production"
-    env["NEXT_PUBLIC_API_URL"] = f"http://{PRIMARY_IP}/api"
+    env["NEXT_PUBLIC_API_URL"] = "/api"
     r2 = subprocess.run(
         ["npm", "run", "build"],
         cwd=str(web_dir), capture_output=False, text=True, env=env
@@ -546,7 +547,7 @@ def step_deploy(ssh: paramiko.SSHClient) -> bool:
 
         # نصب پکیج‌های Node و بیلد فرانت‌اند روی سرور (npm از طریق apt نصب شده)
         f"cd {REMOTE_DIR}/apps/web && npm install --prefer-offline 2>&1 | tail -5 || npm install 2>&1 | tail -5",
-        f"cd {REMOTE_DIR}/apps/web && NODE_ENV=production NEXT_PUBLIC_API_URL=http://{PRIMARY_IP}/api npm run build 2>&1 | tail -20",
+        f"cd {REMOTE_DIR}/apps/web && NODE_ENV=production NEXT_PUBLIC_API_URL=/api npm run build 2>&1 | tail -20",
 
         # Pull ایمیج‌های بدون build (سریع‌تر از wait کردن در build)
         f"cd {REMOTE_DIR} && {compose} pull --quiet postgres redis nginx prometheus || true",

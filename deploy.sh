@@ -109,6 +109,37 @@ $COMPOSE exec -T backend alembic upgrade head 2>&1 || true
 ok "مایگریشن انجام شد"
 
 # ───────────────────────────────────────────────────────────────────
+hdr "قدم ۶.۵ — تنظیم FRONTEND_URL در .env (در صورت عدم وجود)"
+# ───────────────────────────────────────────────────────────────────
+if ! grep -q "^FRONTEND_URL=" "$DIR/.env" 2>/dev/null; then
+  inf "FRONTEND_URL در .env یافت نشد. اضافه می‌کنیم..."
+  echo "" >> "$DIR/.env"
+  echo "# Added by deploy.sh" >> "$DIR/.env"
+  echo "FRONTEND_URL=http://${PRIMARY_IP}" >> "$DIR/.env"
+  ok "FRONTEND_URL=http://${PRIMARY_IP} اضافه شد."
+  # ری‌استارت backend برای اعمال تغییرات CORS
+  $COMPOSE restart backend 2>/dev/null || true
+  ok "backend ری‌استارت شد (CORS updated)."
+else
+  ok "FRONTEND_URL از قبل در .env وجود دارد."
+fi
+
+# اگر FRONTEND_URLS (برای CORS چند IP) ست نشده، IP ثانویه را اضافه کن
+if ! grep -q "^FRONTEND_URLS=" "$DIR/.env" 2>/dev/null; then
+  echo "FRONTEND_URLS=http://95.38.233.90" >> "$DIR/.env"
+  ok "FRONTEND_URLS=http://95.38.233.90 اضافه شد (CORS dual-IP)."
+fi
+
+if ! grep -q "^NEXT_PUBLIC_API_URL=" "$DIR/.env" 2>/dev/null; then
+  inf "NEXT_PUBLIC_API_URL در .env یافت نشد. اضافه می‌کنیم..."
+  echo "NEXT_PUBLIC_API_URL=/api" >> "$DIR/.env"
+  ok "NEXT_PUBLIC_API_URL=/api اضافه شد."
+  $COMPOSE restart frontend 2>/dev/null || true
+else
+  ok "NEXT_PUBLIC_API_URL از قبل در .env وجود دارد."
+fi
+
+# ───────────────────────────────────────────────────────────────────
 hdr "قدم ۷ — بررسی وضعیت نهایی"
 # ───────────────────────────────────────────────────────────────────
 sleep 5

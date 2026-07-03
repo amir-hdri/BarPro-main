@@ -33,7 +33,7 @@ export default function AdminDashboardPage() {
     setLoading(true);
     setFetchError(null);
     try {
-      const res = await api.get<AdminClientSummary>("/admin/reports/clients/summary", {
+      const res = await api.get<AdminClientSummary>("/api/v1/admin/reports/clients/summary", {
         page: "1",
         page_size: "50",
       });

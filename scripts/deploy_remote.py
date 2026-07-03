@@ -231,6 +231,7 @@ def deploy_node1(username, password, key_path=None):
             env_content += f"""
 ENVIRONMENT="production"
 FRONTEND_URL="http://{NODE1_IP}"
+FRONTEND_URLS="http://{NODE2_IP}"
 NEXT_PUBLIC_API_URL="/api"
 AVAILABLE_IP_INDICES="1,2"
 WORKER_1_PROXY="http://squid_1:3128"

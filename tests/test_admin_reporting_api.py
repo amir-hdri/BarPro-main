@@ -33,7 +33,7 @@ def test_get_clients_summary_success():
         "app.api.routes.admin_reporting.admin_reporting_service.client_summary",
         new=AsyncMock(return_value=mock_summary_data),
     ) as mock_service:
-        response = client.get("/admin/reports/clients/summary")
+        response = client.get("/api/v1/admin/reports/clients/summary")
 
         assert response.status_code == 200
         assert response.json() == mock_summary_data
@@ -58,7 +58,7 @@ def test_get_clients_summary_with_query_params():
         new=AsyncMock(return_value=mock_summary_data),
     ) as mock_service:
         response = client.get(
-            "/admin/reports/clients/summary?page=2&page_size=20&date_from=2023-01-01&date_to=2023-12-31"
+            "/api/v1/admin/reports/clients/summary?page=2&page_size=20&date_from=2023-01-01&date_to=2023-12-31"
         )
 
         assert response.status_code == 200
@@ -74,15 +74,15 @@ def test_get_clients_summary_invalid_params():
         "app.api.routes.admin_reporting.admin_reporting_service.client_summary", new=AsyncMock()
     ) as mock_service:
         # Invalid page (less than 1)
-        response = client.get("/admin/reports/clients/summary?page=0")
+        response = client.get("/api/v1/admin/reports/clients/summary?page=0")
         assert response.status_code == 422
 
         # Invalid page_size (less than 1)
-        response = client.get("/admin/reports/clients/summary?page_size=0")
+        response = client.get("/api/v1/admin/reports/clients/summary?page_size=0")
         assert response.status_code == 422
 
         # Invalid page_size (greater than 200)
-        response = client.get("/admin/reports/clients/summary?page_size=201")
+        response = client.get("/api/v1/admin/reports/clients/summary?page_size=201")
         assert response.status_code == 422
 
         mock_service.assert_not_called()
@@ -90,5 +90,5 @@ def test_get_clients_summary_invalid_params():
 
 def test_get_clients_summary_unauthorized():
     app.dependency_overrides.clear()
-    response = client.get("/admin/reports/clients/summary")
+    response = client.get("/api/v1/admin/reports/clients/summary")
     assert response.status_code == 401

@@ -31,7 +31,7 @@ export default function AdminReportsPage() {
     if (driverFilter) params.driver_id = driverFilter;
 
     try {
-      const res = await api.get<DriverReport>("/admin/reports/drivers/report", params);
+      const res = await api.get<DriverReport>("/api/v1/admin/reports/drivers/report", params);
       if (res.data) setDriverReport(res.data);
       else setDriverError(res.error || 'خطا در بارگذاری گزارش');
     } catch {
@@ -48,7 +48,7 @@ export default function AdminReportsPage() {
     if (dateTo) params.date_to = dateTo;
 
     try {
-      const res = await api.get<FailureAnalysis>("/admin/reports/failure-analysis", params);
+      const res = await api.get<FailureAnalysis>("/api/v1/admin/reports/failure-analysis", params);
       if (res.data) setFailureAnalysis(res.data);
       else setFailureError(res.error || 'خطا در بارگذاری تحلیل');
     } catch {

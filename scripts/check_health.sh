@@ -42,11 +42,25 @@
      echo -e "${RED}❌ Backend (8000): Not accessible${NC}"
  fi
  
- if curl -fsS -o /dev/null --max-time 2 "http://localhost:3000" 2>/dev/null; then
-     echo -e "${GREEN}✅ Frontend (3000): Accessible${NC}"
- else
-     echo -e "${RED}❌ Frontend (3000): Not accessible${NC}"
- fi
+if curl -fsS -o /dev/null --max-time 2 "http://localhost:3000" 2>/dev/null; then
+    echo -e "${GREEN}✅ Frontend (3000): Accessible${NC}"
+else
+    echo -e "${RED}❌ Frontend (3000): Not accessible${NC}"
+fi
+
+if curl -sI "http://localhost/" 2>&1 | grep -q "200\|301\|302\|403"; then
+    echo -e "${GREEN}✅ Nginx → Frontend (port 80): Accessible${NC}"
+else
+    echo -e "${RED}❌ Nginx → Frontend (port 80): Not accessible${NC}"
+fi
+
+# Check CSP header
+CSP=$(curl -sI "http://localhost/" 2>/dev/null | grep -i "content-security-policy" | head -1)
+if echo "$CSP" | grep -q "unsafe-inline"; then
+    echo -e "${GREEN}✅ CSP allows inline scripts${NC}"
+else
+    echo -e "${YELLOW}⚠️  CSP may block inline scripts: $CSP${NC}"
+fi
  
  echo ""
  
