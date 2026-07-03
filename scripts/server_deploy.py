@@ -248,7 +248,8 @@ def main():
             # تشخیص دستور compose
             ok_dc, _ = run_cmd(ssh, "docker compose version", check=False)
             compose = "docker compose" if ok_dc else "docker-compose"
-            
+            # پاک‌سازی کانتینرهای متداخل هم‌نام
+            run_cmd(ssh, "docker rm -f barpro-squid-2 barpro-squid-3 barpro-squid-1 barpro-postgres barpro-redis barpro-backend barpro-frontend barpro-worker-1 barpro-worker-2 barpro-worker-3 barpro-beat barpro-prometheus barpro-nginx 2>/dev/null || true", "حذف کانتینرهای قدیمی متداخل")
             # ساخت و بالا آوردن کانتینرها با تایم‌اوت بالا
             success, _ = run_cmd(
                 ssh,
