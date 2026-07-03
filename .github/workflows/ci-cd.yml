@@ -119,6 +119,23 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'apps/web/package-lock.json'
+
+      - name: Install Frontend Dependencies
+        working-directory: apps/web
+        run: |
+          npm ci
+
+      - name: Build Next.js App
+        working-directory: apps/web
+        run: |
+          NEXT_PUBLIC_API_URL="/api" npm run build
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

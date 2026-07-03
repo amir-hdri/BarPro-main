@@ -87,7 +87,7 @@ COPY app         ./app
 COPY scripts     ./scripts
 COPY alembic     ./alembic
 COPY alembic.ini ./alembic.ini
-COPY persian_captcha_ocr_model.keras ./persian_captcha_ocr_model.keras
+COPY persian_number_ocr.keras ./persian_number_ocr.keras
 
 # ساخت پوشه‌های مورد نیاز
 RUN mkdir -p /app/output/backups /app/output/logs
