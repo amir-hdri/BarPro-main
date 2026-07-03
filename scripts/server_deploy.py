@@ -105,7 +105,7 @@ def build_local_archive() -> str:
             # نادیده گرفتن پوشه‌های مستثنی شده
             dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
             for f in files:
-                if f in EXCLUDE_FILES:
+                if f.startswith("._") or f in EXCLUDE_FILES:
                     continue
                 if any(f.endswith(ext) for ext in EXCLUDE_EXTS):
                     continue
@@ -191,8 +191,8 @@ def main():
             
             run_cmd(
                 ssh,
-                f"cd {REMOTE_DIR} && tar -xzf update.tar.gz --overwrite && rm -f update.tar.gz",
-                "استخراج کدهای جدید روی سرور"
+                f"cd {REMOTE_DIR} && find . -name '._*' -delete && tar -xzf update.tar.gz --overwrite && rm -f update.tar.gz",
+                "حذف فایل‌های فراداده مک و استخراج کدهای جدید روی سرور"
             )
             
             # اطمینان از دسترسی‌های اسکریپت‌ها
