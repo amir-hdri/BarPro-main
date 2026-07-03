@@ -1,8 +1,9 @@
+
 import pytest
-import re
 from playwright.async_api import async_playwright
-from app.automation.fuel_scraper import parse_plate, get_current_jalali, FuelScraper
-from app.core.exceptions import WaybillError
+
+from app.automation.fuel_scraper import get_current_jalali, parse_plate
+
 
 def test_parse_plate():
     # Test valid formats
@@ -41,11 +42,11 @@ async def test_fuel_scraper_form_elements():
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
         page = await context.new_page()
-        
+
         try:
             # Go directly to target URL
             await page.goto("https://utcms.ir/ShowFuelQuota.aspx", wait_until="domcontentloaded", timeout=20000)
-            
+
             # Assert all required form elements are present on the page
             assert await page.query_selector("#NationalCode") is not None
             assert await page.query_selector("#Year") is not None
@@ -59,7 +60,7 @@ async def test_fuel_scraper_form_elements():
             assert await page.query_selector("#imgCapchaEdit1") is not None
             assert await page.query_selector("#txtCapcha") is not None
             assert await page.query_selector("#Login") is not None
-            
+
         except Exception as e:
             pytest.skip(f"Live website not reachable or slow: {e}")
         finally:

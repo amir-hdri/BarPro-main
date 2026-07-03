@@ -1,8 +1,10 @@
 import asyncio
 import threading
-import time
+
 import pytest
+
 from app.core.redis import redis_manager
+
 
 @pytest.mark.asyncio
 async def test_redis_connection_manager_thread_safety():

@@ -6,7 +6,6 @@ import {
   ClockIcon,
   ArrowPathIcon,
   CheckCircleIcon,
-  XCircleIcon,
   ExclamationTriangleIcon,
   EyeIcon,
 

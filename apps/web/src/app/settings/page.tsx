@@ -8,7 +8,6 @@ import { formatDateTime, statusLabel, toPersianDigits } from '@/lib/format';
 import type { ClientProfile, ReadyzResponse } from '@/lib/types';
 import { useSession } from "@/hooks/useSession";
 import { 
-  Settings, 
   Shield, 
   Activity, 
   RefreshCw, 

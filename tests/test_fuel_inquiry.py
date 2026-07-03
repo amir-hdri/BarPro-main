@@ -1,11 +1,12 @@
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.models_multitenant import Client, Driver, FuelInquiry
+from app.models_multitenant import Client, Driver
 from app.schemas.multitenant import FuelInquiryCreateRequest
 from app.services.fuel_inquiry_service import fuel_inquiry_service
 
@@ -15,7 +16,7 @@ async def test_fuel_inquiry_service_lifecycle():
     # Setup async SQLite in-memory engine
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
     async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-    
+
     # Create all tables (includes FuelInquiry since it registers on SQLModel.metadata)
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
@@ -50,7 +51,7 @@ async def test_fuel_inquiry_service_lifecycle():
         with patch("app.workers.tasks.dispatch_fuel_inquiry_task") as mock_dispatch:
             req = FuelInquiryCreateRequest(driver_id=driver.id)
             response = await fuel_inquiry_service.create_inquiry(client, req, session)
-            
+
             # Assertions
             assert response.client_id == client.id
             assert response.driver_id == driver.id

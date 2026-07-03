@@ -95,9 +95,8 @@ async def run_migrations() -> None:
         logger.warning("migration_lock_check_failed_running_directly", exc_info=True)
 
     try:
-        from alembic.config import Config
-
         from alembic import command
+        from alembic.config import Config
 
         alembic_ini_path = os.path.join(os.path.dirname(__file__), "..", "..", "alembic.ini")
         if not os.path.exists(alembic_ini_path):

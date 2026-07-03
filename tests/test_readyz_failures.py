@@ -1,8 +1,9 @@
 import asyncio
 import time
-import pytest
 from unittest.mock import AsyncMock, Mock, patch
-from httpx import AsyncClient, ASGITransport
+
+import pytest
+from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 
@@ -13,18 +14,18 @@ async def test_readyz_database_down_returns_503():
     mock_connect_ctx = AsyncMock()
     mock_connect_ctx.__aenter__ = AsyncMock(side_effect=Exception("Connection refused"))
     mock_connect_ctx.__aexit__ = AsyncMock(return_value=None)
-    
+
     mock_engine = Mock()
     mock_engine.connect = Mock(return_value=mock_connect_ctx)
 
     with patch("app.api.routes.system.engine", mock_engine), \
          patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)), \
          patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True):
-        
+
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             response = await ac.get("/readyz")
-            
+
     assert response.status_code == 503
     payload = response.json()
     assert payload["status"] == "not_ready"
@@ -36,11 +37,11 @@ async def test_readyz_database_down_returns_503():
 async def test_readyz_database_dns_failure_returns_skipped():
     # Simulates DNS name resolution error (transient/nonfatal)
     dns_error = Exception("nodename nor servname provided, or temporary failure in name resolution")
-    
+
     mock_connect_ctx = AsyncMock()
     mock_connect_ctx.__aenter__ = AsyncMock(side_effect=dns_error)
     mock_connect_ctx.__aexit__ = AsyncMock(return_value=None)
-    
+
     mock_engine = Mock()
     mock_engine.connect = Mock(return_value=mock_connect_ctx)
 
@@ -48,11 +49,11 @@ async def test_readyz_database_dns_failure_returns_skipped():
          patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)), \
          patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True), \
          patch("app.api.routes.system._database_host", return_value="db"):
-        
+
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             response = await ac.get("/readyz")
-            
+
     # Skipped DB is considered "ready" under default setup
     assert response.status_code == 200
     payload = response.json()
@@ -74,14 +75,14 @@ async def test_readyz_database_delay_does_not_block_healthz():
     mock_connect_ctx = AsyncMock()
     mock_connect_ctx.__aenter__ = slow_connect
     mock_connect_ctx.__aexit__ = AsyncMock(return_value=None)
-    
+
     mock_engine = Mock()
     mock_engine.connect = Mock(return_value=mock_connect_ctx)
 
     with patch("app.api.routes.system.engine", mock_engine), \
          patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)), \
          patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True):
-        
+
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             # Let's fire /readyz and /healthz concurrently
@@ -89,19 +90,19 @@ async def test_readyz_database_delay_does_not_block_healthz():
             readyz_task = asyncio.create_task(ac.get("/readyz"))
             # Wait briefly to ensure readyz_task runs and is blocked
             await asyncio.sleep(0.1)
-            
+
             # healthz should return instantly
             healthz_resp = await ac.get("/healthz")
             t2 = time.time()
-            
+
             # healthz duration should be very fast
             assert healthz_resp.status_code == 200
             assert t2 - t1 < 0.5  # healthz returns instantly despite readyz waiting
-            
+
             # Wait for readyz to finish
             readyz_resp = await readyz_task
             t3 = time.time()
-            
+
             assert readyz_resp.status_code == 200
             assert t3 - t1 >= 2.0  # readyz took the full database delay
 
@@ -118,7 +119,7 @@ async def test_readyz_browser_timeout_returns_503():
     mock_connect_ctx = AsyncMock()
     mock_connect_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
     mock_connect_ctx.__aexit__ = AsyncMock(return_value=None)
-    
+
     mock_engine = Mock()
     mock_engine.connect = Mock(return_value=mock_connect_ctx)
 
@@ -151,7 +152,7 @@ async def test_readyz_queue_failure_returns_503():
     mock_connect_ctx = AsyncMock()
     mock_connect_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
     mock_connect_ctx.__aexit__ = AsyncMock(return_value=None)
-    
+
     mock_engine = Mock()
     mock_engine.connect = Mock(return_value=mock_connect_ctx)
 
@@ -166,7 +167,7 @@ async def test_readyz_queue_failure_returns_503():
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             response = await ac.get("/readyz")
-            
+
     assert response.status_code == 503
     payload = response.json()
     assert payload["checks"]["queue"] == "error"
@@ -186,20 +187,20 @@ async def test_readyz_database_hang_takes_full_delay():
     mock_connect_ctx = AsyncMock()
     mock_connect_ctx.__aenter__ = hung_connect
     mock_connect_ctx.__aexit__ = AsyncMock(return_value=None)
-    
+
     mock_engine = Mock()
     mock_engine.connect = Mock(return_value=mock_connect_ctx)
 
     with patch("app.api.routes.system.engine", mock_engine), \
          patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)), \
          patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True):
-        
+
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             t1 = time.time()
             response = await ac.get("/readyz")
             t2 = time.time()
-            
+
             # The test will verify that it took >= 4.0 seconds, showing there is NO timeout protecting it!
             assert response.status_code == 200
             assert t2 - t1 >= 4.0
