@@ -5,6 +5,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from typing import Any
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
@@ -100,7 +101,7 @@ class BrowserResourceGuard:
 
         return cleaned
 
-    def get_stats(self) -> dict[str, any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get resource usage statistics."""
         now = time.time()
         return {
@@ -688,7 +689,7 @@ class BrowserManager:
         """Public method to clean up stale browser resources."""
         return await self._resource_guard.cleanup_stale_resources(self)
 
-    def get_resource_stats(self) -> dict[str, any]:
+    def get_resource_stats(self) -> dict[str, Any]:
         """Get browser resource usage statistics."""
         return {
             "active_contexts": len(self._contexts),

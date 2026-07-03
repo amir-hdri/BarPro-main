@@ -23,8 +23,8 @@ export default function AdminAuditPage() {
   const [actionFilter, setActionFilter] = useState("");
 
   useEffect(() => {
-    api.get<AuditEntry[]>("/management/sync/logs").then((res) => {
-      if (res.data) setEntries(res.data);
+    api.get<{ items: AuditEntry[] }>("/api/v1/admin/reports/audit-logs").then((res) => {
+      if (res.data?.items) setEntries(res.data.items);
       setLoading(false);
     });
   }, []);

@@ -199,7 +199,7 @@ export default function HistoryPage() {
     }
     setError(null);
     setLoading(false);
-  }, [client?.role]);
+  }, [client?.role, selectedJobId]);
 
   useEffect(() => {
     loadJobs();

@@ -39,7 +39,7 @@ export default function AdminDashboardPage() {
       });
       if (res.data) setSummary(res.data);
       else setFetchError(res.error || 'خطا در بارگذاری گزارش');
-    } catch (e) {
+    } catch {
       setFetchError('خطا در ارتباط با سرور');
     }
     setLoading(false);

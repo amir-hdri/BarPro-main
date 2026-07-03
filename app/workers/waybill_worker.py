@@ -418,8 +418,8 @@ async def _get_or_create_runtime_state(
 async def _update_job_status(
     job_id: str,
     status: str,
-    error: str = None,
-    error_category: str = None,
+    error: str | None = None,
+    error_category: str | None = None,
 ):
     """Update job status in database."""
     session = async_session_factory()
@@ -469,8 +469,8 @@ async def _add_job_log(
     client_id: int,
     step: str,
     status: str,
-    message: str = None,
-    details_json: str = None,
+    message: str | None = None,
+    details_json: str | None = None,
 ):
     """Add a log entry for a job."""
     log = WaybillTaskLog(

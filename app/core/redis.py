@@ -28,37 +28,57 @@ def _build_redis_kwargs() -> dict:
 
 
 class RedisConnectionManager:
-    """Thread-safe Redis connection manager that works across Celery event loops."""
+    """Thread-safe Redis connection manager that works across Celery event loops.
+
+    Note: `threading.Lock` is used instead of `asyncio.Lock` because Celery
+    workers may run tasks across different event loops. The lock only protects
+    the synchronous check-and-create section; no `await` is called while holding it.
+    """
 
     def __init__(self) -> None:
-        self._redis: aioredis.Redis | None = None
+        self._redis: "aioredis.Redis | None" = None
         self._lock = threading.Lock()
 
     async def _close_existing(self) -> None:
-        if self._redis is not None:
+        """Close current redis connection (must NOT be called under _lock)."""
+        redis_to_close = None
+        with self._lock:
+            if self._redis is not None:
+                redis_to_close = self._redis
+                self._redis = None
+
+        if redis_to_close is not None:
             try:
-                await self._redis.close()
+                await redis_to_close.close()
             except Exception as exc:
                 logger.warning("Error closing Redis connection: %s", exc)
-            self._redis = None
 
     async def get(self):
         if aioredis is None:
             return None
-        if self._redis is None:
-            with self._lock:
-                if self._redis is not None:
-                    return self._redis
-                await self._close_existing()
-                self._redis = aioredis.from_url(
-                    utcms_config.REDIS_URL,
-                    **_build_redis_kwargs(),
-                )
+
+        # Fast path (no lock needed — reading is fine with Python GIL)
+        if self._redis is not None:
+            return self._redis
+
+        # Slow path — create a new connection. No await under the lock.
+        new_client = None
+        with self._lock:
+            # Double-check after acquiring lock
+            if self._redis is not None:
+                return self._redis
+            # Build client object synchronously (no IO here yet)
+            new_client = aioredis.from_url(
+                utcms_config.REDIS_URL,
+                **_build_redis_kwargs(),
+            )
+            self._redis = new_client
+
         return self._redis
 
     async def close(self) -> None:
-        with self._lock:
-            await self._close_existing()
+        """Gracefully close the Redis connection."""
+        await self._close_existing()
 
 
 redis_manager = RedisConnectionManager()

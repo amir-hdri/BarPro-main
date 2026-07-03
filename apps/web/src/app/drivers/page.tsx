@@ -341,15 +341,15 @@ export default function DriversPage() {
 
                       <div className="mt-8 grid gap-4 sm:grid-cols-3">
                         <div className="rounded-2xl bg-slate-950/60 p-4 shadow-sm border border-white/5">
-                          <p className="text-[10px] font-black uppercase r text-slate-400">شناسه UTCMS</p>
+                          <p className="text-[10px] font-black uppercase text-slate-400">شناسه UTCMS</p>
                           <p className="mt-1 text-sm font-bold text-slate-200">{driver.utcms_username}</p>
                         </div>
                         <div className="rounded-2xl bg-slate-950/60 p-4 shadow-sm border border-white/5">
-                          <p className="text-[10px] font-black uppercase r text-slate-400">آخرین فعالیت</p>
+                          <p className="text-[10px] font-black uppercase text-slate-400">آخرین فعالیت</p>
                           <p className="mt-1 text-sm font-bold text-slate-200">{formatDateTime(driver.last_auth_at) || 'ثبت نشده'}</p>
                         </div>
                         <div className="rounded-2xl bg-slate-950/60 p-4 shadow-sm border border-white/5">
-                          <p className="text-[10px] font-black uppercase r text-slate-400">اعتبار نشست</p>
+                          <p className="text-[10px] font-black uppercase text-slate-400">اعتبار نشست</p>
                           <p className="mt-1 text-sm font-bold text-slate-200">{formatDateTime(driver.last_session_expires_at) || 'نامشخص'}</p>
                         </div>
                       </div>
@@ -406,7 +406,7 @@ export default function DriversPage() {
                 <Input label="وضعیت" value={editDriver.payload.status || 'active'} onChange={(value) => setEditDriver((current) => current ? { ...current, payload: { ...current.payload, status: value } } : current)} />
               </div>
               <div className="mt-6 flex gap-2">
-                <button type="submit" className="rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-2.5 text-sm font-bold transition">ذخیره</button>
+                <button type="submit" disabled={saving} className="rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-2.5 text-sm font-bold transition disabled:opacity-50">ذخیره</button>
                 <button type="button" onClick={() => setEditDriver(null)} className="rounded-xl border border-white/10 bg-slate-950 hover:bg-slate-900 px-6 py-2.5 text-sm font-bold text-slate-300 transition">انصراف</button>
               </div>
             </form>

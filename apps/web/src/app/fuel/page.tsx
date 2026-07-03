@@ -830,7 +830,7 @@ export default function FuelInquiryPage() {
                                         </td>
                                       </tr>
                                     ) : (
-                                      tbl.rows.map((row, rIdx) => (
+                                      tbl.rows.map((row, _rIdx) => (
                                         <tr key={row.join('-')} className="hover:bg-white/[0.01]">
                                           {row.map((cell, cIdx) => (
                                             <td key={`${cIdx}-${cell}`} className="px-4 py-3 font-medium">{cell}</td>

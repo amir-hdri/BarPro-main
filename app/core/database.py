@@ -6,12 +6,12 @@ import os
 import sys
 from pathlib import Path
 
+from alembic.config import Config
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import AsyncAdaptedQueuePool
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from alembic.config import Config
 from app.core.config import utcms_config
 
 logger = logging.getLogger(__name__)
@@ -96,8 +96,9 @@ async def run_migrations() -> None:
         logger.warning("migration_lock_check_failed_running_directly", exc_info=True)
 
     try:
-        from alembic import command
         from alembic.config import Config
+
+        from alembic import command
 
         alembic_ini_path = os.path.join(os.path.dirname(__file__), "..", "..", "alembic.ini")
         if not os.path.exists(alembic_ini_path):

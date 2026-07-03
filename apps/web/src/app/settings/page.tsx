@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, memo } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
 import { api } from '@/lib/api';
@@ -72,7 +72,7 @@ export default function SettingsPage() {
     loadProfile();
   }, [role]);
 
-  const loadSystemStatus = async () => {
+  const loadSystemStatus = useCallback(async () => {
     if (role !== "client") return;
     setLoadingCache(true);
     
@@ -94,13 +94,13 @@ export default function SettingsPage() {
       }
     }
     setLoadingCache(false);
-  };
+  }, [role]);
 
   useEffect(() => {
     if (activeTab === 'system') {
       void loadSystemStatus().catch(e => console.error("Failed to load system status:", e));
     }
-  }, [activeTab]);
+  }, [activeTab, loadSystemStatus]);
 
   const handleRefreshCache = async () => {
     setRefreshingCache(true);
@@ -341,7 +341,11 @@ export default function SettingsPage() {
               </section>
 
               {systemMessage && (
-                <div className="rounded-2xl bg-cyan-500/10 border border-cyan-500/20 px-6 py-4 text-sm text-cyan-400 flex items-center gap-3 animate-in slide-in-from-bottom-4 shadow-md">
+                <div className={`rounded-2xl border px-6 py-4 text-sm flex items-center gap-3 animate-in slide-in-from-bottom-4 shadow-md ${
+                  systemMessage.includes('ناموفق') || systemMessage.includes('خطا')
+                    ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                    : 'bg-cyan-500/10 border-cyan-500/20 text-cyan-400'
+                }`}>
                   <Check className="h-5 w-5 shrink-0" />
                   <span>{systemMessage}</span>
                 </div>

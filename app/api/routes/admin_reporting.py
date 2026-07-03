@@ -10,7 +10,7 @@ Provides endpoints for the master admin to:
 from datetime import datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -77,6 +77,46 @@ async def get_failure_analysis(
 
 
 @router.get(
+    "/audit-logs",
+    summary="لاگ فعالیت‌های سیستم",
+    dependencies=[Depends(get_current_admin)],
+)
+async def get_audit_logs(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Get recent waybill job activity as audit log entries."""
+    offset = (page - 1) * page_size
+    stmt = (
+        select(WaybillJob)
+        .order_by(WaybillJob.updated_at.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    result = await session.exec(stmt)
+    jobs = result.all()
+
+    entries = []
+    for j in jobs:
+        entries.append(
+            {
+                "id": j.id,
+                "user_type": "client",
+                "user_id": j.client_id,
+                "action": j.status.upper() if j.status else "UNKNOWN",
+                "entity_type": "waybill_job",
+                "entity_id": j.id,
+                "description": f"بارنامه #{j.id} — راننده {j.driver_national_code or '—'} | {j.error_message or j.status}",
+                "ip_address": None,
+                "created_at": (j.updated_at or j.created_at).isoformat() if (j.updated_at or j.created_at) else None,
+            }
+        )
+
+    return {"items": entries, "page": page, "page_size": page_size}
+
+
+@router.get(
     "/clients/{client_id}/detail",
     summary="جزئیات کامل یک مشتری",
     dependencies=[Depends(get_current_admin)],
@@ -90,8 +130,6 @@ async def get_client_detail(
     """Get detailed report for a specific client."""
     client = await session.get(Client, client_id)
     if not client:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=404, detail="Client not found")
 
     drivers_stmt = select(Driver).where(Driver.client_id == client_id)
@@ -108,11 +146,17 @@ async def get_client_detail(
 
     jobs_stmt = select(WaybillJob).where(WaybillJob.client_id == client_id)
     if date_from:
-        dt = datetime.fromisoformat(date_from)
-        jobs_stmt = jobs_stmt.where(WaybillJob.created_at >= dt)
+        try:
+            dt = datetime.fromisoformat(date_from)
+            jobs_stmt = jobs_stmt.where(WaybillJob.created_at >= dt)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Invalid date_from format: '{date_from}'. Use YYYY-MM-DD.")
     if date_to:
-        dt = datetime.fromisoformat(date_to) + timedelta(days=1)
-        jobs_stmt = jobs_stmt.where(WaybillJob.created_at < dt)
+        try:
+            dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+            jobs_stmt = jobs_stmt.where(WaybillJob.created_at < dt)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Invalid date_to format: '{date_to}'. Use YYYY-MM-DD.")
     jobs_result = await session.exec(jobs_stmt)
     jobs = jobs_result.all()
 

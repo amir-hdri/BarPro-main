@@ -15,7 +15,12 @@ export interface StoredClient {
 }
 
 export function getStoredToken(): string | null {
-  return null;
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(AUTH_TOKEN_KEY) || null;
+  } catch {
+    return null;
+  }
 }
 
 export function getStoredClient(): StoredClient | null {
@@ -41,7 +46,8 @@ export function persistSession(token: string, client: StoredClient): void {
   }
 
   try {
-    // Token is stored in httpOnly cookie, not in localStorage to prevent XSS
+    // Store both token and client info in localStorage
+    window.localStorage.setItem(AUTH_TOKEN_KEY, token);
     window.localStorage.setItem(AUTH_CLIENT_KEY, JSON.stringify(client));
     window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
   } catch (e) {

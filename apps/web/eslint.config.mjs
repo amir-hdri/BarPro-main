@@ -1,8 +1,12 @@
-import nextVitals from "eslint-config-next/core-web-vitals";
+import { FlatCompat } from "@eslint/eslintrc";
 import unusedImports from "eslint-plugin-unused-imports";
 
+const compat = new FlatCompat({
+  baseDirectory: import.meta.dirname,
+});
+
 const eslintConfig = [
-  ...nextVitals,
+  ...compat.extends("next/core-web-vitals"),
   {
     plugins: {
       "unused-imports": unusedImports,
