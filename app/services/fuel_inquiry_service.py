@@ -196,8 +196,26 @@ class FuelInquiryService:
             national_code=driver.driver_national_code,
             fallback=username,
         )
-        proxy_info = await get_proxy_rotator().get_next()
-        proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
+        # Fuel inquiry connects to utcms.ir (public, accessible from container directly).
+        # The generic proxy rotator blocks host.docker.internal (private IP SSRF check) so it
+        # returns None. Use the worker-specific Squid proxy from env if available, otherwise
+        # fall back to direct connection (which works — confirmed curl HTTP 200 in 0.04s).
+        import os as _os
+        _worker_proxy_url = (
+            _os.environ.get("WORKER_1_PROXY")
+            or _os.environ.get("RPA_PROXIES", "").split(",")[0].strip()
+            or None
+        )
+        proxy_dict: dict | None = None
+        if _worker_proxy_url:
+            try:
+                from app.automation.proxy_rotator import ProxyInfo as _PI, ProxyConfig as _PC
+                _pi = _PI(url=_worker_proxy_url, protocol="http")
+                proxy_dict = _pi.to_playwright_proxy()
+                logger.info(f"fuel_inquiry using worker proxy: {_worker_proxy_url[:40]}")
+            except Exception as _pe:
+                logger.warning(f"fuel_inquiry proxy setup failed, using direct: {_pe}")
+                proxy_dict = None
 
         logger.info(f"Launching browser session for fuel inquiry {inquiry_id}")
 
@@ -220,13 +238,18 @@ class FuelInquiryService:
                 await browser_manager.save_auth_state(context, auth_state_path=auth_state_path)
 
                 # Update database
-                inquiry.status = "success"
-                inquiry.quota_data_json = json.dumps(result.get("quota_data", {}))
+                quota_data = result.get("quota_data", {})
+                if not quota_data or not isinstance(quota_data, dict) or not any(quota_data.values()):
+                    inquiry.status = "failed"
+                    inquiry.error_message = "داده‌ای برای سهمیه سوخت یافت نشد (پاسخ خالی)"
+                else:
+                    inquiry.status = "success"
+                inquiry.quota_data_json = json.dumps(quota_data)
                 inquiry.screenshot_url = result.get("screenshot_url")
                 inquiry.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 session.add(inquiry)
                 await session.commit()
-                logger.info(f"Fuel inquiry {inquiry_id} completed successfully")
+                logger.info(f"Fuel inquiry {inquiry_id} completed with status {inquiry.status}")
 
         except Exception as e:
             logger.exception(f"Error executing fuel inquiry {inquiry_id}")

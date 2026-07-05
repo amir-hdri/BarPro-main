@@ -2,11 +2,25 @@ export function formatDateTime(value?: string | null): string {
   if (!value) {
     return '-';
   }
-
+  // Append 'Z' if no timezone info present so JS parses it as UTC (server stores UTC)
+  const raw = value.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(value) ? value : value + 'Z';
   return new Intl.DateTimeFormat('fa-IR', {
     dateStyle: 'medium',
     timeStyle: 'short',
-  }).format(new Date(value));
+    timeZone: 'Asia/Tehran',
+  }).format(new Date(raw));
+}
+
+export function formatDateTimeEn(value?: string | null): string {
+  if (!value) {
+    return '-';
+  }
+  const raw = value.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(value) ? value : value + 'Z';
+  return new Intl.DateTimeFormat('en-IR', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'Asia/Tehran',
+  }).format(new Date(raw));
 }
 
 export function formatRelativePercent(value: number): string {

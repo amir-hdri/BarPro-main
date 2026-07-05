@@ -213,15 +213,18 @@ class FuelScraper:
         quota_type: str,
         inquiry_id: int
     ) -> list[list[str]]:
-        max_attempts = 4
+        max_attempts = 3
         url = "https://utcms.ir/ShowFuelQuota.aspx"
 
         for attempt in range(1, max_attempts + 1):
             logger.info(f"Form submission attempt {attempt} for quota type {quota_type}")
             try:
                 # Go to the guest page directly
-                await self.page.goto(url, wait_until="domcontentloaded", timeout=20000)
-                await self.page.wait_for_load_state("networkidle", timeout=5000)
+                await self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                try:
+                    await self.page.wait_for_load_state("networkidle", timeout=6000)
+                except Exception:
+                    pass  # networkidle is best-effort
             except Exception as e:
                 logger.warning(f"Timeout loading ShowFuelQuota.aspx on attempt {attempt}: {e}")
                 if attempt == max_attempts:
