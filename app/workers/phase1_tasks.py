@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from app.services.rpa_auth_service import rpa_auth_service
@@ -15,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 
 from app.core.utils import run_async as _run
-
 
 if celery_app is not None:
 

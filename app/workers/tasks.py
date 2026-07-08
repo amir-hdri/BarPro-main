@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import time
 from typing import Any
@@ -9,14 +8,13 @@ from app.core.config import utcms_config
 from app.core.error_taxonomy import classify_exception
 from app.core.execution_context import bind_execution_context, reset_execution_context
 from app.core.network import is_retryable_network_error
+from app.core.utils import run_async as _run_async
 from app.core.worker_heartbeat import heartbeat_lease, worker_heartbeat_registry
 from app.monitoring.metrics import track_task_latency
 from app.schemas.waybill import WaybillMapRequest
 from app.services.task_service import task_service
 from app.services.waybill_service import waybill_service
 from app.workers.celery_app import celery_app
-
-from app.core.utils import run_async as _run_async
 
 
 def _retry_delay_seconds(attempt_number: int) -> float:

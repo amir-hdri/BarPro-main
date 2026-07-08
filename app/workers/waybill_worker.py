@@ -24,6 +24,7 @@ from app.automation.waybill_bot_multitenant import WaybillAutomationBot
 from app.automation.worker_proxy import get_playwright_proxy
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
+from app.core.utils import run_async as _run
 from app.models_multitenant import (
     Driver,
     TaskStatus,
@@ -67,9 +68,6 @@ class WaybillTask(Task):
     async def get_async_session(self) -> AsyncSession:
         """Get async database session."""
         return async_session_factory()
-
-
-from app.core.utils import run_async as _run
 
 
 @celery_app.task(
