@@ -14,6 +14,9 @@ env:
   PYTHON_VERSION: "3.11"
   NODE_VERSION: "20"
   HEADLESS: "true"
+  MASTER_ADMIN_PASSWORD: "test-master-admin-password-for-ci-only"
+  JWT_SECRET: "test-jwt-secret-for-ci-only-which-is-long-enough-32-chars-long"
+  DRIVER_ENCRYPTION_KEY: "6K3_x_43jQ6uJj8O36u1Z91c8u1_o91_2u1Z8u1Z8u0="
 
 jobs:
   quality-checks:
