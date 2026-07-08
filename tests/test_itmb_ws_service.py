@@ -140,10 +140,13 @@ def test_ws01_insert_bol_route_calls_service():
     client = TestClient(app)
     payload = _sample_payload()
 
-    with patch("app.core.config.utcms_config.API_AUTH_MODE", "off"), patch(
-        "app.services.itmb_ws_service.itmb_ws_service.insert_bol",
-        AsyncMock(return_value={"success": True, "bol_trace_code": "BOL1", "used_salt": 123}),
-    ) as mocked_insert:
+    with (
+        patch("app.core.config.utcms_config.API_AUTH_MODE", "off"),
+        patch(
+            "app.services.itmb_ws_service.itmb_ws_service.insert_bol",
+            AsyncMock(return_value={"success": True, "bol_trace_code": "BOL1", "used_salt": 123}),
+        ) as mocked_insert,
+    ):
         response = client.post("/waybill/ws01-insert-bol", json=payload)
 
     assert response.status_code == 200
@@ -153,9 +156,12 @@ def test_ws01_insert_bol_route_calls_service():
 
 def test_baseinfo_status_route():
     client = TestClient(app)
-    with patch("app.core.config.utcms_config.API_AUTH_MODE", "off"), patch(
-        "app.services.itmb_baseinfo_service.itmb_baseinfo_service.status",
-        return_value={"goods": {"cached": True}},
+    with (
+        patch("app.core.config.utcms_config.API_AUTH_MODE", "off"),
+        patch(
+            "app.services.itmb_baseinfo_service.itmb_baseinfo_service.status",
+            return_value={"goods": {"cached": True}},
+        ),
     ):
         response = client.get("/waybill/baseinfo/status")
     assert response.status_code == 200
@@ -165,10 +171,13 @@ def test_baseinfo_status_route():
 
 def test_baseinfo_refresh_route():
     client = TestClient(app)
-    with patch("app.core.config.utcms_config.API_AUTH_MODE", "off"), patch(
-        "app.services.itmb_baseinfo_service.itmb_baseinfo_service.refresh_all",
-        AsyncMock(return_value={"updated": True}),
-    ) as mocked_refresh:
+    with (
+        patch("app.core.config.utcms_config.API_AUTH_MODE", "off"),
+        patch(
+            "app.services.itmb_baseinfo_service.itmb_baseinfo_service.refresh_all",
+            AsyncMock(return_value={"updated": True}),
+        ) as mocked_refresh,
+    ):
         response = client.post("/waybill/baseinfo/refresh", json={})
     assert response.status_code == 200
     assert response.json()["updated"] is True

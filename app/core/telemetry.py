@@ -11,7 +11,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
-class EvidenceType(str, Enum):
+class EvidenceType(StrEnum):
     """Types of evidence that can be collected."""
 
     SCREENSHOT = "screenshot"
@@ -264,7 +264,8 @@ class EvidenceCollector:
             file_path = self.base_dir / "metadata" / filename
 
             # Evaluate to get recent console errors
-            console_logs = await page.evaluate("""
+            console_logs = await page.evaluate(
+                """
                 () => {
                     // This captures any stored console messages
                     // In production, you'd set up a listener earlier
@@ -274,7 +275,8 @@ class EvidenceCollector:
                         note: "Console capture requires prior listener setup"
                     };
                 }
-            """)
+            """
+            )
 
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(console_logs, f, indent=2, ensure_ascii=False)
@@ -317,15 +319,18 @@ class EvidenceCollector:
                 "error_code": error_code,
                 "error_message": error_message,
                 "user_agent": await page.evaluate("navigator.userAgent"),
-                "viewport": await page.evaluate("""
+                "viewport": await page.evaluate(
+                    """
                     () => ({
                         width: window.innerWidth,
                         height: window.innerHeight,
                         devicePixelRatio: window.devicePixelRatio
                     })
-                """),
+                """
+                ),
                 "cookies_count": len(await page.context.cookies()),
-                "local_storage_size": await page.evaluate("""
+                "local_storage_size": await page.evaluate(
+                    """
                     () => {
                         let total = 0;
                         for (let key in localStorage) {
@@ -335,7 +340,8 @@ class EvidenceCollector:
                         }
                         return total;
                     }
-                """),
+                """
+                ),
             }
 
             with open(file_path, "w", encoding="utf-8") as f:
@@ -410,7 +416,7 @@ class EvidenceCollector:
 # ============================================================================
 
 
-class TelemetryLevel(str, Enum):
+class TelemetryLevel(StrEnum):
     """Telemetry detail levels."""
 
     MINIMAL = "minimal"
@@ -783,11 +789,11 @@ class ClientReportGenerator:
                     "duration_ms": step.get("duration_ms"),
                     "attempts": step.get("attempts", 1),
                     "error_code": step_error,
-                    "error_message": cls._get_friendly_message(
-                        step_error, step.get("error_message"), step_status == "completed"
-                    )
-                    if step_error
-                    else None,
+                    "error_message": (
+                        cls._get_friendly_message(step_error, step.get("error_message"), step_status == "completed")
+                        if step_error
+                        else None
+                    ),
                     "severity": cls.ERROR_SEVERITY.get(step_error, "unknown") if step_error else None,
                 }
             )
@@ -812,15 +818,17 @@ class ClientReportGenerator:
                 "avg_step_duration_ms": round(avg_duration, 2),
             },
             "steps": steps,
-            "error_details": {
-                "error_code": error_code,
-                "technical_message": error_message,
-                "user_friendly_message": friendly_message,
-                "severity": severity,
-                "recommended_action": cls._get_recommended_action(error_code),
-            }
-            if error_code
-            else None,
+            "error_details": (
+                {
+                    "error_code": error_code,
+                    "technical_message": error_message,
+                    "user_friendly_message": friendly_message,
+                    "severity": severity,
+                    "recommended_action": cls._get_recommended_action(error_code),
+                }
+                if error_code
+                else None
+            ),
             "evidence_count": len(evidence) if evidence else 0,
             "evidence": evidence or [],
         }

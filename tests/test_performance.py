@@ -1,4 +1,5 @@
 """Tests for performance monitoring utilities."""
+
 import asyncio
 
 import pytest
@@ -22,6 +23,7 @@ class TestPerformance:
 
     def test_measure_time_decorator(self):
         """Test measure_time decorator."""
+
         @measure_time
         def test_func():
             return "result"
@@ -31,6 +33,7 @@ class TestPerformance:
 
     def test_measure_time_decorator_with_custom_name(self):
         """Test measure_time decorator with custom operation name."""
+
         @measure_time(operation_name="custom_operation")
         def test_func():
             return "result"
@@ -41,6 +44,7 @@ class TestPerformance:
     @pytest.mark.asyncio
     async def test_measure_async_time_decorator(self):
         """Test measure_async_time decorator."""
+
         @measure_async_time
         async def test_async_func():
             await asyncio.sleep(0.01)

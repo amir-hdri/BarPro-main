@@ -138,12 +138,14 @@ def _location_to_management_details(location: Any) -> dict[str, Any]:
         "address": getattr(location, "address", None),
         "address_compact": getattr(location, "address", None),
         "postal_address": getattr(location, "address", None),
-        "geom": {
-            "type": "Point",
-            "coordinates": [lng, lat],
-        }
-        if lng is not None and lat is not None
-        else {},
+        "geom": (
+            {
+                "type": "Point",
+                "coordinates": [lng, lat],
+            }
+            if lng is not None and lat is not None
+            else {}
+        ),
     }
 
 
@@ -539,9 +541,11 @@ class ManagementService:
                     "relative_path": relative,
                     "size_bytes": path.stat().st_size,
                     "modified_at": datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat(),
-                    "content_type": "json"
-                    if path.suffix == ".json"
-                    else ("html" if path.suffix == ".html" else path.suffix.lstrip(".")),
+                    "content_type": (
+                        "json"
+                        if path.suffix == ".json"
+                        else ("html" if path.suffix == ".html" else path.suffix.lstrip("."))
+                    ),
                 }
             )
         files.sort(key=lambda item: item["modified_at"], reverse=True)
@@ -799,7 +803,7 @@ class ManagementService:
     async def import_excel_workbook(
         self, content: bytes, filename: str, options: ManagementExcelImportOptions
     ) -> dict[str, Any]:
-        EXCEL_MAGIC_BYTES = {b'\x50\x4B\x03\x04', b'\x50\x4B\x05\x06', b'\xD0\xCF\x11\xE0'}
+        EXCEL_MAGIC_BYTES = {b"\x50\x4B\x03\x04", b"\x50\x4B\x05\x06", b"\xD0\xCF\x11\xE0"}
         MAX_FILE_SIZE = 10 * 1024 * 1024
         if len(content) > MAX_FILE_SIZE:
             raise HTTPException(status_code=413, detail="File too large (max 10 MB)")

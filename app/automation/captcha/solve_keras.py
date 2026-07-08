@@ -6,15 +6,14 @@ import numpy as np
 import tensorflow as tf
 
 CHARS = [str(d) for d in range(10)]
-BLANK_INDEX = len(CHARS) # 10
+BLANK_INDEX = len(CHARS)  # 10
+
 
 def decode_predictions(pred, chars):
     pred_time_major = tf.transpose(pred, perm=[1, 0, 2])
     input_len = np.ones(pred.shape[0]) * pred.shape[1]
     decoded, log_prob = tf.nn.ctc_greedy_decoder(
-        pred_time_major,
-        sequence_length=tf.cast(input_len, tf.int32),
-        blank_index=BLANK_INDEX
+        pred_time_major, sequence_length=tf.cast(input_len, tf.int32), blank_index=BLANK_INDEX
     )
     sparse_tensor = decoded[0]
     dense_decoded = tf.sparse.to_dense(sparse_tensor, default_value=-1).numpy()
@@ -25,6 +24,7 @@ def decode_predictions(pred, chars):
         normal_str = reversed_str[::-1]
         output_numbers.append(normal_str if normal_str != "" else "?")
     return output_numbers
+
 
 def solve_image_data(img_bytes: bytes, model) -> str:
     image_decoded = tf.io.decode_image(img_bytes, channels=3)
@@ -38,6 +38,7 @@ def solve_image_data(img_bytes: bytes, model) -> str:
     # Decode predictions
     decoded = decode_predictions(pred, CHARS)
     return decoded[0]
+
 
 def main():
     if len(sys.argv) < 3:
@@ -77,6 +78,7 @@ def main():
     except Exception as e:
         print(f"Error during prediction: {e}", file=sys.stderr)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

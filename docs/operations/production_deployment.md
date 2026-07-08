@@ -1,110 +1,94 @@
-# استقرار Production برای ربات دائمی UTCMS
+# استقرار production
 
-## مشخصات پیشنهادی سرور
+این سند جمع‌بندی تنظیمات production برای BarPro در وضعیت فعلی پروژه است.
 
-- `8 vCPU`
-- `16 GB RAM`
-- `100 GB NVMe`
-- `Ubuntu 22.04 LTS`
+## مشخصات سرور فعلی
 
-برای بار بیشتر یا چند اپراتور هم‌زمان:
+- `4 vCPU`
+- `12 GB RAM`
+- یک سرور واحد با دو IP عمومی
+- Ubuntu 22.04 LTS یا مشابه
 
-- `12 vCPU`
-- `24 GB RAM`
-- `150 GB NVMe`
+## سرویس‌های production
 
-## چینش سرویس‌ها
+- `nginx` - ورودی عمومی روی پورت `80`
+- `frontend` - Next.js 15 روی پورت داخلی `3000`
+- `backend` - FastAPI روی پورت داخلی `8000`
+- `postgres` - PostgreSQL 16
+- `redis` - Redis 7
+- `celery_worker_1`, `celery_worker_2`, `celery_worker_3`
+- `celery_beat`
+- `squid1`, `squid2`, `squid3`
+- `prometheus`
 
-- `nginx`: reverse proxy و TLS termination
-- `api`: سرویس FastAPI/Uvicorn
-- `worker`: اجرای صف Celery و Playwright
-- `redis`: broker/result backend
-- `postgres`: داده‌های عملیاتی و صف
+## تنظیمات کلیدی production
 
-## تنظیمات عملیاتی پیشنهادی
-
-- `WAYBILL_MAX_CONCURRENT=2`
-- `BROWSER_POOL_SIZE=4`
-- `CELERY_CONCURRENCY=4`
+- `AUTH_COOKIE_SECURE=false` تا قبل از فعال‌سازی HTTPS
+- `CAPTCHA_PROVIDER=auto` در حالت پیش‌فرض
 - `HEADLESS=true`
-- `ALLOW_LIVE_SUBMIT=true`
+- secretها فقط در `.env`
+- احراز هویت JWT فقط از طریق کوکی `httpOnly`
 
-این اعداد برای پایداری بهتر انتخاب شده‌اند؛ bottleneck اصلی مرورگرهای Playwright هستند، نه مدل CNN.
-
-## Nginx پیشنهادی
-
-نمونه کانفیگ:
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.example;
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name your-domain.example;
-
-    ssl_certificate /etc/letsencrypt/live/your-domain.example/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/your-domain.example/privkey.pem;
-
-    client_max_body_size 25m;
-    proxy_read_timeout 600s;
-    proxy_send_timeout 600s;
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-## مانیتورینگ سیستم
-
-حداقل این‌ها را فعال کنید:
-
-- `Node Exporter` برای CPU/RAM/Disk
-- `Prometheus` برای scrape
-- `Grafana` برای داشبورد
-- `Loki + Promtail` یا حداقل `docker logs` rotation برای لاگ
-- uptime monitor برای `/healthz` و `/readyz`
-
-## آلارم‌های مهم
-
-- RAM بالاتر از `85%`
-- Disk بالاتر از `80%`
-- افزایش خطاهای `401/429/5xx`
-- افت success rate ثبت بارنامه
-- افزایش failure rate کپچا
-- backlog زیاد در صف Redis/Celery
-
-## الگوی استقرار
-
-1. فایل `.env.production.example` را به `.env` کپی کنید.
-2. secretها را تغییر دهید.
-3. دسترسی پوشه `.auth` را محدود کنید.
-4. با Compose بالا بیاورید:
+## استقرار
 
 ```bash
-docker compose up -d --build
+cd /opt/barpro
+git pull
+bash manage.sh deploy
 ```
 
-5. سلامت را بررسی کنید:
+در صورت استقرار اولیه:
 
 ```bash
-curl http://127.0.0.1:8000/healthz
-curl http://127.0.0.1:8000/readyz
+cd /opt/barpro
+bash manage.sh start
 ```
 
-## نکات مهم امنیتی
+## بررسی سلامت
 
-- `API_KEY` و `JWT_SECRET` طولانی و تصادفی باشند.
-- `API_AUTH_MODE=api_key_or_jwt` برای production مناسب است.
-- دسترسی عمومی مستقیم به Redis و Postgres ندهید.
-- فقط `nginx` روی اینترنت expose شود.
-- برای `.auth` و backup دیتابیس سیاست backup روزانه داشته باشید.
+```bash
+bash manage.sh status
+bash manage.sh health
+```
+
+بررسی دستی endpointها:
+
+```bash
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/docs
+```
+
+## مایگریشن و داده
+
+- Alembic head فعلی `015_add_client_subscription_dates` است
+- برای اجرای دستی migration از `bash manage.sh migrate` استفاده کنید
+- برای backup دیتابیس از `bash manage.sh backup` استفاده کنید
+
+## فرانت‌اند و build
+
+- `apps/web/Dockerfile` multi-stage است
+- دیگر نیازی به artifact از پیش‌ساخته `/.next/standalone` نیست
+- production build با `npm run build` تایید شده است
+
+## HTTPS
+
+در حال حاضر deployment روی HTTP است. پس از نصب TLS:
+
+1. تنظیمات SSL را در Nginx فعال کنید
+2. `AUTH_COOKIE_SECURE=true` را تنظیم کنید
+3. `bash manage.sh deploy` را دوباره اجرا کنید
+
+## حداقل مانیتورینگ
+
+- `bash manage.sh status`
+- `bash manage.sh health`
+- بررسی لاگ‌های `backend`, `frontend`, `nginx`
+- بررسی مصرف RAM و disk
+
+## کارهای امنیتی تکمیلی
+
+- `sudo bash scripts/secure_squid_ports.sh`
+- افزودن همان اسکریپت به `crontab` با `@reboot`
+- عدم expose عمومی Redis, PostgreSQL و Squid 2/3
+
+Last updated: 2026-07-08

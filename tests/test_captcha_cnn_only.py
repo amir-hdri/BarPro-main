@@ -1,4 +1,5 @@
 """Tests for CNN-only captcha implementation."""
+
 import asyncio
 from unittest.mock import patch
 
@@ -10,6 +11,7 @@ from app.automation.captcha.cnn_provider import CnnCaptchaProvider
 def _reset_provider_cache() -> None:
     """Reset the cached provider for testing."""
     import app.automation.captcha as captcha_module
+
     captcha_module._cached_provider = None
     captcha_module._cached_signature = None
 
@@ -38,11 +40,7 @@ class TestCnnOnlyImplementation:
     def test_cnn_provider_with_valid_image(self):
         """Test CNN provider with a valid image (mocked)."""
         mock_candidate = MlMathCaptchaCandidate(
-            expression="2+7",
-            answer="9",
-            confidence=0.95,
-            characters=("2", "plus", "7"),
-            confidences=(0.96, 0.94, 0.95)
+            expression="2+7", answer="9", confidence=0.95, characters=("2", "plus", "7"), confidences=(0.96, 0.94, 0.95)
         )
 
         with patch.object(barname_ml_solver, "solve_base64", return_value=mock_candidate):
@@ -66,11 +64,7 @@ class TestCnnOnlyImplementation:
     def test_captcha_engine_uses_cnn(self):
         """Test that CNN provider works correctly with mocked solver."""
         mock_candidate = MlMathCaptchaCandidate(
-            expression="3+4",
-            answer="7",
-            confidence=0.92,
-            characters=("3", "plus", "4"),
-            confidences=(0.93, 0.91, 0.92)
+            expression="3+4", answer="7", confidence=0.92, characters=("3", "plus", "4"), confidences=(0.93, 0.91, 0.92)
         )
 
         with patch.object(barname_ml_solver, "solve_base64", return_value=mock_candidate):
@@ -88,7 +82,7 @@ class TestCnnOnlyImplementation:
             answer="2",
             confidence=0.3,  # Below threshold
             characters=("1", "plus", "1"),
-            confidences=(0.3, 0.3, 0.3)
+            confidences=(0.3, 0.3, 0.3),
         )
 
         with patch.object(barname_ml_solver, "solve_base64", return_value=mock_candidate):
@@ -112,11 +106,7 @@ class TestCnnOnlyImplementation:
     def test_captcha_engine_solve_text(self):
         """Test CNN provider solve_text_captcha works."""
         mock_candidate = MlMathCaptchaCandidate(
-            expression="5+3",
-            answer="8",
-            confidence=0.88,
-            characters=("5", "plus", "3"),
-            confidences=(0.89, 0.87, 0.88)
+            expression="5+3", answer="8", confidence=0.88, characters=("5", "plus", "3"), confidences=(0.89, 0.87, 0.88)
         )
 
         with patch.object(barname_ml_solver, "solve_base64", return_value=mock_candidate):
@@ -157,4 +147,5 @@ class TestCnnOnlyImplementation:
         # But they share the same underlying solver
         from app.automation.captcha.cnn_provider import barname_ml_solver as solver1
         from app.automation.captcha.cnn_provider import barname_ml_solver as solver2
+
         assert solver1 is solver2  # Same singleton

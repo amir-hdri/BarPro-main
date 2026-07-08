@@ -6,6 +6,7 @@ These tests focus on:
 - Monitoring event emission
 - Error handling paths
 """
+
 import os
 import sys
 import unittest
@@ -26,11 +27,11 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
         self.mock_context = AsyncMock()
 
         # Patch only what's needed
-        self.patcher_interactor = patch('app.automation.waybill_enhanced.PageInteractor')
-        self.patcher_map = patch('app.automation.waybill_enhanced.MapController')
-        self.patcher_location = patch('app.automation.waybill_enhanced.LocationSelector')
-        self.patcher_route = patch('app.automation.waybill_enhanced.RouteCalculator')
-        self.patcher_smart_locator = patch('app.automation.waybill_enhanced.SmartLocator')
+        self.patcher_interactor = patch("app.automation.waybill_enhanced.PageInteractor")
+        self.patcher_map = patch("app.automation.waybill_enhanced.MapController")
+        self.patcher_location = patch("app.automation.waybill_enhanced.LocationSelector")
+        self.patcher_route = patch("app.automation.waybill_enhanced.RouteCalculator")
+        self.patcher_smart_locator = patch("app.automation.waybill_enhanced.SmartLocator")
 
         self.mock_interactor_cls = self.patcher_interactor.start()
         self.mock_map_cls = self.patcher_map.start()
@@ -68,7 +69,7 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
             status="filled",
             selector_used="#txtSenderFirstName",
             value="علی",
-            pill="sender"
+            pill="sender",
         )
 
         key = "sender:نام فرستنده"
@@ -84,18 +85,10 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
     def test_pill_field_summary(self):
         """Test pill field summary generation."""
         self.manager._record_selector_inventory(
-            field_label="نام",
-            selectors=["#name"],
-            status="filled",
-            selector_used="#name",
-            value="test",
-            pill="sender"
+            field_label="نام", selectors=["#name"], status="filled", selector_used="#name", value="test", pill="sender"
         )
         self.manager._record_selector_inventory(
-            field_label="کد ملی",
-            selectors=["#nationalId"],
-            status="skipped",
-            pill="sender"
+            field_label="کد ملی", selectors=["#nationalId"], status="skipped", pill="sender"
         )
 
         summary = self.manager._pill_field_summary("sender")
@@ -161,16 +154,10 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
     def test_log_selector_inventory_audit(self):
         """Test selector inventory audit logging."""
         self.manager._record_selector_inventory(
-            field_label="field1",
-            selectors=["#sel1"],
-            status="filled",
-            pill="sender"
+            field_label="field1", selectors=["#sel1"], status="filled", pill="sender"
         )
         self.manager._record_selector_inventory(
-            field_label="field2",
-            selectors=["#sel2"],
-            status="failed",
-            pill="receiver"
+            field_label="field2", selectors=["#sel2"], status="failed", pill="receiver"
         )
 
         with self.assertLogs("app.automation.waybill_enhanced", level="INFO") as logs:
@@ -185,11 +172,7 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
         mock_locator.fill = AsyncMock()
         self.manager.smart_locator.locate = AsyncMock(return_value=mock_locator)
 
-        await self.manager._fill_with_fallback(
-            ["#primary", "#secondary"],
-            "test_value",
-            "test_field"
-        )
+        await self.manager._fill_with_fallback(["#primary", "#secondary"], "test_value", "test_field")
 
         self.manager.smart_locator.locate.assert_called_once()
         mock_locator.fill.assert_called_once_with("test_value")
@@ -200,11 +183,7 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
         self.manager.interactor.safe_fill = AsyncMock(side_effect=[False, True])
         self.manager._set_value_with_js = AsyncMock(return_value=False)
 
-        await self.manager._fill_with_fallback(
-            ["#first", "#second"],
-            "test_value",
-            "test_field"
-        )
+        await self.manager._fill_with_fallback(["#first", "#second"], "test_value", "test_field")
 
         self.assertEqual(self.manager.interactor.safe_fill.call_count, 2)
         key = "bootstrap:test_field"
@@ -216,11 +195,7 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
         mock_locator.fill = AsyncMock()
         self.manager.smart_locator.locate = AsyncMock(return_value=mock_locator)
 
-        await self.manager._fill_with_fallback(
-            ["#primary", "#secondary"],
-            "value",
-            "field_name"
-        )
+        await self.manager._fill_with_fallback(["#primary", "#secondary"], "value", "field_name")
 
         key = "bootstrap:field_name"
         self.assertIn(key, self.manager._selector_inventory)
@@ -231,11 +206,7 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
         self.manager.smart_locator.locate = AsyncMock(side_effect=Exception("Not found"))
         self.manager.interactor.safe_fill = AsyncMock(return_value=True)
 
-        await self.manager._fill_with_fallback(
-            ["#primary", "#secondary"],
-            "value",
-            "field_name"
-        )
+        await self.manager._fill_with_fallback(["#primary", "#secondary"], "value", "field_name")
 
         key = "bootstrap:field_name"
         self.assertIn(key, self.manager._selector_inventory)
@@ -248,12 +219,7 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
         self.manager.interactor.safe_fill = AsyncMock(return_value=False)
         self.manager._set_value_with_js = AsyncMock(return_value=False)
 
-        await self.manager._fill_with_fallback(
-            ["#sel1", "#sel2"],
-            "value",
-            "field",
-            required=False
-        )
+        await self.manager._fill_with_fallback(["#sel1", "#sel2"], "value", "field", required=False)
 
         key = "bootstrap:field"
         self.assertIn(key, self.manager._selector_inventory)
@@ -266,27 +232,18 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
         self.manager._set_value_with_js = AsyncMock(return_value=False)
 
         with self.assertRaises(WaybillError) as ctx:
-            await self.manager._fill_with_fallback(
-                ["#sel1"],
-                "value",
-                "critical_field",
-                required=True
-            )
+            await self.manager._fill_with_fallback(["#sel1"], "value", "critical_field", required=True)
 
         self.assertIn("critical_field", str(ctx.exception))
 
     async def test_fill_with_fallback_skips_empty_value(self):
         """Test fill with fallback skips when value is empty."""
-        await self.manager._fill_with_fallback(
-            ["#sel1"],
-            "",
-            "empty_field"
-        )
+        await self.manager._fill_with_fallback(["#sel1"], "", "empty_field")
 
         key = "bootstrap:empty_field"
         self.assertIn(key, self.manager._selector_inventory)
         self.assertEqual(self.manager._selector_inventory[key]["status"], "skipped")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

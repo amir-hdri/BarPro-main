@@ -120,7 +120,10 @@ class WaybillService:
                         waybill_payload = self._build_waybill_payload(request)
 
                         manager_result = await self._solve_waybill_captcha(
-                            session.page, session.context, waybill_payload, dry_run,
+                            session.page,
+                            session.context,
+                            waybill_payload,
+                            dry_run,
                         )
                         await self._inject_map_into_page(session.page, waybill_payload)
 
@@ -156,7 +159,9 @@ class WaybillService:
                         continue
 
                     await report_service.record_failure(mode=mode, category=self._categorize_http_exception(exc))
-                    await self._capture_failure(session, exc, "waybill_http_exception", {"mode": mode, "attempt": attempt})
+                    await self._capture_failure(
+                        session, exc, "waybill_http_exception", {"mode": mode, "attempt": attempt}
+                    )
                     raise
 
                 except WaybillError as exc:
@@ -198,7 +203,9 @@ class WaybillService:
                     )
                     category, retryable = classify_exception(exc)
                     await self._capture_failure(
-                        session, exc, "waybill_unhandled_exception",
+                        session,
+                        exc,
+                        "waybill_unhandled_exception",
                         {"mode": mode, "attempt": attempt, "category": category.value, "retryable": retryable},
                     )
                     raise HTTPException(status_code=500, detail="خطای داخلی سرور در ثبت بارنامه") from exc
@@ -215,16 +222,24 @@ class WaybillService:
     def _record_proxy_failure(session: BrowserSession | None, started_at: float, error: Exception) -> None:
         if session and session.proxy_info:
             session.proxy_info.record_waybill_result(
-                success=False, latency=time.perf_counter() - started_at, error=str(error),
+                success=False,
+                latency=time.perf_counter() - started_at,
+                error=str(error),
             )
 
     @staticmethod
     async def _capture_failure(
-        session: BrowserSession | None, error: Exception, stage: str, metadata: dict,
+        session: BrowserSession | None,
+        error: Exception,
+        stage: str,
+        metadata: dict,
     ) -> None:
         if session and session.page:
             await failure_artifact_service.capture_failure_bundle(
-                session.page, error=error, stage=stage, metadata=metadata,
+                session.page,
+                error=error,
+                stage=stage,
+                metadata=metadata,
             )
 
     async def _create_browser_session(self, request: WaybillMapRequest) -> BrowserSession:
@@ -294,7 +309,11 @@ class WaybillService:
         )
 
     async def _solve_waybill_captcha(
-        self, page, context, waybill_payload: dict, dry_run: bool,
+        self,
+        page,
+        context,
+        waybill_payload: dict,
+        dry_run: bool,
     ) -> dict[str, Any]:
         from app.automation.waybill_enhanced import EnhancedWaybillManager
 

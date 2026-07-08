@@ -73,6 +73,7 @@ class RPAAuthService:
             if not ok:
                 message = authenticator.last_error or "login_failed"
                 from app.core.circuit_breaker import check_and_report_failure
+
                 await check_and_report_failure(message)
                 await self._mark_auth_failure(session, driver, runtime_state, message)
                 await self._mark_resume_job_for_auth_retry(session, client_id, resume_job_id, message)
@@ -174,13 +175,16 @@ class RPAAuthService:
                             }
                         },
                     )
-            return AuthResult(ok=True, session_bundle=bundle, reason_code="authenticated", expires_at=session_expires_at)
+            return AuthResult(
+                ok=True, session_bundle=bundle, reason_code="authenticated", expires_at=session_expires_at
+            )
         except Exception as exc:  # pragma: no cover - integration-heavy path
             logger.exception(
                 "phase1_auth_failed",
                 extra={"extra_fields": {"client_id": client_id, "driver_id": driver_id, "error": str(exc)}},
             )
             from app.core.circuit_breaker import check_and_report_failure
+
             await check_and_report_failure(str(exc))
             try:
                 await session.rollback()
@@ -315,42 +319,48 @@ class RPAAuthService:
                 .where(DriverRuntimeState.session_expires_at.isnot(None))
                 .where(DriverRuntimeState.session_expires_at < threshold)
                 .where(
-                    DriverRuntimeState.state.in_([
-                        DriverRuntimeStateValue.READY.value,
-                        DriverRuntimeStateValue.ACTIVE.value,
-                    ])
+                    DriverRuntimeState.state.in_(
+                        [
+                            DriverRuntimeStateValue.READY.value,
+                            DriverRuntimeStateValue.ACTIVE.value,
+                        ]
+                    )
                 )
             )
             rows = (await session.exec(stmt)).all()
             results["checked"] = len(rows)
             for drs in rows:
                 try:
-                    auth_result = await self.authenticate_driver(
-                        drs.client_id, drs.driver_id, "session_keepalive"
-                    )
+                    auth_result = await self.authenticate_driver(drs.client_id, drs.driver_id, "session_keepalive")
                     if auth_result.ok:
                         results["refreshed"] += 1
-                        results["details"].append({
-                            "driver_id": drs.driver_id,
-                            "client_id": drs.client_id,
-                            "outcome": "refreshed",
-                        })
+                        results["details"].append(
+                            {
+                                "driver_id": drs.driver_id,
+                                "client_id": drs.client_id,
+                                "outcome": "refreshed",
+                            }
+                        )
                     else:
                         results["errors"] += 1
-                        results["details"].append({
-                            "driver_id": drs.driver_id,
-                            "client_id": drs.client_id,
-                            "outcome": "failed",
-                            "reason": auth_result.reason_code,
-                        })
+                        results["details"].append(
+                            {
+                                "driver_id": drs.driver_id,
+                                "client_id": drs.client_id,
+                                "outcome": "failed",
+                                "reason": auth_result.reason_code,
+                            }
+                        )
                 except Exception as e:
                     results["errors"] += 1
-                    results["details"].append({
-                        "driver_id": drs.driver_id,
-                        "client_id": drs.client_id,
-                        "outcome": "exception",
-                        "error": str(e),
-                    })
+                    results["details"].append(
+                        {
+                            "driver_id": drs.driver_id,
+                            "client_id": drs.client_id,
+                            "outcome": "exception",
+                            "error": str(e),
+                        }
+                    )
                     logger.exception(f"Session keepalive failed for driver {drs.driver_id}")
         except Exception:
             logger.exception("Session keepalive query failed")

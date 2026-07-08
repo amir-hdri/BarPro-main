@@ -427,7 +427,7 @@ class ExcelWaybillService:
         operation_mode: OperationMode = OperationMode.SAFE,
     ) -> dict[str, Any]:
         """Parse uploaded Excel file and return waybill requests."""
-        EXCEL_MAGIC_BYTES = {b'\x50\x4B\x03\x04', b'\x50\x4B\x05\x06', b'\xD0\xCF\x11\xE0'}
+        EXCEL_MAGIC_BYTES = {b"\x50\x4B\x03\x04", b"\x50\x4B\x05\x06", b"\xD0\xCF\x11\xE0"}
         MAX_FILE_SIZE = 10 * 1024 * 1024
         try:
             content = await file.read()

@@ -7,17 +7,18 @@ import psutil
 import requests
 
 # Ensure paths are correct
-PROJECT_DIR = "/Users/amirheidari/GitHub/BarPro-main"
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(PROJECT_DIR)
+
 
 def clean_all_leftovers():
     print("🧹 Pre-cleanup: Killing any left-over processes...")
     # Find and kill any processes containing project markers
-    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
         try:
-            cmdline = proc.info.get('cmdline') or []
+            cmdline = proc.info.get("cmdline") or []
             cmdline_str = " ".join(cmdline).lower()
-            name = proc.info.get('name') or ""
+            name = proc.info.get("name") or ""
 
             # Match uvicorn, next, celery, playwright, chromium
             is_match = False
@@ -42,41 +43,46 @@ def clean_all_leftovers():
     # Sleep to allow processes to die
     time.sleep(2)
 
+
 def find_active_processes():
     """Returns a list of processes matching our stack."""
     results = []
-    for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'ppid']):
+    for proc in psutil.process_iter(["pid", "name", "cmdline", "ppid"]):
         try:
-            cmdline = proc.info.get('cmdline') or []
+            cmdline = proc.info.get("cmdline") or []
             cmdline_str = " ".join(cmdline).lower()
-            name = proc.info.get('name') or ""
-            ppid = proc.info.get('ppid')
+            name = proc.info.get("name") or ""
+            ppid = proc.info.get("ppid")
 
             p_type = None
             if "uvicorn" in cmdline_str or "app.main:app" in cmdline_str:
                 p_type = "uvicorn"
             elif "celery" in cmdline_str and "app.workers" in cmdline_str:
                 p_type = "celery"
-            elif "next-server" in cmdline_str or ("node" in name.lower() and ".next/standalone" in cmdline_str) or ("node" in name.lower() and "server.js" in cmdline_str):
+            elif (
+                "next-server" in cmdline_str
+                or ("node" in name.lower() and ".next/standalone" in cmdline_str)
+                or ("node" in name.lower() and "server.js" in cmdline_str)
+            ):
                 p_type = "node/next"
             elif "next dev" in cmdline_str or "yarn dev" in cmdline_str:
                 p_type = "node/next-dev"
-            elif "playwright" in cmdline_str or "chromium" in name.lower() or "ms-playwright" in cmdline_str or "chrome-mac" in cmdline_str:
+            elif (
+                "playwright" in cmdline_str
+                or "chromium" in name.lower()
+                or "ms-playwright" in cmdline_str
+                or "chrome-mac" in cmdline_str
+            ):
                 p_type = "playwright/chromium"
             elif "rpa_inspector.py" in cmdline_str:
                 p_type = "rpa_inspector"
 
             if p_type:
-                results.append({
-                    "pid": proc.pid,
-                    "ppid": ppid,
-                    "name": name,
-                    "type": p_type,
-                    "cmdline": cmdline_str
-                })
+                results.append({"pid": proc.pid, "ppid": ppid, "name": name, "type": p_type, "cmdline": cmdline_str})
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
     return results
+
 
 def print_active_processes(label="Active project processes"):
     procs = find_active_processes()
@@ -86,6 +92,7 @@ def print_active_processes(label="Active project processes"):
     print("-" * 40)
     return procs
 
+
 def run_script(path):
     print(f"🎬 Running script: {path}")
     res = subprocess.run([path], capture_output=True, text=True)
@@ -93,6 +100,7 @@ def run_script(path):
     if res.stderr:
         print(f"Stderr:\n{res.stderr}")
     return res
+
 
 def test_rapid_restarts():
     print("\n==========================================")
@@ -122,6 +130,7 @@ def test_rapid_restarts():
 
     clean_all_leftovers()
 
+
 def test_graceful_cleanup_readyz():
     print("\n==========================================")
     print("🧪 TEST 2: Graceful Cleanup under Active Browser usage")
@@ -140,7 +149,9 @@ def test_graceful_cleanup_readyz():
     env = os.environ.copy()
     env["HEADLESS"] = "true"
 
-    p = subprocess.Popen(["scripts/start_system.sh"], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    p = subprocess.Popen(
+        ["scripts/start_system.sh"], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
 
     # Wait for backend and frontend ports to be active
     backend_up = False
@@ -193,6 +204,7 @@ def test_graceful_cleanup_readyz():
         print("✅ PASS: Clean graceful stop. No dangling processes left.")
 
     clean_all_leftovers()
+
 
 def test_unexpected_crash_recovery():
     print("\n==========================================")
@@ -275,6 +287,7 @@ def test_unexpected_crash_recovery():
         print("✅ PASS: Cleanup scripts successfully swept all orphaned/dangling processes after crash.")
 
     clean_all_leftovers()
+
 
 if __name__ == "__main__":
     print("🚀 Starting Process Management Stress & Failure Verification...")

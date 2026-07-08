@@ -25,9 +25,11 @@ async def validate_manual_entry(request: WaybillMapRequest):
         "warnings": validation["warnings"],
         "field_count": validation["field_count"],
         "completed_fields": validation["completed_fields"],
-        "completion_percent": round(validation["completed_fields"] / validation["field_count"] * 100, 1)
-        if validation["field_count"] > 0
-        else 0,
+        "completion_percent": (
+            round(validation["completed_fields"] / validation["field_count"] * 100, 1)
+            if validation["field_count"] > 0
+            else 0
+        ),
     }
 
 

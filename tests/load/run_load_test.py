@@ -25,6 +25,7 @@ import aiohttp
 @dataclass
 class TestResult:
     """Store test results."""
+
     total_requests: int = 0
     successful_requests: int = 0
     failed_requests: int = 0
@@ -38,6 +39,7 @@ class TestResult:
 @dataclass
 class TestConfig:
     """Test configuration."""
+
     url: str
     users: int = 10
     duration: int = 60  # seconds
@@ -48,7 +50,7 @@ class TestConfig:
 
 def generate_random_string(length: int = 10) -> str:
     """Generate a random string."""
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+    return "".join(random.choices(string.ascii_letters + string.digits, k=length))
 
 
 def generate_waybill_data() -> dict[str, Any]:
@@ -124,10 +126,14 @@ async def user_task(
             ("GET", f"{config.url}/readyz", None),
             ("GET", f"{config.url}/api/v1/waybills", None),
             ("POST", f"{config.url}/api/v1/waybills", generate_waybill_data()),
-            ("POST", f"{config.url}/waybill/calculate-route", {
-                "origin": f"City {generate_random_string(5)}",
-                "destination": f"City {generate_random_string(5)}",
-            }),
+            (
+                "POST",
+                f"{config.url}/waybill/calculate-route",
+                {
+                    "origin": f"City {generate_random_string(5)}",
+                    "destination": f"City {generate_random_string(5)}",
+                },
+            ),
         ]
 
         # Use custom endpoints if provided
@@ -149,9 +155,7 @@ async def user_task(
             method, url, data = random.choice(tasks)
 
             # Make the request
-            success, response_time, error = await make_request(
-                session, method, url, data, config.headers
-            )
+            success, response_time, error = await make_request(session, method, url, data, config.headers)
 
             # Update results
             result.total_requests += 1
@@ -193,12 +197,8 @@ async def run_load_test(config: TestConfig) -> TestResult:
         else:
             delay = 0
 
-        task = asyncio.create_task(
-            asyncio.sleep(delay)
-        )
-        task.add_done_callback(
-            lambda _, uid=user_id: asyncio.create_task(user_task(uid, config, result))
-        )
+        task = asyncio.create_task(asyncio.sleep(delay))
+        task.add_done_callback(lambda _, uid=user_id: asyncio.create_task(user_task(uid, config, result)))
         tasks.append(task)
 
     # Wait for all users to complete
@@ -304,14 +304,22 @@ def main():
             "total_requests": result.total_requests,
             "successful_requests": result.successful_requests,
             "failed_requests": result.failed_requests,
-            "success_rate": (result.successful_requests / result.total_requests) * 100 if result.total_requests > 0 else 0,
-            "avg_response_time_ms": sum(result.response_times) / len(result.response_times) * 1000 if result.response_times else 0,
+            "success_rate": (
+                (result.successful_requests / result.total_requests) * 100 if result.total_requests > 0 else 0
+            ),
+            "avg_response_time_ms": (
+                sum(result.response_times) / len(result.response_times) * 1000 if result.response_times else 0
+            ),
             "min_response_time_ms": min(result.response_times) * 1000 if result.response_times else 0,
             "max_response_time_ms": max(result.response_times) * 1000 if result.response_times else 0,
-            "requests_per_second": result.total_requests / (result.end_time - result.start_time) if result.end_time and result.start_time and (result.end_time - result.start_time) > 0 else 0,
+            "requests_per_second": (
+                result.total_requests / (result.end_time - result.start_time)
+                if result.end_time and result.start_time and (result.end_time - result.start_time) > 0
+                else 0
+            ),
             "errors": result.errors[:10] if len(result.errors) > 10 else result.errors,
         }
-        with open(args.output, 'w') as f:
+        with open(args.output, "w") as f:
             json.dump(report, f, indent=2)
         print(f"\nReport saved to {args.output}")
 

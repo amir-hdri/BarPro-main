@@ -20,6 +20,8 @@ const schema = z.object({
   max_daily_tasks: z.coerce.number().int().min(1, "حداقل ۱ تسک روزانه"),
   status: z.enum(["active", "inactive"]),
   access_level: z.enum(["standard", "premium", "enterprise"]),
+  subscription_start_date: z.string().optional().or(z.literal("")),
+  subscription_end_date: z.string().optional().or(z.literal("")),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -56,6 +58,8 @@ export function CreateClientModal({
       max_concurrent_tasks: 5,
       max_daily_tasks: 100,
       password: "",
+      subscription_start_date: "",
+      subscription_end_date: "",
     },
   });
 
@@ -75,6 +79,8 @@ export function CreateClientModal({
           max_daily_tasks: editingClient.max_daily_tasks ?? 100,
           status: editingClient.status === "active" ? "active" : "inactive",
           access_level: (editingClient.access_level as "standard" | "premium" | "enterprise") || "standard",
+          subscription_start_date: editingClient.subscription_start_date ? editingClient.subscription_start_date.slice(0, 10) : "",
+          subscription_end_date: editingClient.subscription_end_date ? editingClient.subscription_end_date.slice(0, 10) : "",
         });
       } else {
         reset({
@@ -89,6 +95,8 @@ export function CreateClientModal({
           max_daily_tasks: 100,
           status: "active",
           access_level: "standard",
+          subscription_start_date: "",
+          subscription_end_date: "",
         });
       }
     }
@@ -113,6 +121,8 @@ export function CreateClientModal({
       client_code: data.client_code.trim(),
       name: data.name.trim(),
       email: data.email.trim(),
+      subscription_start_date: data.subscription_start_date ? `${data.subscription_start_date}T00:00:00` : null,
+      subscription_end_date: data.subscription_end_date ? `${data.subscription_end_date}T23:59:59` : null,
     };
 
     // Remove empty password when editing to avoid overwriting with empty
@@ -297,6 +307,26 @@ export function CreateClientModal({
                   <option value="premium" className="bg-slate-950">پریمیوم (Premium)</option>
                   <option value="enterprise" className="bg-slate-950">سازمانی (Enterprise)</option>
                 </select>
+              </div>
+            </div>
+
+            {/* Row 5: Subscription dates */}
+            <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-400">تاریخ شروع اشتراک</label>
+                <input
+                  type="date"
+                  {...register("subscription_start_date")}
+                  className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-3 text-sm text-white outline-none focus:border-cyan-500 font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-400">تاریخ پایان اشتراک</label>
+                <input
+                  type="date"
+                  {...register("subscription_end_date")}
+                  className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-3 text-sm text-white outline-none focus:border-cyan-500 font-mono"
+                />
               </div>
             </div>
 

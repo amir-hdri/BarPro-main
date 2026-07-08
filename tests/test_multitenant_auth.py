@@ -30,8 +30,9 @@ async def test_get_current_client_uses_async_session():
         await session.commit()
         await session.refresh(client)
 
-        with patch("app.auth_multitenant.utcms_config.JWT_SECRET", "test-secret"), patch(
-            "app.auth_multitenant.utcms_config.JWT_ALGORITHM", "HS256"
+        with (
+            patch("app.auth_multitenant.utcms_config.JWT_SECRET", "test-secret"),
+            patch("app.auth_multitenant.utcms_config.JWT_ALGORITHM", "HS256"),
         ):
             token = create_access_token(client.id, client.client_code, client.email)
             credentials = type("Creds", (), {"credentials": token})()

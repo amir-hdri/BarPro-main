@@ -21,7 +21,7 @@ Migration 006 که شامل indexes عملکردی است، اجرا نشده. �
 
 **راه‌حل:**
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
+cd /opt/barpro
 source /Users/amirheidari/Python-ML/bin/activate
 export DATABASE_URL="postgresql+asyncpg://postgres:<DB_PASSWORD>@127.0.0.1:5432/utcms_rpa"
 alembic upgrade head
@@ -104,7 +104,7 @@ psycopg2.errors.UndefinedColumn: column "username" does not exist
 **دستور:**
 ```bash
 # در ترمینال واقعی (خارج از sandbox)
-cd /Users/amirheidari/Desktop/Automation-Barname-main
+cd /opt/barpro
 source /Users/amirheidari/Python-ML/bin/activate
 
 # تنظیم DATABASE_URL

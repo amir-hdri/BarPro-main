@@ -44,6 +44,7 @@ class RPADispatchService:
 
         try:
             from app.core.circuit_breaker import get_routed_queue
+
             routed_queue = get_routed_queue("waybill_tasks")
             result = celery_app.send_task(
                 "waybill.process_job",
@@ -179,6 +180,7 @@ class RPADispatchService:
 
         try:
             from app.core.circuit_breaker import get_routed_queue
+
             routed_queue = get_routed_queue(queue_name)
             result = celery_app.send_task(task_name, args=args, queue=routed_queue)
             job.celery_task_id = getattr(result, "id", None)

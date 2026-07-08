@@ -9,6 +9,7 @@ from app.core.config import utcms_config
 
 logger = logging.getLogger(__name__)
 
+
 class KerasOcrCaptchaProvider(CaptchaProvider):
     """
     Solves digit-based Persian captchas using a Keras model executed
@@ -23,6 +24,7 @@ class KerasOcrCaptchaProvider(CaptchaProvider):
 
     def _solve_sync(self, image_base64: str) -> CaptchaResult:
         import shutil
+
         python_path = utcms_config.KERAS_PYTHON_PATH
         model_path = utcms_config.KERAS_MODEL_PATH
 
@@ -35,19 +37,11 @@ class KerasOcrCaptchaProvider(CaptchaProvider):
         resolved_python = shutil.which(python_path) or python_path
         if not os.path.exists(resolved_python):
             logger.error(f"Keras Python path not found: {python_path} (resolved: {resolved_python})")
-            return CaptchaResult(
-                solved=False,
-                provider="keras_ocr",
-                error="python_env_not_found"
-            )
+            return CaptchaResult(solved=False, provider="keras_ocr", error="python_env_not_found")
 
         if not os.path.exists(model_path):
             logger.error(f"Keras model path not found: {model_path}")
-            return CaptchaResult(
-                solved=False,
-                provider="keras_ocr",
-                error="model_file_not_found"
-            )
+            return CaptchaResult(solved=False, provider="keras_ocr", error="model_file_not_found")
 
         try:
             logger.info("Invoking external Keras model prediction script...")
@@ -65,36 +59,24 @@ class KerasOcrCaptchaProvider(CaptchaProvider):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                env=env
+                env=env,
             )
 
             stdout, stderr = process.communicate(input=image_base64, timeout=35)
 
             if process.returncode != 0:
                 logger.error(f"Keras solver script failed with exit code {process.returncode}: {stderr.strip()}")
-                return CaptchaResult(
-                    solved=False,
-                    provider="keras_ocr",
-                    error="script_execution_error"
-                )
+                return CaptchaResult(solved=False, provider="keras_ocr", error="script_execution_error")
 
             # Get last non-empty line of stdout to avoid TF/Keras startup logs
             stdout_lines = [line.strip() for line in stdout.splitlines() if line.strip()]
             prediction = stdout_lines[-1] if stdout_lines else ""
             if not prediction or prediction == "?":
                 logger.warning("Keras OCR model could not decode the captcha digits")
-                return CaptchaResult(
-                    solved=False,
-                    provider="keras_ocr",
-                    error="model_decoding_failed"
-                )
+                return CaptchaResult(solved=False, provider="keras_ocr", error="model_decoding_failed")
 
             logger.info(f"Keras OCR model successfully solved captcha: {prediction}")
-            return CaptchaResult(
-                solved=True,
-                provider="keras_ocr",
-                value=prediction
-            )
+            return CaptchaResult(solved=True, provider="keras_ocr", value=prediction)
 
         except subprocess.TimeoutExpired:
             logger.error("Keras solver script timed out after 15 seconds")
@@ -103,15 +85,7 @@ class KerasOcrCaptchaProvider(CaptchaProvider):
                 process.communicate()
             except Exception as e:
                 logger.error(f"Failed to kill Keras solver subprocess: {e}")
-            return CaptchaResult(
-                solved=False,
-                provider="keras_ocr",
-                error="timeout"
-            )
+            return CaptchaResult(solved=False, provider="keras_ocr", error="timeout")
         except Exception as e:
             logger.exception(f"Unexpected error executing Keras OCR solver: {e}")
-            return CaptchaResult(
-                solved=False,
-                provider="keras_ocr",
-                error=f"internal_error: {e}"
-            )
+            return CaptchaResult(solved=False, provider="keras_ocr", error=f"internal_error: {e}")

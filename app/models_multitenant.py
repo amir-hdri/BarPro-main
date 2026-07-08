@@ -6,7 +6,7 @@ Each client has isolated access to their own drivers and waybill tasks.
 """
 
 from datetime import UTC, datetime
-from enum import Enum as PyEnum
+from enum import StrEnum
 
 from sqlalchemy import Boolean, Column, DateTime, Index, Integer, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
@@ -14,13 +14,13 @@ from sqlmodel import Field, SQLModel
 # ==================== ENUMS ====================
 
 
-class ClientStatus(str, PyEnum):
+class ClientStatus(StrEnum):
     ACTIVE = "active"
     SUSPENDED = "suspended"
     INACTIVE = "inactive"
 
 
-class DriverStatus(str, PyEnum):
+class DriverStatus(StrEnum):
     ACTIVE = "active"
     INACTIVE = "inactive"
     BLOCKED = "blocked"
@@ -32,7 +32,7 @@ class DriverStatus(str, PyEnum):
     DAILY_LIMIT_REACHED = "daily_limit_reached"
 
 
-class TaskStatus(str, PyEnum):
+class TaskStatus(StrEnum):
     PENDING = "pending"
     QUEUED = "queued"
     IN_PROGRESS = "in_progress"
@@ -47,18 +47,19 @@ class TaskStatus(str, PyEnum):
     DEAD_LETTER = "dead_letter"
 
 
-class TaskSource(str, PyEnum):
+class TaskSource(StrEnum):
     MANUAL = "manual"
     BULK_UPLOAD = "bulk_upload"
     API = "api"
 
 
-class ScheduleFrequency(str, PyEnum):
+class ScheduleFrequency(StrEnum):
     DAILY = "daily"
     WEEKLY = "weekly"
+    ONCE = "once"
 
 
-class ErrorCategory(str, PyEnum):
+class ErrorCategory(StrEnum):
     LOGIN_FAILED = "login_failed"
     CAPTCHA_FAILED = "captcha_failed"
     FORM_FILL_FAILED = "form_fill_failed"
@@ -119,6 +120,14 @@ class Client(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
     last_login_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=False), nullable=True),
+    )
+    subscription_start_date: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=False), nullable=True),
+    )
+    subscription_end_date: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )
@@ -421,6 +430,10 @@ class FuelInquiry(SQLModel, table=True):
     # Path or URL to screenshot of the fuel quota page
     screenshot_url: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
 
+    # Jalali Year and Month for custom period inquiry
+    year: int | None = Field(default=None, nullable=True)
+    month: int | None = Field(default=None, nullable=True)
+
     # Timestamps
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
@@ -430,4 +443,3 @@ class FuelInquiry(SQLModel, table=True):
         default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
-

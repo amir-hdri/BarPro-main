@@ -34,6 +34,8 @@ interface ClientItem {
   max_daily_tasks: number;
   access_level?: string;
   created_at: string;
+  subscription_start_date?: string;
+  subscription_end_date?: string;
 }
 
 interface ClientDetail {
@@ -314,6 +316,15 @@ export default function AdminClientsPage() {
                         <div className="font-bold text-slate-200">{c.name}</div>
                         <div className="mt-1 text-xs text-slate-400 font-mono">{c.email}</div>
                         <div className="mt-0.5 text-xs text-slate-500 font-mono">{c.phone || "بدون تلفن"}</div>
+                        {c.subscription_start_date || c.subscription_end_date ? (
+                          <div className="mt-1.5 text-[11px] text-cyan-400 font-bold bg-cyan-500/5 border border-cyan-500/10 rounded-lg px-2 py-1 inline-block">
+                            اشتراک: {c.subscription_start_date ? c.subscription_start_date.slice(0, 10) : "نامحدود"} تا {c.subscription_end_date ? c.subscription_end_date.slice(0, 10) : "نامحدود"}
+                          </div>
+                        ) : (
+                          <div className="mt-1.5 text-[11px] text-slate-500 bg-white/5 rounded-lg px-2 py-1 inline-block">
+                            بدون تاریخ اشتراک
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4">{accessLevelBadge(c.access_level)}</td>
                       <td className="px-6 py-4">
@@ -519,6 +530,13 @@ export default function AdminClientsPage() {
                 <p className="font-bold text-slate-200">{c.name}</p>
                 <p className="text-xs text-slate-400">{c.email}</p>
                 {c.phone && <p className="text-xs text-slate-500">{c.phone}</p>}
+                {c.subscription_start_date || c.subscription_end_date ? (
+                  <p className="text-xs text-cyan-400 font-bold">
+                    اشتراک: {c.subscription_start_date ? c.subscription_start_date.slice(0, 10) : "نامحدود"} تا {c.subscription_end_date ? c.subscription_end_date.slice(0, 10) : "نامحدود"}
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-500">بدون تاریخ اشتراک</p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs font-medium text-slate-400">
                 <div className="flex items-center gap-1.5">

@@ -1,10 +1,10 @@
 """Structured error codes for UTCMS automation errors."""
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class ErrorCode(str, Enum):
+class ErrorCode(StrEnum):
     """Structured error codes for all UTCMS errors."""
 
     # Authentication errors (AUTH_*)

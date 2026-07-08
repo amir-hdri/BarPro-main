@@ -1,213 +1,172 @@
-# راهنمای استقرار سیستم BarPro در محیط عملیاتی (معماری مبتنی بر ۲ سرور ابری)
+# راهنمای استقرار BarPro در production
 
-این سند راهنمای گام‌به‌گام برای استقرار، مدیریت و بروزرسانی سیستم اتوماسیون **BarPro** بر روی دو سرور ابری (ابرک) تهیه‌شده در ابر آروان با مشخصات زیر است:
+این سند وضعیت فعلی و تاییدشده استقرار BarPro را برای سرور production شرح می‌دهد.
 
-*   **سرور اصلی (Node 1):**
-    *   آی‌پی اینترنتی: `188.121.123.16`
-    *   سخت‌افزار: 4 vCPU - 12 GB RAM
-    *   وظیفه: اجرای پایگاه داده، ردیس، بک‌اند، فرانت‌اند، ورکر شماره ۱، ورکر شماره ۲ و سرویس‌های کمکی.
-*   **سرور کمکی/پروکسی (Node 2):**
-    *   آی‌پی اینترنتی: `95.38.233.90`
-    *   سخت‌افزار: 4 vCPU - 12 GB RAM
-    *   وظیفه: اجرای پراکسی خروجی Squid 2 (ترافیک ورکر شماره ۲ از این سرور خارج می‌شود تا سیستم هدف درخواست‌ها را با آی‌پی این سرور ببیند).
+## نمای کلی معماری
 
----
+- استقرار فعلی روی **یک سرور** انجام می‌شود که دو IP عمومی دارد: `188.121.123.16` و `95.38.233.90`
+- همه سرویس‌ها با Docker Compose لایه‌ای اجرا می‌شوند
+- ورودی عمومی فقط از طریق Nginx روی پورت `80` است
+- بک‌اند FastAPI روی پورت داخلی `8000` و فرانت‌اند Next.js روی پورت داخلی `3000` اجرا می‌شوند
+- سه پروکسی Squid برای خروجی workerها استفاده می‌شوند: `3128`، `3129`، `3130`
+- JWT از طریق کوکی `httpOnly` با نام `utcms_auth_token` حمل می‌شود
 
-## 🗺️ نمای کلی معماری ارتباطات
+## پیش‌نیازهای سرور
 
-```mermaid
-graph TD
-    subgraph Server_1_188.121.123.16 ["سرور اصلی Node 1"]
-        Backend[Backend API / Nginx] --> Redis[(Redis)]
-        Backend --> Postgres[(PostgreSQL)]
-        Worker_1[Celery Worker 1] -- "Local Proxy" --> Squid_1[Squid Proxy 1]
-        Worker_2[Celery Worker 2] -- "Remote Proxy (Port 3128)" --> WAN2
-        Squid_1 -- "Egress IP: 188.121.123.16" --> UTCMS_1[UTCMS System]
-    end
+- Ubuntu 22.04 یا مشابه
+- Docker Engine و Docker Compose V2
+- Git
+- حداقل `4 vCPU` و `12 GB RAM`
+- مسیر استقرار: `/opt/barpro`
 
-    subgraph Server_2_95.38.233.90 ["سرور پراکسی Node 2"]
-        Squid_2[Squid Proxy 2]
-    end
+## متغیرهای محیطی ضروری
 
-    WAN2 -- "Protected by Firewall" --> Squid_2
-    Squid_2 -- "Egress IP: 95.38.233.90" --> UTCMS_2[UTCMS System]
+فایل `.env` را از روی `.env.example` بسازید و حداقل این مقادیر را تنظیم کنید:
 
-    style Server_1_188.121.123.16 fill:#f5f7ff,stroke:#2b579a,stroke-width:2px;
-    style Server_2_95.38.233.90 fill:#fff9f0,stroke:#d9534f,stroke-width:2px;
+- `API_KEY`
+- `JWT_SECRET`
+- `POSTGRES_PASSWORD`
+- `REDIS_PASSWORD`
+- `DRIVER_ENCRYPTION_KEY`
+- `MASTER_ADMIN_USERNAME`
+- `MASTER_ADMIN_PASSWORD`
+- `AUTH_COOKIE_SECURE=false` برای استقرار HTTP فعلی
+- `CAPTCHA_PROVIDER=auto` یا یکی از `composite`, `cnn`, `pytorch_fuel`, `keras_ocr`, `enhanced_ocr`, `local_ocr`, `off`
+
+> پس از فعال‌سازی HTTPS باید `AUTH_COOKIE_SECURE=true` شود.
+
+## فایل‌ها و assetهای ضروری
+
+این فایل‌ها باید در checkout سرور وجود داشته باشند:
+
+- `persian_number_ocr.keras`
+- `app/automation/captcha/assets/captcha_cnn.pth`
+- `app/automation/captcha/assets/fuel_captcha_crnn.pth`
+- `app/automation/captcha/assets/fuel_captcha_vocab.json`
+- `alembic/versions/015_add_client_subscription_dates.py`
+
+## استقرار اولیه
+
+```bash
+git clone <repo-url> /opt/barpro
+cd /opt/barpro
+cp .env.example .env
 ```
 
----
+سپس `.env` را کامل کنید و استقرار را اجرا کنید:
 
-## 🔒 امنیت و ایزوله‌سازی پورت‌ها (جدید)
-در راستای افزایش امنیت پروژه در محیط عملیاتی:
-- پورت‌های حساس پایگاه‌داده PostgreSQL (`5432`) و Redis (`6379`) به طور کامل روی شبکه عمومی اینترنت بسته شده‌اند و فقط داخل شبکه داخلی داکر (Bridge network) قابل دسترسی هستند.
-- فقط پورت‌های استاندارد وب (`80` و `443` در صورت نیاز) و پورت مانیتورینگ Prometheus (`9090`) روی سطح وب عمومی در دسترس قرار دارند.
+```bash
+bash manage.sh start
+```
 
----
+ترتیب لایه‌ها به این صورت است:
 
-## 🔒 مرحله ۱: تنظیمات فایروال و امنیت در پنل ابر آروان
+1. `infra` - PostgreSQL و Redis
+2. `proxy` - Squid 1/2/3
+3. `backend` - FastAPI, Celery workers, Celery Beat
+4. `web` - Next.js و Nginx
+5. `mon` - Prometheus
 
-برای جلوگیری از سوءاستفاده از پراکسی سرور کمکی، باید پورت `3128` سرور دوم را **فقط و فقط** به روی آی‌پی سرور اول باز کنید.
+## دستورات اصلی عملیات
 
-1.  وارد پنل ابر آروان شوید.
-2.  به بخش **سرور ابری** > **گروه‌های فایروال** (arDefault یا گروه اختصاصی) بروید.
-3.  برای **سرور دوم (Node 2 - 95.38.233.90)** یک قانون ورودی (Inbound Rule) به شکل زیر اضافه کنید:
-    *   **نوع پروتکل:** TCP
-    *   **پورت:** `3128`
-    *   **آدرس منبع (Source IP):** `188.121.123.16` (آی‌پی سرور اصلی)
-    *   **عملیات:** Allow (مجاز)
-4.  سایر درخواست‌ها به این پورت از اینترنت باید مسدود (Deny) باشند.
+| دستور | کاربرد |
+|---|---|
+| `bash manage.sh start` | راه‌اندازی کل سیستم |
+| `bash manage.sh stop` | توقف کل سیستم |
+| `bash manage.sh restart` | ری‌استارت کل سیستم |
+| `bash manage.sh status` | وضعیت کانتینرها، دیسک و RAM |
+| `bash manage.sh health` | health check سرویس‌ها |
+| `bash manage.sh logs backend` | مشاهده لاگ بک‌اند |
+| `bash manage.sh deploy` | build, migration, restart |
+| `bash manage.sh migrate` | اجرای دستی `alembic upgrade head` |
+| `bash manage.sh backup` | backup فشرده PostgreSQL |
 
----
+## روند انتشار نسخه جدید
 
-## 🛠️ مرحله ۲: آماده‌سازی سرور دوم (Node 2 - `95.38.233.90`)
-
-بر روی سرور دوم فقط کافیست سرویس پراکسی Squid را با داکر بالا بیاورید.
-
-1.  وارد سرور دوم شوید (از طریق SSH).
-2.  داکر را نصب کنید (در صورت عدم نصب):
-    ```bash
-    sudo apt update
-    sudo apt install -y docker.io docker-compose-v2
-    ```
-3.  یک پوشه برای تنظیمات پراکسی بسازید:
-    ```bash
-    mkdir -p /opt/squid
-    cd /opt/squid
-    ```
-4.  فایل `squid.conf` را بسازید:
-    ```bash
-    nano squid.conf
-    ```
-    محتوای زیر را درون آن قرار دهید (آی‌پی سرور اول برای دسترسی مجاز تعریف شده است):
-    ```squid
-    # Squid Proxy Configuration on Node 2
-    http_port 3128
-
-    # Access Control List (ACL)
-    # اجازه دسترسی فقط به آی‌پی سرور اصلی
-    acl server1 src 188.121.123.16
-    
-    http_access allow server1
-    http_access allow localhost
-    http_access deny all
-
-    # تنظیم آی‌پی خروجی سرور دوم
-    tcp_outgoing_address 95.38.233.90
-
-    # غیرفعال کردن کش
-    cache deny all
-    ```
-5.  فایل `docker-compose.yml` را بسازید:
-    ```bash
-    nano docker-compose.yml
-    ```
-    محتوای زیر را درون آن قرار دهید:
-    ```yaml
-    version: '3.8'
-
-    services:
-      squid:
-        image: ubuntu/squid:latest
-        container_name: remote_squid
-        restart: unless-stopped
-        volumes:
-          - ./squid.conf:/etc/squid/squid.conf:ro
-        ports:
-          - "3128:3128"
-    ```
-6.  سرویس پراکسی را اجرا کنید:
-    ```bash
-    sudo docker compose up -d
-    ```
-
----
-
-## 🚀 مرحله ۳: آماده‌سازی و اجرای سرور اصلی (Node 1 - `188.121.123.16`)
-
-1.  وارد سرور اصلی شوید.
-2.  آخرین نسخه ابزار Docker Compose V2 را بر روی سیستم نصب کنید:
-    ```bash
-    sudo apt update
-    sudo apt install -y docker-compose-v2
-    ```
-3.  کد پروژه را در مسیر `/opt/barpro` کلون یا آپلود کنید.
-4.  فایل تنظیمات محیطی `.env` را بر اساس نمونه `.env.example` پیکربندی کنید.
-5.  فایل پراکسی محلی سرور اول `infra/squid/squid_1.conf` را ویرایش کرده و آی‌پی سرور اول را در فیلد `tcp_outgoing_address` جایگزین کنید.
-6.  بهینه‌سازی حجم بیلد (جدید):
-    به منظور تسریع چشمگیر زمان انتقال فایل‌ها به داکر کانتینر، فایل‌های `.dockerignore` در پروژه تعبیه شده‌اند که از انتقال پوشه‌های سنگین نظیر `node_modules` جلوگیری کرده و سرعت بیلد داکر را از چند دقیقه به کمتر از ۱ ثانیه می‌رساند.
-
----
-
-## 🛠️ مرحله ۴: اسکریپت مدیریت هوشمند و دیپلوی (`manage.sh`) (جدید)
-
-برای ساده‌سازی فرآیندهای مدیریت، عیب‌یابی و آپدیت پروژه، یک اسکریپت متمرکز به نام `manage.sh` در ریشه پروژه قرار گرفته است.
-
-### راه‌اندازی گیت روی سرور
-برای اتصال مستقیم سرور به مخزن گیت‌هاب و دیپلوی خودکار تغییرات جدید:
 ```bash
 cd /opt/barpro
-bash manage.sh git-setup
+git pull
+bash manage.sh deploy
 ```
 
-### عملیات‌های متداول با `manage.sh`
+فرمان `deploy` این کارها را انجام می‌دهد:
 
-| دستور | شرح عملکرد |
-| :--- | :--- |
-| `bash manage.sh status` | نمایش وضعیت زنده تمام کانتینرها، مصرف دیسک و مصرف RAM سرور. |
-| `bash manage.sh health` | تست خودکار سلامت اتصالات فرانت‌اند، API بک‌اند، دیتابیس و ردیس. |
-| `bash manage.sh logs [service]` | مشاهده زنده لاگ‌های کل پروژه یا یک کانتینر خاص (مثلاً: `backend`). |
-| `bash manage.sh deploy` | **دریافت خودکار کدهای جدید از گیت‌هاب و بیلد و ری‌استارت هوشمند بخش‌های تغییریافته.** |
-| `bash manage.sh update-ui` | بیلد سریع Next.js و آپدیت خودکار فرانت‌اند بدون تأثیرگذاری روی دیتابیس یا بک‌اند. |
-| `bash manage.sh update-api` | آپدیت کدهای بک‌اند، ورکرها و اجرای خودکار مایگریشن‌های دیتابیس (Alembic). |
-| `bash manage.sh backup-db` | تهیه نسخه پشتیبان از پایگاه داده با حجم فشرده شده در مسیر `output/backups/`. |
-| `bash manage.sh restore-db <file>` | بازنشانی پایگاه داده از روی یک فایل پشتیبان دلخواه. |
-| `bash manage.sh start` / `stop` | شروع یا توقف کل سرویس‌های پروژه به صورت امن بدون از دست رفتن داده‌ها. |
+- backend image را build می‌کند
+- frontend image را build می‌کند
+- migrationها را با `alembic upgrade head` اجرا می‌کند
+- سرویس‌های backend و web را با `up -d --remove-orphans` به‌روزرسانی می‌کند
 
----
+## وضعیت فرانت‌اند در Docker
 
-## 💾 مرحله ۵: راه‌اندازی نسخه‌های پشتیبان روزانه (Google Drive Backups)
+- فایل `apps/web/Dockerfile` اکنون multi-stage است
+- سرور دیگر به `.next/standalone` از قبل ساخته‌شده نیاز ندارد
+- `docker compose -f compose/web.yml build frontend` از یک checkout تمیز build کامل را انجام می‌دهد
 
-برای بکاپ‌گیری منظم و ارسال مستقیم فایل‌ها به گوگل درایو:
+## وضعیت احراز هویت
 
-1.  ابزار `rclone` را روی سرور اصلی نصب کنید:
-    ```bash
-    sudo apt update
-    sudo apt install -y rclone
-    ```
-2.  پیکربندی اتصال گوگل درایو با نام `gdrive`:
-    ```bash
-    rclone config
-    ```
-    *   گزینه `n` (New remote) را وارد کنید.
-    *   نام آن را `gdrive` بگذارید.
-    *   نوع فضای ذخیره‌سازی را `drive` (Google Drive) انتخاب کنید.
-    *   سایر فیلدها را با مقادیر پیش‌فرض رد کرده و مراحل احراز هویت را در مرورگر سیستم خود تکمیل کنید تا مجوزهای دسترسی داده شود.
-3.  تنظیم اسکریپت بکاپ در cron جهت اجرای هر روز راس ساعت ۳ صبح:
-    ```bash
-    crontab -e
-    ```
-    خط زیر را به انتهای فایل اضافه کنید:
-    ```cron
-    0 3 * * * /opt/barpro/scripts/db_backup.sh >> /opt/barpro/output/backups.log 2>&1
-    ```
-4.  فایل اسکریپت بک‌آپ را قابل‌اجرا کنید:
-    ```bash
-    chmod +x /opt/barpro/scripts/db_backup.sh
-    ```
+- login از سمت بک‌اند کوکی `httpOnly` را set می‌کند
+- فرانت‌اند دیگر Bearer token را از localStorage ارسال نمی‌کند
+- localStorage فقط برای داده‌های غیرحساس UI/session استفاده می‌شود
+- روی HTTP فعلی باید `AUTH_COOKIE_SECURE=false` بماند
 
----
+## مایگریشن‌های تاییدشده
 
-## 📊 مرحله ۶: راه‌اندازی مانیتورینگ و هشدارهای تلگرام
+Alembic head فعلی:
 
-برای دریافت لحظه‌ای وضعیت قطع شدن موقت آی‌پی‌ها (توسط Circuit Breaker) یا پر شدن رم سرور:
+```bash
+015_add_client_subscription_dates
+```
 
-1.  وابستگی‌های پایتون مانیتورینگ را نصب کنید:
-    ```bash
-    pip3 install redis psutil
-    ```
-2.  برای اجرای مانیطور به‌صورت یک پس‌زمینه (Background Daemon) دائمی:
-    ```bash
-    nohup python3 /opt/barpro/scripts/monitor_alerts.py > /opt/barpro/output/monitor.log 2>&1 &
-    ```
-    همچنین می‌توانید آن را به عنوان یک سیستم‌سرویس (`systemd`) ثبت کنید تا با ری‌استارت شدن سرور مجدداً بالا بیاید.
+مهاجرت‌های جدید مرتبط:
+
+- `014_add_year_month_to_fuel_inquiries.py`
+- `015_add_client_subscription_dates.py`
+
+## بررسی پس از استقرار
+
+```bash
+bash manage.sh status
+bash manage.sh health
+docker compose -f compose/backend.yml config
+docker compose -f compose/web.yml config
+```
+
+در صورت نیاز، smoke check بک‌اند:
+
+```bash
+docker run --rm barpro_backend:latest python -c "from app.main import app; print(app.title)"
+```
+
+## امنیت و کارهای دستی باقی‌مانده
+
+- برای Squidهای `3129` و `3130` اسکریپت `scripts/secure_squid_ports.sh` را با `sudo` اجرا کنید
+- برای اجرای خودکار در reboot همان اسکریپت را به crontab اضافه کنید
+- Prometheus را عمومی expose نکنید مگر آگاهانه
+- هرگز secretها یا `.env` را commit نکنید
+
+## فعال‌سازی HTTPS
+
+استقرار فعلی HTTP-only است. پس از نصب گواهی TLS:
+
+1. تنظیمات SSL در `infra/nginx/nginx.conf` و `compose/web.yml` را فعال کنید
+2. مقدار `AUTH_COOKIE_SECURE=true` را در `.env` قرار دهید
+3. `bash manage.sh deploy` را اجرا کنید
+
+## خطاهای رایج
+
+- اگر `docker compose ... config` درباره secretها هشدار داد، `.env` روی shell فعلی بارگذاری نشده یا کامل نیست
+- اگر migration خودکار fail شد، `bash manage.sh migrate` را دستی اجرا کنید
+- اگر فرانت‌اند بالا نیامد، `bash manage.sh logs frontend` و `bash manage.sh logs nginx` را بررسی کنید
+- اگر login کار نکرد، مقدارهای `FRONTEND_URL`, `BACKEND_CORS_ORIGINS` و `AUTH_COOKIE_SECURE` را بررسی کنید
+
+## وضعیت تایید فعلی
+
+موارد زیر روی این شاخه تایید شده‌اند:
+
+- `docker compose -f compose/backend.yml build backend`
+- `docker compose -f compose/web.yml build frontend`
+- `npm run build` در `apps/web`
+- `npm audit --omit=dev` با خروجی بدون vulnerability
+- `alembic heads` با head برابر `015_add_client_subscription_dates`
+
+*آخرین بروزرسانی: 2026-07-08*

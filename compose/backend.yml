@@ -47,6 +47,7 @@ x-backend-common: &backend-common
     # ✅ پشتیبانی از چند آی‌پی برای CORS در سرور دو کارت شبکه‌ای
     FRONTEND_URLS: ${FRONTEND_URLS:-}
     FRONTEND_URL_ALT: ${FRONTEND_URL_ALT:-}
+    AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
     ENVIRONMENT: ${ENVIRONMENT:-production}
     LOGIN_URL: ${LOGIN_URL:-https://barname.utcms.ir/Barname/Account/Login}
     HEADLESS: ${HEADLESS:-true}
@@ -61,10 +62,11 @@ x-backend-common: &backend-common
   extra_hosts:
     - "host.docker.internal:host-gateway"
   volumes:
-    - /opt/barpro/app/services:/app/app/services:ro
-    - /opt/barpro/app/workers:/app/app/workers:ro
-    - /opt/barpro/alembic:/app/alembic:ro
-    - /opt/barpro/playwright-browsers:/opt/playwright-browsers
+    - ../app/services:/app/app/services:ro
+    - ../app/workers:/app/app/workers:ro
+    - ../app/core:/app/app/core:ro
+    - ../alembic:/app/alembic:ro
+    - ../.playwright-home:/opt/playwright-browsers
   logging:
     driver: json-file
     options:
@@ -78,8 +80,8 @@ services:
     <<: *backend-common
     container_name: barpro-backend
     shm_size: '256m'
-    mem_limit: 512m
-    mem_reservation: 256m
+    mem_limit: 1g
+    mem_reservation: 512m
     environment:
       <<: *backend-env
       PORT: 8000

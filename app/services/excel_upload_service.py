@@ -294,9 +294,9 @@ class ExcelUploadService:
             waybill_number=str(payload_dict.get("waybill_number", "")) if payload_dict.get("waybill_number") else None,
             cargo_type=str(payload_dict.get("cargo_type", "")) if payload_dict.get("cargo_type") else None,
             cargo_weight=float(payload_dict["cargo_weight"]) if payload_dict.get("cargo_weight") else None,
-            cargo_description=str(payload_dict.get("cargo_description", ""))
-            if payload_dict.get("cargo_description")
-            else None,
+            cargo_description=(
+                str(payload_dict.get("cargo_description", "")) if payload_dict.get("cargo_description") else None
+            ),
             vehicle_type=str(payload_dict.get("vehicle_type", "")) if payload_dict.get("vehicle_type") else None,
             plate_number=str(payload_dict.get("plate_number", "")) if payload_dict.get("plate_number") else None,
             notes=str(payload_dict.get("notes", "")) if payload_dict.get("notes") else None,

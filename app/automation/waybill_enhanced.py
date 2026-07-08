@@ -95,10 +95,12 @@ class EnhancedWaybillManager:
 
     async def _detect_active_pane(self) -> str:
         try:
-            pane_id = await self.page.evaluate("""() => {
+            pane_id = await self.page.evaluate(
+                """() => {
                     const pane = document.querySelector('.tab-pane.active.show, .tab-pane.active');
                     return pane ? String(pane.id || '') : '';
-                }""")
+                }"""
+            )
             return str(pane_id or "")
         except Exception:
             return ""
@@ -476,11 +478,13 @@ class EnhancedWaybillManager:
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
         try:
-            value = await locator.evaluate("""el => {
+            value = await locator.evaluate(
+                """el => {
                     if (!el) return '';
                     if ('value' in el) return String(el.value || '');
                     return String((el.innerText || el.textContent || '').trim());
-                }""")
+                }"""
+            )
             return str(value or "")
         except Exception:
             return ""
@@ -523,7 +527,8 @@ class EnhancedWaybillManager:
                 await locator.fill(str(value))
 
             try:
-                await locator.evaluate("""el => {
+                await locator.evaluate(
+                    """el => {
                         el.dispatchEvent(new Event('keydown', { bubbles: true }));
                         el.dispatchEvent(new Event('keypress', { bubbles: true }));
                         el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -532,7 +537,8 @@ class EnhancedWaybillManager:
                         if (window.jQuery) {
                             window.jQuery(el).trigger('keydown').trigger('keypress').trigger('input').trigger('keyup').trigger('change');
                         }
-                    }""")
+                    }"""
+                )
             except Exception:
                 logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
@@ -1341,6 +1347,7 @@ class EnhancedWaybillManager:
                             credentials: 'include',
                             headers: { 'X-Requested-With': 'XMLHttpRequest' }
                         });
+                        if (!response.ok) return '';
                         return await response.text();
                     }""",
                     str(document_id),
@@ -1349,6 +1356,9 @@ class EnhancedWaybillManager:
                 raw_text = None
 
             text = self._to_english_digits(str(raw_text or "").strip())
+            if not text or "error" in text.lower() or "not found" in text.lower() or "خطا" in text:
+                await asyncio.sleep(min(2.0, 0.5 + (attempt * 0.5)))
+                continue
             matches = re.findall(r"\d{6,}", text)
             if matches:
                 return matches[0]
@@ -2336,14 +2346,16 @@ class EnhancedWaybillManager:
 
         # Force form validation update in case some events didn't propagate
         try:
-            await self.page.evaluate("""() => {
+            await self.page.evaluate(
+                """() => {
                 if (window.jQuery) {
                     const $form = window.jQuery('#frmcommodityInsert');
                     if ($form.length && $form.data('formValidation')) {
                         $form.data('formValidation').validate();
                     }
                 }
-            }""")
+            }"""
+            )
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
@@ -3367,10 +3379,16 @@ class EnhancedWaybillManager:
                     )
                     otp_state = self._parse_otp_submit_payload(payload)
                     if otp_state is None:
+                        # اگر پاسخ AJAX نیامد، به این معنی نیست که OTP تایید شده
+                        logger.warning(
+                            "otp_response_missing",
+                            extra={"extra_fields": {"action": "retry_otp"}},
+                        )
                         return {
-                            "success": True,
+                            "success": False,
                             "handled": True,
                             "document_id": (submit_state or {}).get("document_id"),
+                            "message": "پاسخ سرور برای تایید OTP دریافت نشد",
                         }
                     if otp_state["success"]:
                         return {
@@ -3532,9 +3550,20 @@ class EnhancedWaybillManager:
         tracking_code = await self._extract_tracking_code(document_id=document_id)
         submission_confirmed = await self._is_submission_successful()
 
+        # CRITICAL SECURITY FIX: To prevent false positives where waybills are marked
+        # as "Successful Registration" without actually being registered in UTCMS,
+        # we require a valid tracking code to be extracted to confirm success.
+        if not tracking_code:
+            logger.warning(
+                "submit_tracking_code_missing_confirm_false",
+                extra={"extra_fields": {"job_id": job_id, "submission_confirmed": submission_confirmed}},
+            )
+            submission_confirmed = False
+
         if not tracking_code and not submission_confirmed:
             import os
             import time
+
             try:
                 debug_dir = "/app/output/screenshots/debug"
                 os.makedirs(debug_dir, exist_ok=True)
@@ -3645,7 +3674,8 @@ class EnhancedWaybillManager:
     async def _close_blocking_overlays(self) -> None:
         """Attempt to close blocking overlays (modals, popups, backdrops)."""
         try:
-            await self.page.evaluate("""() => {
+            await self.page.evaluate(
+                """() => {
                 // Close modal backdrops
                 const backdrops = document.querySelectorAll('div.modal-backdrop, .modal-backdrop, .overlay, .popup-overlay');
                 backdrops.forEach(el => el.remove());
@@ -3658,7 +3688,8 @@ class EnhancedWaybillManager:
                 // Click any close/back buttons
                 const closeBtns = document.querySelectorAll('.modal .close, .modal-close, button.close, [data-dismiss="modal"]');
                 closeBtns.forEach(btn => btn.click());
-            }""")
+            }"""
+            )
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
@@ -3666,15 +3697,20 @@ class EnhancedWaybillManager:
         """
         Detect OTP modal after submit. If found, gracefully exit and return OTP_BACKOFF status.
         The worker will calculate T_now + 60 minutes and update the DB.
+        Timeout increased from 5s to 15s to avoid false negatives on slow OTP modals.
         """
         otp_selectors = "input#sms-code, div.otp-challenge, #submitOtp, input[name='otp'], .otp-box"
 
         try:
-            candidate = await self.page.wait_for_selector(otp_selectors, timeout=5000)
+            candidate = await self.page.wait_for_selector(otp_selectors, timeout=15000)
+            if candidate is None:
+                return None
             if candidate is not None:
                 try:
                     visible = await resolve_maybe_awaitable(candidate.is_visible())
-                    if not isinstance(visible, bool) or not visible:
+                    if not isinstance(visible, bool):
+                        visible = bool(visible)
+                    if not visible:
                         return None
                 except Exception:
                     return None
@@ -3685,12 +3721,7 @@ class EnhancedWaybillManager:
                 extra={"extra_fields": {"action": "graceful_exit", "retry_after_minutes": 60}},
             )
 
-            # Forcefully close browser context to prevent memory leaks
-            try:
-                await self.context.close()
-            except Exception:
-                logger.warning("waybill_enhanced_silent_error", exc_info=True)
-
+            # Note: context cleanup is handled by the caller (worker's managed_browser_session / finally block)
             return {
                 "success": False,
                 "status": "OTP_BACKOFF",
@@ -4328,9 +4359,22 @@ class EnhancedWaybillManager:
         if any(fragment in current_url for fragment in success_fragments):
             return True
 
-        if "/create" not in current_url and "/login" not in current_url and "/error" not in current_url:
-            # در بسیاری از نسخه‌های UTCMS بعد از ثبت، URL به مسیر غیر Create منتقل می‌شود.
-            return True
+        # بررسی عناصر موفقیت خاص بارنامه در صفحه
+        try:
+            body_text = await self._as_clean_text(await self.page.text_content("body"))
+            body_text = self._to_english_digits(body_text)
+            waybill_success_patterns = [
+                "شماره بارنامه",
+                "کد رهگیری",
+                "با موفقیت ثبت شد",
+                "بارنامه ثبت شد",
+                "چاپ بارنامه",
+            ]
+            for pattern in waybill_success_patterns:
+                if pattern in body_text:
+                    return True
+        except Exception:
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         return False
 
@@ -4403,14 +4447,14 @@ class EnhancedWaybillManager:
         return None
 
     async def _extract_tracking_code(self, document_id: Any | None = None) -> str | None:
-        """استخراج کد رهگیری از صفحه"""
+        """استخراج کد رهگیری از صفحه - فقط اعدادی که در بافت کد رهگیری/شماره بارنامه هستند"""
         import re
 
         fetched_code = await self._fetch_tracking_code_by_document_id(document_id)
         if fetched_code:
             return fetched_code
 
-        # تلاش با انتخابگرهای مختلف
+        # تلاش با انتخابگرهای مختص کد رهگیری
         selectors = [
             ".tracking-code",
             "#TrackingCode",
@@ -4427,6 +4471,13 @@ class EnhancedWaybillManager:
                     element = await self.smart_locator.locate(self.page, [selector], timeout=900)
                 text = await self._as_clean_text(await element.text_content())
                 text = self._to_english_digits(text)
+                # فقط اعدادی که در بافت کد رهگیری یا شماره بارنامه هستند
+                labeled = re.findall(
+                    r"(?:کد\s*رهگیری|شماره\s*بارنامه|tracking|waybill)\D*(\d{6,})", text, re.IGNORECASE
+                )
+                if labeled:
+                    return labeled[0]
+                # اگر المنت حاوی برچسب نیست، ولی خودش مختص کد رهگیری است، اولین عدد 6+ رقمی را برگردان
                 codes = re.findall(r"\d{6,}", text or "")
                 if codes:
                     return codes[0]
@@ -4444,10 +4495,11 @@ class EnhancedWaybillManager:
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
-        # تلاش با استفاده از URL
+        # تلاش با استفاده از URL (فقط اعداد با برچسب رهگیری در URL)
         url = await self._current_url()
-        codes = re.findall(r"[A-Z0-9]{8,}", self._to_english_digits(url))
-        if codes:
-            return codes[0]
+        if "track" in url.lower() or "waybill" in url.lower() or "print" in url.lower() or "receipt" in url.lower():
+            codes = re.findall(r"[A-Z0-9]{8,}", self._to_english_digits(url))
+            if codes:
+                return codes[0]
 
         return None

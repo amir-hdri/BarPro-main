@@ -1,5 +1,5 @@
 # BarPro — وضعیت سرور
-# آخرین بروزرسانی: ۱۲ تیر ۱۴۰۵ (2026-07-03)
+# آخرین بروزرسانی: 2026-07-08
 
 ## 📊 اطلاعات سرور
 
@@ -10,11 +10,11 @@
 | هر دو IP | یک سرور فیزیکی — 4 vCPU، 12 GB RAM |
 | مسیر پروژه | `/opt/barpro` |
 | دیسک | 21 GB used / 70 GB total (31%) |
-| URL قابل دسترسی | http://95.38.233.90 |
+| URL قابل دسترسی | `http://95.38.233.90` فعلی؛ پس از نصب TLS از دامنه HTTPS استفاده شود |
 
 ---
 
-## 🐳 وضعیت کانتینرها (2026-07-03)
+## 🐳 وضعیت کانتینرها
 
 | Container | Image | وضعیت |
 |-----------|-------|--------|
@@ -31,6 +31,17 @@
 | barpro-squid-2 | ubuntu/squid | ✅ Healthy |
 | barpro-squid-3 | ubuntu/squid | ✅ Healthy |
 | barpro-prometheus | prom/prometheus | ✅ Healthy |
+
+### آخرین اعتبارسنجی محلی build/deploy
+
+| مورد | نتیجه |
+|------|-------|
+| Backend Docker image | ✅ `docker compose -f compose/backend.yml build backend` |
+| Frontend Docker image | ✅ `docker compose -f compose/web.yml build frontend` |
+| Backend image smoke import | ✅ `from app.main import app` |
+| Frontend production build | ✅ `npm run build` |
+| Production npm audit | ✅ `npm audit --omit=dev` بدون vulnerability |
+| Alembic head | ✅ `015_add_client_subscription_dates` |
 
 ---
 
@@ -106,14 +117,14 @@ GET http://95.38.233.90/api/v1/healthz→ {"status":"ok"}  ✅
 |-|-|
 | موتور | PostgreSQL 16 |
 | نام DB | `utcms_rpa` |
-| آخرین migration | `013_add_admin_driver_schedules` (head) |
+| آخرین migration | `015_add_client_subscription_dates` (head) |
 | تعداد جداول | 21 (20 + alembic_version) |
 
 ### جداول موجود
 `activity_logs`, `admin_driver_schedules`, `alembic_version`, `botstats`,
 `clients`, `domain_events`, `driver_daily_counters`, `driver_plates`,
 `driver_runtime_states`, `driver_schedules`, `driver_session_metadata`,
-`drivers`, `fuel_inquiries`, `proxy_endpoints`, `subscription_plans`,
+`drivers`, `fuel_inquiries` (با ستون‌های `year` و `month`), `proxy_endpoints`, `subscription_plans`,
 `super_admins`, `upload_batches`, `waybill_attempts`, `waybill_jobs`,
 `waybill_task_logs`, `waybilltask`
 
@@ -130,8 +141,10 @@ GET http://95.38.233.90/api/v1/healthz→ {"status":"ok"}  ✅
 ├── infra/                  ← nginx, squid, prometheus config
 ├── .env                    ← متغیرهای محیطی (هرگز commit نشود)
 ├── playwright-browsers/    ← Chromium (107 MB, volume داکر)
-├── persian_number_ocr.keras ← مدل OCR سوخت (13 MB)
-├── login captch/captcha_cnn.pth ← مدل CNN ورود (1.7 MB)
+├── persian_number_ocr.keras ← مدل fallback OCR سوخت (13 MB)
+├── app/automation/captcha/assets/captcha_cnn.pth ← مدل CNN ورود
+├── app/automation/captcha/assets/fuel_captcha_crnn.pth ← مدل PyTorch کپچای سوخت
+├── app/automation/captcha/assets/fuel_captcha_vocab.json ← vocab مدل سوخت
 └── output/                 ← لاگ‌ها و backups
 ```
 
@@ -154,13 +167,14 @@ ssh ubuntu@188.121.123.16  # یا localhost از داخل سرور
 
 ## 👤 دسترسی ادمین
 
-| کاربر | رمز عبور |
-|-------|----------|
-| `admin` | `BarPro2026!SecurePwd` |
-| endpoint ورود | `POST /api/admin/login` |
+| مورد | مقدار |
+|------|-------|
+| endpoint ورود | `POST /api/v1/admin/login` |
+| نام کاربری | مقدار `MASTER_ADMIN_USERNAME` در `.env` |
+| رمز عبور | مقدار `MASTER_ADMIN_PASSWORD` در `.env`؛ هرگز در مستندات commit نشود |
 
-> ⚠️ این رمز عبور در فایل `.env` روی سرور ذخیره شده است. برای امنیت بیشتر، توصیه می‌شود در environment های حساس از bcrypt-hashed password استفاده شود.
+> ⚠️ در deployment فعلی JWT در کوکی `httpOnly` با نام `utcms_auth_token` ذخیره می‌شود. روی HTTP مقدار `AUTH_COOKIE_SECURE=false` لازم است؛ پس از HTTPS مقدار `true` شود.
 
 ---
 
-*آخرین بروزرسانی: 2026-07-03 — توسط Antigravity AI Agent*
+*آخرین بروزرسانی: 2026-07-08*

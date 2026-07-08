@@ -10,8 +10,10 @@ async def test_publish_to_timeline_failure():
     """Test that event publishing failures are logged appropriately."""
     bridge = MonitoringEventBridge()
 
-    with patch('app.monitoring.event_bridge.event_hub.publish', new_callable=AsyncMock) as mock_publish, \
-         patch('app.monitoring.event_bridge.logger.warning') as mock_logger_warning:
+    with (
+        patch("app.monitoring.event_bridge.event_hub.publish", new_callable=AsyncMock) as mock_publish,
+        patch("app.monitoring.event_bridge.logger.warning") as mock_logger_warning,
+    ):
 
         mock_publish.side_effect = Exception("Test error")
 
@@ -20,7 +22,7 @@ async def test_publish_to_timeline_failure():
             payload={"test": "data"},
             task_id="task-123",
             correlation_id="corr-123",
-            tags={"tag1": "value1"}
+            tags={"tag1": "value1"},
         )
 
         mock_logger_warning.assert_called_once()

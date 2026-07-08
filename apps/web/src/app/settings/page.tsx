@@ -157,10 +157,10 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="mb-8 flex border-b border-white/5 pb-2 gap-6">
+          <div className="mb-8 flex border-b border-white/5 pb-2 gap-6 overflow-x-auto scrollbar-none flex-nowrap shrink-0">
             <button
               onClick={() => setActiveTab('account')}
-              className={`flex items-center gap-2 pb-4 py-3 text-sm font-bold transition-all relative ${
+              className={`flex items-center gap-2 pb-4 py-3 text-sm font-bold transition-all relative shrink-0 ${
                 activeTab === 'account' ? 'text-cyan-400' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -172,7 +172,7 @@ export default function SettingsPage() {
             </button>
             <button
               onClick={() => setActiveTab('system')}
-              className={`flex items-center gap-2 pb-4 py-3 text-sm font-bold transition-all relative ${
+              className={`flex items-center gap-2 pb-4 py-3 text-sm font-bold transition-all relative shrink-0 ${
                 activeTab === 'system' ? 'text-cyan-400' : 'text-slate-400 hover:text-slate-200'
               }`}
             >

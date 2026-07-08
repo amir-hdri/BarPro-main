@@ -19,7 +19,7 @@ class TestMapAutomation(unittest.IsolatedAsyncioTestCase):
 
         controller = MapController(page)
         map_type = await controller.detect_map_type()
-        self.assertEqual(map_type, 'google_maps')
+        self.assertEqual(map_type, "google_maps")
 
     async def test_location_selector_no_coordinates_falls_back_to_dropdown(self):
         """بدون مختصات، ابتدا dropdown امتحان شود."""
@@ -43,14 +43,22 @@ class TestMapAutomation(unittest.IsolatedAsyncioTestCase):
         page = AsyncMock()
         selector = LocationSelector(page)
 
-        selector._try_explicit_coordinates = AsyncMock(return_value={"success": True, "method": "explicit_coordinates", "coordinates": {"lat": 35.0, "lng": 51.0}})
-        selector._try_map_selection = AsyncMock(return_value={"success": True, "method": "map", "coordinates": {"lat": 35.0, "lng": 51.0}})
+        selector._try_explicit_coordinates = AsyncMock(
+            return_value={"success": True, "method": "explicit_coordinates", "coordinates": {"lat": 35.0, "lng": 51.0}}
+        )
+        selector._try_map_selection = AsyncMock(
+            return_value={"success": True, "method": "map", "coordinates": {"lat": 35.0, "lng": 51.0}}
+        )
         selector._try_internal_map_search = AsyncMock(return_value={"success": False, "error": "Not available"})
         selector._assess_dropdown_runtime = AsyncMock(return_value={"viable": True, "undefined_only": False})
         selector._try_dropdown_selection = AsyncMock(return_value={"success": True, "method": "dropdown"})
 
-        location_data = {"province": "Tehran", "city": "Tehran", "address": "Azadi",
-                         "coordinates": {"lat": 35.0, "lng": 51.0}}
+        location_data = {
+            "province": "Tehran",
+            "city": "Tehran",
+            "address": "Azadi",
+            "coordinates": {"lat": 35.0, "lng": 51.0},
+        }
         result = await selector.select_location(location_data)
 
         self.assertTrue(result["success"])
@@ -63,14 +71,22 @@ class TestMapAutomation(unittest.IsolatedAsyncioTestCase):
         page = AsyncMock()
         selector = LocationSelector(page)
 
-        selector._try_explicit_coordinates = AsyncMock(return_value={"success": False, "method": "explicit_coordinates", "error": "Fail"})
-        selector._try_map_selection = AsyncMock(return_value={"success": True, "method": "map", "coordinates": {"lat": 35.0, "lng": 51.0}})
+        selector._try_explicit_coordinates = AsyncMock(
+            return_value={"success": False, "method": "explicit_coordinates", "error": "Fail"}
+        )
+        selector._try_map_selection = AsyncMock(
+            return_value={"success": True, "method": "map", "coordinates": {"lat": 35.0, "lng": 51.0}}
+        )
         selector._try_internal_map_search = AsyncMock(return_value={"success": False, "error": "Not available"})
         selector._assess_dropdown_runtime = AsyncMock(return_value={"viable": True, "undefined_only": False})
         selector._try_dropdown_selection = AsyncMock(return_value={"success": True, "method": "dropdown"})
 
-        location_data = {"province": "Tehran", "city": "Tehran", "address": "Azadi",
-                         "coordinates": {"lat": 35.0, "lng": 51.0}}
+        location_data = {
+            "province": "Tehran",
+            "city": "Tehran",
+            "address": "Azadi",
+            "coordinates": {"lat": 35.0, "lng": 51.0},
+        }
         result = await selector.select_location(location_data)
 
         self.assertTrue(result["success"])
@@ -83,15 +99,21 @@ class TestMapAutomation(unittest.IsolatedAsyncioTestCase):
         page = AsyncMock()
         selector = LocationSelector(page)
 
-        selector._try_explicit_coordinates = AsyncMock(return_value={"success": False, "method": "explicit_coordinates", "error": "Fail"})
+        selector._try_explicit_coordinates = AsyncMock(
+            return_value={"success": False, "method": "explicit_coordinates", "error": "Fail"}
+        )
         selector._try_map_selection = AsyncMock(return_value={"success": False, "method": "map", "error": "Fail"})
         selector._assess_dropdown_runtime = AsyncMock(return_value={"viable": True, "undefined_only": False})
         selector._try_dropdown_selection = AsyncMock(return_value={"success": True, "method": "dropdown"})
         selector._try_internal_map_search = AsyncMock(return_value={"success": False, "error": "Not available"})
         selector._try_text_input = AsyncMock(return_value={"success": False, "error": "متن"})
 
-        location_data = {"province": "Tehran", "city": "Tehran", "address": "Azadi",
-                         "coordinates": {"lat": 35.0, "lng": 51.0}}
+        location_data = {
+            "province": "Tehran",
+            "city": "Tehran",
+            "address": "Azadi",
+            "coordinates": {"lat": 35.0, "lng": 51.0},
+        }
         result = await selector.select_location(location_data)
 
         self.assertTrue(result["success"])
@@ -110,8 +132,12 @@ class TestMapAutomation(unittest.IsolatedAsyncioTestCase):
         selector._try_dropdown_selection = AsyncMock(return_value={"success": False, "error": "dropdown fail"})
         selector._try_text_input = AsyncMock(return_value={"success": False, "error": "text fail"})
 
-        location_data = {"province": "Tehran", "city": "Tehran", "address": "Azadi",
-                         "coordinates": {"lat": 35.0, "lng": 51.0}}
+        location_data = {
+            "province": "Tehran",
+            "city": "Tehran",
+            "address": "Azadi",
+            "coordinates": {"lat": 35.0, "lng": 51.0},
+        }
 
         with self.assertRaises(LocationSelectionError):
             await selector.select_location(location_data)
@@ -139,7 +165,7 @@ class TestMapAutomation(unittest.IsolatedAsyncioTestCase):
 
         expected_suggestions = [
             {"text": "Place A", "lat": 10.0, "lng": 20.0},
-            {"text": "Place B", "lat": 11.0, "lng": 21.0}
+            {"text": "Place B", "lat": 11.0, "lng": 21.0},
         ]
         page.evaluate.return_value = expected_suggestions
 
@@ -154,5 +180,6 @@ class TestMapAutomation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, expected_suggestions)
         self.assertEqual(mock_sleep.await_count, 2)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

@@ -21,7 +21,7 @@ async def test_get_client_profile_success():
         max_plates=10,
         max_concurrent_tasks=2,
         max_daily_tasks=100,
-        created_at=datetime.now(UTC).replace(tzinfo=None)
+        created_at=datetime.now(UTC).replace(tzinfo=None),
     )
 
     mock_session = AsyncMock()
@@ -40,7 +40,7 @@ async def test_get_client_profile_success():
             max_concurrent_tasks=2,
             max_daily_tasks=100,
             created_at=datetime.now(UTC).replace(tzinfo=None),
-            last_login_at=datetime.now(UTC).replace(tzinfo=None)
+            last_login_at=datetime.now(UTC).replace(tzinfo=None),
         )
 
         result = await ClientService.get_client_profile(mock_client, mock_session)
@@ -61,12 +61,7 @@ async def test_get_client_profile_success():
 @pytest.mark.asyncio
 async def test_get_client_profile_with_db_exception():
     """Test retrieving a client profile when the database throws an exception."""
-    mock_client = Client(
-        id=1,
-        client_code="tenant-1",
-        name="Tenant 1",
-        email="tenant1@example.com"
-    )
+    mock_client = Client(id=1, client_code="tenant-1", name="Tenant 1", email="tenant1@example.com")
 
     mock_session = AsyncMock()
     # Simulate a database connection error or similar failure

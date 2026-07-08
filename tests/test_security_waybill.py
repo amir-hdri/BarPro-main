@@ -7,6 +7,7 @@ from app.main import app
 
 client = TestClient(app)
 
+
 @pytest.mark.asyncio
 async def test_detect_map_leaks_sensitive_info():
     """
@@ -21,8 +22,10 @@ async def test_detect_map_leaks_sensitive_info():
         mock_create_context.side_effect = Exception(sensitive_info)
 
         # We also need to mock initialize since it's called before create_context
-        with patch("app.automation.browser_manager.initialize", new_callable=AsyncMock), \
-             patch("app.core.config.utcms_config.API_AUTH_MODE", "off"):
+        with (
+            patch("app.automation.browser_manager.initialize", new_callable=AsyncMock),
+            patch("app.core.config.utcms_config.API_AUTH_MODE", "off"),
+        ):
 
             response = client.post("/waybill/detect-map?session_id=test_session")
 
@@ -34,6 +37,7 @@ async def test_detect_map_leaks_sensitive_info():
             assert sensitive_info not in response_json["message"]
             assert response_json["message"] == "خطای داخلی سرور در تشخیص نقشه"
 
+
 @pytest.mark.asyncio
 async def test_create_waybill_leaks_sensitive_info():
     """
@@ -44,56 +48,41 @@ async def test_create_waybill_leaks_sensitive_info():
     # Payload for create_waybill_with_map
     payload = {
         "session_id": "test_session",
-        "sender": {
-            "name": "Test Sender",
-            "phone": "09123456789",
-            "address": "Tehran",
-            "national_code": "1234567890"
-        },
-        "receiver": {
-            "name": "Test Receiver",
-            "phone": "09123456789",
-            "address": "Isfahan"
-        },
+        "sender": {"name": "Test Sender", "phone": "09123456789", "address": "Tehran", "national_code": "1234567890"},
+        "receiver": {"name": "Test Receiver", "phone": "09123456789", "address": "Isfahan"},
         "origin": {
             "province": "Tehran",
             "city": "Tehran",
             "address": "Test Address",
-            "coordinates": {"lat": 35.6892, "lng": 51.3890}
+            "coordinates": {"lat": 35.6892, "lng": 51.3890},
         },
         "destination": {
             "province": "Isfahan",
             "city": "Isfahan",
             "address": "Test Address",
-            "coordinates": {"lat": 32.6546, "lng": 51.6680}
+            "coordinates": {"lat": 32.6546, "lng": 51.6680},
         },
-        "cargo": {
-            "type": "General",
-            "weight": 1000,
-            "count": 1,
-            "description": "Test"
-        },
+        "cargo": {"type": "General", "weight": 1000, "count": 1, "description": "Test"},
         "vehicle": {
             "driver_national_code": "1234567890",
             "driver_phone": "09123456789",
             "plate": "12A34567",
-            "type": "Truck"
+            "type": "Truck",
         },
-        "financial": {
-            "cost": 1000000,
-            "payment_method": "Cash"
-        }
+        "financial": {"cost": 1000000, "payment_method": "Cash"},
     }
 
     # Mock browser_manager.create_context
     with patch("app.automation.browser_manager.create_context", new_callable=AsyncMock) as mock_create_context:
         mock_create_context.side_effect = Exception(sensitive_info)
 
-        with patch("app.automation.browser_manager.initialize", new_callable=AsyncMock), \
-             patch("app.core.config.utcms_config.API_AUTH_MODE", "off"):
-             # We also need to mock report_service because it's called before the browser logic
+        with (
+            patch("app.automation.browser_manager.initialize", new_callable=AsyncMock),
+            patch("app.core.config.utcms_config.API_AUTH_MODE", "off"),
+        ):
+            # We also need to mock report_service because it's called before the browser logic
             with patch("app.api.routes.waybill_map.report_service.record_request", new_callable=AsyncMock):
-                 with patch("app.api.routes.waybill_map.report_service.record_failure", new_callable=AsyncMock):
+                with patch("app.api.routes.waybill_map.report_service.record_failure", new_callable=AsyncMock):
                     response = client.post("/waybill/create-with-map", json=payload)
 
                     assert response.status_code == 500

@@ -67,9 +67,7 @@ def _frontend_origins() -> list[str]:
 
     # Additional origins via FRONTEND_URLS (comma-separated)
     if utcms_config.FRONTEND_URLS:
-        raw_origins.extend(
-            u.strip().rstrip("/") for u in utcms_config.FRONTEND_URLS.split(",") if u.strip()
-        )
+        raw_origins.extend(u.strip().rstrip("/") for u in utcms_config.FRONTEND_URLS.split(",") if u.strip())
 
     # Alternate URL (dual-IP server support)
     if utcms_config.FRONTEND_URL_ALT:
@@ -88,7 +86,9 @@ def _frontend_origins() -> list[str]:
 
             scheme = parsed.scheme
             if scheme not in ("http", "https"):
-                logger.warning("Ignoring CORS origin with invalid scheme", extra={"extra_fields": {"origin": configured}})
+                logger.warning(
+                    "Ignoring CORS origin with invalid scheme", extra={"extra_fields": {"origin": configured}}
+                )
                 continue
 
             origin = f"{scheme}://{parsed.netloc}"
@@ -101,7 +101,9 @@ def _frontend_origins() -> list[str]:
                 variant_netloc = parsed.netloc.replace("127.0.0.1", "localhost", 1)
                 origins.add(f"{scheme}://{variant_netloc}")
         except Exception as exc:
-            logger.warning("Failed to parse CORS origin", extra={"extra_fields": {"origin": configured, "error": str(exc)}})
+            logger.warning(
+                "Failed to parse CORS origin", extra={"extra_fields": {"origin": configured, "error": str(exc)}}
+            )
 
     return sorted(origins)
 
@@ -225,15 +227,15 @@ async def request_context_middleware(request: Request, call_next):
     try:
         rate_limit_state = await rate_limit_dependency(request, rule=rate_rule)
     except HTTPException as exc:
-            content = exc.detail if isinstance(exc.detail, dict) else {"detail": exc.detail}
-            response = JSONResponse(status_code=exc.status_code, content=content)
-            for header_name, header_value in (exc.headers or {}).items():
-                response.headers[header_name] = header_value
-            response.headers["X-Request-ID"] = request_id
-            response.headers[utcms_config.TRACE_HEADER_NAME] = correlation_id
-            reset_request_id(token)
-            reset_execution_context(execution_tokens)
-            return response
+        content = exc.detail if isinstance(exc.detail, dict) else {"detail": exc.detail}
+        response = JSONResponse(status_code=exc.status_code, content=content)
+        for header_name, header_value in (exc.headers or {}).items():
+            response.headers[header_name] = header_value
+        response.headers["X-Request-ID"] = request_id
+        response.headers[utcms_config.TRACE_HEADER_NAME] = correlation_id
+        reset_request_id(token)
+        reset_execution_context(execution_tokens)
+        return response
 
     # Trace the request
     with trace_span(

@@ -1,244 +1,102 @@
-# راهنمای راه‌اندازی سریع UTCMS Automation
+# راهنمای شروع سریع BarPro
 
-> **📌 معماری جدید:** پروژه به معماری monorepo ارتقا یافته است. فرانت‌اند اصلی با Next.js و Tailwind در پوشه `apps/web/` و بک‌اند در `app/` قرار دارد. تمامی مستندات در راستای این تغییرات به‌روزرسانی شده‌اند.
+این راهنما برای اجرای سریع پروژه از checkout فعلی است. مسیرهای قدیمی `BarPro` هستند.
 
+## پیش‌نیازها
 
-## 🚀 راه‌اندازی در 3 دقیقه
+- Docker Engine و Docker Compose V2
+- Python 3.11 برای اجرای تست‌ها و ابزارهای محلی
+- Node.js 20 برای توسعه فرانت‌اند
+- فایل `.env` کامل‌شده بر اساس `.env.example`
 
-### پیش‌نیازها
-- ✅ Docker Desktop (در حال اجرا)
-- ✅ Python 3.11+ (محیط مجازی: `/Users/amirheidari/Python-ML`)
-- ✅ Node.js 20+
-- ✅ PostgreSQL و Redis (از طریق Docker)
-
----
-
-## گام 1: راه‌اندازی Docker
+## اجرای کامل با Docker
 
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
-docker compose up -d
+cp .env.example .env
+# .env را ویرایش و secretها را تنظیم کنید
+bash manage.sh start
+bash manage.sh health
 ```
 
-**بررسی وضعیت:**
-```bash
-docker ps
-```
+آدرس‌های محلی:
 
-باید 3 container ببینید:
-- `postgres:16-alpine` (پورت 5432)
-- `redis:7-alpine` (پورت 6379)
-- `prometheus` (پورت 9090)
+| سرویس | آدرس |
+|---|---|
+| Frontend via Nginx | `http://localhost` |
+| Backend API داخلی | `http://localhost:8000` |
+| API Docs داخلی | `http://localhost:8000/docs` |
 
----
-
-## گام 2: راه‌اندازی Backend
+## اجرای فقط زیرساخت برای توسعه
 
 ```bash
-./scripts/start_backend.sh
+bash manage.sh start infra
+bash manage.sh start proxy
 ```
 
-**خروجی موفق:**
-```
-✅ اتصال به دیتابیس موفق
-🚀 راه‌اندازی Backend API...
-📍 Backend در حال اجرا: http://localhost:8000
-```
-
-**تست Backend:**
-```bash
-curl http://localhost:8000/
-# خروجی: {"message":"سیستم اتوماسیون UTCMS فعال است"}
-```
-
----
-
-## گام 3: راه‌اندازی Frontend
-
-**در ترمینال جدید:**
-```bash
-./scripts/start_frontend.sh
-```
-
-**خروجی موفق:**
-```
-🚀 راه‌اندازی Frontend...
-📍 Frontend در حال اجرا: http://localhost:3000
-```
-
----
-
-## 🎯 دسترسی به سیستم
-
-| سرویس | آدرس | توضیحات |
-|-------|------|---------|
-| Frontend | http://localhost:3000 | رابط کاربری |
-| Backend API | http://localhost:8000 | REST API |
-| API Docs | http://localhost:8000/docs | Swagger UI |
-| Prometheus | http://localhost:9090 | Metrics |
-| PostgreSQL | localhost:5432 | Database |
-| Redis | localhost:6379 | Cache |
-
----
-
-## 🔧 تنظیمات اولیه
-
-### 1. تنظیم اطلاعات ورود UTCMS
-
-**فایل:** `.env`
+Backend development:
 
 ```bash
-# اضافه کنید:
-UTCMS_USERNAME=your_username
-UTCMS_PASSWORD=your_password
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 2. تنظیم API Key (اختیاری)
+Frontend development:
 
-Frontend به صورت پیش‌فرض از localStorage استفاده می‌کند.
-
----
-
-## 🧪 تست سیستم
-
-### تست Backend
-```bash
-# Health check
-curl http://localhost:8000/
-
-# API documentation
-open http://localhost:8000/docs
-```
-
-### تست Database
-```bash
-docker exec -it automation-barname-main-postgres-1 \
-  psql -U postgres -d utcms_rpa -c "SELECT COUNT(*) FROM clients;"
-```
-
-### اجرای تست‌ها
-```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
-source /Users/amirheidari/Python-ML/bin/activate
-pytest tests/ -v
-```
-
----
-
-## 📊 مانیتورینگ
-
-### لاگ‌های Backend
-```bash
-# در ترمینال Backend
-# لاگ‌ها به صورت JSON structured نمایش داده می‌شوند
-```
-
-### لاگ‌های Docker
-```bash
-docker logs automation-barname-main-postgres-1
-docker logs automation-barname-main-redis-1
-```
-
-### Prometheus Metrics
-```bash
-open http://localhost:9090
-```
-
----
-
-## 🛠️ عیب‌یابی
-
-### مشکل: Backend راه‌اندازی نمی‌شود
-
-**بررسی Docker:**
-```bash
-docker ps
-# اگر containers نبودند:
-docker compose up -d
-```
-
-**بررسی دیتابیس:**
-```bash
-docker exec -it automation-barname-main-postgres-1 \
-  psql -U postgres -c "\l"
-```
-
-### مشکل: Frontend راه‌اندازی نمی‌شود
-
-**نصب dependencies:**
 ```bash
 cd apps/web
-yarn install
+npm install
+npm run dev
 ```
 
-**بررسی Backend:**
+## احراز هویت
+
+- JWT در کوکی `httpOnly` با نام `utcms_auth_token` ذخیره می‌شود
+- فرانت‌اند Bearer token را از localStorage ارسال نمی‌کند
+- برای HTTP فعلی مقدار `AUTH_COOKIE_SECURE=false` لازم است
+- بعد از HTTPS مقدار `AUTH_COOKIE_SECURE=true` شود
+
+## مایگریشن
+
 ```bash
-curl http://localhost:8000/
+bash manage.sh migrate
 ```
 
-### مشکل: خطای اتصال به دیتابیس
+Alembic head فعلی:
 
-**بررسی password:**
+```text
+015_add_client_subscription_dates
+```
+
+## تست و build سریع
+
 ```bash
-# در .env یا docker-compose.yml
-POSTGRES_PASSWORD=<DB_PASSWORD>
+python -m ruff check app tests
+pytest tests/test_config_validation.py tests/test_multitenant_auth.py tests/test_master_admin.py
+cd apps/web && npm run build && npm audit --omit=dev
 ```
 
-**Restart containers:**
+## Docker buildهای تاییدشده
+
 ```bash
-docker compose down
-docker compose up -d
+docker compose -f compose/backend.yml build backend
+docker compose -f compose/web.yml build frontend
 ```
 
----
+فرانت‌اند داخل Docker build می‌شود و نیازی به آپلود دستی `.next/standalone` نیست.
 
-## 🔄 دستورات مفید
+## توقف سیستم
 
-### توقف سیستم
 ```bash
-# توقف Backend: Ctrl+C در ترمینال Backend
-# توقف Frontend: Ctrl+C در ترمینال Frontend
-# توقف Docker:
-docker compose down
+bash manage.sh stop
 ```
 
-### Restart سیستم
-```bash
-docker compose restart
-./scripts/start_backend.sh
-./scripts/start_frontend.sh
-```
+## عیب‌یابی سریع
 
-### پاک‌سازی
-```bash
-# پاک کردن containers
-docker compose down -v
+| مشکل | اقدام |
+|---|---|
+| فایل `.env` پیدا نمی‌شود | `cp .env.example .env` و مقداردهی secretها |
+| migration اجرا نشد | `bash manage.sh migrate` |
+| login کار نمی‌کند | `AUTH_COOKIE_SECURE`, `FRONTEND_URL`, CORS و کوکی مرورگر را بررسی کنید |
+| فرانت بالا نمی‌آید | `bash manage.sh logs frontend` و `bash manage.sh logs nginx` |
+| کپچا solve نمی‌شود | assetهای `app/automation/captcha/assets/` و `persian_number_ocr.keras` را بررسی کنید |
 
-# پاک کردن node_modules
-cd apps/web
-rm -rf node_modules
-yarn install
-```
-
----
-
-## 📚 مستندات بیشتر
-
-- [گزارش جامع بررسی](./COMPREHENSIVE_AUDIT_REPORT.md)
-- [گزارش ارتقا](./UPGRADE_REPORT.md)
-- [گزارش پیاده‌سازی](./UPGRADE_IMPLEMENTATION_REPORT.md)
-- [مشکلات و راه‌حل‌ها](./PROBLEMS_AND_SOLUTIONS.md)
-
----
-
-## 💡 نکات مهم
-
-1. **همیشه Docker را قبل از Backend راه‌اندازی کنید**
-2. **Backend باید قبل از Frontend اجرا شود**
-3. **برای ثبت بارنامه واقعی، اطلاعات ورود UTCMS الزامی است**
-4. **تست‌ها را قبل از deploy اجرا کنید**
-
----
-
-**آخرین به‌روزرسانی:** 2025-05-01  
-**نسخه:** 2.1.0
+Last updated: 2026-07-08

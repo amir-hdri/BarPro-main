@@ -39,15 +39,17 @@ async def test_service_returns_safe_mode_response():
     service = WaybillService()
     request = create_request(OperationMode.SAFE)
 
-    with patch("app.automation.browser.browser_manager.initialize", AsyncMock()), patch(
-        "app.automation.browser.browser_manager.create_context", AsyncMock(return_value=("sid", AsyncMock()))
-    ), patch("app.automation.browser.browser_manager.new_page", AsyncMock(return_value=AsyncMock())), patch(
-        "app.automation.browser.browser_manager.close_context", AsyncMock()
-    ), patch("app.automation.auth.UTCMSAuthenticator") as auth_cls, patch(
-        "app.automation.waybill_enhanced.EnhancedWaybillManager"
-    ) as manager_cls, patch("app.automation.reporting.report_service.record_request", AsyncMock()), patch(
-        "app.automation.reporting.report_service.record_success", AsyncMock()
-    ), patch("app.automation.reporting.report_service.record_map_usage", AsyncMock()):
+    with (
+        patch("app.automation.browser.browser_manager.initialize", AsyncMock()),
+        patch("app.automation.browser.browser_manager.create_context", AsyncMock(return_value=("sid", AsyncMock()))),
+        patch("app.automation.browser.browser_manager.new_page", AsyncMock(return_value=AsyncMock())),
+        patch("app.automation.browser.browser_manager.close_context", AsyncMock()),
+        patch("app.automation.auth.UTCMSAuthenticator") as auth_cls,
+        patch("app.automation.waybill_enhanced.EnhancedWaybillManager") as manager_cls,
+        patch("app.automation.reporting.report_service.record_request", AsyncMock()),
+        patch("app.automation.reporting.report_service.record_success", AsyncMock()),
+        patch("app.automation.reporting.report_service.record_map_usage", AsyncMock()),
+    ):
         auth_instance = auth_cls.return_value
         auth_instance._is_logged_in = AsyncMock(return_value=True)
 
@@ -101,18 +103,15 @@ async def test_service_returns_503_when_login_fails_due_to_network():
         login_url="https://barname.utcms.ir/Barname/Account/Login",
     )
 
-    with patch("app.core.config.utcms_config.ALLOW_LIVE_SUBMIT", True), patch(
-        "app.automation.browser.browser_manager.initialize", AsyncMock()
-    ), patch(
-        "app.automation.browser.browser_manager.create_context", AsyncMock(return_value=("sid", AsyncMock()))
-    ), patch(
-        "app.automation.browser.browser_manager.new_page", AsyncMock(return_value=AsyncMock())
-    ), patch(
-        "app.automation.browser.browser_manager.close_context", AsyncMock()
-    ), patch("app.automation.auth.UTCMSAuthenticator") as auth_cls, patch(
-        "app.automation.reporting.report_service.record_request", AsyncMock()
-    ), patch(
-        "app.automation.reporting.report_service.record_failure", AsyncMock()
+    with (
+        patch("app.core.config.utcms_config.ALLOW_LIVE_SUBMIT", True),
+        patch("app.automation.browser.browser_manager.initialize", AsyncMock()),
+        patch("app.automation.browser.browser_manager.create_context", AsyncMock(return_value=("sid", AsyncMock()))),
+        patch("app.automation.browser.browser_manager.new_page", AsyncMock(return_value=AsyncMock())),
+        patch("app.automation.browser.browser_manager.close_context", AsyncMock()),
+        patch("app.automation.auth.UTCMSAuthenticator") as auth_cls,
+        patch("app.automation.reporting.report_service.record_request", AsyncMock()),
+        patch("app.automation.reporting.report_service.record_failure", AsyncMock()),
     ):
         auth_instance = auth_cls.return_value
         auth_instance._is_logged_in = AsyncMock(return_value=False)

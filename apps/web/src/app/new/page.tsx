@@ -159,6 +159,16 @@ export default function NewWaybillPage() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
 
+  // Scheduling state
+  const [isScheduled, setIsScheduled] = useState(false);
+  const [scheduleTitle, setScheduleTitle] = useState("");
+  const [scheduleFrequency, setScheduleFrequency] = useState("daily");
+  const [scheduleRunTime, setScheduleRunTime] = useState("08:00");
+  const [scheduleRunTimes, setScheduleRunTimes] = useState("08:00");
+  const [scheduleSpecificDates, setScheduleSpecificDates] = useState("");
+  const [scheduleStartDate, setScheduleStartDate] = useState("");
+  const [scheduleEndDate, setScheduleEndDate] = useState("");
+
   useEffect(() => {
     async function loadDrivers() {
       if (role !== "client") { setLoadingDrivers(false); return; }
@@ -296,6 +306,47 @@ export default function NewWaybillPage() {
         shipping_options: { two_way: parsed.data.shipping_two_way, time_limit: parsed.data.shipping_time_limit, end_shipping: parsed.data.shipping_end_shipping || undefined, otp: parsed.data.shipping_otp || undefined, waybill_number: parsed.data.waybill_number },
       },
     };
+
+    if (isScheduled) {
+      if (!selectedDriver) {
+        setServerError("انتخاب راننده برای زمان‌بندی الزامی است");
+        return;
+      }
+      if (!scheduleTitle.trim()) {
+        setServerError("عنوان زمان‌بندی الزامی است");
+        return;
+      }
+      if (!/^\d{2}:\d{2}$/.test(scheduleRunTime)) {
+        setServerError("فرمت ساعت اجرا باید HH:MM باشد");
+        return;
+      }
+
+      setSubmitting(true);
+      const schedulePayload = {
+        driver_id: selectedDriver.id,
+        title: scheduleTitle,
+        frequency: scheduleFrequency,
+        run_time: scheduleRunTime,
+        run_times: scheduleRunTimes ? scheduleRunTimes.split(',').map((s: string) => s.trim()).filter(Boolean) : [scheduleRunTime],
+        specific_dates: scheduleSpecificDates ? scheduleSpecificDates.split(',').map((s: string) => s.trim()).filter(Boolean) : [],
+        start_date: scheduleStartDate || undefined,
+        end_date: scheduleEndDate || undefined,
+        payload_template: payload,
+        is_active: true
+      };
+
+      const response = await api.post("/api/v1/driver-schedules", schedulePayload);
+      setSubmitting(false);
+
+      if (!response.success) {
+        setServerError(response.error || "ثبت زمان‌بندی ناموفق بود");
+        return;
+      }
+
+      setServerMessage("✅ زمان‌بندی خودکار بارنامه با موفقیت ایجاد شد.");
+      setTimeout(() => { router.push("/drivers"); router.refresh(); }, 1600);
+      return;
+    }
 
     setSubmitting(true);
     const response = await api.post<WaybillJob>("/api/v1/waybill-jobs", {
@@ -718,6 +769,111 @@ export default function NewWaybillPage() {
                         <span className="text-sm font-semibold text-slate-200">ثبت حمل رفت و برگشت</span>
                       </label>
                     </div>
+
+                    <div className="sm:col-span-2 border-t border-white/5 pt-5 mt-2">
+                      <label className="flex items-center gap-3 rounded-xl border border-white/5 bg-slate-950/60 px-4 py-3.5 cursor-pointer hover:bg-slate-950/80 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={isScheduled}
+                          onChange={(e) => setIsScheduled(e.target.checked)}
+                          className="w-4 h-4 accent-cyan-500"
+                        />
+                        <span className="text-sm font-semibold text-slate-200">زمان‌بندی و تکرار خودکار این بارنامه</span>
+                      </label>
+                    </div>
+
+                    {isScheduled && (
+                      <div className="sm:col-span-2 grid gap-5 sm:grid-cols-2 bg-slate-950/40 p-5 rounded-2xl border border-white/5 animate-in fade-in duration-200">
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-semibold text-slate-200">
+                            <span className="mb-2 block">عنوان برنامه زمان‌بندی</span>
+                            <input
+                              className="field"
+                              placeholder="مثال: برنامه روزانه بار آجر"
+                              value={scheduleTitle}
+                              onChange={(e) => setScheduleTitle(e.target.value)}
+                              required
+                            />
+                          </label>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-200">
+                            <span className="mb-2 block">تناوب</span>
+                            <select
+                              value={scheduleFrequency}
+                              onChange={(e) => setScheduleFrequency(e.target.value)}
+                              className="field"
+                            >
+                              <option value="daily" className="bg-slate-950">روزانه</option>
+                              <option value="weekly" className="bg-slate-950">هفتگی</option>
+                              <option value="once" className="bg-slate-950">یکبار</option>
+                            </select>
+                          </label>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-200">
+                            <span className="mb-2 block">ساعت اجرا (HH:MM)</span>
+                            <input
+                              className="field"
+                              placeholder="08:00"
+                              value={scheduleRunTime}
+                              onChange={(e) => setScheduleRunTime(e.target.value)}
+                              required
+                            />
+                          </label>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-200">
+                            <span className="mb-2 block">ساعت‌های اجرای بیشتر (جدا شده با کاما)</span>
+                            <input
+                              className="field"
+                              placeholder="08:00, 14:00"
+                              value={scheduleRunTimes}
+                              onChange={(e) => setScheduleRunTimes(e.target.value)}
+                            />
+                          </label>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-200">
+                            <span className="mb-2 block">تاریخ‌های مشخص (Solar Hijri YYYY-MM-DD, comma)</span>
+                            <input
+                              className="field"
+                              placeholder="1405-04-15, 1405-04-16"
+                              value={scheduleSpecificDates}
+                              onChange={(e) => setScheduleSpecificDates(e.target.value)}
+                            />
+                          </label>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-200">
+                            <span className="mb-2 block">از تاریخ (YYYY-MM-DD)</span>
+                            <input
+                              className="field"
+                              placeholder="1405-04-01"
+                              value={scheduleStartDate}
+                              onChange={(e) => setScheduleStartDate(e.target.value)}
+                            />
+                          </label>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-200">
+                            <span className="mb-2 block">تا تاریخ (YYYY-MM-DD)</span>
+                            <input
+                              className="field"
+                              placeholder="1405-04-30"
+                              value={scheduleEndDate}
+                              onChange={(e) => setScheduleEndDate(e.target.value)}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Summary before submit */}
@@ -794,7 +950,7 @@ export default function NewWaybillPage() {
                     ) : (
                       <>
                         <CheckIcon className="h-3.5 w-3.5" />
-                        ثبت و ارسال
+                        {isScheduled ? "ایجاد زمان‌بندی" : "ثبت و ارسال"}
                       </>
                     )}
                   </button>

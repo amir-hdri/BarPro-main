@@ -3,6 +3,7 @@
 This test intentionally uses a local in-memory HTML page (no Next.js frontend)
 to validate that SmartLocator fallbacks and CaptchaInterceptor are triggered.
 """
+
 from __future__ import annotations
 
 import json

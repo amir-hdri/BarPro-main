@@ -31,18 +31,20 @@ async def test_enqueue_inline_and_reuse_idempotency():
     manager = WaybillQueueManager()
     request = WaybillMapRequest.model_validate(_request_payload())
 
-    with patch("app.services.task_service.engine", test_engine), patch(
-        "app.core.config.utcms_config.QUEUE_ENABLED", False
-    ), patch(
-        "app.services.waybill_service.waybill_service.create_waybill_with_map",
-        new=AsyncMock(
-            return_value={
-                "success": True,
-                "status": "validated",
-                "mode": "safe",
-                "request_id": "r1",
-                "correlation_id": "corr-inline",
-            }
+    with (
+        patch("app.services.task_service.engine", test_engine),
+        patch("app.core.config.utcms_config.QUEUE_ENABLED", False),
+        patch(
+            "app.services.waybill_service.waybill_service.create_waybill_with_map",
+            new=AsyncMock(
+                return_value={
+                    "success": True,
+                    "status": "validated",
+                    "mode": "safe",
+                    "request_id": "r1",
+                    "correlation_id": "corr-inline",
+                }
+            ),
         ),
     ):
         first = await manager.enqueue_waybill(request, idempotency_key="idem-k1")
@@ -65,12 +67,11 @@ async def test_enqueue_fails_when_queue_unavailable_and_no_inline_fallback():
     manager = WaybillQueueManager()
     request = WaybillMapRequest.model_validate(_request_payload())
 
-    with patch("app.services.task_service.engine", test_engine), patch(
-        "app.core.config.utcms_config.QUEUE_ENABLED", True
-    ), patch(
-        "app.core.config.utcms_config.QUEUE_INLINE_FALLBACK", False
-    ), patch(
-        "app.queue.queue_manager.dispatch_waybill_task", side_effect=RuntimeError("broker-down")
+    with (
+        patch("app.services.task_service.engine", test_engine),
+        patch("app.core.config.utcms_config.QUEUE_ENABLED", True),
+        patch("app.core.config.utcms_config.QUEUE_INLINE_FALLBACK", False),
+        patch("app.queue.queue_manager.dispatch_waybill_task", side_effect=RuntimeError("broker-down")),
     ):
         with pytest.raises(HTTPException) as exc:
             await manager.enqueue_waybill(request, idempotency_key="idem-k2")

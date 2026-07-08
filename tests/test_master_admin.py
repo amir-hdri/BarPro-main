@@ -13,10 +13,11 @@ from app.services.multitenant_service import ClientService
 
 @pytest.mark.asyncio
 async def test_master_admin_login_and_token_resolution():
-    with patch("app.auth_multitenant.utcms_config.MASTER_ADMIN_USERNAME", "master_bar"), patch(
-        "app.auth_multitenant.utcms_config.MASTER_ADMIN_PASSWORD", "secure_test_password_123!"
-    ), patch("app.auth_multitenant.utcms_config.JWT_SECRET", "test-secret"), patch(
-        "app.auth_multitenant.utcms_config.JWT_ALGORITHM", "HS256"
+    with (
+        patch("app.auth_multitenant.utcms_config.MASTER_ADMIN_USERNAME", "master_bar"),
+        patch("app.auth_multitenant.utcms_config.MASTER_ADMIN_PASSWORD", "secure_test_password_123!"),
+        patch("app.auth_multitenant.utcms_config.JWT_SECRET", "test-secret"),
+        patch("app.auth_multitenant.utcms_config.JWT_ALGORITHM", "HS256"),
     ):
         payload = await ClientService.login_master_admin(
             AdminLoginRequest(username="master_bar", password="secure_test_password_123!")

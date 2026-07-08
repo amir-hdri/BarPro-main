@@ -37,8 +37,10 @@ class TestUTCMSAuthenticator(unittest.IsolatedAsyncioTestCase):
 
         self.auth._find_selector = AsyncMock(side_effect=find_selector)
 
-        with patch("app.automation.auth.utcms_config.UTCMS_CAPTCHA_VALUE", ""), \
-             patch("app.automation.auth.utcms_config.UTCMS_ENABLE_MANUAL_CAPTCHA", False):
+        with (
+            patch("app.automation.auth.utcms_config.UTCMS_CAPTCHA_VALUE", ""),
+            patch("app.automation.auth.utcms_config.UTCMS_ENABLE_MANUAL_CAPTCHA", False),
+        ):
             success = await self.auth.login("user", "pass")
 
         self.assertFalse(success)
@@ -70,7 +72,9 @@ class TestUTCMSAuthenticator(unittest.IsolatedAsyncioTestCase):
     async def test_submit_login_handles_ajax_failure_response(self):
         mock_response = AsyncMock()
         mock_response.url = "https://barname.utcms.ir/Barname/Account/OldLogin"
-        mock_response.json = AsyncMock(return_value={"success": False, "message": "کاربری با این مشخصات در سامانه یافت نشد."})
+        mock_response.json = AsyncMock(
+            return_value={"success": False, "message": "کاربری با این مشخصات در سامانه یافت نشد."}
+        )
         self.page.wait_for_response = AsyncMock(return_value=mock_response)
         self.page.click = AsyncMock()
         self.page.wait_for_load_state = AsyncMock()
@@ -112,11 +116,13 @@ class TestUTCMSAuthenticator(unittest.IsolatedAsyncioTestCase):
 
         self.auth._find_selector = AsyncMock(side_effect=find_selector)
 
-        with patch("app.automation.auth.utcms_config.UTCMS_CAPTCHA_VALUE", ""), \
-             patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_ONLY", False), \
-             patch("app.automation.auth.utcms_config.CAPTCHA_MODE", "manual_only"), \
-             patch("app.automation.auth.utcms_config.UTCMS_ENABLE_MANUAL_CAPTCHA", True), \
-             patch("app.automation.auth.utcms_config.HEADLESS", True):
+        with (
+            patch("app.automation.auth.utcms_config.UTCMS_CAPTCHA_VALUE", ""),
+            patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_ONLY", False),
+            patch("app.automation.auth.utcms_config.CAPTCHA_MODE", "manual_only"),
+            patch("app.automation.auth.utcms_config.UTCMS_ENABLE_MANUAL_CAPTCHA", True),
+            patch("app.automation.auth.utcms_config.HEADLESS", True),
+        ):
             success = await self.auth.login("user", "pass")
 
         self.assertFalse(success)
@@ -139,9 +145,11 @@ class TestUTCMSAuthenticator(unittest.IsolatedAsyncioTestCase):
         self.auth._find_selector = AsyncMock(side_effect=find_selector)
         self.auth._solve_captcha_with_provider = AsyncMock(return_value=None)
 
-        with patch("app.automation.auth.utcms_config.UTCMS_CAPTCHA_VALUE", ""), \
-             patch("app.automation.auth.utcms_config.CAPTCHA_MODE", "provider_only"), \
-             patch("app.automation.auth.utcms_config.UTCMS_ENABLE_MANUAL_CAPTCHA", True):
+        with (
+            patch("app.automation.auth.utcms_config.UTCMS_CAPTCHA_VALUE", ""),
+            patch("app.automation.auth.utcms_config.CAPTCHA_MODE", "provider_only"),
+            patch("app.automation.auth.utcms_config.UTCMS_ENABLE_MANUAL_CAPTCHA", True),
+        ):
             success = await self.auth.login("user", "pass")
 
         self.assertFalse(success)
@@ -173,32 +181,40 @@ class TestUTCMSAuthenticator(unittest.IsolatedAsyncioTestCase):
 
         self.auth._find_selector = AsyncMock(side_effect=find_selector)
 
-        with patch("app.automation.auth.utcms_config.UTCMS_CAPTCHA_VALUE", ""), \
-             patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_ONLY", False), \
-             patch("app.automation.auth.utcms_config.CAPTCHA_MODE", "manual_only"), \
-             patch("app.automation.auth.utcms_config.UTCMS_ENABLE_MANUAL_CAPTCHA", False):
+        with (
+            patch("app.automation.auth.utcms_config.UTCMS_CAPTCHA_VALUE", ""),
+            patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_ONLY", False),
+            patch("app.automation.auth.utcms_config.CAPTCHA_MODE", "manual_only"),
+            patch("app.automation.auth.utcms_config.UTCMS_ENABLE_MANUAL_CAPTCHA", False),
+        ):
             success = await self.auth.login("user", "pass")
 
         self.assertFalse(success)
         self.assertIn("manual_only", self.auth.last_error or "")
 
     async def test_normalize_captcha_solution_with_persian_digits(self):
-        with patch("app.automation.auth.utcms_config.CAPTCHA_VALUE_MIN_LENGTH", 1), \
-             patch("app.automation.auth.utcms_config.CAPTCHA_VALUE_MAX_LENGTH", 6):
+        with (
+            patch("app.automation.auth.utcms_config.CAPTCHA_VALUE_MIN_LENGTH", 1),
+            patch("app.automation.auth.utcms_config.CAPTCHA_VALUE_MAX_LENGTH", 6),
+        ):
             normalized = self.auth._normalize_captcha_solution(" ۱۲۳۴ ")
         self.assertEqual(normalized, "1234")
 
     async def test_normalize_captcha_solution_rejects_non_numeric(self):
-        with patch("app.automation.auth.utcms_config.CAPTCHA_VALUE_MIN_LENGTH", 1), \
-             patch("app.automation.auth.utcms_config.CAPTCHA_VALUE_MAX_LENGTH", 6):
+        with (
+            patch("app.automation.auth.utcms_config.CAPTCHA_VALUE_MIN_LENGTH", 1),
+            patch("app.automation.auth.utcms_config.CAPTCHA_VALUE_MAX_LENGTH", 6),
+        ):
             normalized = self.auth._normalize_captcha_solution("abc")
         self.assertIsNone(normalized)
 
     async def test_handle_captcha_auto_only_retries_provider_and_succeeds(self):
-        with patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_ONLY", True), \
-             patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_MAX_ATTEMPTS", 3), \
-             patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_REFRESH_ON_RETRY", True), \
-             patch("app.automation.auth.utcms_config.CAPTCHA_MODE", "provider_first"):
+        with (
+            patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_ONLY", True),
+            patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_MAX_ATTEMPTS", 3),
+            patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_REFRESH_ON_RETRY", True),
+            patch("app.automation.auth.utcms_config.CAPTCHA_MODE", "provider_first"),
+        ):
             self.auth._solve_math_captcha = AsyncMock(return_value=None)
             self.auth._solve_captcha_with_provider = AsyncMock(side_effect=[None, "7241"])
             self.auth._refresh_captcha = AsyncMock(return_value=True)
@@ -209,8 +225,10 @@ class TestUTCMSAuthenticator(unittest.IsolatedAsyncioTestCase):
         self.auth._refresh_captcha.assert_awaited()
 
     async def test_handle_captcha_prefers_cnn_provider_before_math_solver(self):
-        with patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_ONLY", True), \
-             patch("app.automation.auth.utcms_config.CAPTCHA_MODE", "provider_only"):
+        with (
+            patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_ONLY", True),
+            patch("app.automation.auth.utcms_config.CAPTCHA_MODE", "provider_only"),
+        ):
             self.auth._solve_captcha_with_provider = AsyncMock(return_value="7241")
             self.auth._solve_math_captcha = AsyncMock(return_value="12")
 
@@ -248,8 +266,10 @@ class TestUTCMSAuthenticator(unittest.IsolatedAsyncioTestCase):
 
         self.auth._submit_login = AsyncMock(side_effect=submit_side_effect)
 
-        with patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_ONLY", True), \
-             patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_MAX_ATTEMPTS", 3):
+        with (
+            patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_ONLY", True),
+            patch("app.automation.auth.utcms_config.CAPTCHA_AUTO_MAX_ATTEMPTS", 3),
+        ):
             success = await self.auth.login("user", "pass")
 
         self.assertTrue(success)
@@ -283,9 +303,7 @@ class TestUTCMSAuthenticator(unittest.IsolatedAsyncioTestCase):
         self.auth._looks_like_error_page = AsyncMock(return_value=False)
         self.auth._find_selector = AsyncMock(return_value=None)
         self.auth._has_auth_cookie = AsyncMock(return_value=False)
-        self.page.query_selector = AsyncMock(
-            side_effect=[object(), None, None, None, None]
-        )
+        self.page.query_selector = AsyncMock(side_effect=[object(), None, None, None, None])
 
         result = await self.auth._is_logged_in()
 
@@ -308,8 +326,10 @@ class TestUTCMSAuthenticator(unittest.IsolatedAsyncioTestCase):
         self.auth._extract_math_captcha_hints = AsyncMock(return_value=["8 + 2"])
 
         low_confidence = Mock(value="10", confidence=0.2, strategy="direct_expression")
-        with patch("app.automation.auth.utcms_config.CAPTCHA_MATH_MIN_CONFIDENCE", 0.7), \
-             patch("app.automation.auth.captcha_engine.solve_text_with_confidence", return_value=low_confidence):
+        with (
+            patch("app.automation.auth.utcms_config.CAPTCHA_MATH_MIN_CONFIDENCE", 0.7),
+            patch("app.automation.auth.captcha_engine.solve_text_with_confidence", return_value=low_confidence),
+        ):
             solved = await self.auth._solve_math_captcha()
 
         self.assertIsNone(solved)
@@ -318,8 +338,10 @@ class TestUTCMSAuthenticator(unittest.IsolatedAsyncioTestCase):
         self.auth._extract_math_captcha_hints = AsyncMock(return_value=["8 + 2"])
 
         high_confidence = Mock(value="10", confidence=0.9, strategy="direct_expression")
-        with patch("app.automation.auth.utcms_config.CAPTCHA_MATH_MIN_CONFIDENCE", 0.7), \
-             patch("app.automation.auth.captcha_engine.solve_text_with_confidence", return_value=high_confidence):
+        with (
+            patch("app.automation.auth.utcms_config.CAPTCHA_MATH_MIN_CONFIDENCE", 0.7),
+            patch("app.automation.auth.captcha_engine.solve_text_with_confidence", return_value=high_confidence),
+        ):
             solved = await self.auth._solve_math_captcha()
 
         self.assertEqual(solved, "10")
@@ -343,6 +365,7 @@ class TestUTCMSAuthenticator(unittest.IsolatedAsyncioTestCase):
             if "recaptcha" in selector:
                 return AsyncMock()
             return None
+
         self.page.query_selector = AsyncMock(side_effect=query_selector_side_effect)
 
         mock_locator = AsyncMock()
@@ -366,6 +389,7 @@ class TestUTCMSAuthenticator(unittest.IsolatedAsyncioTestCase):
             if "hcaptcha" in selector:
                 return AsyncMock()
             return None
+
         self.page.query_selector = AsyncMock(side_effect=query_selector_side_effect)
 
         mock_locator = AsyncMock()
@@ -414,10 +438,7 @@ class TestUTCMSAuthenticator(unittest.IsolatedAsyncioTestCase):
         self.page.locator = MagicMock(return_value=mock_locator)
 
         # evaluate side effect: solve() first, then token value
-        self.page.evaluate = AsyncMock(side_effect=[
-            None,
-            "mock-token-xyz"
-        ])
+        self.page.evaluate = AsyncMock(side_effect=[None, "mock-token-xyz"])
 
         result = await self.auth._solve_capjs_captcha()
         self.assertTrue(result)

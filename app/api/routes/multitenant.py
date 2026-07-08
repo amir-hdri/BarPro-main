@@ -21,6 +21,7 @@ from sqlmodel import case, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth_multitenant import get_current_admin, get_current_client
+from app.core.config import utcms_config
 from app.core.database import get_session
 from app.models_multitenant import Client, Driver, TaskSource, TaskStatus, WaybillJob
 from app.schemas.multitenant import (
@@ -69,6 +70,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["multi-tenant"])
 alias_router = APIRouter(tags=["multi-tenant-compat"])
 security = HTTPBearer()
+AUTH_COOKIE_NAME = "utcms_auth_token"
+
+
+def _auth_cookie_secure() -> bool:
+    """Keep HTTP deployments working while allowing HTTPS hardening via env."""
+    return utcms_config.AUTH_COOKIE_SECURE
 
 
 # ==================== AUTH ENDPOINTS ====================
@@ -102,13 +109,14 @@ async def login_client(
     """
     result = await ClientService.login_client(request, session)
     response.set_cookie(
-        key="utcms_auth_token",
+        key=AUTH_COOKIE_NAME,
         value=result["access_token"],
         httponly=True,
         max_age=86400,
         expires=86400,
         samesite="lax",
-        secure=False,
+        secure=_auth_cookie_secure(),
+        path="/",
     )
     return result
 
@@ -121,13 +129,14 @@ async def login_master_admin(
     """Authenticate the singleton master admin account."""
     result = await ClientService.login_master_admin(request)
     response.set_cookie(
-        key="utcms_auth_token",
+        key=AUTH_COOKIE_NAME,
         value=result["access_token"],
         httponly=True,
         max_age=86400,
         expires=86400,
         samesite="lax",
-        secure=False,
+        secure=_auth_cookie_secure(),
+        path="/",
     )
     return result
 
@@ -136,8 +145,10 @@ async def login_master_admin(
 async def logout_client(response: Response):
     """Log out the current user/admin and clear the authentication cookie."""
     response.delete_cookie(
-        key="utcms_auth_token",
+        key=AUTH_COOKIE_NAME,
         samesite="lax",
+        secure=_auth_cookie_secure(),
+        path="/",
     )
     return {"success": True, "detail": "Logged out successfully"}
 
@@ -406,7 +417,9 @@ async def list_driver_schedules(
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ):
-    return await DriverScheduleService.list_schedules(client, session, driver_id=driver_id, page=page, page_size=page_size)
+    return await DriverScheduleService.list_schedules(
+        client, session, driver_id=driver_id, page=page, page_size=page_size
+    )
 
 
 @router.put("/driver-schedules/{schedule_id}", response_model=DriverScheduleResponse)
@@ -824,4 +837,3 @@ async def get_fuel_inquiry(
     دریافت وضعیت و اطلاعات استخراج‌شده یک استعلام سوخت خاص.
     """
     return await fuel_inquiry_service.get_inquiry(client, inquiry_id, session)
-

@@ -283,6 +283,14 @@ select.field {
   width: 2px;
   background: linear-gradient(to bottom, rgba(255, 255, 255, 0.1), transparent);
 }
+/* ─── Hide scrollbar utility ─────────────────────────────────── */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
 /* ─── Scrollbar ──────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 @media (min-width: 640px) {

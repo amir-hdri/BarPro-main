@@ -2,6 +2,7 @@
 Tests for shipping_options end-to-end pipeline, dry_run validation summary,
 _check_checkbox_with_fallback, and _check_account_eligibility.
 """
+
 import os
 import sys
 from unittest.mock import AsyncMock, patch
@@ -30,6 +31,7 @@ from app.services.waybill_service import WaybillService
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _base_request(**kwargs) -> WaybillMapRequest:
     """Return a minimal valid WaybillMapRequest, optionally overriding fields."""
     defaults = {
@@ -38,16 +40,21 @@ def _base_request(**kwargs) -> WaybillMapRequest:
         "sender": SenderModel(name="Alice", phone="09121111111", address="Addr A", national_code="1234567890"),
         "receiver": ReceiverModel(name="Bob", phone="09122222222", address="Addr B"),
         "origin": LocationModel(
-            province="تهران", city="تهران", address="خ آزادی",
+            province="تهران",
+            city="تهران",
+            address="خ آزادی",
             coordinates=GeoCoordinateModel(lat=35.6892, lng=51.3890),
         ),
         "destination": LocationModel(
-            province="مشهد", city="مشهد", address="خ امام رضا",
+            province="مشهد",
+            city="مشهد",
+            address="خ امام رضا",
             coordinates=GeoCoordinateModel(lat=36.2972, lng=59.6067),
         ),
         "cargo": CargoModel(type="General", weight=1000, count=1, description="test"),
-        "vehicle": VehicleModel(driver_national_code="1234567890", driver_phone="09121111111",
-                             plate="12A34567", type="Truck"),
+        "vehicle": VehicleModel(
+            driver_national_code="1234567890", driver_phone="09121111111", plate="12A34567", type="Truck"
+        ),
         "financial": FinancialModel(cost=1000, payment_method="Cash"),
     }
     defaults.update(kwargs)
@@ -70,6 +77,7 @@ def _base_data() -> dict:
 # ---------------------------------------------------------------------------
 # 1. Schema – ShippingOptionsModel serialisation
 # ---------------------------------------------------------------------------
+
 
 class TestShippingOptionsModel:
     def test_defaults(self):
@@ -100,6 +108,7 @@ class TestShippingOptionsModel:
 # ---------------------------------------------------------------------------
 # 2. WaybillService._build_waybill_payload includes shipping_options
 # ---------------------------------------------------------------------------
+
 
 class TestBuildWaybillPayload:
     def test_no_shipping_options_omitted_from_payload(self):
@@ -135,6 +144,7 @@ class TestBuildWaybillPayload:
 # 3. Queue serialisation round-trip keeps shipping_options
 # ---------------------------------------------------------------------------
 
+
 class TestQueueSerialisation:
     def test_model_dump_preserves_shipping_options(self):
         opts = ShippingOptionsModel(two_way=True, time_limit=45, end_shipping="1402-01-01")
@@ -142,6 +152,7 @@ class TestQueueSerialisation:
         dumped = req.model_dump()
         # Round-trip via JSON (simulates Redis queue)
         import json
+
         serialised = json.dumps(dumped)
         reloaded = json.loads(serialised)
         restored = WaybillMapRequest.model_validate(reloaded)
@@ -154,6 +165,7 @@ class TestQueueSerialisation:
 # ---------------------------------------------------------------------------
 # 4. WaybillService._categorize_exception
 # ---------------------------------------------------------------------------
+
 
 class TestCategorizeException:
     def test_captcha(self):
@@ -185,14 +197,17 @@ class TestCategorizeException:
 # 5. EnhancedWaybillManager – _check_account_eligibility
 # ---------------------------------------------------------------------------
 
+
 class TestCheckAccountEligibility:
     def _make_manager(self):
         page = AsyncMock()
         ctx = AsyncMock()
-        with patch("app.automation.waybill_enhanced.PageInteractor"), \
-             patch("app.automation.waybill_enhanced.MapController"), \
-             patch("app.automation.waybill_enhanced.LocationSelector"), \
-             patch("app.automation.waybill_enhanced.RouteCalculator"):
+        with (
+            patch("app.automation.waybill_enhanced.PageInteractor"),
+            patch("app.automation.waybill_enhanced.MapController"),
+            patch("app.automation.waybill_enhanced.LocationSelector"),
+            patch("app.automation.waybill_enhanced.RouteCalculator"),
+        ):
             mgr = EnhancedWaybillManager(page, ctx)
         mgr.page = page
         return mgr
@@ -245,14 +260,17 @@ class TestCheckAccountEligibility:
 # 6. EnhancedWaybillManager – _check_checkbox_with_fallback
 # ---------------------------------------------------------------------------
 
+
 class TestCheckboxWithFallback:
     def _make_manager(self):
         page = AsyncMock()
         ctx = AsyncMock()
-        with patch("app.automation.waybill_enhanced.PageInteractor"), \
-             patch("app.automation.waybill_enhanced.MapController"), \
-             patch("app.automation.waybill_enhanced.LocationSelector"), \
-             patch("app.automation.waybill_enhanced.RouteCalculator"):
+        with (
+            patch("app.automation.waybill_enhanced.PageInteractor"),
+            patch("app.automation.waybill_enhanced.MapController"),
+            patch("app.automation.waybill_enhanced.LocationSelector"),
+            patch("app.automation.waybill_enhanced.RouteCalculator"),
+        ):
             mgr = EnhancedWaybillManager(page, ctx)
         mgr.page = page
         return mgr
@@ -326,17 +344,21 @@ class TestCheckboxWithFallback:
 # 7. EnhancedWaybillManager – dry_run validation_summary fields
 # ---------------------------------------------------------------------------
 
+
 class TestDryRunValidationSummary:
     def _make_manager(self, page=None, ctx=None):
         from unittest.mock import Mock
+
         page = page or AsyncMock()
         page.locator = Mock()
         page.evaluate.return_value = False
         ctx = ctx or AsyncMock()
-        with patch("app.automation.waybill_enhanced.PageInteractor"), \
-             patch("app.automation.waybill_enhanced.MapController"), \
-             patch("app.automation.waybill_enhanced.LocationSelector"), \
-             patch("app.automation.waybill_enhanced.RouteCalculator"):
+        with (
+            patch("app.automation.waybill_enhanced.PageInteractor"),
+            patch("app.automation.waybill_enhanced.MapController"),
+            patch("app.automation.waybill_enhanced.LocationSelector"),
+            patch("app.automation.waybill_enhanced.RouteCalculator"),
+        ):
             mgr = EnhancedWaybillManager(page, ctx)
         mgr.page = page
         mgr.context = ctx
@@ -415,6 +437,7 @@ class TestDryRunValidationSummary:
 # 8. WaybillService end-to-end with shipping_options passed to manager
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_service_passes_shipping_options_to_manager():
     """Verify that shipping_options survive through the service layer into the manager."""
@@ -432,18 +455,19 @@ async def test_service_passes_shipping_options_to_manager():
             "validation_summary": {"ready_for_submit": True},
         }
 
-    with patch("app.automation.browser.browser_manager.initialize", AsyncMock()), \
-         patch("app.automation.browser.browser_manager.create_context",
-               AsyncMock(return_value=("sid", AsyncMock()))), \
-         patch("app.automation.browser.browser_manager.new_page", AsyncMock(return_value=AsyncMock())), \
-         patch("app.automation.browser.browser_manager.close_context", AsyncMock()), \
-         patch("app.automation.auth.UTCMSAuthenticator") as auth_cls, \
-         patch("app.automation.waybill_enhanced.EnhancedWaybillManager") as mgr_cls, \
-         patch("app.automation.reporting.report_service.record_request", AsyncMock()), \
-         patch("app.automation.reporting.report_service.record_success", AsyncMock()), \
-         patch("app.automation.reporting.report_service.record_map_usage", AsyncMock()), \
-         patch("app.core.config.utcms_config.UTCMS_USERNAME", "user"), \
-         patch("app.core.config.utcms_config.UTCMS_PASSWORD", "pass"):
+    with (
+        patch("app.automation.browser.browser_manager.initialize", AsyncMock()),
+        patch("app.automation.browser.browser_manager.create_context", AsyncMock(return_value=("sid", AsyncMock()))),
+        patch("app.automation.browser.browser_manager.new_page", AsyncMock(return_value=AsyncMock())),
+        patch("app.automation.browser.browser_manager.close_context", AsyncMock()),
+        patch("app.automation.auth.UTCMSAuthenticator") as auth_cls,
+        patch("app.automation.waybill_enhanced.EnhancedWaybillManager") as mgr_cls,
+        patch("app.automation.reporting.report_service.record_request", AsyncMock()),
+        patch("app.automation.reporting.report_service.record_success", AsyncMock()),
+        patch("app.automation.reporting.report_service.record_map_usage", AsyncMock()),
+        patch("app.core.config.utcms_config.UTCMS_USERNAME", "user"),
+        patch("app.core.config.utcms_config.UTCMS_PASSWORD", "pass"),
+    ):
 
         auth_cls.return_value._is_logged_in = AsyncMock(return_value=True)
         mgr_instance = mgr_cls.return_value

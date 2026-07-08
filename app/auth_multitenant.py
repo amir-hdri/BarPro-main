@@ -231,6 +231,19 @@ async def get_current_client(
             detail="Client account is not active",
         )
 
+    # Check subscription dates
+    now = datetime.now(UTC).replace(tzinfo=None)
+    if client.subscription_start_date and client.subscription_start_date > now:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="اشتراک شما هنوز شروع نشده است.",
+        )
+    if client.subscription_end_date and client.subscription_end_date < now:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="اشتراک شما به پایان رسیده است.",
+        )
+
     return client
 
 

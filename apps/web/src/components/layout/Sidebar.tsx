@@ -12,6 +12,7 @@ import {
   UserCircleIcon,
   Cog6ToothIcon,
   FireIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { SparklesIcon } from '@heroicons/react/24/solid';
 
@@ -34,9 +35,10 @@ const adminNavigation = [
 
 interface SidebarProps {
   onNavigate?: () => void;
+  onClose?: () => void;
 }
 
-export function Sidebar({ onNavigate }: SidebarProps) {
+export function Sidebar({ onNavigate, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { isAdmin } = useSession();
   const navigation = isAdmin ? adminNavigation : clientNavigation;
@@ -48,14 +50,27 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
       <div className="relative z-10 flex flex-col flex-1 overflow-y-auto overflow-x-hidden gap-6 scrollbar-none">
         <div className="px-2 pt-2">
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-[1.25rem] bg-gradient-to-br from-cyan-400 to-cyan-600 shadow-[0_0_30px_rgba(6,182,212,0.5)]">
-              <SparklesIcon className="h-6 w-6 text-white animate-pulse" />
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-[1.25rem] bg-gradient-to-br from-cyan-400 to-cyan-600 shadow-[0_0_30px_rgba(6,182,212,0.5)]">
+                <SparklesIcon className="h-6 w-6 text-white animate-pulse" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-black text-white bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">BarPro</h1>
+                <p className="text-[10px] font-bold uppercase text-cyan-400 mt-0.5">Enterprise</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-black text-white bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">BarPro</h1>
-              <p className="text-[10px] font-bold uppercase text-cyan-400 mt-0.5">Enterprise</p>
-            </div>
+
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="xl:hidden inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 transition-all active:scale-95 shadow-sm"
+                aria-label="close menu"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            )}
           </div>
 
           <div className="mt-6 flex items-center justify-between rounded-2xl bg-white/5 border border-white/10 px-4 py-3 backdrop-blur-md">

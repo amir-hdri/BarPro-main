@@ -1,185 +1,101 @@
-# راهنمای راه‌اندازی سیستم UTCMS
+# راهنمای راه‌اندازی سیستم
 
-## وب اپ جدید با موفقیت ساخته شد! 🎉
+این راهنما دستورات فعلی راه‌اندازی BarPro را پوشش می‌دهد.
 
-یک رابط کاربری مدرن، سریع و کاملاً responsive با ویژگی‌های زیر طراحی شده است:
-
-### ✨ ویژگی‌ها:
-
-- **طراحی مدرن و حرفه‌ای** با Tailwind CSS
-- **کاملاً Responsive** برای موبایل، تبلت و دسکتاپ
-- **سریع و بهینه** با Next.js 16 و Turbopack
-- **یکپارچه با Backend** - تمام APIها متصل شده‌اند
-- **بدون خطا** - تست شده و آماده استفاده
-
-### 📱 صفحات:
-
-1. **داشبورد** (`/`) - نمای کلی آمار سیستم
-2. **ثبت بارنامه** (`/new`) - فرم کامل ثبت بارنامه
-3. **تاریخچه** (`/history`) - لیست و جستجوی بارنامه‌ها
-4. **رانندگان** (`/drivers`) - مدیریت رانندگان
-5. **گزارشات** (`/reports`) - تحلیل و گزارش‌گیری
-6. **تنظیمات** (`/settings`) - تنظیمات سیستم
-
----
-
-## 🚀 راه‌اندازی سیستم
-
-### روش 1: استفاده از اسکریپت خودکار (توصیه می‌شود)
-
-در ترمینال خودتان این دستور را اجرا کنید:
+## اجرای production-like محلی یا سرور
 
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
-./scripts/start_system.sh
+cd /opt/barpro
+bash manage.sh start
 ```
 
-### روش 2: راه‌اندازی دستی
+اگر روی ماشین توسعه اجرا می‌کنید، همین دستور را از ریشه repo اجرا کنید.
 
-#### مرحله 1: راه‌اندازی Docker Services
+## ترتیب لایه‌ها
 
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
-docker compose up -d postgres redis prometheus
+bash manage.sh start infra
+bash manage.sh start proxy
+bash manage.sh start backend
+bash manage.sh start web
+bash manage.sh start mon
 ```
 
-#### مرحله 2: راه‌اندازی Backend
+`bash manage.sh start` همه این لایه‌ها را به ترتیب اجرا می‌کند.
 
-در یک ترمینال جدید:
+## بررسی وضعیت
 
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
-
-export DATABASE_URL="postgresql+asyncpg://postgres:<DB_PASSWORD>@127.0.0.1:5432/utcms_rpa"
-export REDIS_URL="redis://:${REDIS_PASSWORD}@127.0.0.1:6379/0"
-export REDIS_PASSWORD="your_secure_redis_password_here"
-export PORT=8000
-
-/Users/amirheidari/Python-ML/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+bash manage.sh status
+bash manage.sh health
 ```
 
-#### مرحله 3: راه‌اندازی Frontend
-
-در یک ترمینال جدید دیگر:
+## مشاهده لاگ
 
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main/apps/web
-
-export PATH="/opt/node/bin:$PATH"
-export NEXT_PUBLIC_API_URL="http://localhost:8000/api"
-export PORT=3000
-export HOSTNAME=0.0.0.0
-
-/opt/node/bin/node .next/standalone/server.js
+bash manage.sh logs backend
+bash manage.sh logs frontend
+bash manage.sh logs nginx
 ```
 
----
+## توسعه Backend
 
-## 🌐 دسترسی به سیستم
-
-بعد از راه‌اندازی، مرورگر را باز کنید:
-
-- **Frontend (وب اپ)**: http://localhost:3000
-- **Backend API**: http://localhost:8000/docs
-- **Prometheus**: http://localhost:9090
-
----
-
-## 🛑 توقف سیستم
+ابتدا زیرساخت را بالا بیاورید:
 
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
-./scripts/stop_system.sh
+bash manage.sh start infra
+bash manage.sh start proxy
 ```
 
-یا به صورت دستی:
+سپس backend را دستی اجرا کنید:
 
 ```bash
-# توقف Backend و Frontend
-pkill -f "uvicorn app.main:app"
-pkill -f "node.*server.js"
-
-# توقف Docker
-docker compose down
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
----
-
-## 📝 نکات مهم
-
-1. **حتماً از ترمینال خودتان اجرا کنید** - نه از طریق ابزارهای دیگر
-2. **ترمینال را باز نگه دارید** - بستن ترمینال باعث توقف سرویس‌ها می‌شود
-3. **پورت‌ها را چک کنید** - مطمئن شوید پورت‌های 3000 و 8000 آزاد هستند
-4. **Docker باید در حال اجرا باشد** - Docker Desktop را روشن کنید
-
----
-
-## 🎨 تکنولوژی‌های استفاده شده
-
-### Frontend:
-- Next.js 16.2.3 (با Turbopack)
-- React 19
-- TypeScript
-- Tailwind CSS 3
-- Heroicons
-
-### Backend:
-- FastAPI
-- PostgreSQL
-- Redis
-- Prometheus
-
----
-
-## 🐛 عیب‌یابی
-
-### مشکل: Frontend باز نمی‌شود
+## توسعه Frontend
 
 ```bash
-# چک کنید که Backend در حال اجرا است
-curl http://localhost:8000/docs
-
-# چک کنید که Frontend در حال اجرا است
-curl http://localhost:3000
-
-# لاگ‌ها را بررسی کنید
-tail -f output/backend.log
-tail -f output/frontend.log
+cd apps/web
+npm install
+npm run dev
 ```
 
-### مشکل: خطای اتصال به دیتابیس
+نسخه فعلی فرانت‌اند Next.js 15 است. برای Docker production build نیازی به اجرای دستی `.next/standalone/server.js` نیست.
+
+## انتشار نسخه جدید
 
 ```bash
-# مطمئن شوید Docker در حال اجرا است
-docker ps
-
-# اگر نیست، راه‌اندازی کنید
-docker compose up -d postgres redis
+cd /opt/barpro
+git pull
+bash manage.sh deploy
 ```
 
-### مشکل: پورت اشغال است
+## اجرای migration دستی
 
 ```bash
-# پیدا کردن پروسس روی پورت 8000
-lsof -i :8000
-
-# پیدا کردن پروسس روی پورت 3000
-lsof -i :3000
-
-# کشتن پروسس (PID را جایگزین کنید)
-kill -9 <PID>
+bash manage.sh migrate
 ```
 
----
+## backup دیتابیس
 
-## 📞 پشتیبانی
+```bash
+bash manage.sh backup
+```
 
-اگر مشکلی داشتید:
+## توقف سیستم
 
-1. لاگ‌های `output/backend.log` و `output/frontend.log` را بررسی کنید
-2. مطمئن شوید تمام سرویس‌های Docker در حال اجرا هستند
-3. مطمئن شوید Node.js و Python نصب شده‌اند
+```bash
+bash manage.sh stop
+```
 
----
+## نکات مهم
 
-**موفق باشید! 🚀**
+- `.env` را commit نکنید
+- روی HTTP مقدار `AUTH_COOKIE_SECURE=false` را حفظ کنید
+- بعد از HTTPS مقدار `AUTH_COOKIE_SECURE=true` شود
+- Alembic head فعلی `015_add_client_subscription_dates` است
+- فرانت‌اند از کوکی `httpOnly` برای JWT استفاده می‌کند
+- Squid ports `3129` و `3130` باید با `scripts/secure_squid_ports.sh` محدود شوند
+
+Last updated: 2026-07-08

@@ -14,13 +14,7 @@ from app.workers.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 
-def _run(coro):
-    loop = asyncio.new_event_loop()
-    try:
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+from app.core.utils import run_async as _run
 
 
 if celery_app is not None:
@@ -146,5 +140,6 @@ if celery_app is not None:
         except Exception:
             logger.exception(f"run_scheduled_job_failed_for_job_{job_id}")
             raise
+
 
 # Import other task files to ensure they are registered with the celery app

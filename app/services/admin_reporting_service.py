@@ -59,11 +59,14 @@ class AdminReportingService:
         session = async_session_factory()
         try:
             from sqlalchemy import func
+
             total_clients = (await session.exec(select(func.count(Client.id)))).one()
             active_clients = (await session.exec(select(func.count(Client.id)).where(Client.status == "active"))).one()
 
             # Paginate clients at database level
-            stmt = select(Client).order_by(col(Client.created_at).desc()).offset((page - 1) * page_size).limit(page_size)
+            stmt = (
+                select(Client).order_by(col(Client.created_at).desc()).offset((page - 1) * page_size).limit(page_size)
+            )
             result = await session.exec(stmt)
             clients = result.all()
 
@@ -189,6 +192,7 @@ class AdminReportingService:
                 stmt = stmt.where(WaybillJob.driver_id == filters.driver_id)
             if filters.plate_id:
                 from app.models_multitenant import DriverPlate
+
                 plate_driver_subquery = select(DriverPlate.driver_id).where(DriverPlate.id == filters.plate_id)
                 stmt = stmt.where(WaybillJob.driver_id.in_(plate_driver_subquery))
             if filters.status:
@@ -205,6 +209,7 @@ class AdminReportingService:
 
             # Get total count using a light aggregate query
             from sqlalchemy import func
+
             count_stmt = select(func.count(WaybillJob.id))
             if filters.client_id:
                 count_stmt = count_stmt.where(WaybillJob.client_id == filters.client_id)
@@ -212,6 +217,7 @@ class AdminReportingService:
                 count_stmt = count_stmt.where(WaybillJob.driver_id == filters.driver_id)
             if filters.plate_id:
                 from app.models_multitenant import DriverPlate
+
                 plate_driver_subquery = select(DriverPlate.driver_id).where(DriverPlate.id == filters.plate_id)
                 count_stmt = count_stmt.where(WaybillJob.driver_id.in_(plate_driver_subquery))
             if filters.status:

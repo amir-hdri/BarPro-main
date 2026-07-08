@@ -2,6 +2,33 @@
  
  All notable changes to the UTCMS Automation System.
  
+ ## [2.1.0] - 2026-07-08
+
+ ### Added
+ - Added PyTorch fuel CAPTCHA solver assets and provider option `pytorch_fuel`.
+ - Added migrations `014_add_year_month_to_fuel_inquiries` and `015_add_client_subscription_dates`.
+ - Added `AUTH_COOKIE_SECURE` to control secure httpOnly auth cookies for HTTP vs HTTPS deployments.
+
+ ### Changed
+ - Frontend Dockerfile now performs a full multi-stage Next.js build inside Docker; `.next/standalone` no longer has to exist before upload.
+ - Backend Docker build selects `tensorflow-cpu` on x86_64 servers and `tensorflow` on non-x86 builds for local ARM compatibility.
+ - Frontend auth now relies on httpOnly cookies for JWT transport and no longer sends Bearer tokens from localStorage.
+ - PWA tooling moved to development/build dependencies; production npm audit now passes with `npm audit --omit=dev`.
+
+ ### Fixed
+ - Fixed production HTTP login regression caused by forcing `Secure` cookies before HTTPS was enabled.
+ - Fixed Alembic migration downgrade idempotency for the new fuel inquiry and client subscription columns.
+ - Fixed generated artifact handling by ignoring local datasets, screenshots, model cache, tarballs, and PWA generated files.
+
+ ### Verified
+ - `npm run build`
+ - `npm audit --omit=dev`
+ - `docker compose -f compose/backend.yml build backend`
+ - `docker compose -f compose/web.yml build frontend`
+ - Focused auth/config/schedule tests passed.
+
+ ---
+
  ## [2.0.1] - 2026-04-23
  
  ### 🔥 Critical Fixes

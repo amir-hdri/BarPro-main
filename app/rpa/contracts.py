@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class SubmitOutcome(str, Enum):
+class SubmitOutcome(StrEnum):
     SUCCESS = "success"
     AUTH_EXPIRED = "auth_expired"
     RATE_LIMITED = "rate_limited"

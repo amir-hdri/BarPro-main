@@ -58,7 +58,17 @@ class UTCMSConfig:
         self.UTCMS_MANUAL_CAPTCHA_POLL_SECONDS = float(os.getenv("UTCMS_MANUAL_CAPTCHA_POLL_SECONDS", "0.7"))
         self.CAPTCHA_MODE = os.getenv("CAPTCHA_MODE", "provider_only").strip().lower()
         self.CAPTCHA_PROVIDER = os.getenv("CAPTCHA_PROVIDER", "auto").strip().lower()
-        _valid_captcha_providers = {"auto", "ensemble", "cnn", "keras_ocr", "enhanced_ocr", "local_ocr", "off"}
+        _valid_captcha_providers = {
+            "auto",
+            "ensemble",
+            "composite",
+            "cnn",
+            "pytorch_fuel",
+            "keras_ocr",
+            "enhanced_ocr",
+            "local_ocr",
+            "off",
+        }
         if self.CAPTCHA_PROVIDER not in _valid_captcha_providers:
             raise ValueError(
                 f"Invalid CAPTCHA_PROVIDER '{self.CAPTCHA_PROVIDER}'. "
@@ -142,8 +152,8 @@ class UTCMSConfig:
         self.READYZ_BROWSER_TIMEOUT_SECONDS = float(os.getenv("READYZ_BROWSER_TIMEOUT_SECONDS", "8"))
 
         self.WAYBILL_MAX_CONCURRENT = int(os.getenv("WAYBILL_MAX_CONCURRENT", "2"))
-        self.WAYBILL_MIN_GAP_SECONDS = float(os.getenv("WAYBILL_MIN_GAP_SECONDS", "0.8"))
-        self.WAYBILL_JITTER_SECONDS = float(os.getenv("WAYBILL_JITTER_SECONDS", "0.4"))
+        self.WAYBILL_MIN_GAP_SECONDS = float(os.getenv("WAYBILL_MIN_GAP_SECONDS", "8.0"))
+        self.WAYBILL_JITTER_SECONDS = float(os.getenv("WAYBILL_JITTER_SECONDS", "2.0"))
         self.WAYBILL_BLOCK_BACKOFF_SECONDS = float(os.getenv("WAYBILL_BLOCK_BACKOFF_SECONDS", "15"))
         self.WAYBILL_BLOCK_BACKOFF_MAX_SECONDS = float(os.getenv("WAYBILL_BLOCK_BACKOFF_MAX_SECONDS", "180"))
         self.WAYBILL_MAX_RETRIES = int(os.getenv("WAYBILL_MAX_RETRIES", "1"))
@@ -161,10 +171,7 @@ class UTCMSConfig:
         self.ENVIRONMENT = os.getenv("ENVIRONMENT", "development").strip().lower()
         self.DATABASE_URL = os.getenv("DATABASE_URL", "")
         if not self.DATABASE_URL or "sqlite" in self.DATABASE_URL.lower():
-            is_prod = (
-                os.getenv("NODE_ENV", "").lower() == "production"
-                or self.ENVIRONMENT == "production"
-            )
+            is_prod = os.getenv("NODE_ENV", "").lower() == "production" or self.ENVIRONMENT == "production"
             if is_prod:
                 from app.core.exceptions import ErrorCode, UTCMSException
 
@@ -210,6 +217,10 @@ class UTCMSConfig:
         self.FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").strip()
         self.FRONTEND_URLS = os.getenv("FRONTEND_URLS", "").strip()
         self.FRONTEND_URL_ALT = os.getenv("FRONTEND_URL_ALT", "").strip()
+        self.AUTH_COOKIE_SECURE = _to_bool(
+            os.getenv("AUTH_COOKIE_SECURE"),
+            default=self.FRONTEND_URL.lower().startswith("https://"),
+        )
 
         self.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
         self.LATENCY_SAMPLE_MAX = int(os.getenv("LATENCY_SAMPLE_MAX", "2000"))

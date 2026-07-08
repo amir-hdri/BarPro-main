@@ -36,7 +36,7 @@ class RedisConnectionManager:
     """
 
     def __init__(self) -> None:
-        self._redis: "aioredis.Redis | None" = None
+        self._redis: aioredis.Redis | None = None
         self._lock = threading.Lock()
 
     async def _close_existing(self) -> None:

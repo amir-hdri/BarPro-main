@@ -102,19 +102,19 @@ pool_recycle=3600,
 
 ### راه‌اندازی سریع Backend
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
+cd /opt/barpro
 ./scripts/start_backend.sh
 ```
 
 ### راه‌اندازی سریع Frontend
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
+cd /opt/barpro
 ./scripts/start_frontend.sh
 ```
 
 ### اجرای تست‌ها
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
+cd /opt/barpro
 source /Users/amirheidari/Python-ML/bin/activate
 python -m pytest tests/ -v
 ```

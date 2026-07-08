@@ -155,6 +155,7 @@ IP_BLOCK_PATTERNS = [
     "gateway",
 ]
 
+
 async def check_and_report_failure(error_msg: str) -> None:
     """
     Checks if the error message is indicative of an IP block or network timeout,
@@ -182,6 +183,7 @@ async def check_and_report_failure(error_msg: str) -> None:
         else:
             logger.debug("IP failure detected, but WORKER_IP_INDEX environment variable is not set.")
 
+
 def get_available_ip_indices() -> list[int]:
     """Parse list of available IP indices from environment."""
     raw = os.getenv("AVAILABLE_IP_INDICES", "1,2,3")
@@ -189,6 +191,7 @@ def get_available_ip_indices() -> list[int]:
         return [int(x.strip()) for x in raw.split(",") if x.strip()]
     except Exception:
         return [1, 2, 3]
+
 
 def get_next_ip_index_sync() -> int:
     """
@@ -218,6 +221,7 @@ def get_next_ip_index_sync() -> int:
         logger.error(f"Failed to get next IP index from Redis (sync): {exc}")
         # Default fallback to first available
         return available_indices[0] if available_indices else 1
+
 
 def get_routed_queue(base_queue: str) -> str:
     """

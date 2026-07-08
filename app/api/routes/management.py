@@ -80,7 +80,11 @@ async def upsert_account(request: ManagedAccountUpsertRequest):
     return await management_service.upsert_account(request)
 
 
-@router.post("/accounts/{account_external_name}/warm-session", response_model=dict, dependencies=[Depends(require_sensitive_auth)])
+@router.post(
+    "/accounts/{account_external_name}/warm-session",
+    response_model=dict,
+    dependencies=[Depends(require_sensitive_auth)],
+)
 async def warm_account_session(account_external_name: str):
     return await management_service.warm_account_session(account_external_name)
 

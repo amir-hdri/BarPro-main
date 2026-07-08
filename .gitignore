@@ -29,6 +29,13 @@ Thumbs.db
 # Output artifacts
 output/
 evidence/
+scratch/
+datasets/
+app/ui/assets/screenshots/
+remote_*.json
+output_fuel_result_local.png
+fuel_fill_correct.png
+fuel_fill_valid.png
 
 # SQLite runtime files
 *.db
@@ -51,11 +58,15 @@ upload_tar.py
 
 # Build artifacts
 *.tar.gz
+apps/web/public/service-worker.js
+apps/web/public/swe-worker-*.js
+apps/web/public/workbox-*.js
 
 # Temp browser/captcha dirs
 .temp_playwright/
 fuel captcha/
 login captch/
+app/automation/captcha/_model_cache/
 
 # ML model files
 *.keras

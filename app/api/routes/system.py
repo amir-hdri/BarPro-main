@@ -128,9 +128,10 @@ async def readyz():
         )
         checks["browser"] = "ok"
         details["browser"] = {"message": "browser initialized"}
-    except Exception:
+    except Exception as exc:
         checks["browser"] = "error"
-        details["browser"] = {"message": "browser initialization failed"}
+        err_msg = f"browser initialization failed: {str(exc)}" if str(exc) else "browser initialization failed"
+        details["browser"] = {"message": err_msg}
 
     try:
         valid_modes = {"api_key", "jwt", "api_key_or_jwt", "api_key_and_jwt", "off", "none", "disabled"}
@@ -188,9 +189,11 @@ async def readyz():
             has_stale = any(item.get("is_stale", False) for item in cache_snapshot.values() if item.get("cached"))
             checks["itmb_baseinfo_cache"] = "error" if (has_missing or has_stale) else "ok"
             details["itmb_baseinfo_cache"] = {
-                "message": "baseinfo cache ready"
-                if checks["itmb_baseinfo_cache"] == "ok"
-                else "baseinfo cache missing or stale",
+                "message": (
+                    "baseinfo cache ready"
+                    if checks["itmb_baseinfo_cache"] == "ok"
+                    else "baseinfo cache missing or stale"
+                ),
                 "snapshot": cache_snapshot,
             }
     except Exception:
@@ -501,6 +504,7 @@ def _generate_security_recommendations(report: dict) -> list[str]:
 async def toggle_circuit_breaker(enabled: bool = Query(...)):
     """فعال یا غیرفعال کردن موقت قطع‌کننده مدار."""
     from app.services.itmb_ws_service import itmb_ws_service
+
     itmb_ws_service.toggle_circuit_breaker(enabled)
     return {
         "success": True,

@@ -133,9 +133,7 @@ class BarnameMlCaptchaSolver:
         self._device = (
             torch.device("mps")
             if torch.backends.mps.is_available()
-            else torch.device("cuda")
-            if torch.cuda.is_available()
-            else torch.device("cpu")
+            else torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         )
         try:
             checkpoint = torch.load(self.model_path, map_location=self._device)

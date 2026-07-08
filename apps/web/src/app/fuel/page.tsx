@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useState, useRef, useMemo, memo } from 'react';
 import {
@@ -55,16 +56,32 @@ interface FuelInquiry {
   screenshot_url?: string;
   created_at: string;
   updated_at: string;
+  year?: number;
+  month?: number;
+}
+
+interface WaybillJob {
+  id: number;
+  job_id: string;
+  driver_id?: number | null;
+  status: string;
+  created_at: string;
+  payload_json?: string | null;
+}
+
+interface WaybillTaskListResponse {
+  tasks: WaybillJob[];
+  total: number;
 }
 
 const MAX_POLLING_ATTEMPTS = 60;
 const TOTAL_SECONDS_EST = 50;
 
 const STEP_ESTIMATES = [
-  { label: 'آماده‌سازی مرورگر و پروکسی', desc: 'راه‌اندازی نشست Playwright اختصاصی و تخصیص پروکسی امن' },
-  { label: 'حل کپچا و ورود به پرتال', desc: 'تشخیص نوع کپچا (تیک‌باکس/ریاضی)، حل خودکار با هوش مصنوعی و ورود' },
-  { label: 'بارگذاری اطلاعات سهمیه', desc: 'ناوبری هوشمند به پرتال سهمیه سوخت UTCMS و استخراج سطرها' },
-  { label: 'تصویربرداری و نهایی‌سازی', desc: 'ثبت اسکرین‌شات پرتال و ذخیره‌سازی داده‌های استخراج شده در پایگاه داده' }
+  { label: 'آماده‌سازی سیستم' },
+  { label: 'حل کد امنیتی و ورود' },
+  { label: 'استخراج اطلاعات سهمیه' },
+  { label: 'ذخیره نهایی اطلاعات' }
 ];
 
 const getDriverInitials = (name: string) => {
@@ -92,7 +109,14 @@ const FuelInquiryRow = memo(function FuelInquiryRow({
           </div>
           <div>
             <span className="font-bold text-white block">{item.driver_name || 'نامشخص'}</span>
-            <span className="text-[10px] text-slate-500 font-mono">شناسه: #{item.id}</span>
+            <div className="flex gap-2 text-[10px] font-mono text-slate-500 mt-0.5">
+              <span>شناسه: #{item.id}</span>
+              {item.year && item.month ? (
+                <span className="text-cyan-400">دوره: {toPersianDigits(item.year.toString())}/{toPersianDigits(item.month.toString().padStart(2, '0'))}</span>
+              ) : (
+                <span className="text-slate-600">دوره: جاری</span>
+              )}
+            </div>
           </div>
         </div>
       </td>
@@ -100,13 +124,13 @@ const FuelInquiryRow = memo(function FuelInquiryRow({
         {formatDateTime(item.created_at)}
       </td>
       <td className="px-6 py-4 text-xs font-mono text-slate-300">
-        {summary?.card_number || '—'}
+        #{item.id}
       </td>
       <td className="px-6 py-4 text-xs">
         {summary?.base_quota || summary?.performance_quota ? (
           <div className="flex flex-col gap-1 font-mono">
-            <span>پایه: <strong className="text-cyan-400">{summary.base_quota || '۰'}</strong></span>
-            <span>عملکردی: <strong className="text-blue-400">{summary.performance_quota || '۰'}</strong></span>
+            <span>پایه: <strong className="text-cyan-400">{summary.base_quota ? `${toPersianDigits(summary.base_quota)} لیتر` : '۰'}</strong></span>
+            <span>عملکردی: <strong className="text-blue-400">{summary.performance_quota ? `${toPersianDigits(summary.performance_quota)} لیتر` : '۰'}</strong></span>
           </div>
         ) : (
           <span className="text-slate-500">—</span>
@@ -201,10 +225,11 @@ const FuelInquiryCard = memo(function FuelInquiryCard({
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400 bg-slate-900/30 p-3 rounded-2xl border border-white/5 font-mono">
-        <div>کارت سوخت: <strong className="text-slate-200">{summary?.card_number || '—'}</strong></div>
-        <div>زمان: <strong className="text-slate-300">{formatDateTime(item.created_at)}</strong></div>
-        <div>پایه: <strong className="text-cyan-400">{summary?.base_quota || '۰'}</strong></div>
-        <div>عملکردی: <strong className="text-blue-400">{summary?.performance_quota || '۰'}</strong></div>
+        <div>کد رهگیری: <strong className="text-slate-200">#{item.id}</strong></div>
+        <div>دوره: <strong className="text-cyan-400">{item.year && item.month ? `${toPersianDigits(item.year.toString())}/${toPersianDigits(item.month.toString().padStart(2, '0'))}` : 'جاری'}</strong></div>
+        <div>پایه: <strong className="text-cyan-400">{summary?.base_quota ? `${toPersianDigits(summary.base_quota)} لیتر` : '۰'}</strong></div>
+        <div>عملکردی: <strong className="text-blue-400">{summary?.performance_quota ? `${toPersianDigits(summary.performance_quota)} لیتر` : '۰'}</strong></div>
+        <div className="col-span-2 text-[9px] text-slate-500">زمان: {formatDateTime(item.created_at)}</div>
       </div>
       <button
         onClick={() => onSelect(item)}
@@ -218,12 +243,33 @@ const FuelInquiryCard = memo(function FuelInquiryCard({
   );
 });
 
+const getFriendlyErrorMessage = (errCode: string | undefined): string => {
+  if (!errCode) return 'خطای نامشخص سامانه';
+  switch (errCode) {
+    case '101':
+      return 'کد خطا: ۱۰۱ (عدم موفقیت در حل خودکار کپچا)';
+    case '102':
+      return 'کد خطا: ۱۰۲ (اختلال در سامانه پرتال ملی)';
+    case '103':
+      return 'کد خطا: ۱۰۳ (خطای ارتباط با شبکه یا پروکسی)';
+    case '104':
+      return 'کد خطا: ۱۰۴ (پلاک فعال یافت نشد یا اطلاعات راننده نامعتبر است)';
+    case '100':
+      return 'کد خطا: ۱۰۰ (خطای عمومی نامشخص)';
+    default:
+      return errCode;
+  }
+};
+
 export default function FuelInquiryPage() {
   const { role } = useSession();
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [inquiries, setInquiries] = useState<FuelInquiry[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<number>(0);
   const [activeInquiryId, setActiveInquiryId] = useState<number | null>(null);
+  
+  const [selectedYear, setSelectedYear] = useState<number>(1405);
+  const [selectedMonth, setSelectedMonth] = useState<number>(4);
   
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -236,10 +282,46 @@ export default function FuelInquiryPage() {
   const [elapsedTime, setElapsedTime] = useState(0);
   
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  
   const [modalTabIdx, setModalTabIdx] = useState(0);
+  
+  const [driverWaybills, setDriverWaybills] = useState<WaybillJob[]>([]);
+  const [driverPlates, setDriverPlates] = useState<any[]>([]);
+  const [loadingWaybills, setLoadingWaybills] = useState(false);
 
-    const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    const fetchDriverData = async () => {
+      if (selectedDriverId === 0) {
+        setDriverWaybills([]);
+        setDriverPlates([]);
+        return;
+      }
+      setLoadingWaybills(true);
+      try {
+        const [waybillsRes, platesRes] = await Promise.all([
+          api.get<WaybillTaskListResponse>('/api/v1/waybill-jobs', { driver_id: selectedDriverId, page_size: 100 }),
+          api.get<any[]>('/api/v1/plates', { driver_id: selectedDriverId })
+        ]);
+        if (waybillsRes.success && waybillsRes.data) {
+          setDriverWaybills(waybillsRes.data.tasks || []);
+        } else {
+          setDriverWaybills([]);
+        }
+        if (platesRes.success && platesRes.data) {
+          setDriverPlates(platesRes.data || []);
+        } else {
+          setDriverPlates([]);
+        }
+      } catch {
+        setDriverWaybills([]);
+        setDriverPlates([]);
+      } finally {
+        setLoadingWaybills(false);
+      }
+    };
+    fetchDriverData();
+  }, [selectedDriverId]);
+
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingAttemptsRef = useRef(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -354,6 +436,8 @@ export default function FuelInquiryPage() {
 
     const response = await api.post<FuelInquiry>('/api/v1/fuel-inquiries', {
       driver_id: selectedDriverId,
+      year: selectedYear,
+      month: selectedMonth,
     });
 
     if (response.success && response.data) {
@@ -578,6 +662,49 @@ export default function FuelInquiryPage() {
                     )}
                   </div>
 
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-black uppercase text-slate-400 mb-2">سال استعلام</label>
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                        disabled={submitting || loading}
+                        className="field"
+                      >
+                        {[1405, 1404, 1403, 1402].map((y) => (
+                          <option key={y} value={y} className="bg-slate-900 text-white">{toPersianDigits(y.toString())}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-black uppercase text-slate-400 mb-2">ماه استعلام</label>
+                      <select
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                        disabled={submitting || loading}
+                        className="field"
+                      >
+                        {[
+                          { val: 1, name: 'فروردین' },
+                          { val: 2, name: 'اردیبهشت' },
+                          { val: 3, name: 'خرداد' },
+                          { val: 4, name: 'تیر' },
+                          { val: 5, name: 'مرداد' },
+                          { val: 6, name: 'شهریور' },
+                          { val: 7, name: 'مهر' },
+                          { val: 8, name: 'آبان' },
+                          { val: 9, name: 'آذر' },
+                          { val: 10, name: 'دی' },
+                          { val: 11, name: 'بهمن' },
+                          { val: 12, name: 'اسفند' }
+                        ].map((m) => (
+                          <option key={m.val} value={m.val} className="bg-slate-900 text-white">{m.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
                   <button
                     onClick={handleStartInquiry}
                     disabled={submitting || selectedDriverId === 0 || loading}
@@ -642,12 +769,88 @@ export default function FuelInquiryPage() {
                           
                           <div className={`${isCompleted ? 'opacity-50' : isActive ? 'opacity-100' : 'opacity-35'} transition`}>
                             <h4 className="text-xs font-black text-white">{st.label}</h4>
-                            <p className="text-[10px] text-slate-400 font-medium mt-1 leading-4">{st.desc}</p>
                           </div>
                         </div>
                       );
                     })}
                   </div>
+                </div>
+              )}
+
+              {selectedDriver && (
+                <div className="rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-xl relative overflow-hidden animate-in duration-300 mt-6">
+                  <div className="absolute -top-10 -right-10 h-30 w-30 rounded-full bg-cyan-500/5 blur-[40px] pointer-events-none" />
+                  
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <ClockIcon className="h-4 w-4 text-cyan-400" />
+                      بارنامه‌های ثبت شده راننده
+                    </h3>
+                    <span className="text-[10px] font-bold text-slate-400 bg-slate-900 px-2 py-1 rounded-lg">
+                      تعداد کل: {toPersianDigits(driverWaybills.length)}
+                    </span>
+                  </div>
+
+                  {driverPlates.length > 0 && (
+                    <div className="mb-4 bg-slate-900/50 rounded-2xl p-3 border border-white/5">
+                      <span className="text-[10px] text-slate-400 font-bold block mb-1.5">پلاک‌های فعال:</span>
+                      <div className="flex flex-wrap gap-2">
+                        {driverPlates.map((pl) => (
+                          <span key={pl.id} className="text-xs font-mono font-bold text-cyan-400 bg-cyan-500/10 px-2.5 py-1 rounded-lg border border-cyan-500/10">
+                            {pl.plate_number}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {loadingWaybills ? (
+                    <div className="flex items-center justify-center py-6 text-slate-400 text-xs gap-2">
+                      <ArrowPathIcon className="h-4 w-4 animate-spin text-cyan-400" />
+                      در حال بارگذاری بارنامه‌ها...
+                    </div>
+                  ) : driverWaybills.length === 0 ? (
+                    <div className="text-center py-6 text-slate-500 text-xs font-medium">
+                      هیچ بارنامه‌ای برای این راننده یافت نشد.
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5 max-h-[250px] overflow-y-auto pr-1 custom-scrollbar">
+                      {driverWaybills.slice(0, 10).map((wb) => {
+                        let route = "مسیر نامشخص";
+                        if (wb.payload_json) {
+                          try {
+                            const payload = JSON.parse(wb.payload_json);
+                            if (payload.origin && payload.destination) {
+                              route = `${payload.origin} به ${payload.destination}`;
+                            }
+                          } catch {
+                            route = "مسیر نامشخص";
+                          }
+                        }
+                        
+                        return (
+                          <div key={wb.id} className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition animate-in fade-in duration-200">
+                            <div className="space-y-1">
+                              <span className="text-xs text-white font-bold block">{route}</span>
+                              <span className="text-[9px] text-slate-400 block">{formatDateTime(wb.created_at)}</span>
+                            </div>
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg uppercase ${
+                              wb.status === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                              wb.status === 'failed' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
+                              'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                            }`}>
+                              {wb.status === 'success' ? 'موفق' : wb.status === 'failed' ? 'ناموفق' : 'در صف'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      {driverWaybills.length > 10 && (
+                        <div className="text-center pt-1.5">
+                          <span className="text-[9px] text-slate-500 font-bold">نمایش ۱۰ مورد اول از {toPersianDigits(driverWaybills.length)} بارنامه</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -683,7 +886,7 @@ export default function FuelInquiryPage() {
                           <tr className="border-b border-white/5 bg-white/[0.01] text-xs font-bold text-slate-400">
                             <th className="px-6 py-4">راننده</th>
                             <th className="px-6 py-4">زمان استعلام</th>
-                            <th className="px-6 py-4">کارت سوخت</th>
+                            <th className="px-6 py-4">کد رهگیری</th>
                             <th className="px-6 py-4">سهمیه پایه / عملکردی</th>
                             <th className="px-6 py-4">وضعیت</th>
                             <th className="px-6 py-4">عملیات</th>
@@ -742,7 +945,7 @@ export default function FuelInquiryPage() {
                   <div>نام راننده: <strong>{selectedInquiry.driver_name}</strong></div>
                   <div>کد پیگیری استعلام: <strong className="font-mono">#{selectedInquiry.id}</strong></div>
                   <div>زمان اجرای استعلام: <strong>{formatDateTime(selectedInquiry.created_at)}</strong></div>
-                  <div>شماره کارت سوخت: <strong className="font-mono">{selectedInquiry.quota_data?.summary?.card_number || 'نامشخص'}</strong></div>
+                  <div>کد رهگیری استعلام: <strong className="font-mono">#{selectedInquiry.id}</strong></div>
                 </div>
               </div>
 
@@ -752,7 +955,7 @@ export default function FuelInquiryPage() {
                     <ExclamationTriangleIcon className="h-6 w-6 shrink-0 mt-0.5" />
                     <div>
                       <h4 className="text-base font-black">فرآیند استعلام ناموفق بود</h4>
-                      <p className="mt-1.5 font-medium leading-6">{selectedInquiry.error_message || 'دلیل نامشخص است.'}</p>
+                      <p className="mt-1.5 font-medium leading-6">{getFriendlyErrorMessage(selectedInquiry.error_message)}</p>
                     </div>
                   </div>
                 ) : (
@@ -761,21 +964,21 @@ export default function FuelInquiryPage() {
                       <div className="rounded-2xl bg-white/5 border border-white/10 p-5 print:border-slate-300 print:bg-slate-50">
                         <span className="text-xs font-bold text-slate-400 print:text-slate-600 block">سهمیه پایه</span>
                         <div className="mt-2 text-2xl font-black text-white print:text-black">
-                          {selectedInquiry.quota_data?.summary?.base_quota || 'پیدا نشد'}
+                          {selectedInquiry.quota_data?.summary?.base_quota ? `${toPersianDigits(selectedInquiry.quota_data.summary.base_quota)} لیتر` : '۰ لیتر'}
                         </div>
                       </div>
 
                       <div className="rounded-2xl bg-white/5 border border-white/10 p-5 print:border-slate-300 print:bg-slate-50">
                         <span className="text-xs font-bold text-slate-400 print:text-slate-600 block">سهمیه عملکردی</span>
                         <div className="mt-2 text-2xl font-black text-cyan-400 print:text-black">
-                          {selectedInquiry.quota_data?.summary?.performance_quota || 'پیدا نشد'}
+                          {selectedInquiry.quota_data?.summary?.performance_quota ? `${toPersianDigits(selectedInquiry.quota_data.summary.performance_quota)} لیتر` : '۰ لیتر'}
                         </div>
                       </div>
 
                       <div className="rounded-2xl bg-white/5 border border-white/10 p-5 print:border-slate-300 print:bg-slate-50">
-                        <span className="text-xs font-bold text-slate-400 print:text-slate-600 block">شماره کارت سوخت</span>
+                        <span className="text-xs font-bold text-slate-400 print:text-slate-600 block">کد رهگیری استعلام</span>
                         <div className="mt-2 text-lg font-black text-slate-300 font-mono print:text-black">
-                          {selectedInquiry.quota_data?.summary?.card_number || 'نامشخص'}
+                          #{selectedInquiry.id}
                         </div>
                       </div>
                     </div>

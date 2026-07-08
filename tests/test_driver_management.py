@@ -28,7 +28,7 @@ async def test_driver_limit():
             username="testlimit",
             full_name="Test Limit Client",
             max_drivers=1,
-            max_plates=1
+            max_plates=1,
         )
         session.add(client)
         await session.commit()
@@ -50,7 +50,7 @@ async def test_driver_limit():
                 "full_name": "Driver 1",
                 "phone": "09123456789",
                 "utcms_username": "driver1_utcms",
-                "utcms_password": "password123"
+                "utcms_password": "password123",
             }
             resp = ac.post("/api/v1/drivers", json=driver_data_1, headers=headers)
             assert resp.status_code == 201
@@ -61,7 +61,7 @@ async def test_driver_limit():
                 "full_name": "Driver 2",
                 "phone": "09123456789",
                 "utcms_username": "driver2_utcms",
-                "utcms_password": "password123"
+                "utcms_password": "password123",
             }
             resp2 = ac.post("/api/v1/drivers", json=driver_data_2, headers=headers)
             assert resp2.status_code == 400

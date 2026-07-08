@@ -177,7 +177,7 @@ UTCMS_PASSWORD=your_password
 
 2. اطمینان از اجرای Backend API:
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
+cd /opt/barpro
 source /Users/amirheidari/Python-ML/bin/activate
 export DATABASE_URL="postgresql+asyncpg://postgres:<DB_PASSWORD>@127.0.0.1:5432/utcms_rpa"
 export REDIS_URL="redis://:redis_password@127.0.0.1:6379/0"
@@ -186,7 +186,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 ### اجرای تست واقعی
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
+cd /opt/barpro
 source /Users/amirheidari/Python-ML/bin/activate
 export DATABASE_URL="postgresql+asyncpg://postgres:<DB_PASSWORD>@127.0.0.1:5432/utcms_rpa"
 python scripts/real_waybill_test.py

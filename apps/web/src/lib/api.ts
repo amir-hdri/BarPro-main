@@ -1,24 +1,9 @@
 import axios, { AxiosInstance } from 'axios';
 
-export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '').replace(/\/api$/, '');
-
-// ─── Auth helpers ────────────────────────────────────────────────────────────
-
-function getStoredTokenCandidate(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    return (
-      localStorage.getItem('utcms_auth_token') ||
-      localStorage.getItem('utcms_token') ||
-      localStorage.getItem('access_token') ||
-      localStorage.getItem('token') ||
-      null
-    );
-  } catch (e) {
-    console.error('Failed to get stored token candidate:', e);
-    return null;
-  }
-}
+export const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000')
+).replace(/\/+$/, '').replace(/\/api$/, '');
 
 function clearAllAuthTokens() {
   if (typeof window === 'undefined') return;
@@ -134,8 +119,6 @@ function createApiClient(): AxiosInstance {
   });
 
   inst.interceptors.request.use((config) => {
-    const token = getStoredTokenCandidate();
-    if (token && config.headers) config.headers.Authorization = `Bearer ${token}`;
     return config;
   });
 

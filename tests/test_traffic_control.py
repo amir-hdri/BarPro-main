@@ -33,7 +33,7 @@ class TestWaybillTrafficController(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot_before.active_safe, 0)
 
         # Mock _wait_for_pacing to raise an exception
-        with patch.object(controller, '_wait_for_pacing', new_callable=AsyncMock) as mock_pacing:
+        with patch.object(controller, "_wait_for_pacing", new_callable=AsyncMock) as mock_pacing:
             mock_pacing.side_effect = RuntimeError("Mocked pacing error")
 
             # Expect the exception to bubble up
@@ -47,7 +47,7 @@ class TestWaybillTrafficController(unittest.IsolatedAsyncioTestCase):
 
         # Semaphore release check: we should be able to acquire it now
         # Mock _wait_for_pacing to succeed this time to isolate semaphore logic
-        with patch.object(controller, '_wait_for_pacing', new_callable=AsyncMock):
+        with patch.object(controller, "_wait_for_pacing", new_callable=AsyncMock):
             await controller.acquire(mode="safe")
             snapshot_acquired = controller.snapshot()
             self.assertEqual(snapshot_acquired.active_requests, 1)

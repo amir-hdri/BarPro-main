@@ -14,6 +14,7 @@ from app.models_multitenant import Client, Driver
 def test_client():
     return TestClient(app)
 
+
 def test_create_driver_success(test_client):
     mock_client = Client(
         id=1,
@@ -44,6 +45,7 @@ def test_create_driver_success(test_client):
     # Ensure refresh populates ID since the response needs it
     async def mock_refresh(instance):
         instance.id = 1
+
     mock_session.refresh = AsyncMock(side_effect=mock_refresh)
 
     app.dependency_overrides[get_current_client] = lambda: mock_client
@@ -54,7 +56,7 @@ def test_create_driver_success(test_client):
         "full_name": "Test Driver",
         "phone": "09123456789",
         "utcms_username": "testuser",
-        "utcms_password": "testpassword"
+        "utcms_password": "testpassword",
     }
 
     response = test_client.post("/api/v1/drivers", json=payload)
@@ -73,6 +75,7 @@ def test_create_driver_success(test_client):
     mock_session.refresh.assert_called_once()
 
     app.dependency_overrides.clear()
+
 
 def test_create_driver_limit_reached(test_client):
     mock_client = Client(
@@ -100,7 +103,7 @@ def test_create_driver_limit_reached(test_client):
         "full_name": "Test Driver",
         "phone": "09123456789",
         "utcms_username": "testuser",
-        "utcms_password": "testpassword"
+        "utcms_password": "testpassword",
     }
 
     response = test_client.post("/api/v1/drivers", json=payload)
@@ -112,6 +115,7 @@ def test_create_driver_limit_reached(test_client):
     mock_session.commit.assert_not_called()
 
     app.dependency_overrides.clear()
+
 
 def test_create_driver_duplicate_national_code(test_client):
     mock_client = Client(
@@ -147,7 +151,7 @@ def test_create_driver_duplicate_national_code(test_client):
         "full_name": "Test Driver",
         "phone": "09123456789",
         "utcms_username": "testuser",
-        "utcms_password": "testpassword"
+        "utcms_password": "testpassword",
     }
 
     response = test_client.post("/api/v1/drivers", json=payload)
@@ -180,7 +184,7 @@ def test_list_drivers_success(test_client):
         phone="09123456789",
         license_number="123456",
         utcms_username="testuser",
-        status="active"
+        status="active",
     )
 
     mock_result = MagicMock()
@@ -203,6 +207,7 @@ def test_list_drivers_success(test_client):
 
     app.dependency_overrides.clear()
 
+
 def test_list_drivers_with_status_filter(test_client):
     mock_client = Client(
         id=1,
@@ -222,7 +227,7 @@ def test_list_drivers_with_status_filter(test_client):
         phone="09123456789",
         license_number="123456",
         utcms_username="testuser",
-        status="active"
+        status="active",
     )
 
     mock_result = MagicMock()

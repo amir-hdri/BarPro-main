@@ -13,8 +13,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# مسیر پروژه
-PROJECT_DIR="/Users/amirheidari/GitHub/BarPro-main"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # تایید مسیر
 if [ ! -d "$PROJECT_DIR" ]; then

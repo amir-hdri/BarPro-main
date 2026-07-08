@@ -1,5 +1,5 @@
 # BarPro — وضعیت مشکلات (Issues)
-# آخرین بروزرسانی: ۱۱ تیر ۱۴۰۵ (2026-07-02)
+# آخرین بروزرسانی: 2026-07-08
 
 > این فایل وضعیت فعلی **تمام** مشکلات شناخته‌شده را نشان می‌دهد.
 > ✅ = برطرف شده | ⬜ = نیاز به اقدام کاربر | ⚠️ = باید انجام شود | ❌ = مسدود
@@ -15,10 +15,10 @@
 | S3 | `privileged: true` در تمام containers | ✅ | جایگزین: `cap_add + no-new-privileges` |
 | S4 | Rate limiter fail-open (Redis down → unlimited) | ✅ | Fail-closed: HTTP 429 در صورت قطع Redis |
 | S5 | Prometheus port 9090 عمومی | ✅ | تبدیل به `expose` (فقط داخلی) |
-| S6 | JWT در localStorage (نه httpOnly cookie) | ⬜ | نیاز به refactor فرانت‌اند (4-8 ساعت) |
-| S7 | بدون HTTPS | ⬜ | نیاز به Let's Encrypt — دستور uncommenting آماده |
+| S6 | JWT در localStorage (نه httpOnly cookie) | ✅ | تکمیل‌شده: توکن‌ها به طور کامل به httpOnly cookie منتقل شدند |
+| S7 | بدون HTTPS | ⬜ | نیاز به Let's Encrypt؛ تا قبل از HTTPS مقدار `AUTH_COOKIE_SECURE=false` بماند |
 | S8 | `network_mode: host` در worker containers | ⬜ | مسدود: routing دو IP نیاز دارد، از `scripts/secure_squid_ports.sh` استفاده کنید |
-| S9 | SSRF در proxy rotator | ⚠️ | URL پروکسی از config می‌آید، validation نشده |
+| S9 | SSRF در proxy rotator | ✅ | تکمیل‌شده: اعتبارسنجی دقیق IP/DNS در `_is_safe_proxy_url` اضافه شد |
 
 ---
 
@@ -37,6 +37,9 @@
 | B9 | Redis race condition در init | ✅ | `threading.Lock` در `redis.py` |
 | B10 | N+1 query در `_emit_task_event` | ✅ | Task مستقیم پاس می‌شود |
 | B11 | جدول `admin_driver_schedules` بدون migration | ✅ | Migration 013 اضافه شد |
+| B12 | Frontend Docker image نیازمند `.next/standalone` از قبل | ✅ | Dockerfile چندمرحله‌ای شد و در سرور build کامل انجام می‌دهد |
+| B13 | `CAPTCHA_PROVIDER=pytorch_fuel` در config رد می‌شد | ✅ | گزینه‌های `pytorch_fuel` و `composite` معتبر شدند |
+| B14 | Docker backend روی ARM با `tensorflow-cpu` build نمی‌شد | ✅ | وابستگی TensorFlow بر اساس معماری انتخاب می‌شود |
 
 ---
 
@@ -52,6 +55,7 @@
 | P6 | MAX_POLLS=60 (جای polling بی‌نهایت) | `fuel/page.tsx` | توقف بعد از 3 دقیقه |
 | P7 | nginx: `client_max_body_size` 50m→10m | `http-server.conf` | 40MB کمتر nginx memory |
 | P8 | Rate-limit zone: 20m→10m | `nginx.conf` | 30MB shared memory کمتر |
+| P9 | Production npm audit | `apps/web/package*.json` | `npm audit --omit=dev` بدون آسیب‌پذیری |
 
 ---
 
@@ -62,9 +66,9 @@
 | A1 | نصب Let's Encrypt: uncomment `listen 443` در nginx + اجرا certbot | 🔴 بالا |
 | A2 | اجرای `sudo bash scripts/secure_squid_ports.sh` روی سرور | 🔴 بالا |
 | A3 | اضافه به crontab: `@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh` | 🟡 متوسط |
-| A4 | Migrate JWT از localStorage به httpOnly cookies | 🟡 متوسط |
+| A4 | بعد از نصب HTTPS مقدار `AUTH_COOKIE_SECURE=true` شود | 🔴 بالا |
 | A5 | رمز واقعی SSH را در سرور تغییر دهید | 🔴 بالا |
 
 ---
 
-*آخرین بروزرسانی: 2026-07-02 — توسط Antigravity AI Agent*
+*آخرین بروزرسانی: 2026-07-08*

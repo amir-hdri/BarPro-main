@@ -21,26 +21,28 @@ COPY requirements.txt ./
 
 # First install torch (CPU version) which is the heaviest
 RUN pip install --no-cache-dir \
-    --index-url https://mirror-pypi.runflare.com/simple \
-    --extra-index-url https://pypi.org/simple \
+    --index-url https://pypi.org/simple \
+    --extra-index-url https://mirror-pypi.runflare.com/simple \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     --retries 30 \
     --timeout 1000 \
     "torch>=2.5.1"
 
-# Then install tensorflow-cpu and playwright which are also heavy
-RUN pip install --no-cache-dir \
-    --index-url https://mirror-pypi.runflare.com/simple \
-    --extra-index-url https://pypi.org/simple \
+# Then install TensorFlow and Playwright which are also heavy.
+# tensorflow-cpu is unavailable on Linux ARM, so keep ARM/local builds functional.
+RUN if [ "$(uname -m)" = "x86_64" ]; then TF_PACKAGE="tensorflow-cpu>=2.16.0"; else TF_PACKAGE="tensorflow>=2.16.0"; fi \
+    && pip install --no-cache-dir \
+    --index-url https://pypi.org/simple \
+    --extra-index-url https://mirror-pypi.runflare.com/simple \
     --retries 30 \
     --timeout 1000 \
-    "tensorflow-cpu>=2.16.0" "playwright>=1.49.0"
+    "$TF_PACKAGE" "playwright>=1.49.0"
 
 # Finally copy requirements.txt and install the rest of the packages
 COPY requirements.txt ./
 RUN pip install --no-cache-dir \
-    --index-url https://mirror-pypi.runflare.com/simple \
-    --extra-index-url https://pypi.org/simple \
+    --index-url https://pypi.org/simple \
+    --extra-index-url https://mirror-pypi.runflare.com/simple \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     --retries 30 \
     --timeout 1000 \

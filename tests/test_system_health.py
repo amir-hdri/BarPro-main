@@ -25,9 +25,11 @@ def test_readyz_returns_not_ready_when_db_fails():
         def connect(self):
             raise Exception("db down")
 
-    with patch("app.api.routes.system.engine", _FailingEngine()), patch(
-        "app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)
-    ), patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True):
+    with (
+        patch("app.api.routes.system.engine", _FailingEngine()),
+        patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)),
+        patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True),
+    ):
         response = client.get("/readyz")
 
     assert response.status_code == 503
@@ -98,7 +100,6 @@ def test_metrics_endpoint_available(mock_snapshot):
     assert response.status_code in [200, 503]
 
 
-
 def test_readyz_marks_itmb_checks_as_skipped_by_default():
     mock_conn = AsyncMock()
     mock_ctx = AsyncMock()
@@ -106,9 +107,11 @@ def test_readyz_marks_itmb_checks_as_skipped_by_default():
     mock_ctx.__aexit__ = AsyncMock(return_value=None)
     mock_engine = Mock()
     mock_engine.connect = Mock(return_value=mock_ctx)
-    with patch('app.api.routes.system.engine', mock_engine), \
-         patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)), \
-         patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True):
+    with (
+        patch("app.api.routes.system.engine", mock_engine),
+        patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)),
+        patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True),
+    ):
         response = client.get("/readyz")
     assert response.status_code in [200, 503]
     payload = response.json()
@@ -121,12 +124,16 @@ def test_readyz_marks_itmb_checks_as_skipped_by_default():
 
 
 def test_readyz_fails_when_itmb_live_probe_enabled_and_probe_fails():
-    with patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)), \
-         patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True), \
-         patch("app.core.config.utcms_config.ITMBOL_READYZ_LIVE_CHECK", True), \
-         patch("app.core.config.utcms_config.ITMBOL_COMPANY_CODE", "C1"), \
-         patch("app.core.config.utcms_config.ITMBOL_SERVICE_PASSWORD", "P1"), \
-         patch("app.api.routes.system.itmb_baseinfo_service.probe_connection", new=AsyncMock(side_effect=Exception("down"))):
+    with (
+        patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)),
+        patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True),
+        patch("app.core.config.utcms_config.ITMBOL_READYZ_LIVE_CHECK", True),
+        patch("app.core.config.utcms_config.ITMBOL_COMPANY_CODE", "C1"),
+        patch("app.core.config.utcms_config.ITMBOL_SERVICE_PASSWORD", "P1"),
+        patch(
+            "app.api.routes.system.itmb_baseinfo_service.probe_connection", new=AsyncMock(side_effect=Exception("down"))
+        ),
+    ):
         response = client.get("/readyz")
     assert response.status_code == 503
     assert response.json()["checks"]["itmb_live_probe"] == "error"
@@ -134,20 +141,27 @@ def test_readyz_fails_when_itmb_live_probe_enabled_and_probe_fails():
 
 
 def test_readyz_fails_when_captcha_model_is_unavailable():
-    with patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)), \
-         patch("app.api.routes.system.barname_ml_solver.warmup", return_value=False):
+    with (
+        patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)),
+        patch("app.api.routes.system.barname_ml_solver.warmup", return_value=False),
+    ):
         response = client.get("/readyz")
     assert response.status_code == 503
     assert response.json()["checks"]["captcha_model"] == "error"
     assert response.json()["details"]["captcha_model"]["message"] == "cnn model unavailable"
 
+
 def test_recover_stalled_workers_endpoint_with_tasks():
-    with patch("app.api.routes.system.recovery_manager.recover_stalled_tasks", new=AsyncMock(return_value={"task_123": {"last_heartbeat": 100}})):
+    with patch(
+        "app.api.routes.system.recovery_manager.recover_stalled_tasks",
+        new=AsyncMock(return_value={"task_123": {"last_heartbeat": 100}}),
+    ):
         response = client.post("/workers/recover-stalled")
     assert response.status_code in [200, 503]
     payload = response.json()
     assert payload["count"] == 1
     assert "task_123" in payload["recovered"]
+
 
 def test_recover_stalled_workers_endpoint_empty():
     with patch("app.api.routes.system.recovery_manager.recover_stalled_tasks", new=AsyncMock(return_value={})):
@@ -168,6 +182,7 @@ def test_security_report_endpoint():
     assert "recommendations" in payload
     assert isinstance(payload["recommendations"], list)
 
+
 def test_errors_stats_endpoint():
     response = client.get("/errors/stats")
     assert response.status_code in [200, 503]
@@ -187,6 +202,7 @@ def test_toggle_circuit_breaker_endpoint():
     assert payload["enabled"] is False
 
     from app.services.itmb_ws_service import itmb_ws_service
+
     assert itmb_ws_service._circuit_breaker.enabled is False
 
     # Restore enabled state
@@ -194,4 +210,3 @@ def test_toggle_circuit_breaker_endpoint():
         response = client.post("/circuit-breaker/toggle?enabled=true")
     assert response.status_code == 200
     assert itmb_ws_service._circuit_breaker.enabled is True
-

@@ -9,8 +9,8 @@
 1. VPN خود را روشن کنید
 2. فایل‌های docker-compose.yml را به حالت اصلی برگردانید:
    ```bash
-   cd ~/Desktop/Automation-Barname-main
-   git checkout docker-compose.yml
+    cd /opt/barpro
+    git checkout compose/infra.yml compose/proxy.yml compose/backend.yml compose/web.yml compose/monitoring.yml
    ```
 3. سیستم را اجرا کنید:
    ```bash
@@ -45,8 +45,8 @@ docker pull node:20-bookworm
 
 # حالا می‌توانید VPN را خاموش کنید
 # فایل‌های docker-compose.yml را به حالت اصلی برگردانید
-cd ~/Desktop/Automation-Barname-main
-git checkout docker-compose.yml scripts/start_system.sh
+cd /opt/barpro
+git checkout compose/infra.yml compose/proxy.yml compose/backend.yml compose/web.yml compose/monitoring.yml scripts/start_system.sh
 
 # سیستم را اجرا کنید
 bash scripts/start_system.sh
@@ -62,8 +62,8 @@ bash scripts/start_system.sh
 
 ## بازگرداندن فایل‌ها به حالت اصلی
 ```bash
-cd ~/Desktop/Automation-Barname-main
-git checkout docker-compose.yml docker-compose.node-backend.yml scripts/start_system.sh
+cd /opt/barpro
+git checkout compose/infra.yml compose/proxy.yml compose/backend.yml compose/web.yml compose/monitoring.yml scripts/start_system.sh
 ```
 
 ## تست اتصال

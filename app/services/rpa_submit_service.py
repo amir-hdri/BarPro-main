@@ -459,6 +459,7 @@ class RPAHttpSubmitService:
                 await browser_manager.record_success_for_recycle()
             else:
                 from app.core.circuit_breaker import check_and_report_failure
+
                 await check_and_report_failure(res.classification.message)
 
             return res
@@ -467,6 +468,7 @@ class RPAHttpSubmitService:
             if proxy_info:
                 proxy_info.record_waybill_result(success=False, latency=latency_ms / 1000.0, error=str(exc))
             from app.core.circuit_breaker import check_and_report_failure
+
             await check_and_report_failure(str(exc))
             return SubmitExecutionResult(
                 classification=SubmitClassification(
@@ -482,6 +484,7 @@ class RPAHttpSubmitService:
             if proxy_info:
                 proxy_info.record_waybill_result(success=False, latency=latency_ms / 1000.0, error=str(exc))
             from app.core.circuit_breaker import check_and_report_failure
+
             await check_and_report_failure(str(exc))
             return SubmitExecutionResult(
                 classification=SubmitClassification(
@@ -674,12 +677,52 @@ def classify_submit_response(status_code: int, body: str) -> SubmitClassificatio
     lowered = (body or "").lower()
     excerpt = (body or "")[:1000]
     persian_body = body or ""
+
+    # Parse response as JSON to check for explicit business errors
+    import json
+
+    is_json = False
+    json_data = None
+    try:
+        json_data = json.loads(body)
+        is_json = True
+    except (ValueError, TypeError):
+        pass
+
+    if is_json and isinstance(json_data, dict):
+        success_val = json_data.get("success")
+        if success_val is None:
+            success_val = json_data.get("isSuccess")
+        if success_val is None:
+            success_val = json_data.get("is_success")
+
+        if success_val is False or str(success_val).lower() == "false":
+            message = json_data.get("message") or json_data.get("error") or "portal_business_error"
+            return SubmitClassification(
+                outcome=SubmitOutcome.VALIDATION_ERROR,
+                reason_code="portal_validation_error",
+                retryable=False,
+                http_status=status_code,
+                message=str(message),
+                response_excerpt=excerpt,
+            )
+
     # Persian success indicators from UTCMS portal
-    _ps_tokens = ("موفق", "ثبت شد", "کد پیگیری", "شماره پیگیری", "انجام شد", "تایید")
-    persian_success = any(t in persian_body for t in _ps_tokens)
-    if status_code in {200, 201} and ("success" in lowered or persian_success):
+    # IMPORTANT: tokens should be specific enough to avoid false positives on error pages
+    # "تایید" alone is too broad (appears on error pages too); require "با موفقیت" context
+    _ps_success_patterns = ("با موفقیت ثبت شد", "بارنامه ثبت شد", "کد رهگیری", "شماره بارنامه", "چاپ بارنامه")
+    persian_success_match = any(p in persian_body for p in _ps_success_patterns)
+    has_success_token = (
+        "success" in lowered and '"success":false' not in lowered.replace(" ", "") and '"success": false' not in lowered
+    )
+
+    if status_code in {200, 201} and (has_success_token or persian_success_match):
         return SubmitClassification(
-            SubmitOutcome.SUCCESS, "portal_success", False, status_code, response_excerpt=excerpt
+            outcome=SubmitOutcome.SUCCESS,
+            reason_code="portal_success",
+            retryable=False,
+            http_status=status_code,
+            response_excerpt=excerpt,
         )
     if status_code in {401, 403} or any(
         token in lowered for token in ("session expired", "login", "unauthorized", "دوباره وارد")

@@ -6,12 +6,12 @@ import os
 import sys
 from pathlib import Path
 
-from alembic.config import Config
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import AsyncAdaptedQueuePool
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from alembic.config import Config
 from app.core.config import utcms_config
 
 logger = logging.getLogger(__name__)
@@ -88,17 +88,22 @@ async def run_migrations() -> None:
                 await redis_manager._redis.expire("migration_lock", 300)  # 5 min TTL
                 logger.info("migration_lock_acquired", extra={"extra_fields": {"note": "Running migrations..."}})
             else:
-                logger.info("migration_lock_held_by_another_worker", extra={"extra_fields": {"note": "Skipping migrations — another worker is handling them."}})
+                logger.info(
+                    "migration_lock_held_by_another_worker",
+                    extra={"extra_fields": {"note": "Skipping migrations — another worker is handling them."}},
+                )
                 return
         else:
-            logger.info("migration_redis_unavailable_running_directly", extra={"extra_fields": {"note": "Redis not available, running migrations directly."}})
+            logger.info(
+                "migration_redis_unavailable_running_directly",
+                extra={"extra_fields": {"note": "Redis not available, running migrations directly."}},
+            )
     except Exception:
         logger.warning("migration_lock_check_failed_running_directly", exc_info=True)
 
     try:
-        from alembic.config import Config
-
         from alembic import command
+        from alembic.config import Config
 
         alembic_ini_path = os.path.join(os.path.dirname(__file__), "..", "..", "alembic.ini")
         if not os.path.exists(alembic_ini_path):
@@ -131,6 +136,7 @@ async def run_migrations() -> None:
         if lock_acquired:
             try:
                 from app.core.redis import redis_manager
+
                 if redis_manager is not None and redis_manager._redis is not None:
                     await redis_manager._redis.delete("migration_lock")
             except Exception:

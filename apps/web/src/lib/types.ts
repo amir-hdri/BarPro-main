@@ -163,7 +163,7 @@ export interface DriverSchedule {
 export interface DriverScheduleCreateRequest {
   driver_id: number;
   title: string;
-  frequency: 'daily' | 'weekly';
+  frequency: 'daily' | 'weekly' | 'once';
   run_time: string;
   run_times?: string[];
   weekdays?: number[];
@@ -250,6 +250,7 @@ export interface WaybillJob {
   updated_at: string;
   started_at?: string | null;
   finished_at?: string | null;
+  payload_json?: string | null;
 }
 
 export interface WaybillTaskListResponse {
@@ -385,4 +386,6 @@ export interface ClientEditData {
   max_daily_tasks: number;
   status: string;
   access_level?: string;
+  subscription_start_date?: string;
+  subscription_end_date?: string;
 }

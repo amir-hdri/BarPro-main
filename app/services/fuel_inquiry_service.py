@@ -10,7 +10,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.automation.browser import browser_manager, managed_browser_session
 from app.automation.fuel_scraper import FuelScraper
-from app.automation.proxy_rotator import get_proxy_rotator
 from app.models_multitenant import Client, Driver, DriverPlate, FuelInquiry
 from app.schemas.multitenant import (
     FuelInquiryCreateRequest,
@@ -33,9 +32,7 @@ class FuelInquiryService:
     ) -> FuelInquiryResponse:
         """Create a pending inquiry and dispatch a background worker task."""
         # Verify driver ownership
-        driver_stmt = select(Driver).where(
-            (Driver.client_id == client.id) & (Driver.id == request.driver_id)
-        )
+        driver_stmt = select(Driver).where((Driver.client_id == client.id) & (Driver.id == request.driver_id))
         driver_result = await session.exec(driver_stmt)
         driver = driver_result.first()
 
@@ -50,14 +47,17 @@ class FuelInquiryService:
             client_id=client.id,
             driver_id=driver.id,
             status="pending",
+            year=request.year,
+            month=request.month,
         )
         session.add(inquiry)
-        await session.flush()
+        await session.commit()
         await session.refresh(inquiry)
 
         # Enqueue Celery task
         # Import task inside function to avoid circular imports
         from app.workers.tasks import dispatch_fuel_inquiry_task
+
         try:
             dispatch_fuel_inquiry_task(inquiry.id)
             logger.info(f"Enqueued fuel inquiry task for inquiry {inquiry.id}")
@@ -86,6 +86,7 @@ class FuelInquiryService:
 
         # Get total count
         from sqlmodel import func
+
         count_stmt = select(func.count(FuelInquiry.id)).where(FuelInquiry.client_id == client.id)
         count_result = await session.exec(count_stmt)
         total = count_result.one()
@@ -128,9 +129,7 @@ class FuelInquiryService:
         session: AsyncSession,
     ) -> FuelInquiryResponse:
         """Get a specific fuel inquiry's status and details."""
-        statement = select(FuelInquiry).where(
-            (FuelInquiry.client_id == client.id) & (FuelInquiry.id == inquiry_id)
-        )
+        statement = select(FuelInquiry).where((FuelInquiry.client_id == client.id) & (FuelInquiry.id == inquiry_id))
         result = await session.exec(statement)
         inquiry = result.first()
 
@@ -176,9 +175,7 @@ class FuelInquiryService:
             return
 
         # Query active driver plate
-        plate_stmt = select(DriverPlate).where(
-            (DriverPlate.driver_id == driver.id) & (DriverPlate.status == "active")
-        )
+        plate_stmt = select(DriverPlate).where((DriverPlate.driver_id == driver.id) & (DriverPlate.status == "active"))
         plate_res = await session.exec(plate_stmt)
         driver_plate = plate_res.first()
         if not driver_plate:
@@ -196,26 +193,16 @@ class FuelInquiryService:
             national_code=driver.driver_national_code,
             fallback=username,
         )
-        # Fuel inquiry connects to utcms.ir (public, accessible from container directly).
-        # The generic proxy rotator blocks host.docker.internal (private IP SSRF check) so it
-        # returns None. Use the worker-specific Squid proxy from env if available, otherwise
-        # fall back to direct connection (which works — confirmed curl HTTP 200 in 0.04s).
-        import os as _os
-        _worker_proxy_url = (
-            _os.environ.get("WORKER_1_PROXY")
-            or _os.environ.get("RPA_PROXIES", "").split(",")[0].strip()
-            or None
-        )
-        proxy_dict: dict | None = None
-        if _worker_proxy_url:
-            try:
-                from app.automation.proxy_rotator import ProxyInfo as _PI, ProxyConfig as _PC
-                _pi = _PI(url=_worker_proxy_url, protocol="http")
-                proxy_dict = _pi.to_playwright_proxy()
-                logger.info(f"fuel_inquiry using worker proxy: {_worker_proxy_url[:40]}")
-            except Exception as _pe:
-                logger.warning(f"fuel_inquiry proxy setup failed, using direct: {_pe}")
-                proxy_dict = None
+        # CRITICAL: Chromium inside Docker containers CANNOT reach external sites without proxy.
+        # Use simple worker_proxy helper (bypasses proxy_rotator complexity).
+        # Hostname is resolved to IP at call time to fix Chromium's Docker DNS issues.
+        from app.automation.worker_proxy import get_playwright_proxy
+
+        proxy_dict = get_playwright_proxy()
+        if proxy_dict:
+            logger.info(f"fuel_inquiry using proxy: {proxy_dict.get('server')}")
+        else:
+            logger.warning("fuel_inquiry: no proxy configured — Chromium may not reach utcms.ir")
 
         logger.info(f"Launching browser session for fuel inquiry {inquiry_id}")
 
@@ -232,6 +219,8 @@ class FuelInquiryService:
                     username=username,
                     plate_number=plate_number,
                     inquiry_id=inquiry_id,
+                    j_year=inquiry.year,
+                    j_month=inquiry.month,
                 )
 
                 # Save auth state back in case login was refreshed
@@ -241,7 +230,7 @@ class FuelInquiryService:
                 quota_data = result.get("quota_data", {})
                 if not quota_data or not isinstance(quota_data, dict) or not any(quota_data.values()):
                     inquiry.status = "failed"
-                    inquiry.error_message = "داده‌ای برای سهمیه سوخت یافت نشد (پاسخ خالی)"
+                    inquiry.error_message = "104"  # Data not found / Inactive plate
                 else:
                     inquiry.status = "success"
                 inquiry.quota_data_json = json.dumps(quota_data)
@@ -254,7 +243,20 @@ class FuelInquiryService:
         except Exception as e:
             logger.exception(f"Error executing fuel inquiry {inquiry_id}")
             inquiry.status = "failed"
-            inquiry.error_message = str(e)
+
+            # Map exception to clean numeric error code
+            msg = str(e).lower()
+            if "کپچا" in msg or "captcha" in msg:
+                inquiry.error_message = "101"  # Captcha solving failure
+            elif "خطا در سامانه" in msg or "system error" in msg:
+                inquiry.error_message = "102"  # Portal system error
+            elif "timeout" in msg or "connection" in msg or "network" in msg or "proxy" in msg:
+                inquiry.error_message = "103"  # Connection/Network Timeout
+            elif "پلاک" in msg or "plate" in msg or "credentials" in msg or "راننده" in msg:
+                inquiry.error_message = "104"  # Inactive plate or driver details error
+            else:
+                inquiry.error_message = "100"  # General unknown failure
+
             inquiry.updated_at = datetime.now(UTC).replace(tzinfo=None)
             session.add(inquiry)
             await session.commit()

@@ -124,7 +124,7 @@ class TestLocationSelector(unittest.IsolatedAsyncioTestCase):
             # Address fill
             page.fill.assert_called()
             fill_args = page.fill.call_args[0]
-            self.assertIn('#txtAddressSource', fill_args[0] or str(fill_args))
+            self.assertIn("#txtAddressSource", fill_args[0] or str(fill_args))
             self.assertEqual(fill_args[1], "Azadi Square")
 
     async def test_try_dropdown_selection_province_fail(self):

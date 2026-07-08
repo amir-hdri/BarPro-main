@@ -92,7 +92,7 @@ Prometheus: ✅ running (پورت 9090)
 ### 1. راه‌اندازی Backend (در ترمینال جدید)
 
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
+cd /opt/barpro
 source /Users/amirheidari/Python-ML/bin/activate
 
 export DATABASE_URL="postgresql+asyncpg://postgres:<DB_PASSWORD>@127.0.0.1:5432/utcms_rpa"
@@ -120,7 +120,7 @@ curl http://localhost:8000/health
 ### 3. تست ثبت بارنامه واقعی
 
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
+cd /opt/barpro
 source /Users/amirheidari/Python-ML/bin/activate
 python scripts/real_waybill_test.py
 ```

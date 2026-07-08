@@ -21,7 +21,7 @@ class TestMapController(unittest.IsolatedAsyncioTestCase):
         expected_lng = 51.3890
 
         # Mock page.evaluate to return a dictionary with lat/lng
-        self.page.evaluate.return_value = {'lat': expected_lat, 'lng': expected_lng}
+        self.page.evaluate.return_value = {"lat": expected_lat, "lng": expected_lng}
 
         result = await self.controller.get_current_map_center()
 
@@ -84,14 +84,12 @@ class TestMapController(unittest.IsolatedAsyncioTestCase):
         """Test successful route setting with valid origin and destination"""
         # Mock dependencies
         self.controller.select_on_map = AsyncMock(return_value=True)
-        self.controller._extract_route_info = AsyncMock(return_value={
-            'distance': 10.5,
-            'duration': 20.0,
-            'polyline': 'dummy_polyline'
-        })
+        self.controller._extract_route_info = AsyncMock(
+            return_value={"distance": 10.5, "duration": 20.0, "polyline": "dummy_polyline"}
+        )
 
         # Patch sleep to speed up tests (although newer code uses wait_for_*, we still patch sleeps)
-        with patch('asyncio.sleep', new_callable=AsyncMock):
+        with patch("asyncio.sleep", new_callable=AsyncMock):
             # Also patch wait strategies as they might call page.evaluate or wait_for_function
             self.controller.wait_for_map_idle = AsyncMock()
             self.controller.wait_for_route_calculation = AsyncMock()
@@ -109,7 +107,7 @@ class TestMapController(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.destination, destination)
             self.assertEqual(result.distance_km, 10.5)
             self.assertEqual(result.duration_min, 20.0)
-            self.assertEqual(result.route_polyline, 'dummy_polyline')
+            self.assertEqual(result.route_polyline, "dummy_polyline")
 
             # Verify calls were made correctly
             self.assertEqual(self.controller.select_on_map.call_count, 2)
@@ -137,7 +135,7 @@ class TestMapController(unittest.IsolatedAsyncioTestCase):
         # Patch waits
         self.controller.wait_for_map_idle = AsyncMock()
 
-        with patch('asyncio.sleep', new_callable=AsyncMock):
+        with patch("asyncio.sleep", new_callable=AsyncMock):
             # Test data
             origin = GeoCoordinate(latitude=35.6892, longitude=51.3890)
             destination = GeoCoordinate(latitude=35.6992, longitude=51.3990)
@@ -148,5 +146,6 @@ class TestMapController(unittest.IsolatedAsyncioTestCase):
 
             self.assertIn("تنظیم نقطه مقصد با شکست مواجه شد", str(cm.exception))
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

@@ -2,7 +2,7 @@
 
 ## Project Identity
 
-**BarPro** is a multi-tenant RPA (Robotic Process Automation) framework for automated waybill (بارنامه) registration on Iran's national transportation portal (barname.utcms.ir). It uses Playwright-driven browser automation with CAPTCHA solving (CNN/Keras OCR), smart proxy rotation (Squid), and human-behavior simulation.
+**BarPro** is a multi-tenant RPA (Robotic Process Automation) framework for automated waybill (بارنامه) registration on Iran's national transportation portal (barname.utcms.ir). It uses Playwright-driven browser automation with CAPTCHA solving (CNN/PyTorch fuel CRNN/Keras OCR), smart proxy rotation (Squid), and human-behavior simulation.
 
 ## Architecture Overview
 
@@ -62,19 +62,19 @@ Both IPs point to the **same physical server** (single host, dual networking).
 - **Forms**: React Hook Form + Zod
 - **Data fetching**: React Query + Axios
 - **Styling**: Tailwind CSS + Heroicons
-- **State**: localStorage-based auth (insecure — see ISSUES.md)
-- **No httpOnly cookies** — JWT in localStorage (critical security issue)
+- **State**: JWT is transported by httpOnly cookie; localStorage stores only non-sensitive client/session metadata
+- **Cookie security**: keep `AUTH_COOKIE_SECURE=false` on current HTTP deployment; set `true` after HTTPS is enabled
 
 ## Critical Warnings
 
 1. **NEVER hardcode credentials** — the repo already has leaked production SSH passwords (`PLACEHOLDER_SSH_PASSWORD`) committed in multiple files
 2. **NEVER commit `.env`** — currently tracked in git history; use `.env.example` as template
 3. **`.env` IS in `.gitignore`** but was committed before being added — do NOT commit new secrets
-4. **Build will fail** without fixing `zod/v4` import in `waybillSchema.ts:1` and `ArrowLeftOnRectangleIcon` in `Header.tsx:3`
-5. **All containers run privileged** (`privileged: true`) — any compromise = full host access
+4. **Frontend Docker no longer requires prebuilt `.next/standalone`** — `apps/web/Dockerfile` builds inside Docker
+5. **Do not re-add `privileged: true`** — containers use `cap_add` + `no-new-privileges`
 6. **No HTTPS** — Nginx listens on port 80 only; all traffic is plaintext
-7. **Rate limiter fails open** — if Redis is down, 999 requests/minute are allowed
-8. **SSRF vector** in proxy rotator — proxy URLs from config are used for outbound health checks
+7. **Rate limiter is fail-closed** — preserve HTTP 429 behavior if Redis is unavailable
+8. **Proxy URL validation exists** — do not weaken `_is_safe_proxy_url`
 
 ## Deployment Topology
 
@@ -116,12 +116,12 @@ Single Server (188.121.123.16 + 95.38.233.90)
 | `engine.dispose()` per Celery task | Destroys connection pool, causing connection storms |
 | `asyncio.Lock` on class instances | Race condition when event loop changes; use `threading.Lock` for init |
 | `autoretry_for = (Exception,)` | Retries programming bugs indefinitely; use specific exceptions |
-| `run_migrations` is dead code | Line 82 in database.py is commented out; migrations never auto-run |
+| Migration startup | `run_migrations()` is active with Redis distributed lock; avoid duplicate startup runners |
 | Event loop per Celery task | `asyncio.new_event_loop()` per task is extremely expensive |
 | Session not injected | Services create `AsyncSession` directly instead of using `get_session()` dependency |
 | Race condition in Redis manager | Double-checked locking pattern is broken for async (redis.py:36-53) |
-| Zod v3 ↔ v4 mismatch | `waybillSchema.ts` imports from `zod/v4` but package has `zod@3.24.1` |
-| Heroicons rename | `ArrowLeftOnRectangleIcon` renamed to `ArrowRightStartOnRectangleIcon` in v2.1+ |
+| Zod v3 ↔ v4 mismatch | Keep imports from `zod`, not `zod/v4`, because package is `zod@3.24.1` |
+| Heroicons rename | Use current Heroicons v2 names such as `ArrowRightStartOnRectangleIcon` |
 
 ## Testing
 
@@ -170,7 +170,7 @@ BarPro/
 │   ├── squid/squid_*.conf
 │   ├── prometheus/prometheus.yml
 │   └── logging/logrotate.conf
-├── alembic/                # Database migrations (14 files, hand-crafted IDs)
+├── alembic/                # Database migrations; current head 015_add_client_subscription_dates
 ├── tests/                  # Pytest test suite
 ├── scripts/                # Utility and deploy scripts
 └── deploy/                 # Deployment configs
@@ -209,7 +209,8 @@ docker compose -f compose/monitoring.yml up  # Prometheus only
 | `POSTGRES_PASSWORD` | Database password |
 | `REDIS_PASSWORD` | Redis password |
 | `HEADLESS` | Browser headless mode (true/false) |
-| `CAPTCHA_PROVIDER` | Solver: auto/ensemble/cnn/keras_ocr/enhanced_ocr/local_ocr/off |
+| `CAPTCHA_PROVIDER` | Solver: auto/composite/cnn/pytorch_fuel/keras_ocr/enhanced_ocr/local_ocr/off |
+| `AUTH_COOKIE_SECURE` | Secure flag for httpOnly JWT cookie; false on HTTP, true after HTTPS |
 | `CAPTCHA_MODE` | provider_only / manual_fallback |
 | `CAPTCHA_TIMEOUT_SECONDS` | Max time to solve captcha (default 120) |
 | `CAPTCHA_MAX_RETRIES` | Max auto retries (default 2) |
@@ -224,9 +225,10 @@ docker compose -f compose/monitoring.yml up  # Prometheus only
 | Page | Solver | Model | Provider Name |
 |------|--------|-------|---------------|
 | **Login** (math: "2+3") | PyTorch CNN | `app/automation/captcha/assets/captcha_cnn.pth` | `cnn` |
-| **Fuel Inquiry** (text/numeric) | Keras OCR | `persian_number_ocr.keras` (project root) | `keras_ocr` |
+| **Fuel Inquiry** (Persian words) | PyTorch CRNN | `app/automation/captcha/assets/fuel_captcha_crnn.pth` + vocab | `pytorch_fuel` |
+| **Fuel Inquiry fallback** | Keras OCR | `persian_number_ocr.keras` (project root) | `keras_ocr` |
 
-Default `CAPTCHA_PROVIDER=auto` tries CNN → Keras → Enhanced → Local in sequence.
+Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhanced → Local in sequence.
 
 ## Optimization Applied (2026-06-30)
 
@@ -314,7 +316,7 @@ ON waybill_jobs (status) INCLUDE (id);
 | 11 | Fix Redis race condition | ✅ `app/core/redis.py` — `threading.Lock` (safe across Celery event loops) |
 | 12 | Rate limit ALL endpoints | ✅ Path-prefix matching in `app/main.py` — 6 rate limit rules |
 | 13 | Fix browser context leaks | ✅ Timeouts on close, listener cleanup, OOM risk reduced |
-| 14 | Migrate JWT to httpOnly cookies | ⬜ Still `localStorage` — requires significant frontend refactor |
+| 14 | Migrate JWT to httpOnly cookies | ✅ JWT cookie set by backend; frontend uses `withCredentials` |
 | 15 | Remove `network_mode: host` | ⬜ **Blocked**: dual-IP routing requires it — use `scripts/secure_squid_ports.sh` (iptables) instead |
 | 16 | Fix alembic migrations | ✅ `run_migrations()` now functional with Redis distributed lock — runs on startup via `database.py` |
 | 17 | Add container vulnerability scanning | ⬜ Future work |
@@ -335,7 +337,18 @@ ON waybill_jobs (status) INCLUDE (id);
 2. **Run `bash manage.sh migrate`** on production DB (or just `bash manage.sh deploy` which auto-runs it)
 3. **Run `sudo bash scripts/secure_squid_ports.sh`** to lock down Squid 3129/3130
 4. **Add to crontab**: `@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh`
-5. **Migrate JWT from localStorage to httpOnly cookies** — requires frontend refactor (~4-8 hours)
+5. **After HTTPS install, set `AUTH_COOKIE_SECURE=true`** and redeploy
+
+### Additional Fixes Applied (2026-07-08)
+
+| Change | File(s) |
+|--------|---------|
+| Frontend Docker builds standalone output inside Docker | `apps/web/Dockerfile`, `apps/web/.dockerignore` |
+| HTTP-compatible httpOnly auth cookie added | `app/api/routes/multitenant.py`, `app/core/config.py`, `compose/backend.yml` |
+| New fuel CAPTCHA PyTorch provider enabled | `app/automation/captcha/fuel_captcha_solver.py`, `app/automation/captcha/persian_number_parser.py`, `app/core/config.py` |
+| Alembic head advanced to 015 | `alembic/versions/014_*`, `alembic/versions/015_*` |
+| Production frontend audit cleaned | `apps/web/package.json`, `apps/web/package-lock.json` |
+| Generated/local artifacts ignored for upload/build context | `.gitignore`, `.dockerignore` |
 
 ### Additional Fixes Applied (2026-07-01)
 

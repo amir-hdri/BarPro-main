@@ -22,12 +22,7 @@ async def test_try_map_selection_verification_failure():
     selector._get_form_state = AsyncMock(return_value={"province": ""})
     selector._fill_input_like = AsyncMock(return_value=False)
 
-
-
-    location_data = {
-        "coordinates": {"lat": 35.0, "lng": 51.0},
-        "address": "test address"
-    }
+    location_data = {"coordinates": {"lat": 35.0, "lng": 51.0}, "address": "test address"}
 
     selectors = {
         "province": ["#ddStateSource"],
@@ -56,10 +51,7 @@ async def test_try_map_selection_verification_success():
     selector.map_controller.select_on_map = AsyncMock(return_value=True)
     selector.map_controller.wait_for_map_idle = AsyncMock()
 
-    location_data = {
-        "coordinates": {"lat": 35.0, "lng": 51.0},
-        "address": "test address"
-    }
+    location_data = {"coordinates": {"lat": 35.0, "lng": 51.0}, "address": "test address"}
 
     result = await selector._try_map_selection(location_data, prefix="Origin")
 

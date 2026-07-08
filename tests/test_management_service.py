@@ -53,10 +53,16 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
             session_id="s1",
             sender=SenderModel(name="Sender", phone="09121234567", address="Addr", national_code="1234567890"),
             receiver=ReceiverModel(name="Receiver", phone="09121234567", address="Addr"),
-            origin=LocationModel(province="Tehran", city="Tehran", address="Origin", coordinates=GeoCoordinateModel(lat=35.7, lng=51.4)),
-            destination=LocationModel(province="Alborz", city="Karaj", address="Dest", coordinates=GeoCoordinateModel(lat=35.8, lng=50.9)),
+            origin=LocationModel(
+                province="Tehran", city="Tehran", address="Origin", coordinates=GeoCoordinateModel(lat=35.7, lng=51.4)
+            ),
+            destination=LocationModel(
+                province="Alborz", city="Karaj", address="Dest", coordinates=GeoCoordinateModel(lat=35.8, lng=50.9)
+            ),
             cargo=CargoModel(type="General", weight=1000, count=1, description="Desc"),
-            vehicle=VehicleModel(driver_national_code="1234567890", driver_phone="09121234567", plate="12A34567", type="Truck"),
+            vehicle=VehicleModel(
+                driver_national_code="1234567890", driver_phone="09121234567", plate="12A34567", type="Truck"
+            ),
             financial=FinancialModel(cost=1000, payment_method="Cash"),
         )
         created = await management_service.create_queue_item(
@@ -69,7 +75,9 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(created["status"], "queued")
 
-        fake_enqueue = AsyncMock(return_value=type("Resp", (), {"model_dump": lambda self: {"task_id": "t1", "status": "queued"}})())
+        fake_enqueue = AsyncMock(
+            return_value=type("Resp", (), {"model_dump": lambda self: {"task_id": "t1", "status": "queued"}})()
+        )
         with patch("app.services.management_service.queue_manager.enqueue_waybill", new=fake_enqueue):
             dispatched = await management_service.dispatch_queue_item(
                 created["queue_item_id"],
@@ -90,10 +98,19 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
             session_id="s-bootstrap",
             sender=SenderModel(name="Sender", phone="09121234567", address="Origin Addr", national_code="1234567890"),
             receiver=ReceiverModel(name="Receiver", phone="09129876543", address="Dest Addr"),
-            origin=LocationModel(province="Tehran", city="Tehran", address="Origin", coordinates=GeoCoordinateModel(lat=35.7, lng=51.4)),
-            destination=LocationModel(province="Isfahan", city="Isfahan", address="Destination", coordinates=GeoCoordinateModel(lat=32.65, lng=51.68)),
+            origin=LocationModel(
+                province="Tehran", city="Tehran", address="Origin", coordinates=GeoCoordinateModel(lat=35.7, lng=51.4)
+            ),
+            destination=LocationModel(
+                province="Isfahan",
+                city="Isfahan",
+                address="Destination",
+                coordinates=GeoCoordinateModel(lat=32.65, lng=51.68),
+            ),
             cargo=CargoModel(type="General", weight=1000, count=1, description="Desc"),
-            vehicle=VehicleModel(driver_national_code="1234567890", driver_phone="09123334444", plate="12A34567", type="Truck"),
+            vehicle=VehicleModel(
+                driver_national_code="1234567890", driver_phone="09123334444", plate="12A34567", type="Truck"
+            ),
             financial=FinancialModel(cost=1000, payment_method="Cash"),
         )
         result = await management_service.bootstrap_local_scenario(
@@ -149,10 +166,19 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
             utcms_auth=UTCMSLoginModel(username="DRV-SESSION", password="secret-pass"),
             sender=SenderModel(name="Sender", phone="09121234567", address="Origin Addr", national_code="1234567890"),
             receiver=ReceiverModel(name="Receiver", phone="09129876543", address="Dest Addr"),
-            origin=LocationModel(province="Tehran", city="Tehran", address="Origin", coordinates=GeoCoordinateModel(lat=35.7, lng=51.4)),
-            destination=LocationModel(province="Isfahan", city="Isfahan", address="Destination", coordinates=GeoCoordinateModel(lat=32.65, lng=51.68)),
+            origin=LocationModel(
+                province="Tehran", city="Tehran", address="Origin", coordinates=GeoCoordinateModel(lat=35.7, lng=51.4)
+            ),
+            destination=LocationModel(
+                province="Isfahan",
+                city="Isfahan",
+                address="Destination",
+                coordinates=GeoCoordinateModel(lat=32.65, lng=51.68),
+            ),
             cargo=CargoModel(type="General", weight=1000, count=1, description="Desc"),
-            vehicle=VehicleModel(driver_national_code="1234567890", driver_phone="09123334444", plate="12A34567", type="Truck"),
+            vehicle=VehicleModel(
+                driver_national_code="1234567890", driver_phone="09123334444", plate="12A34567", type="Truck"
+            ),
             financial=FinancialModel(cost=1000, payment_method="Cash"),
         )
         await management_service.bootstrap_local_scenario(
@@ -167,12 +193,21 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
 
         mock_context = AsyncMock()
         mock_page = AsyncMock()
-        with patch("app.services.management_service.browser_manager.initialize", new=AsyncMock()), \
-             patch("app.services.management_service.browser_manager.create_context", new=AsyncMock(return_value=("sid-1", mock_context))) as mock_create_context, \
-             patch("app.services.management_service.browser_manager.new_page", new=AsyncMock(return_value=mock_page)), \
-             patch("app.services.management_service.browser_manager.save_auth_state", new=AsyncMock()) as mock_save_auth_state, \
-             patch("app.services.management_service.browser_manager.close_context", new=AsyncMock()) as mock_close_context, \
-             patch("app.services.management_service.UTCMSAuthenticator") as mock_auth_cls:
+        with (
+            patch("app.services.management_service.browser_manager.initialize", new=AsyncMock()),
+            patch(
+                "app.services.management_service.browser_manager.create_context",
+                new=AsyncMock(return_value=("sid-1", mock_context)),
+            ) as mock_create_context,
+            patch("app.services.management_service.browser_manager.new_page", new=AsyncMock(return_value=mock_page)),
+            patch(
+                "app.services.management_service.browser_manager.save_auth_state", new=AsyncMock()
+            ) as mock_save_auth_state,
+            patch(
+                "app.services.management_service.browser_manager.close_context", new=AsyncMock()
+            ) as mock_close_context,
+            patch("app.services.management_service.UTCMSAuthenticator") as mock_auth_cls,
+        ):
             auth_instance = mock_auth_cls.return_value
             auth_instance._is_logged_in = AsyncMock(return_value=False)
             auth_instance.login = AsyncMock(return_value=True)
@@ -192,10 +227,19 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
             utcms_auth=UTCMSLoginModel(username="LOGIN-USER", password="secret-pass"),
             sender=SenderModel(name="Sender", phone="09121234567", address="Origin Addr", national_code="1234567890"),
             receiver=ReceiverModel(name="Receiver", phone="09129876543", address="Dest Addr"),
-            origin=LocationModel(province="Tehran", city="Tehran", address="Origin", coordinates=GeoCoordinateModel(lat=35.7, lng=51.4)),
-            destination=LocationModel(province="Isfahan", city="Isfahan", address="Destination", coordinates=GeoCoordinateModel(lat=32.65, lng=51.68)),
+            origin=LocationModel(
+                province="Tehran", city="Tehran", address="Origin", coordinates=GeoCoordinateModel(lat=35.7, lng=51.4)
+            ),
+            destination=LocationModel(
+                province="Isfahan",
+                city="Isfahan",
+                address="Destination",
+                coordinates=GeoCoordinateModel(lat=32.65, lng=51.68),
+            ),
             cargo=CargoModel(type="General", weight=1000, count=1, description="Desc"),
-            vehicle=VehicleModel(driver_national_code="1234567890", driver_phone="09123334444", plate="12A34567", type="Truck"),
+            vehicle=VehicleModel(
+                driver_national_code="1234567890", driver_phone="09123334444", plate="12A34567", type="Truck"
+            ),
             financial=FinancialModel(cost=1000, payment_method="Cash"),
         )
         bootstrap = await management_service.bootstrap_local_scenario(
@@ -213,11 +257,15 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
 
         async def fake_enqueue_side_effect(*args, **kwargs):
             self.assertEqual(fake_warm.await_count, 1)
-            return type("Resp", (), {"model_dump": lambda self: {"task_id": "t-smart", "status": "queued"}, "queued": True})()
+            return type(
+                "Resp", (), {"model_dump": lambda self: {"task_id": "t-smart", "status": "queued"}, "queued": True}
+            )()
 
         fake_enqueue = AsyncMock(side_effect=fake_enqueue_side_effect)
-        with patch.object(management_service, "warm_account_session", new=fake_warm), \
-             patch("app.services.management_service.queue_manager.enqueue_waybill", new=fake_enqueue):
+        with (
+            patch.object(management_service, "warm_account_session", new=fake_warm),
+            patch("app.services.management_service.queue_manager.enqueue_waybill", new=fake_enqueue),
+        ):
             dispatched = await management_service.dispatch_queue_item(
                 queue_item_id,
                 ManagedQueueDispatchRequest(idempotency_key="idem-smart", warm_session_first=True),
@@ -233,10 +281,19 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
             session_id="s-otp",
             sender=SenderModel(name="Sender", phone="09121234567", address="Origin Addr", national_code="1234567890"),
             receiver=ReceiverModel(name="Receiver", phone="09129876543", address="Dest Addr"),
-            origin=LocationModel(province="Tehran", city="Tehran", address="Origin", coordinates=GeoCoordinateModel(lat=35.7, lng=51.4)),
-            destination=LocationModel(province="Isfahan", city="Isfahan", address="Destination", coordinates=GeoCoordinateModel(lat=32.65, lng=51.68)),
+            origin=LocationModel(
+                province="Tehran", city="Tehran", address="Origin", coordinates=GeoCoordinateModel(lat=35.7, lng=51.4)
+            ),
+            destination=LocationModel(
+                province="Isfahan",
+                city="Isfahan",
+                address="Destination",
+                coordinates=GeoCoordinateModel(lat=32.65, lng=51.68),
+            ),
             cargo=CargoModel(type="General", weight=1000, count=1, description="Desc"),
-            vehicle=VehicleModel(driver_national_code="1234567890", driver_phone="09123334444", plate="12A34567", type="Truck"),
+            vehicle=VehicleModel(
+                driver_national_code="1234567890", driver_phone="09123334444", plate="12A34567", type="Truck"
+            ),
             financial=FinancialModel(cost=1000, payment_method="Cash"),
         )
         await management_service.upsert_account(
@@ -284,7 +341,10 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        with patch("app.services.management_service.session_vault.auth_state_exists", side_effect=lambda path: "LOGIN-IDENTITY" in path):
+        with patch(
+            "app.services.management_service.session_vault.auth_state_exists",
+            side_effect=lambda path: "LOGIN-IDENTITY" in path,
+        ):
             accounts = await management_service.list_accounts()
 
         self.assertEqual(len(accounts), 1)
@@ -305,8 +365,10 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
                 return [{"path": "file1.png"}, {"path": "file2.txt"}]
             return []
 
-        with patch("app.services.management_service.task_service.list_tasks", side_effect=mock_list_tasks), \
-             patch.object(management_service, "_list_artifacts_for_task", side_effect=mock_list_artifacts_for_task):
+        with (
+            patch("app.services.management_service.task_service.list_tasks", side_effect=mock_list_tasks),
+            patch.object(management_service, "_list_artifacts_for_task", side_effect=mock_list_artifacts_for_task),
+        ):
 
             result = await management_service.operator_tasks(limit=10)
 
@@ -331,9 +393,11 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
         def mock_event_history(task_id=None):
             return [{"event": "created", "task_id": "t-3"}]
 
-        with patch("app.services.management_service.task_service.get_task_status", side_effect=mock_get_task_status), \
-             patch.object(management_service, "_list_artifacts_for_task", side_effect=mock_list_artifacts_for_task), \
-             patch("app.services.management_service.event_hub.history", side_effect=mock_event_history):
+        with (
+            patch("app.services.management_service.task_service.get_task_status", side_effect=mock_get_task_status),
+            patch.object(management_service, "_list_artifacts_for_task", side_effect=mock_list_artifacts_for_task),
+            patch("app.services.management_service.event_hub.history", side_effect=mock_event_history),
+        ):
 
             result = await management_service.operator_artifacts("t-3")
 
@@ -357,7 +421,7 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
             wallet="1000",
             driver_limit=5,
             bot_running=True,
-            raw={"foo": "bar"}
+            raw={"foo": "bar"},
         )
 
         result = await management_service.upsert_customer(request)
@@ -371,8 +435,7 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
 
         async with AsyncSession(self.engine) as session:
             statement = select(ManagedCustomer).where(
-                ManagedCustomer.source_system == "test_system",
-                ManagedCustomer.external_key == "cust-123"
+                ManagedCustomer.source_system == "test_system", ManagedCustomer.external_key == "cust-123"
             )
             record = (await session.execute(statement)).scalars().first()
             self.assertIsNotNone(record)
@@ -395,7 +458,7 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
                 external_key="cust-456",
                 full_name="Jane Doe",
                 wallet="500",
-                driver_limit=2
+                driver_limit=2,
             )
             session.add(record)
             await session.commit()
@@ -408,7 +471,7 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
             driver_limit=10,
             bot_running=False,
             two_way=True,
-            raw={"updated": True}
+            raw={"updated": True},
         )
 
         result = await management_service.upsert_customer(request)
@@ -421,8 +484,7 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
 
         async with AsyncSession(self.engine) as session:
             statement = select(ManagedCustomer).where(
-                ManagedCustomer.source_system == "test_system_2",
-                ManagedCustomer.external_key == "cust-456"
+                ManagedCustomer.source_system == "test_system_2", ManagedCustomer.external_key == "cust-456"
             )
             updated_record = (await session.execute(statement)).scalars().first()
             self.assertIsNotNone(updated_record)
@@ -436,9 +498,7 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
         from app.schemas.management import ManagedCustomerUpsertRequest
 
         request = ManagedCustomerUpsertRequest(
-            source_system="test_system_3",
-            external_key="cust-789",
-            full_name="Bob Builder"
+            source_system="test_system_3", external_key="cust-789", full_name="Bob Builder"
         )
 
         result = await management_service.upsert_customer(request)

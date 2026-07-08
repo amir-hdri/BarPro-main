@@ -10,7 +10,7 @@ from typing import Any
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from app.automation.browser_pool import BrowserPool
-from app.automation.stealth import apply_stealth_mode, get_random_user_agent, get_random_viewport
+from app.automation.stealth import apply_stealth_mode
 from app.core.config import utcms_config
 
 logger = logging.getLogger(__name__)
@@ -246,56 +246,33 @@ class BrowserManager:
             "browser_launch_retry_local_home",
             extra={"extra_fields": {"error": str(error_context), "home": fallback_home}},
         )
-        return await self.playwright.chromium.launch(**launch_options, env=launch_env)
+        options = launch_options.copy()
+        options["env"] = launch_env
+        return await self.playwright.chromium.launch(**options)
 
     async def _launch_browser_with_fallback(self) -> Browser:
         launch_args = [
-            "--js-flags=--max_old_space_size=1024",
-            "--disable-crashpad-for-testing",
-            "--disable-crash-reporter",
-            # --- Anti-detection launch flags ---
-            "--disable-blink-features=AutomationControlled",
-            "--disable-features=IsolateOrigins,site-per-process",
-            "--disable-site-isolation-trials",
             "--no-sandbox",
             "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
-            "--disable-accelerated-2d-canvas",
             "--disable-gpu",
-            "--window-size=1920,1080",
-            "--start-maximized",
-            "--disable-infobars",
-            "--disable-browser-side-navigation",
-            "--disable-extensions",
-            "--disable-plugins-discovery",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--password-store=basic",
-            "--use-mock-keychain",
-            "--lang=fa-IR",
-            "--disable-web-security",
-            "--allow-running-insecure-content",
-            "--disable-client-side-phishing-detection",
-            "--disable-popup-blocking",
-            "--ignore-certificate-errors",
-            "--ignore-ssl-errors",
-            "--ignore-certificate-errors-spki-list",
-            "--disable-background-networking",
-            "--disable-background-timer-throttling",
-            "--disable-backgrounding-occluded-windows",
-            "--disable-breakpad",
-            "--disable-component-extensions-with-background-pages",
-            "--disable-hang-monitor",
-            "--disable-ipc-flooding-protection",
-            "--disable-renderer-backgrounding",
-            "--force-color-profile=srgb",
-            "--metrics-recording-only",
-            "--mute-audio",
-            "--safebrowsing-disable-auto-update",
+            "--disable-crashpad-for-testing",
+            "--disable-crash-reporter",
         ]
+
+        # CRITICAL: Always set a writeable, local HOME directory in environment.
+        # Inside Linux Docker containers, Chromium's network/cache processes
+        # will hang or crash silently if $HOME is missing or pointing to a
+        # non-writable location, causing all navigations to time out.
+        fallback_home = os.path.abspath(".playwright-home")
+        os.makedirs(fallback_home, exist_ok=True)
+        launch_env = os.environ.copy()
+        launch_env["HOME"] = fallback_home
+
         launch_options = {
             "headless": utcms_config.HEADLESS,
             "args": launch_args,
+            "env": launch_env,
         }
         env_executable = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")
         if env_executable:
@@ -312,32 +289,20 @@ class BrowserManager:
             return await self._try_local_home_launch(launch_options, first_error)
 
     def _build_context_args(self, auth_state_path: str | None = None, proxy_dict: dict | None = None) -> dict:
-        user_agent = get_random_user_agent()
-        viewport = get_random_viewport()
+        # CRITICAL: Always use a realistic, modern Windows Chrome User-Agent.
+        # WAF/firewalls on Iranian national servers (like UTCMS) heavily filter Mac/Linux/Edge
+        # user agents or flag inconsistencies, leading to immediate aborts (Status 444).
+        win_chrome_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+
         context_args = {
             "ignore_https_errors": True,
-            "user_agent": user_agent,
-            "viewport": viewport,
-            "locale": "fa-IR",
+            "user_agent": win_chrome_ua,
+            "locale": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
             "timezone_id": "Asia/Tehran",
+            "viewport": {"width": 1920, "height": 1080},
             "java_script_enabled": True,
             "accept_downloads": True,
-            "has_touch": False,
-            "is_mobile": False,
-            "color_scheme": "light",
-            "extra_http_headers": {
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Encoding": "gzip, deflate, br",
-                "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Cache-Control": "max-age=0",
-                "Sec-Fetch-Site": "same-origin",
-            },
         }
-
-        # Add anti-detection launch args
-        if hasattr(self, "browser") and self.browser:
-            # These are set at launch time, but we document them here
-            pass
 
         if proxy_dict:
             context_args["proxy"] = proxy_dict
@@ -363,6 +328,11 @@ class BrowserManager:
             context = await self.browser.new_context(
                 **self._build_context_args(auth_state_path=auth_state_path, proxy_dict=proxy_dict)
             )
+            # CRITICAL: Always inject navigator.webdriver override to context level.
+            # This masks Chromium's automation flag for WAF/anti-bot systems like UTCMS
+            # which block default headless clients with status 444.
+            await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
         self._contexts[session_id] = context
 
         # Register with resource guard
@@ -538,6 +508,7 @@ class BrowserManager:
         try:
             if os.getenv("ENTERPRISE_STEALTH", "true").lower() == "true":
                 from app.automation.stealth_advanced import apply_enterprise_stealth
+
                 await apply_enterprise_stealth(page)
             else:
                 await apply_stealth_mode(page)
@@ -549,7 +520,8 @@ class BrowserManager:
 
         # Inject JavaScript fallback for jQuery DataTables to prevent crashes on slow networks
         try:
-            await page.add_init_script("""
+            await page.add_init_script(
+                """
                 (() => {
                     let jQueryInstance = null;
                     Object.defineProperty(window, 'jQuery', {
@@ -585,7 +557,8 @@ class BrowserManager:
                         configurable: true
                     });
                 })();
-            """)
+            """
+            )
         except Exception as init_exc:
             logger.warning(f"Failed to add DataTables fallback init script: {init_exc}")
 

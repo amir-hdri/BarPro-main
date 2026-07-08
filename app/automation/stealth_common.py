@@ -5,7 +5,6 @@ Shared stealth scripts and utilities used by both stealth.py and stealth_advance
 to avoid code duplication.
 """
 
-
 # ============================================================================
 # CORE STEALTH SCRIPT TEMPLATES
 # ============================================================================

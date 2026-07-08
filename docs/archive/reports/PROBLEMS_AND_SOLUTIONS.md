@@ -186,7 +186,7 @@ UTCMS_PASSWORD=your_actual_password
 
 ### بررسی وضعیت Migration
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
+cd /opt/barpro
 source /Users/amirheidari/Python-ML/bin/activate
 export DATABASE_URL="postgresql+asyncpg://postgres:<DB_PASSWORD>@127.0.0.1:5432/utcms_rpa"
 alembic current

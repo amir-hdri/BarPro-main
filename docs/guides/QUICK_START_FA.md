@@ -13,7 +13,7 @@
  
  ```bash
  git clone <repository-url>
- cd Automation-Barname-main
+  cd /opt/barpro
  
  # Copy environment file
  cp .env.example .env

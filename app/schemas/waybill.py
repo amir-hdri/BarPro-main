@@ -1,9 +1,9 @@
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class OperationMode(str, Enum):
+class OperationMode(StrEnum):
     SAFE = "safe"
     FULL = "full"
 

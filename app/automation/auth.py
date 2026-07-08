@@ -281,6 +281,7 @@ class UTCMSAuthenticator:
             image_bytes = await best_candidate[1].screenshot(type="png")
             if image_bytes:
                 import base64
+
                 return base64.b64encode(image_bytes).decode("utf-8")
         except Exception:
             return None
@@ -320,12 +321,20 @@ class UTCMSAuthenticator:
         track_captcha_failure("captcha_fill_failed")
         return False
 
-    async def _solve_captcha_with_provider(self, captcha_selector: str | None = None, phase: str = "login", attempt: int | None = None) -> str | None:
+    async def _solve_captcha_with_provider(
+        self, captcha_selector: str | None = None, phase: str = "login", attempt: int | None = None
+    ) -> str | None:
         started_at = asyncio.get_running_loop().time()
         track_captcha_attempt("provider", phase=phase, attempt=attempt)
         provider = get_captcha_provider()
         if not provider:
-            track_captcha_failure("provider_not_configured", phase=phase, strategy="provider", latency_seconds=asyncio.get_running_loop().time() - started_at, attempt=attempt)
+            track_captcha_failure(
+                "provider_not_configured",
+                phase=phase,
+                strategy="provider",
+                latency_seconds=asyncio.get_running_loop().time() - started_at,
+                attempt=attempt,
+            )
             if utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED:
                 return await self._solve_math_captcha(phase=phase, attempt=attempt)
             return None
@@ -333,11 +342,15 @@ class UTCMSAuthenticator:
         image_base64 = await self._extract_captcha_image_base64(captcha_selector=captcha_selector)
         if not image_base64:
             elapsed = asyncio.get_running_loop().time() - started_at
-            logger.warning("captcha_provider_image_not_found", extra={"extra_fields": {"phase": phase, "attempt": attempt}})
+            logger.warning(
+                "captcha_provider_image_not_found", extra={"extra_fields": {"phase": phase, "attempt": attempt}}
+            )
             page_hint_value = await self._solve_math_captcha(phase=phase, attempt=attempt)
             if page_hint_value:
                 return page_hint_value
-            track_captcha_failure("provider_image_not_found", phase=phase, strategy="provider", latency_seconds=elapsed, attempt=attempt)
+            track_captcha_failure(
+                "provider_image_not_found", phase=phase, strategy="provider", latency_seconds=elapsed, attempt=attempt
+            )
             if utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED:
                 return await self._solve_math_captcha(phase=phase, attempt=attempt)
             return None
@@ -348,15 +361,40 @@ class UTCMSAuthenticator:
         normalized = normalize_captcha_solution(result.value)
         if result.solved and normalized:
             elapsed = asyncio.get_running_loop().time() - started_at
-            save_captcha_debug_artifact(page_url, image_base64, phase, attempt, "solved", provider=result.provider, solution=normalized)
-            logger.info("captcha_provider_solved", extra={"extra_fields": {"phase": phase, "attempt": attempt, "provider": result.provider}})
+            save_captcha_debug_artifact(
+                page_url, image_base64, phase, attempt, "solved", provider=result.provider, solution=normalized
+            )
+            logger.info(
+                "captcha_provider_solved",
+                extra={"extra_fields": {"phase": phase, "attempt": attempt, "provider": result.provider}},
+            )
             track_captcha_success("provider", phase=phase, latency_seconds=elapsed, attempt=attempt)
             return normalized
 
         elapsed = asyncio.get_running_loop().time() - started_at
-        save_captcha_debug_artifact(page_url, image_base64, phase, attempt, "failed", provider=result.provider, solution=result.value, error=result.error)
-        logger.warning("captcha_provider_failed", extra={"extra_fields": {"provider": result.provider, "error": result.error, "phase": phase, "attempt": attempt}})
-        track_captcha_failure(result.error or "provider_invalid_value", phase=phase, strategy="provider", latency_seconds=elapsed, attempt=attempt)
+        save_captcha_debug_artifact(
+            page_url,
+            image_base64,
+            phase,
+            attempt,
+            "failed",
+            provider=result.provider,
+            solution=result.value,
+            error=result.error,
+        )
+        logger.warning(
+            "captcha_provider_failed",
+            extra={
+                "extra_fields": {"provider": result.provider, "error": result.error, "phase": phase, "attempt": attempt}
+            },
+        )
+        track_captcha_failure(
+            result.error or "provider_invalid_value",
+            phase=phase,
+            strategy="provider",
+            latency_seconds=elapsed,
+            attempt=attempt,
+        )
         if utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED:
             fallback_value = await self._solve_math_captcha(phase=phase, attempt=attempt)
             if fallback_value:
@@ -369,7 +407,13 @@ class UTCMSAuthenticator:
         track_captcha_attempt("math", phase=phase, attempt=attempt)
         hints = await self._extract_math_captcha_hints()
         if not hints:
-            track_captcha_failure("math_hint_not_found", phase=phase, strategy="math", latency_seconds=asyncio.get_running_loop().time() - started_at, attempt=attempt)
+            track_captcha_failure(
+                "math_hint_not_found",
+                phase=phase,
+                strategy="math",
+                latency_seconds=asyncio.get_running_loop().time() - started_at,
+                attempt=attempt,
+            )
             return None
 
         min_confidence = get_captcha_math_min_confidence()
@@ -384,8 +428,20 @@ class UTCMSAuthenticator:
                 continue
             if decision.confidence >= min_confidence:
                 elapsed = asyncio.get_running_loop().time() - started_at
-                track_captcha_success("math", phase=phase, confidence=decision.confidence, latency_seconds=elapsed, attempt=attempt)
-                logger.info("math_captcha_solved", extra={"extra_fields": {"confidence": decision.confidence, "strategy": decision.strategy, "phase": phase, "attempt": attempt}})
+                track_captcha_success(
+                    "math", phase=phase, confidence=decision.confidence, latency_seconds=elapsed, attempt=attempt
+                )
+                logger.info(
+                    "math_captcha_solved",
+                    extra={
+                        "extra_fields": {
+                            "confidence": decision.confidence,
+                            "strategy": decision.strategy,
+                            "phase": phase,
+                            "attempt": attempt,
+                        }
+                    },
+                )
                 return solved
             if decision.confidence > best_confidence:
                 best_confidence = decision.confidence
@@ -393,11 +449,22 @@ class UTCMSAuthenticator:
 
         if best_value is not None and best_confidence >= max(0.3, min_confidence - 0.2):
             elapsed = asyncio.get_running_loop().time() - started_at
-            logger.info("math_captcha_solved_relaxed", extra={"extra_fields": {"confidence": best_confidence, "phase": phase, "attempt": attempt}})
-            track_captcha_success("math_relaxed", phase=phase, confidence=best_confidence, latency_seconds=elapsed, attempt=attempt)
+            logger.info(
+                "math_captcha_solved_relaxed",
+                extra={"extra_fields": {"confidence": best_confidence, "phase": phase, "attempt": attempt}},
+            )
+            track_captcha_success(
+                "math_relaxed", phase=phase, confidence=best_confidence, latency_seconds=elapsed, attempt=attempt
+            )
             return best_value
 
-        track_captcha_failure("math_parse_failed", phase=phase, strategy="math", latency_seconds=asyncio.get_running_loop().time() - started_at, attempt=attempt)
+        track_captcha_failure(
+            "math_parse_failed",
+            phase=phase,
+            strategy="math",
+            latency_seconds=asyncio.get_running_loop().time() - started_at,
+            attempt=attempt,
+        )
         return None
 
     async def _auto_solve_captcha(self, captcha_selector: str) -> bool:
@@ -411,7 +478,9 @@ class UTCMSAuthenticator:
                 await self._refresh_captcha()
                 await asyncio.sleep(retry_delay)
             if allow_provider:
-                solved = await self._solve_captcha_with_provider(captcha_selector=captcha_selector, phase="login", attempt=attempt)
+                solved = await self._solve_captcha_with_provider(
+                    captcha_selector=captcha_selector, phase="login", attempt=attempt
+                )
                 if solved and await self._set_captcha_value(captcha_selector, solved):
                     return True
             if allow_math_fallback:
@@ -419,7 +488,10 @@ class UTCMSAuthenticator:
                 if solved and await self._set_captcha_value(captcha_selector, solved):
                     return True
         self.last_error = "حل خودکار کپچا ناموفق بود. کیفیت تصویر کپچا یا مدل CNN را بررسی کنید."
-        logger.warning("captcha_auto_solve_failed", extra={"extra_fields": {"phase": "login", "max_attempts": max_attempts, "mode": mode}})
+        logger.warning(
+            "captcha_auto_solve_failed",
+            extra={"extra_fields": {"phase": "login", "max_attempts": max_attempts, "mode": mode}},
+        )
         track_captcha_failure("auto_solve_failed", phase="login", strategy="auto")
         return False
 
@@ -450,11 +522,17 @@ class UTCMSAuthenticator:
             return True
 
         if captcha_mode == "provider_only":
-            self.last_error = "کپچا در حالت provider_only حل نشد. مقدار `CAPTCHA_PROVIDER` و فایل مدل CNN را بررسی کنید."
+            self.last_error = (
+                "کپچا در حالت provider_only حل نشد. مقدار `CAPTCHA_PROVIDER` و فایل مدل CNN را بررسی کنید."
+            )
         elif captcha_mode == "manual_only":
-            self.last_error = "حالت manual_only فعال است اما حل دستی کپچا غیرفعال است. `UTCMS_ENABLE_MANUAL_CAPTCHA=true` تنظیم شود."
+            self.last_error = (
+                "حالت manual_only فعال است اما حل دستی کپچا غیرفعال است. `UTCMS_ENABLE_MANUAL_CAPTCHA=true` تنظیم شود."
+            )
         else:
-            self.last_error = "کپچا در صفحه ورود فعال است اما حل خودکار CNN موفق نشد. فایل مدل و کیفیت تصویر کپچا را بررسی کنید."
+            self.last_error = (
+                "کپچا در صفحه ورود فعال است اما حل خودکار CNN موفق نشد. فایل مدل و کیفیت تصویر کپچا را بررسی کنید."
+            )
         track_captcha_failure("captcha_not_solved", phase="login", strategy=captcha_mode or "unknown")
         return False
 
@@ -462,7 +540,9 @@ class UTCMSAuthenticator:
     # Credential filling
     # ==================================================================
 
-    async def _fill_credentials(self, username_selector: str, password_selector: str, username: str, password: str) -> bool:
+    async def _fill_credentials(
+        self, username_selector: str, password_selector: str, username: str, password: str
+    ) -> bool:
         u_ok = await self.navigator.fill_input_like(username_selector, username)
         p_ok = await self.navigator.fill_input_like(password_selector, password)
         if u_ok and p_ok:
@@ -525,7 +605,9 @@ class UTCMSAuthenticator:
             if await self._is_logged_in(probe_login_url=False):
                 return True
             if not self.last_error:
-                self.last_error = await self._extract_login_error() or "لاگین تکمیل نشد و دسترسی به فرم بارنامه تایید نشد."
+                self.last_error = (
+                    await self._extract_login_error() or "لاگین تکمیل نشد و دسترسی به فرم بارنامه تایید نشد."
+                )
             await self._save_login_debug_snapshot("post_submit_not_verified")
             return False
 

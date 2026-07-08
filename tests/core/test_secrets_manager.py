@@ -9,9 +9,11 @@ def test_generate_secure_secret_length():
     assert len(generate_secure_secret(64)) == 64
     assert len(generate_secure_secret(128)) == 128
 
+
 def test_generate_secure_secret_default_length():
     """Test that default length is 64."""
     assert len(generate_secure_secret()) == 64
+
 
 def test_generate_secure_secret_alphabet():
     """Test that characters are drawn from the correct alphabet."""
@@ -20,6 +22,7 @@ def test_generate_secure_secret_alphabet():
 
     for char in secret:
         assert char in expected_alphabet
+
 
 def test_generate_secure_secret_randomness():
     """Test that multiple calls generate different secrets."""

@@ -575,14 +575,16 @@ async def apply_enterprise_stealth(page: Page, config: StealthConfig | None = No
                 random.choice(LOCALE_PRESETS)
 
                 # These are set at context creation time, but we can override some via JS
-                await page.add_init_script(f"""
+                await page.add_init_script(
+                    f"""
                     Object.defineProperty(screen, 'width', {{ get: () => {screen_preset['width']} }});
                     Object.defineProperty(screen, 'height', {{ get: () => {screen_preset['height']} }});
                     Object.defineProperty(screen, 'availWidth', {{ get: () => {screen_preset['avail_width']} }});
                     Object.defineProperty(screen, 'availHeight', {{ get: () => {screen_preset['avail_height']} }});
                     Object.defineProperty(screen, 'colorDepth', {{ get: () => {screen_preset['color_depth']} }});
                     Object.defineProperty(screen, 'pixelDepth', {{ get: () => {screen_preset['pixel_depth']} }});
-                """)
+                """
+                )
                 applied["screen_spoof"] = True
             except Exception:
                 applied["screen_spoof"] = False

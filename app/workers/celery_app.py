@@ -19,6 +19,7 @@ except Exception:
     worker_process_init = None  # type: ignore
 
 if worker_process_init is not None:
+
     @worker_process_init.connect
     def configure_worker_proxies(**kwargs):
         """Initialize proxies in the worker process when it boots."""
@@ -38,7 +39,6 @@ if worker_process_init is not None:
             logger.warning("No RPA proxies loaded in worker. Automation will run on local IP.")
 
 
-
 def _build_celery() -> Celery | None:
     if Celery is None:
         return None
@@ -47,11 +47,7 @@ def _build_celery() -> Celery | None:
         "utcms",
         broker=utcms_config.CELERY_BROKER_URL,
         backend=utcms_config.CELERY_RESULT_BACKEND,
-        include=[
-            "app.workers.tasks",
-            "app.workers.phase1_tasks",
-            "app.workers.waybill_worker"
-        ],
+        include=["app.workers.tasks", "app.workers.phase1_tasks", "app.workers.waybill_worker"],
     )
     app.conf.update(
         task_serializer="json",

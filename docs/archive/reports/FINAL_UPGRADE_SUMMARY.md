@@ -197,7 +197,7 @@ docs/
 
 #### گام 1: Docker
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
+cd /opt/barpro
 docker compose up -d
 ```
 

@@ -13,7 +13,7 @@ import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, TypeVar
 
 from playwright.async_api import Error as PlaywrightError
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
-class StepStatus(str, Enum):
+class StepStatus(StrEnum):
     """Status of a workflow step."""
 
     PENDING = "pending"
@@ -42,7 +42,7 @@ class StepStatus(str, Enum):
     RETRYING = "retrying"
 
 
-class ErrorCategory(str, Enum):
+class ErrorCategory(StrEnum):
     """Categorized error types for precise tracking."""
 
     AUTH_TIMEOUT = "AUTH_TIMEOUT"
@@ -938,7 +938,9 @@ class GracefulDegradation:
             "consecutive_failures": self.consecutive_failures,
             "max_consecutive_failures": self.max_consecutive_failures,
             "last_failure_time": self.last_failure_time,
-            "resume_in_seconds": max(0, self.pause_duration - (time.time() - self.last_failure_time))
-            if self.is_paused and self.last_failure_time
-            else 0,
+            "resume_in_seconds": (
+                max(0, self.pause_duration - (time.time() - self.last_failure_time))
+                if self.is_paused and self.last_failure_time
+                else 0
+            ),
         }

@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import StrEnum
 
 from fastapi import HTTPException
 
@@ -6,7 +6,7 @@ from app.core.exceptions import UTCMSException, WaybillError
 from app.core.network import is_retryable_network_error
 
 
-class ErrorCategory(str, Enum):
+class ErrorCategory(StrEnum):
     USER_DATA_ERROR = "USER_DATA_ERROR"
     AUTH_FAILURE = "AUTH_FAILURE"
     CAPTCHA_EXHAUSTION = "CAPTCHA_EXHAUSTION"

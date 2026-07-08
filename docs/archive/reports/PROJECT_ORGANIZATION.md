@@ -3,7 +3,7 @@
  ## 📁 Directory Structure
  
  ```
- Automation-Barname-main/
+ BarPro/
  ├── app/                          # Main application code
  │   ├── api/                      # API layer
  │   │   └── routes/              # API endpoints

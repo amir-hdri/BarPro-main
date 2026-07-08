@@ -242,6 +242,7 @@ async def _execute_single_job(
                     },
                 )
                 from app.core.circuit_breaker import check_and_report_failure
+
                 await check_and_report_failure(result.get("error", ""))
 
                 if _is_retryable(result) and attempt < MAX_RETRIES:
@@ -329,6 +330,7 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
     except Exception as exc:
         logger.exception(f"Scheduled job {job_id} execution exception: {exc}")
         from app.core.circuit_breaker import check_and_report_failure
+
         await check_and_report_failure(str(exc))
         try:
             job = await session.get(WaybillJob, job_id)
@@ -554,8 +556,12 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
     schedule.last_run_at = _utcnow()
     schedule.last_run_signature = slot_signature
 
-    freq_days = 1 if schedule.frequency == ScheduleFrequency.DAILY.value else 7
-    schedule.next_run_at = _utcnow() + timedelta(days=freq_days)
+    if schedule.frequency == ScheduleFrequency.ONCE.value:
+        schedule.is_active = False
+        schedule.next_run_at = None
+    else:
+        freq_days = 1 if schedule.frequency == ScheduleFrequency.DAILY.value else 7
+        schedule.next_run_at = _utcnow() + timedelta(days=freq_days)
     schedule.updated_at = _utcnow()
     session.add(schedule)
     await session.commit()

@@ -34,7 +34,7 @@ async def test_phase1_scheduler_routes_job_to_auth_then_submit():
             email="a@example.com",
             hashed_password="hash",
             username="tenant_a",
-            full_name="Tenant A Admin"
+            full_name="Tenant A Admin",
         )
         session.add(client)
         await session.commit()
@@ -51,8 +51,9 @@ async def test_phase1_scheduler_routes_job_to_auth_then_submit():
         await session.refresh(driver)
 
     payload = {"driver_national_code": "1234567890", "origin": "تهران", "destination": "قم"}
-    with patch("app.services.rpa_scheduler_service.async_session_factory", new=async_session), patch(
-        "app.services.rpa_runtime_service.redis_manager.get", new=AsyncMock(return_value=None)
+    with (
+        patch("app.services.rpa_scheduler_service.async_session_factory", new=async_session),
+        patch("app.services.rpa_runtime_service.redis_manager.get", new=AsyncMock(return_value=None)),
     ):
         rpa_runtime._memory.clear()
         first = await rpa_scheduler_service.create_job(
@@ -123,7 +124,7 @@ async def test_phase1_scheduler_respects_daily_attempt_cap():
             email="b@example.com",
             hashed_password="hash",
             username="tenant_b",
-            full_name="Tenant B Admin"
+            full_name="Tenant B Admin",
         )
         session.add(client)
         await session.commit()
@@ -139,11 +140,15 @@ async def test_phase1_scheduler_respects_daily_attempt_cap():
         await session.commit()
         await session.refresh(driver)
 
-    with patch("app.services.rpa_scheduler_service.async_session_factory", new=async_session), patch(
-        "app.services.rpa_runtime_service.redis_manager.get", new=AsyncMock(return_value=None)
-    ), patch("app.core.config.utcms_config.DRIVER_DAILY_ATTEMPT_CAP", 2):
+    with (
+        patch("app.services.rpa_scheduler_service.async_session_factory", new=async_session),
+        patch("app.services.rpa_runtime_service.redis_manager.get", new=AsyncMock(return_value=None)),
+        patch("app.core.config.utcms_config.DRIVER_DAILY_ATTEMPT_CAP", 2),
+    ):
         rpa_runtime._memory.clear()
-        await rpa_scheduler_service.create_job(client.id, driver, {"x": 1}, TaskSource.MANUAL, 1, idempotency_key="idem-a")
+        await rpa_scheduler_service.create_job(
+            client.id, driver, {"x": 1}, TaskSource.MANUAL, 1, idempotency_key="idem-a"
+        )
         await rpa_runtime.increment_attempt(client.id, driver.id)
         await rpa_runtime.increment_attempt(client.id, driver.id)
         decisions = await rpa_scheduler_service.plan_due_jobs()
@@ -173,7 +178,7 @@ async def test_phase1_scheduler_does_not_stick_job_during_tenant_cooldown():
             email="c@example.com",
             hashed_password="hash",
             username="tenant_c",
-            full_name="Tenant C Admin"
+            full_name="Tenant C Admin",
         )
         session.add(client)
         await session.commit()
@@ -189,11 +194,14 @@ async def test_phase1_scheduler_does_not_stick_job_during_tenant_cooldown():
         await session.commit()
         await session.refresh(driver)
 
-    with patch("app.services.rpa_scheduler_service.async_session_factory", new=async_session), patch(
-        "app.services.rpa_runtime_service.redis_manager.get", new=AsyncMock(return_value=None)
+    with (
+        patch("app.services.rpa_scheduler_service.async_session_factory", new=async_session),
+        patch("app.services.rpa_runtime_service.redis_manager.get", new=AsyncMock(return_value=None)),
     ):
         rpa_runtime._memory.clear()
-        await rpa_scheduler_service.create_job(client.id, driver, {"x": 1}, TaskSource.MANUAL, 1, idempotency_key="idem-c")
+        await rpa_scheduler_service.create_job(
+            client.id, driver, {"x": 1}, TaskSource.MANUAL, 1, idempotency_key="idem-c"
+        )
         await rpa_runtime.apply_cooldown("tenant", str(client.id), 300)
 
         decisions = await rpa_scheduler_service.plan_due_jobs()
@@ -222,7 +230,7 @@ async def test_phase1_scheduler_preview_has_no_side_effects():
             email="preview@example.com",
             hashed_password="hash",
             username="tenant_preview",
-            full_name="Tenant Preview Admin"
+            full_name="Tenant Preview Admin",
         )
         session.add(client)
         await session.commit()
@@ -238,11 +246,14 @@ async def test_phase1_scheduler_preview_has_no_side_effects():
         await session.commit()
         await session.refresh(driver)
 
-    with patch("app.services.rpa_scheduler_service.async_session_factory", new=async_session), patch(
-        "app.services.rpa_runtime_service.redis_manager.get", new=AsyncMock(return_value=None)
+    with (
+        patch("app.services.rpa_scheduler_service.async_session_factory", new=async_session),
+        patch("app.services.rpa_runtime_service.redis_manager.get", new=AsyncMock(return_value=None)),
     ):
         rpa_runtime._memory.clear()
-        await rpa_scheduler_service.create_job(client.id, driver, {"x": 1}, TaskSource.MANUAL, 1, idempotency_key="idem-preview")
+        await rpa_scheduler_service.create_job(
+            client.id, driver, {"x": 1}, TaskSource.MANUAL, 1, idempotency_key="idem-preview"
+        )
         preview = await rpa_scheduler_service.plan_due_jobs(persist=False)
         assert len(preview) == 1
         assert preview[0].queue_name == "rpa_auth"
@@ -271,7 +282,7 @@ async def test_phase1_dispatch_due_jobs_enqueues_auth_task_and_persists_task_id(
             email="dispatch@example.com",
             hashed_password="hash",
             username="tenant_dispatch",
-            full_name="Tenant Dispatch Admin"
+            full_name="Tenant Dispatch Admin",
         )
         session.add(client)
         await session.commit()
@@ -290,17 +301,23 @@ async def test_phase1_dispatch_due_jobs_enqueues_auth_task_and_persists_task_id(
     fake_result = SimpleNamespace(id="celery-auth-1")
     fake_celery = SimpleNamespace(send_task=lambda *args, **kwargs: fake_result)
 
-    with patch("app.services.rpa_scheduler_service.async_session_factory", new=async_session), patch(
-        "app.services.rpa_dispatch_service.async_session_factory", new=async_session
-    ), patch("app.services.rpa_runtime_service.redis_manager.get", new=AsyncMock(return_value=None)), patch(
-        "app.services.rpa_dispatch_service.celery_app",
-        fake_celery,
-    ), patch(
-        "app.core.circuit_breaker.get_routed_queue",
-        side_effect=lambda x: x,
+    with (
+        patch("app.services.rpa_scheduler_service.async_session_factory", new=async_session),
+        patch("app.services.rpa_dispatch_service.async_session_factory", new=async_session),
+        patch("app.services.rpa_runtime_service.redis_manager.get", new=AsyncMock(return_value=None)),
+        patch(
+            "app.services.rpa_dispatch_service.celery_app",
+            fake_celery,
+        ),
+        patch(
+            "app.core.circuit_breaker.get_routed_queue",
+            side_effect=lambda x: x,
+        ),
     ):
         rpa_runtime._memory.clear()
-        await rpa_scheduler_service.create_job(client.id, driver, {"x": 1}, TaskSource.MANUAL, 1, idempotency_key="idem-dispatch")
+        await rpa_scheduler_service.create_job(
+            client.id, driver, {"x": 1}, TaskSource.MANUAL, 1, idempotency_key="idem-dispatch"
+        )
         dispatched = await rpa_dispatch_service.dispatch_phase1_due_jobs()
 
         assert len(dispatched) == 1
@@ -332,7 +349,7 @@ async def test_phase1_auth_success_dispatches_submit_for_resume_job():
             email="authflow@example.com",
             hashed_password="hash",
             username="tenant_auth_flow",
-            full_name="Tenant Auth Flow Admin"
+            full_name="Tenant Auth Flow Admin",
         )
         session.add(client)
         await session.commit()
@@ -374,15 +391,12 @@ async def test_phase1_auth_success_dispatches_submit_for_resume_job():
         async def login(self, *_args, **_kwargs):
             return True
 
-
     async def fake_followup_dispatch(client_id, job_id, page, context, session_bundle):
         from app.models_multitenant import TaskStatus, WaybillJob
         from app.services.rpa_submit_service import SubmitOutcome
 
         async with async_session() as session:
-            job = (
-                await session.exec(select(WaybillJob).where(WaybillJob.job_id == job_id))
-            ).first()
+            job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == job_id))).first()
             if job:
                 job.celery_task_id = "celery-submit-1"
                 job.status = TaskStatus.QUEUED.value
@@ -404,32 +418,42 @@ async def test_phase1_auth_success_dispatches_submit_for_resume_job():
                 self.next_retry_after_minutes = next_retry_after_minutes
 
         return MockSubmitResult(
-            classification=MockSubmitClassification(outcome=SubmitOutcome.SUCCESS, reason_code="portal_success", next_retry_after_minutes=0),
+            classification=MockSubmitClassification(
+                outcome=SubmitOutcome.SUCCESS, reason_code="portal_success", next_retry_after_minutes=0
+            ),
             raw_response="success",
             driver_message="success",
-            business_date="2025-01-01"
+            business_date="2025-01-01",
         )
 
-    with patch("app.services.rpa_auth_service.async_session_factory", new=async_session), patch(
-        "app.services.rpa_runtime_service.redis_manager.get", new=AsyncMock(return_value=None)
-    ), patch(
-        "app.services.rpa_auth_service.decrypt_driver_password",
-        return_value="password",
-    ), patch("app.services.rpa_auth_service.browser_manager.initialize", new=AsyncMock()), patch(
-        "app.services.rpa_auth_service.browser_manager.create_context",
-        new=AsyncMock(return_value=("session-auth", fake_context)),
-    ), patch("app.services.rpa_auth_service.browser_manager.new_page", new=AsyncMock(return_value=fake_page)), patch(
-        "app.services.rpa_auth_service.browser_manager.save_auth_state",
-        new=AsyncMock(),
-    ), patch("app.services.rpa_auth_service.browser_manager.close_context", new=AsyncMock()), patch(
-        "app.services.rpa_auth_service.UTCMSAuthenticator",
-        FakeAuthenticator,
-    ), patch(
-        "app.services.rpa_auth_service.session_vault.ensure_parent_dir"
-    ), patch(
-        "app.services.rpa_auth_service.rpa_submit_service.process_job_live",
-        new=AsyncMock(side_effect=fake_followup_dispatch),
-    ) as followup_dispatch:
+    with (
+        patch("app.services.rpa_auth_service.async_session_factory", new=async_session),
+        patch("app.services.rpa_runtime_service.redis_manager.get", new=AsyncMock(return_value=None)),
+        patch(
+            "app.services.rpa_auth_service.decrypt_driver_password",
+            return_value="password",
+        ),
+        patch("app.services.rpa_auth_service.browser_manager.initialize", new=AsyncMock()),
+        patch(
+            "app.services.rpa_auth_service.browser_manager.create_context",
+            new=AsyncMock(return_value=("session-auth", fake_context)),
+        ),
+        patch("app.services.rpa_auth_service.browser_manager.new_page", new=AsyncMock(return_value=fake_page)),
+        patch(
+            "app.services.rpa_auth_service.browser_manager.save_auth_state",
+            new=AsyncMock(),
+        ),
+        patch("app.services.rpa_auth_service.browser_manager.close_context", new=AsyncMock()),
+        patch(
+            "app.services.rpa_auth_service.UTCMSAuthenticator",
+            FakeAuthenticator,
+        ),
+        patch("app.services.rpa_auth_service.session_vault.ensure_parent_dir"),
+        patch(
+            "app.services.rpa_auth_service.rpa_submit_service.process_job_live",
+            new=AsyncMock(side_effect=fake_followup_dispatch),
+        ) as followup_dispatch,
+    ):
         rpa_runtime._memory.clear()
         result = await rpa_auth_service.authenticate_driver(
             client_id=client.id,
@@ -441,9 +465,7 @@ async def test_phase1_auth_success_dispatches_submit_for_resume_job():
         assert followup_dispatch.await_count == 1
 
         async with async_session() as session:
-            job = (
-                await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-auth-flow"))
-            ).first()
+            job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-auth-flow"))).first()
             assert job.status == TaskStatus.QUEUED.value
             assert job.celery_task_id is not None
 
@@ -468,7 +490,11 @@ def test_phase1_submit_classifier_maps_auth_and_duplicate_errors():
     auth = classify_submit_response(403, "Please login again")
     duplicate = classify_submit_response(409, "duplicate request")
     success = classify_submit_response(200, "operation success")
+    explicit_fail = classify_submit_response(200, '{"success": false, "message": "Driver not eligible"}')
 
     assert auth.reason_code == "session_expired"
     assert duplicate.reason_code == "duplicate_registration"
     assert success.reason_code == "portal_success"
+    assert explicit_fail.outcome.value == "validation_error"
+    assert explicit_fail.reason_code == "portal_validation_error"
+    assert explicit_fail.message == "Driver not eligible"

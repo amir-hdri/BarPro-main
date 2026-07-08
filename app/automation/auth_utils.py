@@ -138,9 +138,9 @@ def normalize_captcha_solution(value: str | None) -> str | None:
     if not normalized:
         return None
     normalized = normalized.replace(" ", "").replace("=", "").replace("؟", "").replace("?", "")
-    if any(token in normalized for token in ("+", "-", "*", "/", "x", "X", "×", "÷")) and not CAPTCHA_VALUE_PATTERN.match(
-        normalized
-    ):
+    if any(
+        token in normalized for token in ("+", "-", "*", "/", "x", "X", "×", "÷")
+    ) and not CAPTCHA_VALUE_PATTERN.match(normalized):
         decision = captcha_engine.solve_text_with_confidence(normalized)
         min_confidence = get_captcha_math_min_confidence()
         if decision.value and decision.confidence >= min_confidence:
@@ -182,8 +182,7 @@ def navigation_error_message(url: str, error: Exception) -> str:
         )
     ):
         return (
-            f"دسترسی به صفحه ورود UTCMS ممکن نشد؛ دامنه/شبکه برای {host_hint} resolve نشد "
-            "(ERR_NAME_NOT_RESOLVED)."
+            f"دسترسی به صفحه ورود UTCMS ممکن نشد؛ دامنه/شبکه برای {host_hint} resolve نشد " "(ERR_NAME_NOT_RESOLVED)."
         )
     if "timeout" in lowered or "timed out" in lowered:
         return f"دسترسی به صفحه ورود UTCMS ممکن نشد؛ پاسخ از {host_hint} در زمان مجاز دریافت نشد."

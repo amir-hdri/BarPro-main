@@ -20,8 +20,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth_multitenant import decrypt_driver_password
 from app.automation.browser import browser_manager, managed_browser_session
-from app.automation.proxy_rotator import get_proxy_rotator
 from app.automation.waybill_bot_multitenant import WaybillAutomationBot
+from app.automation.worker_proxy import get_playwright_proxy
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.models_multitenant import (
@@ -69,6 +69,9 @@ class WaybillTask(Task):
         return async_session_factory()
 
 
+from app.core.utils import run_async as _run
+
+
 @celery_app.task(
     bind=True,
     base=WaybillTask,
@@ -81,28 +84,26 @@ def process_waybill_job(self, job_id: str):
     """
     Process a single waybill job.
 
-    This is the main Celery task that executes the RPA bot.
+    Uses a persistent event loop per worker process.
+    This eliminates the 'Future attached to a different loop' error by reusing
+    the same event loop for all tasks executed in this worker process.
     """
-    loop = asyncio.new_event_loop()
     try:
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(_execute_job(self, job_id))
+        result = _run(_execute_job(self, job_id))
         return result
     except Exception as e:
         logger.error(f"Job {job_id} failed with exception: {e}", exc_info=True)
         from app.core.circuit_breaker import check_and_report_failure
+
         try:
-            loop.run_until_complete(check_and_report_failure(str(e)))
+            _run(check_and_report_failure(str(e)))
         except Exception as cb_err:
             logger.warning("circuit_breaker_report_failed", extra={"extra_fields": {"error": str(cb_err)}})
-        loop.run_until_complete(_update_job_status(job_id, TaskStatus.FAILED.value, str(e), "unknown"))
-        raise
-    finally:
         try:
-            loop.run_until_complete(browser_manager.recycle_browser())
-        except Exception:
-            logger.warning("recycle_failed_in_finally", exc_info=True)
-        loop.close()
+            _run(_update_job_status(job_id, TaskStatus.FAILED.value, str(e), "unknown"))
+        except Exception as db_err:
+            logger.error("update_job_status_failed", extra={"extra_fields": {"error": str(db_err)}})
+        raise
 
 
 async def _execute_job(task, job_id: str) -> dict[str, Any]:
@@ -162,8 +163,9 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
             national_code=driver.driver_national_code,
             fallback=username,
         )
-        proxy_info = await get_proxy_rotator().get_next()
-        proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
+        # Use simple worker proxy helper — bypasses proxy_rotator's cooldown/geo-check
+        # that could return None, leaving Chromium without proxy → navigation timeout.
+        proxy_dict = get_playwright_proxy()
         async with managed_browser_session(auth_state_path=auth_state_path, proxy_dict=proxy_dict) as (
             _session_id,
             context,
@@ -347,6 +349,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
 
                 logger.warning(f"Job {job_id} failed permanently: {result.get('error')}")
                 from app.core.circuit_breaker import check_and_report_failure
+
                 await check_and_report_failure(result.get("error", "Unknown error"))
                 return result
             finally:
@@ -355,6 +358,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
     except Exception as e:
         logger.error(f"Job {job_id} execution error: {e}", exc_info=True)
         from app.core.circuit_breaker import check_and_report_failure
+
         await check_and_report_failure(str(e))
 
         try:

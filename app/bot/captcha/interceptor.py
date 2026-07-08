@@ -7,7 +7,7 @@ import logging
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 import aiohttp
 from playwright.async_api import Locator, Page
@@ -19,7 +19,7 @@ from app.core.logging import monitoring_extra
 logger = logging.getLogger(__name__)
 
 
-class CaptchaSolveStatus(str, Enum):
+class CaptchaSolveStatus(StrEnum):
     NOT_FOUND = "not_found"
     SOLVED = "solved"
     FAILED = "failed"

@@ -220,11 +220,11 @@ export default function DriversPage() {
       <AppShell>
         <section className="flex flex-col gap-6 md:gap-10">
           
-          <div className="flex xl:hidden rounded-2xl bg-slate-900/60 p-1 border border-white/5 mb-2 shadow-inner backdrop-blur-md">
+          <div className="flex xl:hidden rounded-2xl bg-slate-900/60 p-1 border border-white/5 mb-2 shadow-inner backdrop-blur-md overflow-x-auto scrollbar-none flex-nowrap shrink-0">
             <button
               type="button"
               onClick={() => setActiveTab('list')}
-              className={`flex-1 rounded-xl py-3.5 text-xs font-black transition-all ${
+              className={`flex-1 min-w-[110px] shrink-0 rounded-xl py-3.5 text-xs font-black transition-all ${
                 activeTab === 'list' ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -233,7 +233,7 @@ export default function DriversPage() {
             <button
               type="button"
               onClick={() => setActiveTab('add')}
-              className={`flex-1 rounded-xl py-3.5 text-xs font-black transition-all ${
+              className={`flex-1 min-w-[110px] shrink-0 rounded-xl py-3.5 text-xs font-black transition-all ${
                 activeTab === 'add' ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -242,7 +242,7 @@ export default function DriversPage() {
             <button
               type="button"
               onClick={() => setActiveTab('plates_schedules')}
-              className={`flex-1 rounded-xl py-3.5 text-xs font-black transition-all ${
+              className={`flex-1 min-w-[130px] shrink-0 rounded-xl py-3.5 text-xs font-black transition-all ${
                 activeTab === 'plates_schedules' ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -419,7 +419,7 @@ export default function DriversPage() {
                 <div className="mt-6 grid gap-4 md:grid-cols-2">
                   <label className="text-sm font-bold text-slate-200">
                     <span className="mb-2 block">راننده</span>
-                    <select value={plateForm.driver_id} onChange={(event) => setPlateForm((current) => ({ ...current, driver_id: Number(event.target.value) }))} className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white outline-none focus:border-cyan-400">
+                    <select value={plateForm.driver_id} onChange={(event) => setPlateForm((current) => ({ ...current, driver_id: Number(event.target.value) }))} className="field">
                       <option value={0}>انتخاب راننده</option>
                       {drivers.map((driver) => <option key={driver.id} value={driver.id} className="bg-slate-950">{driver.full_name}</option>)}
                     </select>
@@ -446,7 +446,7 @@ export default function DriversPage() {
                 <div className="mt-6 grid gap-4 md:grid-cols-2">
                   <label className="text-sm font-bold text-slate-200">
                     <span className="mb-2 block">راننده</span>
-                    <select value={scheduleForm.driver_id} onChange={(event) => setScheduleForm((current) => ({ ...current, driver_id: Number(event.target.value) }))} className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white outline-none focus:border-cyan-400">
+                    <select value={scheduleForm.driver_id} onChange={(event) => setScheduleForm((current) => ({ ...current, driver_id: Number(event.target.value) }))} className="field">
                       <option value={0}>انتخاب راننده</option>
                       {drivers.map((driver) => <option key={driver.id} value={driver.id} className="bg-slate-950">{driver.full_name}</option>)}
                     </select>
@@ -483,9 +483,10 @@ export default function DriversPage() {
                   <Input label="تا تاریخ (YYYY-MM-DD)" value={scheduleForm.end_date || ''} onChange={(value) => setScheduleForm((current) => ({ ...current, end_date: value }))} />
                   <label className="text-sm font-bold text-slate-200">
                     <span className="mb-2 block">تناوب</span>
-                    <select value={scheduleForm.frequency} onChange={(event) => setScheduleForm((current) => ({ ...current, frequency: event.target.value as 'daily' | 'weekly' }))} className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-white outline-none focus:border-cyan-400">
+                    <select value={scheduleForm.frequency} onChange={(event) => setScheduleForm((current) => ({ ...current, frequency: event.target.value as 'daily' | 'weekly' | 'once' }))} className="field">
                       <option value="daily" className="bg-slate-950">روزانه</option>
                       <option value="weekly" className="bg-slate-950">هفتگی</option>
+                      <option value="once" className="bg-slate-950">یکبار</option>
                     </select>
                   </label>
                 </div>

@@ -43,9 +43,10 @@ TEST_USERS = [
 # Helper Functions
 # ============================================================================
 
+
 def generate_random_string(length=10):
     """Generate a random string."""
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+    return "".join(random.choices(string.ascii_letters + string.digits, k=length))
 
 
 def generate_waybill_data():
@@ -84,6 +85,7 @@ def get_auth_headers(user=None):
 # Task Sets
 # ============================================================================
 
+
 class HealthCheckTasks(TaskSet):
     """Health check endpoints."""
 
@@ -105,17 +107,10 @@ class AuthenticationTasks(TaskSet):
         if not JWT_TOKEN:
             user = random.choice(TEST_USERS)
             response = self.client.post(
-                "/api/v1/auth/login",
-                json={
-                    "username": user["username"],
-                    "password": user["password"]
-                }
+                "/api/v1/auth/login", json={"username": user["username"], "password": user["password"]}
             )
             if response.status_code == 200:
-                self.user_data = {
-                    **user,
-                    "token": response.json().get("access_token", "")
-                }
+                self.user_data = {**user, "token": response.json().get("access_token", "")}
             else:
                 self.user_data = user
         else:
@@ -127,11 +122,8 @@ class AuthenticationTasks(TaskSet):
         user = random.choice(TEST_USERS)
         self.client.post(
             "/api/v1/auth/login",
-            json={
-                "username": user["username"],
-                "password": user["password"]
-            },
-            headers=get_auth_headers()
+            json={"username": user["username"], "password": user["password"]},
+            headers=get_auth_headers(),
         )
 
 
@@ -145,49 +137,33 @@ class WaybillTasks(TaskSet):
     @task(5)
     def list_waybills(self):
         """List waybills."""
-        self.client.get(
-            "/api/v1/waybills",
-            headers=get_auth_headers(self.user_data)
-        )
+        self.client.get("/api/v1/waybills", headers=get_auth_headers(self.user_data))
 
     @task(3)
     def create_waybill(self):
         """Create a new waybill."""
         data = generate_waybill_data()
-        self.client.post(
-            "/api/v1/waybills",
-            json=data,
-            headers=get_auth_headers(self.user_data)
-        )
+        self.client.post("/api/v1/waybills", json=data, headers=get_auth_headers(self.user_data))
 
     @task(2)
     def get_waybill(self):
         """Get a specific waybill."""
         # Try to get a random waybill ID
-        response = self.client.get(
-            "/api/v1/waybills",
-            headers=get_auth_headers(self.user_data)
-        )
+        response = self.client.get("/api/v1/waybills", headers=get_auth_headers(self.user_data))
         if response.status_code == 200 and response.json().get("items"):
             waybill_id = random.choice(response.json()["items"])["id"]
-            self.client.get(
-                f"/api/v1/waybills/{waybill_id}",
-                headers=get_auth_headers(self.user_data)
-            )
+            self.client.get(f"/api/v1/waybills/{waybill_id}", headers=get_auth_headers(self.user_data))
 
     @task(1)
     def update_waybill(self):
         """Update a waybill."""
-        response = self.client.get(
-            "/api/v1/waybills",
-            headers=get_auth_headers(self.user_data)
-        )
+        response = self.client.get("/api/v1/waybills", headers=get_auth_headers(self.user_data))
         if response.status_code == 200 and response.json().get("items"):
             waybill_id = random.choice(response.json()["items"])["id"]
             self.client.put(
                 f"/api/v1/waybills/{waybill_id}",
                 json={"description": f"Updated at {datetime.now().isoformat()}"},
-                headers=get_auth_headers(self.user_data)
+                headers=get_auth_headers(self.user_data),
             )
 
 
@@ -201,18 +177,12 @@ class DriverTasks(TaskSet):
     @task(3)
     def list_drivers(self):
         """List drivers."""
-        self.client.get(
-            "/api/v1/drivers",
-            headers=get_auth_headers(self.user_data)
-        )
+        self.client.get("/api/v1/drivers", headers=get_auth_headers(self.user_data))
 
     @task(2)
     def get_driver(self):
         """Get a specific driver."""
-        self.client.get(
-            "/api/v1/drivers/1",
-            headers=get_auth_headers(self.user_data)
-        )
+        self.client.get("/api/v1/drivers/1", headers=get_auth_headers(self.user_data))
 
 
 class ReportTasks(TaskSet):
@@ -225,18 +195,12 @@ class ReportTasks(TaskSet):
     @task(2)
     def get_reports(self):
         """Get reports."""
-        self.client.get(
-            "/api/v1/reports",
-            headers=get_auth_headers(self.user_data)
-        )
+        self.client.get("/api/v1/reports", headers=get_auth_headers(self.user_data))
 
     @task(1)
     def get_dashboard_stats(self):
         """Get dashboard statistics."""
-        self.client.get(
-            "/api/v1/dashboard/stats",
-            headers=get_auth_headers(self.user_data)
-        )
+        self.client.get("/api/v1/dashboard/stats", headers=get_auth_headers(self.user_data))
 
 
 class RPATasks(TaskSet):
@@ -253,24 +217,18 @@ class RPATasks(TaskSet):
             "origin": f"City {generate_random_string(5)}",
             "destination": f"City {generate_random_string(5)}",
         }
-        self.client.post(
-            "/waybill/calculate-route",
-            json=data,
-            headers=get_auth_headers(self.user_data)
-        )
+        self.client.post("/waybill/calculate-route", json=data, headers=get_auth_headers(self.user_data))
 
     @task(1)
     def check_rpa_status(self):
         """Check RPA system status."""
-        self.client.get(
-            "/api/v1/rpa/status",
-            headers=get_auth_headers(self.user_data)
-        )
+        self.client.get("/api/v1/rpa/status", headers=get_auth_headers(self.user_data))
 
 
 # ============================================================================
 # User Classes
 # ============================================================================
+
 
 class NormalUser(HttpUser):
     """Simulates a normal user with typical usage patterns."""
@@ -324,6 +282,7 @@ class AuthUser(HttpUser):
 # Test Scenarios
 # ============================================================================
 
+
 class SmokeTestUser(HttpUser):
     """Lightweight smoke test user."""
 
@@ -351,21 +310,12 @@ class FullFlowUser(HttpUser):
         self.client.get("/api/v1/waybills", headers=get_auth_headers())
 
         # Create waybill
-        self.client.post(
-            "/api/v1/waybills",
-            json=generate_waybill_data(),
-            headers=get_auth_headers()
-        )
+        self.client.post("/api/v1/waybills", json=generate_waybill_data(), headers=get_auth_headers())
 
         # Get reports
         self.client.get("/api/v1/reports", headers=get_auth_headers())
 
         # Calculate route
         self.client.post(
-            "/waybill/calculate-route",
-            json={
-                "origin": "Tehran",
-                "destination": "Isfahan"
-            },
-            headers=get_auth_headers()
+            "/waybill/calculate-route", json={"origin": "Tehran", "destination": "Isfahan"}, headers=get_auth_headers()
         )

@@ -34,7 +34,7 @@
 ### 🤖 Advanced RPA Engine
 * **Human-like Behavior:** Sophisticated simulation of human interactions (typing delays, parabolic mouse movements) to bypass WAFs and anti-bot mechanisms.
 * **Smart Map Injection:** Direct coordinate injection into JavaScript globals to bypass interactive search bottlenecks.
-* **Intelligent Captcha Solver:** ML-powered math and visual OCR solver with automatic retry logic.
+* **Intelligent Captcha Solver:** ML-powered login math CAPTCHA, PyTorch fuel CAPTCHA, and Keras OCR fallback with automatic retry logic.
 * **Self-Healing Navigation:** Dynamic element detection and "Loading Overlay" management for resilient web interactions.
 
 ### 🛡️ Enterprise-Grade Resilience
@@ -48,7 +48,7 @@
 
 | Layer       | Technology |
 | ----------- | ---------- |
-| **Backend** | [FastAPI](https://fastapi.tiangolo.com/) (Python 3.14) |
+| **Backend** | [FastAPI](https://fastapi.tiangolo.com/) (Python 3.11) |
 | **Frontend**| [Next.js 15](https://nextjs.org/) (TypeScript, Tailwind CSS) |
 | **Database**| [PostgreSQL 16](https://www.postgresql.org/) (SQLModel/AsyncPG) |
 | **Queue**   | [Celery](https://docs.celeryq.dev/) + [Redis](https://redis.io/) |
@@ -60,7 +60,7 @@
 ## 🚀 Quick Start
 
 ### Prerequisites
-* Python 3.11+ (Recommended 3.14)
+* Python 3.11+
 * Node.js 20+
 * Docker & Docker Compose
 
@@ -107,8 +107,9 @@ bash manage.sh status
 | `bash manage.sh stop` | Graceful shutdown of all components (retaining data). |
 | `bash manage.sh status` | Show CPU, RAM, disk usage, and container status. |
 | `bash manage.sh health` | Verify active database, Redis, API, and UI endpoints. |
-| `bash manage.sh deploy` | Smart pull and deployment from GitHub repository. |
-| `bash manage.sh backup-db` | Quick Postgres database snapshot compression. |
+| `bash manage.sh deploy` | Build backend/frontend images, run migrations, and restart services. |
+| `bash manage.sh migrate` | Run Alembic migrations manually. |
+| `bash manage.sh backup` | Quick Postgres database snapshot compression. |
 | `pytest` | Run comprehensive integration & unit tests. |
 
 ---
@@ -121,6 +122,7 @@ bash manage.sh status
 
 * **معماری چند مستاجره واقعی (Multi-tenant):** جداسازی کامل و امن داده‌های شرکت‌های مختلف.
 * **موتور رباتیک پیشرفته:** شبیه‌سازی فوق‌العاده دقیق رفتار انسانی (تایپ، حرکت موس، مکث‌ها) و حل خودکار کپچاهای پیچیده تصویری و ریاضی.
+* **احراز هویت امن‌تر:** JWT در کوکی `httpOnly` نگهداری می‌شود و فرانت‌اند فقط اطلاعات غیرحساس کاربر را در localStorage ذخیره می‌کند.
 * **سرعت بالا و بهینه‌سازی شده:** تزریق مستقیم موقعیت‌های جغرافیایی روی نقشه و حذف تاخیرهای استاتیک جهت تسریع بی‌نظیر صدور بارنامه.
 * **تاب‌آوری هوشمند:** بازیابی خودکار عملیات متوقف شده (Self-Healing) و مقاومت در برابر قطعی‌های موقت شبکه یا اختلال در مرورگر.
 
@@ -142,3 +144,10 @@ bash manage.sh status
 
 ---
 *For extensive architecture and operational documentation, please refer to the `docs/` folder.*
+
+## Current Server Readiness Notes
+
+- Frontend and backend Docker images build from a clean checkout; `.next/standalone` no longer needs to be uploaded manually.
+- Current HTTP deployment must keep `AUTH_COOKIE_SECURE=false`; after enabling HTTPS, set `AUTH_COOKIE_SECURE=true`.
+- Required runtime ML assets are `persian_number_ocr.keras`, `app/automation/captcha/assets/fuel_captcha_crnn.pth`, and `app/automation/captcha/assets/fuel_captcha_vocab.json`.
+- Current Alembic head is `015_add_client_subscription_dates`.

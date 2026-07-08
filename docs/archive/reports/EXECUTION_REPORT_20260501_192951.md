@@ -123,7 +123,7 @@ UTCMS_PASSWORD=your_password
 
 #### 3. ثبت بارنامه واقعی با پایش کامل
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
+cd /opt/barpro
 source /Users/amirheidari/Python-ML/bin/activate
 python scripts/real_waybill_test.py
 ```

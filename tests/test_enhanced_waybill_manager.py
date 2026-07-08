@@ -34,7 +34,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         mock.query_selector = AsyncMock()
         mock.query_selector_all = AsyncMock(return_value=[])
         mock.evaluate = AsyncMock(return_value=False)
-        mock.wait_for_selector = AsyncMock()
+        mock.wait_for_selector = AsyncMock(return_value=None)
         mock.wait_for_timeout = AsyncMock()
 
         # Setup locator mock to avoid coroutine warnings in _is_element_visible / _element_exists
@@ -43,6 +43,8 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         mock_loc.first = mock_loc
         mock_loc.count = AsyncMock(return_value=1)
         mock_loc.is_visible = AsyncMock(return_value=True)
+        mock_loc.all = AsyncMock(return_value=[])
+        mock_loc.wait_for = AsyncMock()
         mock.locator.return_value = mock_loc
 
         return mock
@@ -180,7 +182,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
             "vehicle": {"plate": "12A34567"},
             "cargo": {"type": "General", "weight": 1000},
             "origin": {},
-            "destination": {}
+            "destination": {},
         }
 
         # Mock origin failure
@@ -200,7 +202,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
             "vehicle": {"plate": "12A34567"},
             "cargo": {"type": "General", "weight": 1000},
             "origin": {},
-            "destination": {}
+            "destination": {},
         }
 
         # Mock origin success, destination failure
@@ -223,7 +225,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
             "vehicle": {"plate": "12A34567"},
             "cargo": {"type": "General", "weight": 1000},
             "origin": {"province": "Tehran"},
-            "destination": {"province": "Mashhad"}
+            "destination": {"province": "Mashhad"},
         }
 
         # Mock success but no coordinates returned

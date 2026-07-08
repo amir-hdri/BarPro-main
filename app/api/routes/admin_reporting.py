@@ -88,12 +88,7 @@ async def get_audit_logs(
 ) -> dict[str, Any]:
     """Get recent waybill job activity as audit log entries."""
     offset = (page - 1) * page_size
-    stmt = (
-        select(WaybillJob)
-        .order_by(WaybillJob.updated_at.desc())
-        .offset(offset)
-        .limit(page_size)
-    )
+    stmt = select(WaybillJob).order_by(WaybillJob.updated_at.desc()).offset(offset).limit(page_size)
     result = await session.exec(stmt)
     jobs = result.all()
 
@@ -150,13 +145,17 @@ async def get_client_detail(
             dt = datetime.fromisoformat(date_from)
             jobs_stmt = jobs_stmt.where(WaybillJob.created_at >= dt)
         except ValueError:
-            raise HTTPException(status_code=422, detail=f"Invalid date_from format: '{date_from}'. Use YYYY-MM-DD.")
+            raise HTTPException(
+                status_code=422, detail=f"Invalid date_from format: '{date_from}'. Use YYYY-MM-DD."
+            ) from None
     if date_to:
         try:
             dt = datetime.fromisoformat(date_to) + timedelta(days=1)
             jobs_stmt = jobs_stmt.where(WaybillJob.created_at < dt)
         except ValueError:
-            raise HTTPException(status_code=422, detail=f"Invalid date_to format: '{date_to}'. Use YYYY-MM-DD.")
+            raise HTTPException(
+                status_code=422, detail=f"Invalid date_to format: '{date_to}'. Use YYYY-MM-DD."
+            ) from None
     jobs_result = await session.exec(jobs_stmt)
     jobs = jobs_result.all()
 

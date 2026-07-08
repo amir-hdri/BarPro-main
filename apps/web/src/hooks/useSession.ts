@@ -5,14 +5,12 @@ import { useState, useEffect } from 'react';
 import {
   AUTH_CLIENT_KEY,
   AUTH_SESSION_EVENT,
-  AUTH_TOKEN_KEY,
   clearSession,
   type StoredClient,
 } from '@/lib/auth';
 
 interface SessionSnapshot {
   client: StoredClient | null;
-  token: string | null;
 }
 
 function readClientFromStorage(): StoredClient | null {
@@ -32,15 +30,14 @@ function readClientFromStorage(): StoredClient | null {
 }
 
 export function useSession() {
-  const [session, setSession] = useState<SessionSnapshot>({ client: null, token: null });
+  const [session, setSession] = useState<SessionSnapshot>({ client: null });
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
     try {
       // Read initial session on mount (client-side only)
       const client = readClientFromStorage();
-      const token = window.localStorage.getItem(AUTH_TOKEN_KEY);
-      setSession({ client, token });
+      setSession({ client });
     } catch (e) {
       console.error('Failed to read session from storage:', e);
     } finally {
@@ -50,8 +47,7 @@ export function useSession() {
     const handler = () => {
       try {
         const updatedClient = readClientFromStorage();
-        const updatedToken = window.localStorage.getItem(AUTH_TOKEN_KEY);
-        setSession({ client: updatedClient, token: updatedToken });
+        setSession({ client: updatedClient });
       } catch (e) {
         console.error('Failed to update session from storage:', e);
       }
@@ -76,6 +72,6 @@ export function useSession() {
     isReady: isReady,
     logout: clearSession,
     role,
-    token: session.token,
+    token: null,
   };
 }

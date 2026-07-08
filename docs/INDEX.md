@@ -1,269 +1,74 @@
- # 📚 UTCMS Automation System - Documentation Index
- 
- ## 🚀 Quick Start
- 
- **New to the project?** Start here:
- 
- 1. Read [شروع سریع](docs/guides/QUICK_START_FA.md) - Get up and running in 5 minutes
- 2. Run `./scripts/start_system.sh` - Start the system
- 3. Check `./scripts/check_health.sh` - Verify everything works
- 
- ---
- 
- ## 📖 Documentation by Category
- 
- ### 🎯 Getting Started
- 
- | Document | Description | Audience |
- |----------|-------------|----------|
- | [شروع سریع](docs/guides/QUICK_START_FA.md) | Quick start guide | New users |
- | [نمای کلی (فارسی)](README.md) | English overview | All users |
- | [نمای کلی (فارسی)](README.md) | Persian overview | Persian speakers |
- 
- ### 🔧 Technical Documentation
- 
- | Document | Description | Audience |
- |----------|-------------|----------|
- | [بهینه‌سازی‌ها](docs/archive/reports/FIXES_AND_OPTIMIZATIONS.md) | Critical fixes explained | Developers |
- | [ساختار پروژه](docs/architecture/PROJECT_STRUCTURE.md) | Project structure | Developers |
- | [سازماندهی پروژه](docs/archive/reports/PROJECT_ORGANIZATION.md) | Organization guide | Developers |
- | [گزارش پاک‌سازی](docs/archive/reports/CLEANUP_SUMMARY.md) | Cleanup summary | Developers |
- 
- ### 📊 Project Status
- 
- | Document | Description | Audience |
- |----------|-------------|----------|
- | [گزارش کلی](docs/archive/reports/SUMMARY.md) | Executive summary | Managers |
- | [گزارش تکمیل](docs/archive/reports/COMPLETION_REPORT.md) | Project completion | Stakeholders |
- | [تغییرات نسخه‌ها](docs/CHANGELOG.md) | Version history | All users |
- 
- ### 📁 Additional Resources
- 
- | Location | Description |
- |----------|-------------|
- | `docs/` | Additional documentation |
- | `docs/archive/` | Archived documentation |
- | `examples/` | Code examples |
- 
- ---
- 
- ## 🛠️ Scripts Reference
- 
- ### Management Scripts
- 
- ```bash
- ./scripts/start_system.sh      # Start all services
- ./scripts/stop_system.sh       # Stop all services
- ./scripts/check_health.sh      # Health check
- ./scripts/view_logs.sh         # View logs
- ```
- 
- ### Database Scripts
- 
- ```bash
- python scripts/init_database.py    # Initialize database
- ./scripts/reset_database.sh        # Reset database
- ```
- 
- ### Testing Scripts
- 
- ```bash
- ./scripts/test_system.sh           # System tests
- ./scripts/verify_fixes.sh          # Verify fixes
- ./scripts/run_comprehensive_tests.sh  # Full test suite
- ```
- 
- ### Utility Scripts
- 
- ```bash
- python scripts/generate_secrets.py     # Generate secrets
- ./scripts/cleanup_and_organize.sh      # Cleanup project
- python scripts/optimize_project.py     # Analyze code
- ```
- 
- ---
- 
- ## 🗂️ Project Structure
- 
- ```
- .
- ├── app/                    # Main application
- ├── alembic/                # Database migrations
- ├── apps/web/               # Frontend
- ├── docs/                   # Documentation
- ├── infra/                  # Infrastructure
- ├── scripts/                # Management scripts
- ├── tests/                  # Test suite
- └── *.md                    # Documentation files
- ```
- 
- See [ساختار پروژه](docs/architecture/PROJECT_STRUCTURE.md) for details.
- 
- ---
- 
- ## 🎯 Common Tasks
- 
- ### First Time Setup
- 
- ```bash
- # 1. Install dependencies
- pip install -r requirements.txt
- cd apps/web && yarn install && cd ../..
- 
- # 2. Configure environment
- cp .env.example .env
- nano .env
- 
- # 3. Start system
- ./scripts/start_system.sh
- ```
- 
- ### Daily Development
- 
- ```bash
- # Start system
- ./scripts/start_system.sh
- 
- # Check health
- ./scripts/check_health.sh
- 
- # View logs
- ./scripts/view_logs.sh follow
- 
- # Stop system
- ./scripts/stop_system.sh
- ```
- 
- ### Troubleshooting
- 
- ```bash
- # Check health
- ./scripts/check_health.sh
- 
- # View backend logs
- ./scripts/view_logs.sh backend
- 
- # Reset database
- ./scripts/reset_database.sh
- 
- # Run tests
- ./scripts/test_system.sh
- ```
- 
- ### Code Quality
- 
- ```bash
- # Analyze code
- python scripts/optimize_project.py
- 
- # Cleanup project
- ./scripts/cleanup_and_organize.sh
- 
- # Verify fixes
- ./scripts/verify_fixes.sh
- ```
- 
- ---
- 
- ## 📞 Getting Help
- 
- ### Documentation
- 
- 1. **Quick answers**: Check [شروع سریع](docs/guides/QUICK_START_FA.md)
- 2. **Technical details**: See [بهینه‌سازی‌ها](docs/archive/reports/FIXES_AND_OPTIMIZATIONS.md)
- 3. **Project structure**: Read [سازماندهی پروژه](docs/archive/reports/PROJECT_ORGANIZATION.md)
- 
- ### Diagnostics
- 
- 1. **Health check**: `./scripts/check_health.sh`
- 2. **View logs**: `./scripts/view_logs.sh follow`
- 3. **Run tests**: `./scripts/test_system.sh`
- 4. **Code analysis**: `python scripts/optimize_project.py`
- 
- ### Common Issues
- 
- | Issue | Solution | Documentation |
- |-------|----------|---------------|
- | Backend won't start | Check logs, reset DB | [شروع سریع - خطایابی](docs/guides/QUICK_START_FA.md#troubleshooting) |
- | Migration errors | Run fix migration | [بهینه‌سازی‌ها](docs/archive/reports/FIXES_AND_OPTIMIZATIONS.md) |
- | Port conflicts | Kill process, restart | [شروع سریع - خطایابی](docs/guides/QUICK_START_FA.md#troubleshooting) |
- 
- ---
- 
- ## 🎓 Learning Path
- 
- ### For New Users
- 
- 1. Read [شروع سریع](docs/guides/QUICK_START_FA.md)
- 2. Follow setup instructions
- 3. Explore [نمای کلی (فارسی)](README.md) (Persian)
- 4. Try example workflows
- 
- ### For Developers
- 
- 1. Read [ساختار پروژه](docs/architecture/PROJECT_STRUCTURE.md)
- 2. Review [بهینه‌سازی‌ها](docs/archive/reports/FIXES_AND_OPTIMIZATIONS.md)
- 3. Study [سازماندهی پروژه](docs/archive/reports/PROJECT_ORGANIZATION.md)
- 4. Check code examples in `examples/`
- 
- ### For Managers
- 
- 1. Read [گزارش کلی](docs/archive/reports/SUMMARY.md)
- 2. Review [گزارش تکمیل](docs/archive/reports/COMPLETION_REPORT.md)
- 3. Check [تغییرات نسخه‌ها](docs/CHANGELOG.md)
- 4. Monitor project health
- 
- ---
- 
- ## 📊 Project Status
- 
- | Category | Status | Details |
- |----------|--------|---------|
- | **Critical Issues** | ✅ RESOLVED | All fixed |
- | **Code Quality** | ✅ EXCELLENT | Clean & organized |
- | **Documentation** | ✅ COMPLETE | Comprehensive |
- | **Testing** | ✅ PASSING | All checks pass |
- | **Production Ready** | ✅ YES | Ready to deploy |
- 
- See [گزارش تکمیل](docs/archive/reports/COMPLETION_REPORT.md) for details.
- 
- ---
- 
- ## 🔄 Version History
- 
- | Version | Date | Changes |
- |---------|------|---------|
- | 2.0.1 | 2026-04-23 | Critical fixes, cleanup, optimization |
- | 2.0.0 | 2026-04-20 | Multi-tenant release |
- 
- See [تغییرات نسخه‌ها](docs/CHANGELOG.md) for complete history.
- 
- ---
- 
- ## 🎉 Quick Links
- 
- ### Essential Documents
- - [Quick Start Guide](docs/guides/QUICK_START_FA.md)
- - [Technical Fixes](docs/archive/reports/FIXES_AND_OPTIMIZATIONS.md)
- - [Project Structure](docs/architecture/PROJECT_STRUCTURE.md)
- - [Completion Report](docs/archive/reports/COMPLETION_REPORT.md)
- 
- ### Key Scripts
- - Start: `./scripts/start_system.sh`
- - Stop: `./scripts/stop_system.sh`
- - Health: `./scripts/check_health.sh`
- - Logs: `./scripts/view_logs.sh`
- 
- ### Access Points
- - Frontend: http://localhost:3000
- - Backend: http://localhost:8000
- - API Docs: http://localhost:8000/docs
- - Prometheus: http://localhost:9090
- 
- ---
- 
- **Last Updated**: 2026-04-23
- 
- **Version**: 2.0.1
- 
- **Status**: ✅ Production Ready
+# BarPro Documentation Index
+
+Use this index for current operational documentation. Older historical reports remain under `docs/archive/` and should not be treated as deployment instructions.
+
+## Start Here
+
+| Document | Purpose |
+|---|---|
+| `README.md` | Current project overview and verified readiness state |
+| `DEPLOYMENT_GUIDE.md` | Production deployment checklist |
+| `SERVER_STATUS.md` | Current server/runtime status summary |
+| `docs/guides/QUICK_START.md` | Local and Docker quick start |
+| `docs/guides/START_SYSTEM.md` | Day-to-day startup commands |
+| `docs/operations/DEPLOYMENT_GUIDE.md` | Operations deployment checklist |
+| `docs/operations/production_deployment.md` | Production runtime notes |
+| `docs/CHANGELOG.md` | Release history |
+
+## Current Architecture
+
+- Backend: FastAPI under `app/`
+- Frontend: Next.js 15 under `apps/web/`
+- Database: PostgreSQL 16
+- Queue/cache: Redis 7 and Celery
+- Browser automation: Playwright Chromium
+- Reverse proxy: Nginx on port `80`
+- Deployment: Docker Compose layers in `compose/`
+
+## Core Commands
+
+```bash
+bash manage.sh start
+bash manage.sh status
+bash manage.sh health
+bash manage.sh deploy
+bash manage.sh migrate
+bash manage.sh backup
+bash manage.sh stop
+```
+
+## Important Current State
+
+- Alembic head is `015_add_client_subscription_dates`
+- Frontend Docker builds inside `apps/web/Dockerfile`
+- No prebuilt `.next/standalone` upload is required
+- JWT transport uses the `httpOnly` cookie `utcms_auth_token`
+- Keep `AUTH_COOKIE_SECURE=false` on HTTP; switch to `true` after HTTPS
+- Required captcha assets include CNN, PyTorch fuel CRNN, fuel vocab, and Keras fallback model
+
+## Active Guides
+
+| Category | Documents |
+|---|---|
+| Deployment | `DEPLOYMENT_GUIDE.md`, `docs/operations/DEPLOYMENT_GUIDE.md` |
+| Server status | `SERVER_STATUS.md` |
+| Development startup | `docs/guides/QUICK_START.md`, `docs/guides/START_SYSTEM.md` |
+| Security and issues | `ISSUES.md`, `FIXES_SUMMARY.md` |
+| Architecture | `AGENTS.md`, `AI_AGENT_GUIDE.md`, `ARCHITECTURE.md` |
+
+## Verification Commands
+
+```bash
+python -m ruff check app tests
+pytest
+cd apps/web && npm run build && npm audit --omit=dev
+docker compose -f compose/backend.yml build backend
+docker compose -f compose/web.yml build frontend
+alembic heads
+```
+
+## Archive Policy
+
+Files in `docs/archive/` are historical records. They may mention old local paths, old auth storage, or previous frontend versions. Do not use them for current deployment decisions.
+
+Last updated: 2026-07-08

@@ -311,9 +311,7 @@ class AuthNavigator:
             )
             if recaptcha_iframe:
                 logger.info("detected_google_recaptcha")
-                frame = self.page.frame_locator(
-                    'iframe[src*="recaptcha"], iframe[src*="google.com/recaptcha"]'
-                )
+                frame = self.page.frame_locator('iframe[src*="recaptcha"], iframe[src*="google.com/recaptcha"]')
                 checkbox = frame.locator("#recaptcha-anchor, .recaptcha-checkbox")
                 if await checkbox.count() > 0:
                     await checkbox.click()
@@ -338,7 +336,8 @@ class AuthNavigator:
             logger.warning(f"error_handling_hcaptcha: {e}")
 
         try:
-            js_info = await self.page.evaluate("""() => {
+            js_info = await self.page.evaluate(
+                """() => {
                 const robotTexts = ["من ربات نیستم", "ربات نیستم", "من ربات‌نیستم", "ربات‌نیستم"];
                 const elements = Array.from(document.querySelectorAll('label, span, div, p, a, button, input'));
                 let target = null;
@@ -374,7 +373,8 @@ class AuthNavigator:
                     return { selector: `#${CSS.escape(target.id)}`, clickText: false };
                 }
                 return { selector: null, clickText: target.innerText || target.textContent || '' };
-            }""")
+            }"""
+            )
             if js_info:
                 logger.info(f"detected_custom_robot_checkbox: {js_info}")
                 if js_info.get("selector"):

@@ -646,7 +646,9 @@ class LocationSelector:
             if rev:
                 location_data["province"] = location_data.get("province") or rev.get("province")
                 location_data["city"] = location_data.get("city") or rev.get("city") or rev.get("county")
-                location_data["address"] = location_data.get("address") or rev.get("address_compact") or rev.get("district")
+                location_data["address"] = (
+                    location_data.get("address") or rev.get("address_compact") or rev.get("district")
+                )
                 logger.info(
                     "location_augmented_with_reverse_geocode",
                     extra={"extra_fields": {"prefix": prefix, "location_data": location_data}},
@@ -1402,7 +1404,6 @@ class LocationSelector:
                 search_input_selector=search_input_selector,
             )
 
-
             if not selected:
                 return {
                     "success": False,
@@ -2020,10 +2021,15 @@ class LocationSelector:
             except Exception as e:
                 logger.debug(f"Candidate geocoding failed for {candidate}: {e}")
 
-        # اگر هیچ‌کدام کار نکرد، مختصات تهران را به عنوان پیش‌فرض باز می‌گردانیم تا کار متوقف نشود
-        default_coords = {"lat": 35.6892, "lng": 51.3890}
-        _geocoding_cache[cache_key] = default_coords
-        return default_coords
+        # اگر هیچ‌کدام کار نکرد، به جای استفاده از مختصات پیش‌فرض (تهران) خطا برگردان
+        address_desc = f"استان: {province}, شهر: {city}, آدرس: {address_text}"
+        logger.warning(
+            "geocoding_failed_all_candidates",
+            extra={"extra_fields": {"address_desc": address_desc, "candidates_count": len(candidates)}},
+        )
+        raise LocationSelectionError(
+            f'اعتبارسنجی آدرس انجام نشد: هیچ‌کدام از روش‌های موقعیت‌یابی برای آدرس "{address_desc}" کار نکرد'
+        )
 
     async def _reverse_geocode(self, lat: float, lng: float) -> dict[str, str] | None:
         """تبدیل مختصات به آدرس (استان، شهر، منطقه) برای پر کردن خودکار فیلدها"""

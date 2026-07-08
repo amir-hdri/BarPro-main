@@ -1,5 +1,5 @@
 # BarPro — راهنمای جامع برای AI Agent
-# آخرین بروزرسانی: ۱۱ تیر ۱۴۰۵ (2026-07-02)
+# آخرین بروزرسانی: 2026-07-08
 
 > این فایل برای **AI Agent حرفه‌ای** طراحی شده است.
 > هر بخش دقیق، فنی و قابل اجرا است.
@@ -8,7 +8,7 @@
 
 ## ۱. هویت پروژه
 
-**BarPro** یک فریمورک RPA (Robotic Process Automation) چند‌مستأجره است برای ثبت خودکار بارنامه در سامانه ملی حمل‌ونقل ایران (`barname.utcms.ir`). از Playwright برای اتوماسیون مرورگر، OCR (PyTorch CNN + Keras) برای حل CAPTCHA، Squid Proxy برای جابجایی IP و Celery برای مدیریت صف استفاده می‌کند.
+**BarPro** یک فریمورک RPA (Robotic Process Automation) چند‌مستأجره است برای ثبت خودکار بارنامه در سامانه ملی حمل‌ونقل ایران (`barname.utcms.ir`). از Playwright برای اتوماسیون مرورگر، OCR (PyTorch CNN + PyTorch fuel CRNN + Keras) برای حل CAPTCHA، Squid Proxy برای جابجایی IP و Celery برای مدیریت صف استفاده می‌کند.
 
 ---
 
@@ -111,12 +111,12 @@ BarPro/
 │       │   ├── settings/page.tsx ← /settings
 │       │   └── admin/           ← /admin/*
 │       ├── lib/
-│       │   ├── api.ts           ← axios client + interceptors
-│       │   └── auth.ts          ← localStorage JWT helpers
+│       │   ├── api.ts           ← axios client + withCredentials cookie auth
+│       │   └── auth.ts          ← ذخیره اطلاعات غیرحساس session در localStorage
 │       ├── components/          ← کامپوننت‌های مشترک
 │       └── schemas/             ← Zod schemas
 ├── alembic/
-│   └── versions/               ← 15 فایل migration (001 تا 013 + 3 UUID-named)
+│   └── versions/               ← زنجیره migration تا head فعلی 015
 ├── compose/
 │   ├── infra.yml               ← PostgreSQL + Redis
 │   ├── proxy.yml               ← Squid ×3
@@ -271,7 +271,8 @@ BarPro/
 → 010_add_missing_columns → 011_add_driver_plates
 → 3ef63013cff9_add_client_limits → 4a5b6c7d8e9f_ensure_max_plates_column
 → 5b6c7d8e9f0a_add_fuel_inquiries → 012_add_optimization_indexes
-→ 013_add_admin_driver_schedules  ← HEAD (جدیدترین)
+→ 013_add_admin_driver_schedules → 014_add_year_month_to_fuel_inquiries
+→ 015_add_client_subscription_dates  ← HEAD (جدیدترین)
 ```
 
 ---
@@ -287,11 +288,12 @@ BarPro/
 | `POSTGRES_PASSWORD` | رمز PostgreSQL | — |
 | `REDIS_PASSWORD` | رمز Redis | — |
 | `HEADLESS` | مرورگر headless | `true` |
-| `CAPTCHA_PROVIDER` | `auto/cnn/keras_ocr/ensemble/off` | `auto` |
+| `CAPTCHA_PROVIDER` | `auto/composite/cnn/pytorch_fuel/keras_ocr/enhanced_ocr/local_ocr/off` | `auto` |
 | `CAPTCHA_MODE` | `provider_only/manual_fallback` | `provider_only` |
 | `CAPTCHA_TIMEOUT_SECONDS` | timeout برای captcha | `120` |
 | `KERAS_PYTHON_PATH` | مسیر Python 3.12 برای Keras | `/opt/barpro/venv/bin/python` |
 | `KERAS_MODEL_PATH` | فایل مدل Keras OCR | `persian_number_ocr.keras` |
+| `AUTH_COOKIE_SECURE` | فعال‌سازی Secure flag روی کوکی JWT | `false` روی HTTP، `true` پس از HTTPS |
 | `AVAILABLE_IP_INDICES` | شاخص‌های IP فعال | `"1,2"` |
 | `ENVIRONMENT` | `production/development` | `production` |
 
@@ -301,10 +303,11 @@ BarPro/
 
 | صفحه | روش | مدل | Provider |
 |------|-----|-----|---------|
-| ورود (math: "2+3") | PyTorch CNN | `login captch/captcha_cnn.pth` | `cnn` |
-| استعلام سوخت (عدد/متن) | Keras OCR | `persian_number_ocr.keras` | `keras_ocr` |
+| ورود (math: "2+3") | PyTorch CNN | `app/automation/captcha/assets/captcha_cnn.pth` | `cnn` |
+| استعلام سوخت (متن فارسی عددی) | PyTorch CRNN | `app/automation/captcha/assets/fuel_captcha_crnn.pth` + vocab | `pytorch_fuel` |
+| استعلام سوخت fallback | Keras OCR | `persian_number_ocr.keras` | `keras_ocr` |
 
-جریان `auto`: CNN → Keras → Enhanced → Local (Tesseract) → fail
+جریان `auto`: CNN → PyTorch fuel → Keras → Enhanced → Local (Tesseract) → fail
 
 ---
 
@@ -425,22 +428,22 @@ pytest -m "not slow"
 
 ---
 
-## ۱۳. وضعیت فعلی (2026-07-02)
+## ۱۳. وضعیت فعلی (2026-07-08)
 
 ### ✅ کامل و در حال اجرا
-- 13/13 کانتینر: `Up & Healthy`
-- API: `/healthz → {"status":"ok"}`
-- Frontend: `HTTP 200`
-- Database: `013_add_admin_driver_schedules (head)`
-- Disk: 31% (21/70 GB)
-- تمام endpoint‌ها: تست شده
+- Docker backend image build: ✅ `barpro_backend:latest`
+- Docker frontend image build: ✅ `barpro-frontend:latest`
+- Frontend production build: ✅ `npm run build`
+- Production frontend audit: ✅ `npm audit --omit=dev` بدون vulnerability
+- Backend import smoke inside image: ✅
+- Database migration head: `015_add_client_subscription_dates`
 
 ### ⬜ نیاز به اقدام دستی کاربر
 1. **HTTPS:** نصب Let's Encrypt cert + uncomment `listen 443` در nginx
 2. **Firewall Squid:** اجرای `sudo bash scripts/secure_squid_ports.sh`
 3. **crontab:** اضافه‌کردن `@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh`
-4. **JWT:** migration از localStorage به httpOnly cookie (~4-8h code)
+4. **HTTPS hardening:** پس از نصب certificate مقدار `AUTH_COOKIE_SECURE=true` شود
 
 ---
 
-*تولید شده توسط Antigravity AI Agent — 2026-07-02*
+*آخرین اعتبارسنجی: 2026-07-08*

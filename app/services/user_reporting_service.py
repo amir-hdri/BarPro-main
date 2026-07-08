@@ -122,9 +122,9 @@ class UserReportingService:
                     "status": driver.status,
                     "runtime_status": runtime_status,
                     "last_auth_at": driver.last_auth_at.isoformat() if driver.last_auth_at else None,
-                    "last_session_expires_at": driver.last_session_expires_at.isoformat()
-                    if driver.last_session_expires_at
-                    else None,
+                    "last_session_expires_at": (
+                        driver.last_session_expires_at.isoformat() if driver.last_session_expires_at else None
+                    ),
                     "last_error_code": driver.last_error_code,
                     "total_jobs": total,
                     "success_jobs": success,
@@ -333,9 +333,14 @@ class UserReportingService:
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
-        schedules_stmt = select(DriverSchedule).where(
-            DriverSchedule.client_id == client.id,
-        ).offset((page - 1) * page_size).limit(page_size)
+        schedules_stmt = (
+            select(DriverSchedule)
+            .where(
+                DriverSchedule.client_id == client.id,
+            )
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
         result = session.exec(schedules_stmt)
         schedules = result.all()
 
@@ -443,7 +448,9 @@ class UserReportingService:
         page: int = 1,
         page_size: int = 20,
     ) -> list[dict[str, Any]]:
-        drivers_stmt = select(Driver).where(Driver.client_id == client.id).offset((page - 1) * page_size).limit(page_size)
+        drivers_stmt = (
+            select(Driver).where(Driver.client_id == client.id).offset((page - 1) * page_size).limit(page_size)
+        )
         drivers_result = session.exec(drivers_stmt)
         drivers = drivers_result.all()
 

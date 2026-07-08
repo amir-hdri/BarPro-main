@@ -208,6 +208,8 @@ class ClientService:
             access_level=access_level_value,
             max_drivers=request.max_drivers or 10,
             max_plates=request.max_plates or 20,
+            subscription_start_date=request.subscription_start_date,
+            subscription_end_date=request.subscription_end_date,
         )
 
         # Add retry logic for database operations to handle network errors
@@ -274,6 +276,19 @@ class ClientService:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Client account is not active",
+            )
+
+        # Check subscription dates
+        now = datetime.now(UTC).replace(tzinfo=None)
+        if client.subscription_start_date and client.subscription_start_date > now:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="اشتراک شما هنوز شروع نشده است.",
+            )
+        if client.subscription_end_date and client.subscription_end_date < now:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="اشتراک شما به پایان رسیده است.",
             )
 
         # Update last login time
@@ -344,11 +359,22 @@ class ClientService:
 
         # Count drivers using db aggregate
         from sqlmodel import func
+
         total_drivers = (await session.exec(select(func.count(Driver.id)).where(Driver.client_id == client.id))).one()
-        active_drivers = (await session.exec(select(func.count(Driver.id)).where(Driver.client_id == client.id, Driver.status == DriverStatus.ACTIVE.value))).one()
+        active_drivers = (
+            await session.exec(
+                select(func.count(Driver.id)).where(
+                    Driver.client_id == client.id, Driver.status == DriverStatus.ACTIVE.value
+                )
+            )
+        ).one()
 
         # Group jobs by status to get counts in one database trip
-        jobs_stmt = select(WaybillJob.status, func.count(WaybillJob.id)).where(WaybillJob.client_id == client.id).group_by(WaybillJob.status)
+        jobs_stmt = (
+            select(WaybillJob.status, func.count(WaybillJob.id))
+            .where(WaybillJob.client_id == client.id)
+            .group_by(WaybillJob.status)
+        )
         jobs_result = await session.exec(jobs_stmt)
         status_counts = dict(jobs_result.all())
 
@@ -356,16 +382,26 @@ class ClientService:
         pending_jobs = status_counts.get(TaskStatus.PENDING.value, 0)
         in_progress_jobs = status_counts.get(TaskStatus.IN_PROGRESS.value, 0)
         success_jobs = status_counts.get(TaskStatus.SUCCESS.value, 0)
-        failed_jobs = sum(status_counts.get(s, 0) for s in [TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.NEEDS_REVIEW.value])
+        failed_jobs = sum(
+            status_counts.get(s, 0)
+            for s in [TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.NEEDS_REVIEW.value]
+        )
 
         # Today's stats
-        today_stmt = select(WaybillJob.status, func.count(WaybillJob.id)).where(WaybillJob.client_id == client.id, WaybillJob.created_at >= today_start).group_by(WaybillJob.status)
+        today_stmt = (
+            select(WaybillJob.status, func.count(WaybillJob.id))
+            .where(WaybillJob.client_id == client.id, WaybillJob.created_at >= today_start)
+            .group_by(WaybillJob.status)
+        )
         today_result = await session.exec(today_stmt)
         today_counts = dict(today_result.all())
 
         today_jobs_count = sum(today_counts.values())
         today_success = today_counts.get(TaskStatus.SUCCESS.value, 0)
-        today_failed = sum(today_counts.get(s, 0) for s in [TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.NEEDS_REVIEW.value])
+        today_failed = sum(
+            today_counts.get(s, 0)
+            for s in [TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.NEEDS_REVIEW.value]
+        )
 
         # Success rate
         success_rate = (success_jobs / total_jobs * 100) if total_jobs > 0 else 0.0
@@ -448,6 +484,11 @@ class ClientService:
             value = getattr(request, field)
             if value is not None:
                 setattr(client, field, value)
+
+        if "subscription_start_date" in request.model_fields_set:
+            client.subscription_start_date = request.subscription_start_date
+        if "subscription_end_date" in request.model_fields_set:
+            client.subscription_end_date = request.subscription_end_date
 
         if request.password:
             client.hashed_password = hash_password(request.password)
@@ -557,6 +598,7 @@ class DriverService:
         """Create a new driver for the client."""
         # Check driver limit
         from sqlmodel import func
+
         driver_count = (await session.exec(select(func.count(Driver.id)).where(Driver.client_id == client.id))).one()
         if driver_count >= client.max_drivers:
             raise HTTPException(
@@ -865,7 +907,10 @@ class PlateService:
         verify_tenant_ownership(client, driver, Driver)
 
         from sqlmodel import func
-        plate_count = (await session.exec(select(func.count(DriverPlate.id)).where(DriverPlate.client_id == client.id))).one()
+
+        plate_count = (
+            await session.exec(select(func.count(DriverPlate.id)).where(DriverPlate.client_id == client.id))
+        ).one()
         if plate_count >= client.max_plates:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1108,7 +1153,11 @@ class DriverScheduleService:
             created_jobs.append(job.job_id)
             schedule.last_run_at = now
             schedule.last_run_signature = slot_signature
-            schedule.next_run_at = now + timedelta(days=1 if schedule.frequency == ScheduleFrequency.DAILY.value else 7)
+            if schedule.frequency == ScheduleFrequency.ONCE.value:
+                schedule.is_active = False
+                schedule.next_run_at = None
+            else:
+                schedule.next_run_at = now + timedelta(days=1 if schedule.frequency == ScheduleFrequency.DAILY.value else 7)
             schedule.updated_at = now
             session.add(schedule)
         await session.commit()
@@ -1174,6 +1223,7 @@ class WaybillJobService:
 
         # Get total count
         from sqlmodel import func
+
         count_stmt = select(func.count(WaybillJob.id)).where(WaybillJob.client_id == client.id)
         if filters.status:
             count_stmt = count_stmt.where(WaybillJob.status == filters.status)

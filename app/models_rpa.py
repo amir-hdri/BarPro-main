@@ -1,13 +1,13 @@
 """Phase 1 operational models for multi-tenant RPA orchestration."""
 
 from datetime import UTC, datetime
-from enum import Enum as PyEnum
+from enum import StrEnum
 
 from sqlalchemy import Column, DateTime, Index, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
-class DriverRuntimeStateValue(str, PyEnum):
+class DriverRuntimeStateValue(StrEnum):
     ACTIVE = "active"
     AUTH_REQUIRED = "auth_required"
     AUTH_IN_PROGRESS = "auth_in_progress"
@@ -22,13 +22,13 @@ class DriverRuntimeStateValue(str, PyEnum):
     ERROR_REVIEW = "error_review"
 
 
-class AttemptType(str, PyEnum):
+class AttemptType(StrEnum):
     SUBMIT = "submit"
     AUTH = "auth"
     REFRESH = "refresh"
 
 
-class AttemptResult(str, PyEnum):
+class AttemptResult(StrEnum):
     SUCCESS = "success"
     AUTH_EXPIRED = "auth_expired"
     RATE_LIMITED = "rate_limited"

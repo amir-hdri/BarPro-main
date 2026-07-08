@@ -44,21 +44,27 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_DIR="$DIR/compose"
 
 # ── تعریف لایه‌ها ──────────────────────────────────────────────────────────────
-declare -A LAYER_FILES=(
-  [infra]="$COMPOSE_DIR/infra.yml"
-  [proxy]="$COMPOSE_DIR/proxy.yml"
-  [backend]="$COMPOSE_DIR/backend.yml"
-  [web]="$COMPOSE_DIR/web.yml"
-  [mon]="$COMPOSE_DIR/monitoring.yml"
-)
+get_layer_file() {
+  case "$1" in
+    infra) echo "$COMPOSE_DIR/infra.yml" ;;
+    proxy) echo "$COMPOSE_DIR/proxy.yml" ;;
+    backend) echo "$COMPOSE_DIR/backend.yml" ;;
+    web) echo "$COMPOSE_DIR/web.yml" ;;
+    mon) echo "$COMPOSE_DIR/monitoring.yml" ;;
+    *) echo "" ;;
+  esac
+}
 
-declare -A LAYER_NAMES=(
-  [infra]="🗄️  زیرساخت (PostgreSQL + Redis)"
-  [proxy]="🔁  پروکسی‌ها (Squid 1/2/3)"
-  [backend]="⚙️  بک‌اند (FastAPI + Celery Workers + Beat)"
-  [web]="🌐  وب (Next.js + Nginx)"
-  [mon]="📊  مانیتورینگ (Prometheus)"
-)
+get_layer_name() {
+  case "$1" in
+    infra) echo "🗄️  زیرساخت (PostgreSQL + Redis)" ;;
+    proxy) echo "🔁  پروکسی‌ها (Squid 1/2/3)" ;;
+    backend) echo "⚙️  بک‌اند (FastAPI + Celery Workers + Beat)" ;;
+    web) echo "🌐  وب (Next.js + Nginx)" ;;
+    mon) echo "📊  مانیتورینگ (Prometheus)" ;;
+    *) echo "" ;;
+  esac
+}
 
 # ترتیب راه‌اندازی لایه‌ها
 LAYER_ORDER=(infra proxy backend web mon)
@@ -92,8 +98,8 @@ check_env() {
 # اجرای دستور docker compose برای یک لایه
 layer_compose() {
   local layer="$1"; shift
-  local file="${LAYER_FILES[$layer]}"
-  if [[ ! -f "$file" ]]; then
+  local file; file=$(get_layer_file "$layer")
+  if [[ -z "$file" || ! -f "$file" ]]; then
     log_error "فایل لایه $layer یافت نشد: $file"
     exit 1
   fi
@@ -118,7 +124,8 @@ cmd_start() {
   if [[ "$target" == "all" ]]; then
     log_section "🚀 راه‌اندازی کل پروژه"
     for layer in "${LAYER_ORDER[@]}"; do
-      echo -e "\n${BOLD}${LAYER_NAMES[$layer]}${RESET}"
+      local layer_name; layer_name=$(get_layer_name "$layer")
+      echo -e "\n${BOLD}${layer_name}${RESET}"
       layer_compose "$layer" up -d
       # صبر برای سرویس‌های حساس
       case "$layer" in
@@ -135,11 +142,13 @@ cmd_start() {
     log_ok "همه سرویس‌ها راه‌اندازی شدند!"
     cmd_status
   else
-    if [[ -z "${LAYER_FILES[$target]+_}" ]]; then
-      log_error "لایه '$target' وجود ندارد. لایه‌های موجود: ${!LAYER_FILES[*]}"
+    local target_file; target_file=$(get_layer_file "$target")
+    if [[ -z "$target_file" ]]; then
+      log_error "لایه '$target' وجود ندارد. لایه‌های موجود: infra, proxy, backend, web, mon"
       exit 1
     fi
-    log_section "🚀 راه‌اندازی لایه: ${LAYER_NAMES[$target]}"
+    local layer_name; layer_name=$(get_layer_name "$target")
+    log_section "🚀 راه‌اندازی لایه: $layer_name"
     layer_compose "$target" up -d
     log_ok "لایه $target راه‌اندازی شد!"
   fi
@@ -152,12 +161,14 @@ cmd_stop() {
   if [[ "$target" == "all" ]]; then
     log_section "🛑 توقف کل پروژه"
     for layer in "${LAYER_ORDER[@]}"; do
-      echo -e "  توقف: ${LAYER_NAMES[$layer]}"
+      local layer_name; layer_name=$(get_layer_name "$layer")
+      echo -e "  توقف: $layer_name"
       layer_compose "$layer" down 2>/dev/null || true
     done
     log_ok "همه سرویس‌ها متوقف شدند!"
   else
-    log_section "🛑 توقف لایه: ${LAYER_NAMES[$target]}"
+    local layer_name; layer_name=$(get_layer_name "$target")
+    log_section "🛑 توقف لایه: $layer_name"
     layer_compose "$target" down
     log_ok "لایه $target متوقف شد!"
   fi
@@ -170,7 +181,8 @@ cmd_restart() {
     sleep 3
     cmd_start all
   else
-    log_section "🔄 ری‌استارت لایه: ${LAYER_NAMES[$target]}"
+    local layer_name; layer_name=$(get_layer_name "$target")
+    log_section "🔄 ری‌استارت لایه: $layer_name"
     layer_compose "$target" down
     layer_compose "$target" up -d
     if [[ "$target" == "backend" || "$target" == "web" ]]; then
@@ -188,8 +200,28 @@ cmd_status() {
     --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
   echo ""
-  echo -e "${BOLD}  💾 دیسک:${RESET} $(df -h / | awk 'NR==2{print $3 " از " $2 " استفاده شده (" $4 " آزاد)"}')"
-  echo -e "${BOLD}  🧠 RAM :${RESET} $(free -h | awk '/^Mem:/{print $3 " از " $2 " استفاده شده"}')"
+  # macOS compatibility for df command format
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    echo -e "${BOLD}  💾 دیسک:${RESET} $(df -h / | awk 'NR==2{print $3 " از " $2 " استفاده شده (" $4 " free)"}')"
+  else
+    echo -e "${BOLD}  💾 دیسک:${RESET} $(df -h / | awk 'NR==2{print $3 " از " $2 " استفاده شده (" $4 " آزاد)"}')"
+  fi
+
+  if command -v free &>/dev/null; then
+    echo -e "${BOLD}  🧠 RAM :${RESET} $(free -h | awk '/^Mem:/{print $3 " از " $2 " استفاده شده"}')"
+  else
+    # macOS Memory fallback
+    local total_mem; total_mem=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
+    local page_size; page_size=$(pagesize 2>/dev/null || echo 4096)
+    local active_pages; active_pages=$(vm_stat | awk '/Pages active/ {print $3}' | sed 's/\.//')
+    if [[ "$total_mem" -gt 0 && -n "$active_pages" ]]; then
+      local used_gb; used_gb=$((active_pages * page_size / 1024 / 1024 / 1024))
+      local total_gb; total_gb=$((total_mem / 1024 / 1024 / 1024))
+      echo -e "${BOLD}  🧠 RAM :${RESET} ~${used_gb}G از ${total_gb}G استفاده شده (macOS)"
+    else
+      echo -e "${BOLD}  🧠 RAM :${RESET} نامشخص (macOS)"
+    fi
+  fi
   echo ""
 }
 
@@ -235,8 +267,9 @@ cmd_logs() {
       -f "$COMPOSE_DIR/web.yml" \
       -f "$COMPOSE_DIR/monitoring.yml" \
       logs -f --tail=50
-  elif [[ -n "${LAYER_FILES[$target]+_}" ]]; then
-    log_section "📋 لاگ‌های لایه: ${LAYER_NAMES[$target]}"
+  elif [[ -n "$(get_layer_file "$target")" ]]; then
+    local layer_name; layer_name=$(get_layer_name "$target")
+    log_section "📋 لاگ‌های لایه: $layer_name"
     layer_compose "$target" logs -f --tail=100
   else
     # اگر نام سرویس مستقیم داده شده باشد
@@ -252,12 +285,19 @@ cmd_build() {
   if [[ "$target" == "all" ]]; then
     log_section "🔨 ساخت همه ایمیج‌ها"
     for layer in backend web; do
-      echo -e "\n${BOLD}بیلد لایه: ${LAYER_NAMES[$layer]}${RESET}"
+      local layer_name; layer_name=$(get_layer_name "$layer")
+      echo -e "\n${BOLD}بیلد لایه: $layer_name${RESET}"
       layer_compose "$layer" build --no-cache
     done
     log_ok "همه ایمیج‌ها ساخته شدند!"
   else
-    log_section "🔨 ساخت ایمیج‌های لایه: ${LAYER_NAMES[$target]}"
+    local target_file; target_file=$(get_layer_file "$target")
+    if [[ -z "$target_file" ]]; then
+      log_error "لایه '$target' وجود ندارد. لایه‌های موجود: infra, proxy, backend, web, mon"
+      exit 1
+    fi
+    local layer_name; layer_name=$(get_layer_name "$target")
+    log_section "🔨 ساخت ایمیج‌های لایه: $layer_name"
     layer_compose "$target" build --no-cache
     log_ok "ایمیج‌های لایه $target ساخته شدند!"
   fi
@@ -296,7 +336,10 @@ cmd_migrate() {
 
   log_info "اجرای دستی: alembic upgrade head"
   # Run inside the backend container (or celery_beat which has alembic config)
-  local target="${1:-celery_beat}"
+  local target="$1"
+  if [[ -z "$target" || "$target" == "all" ]]; then
+    target="celery_beat"
+  fi
   layer_compose backend run --rm "$target" alembic upgrade head
   log_ok "migration‌ها با موفقیت اجرا شدند!"
 }

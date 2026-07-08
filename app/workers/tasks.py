@@ -16,20 +16,7 @@ from app.services.task_service import task_service
 from app.services.waybill_service import waybill_service
 from app.workers.celery_app import celery_app
 
-_TASK_EVENT_LOOP: asyncio.AbstractEventLoop | None = None
-
-
-def _get_task_event_loop() -> asyncio.AbstractEventLoop:
-    global _TASK_EVENT_LOOP
-    if _TASK_EVENT_LOOP is None or _TASK_EVENT_LOOP.is_closed():
-        _TASK_EVENT_LOOP = asyncio.new_event_loop()
-        asyncio.set_event_loop(_TASK_EVENT_LOOP)
-    return _TASK_EVENT_LOOP
-
-
-def _run_async(coro) -> Any:
-    loop = _get_task_event_loop()
-    return loop.run_until_complete(coro)
+from app.core.utils import run_async as _run_async
 
 
 def _retry_delay_seconds(attempt_number: int) -> float:
@@ -147,6 +134,7 @@ if celery_app is not None:
                     raise
 
         return _run_async(_run())
+
 else:
 
     def process_waybill_task(*_args, **_kwargs):
@@ -168,7 +156,7 @@ def dispatch_waybill_task(task_id: str, priority: int | None = None):
 
     from app.core.circuit_breaker import get_routed_queue
 
-    jitter_countdown = random.randint(3, 10)
+    jitter_countdown = random.randint(5, 25)
     routed_queue = get_routed_queue(utcms_config.CELERY_TASK_QUEUE)
 
     return process_waybill_task.apply_async(
@@ -213,4 +201,3 @@ def dispatch_fuel_inquiry_task(inquiry_id: int):
         queue=routed_queue,
         countdown=jitter_countdown,
     )
-

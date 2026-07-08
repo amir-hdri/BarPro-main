@@ -163,28 +163,14 @@ console.log('API_BASE_URL:', API_BASE_URL); // debug
 
 ### ❌ خطا: 401 Unauthorized - Token invalid
 
-**علت**: Token expired یا localStorage خالی است
+**علت**: Token expired, کوکی `httpOnly` معتبر نیست، یا `JWT_SECRET` تغییر کرده است.
 
 **حل:**
 
-```typescript
-// apps/web/src/lib/api.ts - بررسی token handling
-
-function getStoredTokenCandidate(): string | null {
-  if (typeof window === 'undefined') return null;
-  return (
-    localStorage.getItem('utcms_auth_token') ||
-    localStorage.getItem('utcms_token') ||
-    localStorage.getItem('access_token') ||
-    localStorage.getItem('token') ||
-    null
-  );
-}
-
-// Browser console
-localStorage.getItem('utcms_auth_token') // بررسی token
-localStorage.clear() // پاک کردن
-```
+1. بررسی کنید که backend و frontend یک `JWT_SECRET` مشترک در `.env` دارند
+2. کوکی مرورگر با نام `utcms_auth_token` را از Developer Tools > Application > Cookies بررسی کنید
+3. اگر کوکی وجود ندارد، logout و login مجدد کنید
+4. اگر `JWT_SECRET` عوض شده، همه کاربران باید login مجدد کنند
 
 ```bash
 # Backend - بررسی JWT_SECRET
@@ -192,6 +178,10 @@ grep JWT_SECRET .env
 
 # اگر خالی است:
 echo "JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> .env
+```
+
+> **توجه**: در معماری فعلی، JWT در کوکی `httpOnly` حمل می‌شود و در `localStorage` ذخیره نمی‌شود.
+> برای پاک‌سازی session کافیست کوکی مرورگر را حذف کنید یا از logout استفاده کنید.
 ```
 
 ---

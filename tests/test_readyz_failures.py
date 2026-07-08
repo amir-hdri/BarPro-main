@@ -18,9 +18,11 @@ async def test_readyz_database_down_returns_503():
     mock_engine = Mock()
     mock_engine.connect = Mock(return_value=mock_connect_ctx)
 
-    with patch("app.api.routes.system.engine", mock_engine), \
-         patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)), \
-         patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True):
+    with (
+        patch("app.api.routes.system.engine", mock_engine),
+        patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)),
+        patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True),
+    ):
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -45,10 +47,12 @@ async def test_readyz_database_dns_failure_returns_skipped():
     mock_engine = Mock()
     mock_engine.connect = Mock(return_value=mock_connect_ctx)
 
-    with patch("app.api.routes.system.engine", mock_engine), \
-         patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)), \
-         patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True), \
-         patch("app.api.routes.system._database_host", return_value="db"):
+    with (
+        patch("app.api.routes.system.engine", mock_engine),
+        patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)),
+        patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True),
+        patch("app.api.routes.system._database_host", return_value="db"),
+    ):
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -79,9 +83,11 @@ async def test_readyz_database_delay_does_not_block_healthz():
     mock_engine = Mock()
     mock_engine.connect = Mock(return_value=mock_connect_ctx)
 
-    with patch("app.api.routes.system.engine", mock_engine), \
-         patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)), \
-         patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True):
+    with (
+        patch("app.api.routes.system.engine", mock_engine),
+        patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)),
+        patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True),
+    ):
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -124,10 +130,12 @@ async def test_readyz_browser_timeout_returns_503():
     mock_engine.connect = Mock(return_value=mock_connect_ctx)
 
     # Force a 1 second readyz browser timeout
-    with patch("app.api.routes.system.browser_manager.initialize", new=slow_browser_init), \
-         patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True), \
-         patch("app.core.config.utcms_config.READYZ_BROWSER_TIMEOUT_SECONDS", 1.0), \
-         patch("app.api.routes.system.engine", mock_engine):
+    with (
+        patch("app.api.routes.system.browser_manager.initialize", new=slow_browser_init),
+        patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True),
+        patch("app.core.config.utcms_config.READYZ_BROWSER_TIMEOUT_SECONDS", 1.0),
+        patch("app.api.routes.system.engine", mock_engine),
+    ):
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -157,12 +165,16 @@ async def test_readyz_queue_failure_returns_503():
     mock_engine.connect = Mock(return_value=mock_connect_ctx)
 
     # Test failure behavior when queue check is enabled and fails
-    with patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)), \
-         patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True), \
-         patch("app.core.config.utcms_config.QUEUE_ENABLED", True), \
-         patch("app.api.routes.system.is_celery_available", return_value=True), \
-         patch("app.api.routes.system._safe_queue_snapshot", new_callable=AsyncMock, side_effect=Exception("Redis down")), \
-         patch("app.api.routes.system.engine", mock_engine):
+    with (
+        patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)),
+        patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True),
+        patch("app.core.config.utcms_config.QUEUE_ENABLED", True),
+        patch("app.api.routes.system.is_celery_available", return_value=True),
+        patch(
+            "app.api.routes.system._safe_queue_snapshot", new_callable=AsyncMock, side_effect=Exception("Redis down")
+        ),
+        patch("app.api.routes.system.engine", mock_engine),
+    ):
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -191,9 +203,11 @@ async def test_readyz_database_hang_takes_full_delay():
     mock_engine = Mock()
     mock_engine.connect = Mock(return_value=mock_connect_ctx)
 
-    with patch("app.api.routes.system.engine", mock_engine), \
-         patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)), \
-         patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True):
+    with (
+        patch("app.api.routes.system.engine", mock_engine),
+        patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)),
+        patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True),
+    ):
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -204,4 +218,3 @@ async def test_readyz_database_hang_takes_full_delay():
             # The test will verify that it took >= 4.0 seconds, showing there is NO timeout protecting it!
             assert response.status_code == 200
             assert t2 - t1 >= 4.0
-

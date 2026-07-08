@@ -1,4 +1,5 @@
 """Tests for error handling utilities."""
+
 import pytest
 
 from app.core.error_handler import retry_on_exception, safe_execute
@@ -9,6 +10,7 @@ class TestErrorHandler:
 
     def test_safe_execute_success(self):
         """Test safe_execute with successful function."""
+
         def success_func():
             return "success"
 
@@ -17,6 +19,7 @@ class TestErrorHandler:
 
     def test_safe_execute_with_error(self):
         """Test safe_execute with failing function."""
+
         def failing_func():
             raise ValueError("test error")
 
@@ -25,6 +28,7 @@ class TestErrorHandler:
 
     def test_safe_execute_with_args(self):
         """Test safe_execute with function arguments."""
+
         def add(a, b):
             return a + b
 

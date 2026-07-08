@@ -215,8 +215,8 @@ class TestProxyRotator:
 
         rotator.verify_country = mock_verify
 
-        rotator.add_proxy(ProxyConfig(url="http://iran-proxy.com:8080")) # country None at start
-        rotator.add_proxy(ProxyConfig(url="http://us-proxy.com:8080")) # country None at start
+        rotator.add_proxy(ProxyConfig(url="http://iran-proxy.com:8080"))  # country None at start
+        rotator.add_proxy(ProxyConfig(url="http://us-proxy.com:8080"))  # country None at start
 
         # Test on-the-fly Geo-IP checking
         # Only the iran-proxy should be selected because it gets verified as "IR"

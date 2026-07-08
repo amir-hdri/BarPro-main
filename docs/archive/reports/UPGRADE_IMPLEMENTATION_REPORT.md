@@ -208,13 +208,13 @@ class WaybillAutomationBot:
 
 #### 1. راه‌اندازی Backend
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
+cd /opt/barpro
 ./scripts/start_backend.sh
 ```
 
 #### 2. راه‌اندازی Frontend (در ترمینال جدید)
 ```bash
-cd /Users/amirheidari/Desktop/Automation-Barname-main
+cd /opt/barpro
 ./scripts/start_frontend.sh
 ```
 

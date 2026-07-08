@@ -38,7 +38,7 @@ class TestBrowserManager(unittest.IsolatedAsyncioTestCase):
         # When start() is awaited, return our mock_playwright
         self.mock_start = AsyncMock(return_value=self.mock_playwright)
 
-    @patch('app.automation.browser.async_playwright')
+    @patch("app.automation.browser.async_playwright")
     async def test_initialize(self, mock_async_playwright):
         # Configure the mock to return a context manager that returns our mock_start result
         mock_async_playwright.return_value.start = self.mock_start
@@ -57,7 +57,7 @@ class TestBrowserManager(unittest.IsolatedAsyncioTestCase):
         self.assertIn("--disable-crash-reporter", launch_kwargs["args"])
         self.assertEqual(self.browser_manager.browser, self.mock_browser)
 
-    @patch('app.automation.browser.async_playwright')
+    @patch("app.automation.browser.async_playwright")
     async def test_initialize_idempotent(self, mock_async_playwright):
         # Set up already initialized state
         self.browser_manager.playwright = self.mock_playwright
@@ -70,7 +70,7 @@ class TestBrowserManager(unittest.IsolatedAsyncioTestCase):
         self.mock_start.assert_not_called()
         self.mock_playwright.chromium.launch.assert_not_called()
 
-    @patch('app.automation.browser.async_playwright')
+    @patch("app.automation.browser.async_playwright")
     async def test_create_context_new(self, mock_async_playwright):
         # Setup initialization mocks
         mock_async_playwright.return_value.start = self.mock_start
@@ -113,9 +113,11 @@ class TestBrowserManager(unittest.IsolatedAsyncioTestCase):
     async def test_create_context_loads_saved_auth_state(self):
         self.browser_manager.browser = self.mock_browser
 
-        with patch("app.core.config.utcms_config.USE_PERSISTENT_AUTH_STATE", True), \
-             patch("app.core.config.utcms_config.AUTH_STATE_PATH", "/tmp/utcms_state.json"), \
-             patch("app.automation.browser.os.path.exists", return_value=True):
+        with (
+            patch("app.core.config.utcms_config.USE_PERSISTENT_AUTH_STATE", True),
+            patch("app.core.config.utcms_config.AUTH_STATE_PATH", "/tmp/utcms_state.json"),
+            patch("app.automation.browser.os.path.exists", return_value=True),
+        ):
             _, _ = await self.browser_manager.create_context()
 
         self.mock_browser.new_context.assert_awaited_once()
@@ -125,8 +127,10 @@ class TestBrowserManager(unittest.IsolatedAsyncioTestCase):
     async def test_create_context_loads_custom_auth_state_path(self):
         self.browser_manager.browser = self.mock_browser
 
-        with patch("app.core.config.utcms_config.USE_PERSISTENT_AUTH_STATE", True), \
-             patch("app.automation.browser.os.path.exists", side_effect=lambda path: path == "/tmp/custom_state.json"):
+        with (
+            patch("app.core.config.utcms_config.USE_PERSISTENT_AUTH_STATE", True),
+            patch("app.automation.browser.os.path.exists", side_effect=lambda path: path == "/tmp/custom_state.json"),
+        ):
             _, _ = await self.browser_manager.create_context(auth_state_path="/tmp/custom_state.json")
 
         self.mock_browser.new_context.assert_awaited_once()
@@ -136,8 +140,10 @@ class TestBrowserManager(unittest.IsolatedAsyncioTestCase):
     async def test_save_auth_state(self):
         context = AsyncMock()
 
-        with patch("app.core.config.utcms_config.USE_PERSISTENT_AUTH_STATE", True), \
-             patch("app.core.config.utcms_config.AUTH_STATE_PATH", "/tmp/utcms_state.json"):
+        with (
+            patch("app.core.config.utcms_config.USE_PERSISTENT_AUTH_STATE", True),
+            patch("app.core.config.utcms_config.AUTH_STATE_PATH", "/tmp/utcms_state.json"),
+        ):
             await self.browser_manager.save_auth_state(context)
 
         context.storage_state.assert_awaited_once_with(path="/tmp/utcms_state.json")
@@ -183,5 +189,6 @@ class TestBrowserManager(unittest.IsolatedAsyncioTestCase):
 
         self.mock_browser.close.assert_awaited_once()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

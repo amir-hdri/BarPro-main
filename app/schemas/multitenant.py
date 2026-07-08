@@ -83,6 +83,8 @@ class ClientRegisterRequest(BaseModel):
     max_daily_tasks: int = Field(default=100, ge=1, le=1000)
     access_level: str | None = Field(default="standard", max_length=50)
     status: str | None = Field(default="active", max_length=20)
+    subscription_start_date: datetime | None = None
+    subscription_end_date: datetime | None = None
 
     @field_validator("status", mode="before")
     @classmethod
@@ -120,6 +122,9 @@ class ClientResponse(BaseModel):
     drivers_count: int | None = 0
     plates_count: int | None = 0
 
+    subscription_start_date: datetime | None = None
+    subscription_end_date: datetime | None = None
+
     created_at: datetime
     last_login_at: datetime | None
 
@@ -140,6 +145,8 @@ class AdminClientUpdateRequest(BaseModel):
     max_concurrent_tasks: int | None = Field(None, ge=1, le=1000)
     max_daily_tasks: int | None = Field(None, ge=1, le=100000)
     access_level: str | None = Field(None, max_length=50)
+    subscription_start_date: datetime | None = None
+    subscription_end_date: datetime | None = None
 
     @field_validator("status", mode="before")
     @classmethod
@@ -338,8 +345,18 @@ class WaybillPayload(BaseModel):
     def _validate_iran_national_code(code: str) -> bool:
         if not re.fullmatch(r"\d{10}", code):
             return False
-        if code in {"0000000000", "1111111111", "2222222222", "3333333333", "4444444444",
-                     "5555555555", "6666666666", "7777777777", "8888888888", "9999999999"}:
+        if code in {
+            "0000000000",
+            "1111111111",
+            "2222222222",
+            "3333333333",
+            "4444444444",
+            "5555555555",
+            "6666666666",
+            "7777777777",
+            "8888888888",
+            "9999999999",
+        }:
             return False
         checksum = sum(int(code[i]) * (10 - i) for i in range(9))
         remainder = checksum % 11
@@ -446,6 +463,7 @@ class WaybillJobResponse(BaseModel):
     updated_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    payload_json: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -592,6 +610,8 @@ class FuelInquiryCreateRequest(BaseModel):
     """Request to trigger a fuel inquiry."""
 
     driver_id: int
+    year: int | None = None
+    month: int | None = None
 
 
 class FuelInquiryResponse(BaseModel):
@@ -607,6 +627,8 @@ class FuelInquiryResponse(BaseModel):
     screenshot_url: str | None = None
     created_at: datetime
     updated_at: datetime
+    year: int | None = None
+    month: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -619,4 +641,3 @@ class FuelInquiryListResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
-

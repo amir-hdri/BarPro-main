@@ -7,6 +7,7 @@ from app.automation.captcha.base import CaptchaProvider, CaptchaResult
 from app.automation.captcha.cnn_provider import CnnCaptchaProvider
 from app.automation.captcha.engine import CaptchaEngine, captcha_engine
 from app.automation.captcha.enhanced_ocr import EnhancedOcrProvider
+from app.automation.captcha.fuel_captcha_solver import PyTorchFuelCaptchaProvider
 from app.automation.captcha.keras_ocr import KerasOcrCaptchaProvider
 from app.automation.captcha.local_ocr import LocalOcrCaptchaProvider
 from app.core.config import utcms_config
@@ -46,6 +47,8 @@ class CompositeCaptchaProvider(CaptchaProvider):
 def _build_provider(provider_name: str) -> CaptchaProvider | None:
     if provider_name == "keras_ocr":
         return KerasOcrCaptchaProvider()
+    if provider_name == "pytorch_fuel":
+        return PyTorchFuelCaptchaProvider()
     if provider_name == "cnn":
         return CnnCaptchaProvider()
     if provider_name == "local_ocr":
@@ -56,6 +59,7 @@ def _build_provider(provider_name: str) -> CaptchaProvider | None:
         return CompositeCaptchaProvider(
             [
                 CnnCaptchaProvider(),
+                PyTorchFuelCaptchaProvider(),
                 KerasOcrCaptchaProvider(),
                 EnhancedOcrProvider(),
                 LocalOcrCaptchaProvider(),

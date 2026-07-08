@@ -38,6 +38,7 @@ def test_normalize_float():
     assert normalize_float("abc", default=1.0) == 1.0
     assert normalize_float("") == 0.0
 
+
 def test_normalize_int():
     assert normalize_int("123") == 123
     assert normalize_int("123,456") == 123456
@@ -47,11 +48,13 @@ def test_normalize_int():
     assert normalize_int("abc", default=5) == 5
     assert normalize_int("") == 0
 
+
 def test_clean_text():
     assert clean_text("  hello  ") == "hello"
     assert clean_text(None) == ""
     assert clean_text(123) == "123"
     assert clean_text("") == ""
+
 
 def test_normalize_phone():
     # Standard Iranian mobile
@@ -73,6 +76,7 @@ def test_normalize_phone():
     assert normalize_phone(9123456789) == "9123456789"
     # Mixed formatting
     assert normalize_phone(" ۰۹۱۲-۳۴۵ ۶۷۸۹ ") == "+989123456789"
+
 
 def test_format_plate():
     assert format_plate("12", "A", "345", "67") == "12A34567"
