@@ -100,8 +100,8 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/utcms_rpa_test
           REDIS_URL: redis://localhost:6379/0
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          DRIVER_ENCRYPTION_KEY: ${{ secrets.DRIVER_ENCRYPTION_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET || 'test-jwt-secret-for-ci-only-which-is-long-enough-32-chars-long' }}
+          DRIVER_ENCRYPTION_KEY: ${{ secrets.DRIVER_ENCRYPTION_KEY || '6K3_x_43jQ6uJj8O36u1Z91c8u1_o91_2u1Z8u1Z8u0=' }}
 
       - name: Upload Coverage
         uses: actions/upload-artifact@v4

@@ -36,8 +36,16 @@ class RedisConnectionManager:
     """
 
     def __init__(self) -> None:
-        self._redis: aioredis.Redis | None = None
+        self._local = threading.local()
         self._lock = threading.Lock()
+
+    @property
+    def _redis(self) -> aioredis.Redis | None:
+        return getattr(self._local, "redis", None)
+
+    @_redis.setter
+    def _redis(self, value: aioredis.Redis | None) -> None:
+        self._local.redis = value
 
     async def _close_existing(self) -> None:
         """Close current redis connection (must NOT be called under _lock)."""

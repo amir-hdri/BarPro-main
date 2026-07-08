@@ -296,7 +296,20 @@ class FuelScraper:
 
         if not skip_navigation:
             # Load page once
+            # WAF Session Warmup: Iranian national servers (utcms.ir) are protected by a WAF
+            # which rejects direct connections to sub-pages with ERR_CONNECTION_CLOSED
+            # if the initial WAF cookiesession1 is missing. Visiting the homepage first solves this.
             try:
+                logger.info("Performing WAF warmup by visiting base homepage...")
+                try:
+                    await self.page.goto("https://utcms.ir", wait_until="domcontentloaded", timeout=15000)
+                    await asyncio.sleep(1.0)
+                except Exception as warm_err:
+                    logger.warning(
+                        f"WAF warmup homepage visit failed/timed out: {warm_err}. Trying direct page access."
+                    )
+
+                logger.info(f"Navigating to fuel quota inquiry page: {url}")
                 await self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
                 await asyncio.sleep(1.0)
                 try:
