@@ -231,7 +231,6 @@ class ProxyRotator:
         max_fail_count: int = 3,
         require_iran_ip: bool | None = None,
     ):
-
         if require_iran_ip is None:
             require_iran_ip = False
 

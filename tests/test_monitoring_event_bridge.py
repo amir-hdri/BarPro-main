@@ -14,7 +14,6 @@ async def test_publish_to_timeline_failure():
         patch("app.monitoring.event_bridge.event_hub.publish", new_callable=AsyncMock) as mock_publish,
         patch("app.monitoring.event_bridge.logger.warning") as mock_logger_warning,
     ):
-
         mock_publish.side_effect = Exception("Test error")
 
         await bridge._publish_to_timeline(

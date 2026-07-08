@@ -26,7 +26,6 @@ async def test_detect_map_leaks_sensitive_info():
             patch("app.automation.browser_manager.initialize", new_callable=AsyncMock),
             patch("app.core.config.utcms_config.API_AUTH_MODE", "off"),
         ):
-
             response = client.post("/waybill/detect-map?session_id=test_session")
 
             # Assert that the status code is 500

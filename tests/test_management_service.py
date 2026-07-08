@@ -369,7 +369,6 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
             patch("app.services.management_service.task_service.list_tasks", side_effect=mock_list_tasks),
             patch.object(management_service, "_list_artifacts_for_task", side_effect=mock_list_artifacts_for_task),
         ):
-
             result = await management_service.operator_tasks(limit=10)
 
         self.assertEqual(result["count"], 2)
@@ -398,7 +397,6 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
             patch.object(management_service, "_list_artifacts_for_task", side_effect=mock_list_artifacts_for_task),
             patch("app.services.management_service.event_hub.history", side_effect=mock_event_history),
         ):
-
             result = await management_service.operator_artifacts("t-3")
 
         self.assertEqual(result["task"], fake_task)

@@ -130,11 +130,12 @@ class BarnameMlCaptchaSolver:
             self._available = False
             return
 
-        self._device = (
-            torch.device("mps")
-            if torch.backends.mps.is_available()
-            else torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-        )
+        if torch.backends.mps.is_available():
+            self._device = torch.device("mps")
+        elif torch.cuda.is_available():
+            self._device = torch.device("cuda")
+        else:
+            self._device = torch.device("cpu")
         try:
             checkpoint = torch.load(self.model_path, map_location=self._device)
         except Exception:

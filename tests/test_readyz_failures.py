@@ -23,7 +23,6 @@ async def test_readyz_database_down_returns_503():
         patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)),
         patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True),
     ):
-
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             response = await ac.get("/readyz")
@@ -53,7 +52,6 @@ async def test_readyz_database_dns_failure_returns_skipped():
         patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True),
         patch("app.api.routes.system._database_host", return_value="db"),
     ):
-
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             response = await ac.get("/readyz")
@@ -88,7 +86,6 @@ async def test_readyz_database_delay_does_not_block_healthz():
         patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)),
         patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True),
     ):
-
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             # Let's fire /readyz and /healthz concurrently
@@ -136,7 +133,6 @@ async def test_readyz_browser_timeout_returns_503():
         patch("app.core.config.utcms_config.READYZ_BROWSER_TIMEOUT_SECONDS", 1.0),
         patch("app.api.routes.system.engine", mock_engine),
     ):
-
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             t1 = time.time()
@@ -175,7 +171,6 @@ async def test_readyz_queue_failure_returns_503():
         ),
         patch("app.api.routes.system.engine", mock_engine),
     ):
-
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             response = await ac.get("/readyz")
@@ -208,7 +203,6 @@ async def test_readyz_database_hang_takes_full_delay():
         patch("app.api.routes.system.browser_manager.initialize", new=AsyncMock(return_value=None)),
         patch("app.api.routes.system.barname_ml_solver.warmup", return_value=True),
     ):
-
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             t1 = time.time()

@@ -468,7 +468,6 @@ async def test_service_passes_shipping_options_to_manager():
         patch("app.core.config.utcms_config.UTCMS_USERNAME", "user"),
         patch("app.core.config.utcms_config.UTCMS_PASSWORD", "pass"),
     ):
-
         auth_cls.return_value._is_logged_in = AsyncMock(return_value=True)
         mgr_instance = mgr_cls.return_value
         mgr_instance.create_waybill_with_map = fake_create

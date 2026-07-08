@@ -803,7 +803,7 @@ class ManagementService:
     async def import_excel_workbook(
         self, content: bytes, filename: str, options: ManagementExcelImportOptions
     ) -> dict[str, Any]:
-        EXCEL_MAGIC_BYTES = {b"\x50\x4B\x03\x04", b"\x50\x4B\x05\x06", b"\xD0\xCF\x11\xE0"}
+        EXCEL_MAGIC_BYTES = {b"\x50\x4b\x03\x04", b"\x50\x4b\x05\x06", b"\xd0\xcf\x11\xe0"}
         MAX_FILE_SIZE = 10 * 1024 * 1024
         if len(content) > MAX_FILE_SIZE:
             raise HTTPException(status_code=413, detail="File too large (max 10 MB)")

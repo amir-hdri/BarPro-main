@@ -60,7 +60,6 @@ async def test_waybill_login_success():
             "app.automation.reporting.report_service.record_map_usage", new_callable=AsyncMock
         ) as mock_record_map_usage,
     ):
-
         # Setup mock page and context
         mock_page = AsyncMock()
         mock_context = AsyncMock()
@@ -114,7 +113,6 @@ async def test_waybill_login_with_request_credentials():
         patch("app.automation.reporting.report_service.record_success", new_callable=AsyncMock),
         patch("app.automation.reporting.report_service.record_map_usage", new_callable=AsyncMock),
     ):
-
         mock_page = AsyncMock()
         mock_context = AsyncMock()
         mock_new_page.return_value = mock_page
@@ -158,7 +156,6 @@ async def test_waybill_login_failure():
         patch("app.automation.reporting.report_service.record_request", new_callable=AsyncMock),
         patch("app.automation.reporting.report_service.record_failure", new_callable=AsyncMock),
     ):
-
         # Setup mock page and context
         mock_page = AsyncMock()
         mock_context = AsyncMock()
@@ -200,7 +197,6 @@ async def test_waybill_already_logged_in():
         patch("app.automation.reporting.report_service.record_success", new_callable=AsyncMock),
         patch("app.automation.reporting.report_service.record_map_usage", new_callable=AsyncMock),
     ):
-
         # Setup mock page and context
         mock_page = AsyncMock()
         mock_context = AsyncMock()
@@ -240,7 +236,6 @@ async def test_waybill_missing_credentials():
         patch("app.core.config.utcms_config.UTCMS_USERNAME", ""),
         patch("app.core.config.utcms_config.UTCMS_PASSWORD", ""),
     ):
-
         # Setup mock page and context
         mock_page = AsyncMock()
         mock_context = AsyncMock()
