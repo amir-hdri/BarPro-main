@@ -53,7 +53,6 @@ x-backend-common: &backend-common
     HEADLESS: ${HEADLESS:-true}
     ALLOW_LIVE_SUBMIT: ${ALLOW_LIVE_SUBMIT:-false}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ""
     MASTER_ADMIN_USERNAME: ${MASTER_ADMIN_USERNAME}
     MASTER_ADMIN_PASSWORD: ${MASTER_ADMIN_PASSWORD}
     KERAS_PYTHON_PATH: ${KERAS_PYTHON_PATH:-python3}
@@ -66,7 +65,6 @@ x-backend-common: &backend-common
     - ../app/workers:/app/app/workers:ro
     - ../app/core:/app/app/core:ro
     - ../alembic:/app/alembic:ro
-    - ../.playwright-home:/opt/playwright-browsers
   logging:
     driver: json-file
     options:

@@ -39,6 +39,7 @@ async def test_evaluate_single_schedule_once_deactivates():
         if model == Driver:
             return mock_driver
         return None
+
     mock_session.get.side_effect = mock_get
 
     # Mock session.exec for existing job check to return None (no duplicate)

@@ -1157,7 +1157,9 @@ class DriverScheduleService:
                 schedule.is_active = False
                 schedule.next_run_at = None
             else:
-                schedule.next_run_at = now + timedelta(days=1 if schedule.frequency == ScheduleFrequency.DAILY.value else 7)
+                schedule.next_run_at = now + timedelta(
+                    days=1 if schedule.frequency == ScheduleFrequency.DAILY.value else 7
+                )
             schedule.updated_at = now
             session.add(schedule)
         await session.commit()

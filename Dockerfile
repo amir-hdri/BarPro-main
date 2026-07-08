@@ -58,13 +58,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     # مسیر نصب Playwright (به عنوان root قبل از تغییر user)
-    PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers \
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
-    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+    PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 
 WORKDIR /app
 
-# کتابخانه‌های سیستمی مورد نیاز Playwright/Chromium و خود Chromium
+# کتابخانه‌های سیستمی مورد نیاز Playwright/Chromium
 RUN apt-get -o Acquire::Check-Valid-Until=false update && apt-get install -y --no-install-recommends \
     # Chromium core
     libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
@@ -73,8 +71,8 @@ RUN apt-get -o Acquire::Check-Valid-Until=false update && apt-get install -y --n
     libxext6 libxfixes3 libxrandr2 libgbm1 \
     libpango-1.0-0 libcairo2 libasound2 libxshmfence1 \
     libx11-xcb1 libxcb1 libxcursor1 libxi6 libxtst6 \
-    # ابزارهای سیستمی و Chromium
-    curl wget ca-certificates chromium \
+    # ابزارهای سیستمی
+    curl wget ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # کپی Python packages از مرحله builder
@@ -82,7 +80,8 @@ COPY --from=builder /usr/local/lib/python3.11/site-packages \
                     /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-RUN mkdir -p /opt/playwright-browsers
+RUN mkdir -p /opt/playwright-browsers \
+    && playwright install chromium
 
 # کپی کد اپلیکیشن
 COPY app         ./app
