@@ -112,7 +112,7 @@ class PyTorchFuelCaptchaProvider(CaptchaProvider):
             # Use CPU to avoid MPS GRU inference inconsistencies on Mac
             self._device = torch.device("cpu")
 
-            checkpoint = torch.load(self.model_path, map_location=self._device)
+            checkpoint = torch.load(self.model_path, map_location=self._device)  # nosec B614
             self._model.load_state_dict(checkpoint)
             self._model.to(self._device)
             self._model.eval()

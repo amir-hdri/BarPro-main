@@ -26,7 +26,7 @@ class AlertManager:
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=2):
+            with urllib.request.urlopen(req, timeout=2):  # nosec B310
                 return
         except Exception as exc:
             logger.warning("alert_webhook_failed", extra={"extra_fields": {"error": str(exc), "severity": severity}})

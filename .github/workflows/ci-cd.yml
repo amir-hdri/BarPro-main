@@ -94,6 +94,10 @@ jobs:
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
+      - name: Install Playwright Browsers
+        run: |
+          playwright install chromium
+
       - name: Run Unit Tests
         run: |
           pytest tests/ -v --tb=short --cov=app --cov-report=term-missing
