@@ -112,4 +112,4 @@ Backups are written under `output/backups/`.
 - If auth fails after login, review cookie settings, CORS, and `FRONTEND_URL`
 - If Compose config warns about unset secrets, review `.env`
 
-Last updated: 2026-07-08
+Last updated: 2026-07-09

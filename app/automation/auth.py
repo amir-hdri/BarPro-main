@@ -534,6 +534,7 @@ class UTCMSAuthenticator:
                 "کپچا در صفحه ورود فعال است اما حل خودکار CNN موفق نشد. فایل مدل و کیفیت تصویر کپچا را بررسی کنید."
             )
         track_captcha_failure("captcha_not_solved", phase="login", strategy=captcha_mode or "unknown")
+
         return False
 
     # ==================================================================
@@ -567,22 +568,27 @@ class UTCMSAuthenticator:
                 )
             except Exception:
                 ajax_response_task = None
+        # Ensure all loading overlays are gone before attempting click
+        await self.navigator.wait_for_loading_overlays_to_disappear(timeout_ms=10000)
+
         try:
-            await self.page.click(submit_selector)
+            await self.page.click(submit_selector, timeout=8000)
             clicked = True
             try:
                 await self.page.wait_for_load_state("domcontentloaded", timeout=3000)
             except Exception:
-                logger.warning("auth_operation_failed", exc_info=True)
-        except Exception:
+                pass
+        except Exception as click_err:
+            logger.warning(f"Normal click failed, trying force click: {click_err}")
             try:
                 submit_locator = await self.smart_locator.locate(self.page, [submit_selector], timeout=5000)
-                await submit_locator.click()
+                # Use force=True to bypass pointer interception (e.g. by loading spinner)
+                await submit_locator.click(force=True, timeout=8000)
                 clicked = True
                 try:
                     await self.page.wait_for_load_state("domcontentloaded", timeout=3000)
                 except Exception:
-                    logger.warning("auth_operation_failed", exc_info=True)
+                    pass
             except Exception:
                 clicked = False
 
@@ -598,6 +604,8 @@ class UTCMSAuthenticator:
             return ajax_result
 
         if await self._wait_for_login_result():
+            # Allow page to fully settle after redirect before doing final checks
+            await asyncio.sleep(0.5)
             if not await self._complete_post_login_steps():
                 if not self.last_error:
                     self.last_error = "تکمیل مراحل پس از لاگین ناموفق بود."
@@ -682,6 +690,8 @@ class UTCMSAuthenticator:
                     await self.page.wait_for_load_state("networkidle", timeout=8000)
                 except Exception:
                     await asyncio.sleep(0.3)
+                # Wait for any blocking overlays (e.g., initial page loader) to vanish
+                await self.navigator.wait_for_loading_overlays_to_disappear()
             except Exception as exc:
                 if is_retryable_network_error(exc):
                     navigation_errors.append((candidate_login_url, exc))

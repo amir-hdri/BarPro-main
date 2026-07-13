@@ -47,7 +47,7 @@ class UTCMSConfig:
         )
         self.BASE_URL = os.getenv("BASE_URL", "https://barname.utcms.ir")
         self.LOGIN_URL = os.getenv("LOGIN_URL", f"{self.BASE_URL.rstrip('/')}/Barname/Account/Login")
-        self.HEADLESS = _to_bool(os.getenv("HEADLESS"), default=True, required=True)
+        self.HEADLESS = _to_bool(os.getenv("HEADLESS"), default=True)
 
         self.UTCMS_USERNAME = os.getenv("UTCMS_USERNAME", "")
         self.UTCMS_PASSWORD = os.getenv("UTCMS_PASSWORD", "")

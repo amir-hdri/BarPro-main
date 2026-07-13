@@ -250,7 +250,7 @@ The following optimizations have been implemented in this codebase:
 | `client_max_body_size` 50m → 10m | `http-server.conf:9` | 40 MB nginx memory saved per upload |
 | Rate-limit zones 20m → 10m (×3) | `nginx.conf:48-50` | 30 MB nginx shared memory saved |
 | Chromium V8 heap capped at 1 GB | `browser.py:251` | No unbounded JS heap growth |
-| WebSocket send moved outside asyncio.Lock | `events.py:46-59` | No blocking concurrent publishes |
+| WebSocket events bridged via Redis pub/sub | `realtime/events.py` + `main.py` lifespan | Worker-originated events now reach API WebSockets cross-process (was process-local only) |
 
 ### Memory / Stability
 | Change | File | Impact |
@@ -264,9 +264,9 @@ The following optimizations have been implemented in this codebase:
 ### Database
 | Change | File | Impact |
 |--------|------|--------|
-| Full table scan replaced with Redis cached counter | `services/task_service.py:227-249` | No `SELECT COUNT *` on every status transition |
-| N+1 queries in `_emit_task_event` eliminated | `services/task_service.py:344-361` | Task object passed directly, no re-fetch |
-| Mark methods refactored to single session/transaction | `services/task_service.py` | 5-7 round-trips → 2-3 per status update |
+| Queue depth cached in Redis (HINCRBY per transition, seeded from DB at startup) | `services/task_service.py` (`_queue_depth_snapshot`/`_adjust_queue_depth`) | No full-table scan on every status transition; DB scan only as fallback/seed |
+| N+1 re-fetch eliminated in `_emit_task_event` | `services/task_service.py` | Status/payload passed from the in-memory row; no extra SELECT per transition |
+| Per-transition commits collapsed into one | `services/task_service.py` + `workers/waybill_worker.py` | 3 commits/block → 1; helpers `add`+`flush`, caller commits once |
 
 ### Index Recommendations (run on PostgreSQL)
 ```sql
@@ -364,6 +364,32 @@ ON waybill_jobs (status) INCLUDE (id);
 | Ruff autofix applied (isort, unused imports) | Multiple files |
 | `except: pass` fixed in change_expired_password.py | `scripts/change_expired_password.py:47` |
 
+### Additional Fixes & Features Applied (2026-07-09)
+
+| Change | File(s) |
+|--------|---------|
+| Added pre-flight Squid proxy health checks before browser sessions and a `/proxies/health` endpoint | `app/automation/worker_proxy.py`, `app/api/routes/system.py`, `app/workers/waybill_worker.py` |
+| Implemented unified `get_current_user_or_admin` dependency allowing Master Admin to view and manage resources globally across all tenants | `app/auth_multitenant.py`, `app/api/routes/multitenant.py`, `app/services/multitenant_service.py`, `app/services/fuel_inquiry_service.py` |
+| Enhanced Admin Reports page with weekly line charts, error bar charts (SVG), Persian date tooltips, and CSV download export | `apps/web/src/app/admin/reports/page.tsx` |
+| Added tracking codes (`UTC-YYMM-ID`) formatting and Persian digits display for fuel inquiries | `apps/web/src/app/fuel/page.tsx`, `app/schemas/multitenant.py` |
+| Added tests for worker proxy health checks | `tests/test_worker_proxy_health.py` |
+
+### Additional Fixes Applied (2026-07-10) — Performance Bottleneck Remediation
+
+> NOTE: The earlier "Optimizations Applied (2026-06-30)" table (Redis queue counter, N+1 elimination in
+> `_emit_task_event`, WebSocket send outside lock) was **documented but not actually present in the code**.
+> The items below implement those optimizations for real, plus additional fixes from a stack-wide bottleneck analysis.
+
+| Change | File(s) |
+|--------|---------|
+| Redis cached queue-depth counters (`HINCRBY` per transition, seeded from DB at startup) replace the full `waybilltask` table scan on every status transition | `app/services/task_service.py` (`_queue_depth_snapshot`/`_adjust_queue_depth`/`_incr_queue_depth`) + `app/main.py` lifespan |
+| Redis pub/sub bridge so worker-originated WebSocket events reach the API process (was process-local only, so the live job UI was effectively broken) | `app/realtime/events.py`, `app/main.py` lifespan |
+| Keras OCR moved in-process: model lazy-loaded once per worker and reused; removed the per-captcha subprocess + model reload (the prior design spawned an unbounded TensorFlow process that risked OOM on the 2.5 GB worker cgroup) | `app/automation/captcha/keras_ocr.py` |
+| Collapsed per-transition sessions/commits into one: `_emit_task_event` uses the in-memory row (no re-query), and `waybill_worker._execute_job` batches log/event writes into a single commit per block | `app/services/task_service.py`, `app/workers/waybill_worker.py` |
+| `bcrypt` hashing/verification moved off the event loop via `asyncio.to_thread` (was blocking all concurrent requests) | `app/auth_multitenant.py` |
+| Bulk `Client` fetch (`Client.id.in_(...)`) replaces per-row `session.get(Client, ...)` in the admin job list | `app/services/multitenant_service.py` |
+
 ---
 
-*Last updated: 2026-07-01 · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*
+*Last updated: 2026-07-10 · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*
+

@@ -2,7 +2,23 @@
  
  All notable changes to the UTCMS Automation System.
  
- ## [2.1.0] - 2026-07-08
+ ## [2.2.0] - 2026-07-09
+
+### Added
+- Added **Pre-flight Proxy Health Checks** (`check_proxy_health`) before worker Playwright browser sessions to verify Squid proxy connectivity.
+- Added `/proxies/health` latency and health check endpoint for monitoring active Squid proxy configurations.
+- Added unified user/admin dependency context (`get_current_user_or_admin`) allowing Master Admin to view and manage resources globally across all tenants while ensuring data isolation for client roles.
+- Enhanced Admin Reports page with live **SVG line charts** for success/failure weekly trends, **SVG horizontal bar charts** for error category distributions, Persian tooltips, and CSV download export options.
+- Added Persian-digit tracking codes formatting (`UTC-YYMM-ID`) for fuel inquiries.
+- Added integration tests for worker proxy health checks.
+
+### Changed
+- Refactored multitenant list/detail services (`list_jobs`, `get_job`, `get_job_timeline`, `list_inquiries`, `get_inquiry`) to conditionally accept and process admin roles, injecting client metadata where appropriate.
+- Client responses for jobs and timelines now strip `last_error` and detailed `timeline_entries` to prevent internal system detail exposure.
+
+---
+
+## [2.1.0] - 2026-07-08
 
  ### Added
  - Added PyTorch fuel CAPTCHA solver assets and provider option `pytorch_fuel`.

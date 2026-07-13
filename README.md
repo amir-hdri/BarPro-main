@@ -28,6 +28,7 @@
 
 ### 🏢 Real Multi-tenancy
 * **Data Isolation:** Strict data separation at the database level using scoped access.
+* **Unified Admin Access:** Master Admin can bypass tenant isolation to view and manage resources globally across all tenants with injected metadata.
 * **Independent Profiles:** Manage fleets, drivers, and routes for each tenant securely.
 * **Master Admin Dashboard:** Centralized control for onboarding, quota management, and global live monitoring.
 
@@ -38,6 +39,7 @@
 * **Self-Healing Navigation:** Dynamic element detection and "Loading Overlay" management for resilient web interactions.
 
 ### 🛡️ Enterprise-Grade Resilience
+* **Pre-flight Proxy Checks:** Worker-level pre-flight connectivity check verifying Squid proxy availability to UTCMS before launching browser sessions, preventing failures.
 * **Automatic Stuck Job Recovery:** Periodic cleanup of jobs stuck in `QUEUED` or `IN_PROGRESS` states.
 * **Global Safety Net:** Integrated error handling that prevents processing deadlocks during unexpected browser crashes.
 * **Session Persistence:** Intelligent session bundle storage to minimize redundant logins and reduce detection footprints.
@@ -150,4 +152,5 @@ bash manage.sh status
 - Frontend and backend Docker images build from a clean checkout; `.next/standalone` no longer needs to be uploaded manually.
 - Current HTTP deployment must keep `AUTH_COOKIE_SECURE=false`; after enabling HTTPS, set `AUTH_COOKIE_SECURE=true`.
 - Required runtime ML assets are `persian_number_ocr.keras`, `app/automation/captcha/assets/fuel_captcha_crnn.pth`, and `app/automation/captcha/assets/fuel_captcha_vocab.json`.
-- Current Alembic head is `015_add_client_subscription_dates`.
+- Current Alembic head is `017_fix_runtime_state_client_id`.
+- Active monitoring now includes a `/proxies/health` latency endpoint for proxy health checks.
