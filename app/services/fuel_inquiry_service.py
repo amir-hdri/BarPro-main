@@ -5,11 +5,12 @@ import logging
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
-from sqlmodel import col, select
+from sqlmodel import col, select, func
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.automation.browser import browser_manager, managed_browser_session
 from app.automation.fuel_scraper import FuelScraper
+from app.core.exceptions import WaybillError
 from app.models_multitenant import Client, Driver, DriverPlate, FuelInquiry
 from app.schemas.multitenant import (
     FuelInquiryCreateRequest,
@@ -40,6 +41,19 @@ class FuelInquiryService:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="راننده مورد نظر یافت نشد",
+            )
+
+        # Verify the driver has an active plate before enqueuing.
+        # A fuel inquiry cannot succeed without a plate, so reject early
+        # instead of creating a record that gets stuck in "pending" / fails later.
+        plate_stmt = select(DriverPlate).where(
+            (DriverPlate.driver_id == driver.id) & (DriverPlate.status == "active")
+        )
+        plate_res = await session.exec(plate_stmt)
+        if not plate_res.first():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="راننده پلاک فعال ندارد؛ ابتدا یک پلاک فعال ثبت کنید",
             )
 
         # Create DB record
@@ -75,19 +89,32 @@ class FuelInquiryService:
 
     @staticmethod
     async def list_inquiries(
-        client: Client,
+        user_context: dict,
         page: int,
         page_size: int,
         session: AsyncSession,
+        driver_id: int | None = None,
     ) -> FuelInquiryListResponse:
-        """Get paginated history of fuel inquiries for a tenant."""
-        # Base query joining Driver to get the full name
-        statement = select(FuelInquiry).where(FuelInquiry.client_id == client.id)
+        if isinstance(user_context, Client):
+            user_context = {"role": "client", "user": user_context}
+        role = user_context["role"]
+        if role == "master_admin":
+            statement = select(FuelInquiry)
+            count_stmt = select(func.count(FuelInquiry.id))
+        else:
+            client = user_context["user"]
+            statement = select(FuelInquiry).where(
+                (FuelInquiry.client_id == client.id) & (FuelInquiry.status != "failed")
+            )
+            count_stmt = select(func.count(FuelInquiry.id)).where(
+                (FuelInquiry.client_id == client.id) & (FuelInquiry.status != "failed")
+            )
+
+        if driver_id is not None:
+            statement = statement.where(FuelInquiry.driver_id == driver_id)
+            count_stmt = count_stmt.where(FuelInquiry.driver_id == driver_id)
 
         # Get total count
-        from sqlmodel import func
-
-        count_stmt = select(func.count(FuelInquiry.id)).where(FuelInquiry.client_id == client.id)
         count_result = await session.exec(count_stmt)
         total = count_result.one()
 
@@ -105,6 +132,19 @@ class FuelInquiryService:
             driver = await session.get(Driver, i.driver_id)
             if driver:
                 resp.driver_name = driver.full_name
+            # Inject plate number dynamically
+            plate_stmt = select(DriverPlate).where((DriverPlate.driver_id == i.driver_id) & (DriverPlate.status == "active"))
+            plate_res = await session.exec(plate_stmt)
+            driver_plate = plate_res.first()
+            if driver_plate:
+                resp.plate_number = driver_plate.plate_number
+            # If admin, inject client info
+            if role == "master_admin":
+                cl = await session.get(Client, i.client_id)
+                if cl:
+                    resp.client_name = cl.name
+                    resp.client_code = cl.client_code
+
             if i.quota_data_json:
                 try:
                     resp.quota_data = json.loads(i.quota_data_json)
@@ -124,12 +164,22 @@ class FuelInquiryService:
 
     @staticmethod
     async def get_inquiry(
-        client: Client,
+        user_context: dict,
         inquiry_id: int,
         session: AsyncSession,
     ) -> FuelInquiryResponse:
-        """Get a specific fuel inquiry's status and details."""
-        statement = select(FuelInquiry).where((FuelInquiry.client_id == client.id) & (FuelInquiry.id == inquiry_id))
+        if isinstance(user_context, Client):
+            user_context = {"role": "client", "user": user_context}
+        role = user_context["role"]
+        if role == "master_admin":
+            statement = select(FuelInquiry).where(FuelInquiry.id == inquiry_id)
+        else:
+            client = user_context["user"]
+            statement = select(FuelInquiry).where(
+                (FuelInquiry.client_id == client.id) & 
+                (FuelInquiry.id == inquiry_id) & 
+                (FuelInquiry.status != "failed")
+            )
         result = await session.exec(statement)
         inquiry = result.first()
 
@@ -143,6 +193,19 @@ class FuelInquiryService:
         driver = await session.get(Driver, inquiry.driver_id)
         if driver:
             resp.driver_name = driver.full_name
+        # Inject plate number dynamically
+        plate_stmt = select(DriverPlate).where((DriverPlate.driver_id == inquiry.driver_id) & (DriverPlate.status == "active"))
+        plate_res = await session.exec(plate_stmt)
+        driver_plate = plate_res.first()
+        if driver_plate:
+            resp.plate_number = driver_plate.plate_number
+        # If admin, inject client info
+        if role == "master_admin":
+            cl = await session.get(Client, inquiry.client_id)
+            if cl:
+                resp.client_name = cl.name
+                resp.client_code = cl.client_code
+
         if inquiry.quota_data_json:
             try:
                 resp.quota_data = json.loads(inquiry.quota_data_json)
@@ -200,7 +263,13 @@ class FuelInquiryService:
 
         proxy_dict = get_playwright_proxy()
         if proxy_dict:
-            logger.info(f"fuel_inquiry using proxy: {proxy_dict.get('server')}")
+            proxy_url = proxy_dict.get("server")
+            logger.info(f"fuel_inquiry using proxy: {proxy_url}")
+            if proxy_url:
+                from app.automation.worker_proxy import check_proxy_health
+                is_healthy = await check_proxy_health(proxy_url)
+                if not is_healthy:
+                    raise WaybillError("پروکسی یا شبکه تونل ایران قطع می‌باشد (proxy/network check failed)")
         else:
             logger.warning("fuel_inquiry: no proxy configured — Chromium may not reach utcms.ir")
 

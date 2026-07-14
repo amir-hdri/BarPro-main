@@ -61,6 +61,10 @@ class RPASchedulerService:
                 )
             ).first()
             if existing:
+                logger.warning(
+                    "duplicate_idempotency_key_rejected",
+                    extra={"extra_fields": {"job_id": existing.job_id, "idempotency_key": normalized_key}},
+                )
                 return existing
 
             job = WaybillJob(
@@ -91,6 +95,9 @@ class RPASchedulerService:
     async def plan_due_jobs(self, *, persist: bool = True) -> list[SchedulerDecision]:
         session = async_session_factory()
         try:
+            # CRITICAL: Use SELECT FOR UPDATE SKIP LOCKED to prevent race conditions
+            # when multiple scheduler instances (Beat + workers) run concurrently.
+            # This ensures only one scheduler can pick up each job atomically.
             jobs = (
                 await session.exec(
                     select(WaybillJob, Driver)
@@ -106,6 +113,7 @@ class RPASchedulerService:
                             ]
                         )
                     )
+                    .with_for_update(skip_locked=True)
                     .order_by(col(WaybillJob.priority).desc(), col(WaybillJob.created_at).asc())
                 )
             ).all()
@@ -245,6 +253,31 @@ class RPASchedulerService:
 
             count = 0
             for job in stuck_jobs:
+                # CRITICAL: Check if job was already successfully submitted to portal
+                # by checking for tracking_code in result_json
+                if job.result_json:
+                    try:
+                        result_data = json.loads(job.result_json)
+                        if result_data.get("tracking_code"):
+                            logger.warning(
+                                "stuck_job_already_has_tracking_code_skipping_recovery",
+                                extra={
+                                    "extra_fields": {
+                                        "job_id": job.job_id,
+                                        "status": job.status,
+                                        "tracking_code": result_data.get("tracking_code"),
+                                    }
+                                },
+                            )
+                            # Mark as SUCCESS to prevent future recovery attempts
+                            job.status = TaskStatus.SUCCESS.value
+                            job.finished_at = _utcnow_naive()
+                            job.updated_at = _utcnow_naive()
+                            session.add(job)
+                            continue
+                    except json.JSONDecodeError:
+                        pass  # Ignore corrupted result_json
+
                 old_status = job.status
                 logger.warning(
                     "recovering_stuck_job",
@@ -289,6 +322,21 @@ class RPASchedulerService:
         ).first()
         if state is None:
             state = DriverRuntimeState(client_id=client_id, driver_id=driver_id)
+            session.add(state)
+            await session.flush()
+        elif state.client_id != client_id:
+            # Self-heal: correct stale client_id that could have been written by an earlier bug
+            logger.warning(
+                "ensure_runtime_state_client_id_corrected",
+                extra={
+                    "extra_fields": {
+                        "driver_id": driver_id,
+                        "old_client_id": state.client_id,
+                        "correct_client_id": client_id,
+                    }
+                },
+            )
+            state.client_id = client_id
             session.add(state)
             await session.flush()
         return state

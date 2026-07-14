@@ -63,12 +63,18 @@ def _build_celery() -> Celery | None:
             "phase1-scheduler-plan": {
                 "task": "phase1.scheduler.plan",
                 "schedule": schedule(utcms_config.RPA_SCHEDULER_INTERVAL_SECONDS),
-                "options": {"queue": utcms_config.RPA_SCHEDULER_QUEUE},
+                "options": {
+                    "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                    "expires": max(10, utcms_config.RPA_SCHEDULER_INTERVAL_SECONDS - 5),
+                },
             },
             "phase1-scheduler-cleanup": {
                 "task": "phase1.scheduler.cleanup",
                 "schedule": crontab(minute="*/5"),
-                "options": {"queue": utcms_config.RPA_SCHEDULER_QUEUE},
+                "options": {
+                    "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                    "expires": 240,
+                },
             },
             "scheduled-waybill-evaluate": {
                 "task": "scheduled.waybill.evaluate_and_run",
