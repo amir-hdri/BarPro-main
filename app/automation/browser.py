@@ -263,6 +263,7 @@ class BrowserManager:
             "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
             "--disable-gpu",
+            "--disable-dbus",
         ]
 
         # CRITICAL: Always set a writeable, local HOME directory in environment.
