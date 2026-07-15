@@ -70,6 +70,13 @@ async def run_migrations() -> None:
     preventing deadlocks when multiple workers start simultaneously.
     On PostgreSQL, we MUST NOT fallback to create_all() if migrations fail.
     """
+    if os.getenv("SKIP_MIGRATIONS") == "true":
+        logger.info(
+            "database_migrations_skipped_by_env",
+            extra={"extra_fields": {"note": "SKIP_MIGRATIONS=true set, skipping migrations."}},
+        )
+        return
+    
     if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ or os.getenv("ENVIRONMENT") == "test":
         logger.info(
             "database_migrations_skipped",
