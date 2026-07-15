@@ -129,6 +129,28 @@ class RPAHttpSubmitService:
             if job.driver_id is None:
                 raise ValueError(f"job {job_id} has no driver")
 
+            # CRITICAL: Check if job was already successfully submitted to portal
+            # by checking for existing tracking_code in result_json
+            if job.result_json:
+                try:
+                    result_data = json.loads(job.result_json)
+                    if result_data.get("tracking_code"):
+                        logger.warning(
+                            "job_already_has_tracking_code_skipping_duplicate_submit",
+                            extra={"extra_fields": {"job_id": job_id, "tracking_code": result_data.get("tracking_code")}},
+                        )
+                        return SubmitExecutionResult(
+                            classification=SubmitClassification(
+                                outcome=SubmitOutcome.DUPLICATE,
+                                reason_code="already_submitted",
+                                retryable=False,
+                                message="Job already has tracking code - skipping duplicate submission",
+                            ),
+                            latency_ms=0,
+                        )
+                except json.JSONDecodeError:
+                    pass  # Ignore corrupted result_json
+
             driver = await session.get(Driver, job.driver_id)
             runtime_state = await self._get_or_create_runtime_state(session, client_id, job.driver_id)
             if live_page is not None and live_context is not None:

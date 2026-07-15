@@ -74,7 +74,17 @@ class PyTorchFuelCaptchaProvider(CaptchaProvider):
         self._model = None
         self._vocab = []
         self._initialized = False
-        self._lock = asyncio.Lock()
+        self._lock: asyncio.Lock | None = None
+        self._lock_loop: asyncio.AbstractEventLoop | None = None
+
+    @property
+    def _safe_lock(self) -> asyncio.Lock:
+        """Recreate lock if event loop changed (Celery workers reuse loop per process)."""
+        current = asyncio.get_event_loop()
+        if self._lock is None or self._lock_loop != current:
+            self._lock = asyncio.Lock()
+            self._lock_loop = current
+        return self._lock
 
     async def solve_text_captcha(self, image_base64: str) -> CaptchaResult:
         if not image_base64 or not str(image_base64).strip():
@@ -85,7 +95,7 @@ class PyTorchFuelCaptchaProvider(CaptchaProvider):
 
         # Lazy load model
         if not self._initialized:
-            async with self._lock:
+            async with self._safe_lock:
                 if not self._initialized:
                     success = self._load_model()
                     if not success:

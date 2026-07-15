@@ -20,7 +20,7 @@ from fastapi.security import HTTPBearer
 from sqlmodel import case, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.auth_multitenant import get_current_admin, get_current_client
+from app.auth_multitenant import get_current_admin, get_current_client, get_current_user_or_admin
 from app.core.config import utcms_config
 from app.core.database import get_session
 from app.models_multitenant import Client, Driver, TaskSource, TaskStatus, WaybillJob
@@ -310,17 +310,17 @@ async def create_driver(
 async def list_drivers(
     status_filter: str | None = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    client: Client = Depends(get_current_client),
+    page_size: int = Query(20, ge=1, le=1000),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """
-    List all drivers for the client.
+    List all drivers for the client or all for admin.
 
     Supports filtering by status and pagination.
     """
     return await DriverService.list_drivers(
-        client,
+        user_context,
         session,
         status_filter=status_filter,
         page=page,
@@ -374,10 +374,10 @@ async def list_plates(
     driver_id: int | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    return await PlateService.list_plates(client, session, driver_id=driver_id, page=page, page_size=page_size)
+    return await PlateService.list_plates(user_context, session, driver_id=driver_id, page=page, page_size=page_size)
 
 
 @router.put("/plates/{plate_id}", response_model=PlateResponse)
@@ -476,11 +476,11 @@ async def list_waybill_jobs(
     date_to: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """
-    List waybill jobs for the client.
+    List waybill jobs for the client or admin.
 
     Supports filtering by status, driver, and date range.
     """
@@ -492,7 +492,7 @@ async def list_waybill_jobs(
         page=page,
         page_size=page_size,
     )
-    return await WaybillJobService.list_jobs(client, session, filters)
+    return await WaybillJobService.list_jobs(user_context, session, filters)
 
 
 @router.post("/waybill-jobs/{job_id}/retry", response_model=WaybillJobResponse)
@@ -520,11 +520,11 @@ async def requeue_waybill_job(
 @router.get("/waybill-jobs/{job_id}", response_model=WaybillJobResponse)
 async def get_waybill_job(
     job_id: str,
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Get a specific waybill job's status."""
-    return await WaybillJobService.get_job(client, job_id, session)
+    return await WaybillJobService.get_job(user_context, job_id, session)
 
 
 @router.get("/waybill-jobs/{job_id}/timeline", response_model=TaskTimelineResponse)
@@ -537,7 +537,7 @@ async def get_waybill_job_timeline(
     include_payload: bool = True,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Get a unified timeline for a waybill job."""
@@ -550,7 +550,7 @@ async def get_waybill_job_timeline(
         page=page,
         page_size=page_size,
     )
-    return await WaybillJobService.get_job_timeline(client, job_id, session, filters)
+    return await WaybillJobService.get_job_timeline(user_context, job_id, session, filters)
 
 
 @router.get("/waybill-jobs/{job_id}/logs", response_model=TaskLogsResponse)
@@ -818,22 +818,23 @@ async def create_fuel_inquiry(
 async def list_fuel_inquiries(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    client: Client = Depends(get_current_client),
+    driver_id: int | None = Query(None),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """
-    دریافت لیست تاریخچه استعلام‌های سوخت مربوط به این مشتری (مستاجر).
+    دریافت لیست تاریخچه استعلام‌های سوخت مربوط به مشتری یا تمام استعلام‌ها برای ادمین.
     """
-    return await fuel_inquiry_service.list_inquiries(client, page, page_size, session)
+    return await fuel_inquiry_service.list_inquiries(user_context, page, page_size, session, driver_id=driver_id)
 
 
 @router.get("/fuel-inquiries/{inquiry_id}", response_model=FuelInquiryResponse)
 async def get_fuel_inquiry(
     inquiry_id: int,
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """
     دریافت وضعیت و اطلاعات استخراج‌شده یک استعلام سوخت خاص.
     """
-    return await fuel_inquiry_service.get_inquiry(client, inquiry_id, session)
+    return await fuel_inquiry_service.get_inquiry(user_context, inquiry_id, session)

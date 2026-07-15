@@ -1177,13 +1177,33 @@ class EnhancedWaybillManager:
         return False
 
     async def _wait_until_any_visible(self, selectors, timeout_ms: int = 5000) -> bool:
-        deadline = asyncio.get_running_loop().time() + max(0.5, timeout_ms / 1000)
-        while asyncio.get_running_loop().time() < deadline:
-            for selector in selectors:
+        """Wait until any of the given selectors becomes visible.
+
+        Uses concurrent asyncio tasks for each selector so we stop as soon as
+        the first one appears — no sequential polling overhead.
+        """
+        if not selectors:
+            return False
+
+        deadline_abs = asyncio.get_running_loop().time() + max(0.5, timeout_ms / 1000)
+
+        async def _check_one(selector: str) -> bool:
+            while asyncio.get_running_loop().time() < deadline_abs:
                 if await self._is_element_visible(selector):
                     return True
-            await asyncio.sleep(0.05)
-        return False
+                await asyncio.sleep(0.06)
+            return False
+
+        tasks = [asyncio.ensure_future(_check_one(s)) for s in selectors]
+        try:
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED, timeout=max(0.5, timeout_ms / 1000))
+            for t in pending:
+                t.cancel()
+            return any(t.result() for t in done if not t.cancelled() and t.exception() is None)
+        except Exception:
+            for t in tasks:
+                t.cancel()
+            return False
 
     async def _set_value_with_js(self, selector: str, value: str) -> bool:
         try:
@@ -1467,15 +1487,16 @@ class EnhancedWaybillManager:
             # رفتن به صفحه ایجاد بارنامه
             await self._goto_with_retry(utcms_config.WAYBILL_URL, wait_until="domcontentloaded")
             try:
-                await self.page.wait_for_load_state("networkidle", timeout=1500)
+                await self.page.wait_for_load_state("networkidle", timeout=8000)
             except Exception:
-                logger.warning("waybill_enhanced_silent_error", exc_info=True)
+                # networkidle may not fire on heavy pages — fall back to a brief sleep
+                await asyncio.sleep(1.0)
             await self._ensure_waybill_form_page()
             await self._check_account_eligibility()
             await self._wait_for_step_marker(
                 1,
                 ["#txtSenderFirstName", "#senderSelectType", "#btnGoLVL2"],
-                timeout_ms=10000,
+                timeout_ms=18000,
             )
             self._set_active_pill("sender")
             logger.info("waybill_stage_start", extra={"extra_fields": {"stage": "sender"}})
@@ -1506,7 +1527,7 @@ class EnhancedWaybillManager:
             cargo_step_ready = await self._wait_for_step_marker(
                 4,
                 ["#txtLoadsValue", "#btnAddLoad", "#btnGoLVL5"],
-                timeout_ms=8000,
+                timeout_ms=15000,
             )
             if not cargo_step_ready:
                 await self._js_click("#GoLVL4")
@@ -1514,7 +1535,7 @@ class EnhancedWaybillManager:
                 await self._wait_for_step_marker(
                     4,
                     ["#txtLoadsValue", "#btnAddLoad", "#btnGoLVL5"],
-                    timeout_ms=6000,
+                    timeout_ms=10000,
                 )
             logger.info("waybill_stage_start", extra={"extra_fields": {"stage": "cargo"}})
             self._set_active_pill("cargo")
@@ -1610,7 +1631,7 @@ class EnhancedWaybillManager:
                     "button:has-text('مرحله نهایی')",
                     "button:has-text('ثبت بارنامه')",
                 ],
-                timeout_ms=10000,
+                timeout_ms=18000,
             )
 
             # حالت ایمن: ارسال نهایی انجام نمی‌شود و فقط آمادگی ثبت ارزیابی می‌شود.

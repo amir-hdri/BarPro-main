@@ -86,12 +86,17 @@ check_docker() {
   fi
 }
 
-# بررسی وجود فایل .env
+# بررسی وجود فایل .env و ایجاد symlink در پوشه compose
 check_env() {
   if [[ ! -f "$DIR/.env" ]]; then
     log_error "فایل .env یافت نشد!"
     log_info  "نمونه: cp $DIR/.env.example $DIR/.env"
     exit 1
+  fi
+  # ایجاد symlink برای اینکه docker compose مستقیم هم .env را بخواند
+  if [[ ! -L "$COMPOSE_DIR/.env" ]]; then
+    ln -sf "$DIR/.env" "$COMPOSE_DIR/.env"
+    log_info "symlink compose/.env ایجاد شد → ../.env"
   fi
 }
 
@@ -318,8 +323,14 @@ cmd_deploy() {
     log_warn "migration خودکار انجام نشد. دستی اجرا کنید: bash manage.sh migrate"
 
   log_info "اعمال تغییرات با zero-downtime..."
-  layer_compose backend up -d --remove-orphans
-  layer_compose web up -d --remove-orphans
+  # IMPORTANT: do NOT pass --remove-orphans here. `layer_compose` only loads a
+  # single layer file (e.g. backend.yml), but --remove-orphans operates on the
+  # whole compose PROJECT. It would therefore delete every container from the
+  # other layers (postgres, redis, nginx, frontend, squid, prometheus) just
+  # because they aren't defined in backend.yml. infra is expected to already be
+  # running (see AGENTS.md deploy steps).
+  layer_compose backend up -d
+  layer_compose web up -d
 
   log_ok "استقرار با موفقیت انجام شد!"
   cmd_status
@@ -342,6 +353,46 @@ cmd_migrate() {
   fi
   layer_compose backend run --rm "$target" alembic upgrade head
   log_ok "migration‌ها با موفقیت اجرا شدند!"
+}
+
+cmd_fix_db() {
+  log_section "🔧 اصلاح sequenceهای دیتابیس"
+  check_docker
+
+  if ! docker inspect barpro-postgres &>/dev/null; then
+    log_error "کانتینر postgres در حال اجرا نیست."
+    exit 1
+  fi
+
+  log_info "تنظیم مجدد sequenceها برای جلوگیری از تداخل primary key..."
+  docker exec barpro-postgres psql -U postgres "${POSTGRES_DB:-utcms_rpa}" -c "
+    SELECT setval('clients_id_seq',      COALESCE((SELECT MAX(id) FROM clients), 0) + 1, false);
+    SELECT setval('drivers_id_seq',      COALESCE((SELECT MAX(id) FROM drivers), 0) + 1, false);
+    SELECT setval('driver_plates_id_seq',COALESCE((SELECT MAX(id) FROM driver_plates), 0) + 1, false);
+    SELECT setval('waybill_jobs_id_seq', COALESCE((SELECT MAX(id) FROM waybill_jobs), 0) + 1, false);
+    SELECT setval('fuel_inquiries_id_seq',COALESCE((SELECT MAX(id) FROM fuel_inquiries),0)+1,false);
+    SELECT 'clients' as table, last_value FROM clients_id_seq
+    UNION ALL SELECT 'drivers', last_value FROM drivers_id_seq
+    UNION ALL SELECT 'driver_plates', last_value FROM driver_plates_id_seq
+    UNION ALL SELECT 'waybill_jobs', last_value FROM waybill_jobs_id_seq;
+  "
+  log_ok "همه sequence‌ها اصلاح شدند!"
+}
+
+cmd_reencrypt() {
+  local old_key="${1:-}"
+  log_section "🔑 رمزنگاری مجدد رمزهای رانندگان"
+  check_docker
+
+  if [[ -z "$old_key" ]]; then
+    log_error "کلید قدیمی را وارد کنید:"
+    echo "  bash manage.sh reencrypt OLD_ENCRYPTION_KEY"
+    exit 1
+  fi
+
+  log_warn "این عملیات رمز تمام رانندگان را با کلید جدید رمزنگاری می‌کند."
+  docker exec -e OLD_DRIVER_KEY="$old_key" barpro-backend python /app/scripts/reencrypt_drivers.py
+  log_ok "رمزنگاری مجدد کامل شد!"
 }
 
 cmd_backup() {
@@ -431,11 +482,13 @@ case "$CMD" in
   logs)    cmd_logs    "$ARG2" ;;
   build)   cmd_build   "$ARG2" ;;
   deploy)  cmd_deploy          ;;
-  migrate) cmd_migrate  "$ARG2" ;;
-  backup)  cmd_backup          ;;
-  shell)   cmd_shell   "$ARG2" ;;
-  netcheck) cmd_netcheck       ;;
-  inspect) cmd_inspect         ;;
+  migrate)    cmd_migrate   "$ARG2" ;;
+  backup)     cmd_backup          ;;
+  fix-db)     cmd_fix_db          ;;
+  reencrypt)  cmd_reencrypt "$ARG2" ;;
+  shell)      cmd_shell    "$ARG2" ;;
+  netcheck)   cmd_netcheck        ;;
+  inspect)    cmd_inspect         ;;
   help|*)
     echo -e "${BOLD}${CYAN}"
     echo "  BarPro Management Script v2.0"
@@ -448,7 +501,9 @@ case "$CMD" in
     echo "  bash manage.sh health           بررسی سلامت"
     echo "  bash manage.sh logs [سرویس]     نمایش لاگ‌ها"
     echo "  bash manage.sh deploy           استقرار نسخه جدید (بیلد + migration + راه‌اندازی)"
-    echo "  bash manage.sh migrate          اجرای migrationهای دیتابیس"
+    echo "  bash manage.sh migrate          اجرای migrationهای دیتابیس
+  bash manage.sh fix-db           اصلاح sequenceهای دیتابیس (بعد از import دستی)
+  bash manage.sh reencrypt KEY    رمزنگاری مجدد رانندگان با کلید جدید"
     echo "  bash manage.sh backup           پشتیبان‌گیری"
     echo ""
     echo -e "${BOLD}دستورات لایه‌ای (برای دیباگ):${RESET}"

@@ -9,15 +9,8 @@ function logError(...args: unknown[]) {
 
 // Determine the WebSocket URL based on the current environment and API_URL
 function getWebSocketUrl(): string {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
   try {
-    // اگر API URL ست شده و localhost نباشد، از آن استفاده کن
-    if (apiUrl && !apiUrl.includes("localhost") && !apiUrl.includes("127.0.0.1")) {
-      const url = new URL(apiUrl);
-      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-      return `${url.origin}/ws/waybill`;
-    }
-    // در browser: از origin فعلی استفاده می‌کنیم
+    // In browser: dynamically resolve based on current window location
     if (typeof window !== "undefined") {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       return `${protocol}//${window.location.host}/ws/waybill`;

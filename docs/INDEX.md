@@ -71,4 +71,4 @@ alembic heads
 
 Files in `docs/archive/` are historical records. They may mention old local paths, old auth storage, or previous frontend versions. Do not use them for current deployment decisions.
 
-Last updated: 2026-07-08
+Last updated: 2026-07-09

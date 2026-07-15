@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import { api } from "@/lib/api";
 import { DriverReport, FailureAnalysis } from "@/lib/types";
-import { Filter, Loader2, Clock, CheckCircle2, XCircle, BarChart3 } from "lucide-react";
+import { Filter, Loader2, Clock, CheckCircle2, XCircle, BarChart3, Download } from "lucide-react";
+import toast from "react-hot-toast";
+
 
 export default function AdminReportsPage() {
   const [activeTab, setActiveTab] = useState<"driver" | "failure">("driver");
@@ -61,6 +63,100 @@ export default function AdminReportsPage() {
     if (activeTab === "driver") loadDriverReport();
     else loadFailureAnalysis();
   }, [activeTab, loadDriverReport, loadFailureAnalysis]);
+
+  // ── CSV Download logic ──────────────────────────────────────────────
+  const downloadCSV = useCallback((filename: string, headers: string[], rows: any[][]) => {
+    const csvContent = "\uFEFF" + [
+      headers.join(","),
+      ...rows.map(row => row.map(val => `"${String(val ?? "").replace(/"/g, '""')}"`).join(","))
+    ].join("\n");
+    
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("فایل CSV با موفقیت دانلود شد");
+  }, []);
+
+  const handleExportCSV = useCallback(() => {
+    if (activeTab === "driver") {
+      if (!driverReport || !driverReport.jobs || !driverReport.jobs.length) {
+        toast.error("داده‌ای برای خروجی وجود ندارد");
+        return;
+      }
+      const headers = [
+        "شناسه تسک",
+        "مشتری",
+        "راننده",
+        "کد ملی راننده",
+        "وضعیت",
+        "تعداد تلاش",
+        "مدت زمان (ثانیه)",
+        "منبع",
+        "آخرین خطا",
+        "تاریخ ایجاد"
+      ];
+      const rows = driverReport.jobs.map(j => {
+        const duration = j.finished_at && j.created_at
+          ? Math.round((new Date(j.finished_at).getTime() - new Date(j.created_at).getTime()) / 1000)
+          : "";
+        return [
+          j.job_id,
+          j.client_name || "",
+          j.driver_name || "",
+          j.driver_national_code || "",
+          j.status,
+          j.attempt_count || 0,
+          duration,
+          j.source,
+          j.last_error || "",
+          j.created_at
+        ];
+      });
+      downloadCSV("driver_report.csv", headers, rows);
+    } else {
+      if (!failureAnalysis || !failureAnalysis.by_category || !Object.keys(failureAnalysis.by_category).length) {
+        toast.error("داده‌ای برای خروجی وجود ندارد");
+        return;
+      }
+      const headers = ["دسته خطا", "تعداد وقوع", "پیشنهاد رفع خطا"];
+      const rows = Object.entries(failureAnalysis.by_category).map(([cat, count]) => [
+        cat,
+        count,
+        getRetrySuggestion(cat)
+      ]);
+      downloadCSV("failure_analysis.csv", headers, rows);
+    }
+  }, [activeTab, driverReport, failureAnalysis, downloadCSV]);
+
+  // ── Process line chart data ─────────────────────────────────────────
+  const lineChartData = useMemo(() => {
+    if (!driverReport || !driverReport.jobs) return [];
+    const groups: Record<string, { success: number; failed: number; total: number }> = {};
+    driverReport.jobs.forEach(j => {
+      const date = j.created_at.slice(0, 10);
+      if (!groups[date]) {
+        groups[date] = { success: 0, failed: 0, total: 0 };
+      }
+      groups[date].total += 1;
+      if (j.status === "success") {
+        groups[date].success += 1;
+      } else if (["failed", "dead_letter", "needs_review"].includes(j.status)) {
+        groups[date].failed += 1;
+      }
+    });
+
+    return Object.entries(groups)
+      .map(([date, stats]) => ({ date, ...stats }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-7);
+  }, [driverReport]);
+
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -120,6 +216,13 @@ export default function AdminReportsPage() {
         </div>
       )}
 
+      {activeTab === "driver" && lineChartData.length > 0 && (
+        <SVGLineChart data={lineChartData} />
+      )}
+      {activeTab === "failure" && failureAnalysis && Object.keys(failureAnalysis.by_category).length > 0 && (
+        <SVGHorizontalBarChart data={failureAnalysis.by_category} />
+      )}
+
       <div className="flex rounded-xl border border-white/10 bg-slate-800/50 p-1">
         {(["driver", "failure"] as const).map((tab) => (
           <button
@@ -138,10 +241,20 @@ export default function AdminReportsPage() {
 
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-slate-900/30 p-4">
         <Filter className="h-5 w-5 text-slate-400" />
-        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
-          className="rounded-lg border border-white/10 bg-slate-900/50 px-3 py-3.5 text-sm text-slate-100 focus:border-cyan-400" />
-        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
-          className="rounded-lg border border-white/10 bg-slate-900/50 px-3 py-3.5 text-sm text-slate-100 focus:border-cyan-400" />
+        <div className="relative group">
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+            className="rounded-lg border border-white/10 bg-slate-900/50 px-3 py-3.5 text-sm text-slate-100 focus:border-cyan-400" />
+          <div className="absolute bottom-full mb-1 right-0 hidden group-hover:block bg-slate-800 text-[10px] text-slate-200 px-2 py-1 rounded shadow-lg whitespace-nowrap">
+            تاریخ شروع (میلادی)
+          </div>
+        </div>
+        <div className="relative group">
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+            className="rounded-lg border border-white/10 bg-slate-900/50 px-3 py-3.5 text-sm text-slate-100 focus:border-cyan-400" />
+          <div className="absolute bottom-full mb-1 right-0 hidden group-hover:block bg-slate-800 text-[10px] text-slate-200 px-2 py-1 rounded shadow-lg whitespace-nowrap">
+            تاریخ پایان (میلادی)
+          </div>
+        </div>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
           className="rounded-lg border border-white/10 bg-slate-900/50 px-3 py-3.5 text-sm text-slate-100 focus:border-cyan-400">
           <option value="">همه وضعیت‌ها</option>
@@ -153,6 +266,11 @@ export default function AdminReportsPage() {
         <button onClick={() => activeTab === "driver" ? loadDriverReport() : loadFailureAnalysis()}
           className="rounded-xl bg-gradient-to-r from-cyan-500 to-amber-400 px-5 py-3.5 text-sm font-medium text-slate-950">
           فیلتر
+        </button>
+        <button onClick={handleExportCSV}
+          className="flex items-center gap-2 rounded-xl bg-white/5 hover:bg-white/10 hover:text-cyan-300 border border-white/10 px-5 py-3.5 text-sm font-medium text-slate-200 mr-auto transition">
+          <Download className="h-4 w-4" />
+          دانلود CSV
         </button>
       </div>
 
@@ -420,3 +538,116 @@ function StatusBadge({ status }: { status: string }) {
     </span>
   );
 }
+
+function SVGLineChart({ data }: { data: Array<{ date: string; success: number; failed: number; total: number }> }) {
+  if (data.length === 0) return null;
+  const padding = 40;
+  const chartWidth = 600;
+  const chartHeight = 200;
+  const maxVal = Math.max(...data.map(d => d.total), 5);
+
+  const points = data.map((d, i) => {
+    const x = padding + (i * (chartWidth - padding * 2)) / Math.max(1, data.length - 1);
+    const ySuccess = chartHeight - padding - (d.success * (chartHeight - padding * 2)) / maxVal;
+    const yFailed = chartHeight - padding - (d.failed * (chartHeight - padding * 2)) / maxVal;
+    return { x, ySuccess, yFailed, label: d.date.slice(5), ...d };
+  });
+
+  let pathSuccess = "";
+  let pathFailed = "";
+  points.forEach((p, i) => {
+    if (i === 0) {
+      pathSuccess = `M ${p.x} ${p.ySuccess}`;
+      pathFailed = `M ${p.x} ${p.yFailed}`;
+    } else {
+      pathSuccess += ` L ${p.x} ${p.ySuccess}`;
+      pathFailed += ` L ${p.x} ${p.yFailed}`;
+    }
+  });
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-5 space-y-4">
+      <h3 className="text-sm font-bold text-slate-200">نمودار روند ثبت بارنامه‌ها (۷ روز اخیر در گزارش)</h3>
+      <div className="relative w-full overflow-hidden" style={{ aspectRatio: "600/200" }}>
+        <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-full">
+          {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
+            const y = padding + ratio * (chartHeight - padding * 2);
+            const val = Math.round(maxVal * (1 - ratio));
+            return (
+              <g key={idx} className="opacity-10">
+                <line x1={padding} y1={y} x2={chartWidth - padding} y2={y} stroke="#fff" strokeWidth={1} strokeDasharray="4 4" />
+                <text x={padding - 10} y={y + 3} fill="#fff" fontSize={9} textAnchor="end" className="font-mono">{val}</text>
+              </g>
+            );
+          })}
+          
+          {points.map((p, idx) => (
+            <text key={idx} x={p.x} y={chartHeight - 15} fill="#94a3b8" fontSize={9} textAnchor="middle" className="font-mono">
+              {p.label}
+            </text>
+          ))}
+
+          {pathSuccess && (
+            <>
+              <path d={pathSuccess} fill="none" stroke="#34d399" strokeWidth={2.5} strokeLinecap="round" />
+              {points.map((p, idx) => (
+                <circle key={idx} cx={p.x} cy={p.ySuccess} r={3.5} className="fill-emerald-400 stroke-slate-900 stroke-[2px] transition-all hover:r-5 cursor-pointer" />
+              ))}
+            </>
+          )}
+
+          {pathFailed && (
+            <>
+              <path d={pathFailed} fill="none" stroke="#f87171" strokeWidth={2.5} strokeLinecap="round" />
+              {points.map((p, idx) => (
+                <circle key={idx} cx={p.x} cy={p.yFailed} r={3.5} className="fill-red-400 stroke-slate-900 stroke-[2px] transition-all hover:r-5 cursor-pointer" />
+              ))}
+            </>
+          )}
+        </svg>
+      </div>
+      <div className="flex justify-center gap-6 text-[10px] font-semibold">
+        <div className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
+          <span className="text-slate-400">موفق</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-red-400"></span>
+          <span className="text-slate-400">ناموفق</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SVGHorizontalBarChart({ data }: { data: Record<string, number> }) {
+  const entries = Object.entries(data).sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) return null;
+  const maxVal = Math.max(...entries.map(e => e[1]), 1);
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-5 space-y-4">
+      <h3 className="text-sm font-bold text-slate-200">نمودار توزیع دسته‌بندی خطاها</h3>
+      <div className="grid gap-3">
+        {entries.map(([category, count]) => {
+          const percent = Math.round((count / maxVal) * 100);
+          return (
+            <div key={category} className="space-y-1 text-xs">
+              <div className="flex justify-between text-slate-350 font-medium">
+                <span className="truncate max-w-[250px]" title={category}>{category}</span>
+                <strong className="text-red-400 font-mono">{(count).toLocaleString("fa-IR")} مورد</strong>
+              </div>
+              <div className="h-2 w-full rounded-full bg-white/5 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-red-500 to-rose-400 transition-all duration-500"
+                  style={{ width: `${percent}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+

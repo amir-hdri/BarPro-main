@@ -464,6 +464,8 @@ class WaybillJobResponse(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     payload_json: str | None = None
+    client_name: str | None = None
+    client_code: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -601,6 +603,7 @@ class TaskTimelineResponse(BaseModel):
     page: int
     page_size: int
     entries: list[TaskTimelineEntry]
+    progress_percent: int | None = None
 
 
 # ==================== FUEL INQUIRY SCHEMAS ====================
@@ -629,6 +632,9 @@ class FuelInquiryResponse(BaseModel):
     updated_at: datetime
     year: int | None = None
     month: int | None = None
+    plate_number: str | None = None
+    client_name: str | None = None
+    client_code: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

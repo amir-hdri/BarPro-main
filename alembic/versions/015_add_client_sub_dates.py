@@ -1,7 +1,7 @@
 """add client subscription dates
 
-Revision ID: 015_add_client_subscription_dates
-Revises: 014_add_year_month_to_fuel_inquiries
+Revision ID: 015_add_client_sub_dates
+Revises: 014_add_year_month_fuel
 Create Date: 2026-07-08 14:00:00.000000
 
 """
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = '015_add_client_subscription_dates'
-down_revision: str | None = '014_add_year_month_to_fuel_inquiries'
+revision: str = '015_add_client_sub_dates'
+down_revision: str | None = '014_add_year_month_fuel'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

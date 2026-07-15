@@ -46,6 +46,18 @@ async def test_fuel_inquiry_service_lifecycle():
         await session.commit()
         await session.refresh(driver)
 
+        # Create an active plate for the driver (required by create_inquiry)
+        from app.models_multitenant import DriverPlate
+
+        plate = DriverPlate(
+            client_id=client.id,
+            driver_id=driver.id,
+            plate_number="12الف345",
+            status="active",
+        )
+        session.add(plate)
+        await session.commit()
+
         # 2. Test create_inquiry
         # Mock dispatch_fuel_inquiry_task to prevent celery dependency call in unit test
         with patch("app.workers.tasks.dispatch_fuel_inquiry_task") as mock_dispatch:

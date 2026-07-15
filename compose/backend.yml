@@ -38,10 +38,13 @@ x-backend-common: &backend-common
   environment: &backend-env
     PYTHON_ENV: production
     # ✅ استفاده از نام سرویس (postgres) به عنوان hostname در شبکه داکر
-    DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-utcms_rpa}
+    DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-utcms_rpa}
     REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/0
     REDIS_PASSWORD: ${REDIS_PASSWORD}
     JWT_SECRET: ${JWT_SECRET}
+    # ✅ کلید رمزگذاری پسورد راننده — MUST come from .env, never hardcode
     DRIVER_ENCRYPTION_KEY: ${DRIVER_ENCRYPTION_KEY}
     FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
     # ✅ پشتیبانی از چند آی‌پی برای CORS در سرور دو کارت شبکه‌ای
@@ -64,6 +67,9 @@ x-backend-common: &backend-common
     - ../app/services:/app/app/services:ro
     - ../app/workers:/app/app/workers:ro
     - ../app/core:/app/app/core:ro
+    - ../app/automation:/app/app/automation:ro
+    - ../app/api:/app/app/api:ro
+    - ../app/bot:/app/app/bot:ro
     - ../alembic:/app/alembic:ro
   logging:
     driver: json-file
@@ -115,8 +121,9 @@ services:
       - worker_1@%h
     environment:
       <<: *backend-env
+      WORKER_ID: "1"
       WORKER_IP_INDEX: 1
-      RPA_PROXIES: ${WORKER_1_PROXY:-http://host.docker.internal:3128}
+      RPA_PROXIES: http://172.20.0.1:3128
     healthcheck:
       test: ['CMD-SHELL', 'celery -A app.workers.celery_app:celery_app inspect ping 2>/dev/null | grep -q pong || exit 1']
       interval: 60s
@@ -147,8 +154,9 @@ services:
       - worker_2@%h
     environment:
       <<: *backend-env
+      WORKER_ID: "2"
       WORKER_IP_INDEX: 2
-      RPA_PROXIES: ${WORKER_2_PROXY:-http://host.docker.internal:3129}
+      RPA_PROXIES: http://172.20.0.1:3129
     healthcheck:
       test: ['CMD-SHELL', 'celery -A app.workers.celery_app:celery_app inspect ping 2>/dev/null | grep -q pong || exit 1']
       interval: 60s
@@ -179,8 +187,9 @@ services:
       - worker_3@%h
     environment:
       <<: *backend-env
+      WORKER_ID: "3"
       WORKER_IP_INDEX: 3
-      RPA_PROXIES: ${WORKER_3_PROXY:-http://host.docker.internal:3130}
+      RPA_PROXIES: http://172.20.0.1:3130
     healthcheck:
       test: ['CMD-SHELL', 'celery -A app.workers.celery_app:celery_app inspect ping 2>/dev/null | grep -q pong || exit 1']
       interval: 60s
@@ -197,7 +206,9 @@ services:
     mem_limit: 512m
     mem_reservation: 256m
     healthcheck:
-      test: ['CMD-SHELL', 'pgrep -f "celery.*beat" > /dev/null 2>&1 || exit 1']
+      # pgrep is NOT available in the slim Python base image, so check for the
+      # beat schedule file that Celery Beat writes at startup.
+      test: ['CMD-SHELL', 'test -f /tmp/celerybeat-schedule || exit 1']
       interval: 30s
       timeout: 5s
       start_period: 30s

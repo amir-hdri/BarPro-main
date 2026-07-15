@@ -5,6 +5,7 @@ Provides JWT-based authentication for clients with tenant isolation enforcement.
 Each client can only access their own drivers and waybill tasks.
 """
 
+import asyncio
 import logging
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -23,6 +24,17 @@ from app.core.database import get_session
 from app.models_multitenant import Client, ClientStatus
 
 logger = logging.getLogger(__name__)
+
+
+class DriverPasswordDecryptError(Exception):
+    """Raised when a driver's encrypted UTCMS password cannot be decrypted.
+
+    The most common cause is a DRIVER_ENCRYPTION_KEY mismatch: the password was
+    encrypted with a different key than the one currently configured. The
+    original plaintext is unrecoverable, so the driver's password must be
+    re-saved (via the UI/API) or re-encrypted with the original key.
+    """
+
 
 # Security scheme
 security = HTTPBearer(auto_error=False)
@@ -50,17 +62,18 @@ class TokenResponse(BaseModel):
     client_name: str
 
 
-def hash_password(password: str) -> str:
-    """Hash a password using bcrypt."""
+async def hash_password(password: str) -> str:
+    """Hash a password using bcrypt (off the event loop)."""
     salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
+    hashed = await asyncio.to_thread(bcrypt.hashpw, password.encode("utf-8"), salt)
     return hashed.decode("utf-8")
 
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash."""
+async def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against its hash (off the event loop)."""
     try:
-        return bcrypt.checkpw(
+        return await asyncio.to_thread(
+            bcrypt.checkpw,
             plain_password.encode("utf-8"),
             hashed_password.encode("utf-8"),
         )
@@ -104,8 +117,31 @@ def encrypt_driver_password(plain_password: str) -> str:
 
 
 def decrypt_driver_password(encrypted_password: str) -> str:
-    """Decrypt driver's UTCMS password."""
-    return _get_fernet().decrypt(encrypted_password.encode("utf-8")).decode("utf-8")
+    """Decrypt driver's UTCMS password.
+
+    Raises DriverPasswordDecryptError (with an actionable message) when the
+    ciphertext cannot be decrypted — typically because DRIVER_ENCRYPTION_KEY
+    does not match the key used to encrypt this driver's password.
+    """
+    try:
+        return _get_fernet().decrypt(encrypted_password.encode("utf-8")).decode("utf-8")
+    except Exception as exc:
+        logger.error(
+            "driver_password_decrypt_failed",
+            extra={
+                "extra_fields": {
+                    "error": type(exc).__name__,
+                    "hint": "DRIVER_ENCRYPTION_KEY mismatch — re-save the driver's password or "
+                    "re-encrypt with the original key",
+                }
+            },
+        )
+        raise DriverPasswordDecryptError(
+            "Driver password could not be decrypted. The DRIVER_ENCRYPTION_KEY in the "
+            "environment does not match the key used to encrypt this driver's password. "
+            "Re-save the driver's UTCMS password via the UI/API, or re-encrypt the existing "
+            "values using the original key (see scripts/reencrypt_drivers.py)."
+        ) from exc
 
 
 def create_access_token(
@@ -247,7 +283,7 @@ async def get_current_client(
     return client
 
 
-def is_master_admin(username: str, password: str) -> bool:
+async def is_master_admin(username: str, password: str) -> bool:
     """Validate the singleton master admin account configured for the system.
 
     Uses bcrypt for secure password comparison when the stored password is bcrypt-hashed.
@@ -260,7 +296,7 @@ def is_master_admin(username: str, password: str) -> bool:
     # If stored password looks like a bcrypt hash, use bcrypt comparison
     if stored.startswith(("$2a$", "$2b$", "$2y$")):
         try:
-            return bcrypt.checkpw(password.encode("utf-8"), stored.encode("utf-8"))
+            return await asyncio.to_thread(bcrypt.checkpw, password.encode("utf-8"), stored.encode("utf-8"))
         except Exception:
             return False
     # Direct constant-time comparison for plain-text configured passwords
@@ -339,3 +375,91 @@ def verify_tenant_ownership(
             f"Client {client.id} attempted to access resource belonging to client {resource.client_id}"
         )
     return True
+
+
+async def get_current_user_or_admin(
+    request: Request = None,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """
+    Dependency that accepts either client or master_admin and returns a context dict:
+    {"role": "client", "user": ClientInstance} or {"role": "master_admin", "user": {"username": "admin"}}
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    token = None
+    if credentials:
+        token = credentials.credentials
+    elif request is not None:
+        token = request.cookies.get("utcms_auth_token")
+
+    if not token:
+        raise credentials_exception
+
+    try:
+        payload = jwt.decode(
+            token,
+            utcms_config.JWT_SECRET,
+            algorithms=[utcms_config.JWT_ALGORITHM],
+        )
+        role = payload.get("role")
+        if role == "master_admin":
+            if payload.get("client_code") != utcms_config.MASTER_ADMIN_USERNAME:
+                raise credentials_exception
+            return {
+                "role": "master_admin",
+                "user": {
+                    "username": utcms_config.MASTER_ADMIN_USERNAME,
+                    "role": "master_admin",
+                }
+            }
+        elif role == "client":
+            raw_client_id = payload.get("sub")
+            if raw_client_id is None:
+                raise credentials_exception
+            client_id = int(str(raw_client_id))
+
+            raw_client_code = payload.get("client_code")
+            if raw_client_code is None:
+                raise credentials_exception
+            client_code = str(raw_client_code)
+
+            statement = select(Client).where(Client.id == client_id)
+            result = await session.exec(statement)
+            client = result.first()
+
+            if client is None or client.client_code != client_code:
+                raise credentials_exception
+
+            if client.status != ClientStatus.ACTIVE.value:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Client account is not active",
+                )
+
+            # Check subscription dates
+            now = datetime.now(UTC).replace(tzinfo=None)
+            if client.subscription_start_date and client.subscription_start_date > now:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="اشتراک شما هنوز شروع نشده است.",
+                )
+            if client.subscription_end_date and client.subscription_end_date < now:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="اشتراک شما به پایان رسیده است.",
+                )
+
+            return {
+                "role": "client",
+                "user": client
+            }
+        else:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception from None

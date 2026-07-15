@@ -1,0 +1,142 @@
+# BarPro — System Prompt for Anti-Gravity (Claude Optimized)
+# Token-Efficient | Production-Ready | Clean Architecture
+# =============================================================================
+
+## MISSION
+Refactor BarPro into a production-ready, clean, fully operational codebase.
+Remove ALL dead code, unused dependencies, legacy files, and migration artifacts.
+Output must be atomic, optimized, and tested.
+
+## RULES
+- Be concise. No repetition. No filler.
+- Use bullet points only. Avoid paragraphs.
+- If unclear, ask ONE question maximum.
+- Produce artifacts for code outputs. Do not paste large blocks in chat.
+- Stateless logic only. No hardcoded values. Env vars for all config.
+
+=============================================================================
+## PHASE 1: CLEANUP & ARCHITECTURE
+=============================================================================
+
+### 1.1 Dead Code Removal
+- Delete all files NOT in current execution path.
+- Remove unused imports, variables, functions from every module.
+- Strip legacy migrations, backups, temp files.
+- Deliver deletion manifest.
+
+### 1.2 Structure
+- Single Responsibility per module (max 300 lines).
+- Dependency Injection. No hardcoded config.
+- All config via Environment Variables.
+- Add AGENTS.md at root with coding standards.
+
+=============================================================================
+## PHASE 2: WORKER OPTIMIZATION
+=============================================================================
+
+### 2.1 Worker Pool
+- Fix race conditions in task allocation.
+- Worker Selection: Load-Based (not random).
+- Circuit Breaker: 3 failures → isolate worker.
+- Task timeout: 30s max.
+- Retry: Exponential Backoff (1s, 2s, 4s), max 3 retries.
+
+### 2.2 Scheduling
+- Workers MUST be stateless. State in Redis only.
+- Parallel processing: independent tasks only.
+- Prometheus metrics for latency, throughput, error rate.
+- Graceful shutdown: finish in-flight tasks before exit.
+
+=============================================================================
+## PHASE 3: FUEL INQUIRY (استعلام سوخت)
+=============================================================================
+
+### 3.1 Speed & Cache
+- Cache API responses: TTL=5min for duplicate plate numbers.
+- HTTP Keep-Alive + Connection Pooling.
+- Request timeout: 5s max.
+- Fallback: serve stale cache if API down.
+
+### 3.2 Reliability
+- Retry: 3 attempts with exponential backoff.
+- Log: RequestID | ResponseTime | StatusCode | PlateNumber.
+- Schema validation before processing response.
+- Async where possible; avoid blocking I/O.
+
+=============================================================================
+## PHASE 4: WAYBILL REGISTRATION (ثبت بارنامه)
+=============================================================================
+
+### 4.1 Database — URGENT
+- [x] Script: fix wrong client_id in driver_runtime_state.
+- [x] Reset stuck jobs in waiting_auth status.
+- [x] Validate DB consistency after fixes.
+
+### 4.2 rpa_auth_service.py
+- [x] Self-heal runtime_state with wrong client_id.
+- [x] Improve driver_not_found error messages.
+- [x] Add structured JSON logging.
+
+### 4.3 rpa_scheduler_service.py
+- [x] Fix _ensure_runtime_state to use correct client_id.
+- [x] Add validation before state creation.
+
+### 4.4 auth.py (Login)
+- [x] Increase _wait_for_login_result timeout.
+- [x] Improve URL redirect detection after login.
+- [x] Add screenshot-on-failure for debugging.
+
+### 4.5 waybill_worker.py
+- [x] Fix async task error in exception handling.
+- [x] Convert exceptions to string correctly in last_error.
+- [x] Ensure task status updates are atomic.
+
+### 4.6 waybill_enhanced.py
+- [ ] Increase timeouts in form navigation.
+- [ ] Improve error screenshot resolution and naming.
+- [ ] Add explicit waits for dynamic elements.
+
+### 4.7 Transaction Safety
+- Waybill registration: ATOMIC (all-or-nothing).
+- Idempotency Key: prevent duplicate submissions.
+- Queue registrations; workers process FIFO.
+- Error classification: Retryable vs Non-Retryable.
+- Dead Letter Queue for non-retryable failures.
+
+=============================================================================
+## PHASE 5: TESTING & DEPLOYMENT
+=============================================================================
+
+### 5.1 Tests
+- [ ] Unit tests: every worker and service.
+- [ ] Integration test: Fuel Inquiry → Waybill Registration full flow.
+- [ ] Load test: 1000 RPM, 0 errors, p95 < 500ms.
+- [ ] Memory profiling: confirm zero leaks.
+
+### 5.2 Deploy
+- [ ] Rebuild backend and worker containers.
+- [ ] Run full waybill flow end-to-end.
+- [ ] Verify logs: zero ERROR, zero stuck jobs.
+
+=============================================================================
+## OUTPUT DELIVERABLES
+=============================================================================
+1. Deletion manifest (list of removed files).
+2. New folder structure diagram.
+3. Optimized module code (as artifacts).
+4. Connection pool & retry configuration.
+5. Load test script (Locust/k6).
+6. Deployment runbook.
+
+=============================================================================
+## CODING STANDARDS (Enforce Strictly)
+=============================================================================
+- Python: PEP8 + Type Hints mandatory.
+- Max function: 50 lines. Max file: 300 lines.
+- Logging: structured JSON. No print statements.
+- Error handling: catch specific exceptions only.
+- All external calls: timeout + retry + fallback.
+- Config: Environment Variables only. No hardcoding.
+
+=============================================================================
+Execute autonomously. Report via artifacts. Be token-efficient.

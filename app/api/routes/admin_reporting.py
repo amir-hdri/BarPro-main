@@ -92,8 +92,29 @@ async def get_audit_logs(
     result = await session.exec(stmt)
     jobs = result.all()
 
+    # Bulk fetch drivers to prevent N+1 queries
+    driver_ids = list({j.driver_id for j in jobs if j.driver_id})
+    drivers_dict = {}
+    if driver_ids:
+        drivers_res = await session.exec(select(Driver).where(Driver.id.in_(driver_ids)))
+        drivers_dict = {d.id: d for d in drivers_res.all()}
+
     entries = []
     for j in jobs:
+        driver = drivers_dict.get(j.driver_id) if j.driver_id else None
+        driver_code = driver.driver_national_code if driver else "—"
+        driver_name = driver.full_name if driver else "—"
+        
+        desc_parts = [f"بارنامه #{j.id}"]
+        if driver_name != "—":
+            desc_parts.append(f"راننده: {driver_name} ({driver_code})")
+        if j.worker_id:
+            desc_parts.append(f"ورکر: {j.worker_id}")
+        if j.last_error:
+            desc_parts.append(f"خطا: {j.last_error[:60]}")
+        else:
+            desc_parts.append(f"وضعیت: {j.status}")
+            
         entries.append(
             {
                 "id": j.id,
@@ -102,13 +123,14 @@ async def get_audit_logs(
                 "action": j.status.upper() if j.status else "UNKNOWN",
                 "entity_type": "waybill_job",
                 "entity_id": j.id,
-                "description": f"بارنامه #{j.id} — راننده {j.driver_national_code or '—'} | {j.error_message or j.status}",
-                "ip_address": None,
+                "description": " — ".join(desc_parts),
+                "ip_address": j.worker_id or "system",
                 "created_at": (j.updated_at or j.created_at).isoformat() if (j.updated_at or j.created_at) else None,
             }
         )
 
     return {"items": entries, "page": page, "page_size": page_size}
+
 
 
 @router.get(

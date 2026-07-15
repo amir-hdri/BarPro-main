@@ -247,6 +247,7 @@ async def rate_limit_dependency(
     try:
         state = await rate_limiter.check(rule, client_ip)
     except Exception:
+        # FAIL-CLOSED: If rate limiter backend is unavailable, deny request (429)
         raise HTTPException(
             status_code=429,
             detail={

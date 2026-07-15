@@ -21,6 +21,7 @@ const JobCard = memo(function JobCard({
   onActionMenuClose,
   onEditModalOpen,
   onDeleteModalOpen,
+  isAdmin,
 }: {
   job: WaybillJob;
   selectedJobId: string | null;
@@ -32,6 +33,7 @@ const JobCard = memo(function JobCard({
   onActionMenuClose: (e: React.MouseEvent) => void;
   onEditModalOpen: (job: WaybillJob, e: React.MouseEvent) => void;
   onDeleteModalOpen: (jobId: string, e: React.MouseEvent) => void;
+  isAdmin: boolean;
 }) {
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const jobId = e.currentTarget.dataset.jobId;
@@ -79,6 +81,9 @@ const JobCard = memo(function JobCard({
           <p className={['font-black transition-colors', selectedJobId === job.job_id ? 'text-cyan-400' : 'text-white group-hover:text-cyan-400'].join(' ')}>
             {job.driver_name ? `ثبت بارنامه برای ${job.driver_name}` : `عملیات ثبت بارنامه`}
           </p>
+          {isAdmin && job.client_name && (
+            <p className="text-xs font-bold text-cyan-400 mt-0.5">مشتری: {job.client_name} ({job.client_code})</p>
+          )}
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-medium text-slate-400">
             <span className="font-mono bg-slate-950/60 border border-white/5 text-slate-300 px-1.5 py-0.5 rounded">شناسه: #{job.job_id.slice(0, 8)}</span>
             <span>•</span>
@@ -132,7 +137,7 @@ const JobCard = memo(function JobCard({
           </span>
         </div>
       </div>
-      {job.last_error && (
+      {isAdmin && job.last_error && (
         <div className="mt-3 rounded-xl bg-rose-500/10 p-3 text-[11px] font-medium text-rose-400 border border-rose-500/20">
           <span className="font-bold">علت خطا:</span> {job.last_error}
         </div>
@@ -151,8 +156,84 @@ const JobCard = memo(function JobCard({
   );
 });
 
+function JobProgressChart({ progress = 10, status = 'pending' }: { progress: number; status: string }) {
+  const steps = [
+    { label: 'ثبت درخواست اولیه بارنامه', description: 'درخواست در سیستم با موفقیت ثبت شد', minProgress: 10 },
+    { label: 'در انتظار پردازش در صف اتوماسیون', description: 'تخصیص سرور و بررسی اطلاعات راننده', minProgress: 15 },
+    { label: 'شبیه‌سازی رفتار انسان و حل کپچا', description: 'شروع شبیه‌ساز مرورگر و احراز هویت هوشمند', minProgress: 50 },
+    { label: 'تایید نهایی و دریافت اطلاعات بارنامه', description: 'دریافت نسخه چاپی و ثبت نهایی در پورتال', minProgress: 100 },
+  ];
+
+  return (
+    <div className="mt-10 rounded-[2.5rem] border border-white/5 bg-slate-900/30 backdrop-blur-xl p-8 text-right shadow-2xl relative overflow-hidden" dir="rtl">
+      <div className="absolute -left-20 -top-20 h-40 w-40 rounded-full bg-cyan-500/5 blur-[50px] pointer-events-none" />
+      
+      <h3 className="text-lg font-black text-white mb-6">نمودار پیشرفت عملیات ربات</h3>
+      
+      {/* Horizontal Bar Chart representation */}
+      <div className="mb-8">
+        <div className="flex justify-between items-center text-xs font-bold text-slate-400 mb-2">
+          <span>درصد پیشرفت: {toPersianDigits(progress.toString())}٪</span>
+          <span className={status === 'success' ? 'text-emerald-400' : status === 'failed' ? 'text-rose-400' : 'text-cyan-400'}>
+            وضعیت: {statusLabel(status)}
+          </span>
+        </div>
+        <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden border border-white/5">
+          <div 
+            className={`h-full rounded-full transition-all duration-500 ${
+              status === 'failed' 
+                ? 'bg-gradient-to-r from-rose-500 to-rose-400 shadow-[0_0_10px_rgba(239,68,68,0.5)]' 
+                : 'bg-gradient-to-r from-cyan-500 to-emerald-400 shadow-[0_0_10px_rgba(6,182,212,0.5)]'
+            }`}
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Stepper Details */}
+      <div className="relative border-r-2 border-white/10 pr-6 mr-3 space-y-8">
+        {steps.map((step, idx) => {
+          const isCompleted = progress >= step.minProgress || (status === 'success' && idx === steps.length - 1);
+          const isFailed = status === 'failed' && progress < step.minProgress && (idx === 0 || progress >= steps[idx - 1]?.minProgress);
+          const isActive = !isCompleted && !isFailed && (idx === 0 || progress >= steps[idx - 1]?.minProgress);
+
+          return (
+            <div key={idx} className="relative">
+              {/* Stepper Indicator Dot */}
+              <span className={`absolute -right-[31px] top-1 flex h-4 w-4 items-center justify-center rounded-full border transition-all duration-300 ${
+                isCompleted 
+                  ? 'bg-emerald-500 border-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.5)]' 
+                  : isFailed 
+                  ? 'bg-rose-500 border-rose-400 shadow-[0_0_8px_rgba(239,68,68,0.5)]'
+                  : isActive
+                  ? 'bg-cyan-500 border-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.5)] animate-pulse'
+                  : 'bg-slate-950 border-white/10'
+              }`}>
+                {isCompleted && <Check className="h-2.5 w-2.5 text-white" />}
+                {isFailed && <AlertCircle className="h-2.5 w-2.5 text-white" />}
+              </span>
+
+              {/* Stepper Content */}
+              <div>
+                <h4 className={`text-sm font-bold transition-colors duration-300 ${
+                  isCompleted ? 'text-emerald-400' : isFailed ? 'text-rose-400' : isActive ? 'text-cyan-400 font-black' : 'text-slate-500'
+                }`}>
+                  {step.label}
+                </h4>
+                <p className="mt-1 text-xs text-slate-400 font-medium">
+                  {isFailed ? 'خطا در اجرای این مرحله رخ داده است' : step.description}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function HistoryPage() {
-  const { client } = useSession();
+  const { isAdmin, role } = useSession();
   const [jobs, setJobs] = useState<WaybillJob[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [mobileTimelineOpen, setMobileTimelineOpen] = useState(false);
@@ -183,7 +264,6 @@ export default function HistoryPage() {
   const [editSuccess, setEditSuccess] = useState<string | null>(null);
 
   const loadJobs = useCallback(async () => {
-    if (client?.role === 'master_admin') { setLoading?.(false); return; }
     setLoading(true);
     const response = await api.get<WaybillTaskListResponse>('/api/v1/waybill-jobs', { page: '1', page_size: '25' });
 
@@ -199,11 +279,13 @@ export default function HistoryPage() {
     }
     setError(null);
     setLoading(false);
-  }, [client?.role, selectedJobId]);
+  }, [selectedJobId]);
 
   useEffect(() => {
-    loadJobs();
-  }, [client?.role, loadJobs]);
+    if (role) {
+      loadJobs();
+    }
+  }, [role, loadJobs]);
 
   const handleRetry = useCallback(async (jobId: string) => {
     setRetryingJobId(jobId);
@@ -323,7 +405,7 @@ export default function HistoryPage() {
   }, []);
 
   return (
-    <AuthGuard requiredRole="client">
+    <AuthGuard>
       <AppShell>
         <section className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
           <div className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 sm:p-8 shadow-2xl text-white">
@@ -362,6 +444,7 @@ export default function HistoryPage() {
                     onActionMenuClose={handleActionMenuClose}
                     onEditModalOpen={handleEditModalOpen}
                     onDeleteModalOpen={handleDeleteModalOpen}
+                    isAdmin={isAdmin}
                   />
                 ))}
               </div>
@@ -383,8 +466,8 @@ export default function HistoryPage() {
                   <Activity className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold">تایم‌لاین اجرایی</h2>
-                  <p className="text-xs font-medium text-slate-400">رهگیری لحظه‌ای گام‌های عملیاتی ربات</p>
+                  <h2 className="text-xl font-bold">{isAdmin ? 'تایم‌لاین اجرایی' : 'وضعیت پیشرفت ماموریت'}</h2>
+                  <p className="text-xs font-medium text-slate-400">{isAdmin ? 'رهگیری لحظه‌ای گام‌های عملیاتی ربات' : 'گزارش کلی پیشرفت اتوماسیون بارنامه'}</p>
                 </div>
               </div>
 
@@ -407,6 +490,11 @@ export default function HistoryPage() {
                     تلاش مجدد
                   </button>
                 </div>
+              ) : !isAdmin ? (
+                <JobProgressChart 
+                  progress={timeline?.progress_percent || 10} 
+                  status={jobs.find(j => j.job_id === selectedJobId)?.status || 'pending'} 
+                />
               ) : !timeline || timeline.entries.length === 0 ? (
                 <div className="mt-10 flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-white/5 py-20 text-center">
                   <p className="text-sm font-medium text-slate-400">هنوز رویدادی برای این ماموریت ثبت نشده است.</p>
@@ -452,8 +540,8 @@ export default function HistoryPage() {
                   <Activity className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-white">تایم‌لاین اجرایی</h2>
-                  <p className="text-xs font-medium text-slate-400">رهگیری لحظه‌ای گام‌های عملیاتی ربات</p>
+                  <h2 className="text-lg font-bold text-white">{isAdmin ? 'تایم‌لاین اجرایی' : 'وضعیت پیشرفت ماموریت'}</h2>
+                  <p className="text-xs font-medium text-slate-400">{isAdmin ? 'رهگیری لحظه‌ای گام‌های عملیاتی ربات' : 'گزارش کلی پیشرفت اتوماسیون بارنامه'}</p>
                 </div>
               </div>
               <button
@@ -477,6 +565,13 @@ export default function HistoryPage() {
                 <button onClick={() => selectedJobId && void loadTimeline(selectedJobId)} className="mt-4 rounded-xl bg-cyan-500 px-6 py-3 text-xs font-bold text-white hover:bg-cyan-600 transition">
                   تلاش مجدد
                 </button>
+              </div>
+            ) : !isAdmin ? (
+              <div className="pb-8">
+                <JobProgressChart 
+                  progress={timeline?.progress_percent || 10} 
+                  status={jobs.find(j => j.job_id === selectedJobId)?.status || 'pending'} 
+                />
               </div>
             ) : !timeline || timeline.entries.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-white/5 py-20 text-center">

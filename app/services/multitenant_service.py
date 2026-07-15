@@ -12,6 +12,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlmodel import col, select
+from sqlalchemy import func
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth_multitenant import (
@@ -203,7 +204,7 @@ class ClientService:
             phone=request.phone,
             username=request.client_code,  # fill the mandatory column
             full_name=request.name,  # fill the mandatory column
-            hashed_password=hash_password(request.password),
+            hashed_password=await hash_password(request.password),
             status=status_value,
             access_level=access_level_value,
             max_drivers=request.max_drivers or 10,
@@ -266,7 +267,7 @@ class ClientService:
         result = await session.exec(statement)
         client = result.first()
 
-        if not client or not verify_password(request.password, client.hashed_password):
+        if not client or not await verify_password(request.password, client.hashed_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",
@@ -317,7 +318,7 @@ class ClientService:
     @staticmethod
     async def login_master_admin(request: AdminLoginRequest) -> dict:
         """Authenticate the singleton master admin user."""
-        if not is_master_admin(request.username, request.password):
+        if not await is_master_admin(request.username, request.password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid admin username or password",
@@ -491,7 +492,7 @@ class ClientService:
             client.subscription_end_date = request.subscription_end_date
 
         if request.password:
-            client.hashed_password = hash_password(request.password)
+            client.hashed_password = await hash_password(request.password)
 
         client.updated_at = datetime.now(UTC).replace(tzinfo=None)
 
@@ -681,14 +682,22 @@ class DriverService:
 
     @staticmethod
     async def list_drivers(
-        client: Client,
+        user_context: dict,
         session: AsyncSession,
         status_filter: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> list[DriverResponse]:
         """List all drivers for the client."""
-        statement = select(Driver).where(Driver.client_id == client.id)
+        if isinstance(user_context, Client):
+            user_context = {"role": "client", "user": user_context}
+        role = user_context["role"]
+        if role == "master_admin":
+            statement = select(Driver)
+        else:
+            client = user_context["user"]
+            statement = select(Driver).where(Driver.client_id == client.id)
+
         if status_filter:
             statement = statement.where(Driver.status == status_filter)
         statement = statement.offset((page - 1) * page_size).limit(page_size)
@@ -940,9 +949,17 @@ class PlateService:
 
     @staticmethod
     async def list_plates(
-        client: Client, session: AsyncSession, driver_id: int | None = None, page: int = 1, page_size: int = 20
+        user_context: dict, session: AsyncSession, driver_id: int | None = None, page: int = 1, page_size: int = 20
     ) -> list[PlateResponse]:
-        statement = select(DriverPlate).where(DriverPlate.client_id == client.id)
+        if isinstance(user_context, Client):
+            user_context = {"role": "client", "user": user_context}
+        role = user_context["role"]
+        if role == "master_admin":
+            statement = select(DriverPlate)
+        else:
+            client = user_context["user"]
+            statement = select(DriverPlate).where(DriverPlate.client_id == client.id)
+
         if driver_id:
             statement = statement.where(DriverPlate.driver_id == driver_id)
         statement = statement.order_by(col(DriverPlate.created_at).desc())
@@ -1207,34 +1224,36 @@ class WaybillJobService:
 
     @staticmethod
     async def list_jobs(
-        client: Client,
+        user_context: dict,
         session: AsyncSession,
         filters: TaskFilterRequest,
     ) -> TaskListResponse:
-        """List jobs for the client with filtering."""
-        statement = select(WaybillJob).where(WaybillJob.client_id == client.id)
+        """List jobs for the client with filtering, or all for master admin."""
+        if isinstance(user_context, Client):
+            user_context = {"role": "client", "user": user_context}
+        role = user_context["role"]
+        if role == "master_admin":
+            statement = select(WaybillJob)
+            count_stmt = select(func.count(WaybillJob.id))
+        else:
+            client = user_context["user"]
+            statement = select(WaybillJob).where(WaybillJob.client_id == client.id)
+            count_stmt = select(func.count(WaybillJob.id)).where(WaybillJob.client_id == client.id)
 
         if filters.status:
             statement = statement.where(WaybillJob.status == filters.status)
-        if filters.driver_id:
-            statement = statement.where(WaybillJob.driver_id == filters.driver_id)
-        if filters.date_from:
-            statement = statement.where(WaybillJob.created_at >= filters.date_from)
-        if filters.date_to:
-            statement = statement.where(WaybillJob.created_at <= filters.date_to)
-
-        # Get total count
-        from sqlmodel import func
-
-        count_stmt = select(func.count(WaybillJob.id)).where(WaybillJob.client_id == client.id)
-        if filters.status:
             count_stmt = count_stmt.where(WaybillJob.status == filters.status)
         if filters.driver_id:
+            statement = statement.where(WaybillJob.driver_id == filters.driver_id)
             count_stmt = count_stmt.where(WaybillJob.driver_id == filters.driver_id)
         if filters.date_from:
+            statement = statement.where(WaybillJob.created_at >= filters.date_from)
             count_stmt = count_stmt.where(WaybillJob.created_at >= filters.date_from)
         if filters.date_to:
+            statement = statement.where(WaybillJob.created_at <= filters.date_to)
             count_stmt = count_stmt.where(WaybillJob.created_at <= filters.date_to)
+
+        # Get total count
         count_result = await session.exec(count_stmt)
         total = count_result.one()
 
@@ -1245,10 +1264,31 @@ class WaybillJobService:
         result = await session.exec(statement)
         jobs = result.all()
 
+        tasks = []
+        client_map: dict[int, Client] = {}
+        if role != "client" and jobs:
+            client_ids = {j.client_id for j in jobs if j.client_id is not None}
+            if client_ids:
+                client_stmt = select(Client).where(Client.id.in_(client_ids))
+                clients = (await session.exec(client_stmt)).all()
+                client_map = {c.id: c for c in clients}
+
+        for j in jobs:
+            resp = WaybillJobResponse.model_validate(j)
+            if role == "client":
+                resp.last_error = None
+                resp.terminal_reason = None
+            else:
+                cl = client_map.get(j.client_id)
+                if cl:
+                    resp.client_name = cl.name
+                    resp.client_code = cl.client_code
+            tasks.append(resp)
+
         total_pages = (total + filters.page_size - 1) // filters.page_size
 
         return TaskListResponse(
-            tasks=[WaybillJobResponse.model_validate(j) for j in jobs],
+            tasks=tasks,
             total=total,
             page=filters.page,
             page_size=filters.page_size,
@@ -1257,12 +1297,20 @@ class WaybillJobService:
 
     @staticmethod
     async def get_job(
-        client: Client,
+        user_context: dict,
         job_id: str,
         session: AsyncSession,
     ) -> WaybillJobResponse:
-        """Get a specific job."""
-        statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
+        """Get a specific job status and details."""
+        if isinstance(user_context, Client):
+            user_context = {"role": "client", "user": user_context}
+        role = user_context["role"]
+        if role == "master_admin":
+            statement = select(WaybillJob).where(WaybillJob.job_id == job_id)
+        else:
+            client = user_context["user"]
+            statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
+            
         result = await session.exec(statement)
         job = result.first()
 
@@ -1272,7 +1320,16 @@ class WaybillJobService:
                 detail="Job not found",
             )
 
-        return WaybillJobResponse.model_validate(job)
+        resp = WaybillJobResponse.model_validate(job)
+        if role == "client":
+            resp.last_error = None
+            resp.terminal_reason = None
+        else:
+            cl = await session.get(Client, job.client_id)
+            if cl:
+                resp.client_name = cl.name
+                resp.client_code = cl.client_code
+        return resp
 
     @staticmethod
     async def retry_job(
@@ -1388,14 +1445,23 @@ class WaybillJobService:
 
     @staticmethod
     async def get_job_timeline(
-        client: Client,
+        user_context: dict,
         job_id: str,
         session: AsyncSession,
         filters: TaskTimelineQuery | None = None,
     ) -> TaskTimelineResponse:
         """Get a merged timeline of domain events and task logs for a job."""
+        if isinstance(user_context, Client):
+            user_context = {"role": "client", "user": user_context}
+        role = user_context["role"]
         query = filters or TaskTimelineQuery()
-        job_stmt = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
+
+        if role == "master_admin":
+            job_stmt = select(WaybillJob).where(WaybillJob.job_id == job_id)
+        else:
+            client = user_context["user"]
+            job_stmt = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
+
         job_result = await session.exec(job_stmt)
         job = job_result.first()
         if not job:
@@ -1404,14 +1470,40 @@ class WaybillJobService:
                 detail="Job not found",
             )
 
-        logs_stmt = select(WaybillTaskLog).where(
-            (WaybillTaskLog.client_id == client.id) & (WaybillTaskLog.job_id == job_id)
-        )
-        events_stmt = select(DomainEvent).where((DomainEvent.client_id == client.id) & (DomainEvent.job_id == job_id))
+        if role == "master_admin":
+            logs_stmt = select(WaybillTaskLog).where(WaybillTaskLog.job_id == job_id)
+            events_stmt = select(DomainEvent).where(DomainEvent.job_id == job_id)
+        else:
+            client = user_context["user"]
+            logs_stmt = select(WaybillTaskLog).where(
+                (WaybillTaskLog.client_id == client.id) & (WaybillTaskLog.job_id == job_id)
+            )
+            events_stmt = select(DomainEvent).where((DomainEvent.client_id == client.id) & (DomainEvent.job_id == job_id))
 
         logs = (await session.exec(logs_stmt)).all()
         events = (await session.exec(events_stmt)).all()
 
+        # Calculate progress percent
+        progress_percent = 10
+        if job.status == "success":
+            progress_percent = 100
+        elif job.status in ("failed", "dead_letter", "needs_review"):
+            progress_percent = 100
+        elif job.status == "processing":
+            progress_percent = min(15 + len(events) * 15 + len(logs) * 10, 95)
+
+        if role == "client":
+            # For client, do not send timeline entries at all
+            return TaskTimelineResponse(
+                job_id=job.job_id,
+                total=0,
+                page=query.page,
+                page_size=query.page_size,
+                entries=[],
+                progress_percent=progress_percent,
+            )
+
+        # Build detailed timeline entries for admin
         entries: list[TaskTimelineEntry] = []
 
         for event in events:
@@ -1458,6 +1550,7 @@ class WaybillJobService:
             page=query.page,
             page_size=query.page_size,
             entries=filtered_entries[start:end],
+            progress_percent=progress_percent,
         )
 
     @staticmethod

@@ -260,9 +260,8 @@ export default function SettingsPage() {
                     <div>
                       <h2 className="text-xl font-black flex items-center gap-3">
                         <Activity className="h-6 w-6 text-cyan-400" />
-                        قطع‌کننده مدار وب‌سرویس (Circuit Breaker)
+                        وضعیت زنده سامانه
                       </h2>
-                      <p className="text-xs text-slate-400 mt-1">مانیتورینگ خودکار پایداری و سلامت ارتباط با پرتال UTCMS</p>
                     </div>
                     {circuitStatus && (
                       <span className={`inline-flex items-center rounded-xl px-4 py-2 text-xs font-black shadow-sm border ${

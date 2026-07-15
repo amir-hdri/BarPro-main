@@ -16,6 +16,7 @@ import {
   X,
   ChevronLeft,
   Shield,
+  Server,
 } from "lucide-react";
 
 const adminNavItems = [
@@ -23,7 +24,9 @@ const adminNavItems = [
   { href: "/admin/clients", label: "مدیریت کاربران", icon: Users, description: "افزودن و ویرایش کاربران" },
   { href: "/admin/reports", label: "گزارش عملکرد", icon: BarChart3, description: "تحلیل داده‌های سیستم" },
   { href: "/admin/audit", label: "لاگ فعالیت‌ها", icon: FileText, description: "تاریخچه اقدامات" },
+  { href: "/admin/health", label: "سلامت سیستم", icon: Server, description: "مانیتورینگ سرور و زیرساخت" },
 ];
+
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

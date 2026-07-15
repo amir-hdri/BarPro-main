@@ -161,13 +161,43 @@ async def lifespan(app: FastAPI):
         )
         raise RuntimeError("Database initialization failed during application startup") from exc
 
+    # Bridge cross-process waybill events (workers -> API WebSockets) via Redis pub/sub
+    from app.realtime.events import event_hub
+
+    event_hub.start_subscriber()
+
+    # Seed the Redis-backed queue-depth counters from the DB once at startup.
+    from app.services.task_service import task_service
+
+    await task_service._ensure_queue_depth_seeded()
+
+    # Periodically reconcile the Redis queue-depth counters with the DB so that
+    # any drift caused by status updates that bypass task_service (worker-side
+    # writes, direct SQL, crashed processes) self-heals.
+    async def _queue_depth_reconcile_loop() -> None:
+        from app.services.task_service import task_service as _ts
+
+        while True:
+            await asyncio.sleep(60)
+            try:
+                await _ts.reconcile_queue_depth()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "queue_depth_reconcile_loop_error",
+                    extra={"extra_fields": {"error": str(exc)}},
+                )
+
+    reconcile_task = asyncio.create_task(_queue_depth_reconcile_loop())
+
     yield
 
     # Cleanup
     watchdog_task.cancel()
-    await asyncio.gather(watchdog_task, return_exceptions=True)
+    reconcile_task.cancel()
+    await asyncio.gather(watchdog_task, reconcile_task, return_exceptions=True)
     await distributed_traffic_controller.close()
     await rate_limiter.close()
+    await event_hub.stop_subscriber()
     shutdown_tracing()
     await browser_manager.close()
 

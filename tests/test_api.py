@@ -2,9 +2,18 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
+from app.auth_multitenant import get_current_admin
 from app.main import app
 
+import pytest
+
+@pytest.fixture(autouse=True)
+def setup_overrides():
+    app.dependency_overrides[get_current_admin] = lambda: {"username": "admin", "role": "master_admin"}
+    yield
+
 client = TestClient(app)
+
 
 
 def test_read_root():

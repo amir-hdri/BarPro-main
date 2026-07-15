@@ -31,6 +31,8 @@ const clientNavigation = [
 
 const adminNavigation = [
   { href: '/admin', icon: BuildingOffice2Icon, label: 'مدیریت مشتری‌ها', badge: null },
+  { href: '/fuel', icon: FireIcon, label: 'استعلام سوخت', badge: null },
+  { href: '/history', icon: ClockIcon, label: 'پیگیری کارها', badge: null },
 ];
 
 interface SidebarProps {

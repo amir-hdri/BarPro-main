@@ -5,6 +5,7 @@ __pycache__/
 venv/
 ENV/
 .env
+compose/.env
 
 # Logs
 logs

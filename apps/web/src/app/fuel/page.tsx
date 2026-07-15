@@ -16,14 +16,31 @@ import {
   PrinterIcon,
   SparklesIcon,
   ChartBarIcon,
-  CheckIcon
+  CheckIcon,
+  UserIcon
 } from '@heroicons/react/24/outline';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
 import { api } from '@/lib/api';
-import { formatDateTime, toPersianDigits } from '@/lib/format';
+import { formatDateTime } from '@/lib/format';
 import { useSession } from '@/hooks/useSession';
+
+const toPersianDigitsPreserveZero = (str: string | number): string => {
+  if (str === undefined || str === null) return '';
+  const map: Record<string, string> = {
+    '0': '۰', '1': '۱', '2': '۲', '3': '۳', '4': '۴',
+    '5': '۵', '6': '۶', '7': '۷', '8': '۸', '9': '۹'
+  };
+  return str.toString().replace(/[0-9]/g, (w) => map[w] || w);
+};
+
+const getTrackingCode = (inquiry: FuelInquiry): string => {
+  const yy = inquiry.year ? inquiry.year.toString().slice(-2) : '00';
+  const mm = inquiry.month ? inquiry.month.toString().padStart(2, '0') : '00';
+  const idStr = inquiry.id.toString().padStart(4, '0');
+  return toPersianDigitsPreserveZero(`UTC-${yy}${mm}-${idStr}`);
+};
 
 interface Driver {
   id: number;
@@ -38,6 +55,9 @@ interface FuelInquiry {
   client_id: number;
   driver_id: number;
   driver_name?: string;
+  plate_number?: string;
+  client_name?: string;
+  client_code?: string;
   status: 'pending' | 'processing' | 'success' | 'failed';
   error_message?: string;
   quota_data?: {
@@ -90,94 +110,6 @@ const getDriverInitials = (name: string) => {
   return name.slice(0, 2);
 };
 
-const FuelInquiryRow = memo(function FuelInquiryRow({
-  item,
-  onSelect,
-  getDriverInitials,
-}: {
-  item: FuelInquiry;
-  onSelect: (item: FuelInquiry) => void;
-  getDriverInitials: (name: string) => string;
-}) {
-  const summary = item.quota_data?.summary;
-  return (
-    <tr className="hover:bg-white/[0.02] transition">
-      <td className="px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-xl bg-slate-900 border border-white/5 flex items-center justify-center text-slate-400 text-xs font-black shrink-0">
-            {item.driver_name ? getDriverInitials(item.driver_name) : 'ن/م'}
-          </div>
-          <div>
-            <span className="font-bold text-white block">{item.driver_name || 'نامشخص'}</span>
-            <div className="flex gap-2 text-[10px] font-mono text-slate-500 mt-0.5">
-              <span>شناسه: #{item.id}</span>
-              {item.year && item.month ? (
-                <span className="text-cyan-400">دوره: {toPersianDigits(item.year.toString())}/{toPersianDigits(item.month.toString().padStart(2, '0'))}</span>
-              ) : (
-                <span className="text-slate-600">دوره: جاری</span>
-              )}
-            </div>
-          </div>
-        </div>
-      </td>
-      <td className="px-6 py-4 text-xs font-mono text-slate-400">
-        {formatDateTime(item.created_at)}
-      </td>
-      <td className="px-6 py-4 text-xs font-mono text-slate-300">
-        #{item.id}
-      </td>
-      <td className="px-6 py-4 text-xs">
-        {summary?.base_quota || summary?.performance_quota ? (
-          <div className="flex flex-col gap-1 font-mono">
-            <span>پایه: <strong className="text-cyan-400">{summary.base_quota ? `${toPersianDigits(summary.base_quota)} لیتر` : '۰'}</strong></span>
-            <span>عملکردی: <strong className="text-blue-400">{summary.performance_quota ? `${toPersianDigits(summary.performance_quota)} لیتر` : '۰'}</strong></span>
-          </div>
-        ) : (
-          <span className="text-slate-500">—</span>
-        )}
-      </td>
-      <td className="px-6 py-4">
-        {item.status === 'success' && (
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 text-xs font-bold text-emerald-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-            موفق
-          </span>
-        )}
-        {item.status === 'failed' && (
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 text-xs font-bold text-rose-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-rose-400"></span>
-            ناموفق
-          </span>
-        )}
-        {item.status === 'processing' && (
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 text-xs font-bold text-cyan-400">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-cyan-500"></span>
-            </span>
-            در حال اجرا
-          </span>
-        )}
-        {item.status === 'pending' && (
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-500/10 border border-slate-500/20 px-2.5 py-1 text-xs font-bold text-slate-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-slate-400"></span>
-            در انتظار صف
-          </span>
-        )}
-      </td>
-      <td className="px-6 py-4">
-        <button
-          onClick={() => onSelect(item)}
-          disabled={item.status === 'pending' || item.status === 'processing'}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-white/5 bg-slate-900 hover:bg-slate-800 px-3 py-3.5 text-xs font-bold text-slate-300 disabled:opacity-40 disabled:pointer-events-none transition"
-        >
-          <EyeIcon className="h-4 w-4" />
-          جزئیات
-        </button>
-      </td>
-    </tr>
-  );
-});
 
 const FuelInquiryCard = memo(function FuelInquiryCard({
   item,
@@ -198,7 +130,7 @@ const FuelInquiryCard = memo(function FuelInquiryCard({
           </div>
           <div>
             <span className="font-bold text-white block text-sm">{item.driver_name || 'نامشخص'}</span>
-            <span className="text-[9px] text-slate-500 font-mono">شناسه: #{item.id}</span>
+            <span className="text-[10px] text-slate-400 font-sans font-medium">کد رهگیری: {getTrackingCode(item)}</span>
           </div>
         </div>
         <div>
@@ -224,12 +156,12 @@ const FuelInquiryCard = memo(function FuelInquiryCard({
           )}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400 bg-slate-900/30 p-3 rounded-2xl border border-white/5 font-mono">
-        <div>کد رهگیری: <strong className="text-slate-200">#{item.id}</strong></div>
-        <div>دوره: <strong className="text-cyan-400">{item.year && item.month ? `${toPersianDigits(item.year.toString())}/${toPersianDigits(item.month.toString().padStart(2, '0'))}` : 'جاری'}</strong></div>
-        <div>پایه: <strong className="text-cyan-400">{summary?.base_quota ? `${toPersianDigits(summary.base_quota)} لیتر` : '۰'}</strong></div>
-        <div>عملکردی: <strong className="text-blue-400">{summary?.performance_quota ? `${toPersianDigits(summary.performance_quota)} لیتر` : '۰'}</strong></div>
-        <div className="col-span-2 text-[9px] text-slate-500">زمان: {formatDateTime(item.created_at)}</div>
+      <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400 bg-slate-900/30 p-3 rounded-2xl border border-white/5 font-sans font-medium">
+        <div>کد رهگیری: <strong className="text-slate-200 font-sans font-semibold">{getTrackingCode(item)}</strong></div>
+        <div>دوره: <strong className="text-cyan-400 font-sans font-semibold">{item.year && item.month ? `${toPersianDigitsPreserveZero(item.year.toString())}/${toPersianDigitsPreserveZero(item.month.toString().padStart(2, '0'))}` : 'جاری'}</strong></div>
+        <div>پایه: <strong className="text-cyan-400 font-sans font-semibold">{summary?.base_quota ? `${toPersianDigitsPreserveZero(summary.base_quota)} لیتر` : '۰'}</strong></div>
+        <div>عملکردی: <strong className="text-blue-400 font-sans font-semibold">{summary?.performance_quota ? `${toPersianDigitsPreserveZero(summary.performance_quota)} لیتر` : '۰'}</strong></div>
+        <div className="col-span-2 text-[9px] text-slate-500 font-sans font-medium">زمان: {toPersianDigitsPreserveZero(formatDateTime(item.created_at))}</div>
       </div>
       <button
         onClick={() => onSelect(item)}
@@ -265,6 +197,8 @@ export default function FuelInquiryPage() {
   const { role } = useSession();
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [inquiries, setInquiries] = useState<FuelInquiry[]>([]);
+  const isAdmin = role === 'master_admin';
+
   const [selectedDriverId, setSelectedDriverId] = useState<number>(0);
   const [activeInquiryId, setActiveInquiryId] = useState<number | null>(null);
   
@@ -287,19 +221,98 @@ export default function FuelInquiryPage() {
   const [driverWaybills, setDriverWaybills] = useState<WaybillJob[]>([]);
   const [driverPlates, setDriverPlates] = useState<any[]>([]);
   const [loadingWaybills, setLoadingWaybills] = useState(false);
+  const [selectedPlateFilter, setSelectedPlateFilter] = useState<string | null>(null);
+
+  const filteredInquiries = useMemo(() => {
+    if (selectedDriverId === 0) return [];
+    if (!selectedPlateFilter) return inquiries;
+    return inquiries.filter(i => i.plate_number === selectedPlateFilter);
+  }, [inquiries, selectedDriverId, selectedPlateFilter]);
+
+  const stats = useMemo(() => {
+    if (selectedDriverId === 0) {
+      return {
+        total: 0,
+        success: 0,
+        failed: 0,
+        rate: 0,
+        totalQuota: 0,
+      };
+    }
+    const total = filteredInquiries.length;
+    const successList = filteredInquiries.filter(i => i.status === 'success');
+    const success = successList.length;
+    const failed = filteredInquiries.filter(i => i.status === 'failed').length;
+    const rate = total > 0 ? Math.round((success / total) * 100) : 0;
+    
+    let baseSum = 0;
+    let perfSum = 0;
+    successList.forEach(i => {
+      const baseStr = i.quota_data?.summary?.base_quota || '0';
+      const perfStr = i.quota_data?.summary?.performance_quota || '0';
+      
+      const baseNum = parseInt(baseStr.replace(/[^\d]/g, ''), 10);
+      const perfNum = parseInt(perfStr.replace(/[^\d]/g, ''), 10);
+      
+      if (!isNaN(baseNum)) baseSum += baseNum;
+      if (!isNaN(perfNum)) perfSum += perfNum;
+    });
+
+    return {
+      total,
+      success,
+      failed,
+      rate,
+      totalQuota: baseSum + perfSum
+    };
+  }, [filteredInquiries, selectedDriverId]);
+
+  const groupedInquiries = useMemo(() => {
+    const groups: Record<string, { driverName: string; plateNumber: string; clientInfo?: string; items: FuelInquiry[] }> = {};
+    filteredInquiries.forEach((item) => {
+      if (!isAdmin && item.status === 'failed') return;
+
+      const driverName = item.driver_name || 'نامشخص';
+      const plateNumber = item.plate_number || 'بدون پلاک';
+      const key = `${driverName}-${plateNumber}`;
+      if (!groups[key]) {
+        let clientInfo = '';
+        if (isAdmin && item.client_name) {
+          clientInfo = ` (مشتری: ${item.client_name} - ${item.client_code})`;
+        }
+        groups[key] = {
+          driverName,
+          plateNumber,
+          clientInfo,
+          items: [],
+        };
+      }
+      groups[key].items.push(item);
+    });
+
+    return Object.values(groups).map((group) => {
+      group.items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      return group;
+    });
+  }, [filteredInquiries, isAdmin]);
+
 
   useEffect(() => {
     const fetchDriverData = async () => {
       if (selectedDriverId === 0) {
         setDriverWaybills([]);
         setDriverPlates([]);
+        setInquiries([]);
+        setSelectedPlateFilter(null);
         return;
       }
       setLoadingWaybills(true);
+      setSelectedPlateFilter(null);
       try {
-        const [waybillsRes, platesRes] = await Promise.all([
+        const [waybillsRes, platesRes, inquiriesRes] = await Promise.all([
           api.get<WaybillTaskListResponse>('/api/v1/waybill-jobs', { driver_id: selectedDriverId, page_size: 100 }),
-          api.get<any[]>('/api/v1/plates', { driver_id: selectedDriverId })
+          api.get<any[]>('/api/v1/plates', { driver_id: selectedDriverId }),
+          api.get<{ items: FuelInquiry[] }>('/api/v1/fuel-inquiries', { driver_id: selectedDriverId, page_size: 100 })
         ]);
         if (waybillsRes.success && waybillsRes.data) {
           setDriverWaybills(waybillsRes.data.tasks || []);
@@ -311,9 +324,15 @@ export default function FuelInquiryPage() {
         } else {
           setDriverPlates([]);
         }
+        if (inquiriesRes.success && inquiriesRes.data) {
+          setInquiries(inquiriesRes.data.items || []);
+        } else {
+          setInquiries([]);
+        }
       } catch {
         setDriverWaybills([]);
         setDriverPlates([]);
+        setInquiries([]);
       } finally {
         setLoadingWaybills(false);
       }
@@ -326,33 +345,43 @@ export default function FuelInquiryPage() {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadData = useCallback(async () => {
-    if (role !== 'client') {
+    if (role !== 'client' && role !== 'master_admin') {
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
 
-    const [driversResponse, inquiriesResponse] = await Promise.all([
-      api.get<Driver[]>('/api/v1/drivers'),
-      api.get<{ items: FuelInquiry[] }>('/api/v1/fuel-inquiries?page=1&page_size=30'),
-    ]);
-
-    if (driversResponse.success && driversResponse.data) {
-      setDrivers(driversResponse.data);
-      if (driversResponse.data.length > 0) {
-        setSelectedDriverId(driversResponse.data[0].id);
+    try {
+      const driversResponse = await api.get<Driver[]>('/api/v1/drivers', { page_size: 1000 });
+      if (driversResponse.success && driversResponse.data) {
+        setDrivers(driversResponse.data);
+      } else {
+        setError(driversResponse.error || 'خطا در بارگذاری لیست رانندگان');
       }
-    } else {
-      setError(driversResponse.error || 'خطا در بارگذاری لیست رانندگان');
-    }
 
-    if (inquiriesResponse.success && inquiriesResponse.data) {
-      setInquiries(inquiriesResponse.data.items || []);
+      if (selectedDriverId > 0) {
+        const [waybillsRes, platesRes, inquiriesRes] = await Promise.all([
+          api.get<WaybillTaskListResponse>('/api/v1/waybill-jobs', { driver_id: selectedDriverId, page_size: 100 }),
+          api.get<any[]>('/api/v1/plates', { driver_id: selectedDriverId }),
+          api.get<{ items: FuelInquiry[] }>('/api/v1/fuel-inquiries', { driver_id: selectedDriverId, page_size: 100 })
+        ]);
+        if (waybillsRes.success && waybillsRes.data) {
+          setDriverWaybills(waybillsRes.data.tasks || []);
+        }
+        if (platesRes.success && platesRes.data) {
+          setDriverPlates(platesRes.data || []);
+        }
+        if (inquiriesRes.success && inquiriesRes.data) {
+          setInquiries(inquiriesRes.data.items || []);
+        }
+      }
+    } catch (err: any) {
+      setError(err.message || 'خطا در بارگذاری اطلاعات');
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
-  }, [role]);
+  }, [role, selectedDriverId]);
 
   useEffect(() => {
     void loadData();
@@ -422,7 +451,8 @@ export default function FuelInquiryPage() {
   }, []);
 
   const refreshHistory = async () => {
-    const inquiriesResponse = await api.get<{ items: FuelInquiry[] }>('/api/v1/fuel-inquiries?page=1&page_size=30');
+    if (selectedDriverId === 0) return;
+    const inquiriesResponse = await api.get<{ items: FuelInquiry[] }>('/api/v1/fuel-inquiries', { driver_id: selectedDriverId, page_size: 100 });
     if (inquiriesResponse.success && inquiriesResponse.data) {
       setInquiries(inquiriesResponse.data.items || []);
     }
@@ -451,35 +481,6 @@ export default function FuelInquiryPage() {
   };
 
   const activeInquiry = inquiries.find(i => i.id === activeInquiryId);
-
-  const stats = useMemo(() => {
-    const total = inquiries.length;
-    const successList = inquiries.filter(i => i.status === 'success');
-    const success = successList.length;
-    const failed = inquiries.filter(i => i.status === 'failed').length;
-    const rate = total > 0 ? Math.round((success / total) * 100) : 0;
-    
-    let baseSum = 0;
-    let perfSum = 0;
-    successList.forEach(i => {
-      const baseStr = i.quota_data?.summary?.base_quota || '0';
-      const perfStr = i.quota_data?.summary?.performance_quota || '0';
-      
-      const baseNum = parseInt(baseStr.replace(/[^\d]/g, ''), 10);
-      const perfNum = parseInt(perfStr.replace(/[^\d]/g, ''), 10);
-      
-      if (!isNaN(baseNum)) baseSum += baseNum;
-      if (!isNaN(perfNum)) perfSum += perfNum;
-    });
-
-    return {
-      total,
-      success,
-      failed,
-      rate,
-      totalQuota: baseSum + perfSum
-    };
-  }, [inquiries]);
 
   const progressPercent = Math.min((elapsedTime / TOTAL_SECONDS_EST) * 100, 98);
 
@@ -548,10 +549,10 @@ export default function FuelInquiryPage() {
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6 md:mb-8">
             {[
-              { label: 'کل سهمیه استعلام شده', value: `${toPersianDigits(stats.totalQuota)} لیتر`, desc: 'مجموع پایه و عملکردی', icon: FireIcon, color: 'text-cyan-400', bg: 'bg-cyan-500/10 border-cyan-500/20' },
-              { label: 'درصد موفقیت ربات', value: `${toPersianDigits(stats.rate)}٪`, desc: 'نرخ ورود و دریافت موفق', icon: ChartBarIcon, color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' },
-              { label: 'استعلام‌های موفق', value: toPersianDigits(stats.success), desc: 'تعداد کل واکشی‌های موفق', icon: CheckCircleIcon, color: 'text-sky-400', bg: 'bg-sky-500/10 border-sky-500/20' },
-              { label: 'تعداد کل تلاش‌ها', value: toPersianDigits(stats.total), desc: 'مجموع تراکنش‌های ثبت‌شده', icon: ClockIcon, color: 'text-slate-400', bg: 'bg-slate-500/10 border-slate-500/20' }
+              { label: 'کل سهمیه استعلام شده', value: selectedDriverId === 0 ? '—' : `${toPersianDigitsPreserveZero(stats.totalQuota)} لیتر`, desc: 'مجموع پایه و عملکردی', icon: FireIcon, color: 'text-cyan-400', bg: 'bg-cyan-500/10 border-cyan-500/20' },
+              { label: 'درصد موفقیت ربات', value: selectedDriverId === 0 ? '—' : `${toPersianDigitsPreserveZero(stats.rate)}٪`, desc: 'نرخ ورود و دریافت موفق', icon: ChartBarIcon, color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' },
+              { label: 'استعلام‌های موفق', value: selectedDriverId === 0 ? '—' : toPersianDigitsPreserveZero(stats.success), desc: 'تعداد کل واکشی‌های موفق', icon: CheckCircleIcon, color: 'text-sky-400', bg: 'bg-sky-500/10 border-sky-500/20' },
+              { label: 'تعداد کل تلاش‌ها', value: selectedDriverId === 0 ? '—' : toPersianDigitsPreserveZero(stats.total), desc: 'مجموع تراکنش‌های ثبت‌شده', icon: ClockIcon, color: 'text-slate-400', bg: 'bg-slate-500/10 border-slate-500/20' }
             ].map((st) => (
               <div key={st.label} className="stat-card group relative overflow-hidden flex flex-col justify-between">
                 <div className="flex items-start justify-between">
@@ -650,7 +651,7 @@ export default function FuelInquiryPage() {
                                   </div>
                                   <div>
                                     <span className="text-xs font-bold block">{d.full_name}</span>
-                                    <span className="text-[9px] text-slate-400 font-mono mt-0.5 block">{d.driver_national_code}</span>
+                                    <span className="text-[9px] text-slate-400 font-sans font-medium mt-0.5 block">{toPersianDigitsPreserveZero(d.driver_national_code)}</span>
                                   </div>
                                 </div>
                                 {selectedDriverId === d.id && <CheckIcon className="h-4 w-4 text-cyan-400" />}
@@ -672,7 +673,7 @@ export default function FuelInquiryPage() {
                         className="field"
                       >
                         {[1405, 1404, 1403, 1402].map((y) => (
-                          <option key={y} value={y} className="bg-slate-900 text-white">{toPersianDigits(y.toString())}</option>
+                          <option key={y} value={y} className="bg-slate-900 text-white">{toPersianDigitsPreserveZero(y.toString())}</option>
                         ))}
                       </select>
                     </div>
@@ -725,7 +726,7 @@ export default function FuelInquiryPage() {
                 </div>
               </div>
 
-              {submitting && activeInquiry && (
+              {submitting && activeInquiry && activeInquiry.driver_id === selectedDriverId && (
                 <div className="rounded-3xl border border-cyan-500/20 bg-slate-950 p-6 shadow-xl relative overflow-hidden animate-in duration-300">
                   <div className="absolute -top-10 -right-10 h-30 w-30 rounded-full bg-cyan-500/20 blur-[40px] pointer-events-none" />
                   
@@ -733,15 +734,15 @@ export default function FuelInquiryPage() {
                     <span className="text-[10px] font-black text-cyan-400 uppercase tracking-wider bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 rounded-lg">
                       در حال اجرا
                     </span>
-                    <span className="text-[10px] font-bold text-slate-400 font-mono">
-                      شناسه کار: #{activeInquiry.id}
+                    <span className="text-[10px] font-bold text-slate-400 font-sans">
+                      کد رهگیری: {getTrackingCode(activeInquiry)}
                     </span>
                   </div>
-
+ 
                   <h3 className="text-sm font-bold text-white mb-4">
                     استعلام سهمیه راننده: <strong className="text-cyan-400">{activeInquiry.driver_name || selectedDriver?.full_name}</strong>
                   </h3>
-
+ 
                   <div className="space-y-4">
                     <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
                       <div
@@ -749,12 +750,12 @@ export default function FuelInquiryPage() {
                         style={{ width: `${progressPercent}%` }}
                       ></div>
                     </div>
-                    <div className="flex justify-between items-center text-[10px] font-mono text-slate-500">
-                      <span>زمان سپری شده: {toPersianDigits(elapsedTime)} ثانیه</span>
-                      <span>پیشرفت تخمینی: {toPersianDigits(Math.round(progressPercent))}٪</span>
+                    <div className="flex justify-between items-center text-[10px] font-sans font-medium text-slate-500">
+                      <span>زمان سپری شده: {toPersianDigitsPreserveZero(elapsedTime)} ثانیه</span>
+                      <span>پیشرفت تخمینی: {toPersianDigitsPreserveZero(Math.round(progressPercent))}٪</span>
                     </div>
                   </div>
-
+ 
                   <div className="mt-6 border-r-2 border-white/5 pr-4 space-y-5">
                     {STEP_ESTIMATES.map((st, sIdx) => {
                       const isCompleted = sIdx < activeStepIdx;
@@ -776,7 +777,7 @@ export default function FuelInquiryPage() {
                   </div>
                 </div>
               )}
-
+ 
               {selectedDriver && (
                 <div className="rounded-3xl border border-white/10 bg-slate-950 p-6 shadow-xl relative overflow-hidden animate-in duration-300 mt-6">
                   <div className="absolute -top-10 -right-10 h-30 w-30 rounded-full bg-cyan-500/5 blur-[40px] pointer-events-none" />
@@ -787,17 +788,17 @@ export default function FuelInquiryPage() {
                       بارنامه‌های ثبت شده راننده
                     </h3>
                     <span className="text-[10px] font-bold text-slate-400 bg-slate-900 px-2 py-1 rounded-lg">
-                      تعداد کل: {toPersianDigits(driverWaybills.length)}
+                      تعداد کل: {toPersianDigitsPreserveZero(driverWaybills.length)}
                     </span>
                   </div>
-
+ 
                   {driverPlates.length > 0 && (
                     <div className="mb-4 bg-slate-900/50 rounded-2xl p-3 border border-white/5">
                       <span className="text-[10px] text-slate-400 font-bold block mb-1.5">پلاک‌های فعال:</span>
                       <div className="flex flex-wrap gap-2">
                         {driverPlates.map((pl) => (
-                          <span key={pl.id} className="text-xs font-mono font-bold text-cyan-400 bg-cyan-500/10 px-2.5 py-1 rounded-lg border border-cyan-500/10">
-                            {pl.plate_number}
+                          <span key={pl.id} className="text-xs font-sans font-bold text-cyan-400 bg-cyan-500/10 px-2.5 py-1 rounded-lg border border-cyan-500/10">
+                            {toPersianDigitsPreserveZero(pl.plate_number)}
                           </span>
                         ))}
                       </div>
@@ -846,7 +847,7 @@ export default function FuelInquiryPage() {
                       })}
                       {driverWaybills.length > 10 && (
                         <div className="text-center pt-1.5">
-                          <span className="text-[9px] text-slate-500 font-bold">نمایش ۱۰ مورد اول از {toPersianDigits(driverWaybills.length)} بارنامه</span>
+                          <span className="text-[9px] text-slate-500 font-bold">نمایش ۱۰ مورد اول از {toPersianDigitsPreserveZero(driverWaybills.length)} بارنامه</span>
                         </div>
                       )}
                     </div>
@@ -867,12 +868,54 @@ export default function FuelInquiryPage() {
                   </span>
                 </div>
 
-                {loading && inquiries.length === 0 ? (
+                {selectedDriverId > 0 && driverPlates.length > 0 && (
+                  <div className="px-6 py-3 border-b border-white/5 bg-slate-950 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-slate-400 ml-2 font-bold">فیلتر پلاک:</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPlateFilter(null)}
+                      className={`px-3 py-1 rounded-xl text-xs font-bold transition ${
+                        selectedPlateFilter === null
+                          ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/25 border border-cyan-500'
+                          : 'bg-slate-900 text-slate-400 hover:bg-slate-800 border border-white/5'
+                      }`}
+                    >
+                      همه پلاک‌ها
+                    </button>
+                    {driverPlates.map((plate) => {
+                      const plateStr = `${plate.plate_number || ''}`;
+                      return (
+                        <button
+                          key={plate.id}
+                          type="button"
+                          onClick={() => setSelectedPlateFilter(plateStr)}
+                          className={`px-3 py-1 rounded-xl text-xs font-semibold tracking-wide transition ${
+                            selectedPlateFilter === plateStr
+                              ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/25 border border-cyan-500'
+                              : 'bg-slate-900 text-slate-400 hover:bg-slate-800 border border-white/5'
+                          }`}
+                        >
+                          {toPersianDigitsPreserveZero(plateStr)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {selectedDriverId === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-3 px-6 text-center">
+                    <UserIcon className="h-12 w-12 text-slate-600 animate-pulse" />
+                    <span className="text-sm font-bold text-slate-400">تاریخچه استعلام‌ها غیرفعال است</span>
+                    <span className="text-xs text-slate-500 max-w-sm leading-relaxed font-bold">
+                      جهت مشاهده آمار و تاریخچه استعلام‌ها، ابتدا راننده مورد نظر خود را از پنل سمت راست انتخاب کنید.
+                    </span>
+                  </div>
+                ) : loading && inquiries.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
                     <ArrowPathIcon className="h-8 w-8 animate-spin text-cyan-500" />
                     <span className="text-xs font-bold">در حال بارگذاری اطلاعات...</span>
                   </div>
-                ) : inquiries.length === 0 ? (
+                ) : filteredInquiries.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-2">
                     <FireIcon className="h-12 w-12 text-slate-600 animate-pulse" />
                     <span className="text-sm font-bold text-slate-500">هیچ موردی ثبت نشده است</span>
@@ -880,29 +923,114 @@ export default function FuelInquiryPage() {
                   </div>
                 ) : (
                   <>
-                    <div className="hidden md:block overflow-x-auto">
-                      <table className="w-full border-collapse text-right">
-                        <thead>
-                          <tr className="border-b border-white/5 bg-white/[0.01] text-xs font-bold text-slate-400">
-                            <th className="px-6 py-4">راننده</th>
-                            <th className="px-6 py-4">زمان استعلام</th>
-                            <th className="px-6 py-4">کد رهگیری</th>
-                            <th className="px-6 py-4">سهمیه پایه / عملکردی</th>
-                            <th className="px-6 py-4">وضعیت</th>
-                            <th className="px-6 py-4">عملیات</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/5 text-sm font-medium text-slate-200">
-                          {inquiries.map((item) => (
-                            <FuelInquiryRow key={item.id} item={item} onSelect={setSelectedInquiry} getDriverInitials={getDriverInitials} />
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                  <div className="space-y-8 py-6">
+                      {groupedInquiries.map((group, idx) => (
+                        <div key={`${group.driverName}-${group.plateNumber}-${idx}`} className="mx-6 rounded-2xl border border-white/5 bg-slate-900/20 overflow-hidden shadow-sm">
+                          {/* Group Header */}
+                          <div className="bg-slate-900/40 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5">
+                            <div className="flex flex-wrap items-center gap-3">
+                              <span className="text-sm font-black text-white">راننده: {group.driverName}</span>
+                              <span className="inline-flex items-center rounded-lg bg-cyan-500/10 border border-cyan-500/25 px-2.5 py-1 text-xs font-sans font-semibold text-cyan-400">
+                                پلاک: {toPersianDigitsPreserveZero(group.plateNumber)}
+                              </span>
+                            </div>
+                            {group.clientInfo && (
+                              <span className="text-xs text-cyan-400 font-bold bg-cyan-500/10 border border-cyan-500/20 px-2 py-1 rounded-lg">
+                                {group.clientInfo}
+                              </span>
+                            )}
+                          </div>
 
-                    <div className="md:hidden divide-y divide-white/5">
-                      {inquiries.map((item) => (
-                        <FuelInquiryCard key={item.id} item={item} onSelect={setSelectedInquiry} getDriverInitials={getDriverInitials} />
+                          {/* Table for items within this group */}
+                          <div className="hidden md:block overflow-x-auto min-w-[600px]">
+                            <table className="w-full border-collapse text-right min-w-[600px]">
+                              <thead>
+                                <tr className="border-b border-white/5 bg-white/[0.01] text-xs font-bold text-slate-400">
+                                  <th className="px-6 py-4">زمان استعلام</th>
+                                  <th className="px-6 py-4">دوره استعلام</th>
+                                  <th className="px-6 py-4">کد رهگیری</th>
+                                  <th className="px-6 py-4">سهمیه پایه / عملکردی</th>
+                                  <th className="px-6 py-4">وضعیت</th>
+                                  <th className="px-6 py-4">عملیات</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-white/5 text-sm font-medium text-slate-200">
+                                {group.items.map((item) => (
+                                  <tr key={item.id} className="hover:bg-white/[0.02] transition">
+                                    <td className="px-6 py-4 text-xs font-sans font-medium text-slate-400">
+                                      {toPersianDigitsPreserveZero(formatDateTime(item.created_at))}
+                                    </td>
+                                    <td className="px-6 py-4 text-xs font-sans font-medium text-slate-300">
+                                      {item.year && item.month ? (
+                                        <span className="text-cyan-400 font-sans font-semibold">{toPersianDigitsPreserveZero(item.year.toString())}/{toPersianDigitsPreserveZero(item.month.toString().padStart(2, '0'))}</span>
+                                      ) : (
+                                        <span className="text-slate-500 font-sans font-semibold">جاری</span>
+                                      )}
+                                    </td>
+                                    <td className="px-6 py-4 text-xs font-sans font-semibold text-slate-300">
+                                      {getTrackingCode(item)}
+                                    </td>
+                                    <td className="px-6 py-4 text-xs">
+                                      {item.quota_data?.summary?.base_quota || item.quota_data?.summary?.performance_quota ? (
+                                        <div className="flex flex-col gap-1 font-sans font-medium text-slate-300">
+                                          <span>پایه: <strong className="text-cyan-400 font-sans font-semibold">{item.quota_data.summary.base_quota ? `${toPersianDigitsPreserveZero(item.quota_data.summary.base_quota)} لیتر` : '۰'}</strong></span>
+                                          <span>عملکردی: <strong className="text-blue-400 font-sans font-semibold">{item.quota_data.summary.performance_quota ? `${toPersianDigitsPreserveZero(item.quota_data.summary.performance_quota)} لیتر` : '۰'}</strong></span>
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-500 font-sans font-semibold">—</span>
+                                      )}
+                                    </td>
+                                    <td className="px-6 py-4">
+                                      {item.status === 'success' && (
+                                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 text-xs font-bold text-emerald-400">
+                                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                                          موفق
+                                        </span>
+                                      )}
+                                      {item.status === 'failed' && (
+                                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 text-xs font-bold text-rose-400">
+                                          <span className="h-1.5 w-1.5 rounded-full bg-rose-400"></span>
+                                          ناموفق
+                                        </span>
+                                      )}
+                                      {item.status === 'processing' && (
+                                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 text-xs font-bold text-cyan-400">
+                                          <span className="relative flex h-1.5 w-1.5">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-cyan-500"></span>
+                                          </span>
+                                          در حال اجرا
+                                        </span>
+                                      )}
+                                      {item.status === 'pending' && (
+                                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-500/10 border border-slate-500/20 px-2.5 py-1 text-xs font-bold text-slate-400">
+                                          <span className="h-1.5 w-1.5 rounded-full bg-slate-400"></span>
+                                          در انتظار صف
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="px-6 py-4">
+                                      <button
+                                        onClick={() => setSelectedInquiry(item)}
+                                        disabled={item.status === 'pending' || item.status === 'processing'}
+                                        className="inline-flex items-center gap-1.5 rounded-xl border border-white/5 bg-slate-900 hover:bg-slate-800 px-3 py-3.5 text-xs font-bold text-slate-300 disabled:opacity-40 disabled:pointer-events-none transition"
+                                      >
+                                        <EyeIcon className="h-4 w-4" />
+                                        جزئیات
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          <div className="md:hidden divide-y divide-white/5">
+                            {group.items.map((item) => (
+                              <FuelInquiryCard key={item.id} item={item} onSelect={setSelectedInquiry} getDriverInitials={getDriverInitials} />
+                            ))}
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </>
@@ -923,10 +1051,12 @@ export default function FuelInquiryPage() {
               <div className="flex items-center justify-between border-b border-white/10 pb-5 mb-6 relative z-10 no-print">
                 <div>
                   <h3 className="text-lg sm:text-xl font-black text-white">
-                    جزئیات استعلام سوخت: <span className="text-cyan-400">{selectedInquiry.driver_name}</span>
+                    جزئیات استعلام سوخت: <span className="text-cyan-400 font-sans font-bold">{selectedInquiry.driver_name}</span>
                   </h3>
-                  <p className="mt-1.5 text-xs text-slate-400 font-medium">
-                    زمان استعلام: {formatDateTime(selectedInquiry.created_at)}
+                  <p className="mt-1.5 text-xs text-slate-400 font-sans font-medium">
+                    زمان استعلام: {toPersianDigitsPreserveZero(formatDateTime(selectedInquiry.created_at))}
+                    {selectedInquiry.plate_number && ` | پلاک: ${toPersianDigitsPreserveZero(selectedInquiry.plate_number)}`}
+                    {isAdmin && selectedInquiry.client_name && ` | مشتری: ${selectedInquiry.client_name} (${selectedInquiry.client_code})`}
                   </p>
                 </div>
                 <button
@@ -943,9 +1073,9 @@ export default function FuelInquiryPage() {
                 <h2 className="text-xl font-black text-black">رسید استعلام سهمیه سوخت ناوگان (سامانه BarPro)</h2>
                 <div className="grid grid-cols-2 gap-4 mt-4 text-sm text-slate-700">
                   <div>نام راننده: <strong>{selectedInquiry.driver_name}</strong></div>
-                  <div>کد پیگیری استعلام: <strong className="font-mono">#{selectedInquiry.id}</strong></div>
-                  <div>زمان اجرای استعلام: <strong>{formatDateTime(selectedInquiry.created_at)}</strong></div>
-                  <div>کد رهگیری استعلام: <strong className="font-mono">#{selectedInquiry.id}</strong></div>
+                  <div>کد پیگیری استعلام: <strong className="font-sans font-bold">{getTrackingCode(selectedInquiry)}</strong></div>
+                  <div>زمان اجرای استعلام: <strong>{toPersianDigitsPreserveZero(formatDateTime(selectedInquiry.created_at))}</strong></div>
+                  <div>کد رهگیری استعلام: <strong className="font-sans font-bold">{getTrackingCode(selectedInquiry)}</strong></div>
                 </div>
               </div>
 
@@ -963,22 +1093,22 @@ export default function FuelInquiryPage() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="rounded-2xl bg-white/5 border border-white/10 p-5 print:border-slate-300 print:bg-slate-50">
                         <span className="text-xs font-bold text-slate-400 print:text-slate-600 block">سهمیه پایه</span>
-                        <div className="mt-2 text-2xl font-black text-white print:text-black">
-                          {selectedInquiry.quota_data?.summary?.base_quota ? `${toPersianDigits(selectedInquiry.quota_data.summary.base_quota)} لیتر` : '۰ لیتر'}
+                        <div className="mt-2 text-2xl font-black text-white print:text-black font-sans">
+                          {selectedInquiry.quota_data?.summary?.base_quota ? `${toPersianDigitsPreserveZero(selectedInquiry.quota_data.summary.base_quota)} لیتر` : '۰ لیتر'}
                         </div>
                       </div>
 
                       <div className="rounded-2xl bg-white/5 border border-white/10 p-5 print:border-slate-300 print:bg-slate-50">
                         <span className="text-xs font-bold text-slate-400 print:text-slate-600 block">سهمیه عملکردی</span>
-                        <div className="mt-2 text-2xl font-black text-cyan-400 print:text-black">
-                          {selectedInquiry.quota_data?.summary?.performance_quota ? `${toPersianDigits(selectedInquiry.quota_data.summary.performance_quota)} لیتر` : '۰ لیتر'}
+                        <div className="mt-2 text-2xl font-black text-cyan-400 print:text-black font-sans">
+                          {selectedInquiry.quota_data?.summary?.performance_quota ? `${toPersianDigitsPreserveZero(selectedInquiry.quota_data.summary.performance_quota)} لیتر` : '۰ لیتر'}
                         </div>
                       </div>
 
                       <div className="rounded-2xl bg-white/5 border border-white/10 p-5 print:border-slate-300 print:bg-slate-50">
                         <span className="text-xs font-bold text-slate-400 print:text-slate-600 block">کد رهگیری استعلام</span>
-                        <div className="mt-2 text-lg font-black text-slate-300 font-mono print:text-black">
-                          #{selectedInquiry.id}
+                        <div className="mt-2 text-lg font-black text-slate-300 print:text-black font-sans">
+                          {getTrackingCode(selectedInquiry)}
                         </div>
                       </div>
                     </div>

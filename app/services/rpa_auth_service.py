@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlmodel import select
 
-from app.auth_multitenant import decrypt_driver_password
+from app.auth_multitenant import DriverPasswordDecryptError, decrypt_driver_password
 from app.automation.auth import UTCMSAuthenticator
 from app.automation.browser import browser_manager
 from app.automation.proxy_rotator import get_proxy_rotator
@@ -44,8 +44,26 @@ class RPAAuthService:
         page = None
         try:
             driver = await session.get(Driver, driver_id)
-            if not driver or driver.client_id != client_id:
+            if not driver:
+                logger.error(
+                    "phase1_auth_driver_not_found",
+                    extra={"extra_fields": {"driver_id": driver_id, "client_id": client_id}},
+                )
                 return AuthResult(ok=False, session_bundle=None, reason_code="driver_not_found")
+            # Self-heal: if caller passed wrong client_id, use the one from DB
+            # This handles stale runtime_state data without failing authentication
+            if driver.client_id != client_id:
+                logger.warning(
+                    "phase1_auth_client_id_mismatch_self_heal",
+                    extra={
+                        "extra_fields": {
+                            "driver_id": driver_id,
+                            "requested_client_id": client_id,
+                            "actual_client_id": driver.client_id,
+                        }
+                    },
+                )
+                client_id = driver.client_id
 
             runtime_state = await self._get_or_create_runtime_state(session, client_id, driver_id)
             runtime_state.state = DriverRuntimeStateValue.AUTH_IN_PROGRESS.value
@@ -67,9 +85,15 @@ class RPAAuthService:
             )
             page = await browser_manager.new_page(context)
             authenticator = UTCMSAuthenticator(page, context)
-            ok = await authenticator.login(
-                driver.utcms_username, decrypt_driver_password(driver.utcms_password_encrypted)
-            )
+            try:
+                driver_password = decrypt_driver_password(driver.utcms_password_encrypted)
+            except DriverPasswordDecryptError as exc:
+                # Wrong DRIVER_ENCRYPTION_KEY — the ciphertext is undecryptable, so
+                # launching a browser is pointless. Fail fast with a clear reason.
+                await self._mark_auth_failure(session, driver, runtime_state, "driver_key_mismatch")
+                await self._mark_resume_job_for_auth_retry(session, client_id, resume_job_id, "driver_key_mismatch")
+                return AuthResult(ok=False, session_bundle=None, reason_code="driver_key_mismatch", message=str(exc))
+            ok = await authenticator.login(driver.utcms_username, driver_password)
             if not ok:
                 message = authenticator.last_error or "login_failed"
                 from app.core.circuit_breaker import check_and_report_failure
@@ -290,6 +314,21 @@ class RPAAuthService:
             state = DriverRuntimeState(client_id=client_id, driver_id=driver_id)
             session.add(state)
             await session.flush()
+        elif state.client_id != client_id:
+            # Self-heal stale client_id in runtime_state
+            logger.warning(
+                "runtime_state_client_id_self_heal",
+                extra={
+                    "extra_fields": {
+                        "driver_id": driver_id,
+                        "old_client_id": state.client_id,
+                        "correct_client_id": client_id,
+                    }
+                },
+            )
+            state.client_id = client_id
+            session.add(state)
+            await session.flush()
         return state
 
     async def _get_or_create_session_metadata(self, session, client_id: int, driver_id: int) -> DriverSessionMetadata:
@@ -298,6 +337,11 @@ class RPAAuthService:
         ).first()
         if item is None:
             item = DriverSessionMetadata(client_id=client_id, driver_id=driver_id)
+            session.add(item)
+            await session.flush()
+        elif item.client_id != client_id:
+            # Self-heal stale client_id in session_metadata
+            item.client_id = client_id
             session.add(item)
             await session.flush()
         return item

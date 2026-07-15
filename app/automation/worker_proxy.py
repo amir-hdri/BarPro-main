@@ -18,7 +18,15 @@ Design decision: We bypass proxy_rotator entirely here because:
 
 We also resolve the proxy hostname to a numeric IP at module load time to work
 around Chromium's internal DNS resolver sometimes failing to resolve Docker-
-internal hostnames (host.docker.internal) while Python's socket library succeeds.
+internal hostnames while Python's socket library succeeds.
+
+Proxy addressing:
+  Workers run in Docker bridge network (barpro_platform, 172.20.0.x).
+  Squid runs with network_mode: host, so it binds on the HOST's loopback.
+  The Docker bridge gateway (default 172.20.0.1, override via
+  DOCKER_BRIDGE_GATEWAY) routes to the host — use this address.
+  Do NOT use localhost/127.0.0.1 (refers to the container itself).
+  Do NOT use host.docker.internal (unreachable from Linux bridge networks).
 """
 
 import logging
@@ -30,6 +38,13 @@ from urllib.parse import urlparse, urlunparse
 logger = logging.getLogger(__name__)
 
 _WORKER_ID_ENV = "WORKER_ID"
+
+# Docker bridge gateway that routes to the host where Squid listens
+# (network_mode: host). This MUST match the actual barpro_platform network
+# gateway. compose/backend.yml, proxy_rotator.py and system.py all use
+# 172.20.0.1 — keep them in sync. Override via DOCKER_BRIDGE_GATEWAY only if
+# the real Docker subnet on the host differs from the convention.
+_DOCKER_GATEWAY = os.environ.get("DOCKER_BRIDGE_GATEWAY", "172.20.0.1")
 
 
 def _resolve_to_ip(url: str) -> str:
@@ -43,8 +58,19 @@ def _resolve_to_ip(url: str) -> str:
     """
     parsed = urlparse(url)
     hostname = parsed.hostname or ""
+
+    # Force host.docker.internal to route to the Docker bridge gateway
+    if hostname == "host.docker.internal":
+        port = parsed.port
+        netloc = f"{_DOCKER_GATEWAY}:{port}" if port else _DOCKER_GATEWAY
+        return urlunparse(parsed._replace(netloc=netloc))
+
     try:
         ip = socket.gethostbyname(hostname)
+        # If IP resolves to a public server IP, force to the bridge gateway
+        if ip in ("95.38.233.90", "188.121.123.16"):
+            ip = _DOCKER_GATEWAY
+
         if ip != hostname:
             # Rebuild netloc with numeric IP
             port = parsed.port
@@ -64,7 +90,7 @@ def get_worker_proxy_url() -> str | None:
     to a numeric IP.  Result is cached at module level (per worker process).
 
     Priority order:
-    1. WORKER_{WORKER_ID}_PROXY  (e.g. WORKER_1_PROXY=http://host.docker.internal:3128)
+    1. WORKER_{WORKER_ID}_PROXY  (e.g. WORKER_1_PROXY=http://172.20.0.1:3128)
     2. RPA_PROXIES               (first entry in comma-separated list)
     3. None                      (no proxy configured — navigation will likely fail)
     """
@@ -92,3 +118,29 @@ def get_playwright_proxy() -> dict | None:
     """
     url = get_worker_proxy_url()
     return {"server": url} if url else None
+
+
+async def check_proxy_health(proxy_url: str, target_url: str = "https://barname.utcms.ir/Barname/Account/Login") -> bool:
+    """
+    Verify if the Squid proxy port is open and reachable.
+    """
+    import asyncio
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(proxy_url)
+        host = parsed.hostname
+        port = parsed.port or 80
+        # Try to establish a socket connection
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port),
+            timeout=3.0
+        )
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except Exception as exc:
+        logger.warning(
+            "worker_proxy_health_check_failed",
+            extra={"extra_fields": {"proxy": proxy_url, "target": target_url, "error": str(exc)}}
+        )
+        return False

@@ -1,6 +1,6 @@
 """add year and month to fuel inquiries
 
-Revision ID: 014_add_year_month_to_fuel_inquiries
+Revision ID: 014_add_year_month_fuel
 Revises: 013_add_admin_driver_schedules
 Create Date: 2026-07-07 12:00:00.000000
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = '014_add_year_month_to_fuel_inquiries'
+revision: str = '014_add_year_month_fuel'
 down_revision: str | None = '013_add_admin_driver_schedules'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None

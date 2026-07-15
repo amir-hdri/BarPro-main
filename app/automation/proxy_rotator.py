@@ -357,6 +357,10 @@ class ProxyRotator:
             host = (parsed.hostname or "").strip().lower()
 
             # Explicit whitelist of allowed internal docker hosts
+            # These are Docker gateway/internal addresses used to reach the
+            # Squid proxy (which runs with network_mode: host) from within
+            # Docker bridge network containers. They are architecturally safe
+            # because Squid enforces its own ACL rules for external access.
             allowed_internal_hosts = {
                 "squid_1",
                 "squid_2",
@@ -367,6 +371,12 @@ class ProxyRotator:
                 "localhost",
                 "127.0.0.1",
                 "::1",
+                # Docker bridge gateway — routes to the host where Squid listens
+                # (network_mode: host). Standard Docker bridge subnets:
+                "172.20.0.1",   # barpro_platform network gateway
+                "172.17.0.1",   # default Docker bridge gateway
+                "192.168.65.1", # Docker Desktop for Mac host gateway
+                "host.docker.internal",  # Docker Desktop hostname for host
             }
             if host in allowed_internal_hosts:
                 return True

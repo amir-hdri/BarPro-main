@@ -1,12 +1,14 @@
 import asyncio
 import logging
 from urllib.parse import urlparse
+import httpx
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
+from app.auth_multitenant import get_current_admin
 from app.automation.browser import browser_manager
 from app.automation.captcha import barname_ml_solver, captcha_engine
 from app.core.config import utcms_config
@@ -14,6 +16,7 @@ from app.core.database import engine
 from app.core.recovery import recovery_manager
 from app.core.security import require_sensitive_auth
 from app.core.worker_heartbeat import worker_heartbeat_registry
+
 from app.monitoring.metrics import (
     METRICS_CONTENT_TYPE,
     export_metrics,
@@ -278,7 +281,7 @@ async def metrics():
     return Response(content=export_metrics(), media_type=METRICS_CONTENT_TYPE)
 
 
-@router.get("/events/history")
+@router.get("/events/history", dependencies=[Depends(get_current_admin)])
 async def event_history(task_id: str | None = Query(default=None), batch_id: str | None = Query(default=None)):
     return {
         "events": event_hub.history(task_id=task_id, batch_id=batch_id),
@@ -286,7 +289,7 @@ async def event_history(task_id: str | None = Query(default=None), batch_id: str
     }
 
 
-@router.get("/workers/heartbeats")
+@router.get("/workers/heartbeats", dependencies=[Depends(get_current_admin)])
 async def worker_heartbeats():
     stalled = worker_heartbeat_registry.detect_stalled(utcms_config.WORKER_STALL_TIMEOUT_SECONDS)
     return {
@@ -296,7 +299,7 @@ async def worker_heartbeats():
     }
 
 
-@router.post("/workers/recover-stalled")
+@router.post("/workers/recover-stalled", dependencies=[Depends(get_current_admin)])
 async def recover_stalled_workers():
     recovered = await recovery_manager.recover_stalled_tasks()
     return {
@@ -321,7 +324,7 @@ async def auth_config():
     }
 
 
-@router.post("/captcha/diagnose")
+@router.post("/captcha/diagnose", dependencies=[Depends(get_current_admin)])
 async def captcha_diagnose(request: CaptchaDiagnoseRequest):
     decision = captcha_engine.solve_text_with_confidence(request.text)
     min_confidence = (
@@ -342,7 +345,7 @@ async def captcha_diagnose(request: CaptchaDiagnoseRequest):
     }
 
 
-@router.get("/captcha/monitor")
+@router.get("/captcha/monitor", dependencies=[Depends(get_current_admin)])
 async def captcha_monitor(window: int = Query(default=50, ge=5, le=200)):
     snapshot = get_captcha_runtime_snapshot(window_size=window)
     rate = float(snapshot["window"]["failure_rate"])
@@ -369,7 +372,7 @@ async def captcha_monitor(window: int = Query(default=50, ge=5, le=200)):
     }
 
 
-@router.get("/browser-pool/health")
+@router.get("/browser-pool/health", dependencies=[Depends(get_current_admin)])
 async def browser_pool_health():
     """Health check for browser pool with detailed status."""
     from app.automation.browser import browser_manager
@@ -416,7 +419,7 @@ async def browser_pool_health():
     }
 
 
-@router.post("/browser-pool/heal")
+@router.post("/browser-pool/heal", dependencies=[Depends(get_current_admin)])
 async def heal_browser_pool():
     """Heal unhealthy browser contexts."""
     from app.automation.browser import browser_manager
@@ -445,7 +448,7 @@ async def heal_browser_pool():
         }
 
 
-@router.get("/security/report")
+@router.get("/security/report", dependencies=[Depends(get_current_admin)])
 async def security_report():
     """Generate security configuration report."""
     from app.core.secrets_manager import secrets_manager
@@ -457,7 +460,7 @@ async def security_report():
     }
 
 
-@router.get("/errors/stats")
+@router.get("/errors/stats", dependencies=[Depends(get_current_admin)])
 async def error_statistics():
     """Get centralized error statistics."""
     # Temporary mock implementation, will fetch from db later if implemented
@@ -500,7 +503,7 @@ def _generate_security_recommendations(report: dict) -> list[str]:
     return recommendations
 
 
-@router.post("/circuit-breaker/toggle", dependencies=[Depends(require_sensitive_auth)])
+@router.post("/circuit-breaker/toggle", dependencies=[Depends(get_current_admin)])
 async def toggle_circuit_breaker(enabled: bool = Query(...)):
     """فعال یا غیرفعال کردن موقت قطع‌کننده مدار."""
     from app.services.itmb_ws_service import itmb_ws_service
@@ -511,3 +514,62 @@ async def toggle_circuit_breaker(enabled: bool = Query(...)):
         "enabled": enabled,
         "message": f"Circuit breaker {'enabled' if enabled else 'disabled'} successfully",
     }
+
+
+@router.get("/proxies/health", dependencies=[Depends(get_current_admin)])
+async def proxies_health():
+    """Check connection latency and health for Squid proxies."""
+    import os
+    import time
+
+    # List of proxies to check
+    proxies_to_check = []
+
+    # 1. Add standard worker proxies from environment
+    for i in (1, 2, 3):
+        env_val = os.getenv(f"WORKER_{i}_PROXY")
+        if env_val:
+            proxies_to_check.append((f"Squid {i} ({env_val})", env_val))
+        else:
+            # Fallback default port on host.docker.internal
+            port = 3127 + i  # 3128, 3129, 3130
+            proxies_to_check.append((f"Squid {i} (default)", f"http://172.20.0.1:{port}"))
+
+    # 2. Add extra proxies from RPA_PROXIES
+    rpa_proxies_raw = os.getenv("RPA_PROXIES", "")
+    if rpa_proxies_raw:
+        for idx, p in enumerate(rpa_proxies_raw.split(",")):
+            p = p.strip()
+            if p and p not in [item[1] for item in proxies_to_check]:
+                proxies_to_check.append((f"RPA Proxy {idx+1}", p))
+
+    async def check_single_proxy(name: str, url: str) -> dict:
+        start_time = time.time()
+        try:
+            async with httpx.AsyncClient(proxy=url, timeout=3.0) as client:
+                resp = await client.get("http://barname.utcms.ir/", follow_redirects=False)
+                latency = (time.time() - start_time) * 1000
+                return {
+                    "name": name,
+                    "url": url,
+                    "status": "healthy" if resp.status_code < 400 or resp.status_code == 302 else "unhealthy",
+                    "status_code": resp.status_code,
+                    "latency_ms": round(latency, 2),
+                    "error": None,
+                }
+        except Exception as e:
+            return {
+                "name": name,
+                "url": url,
+                "status": "dead",
+                "status_code": None,
+                "latency_ms": None,
+                "error": str(e),
+            }
+
+    # Run checks in parallel
+    tasks = [check_single_proxy(name, url) for name, url in proxies_to_check]
+    results = await asyncio.gather(*tasks)
+
+    return {"status": "success", "proxies": results}
+

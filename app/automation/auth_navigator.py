@@ -179,30 +179,121 @@ class AuthNavigator:
                 continue
         return None
 
+    async def wait_for_loading_overlays_to_disappear(self, timeout_ms: int = 15000) -> None:
+        """Wait for Iranian government style 'لطفا صبر کنید' or other loading masks to disappear."""
+        js_check = """
+        () => {
+            const selectors = [
+                ".loading", ".spinner", ".k-loading-mask", ".k-loading-image", ".k-loading-color",
+                "#loading", "#loading-box", ".loading-overlay", ".loading-mask", "div.modal-backdrop",
+                ".blockUI", ".blockMsg", ".blockPage"
+            ];
+            for (const sel of selectors) {
+                try {
+                    const els = document.querySelectorAll(sel);
+                    for (const el of els) {
+                        const rect = el.getBoundingClientRect();
+                        const style = window.getComputedStyle(el);
+                        if (style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0) {
+                            return true;
+                        }
+                    }
+                } catch (e) {}
+            }
+            try {
+                const xpathResult = document.evaluate(
+                    "//div[contains(., 'لطفا صبر کنید') or contains(., 'در حال بارگذاری')]",
+                    document,
+                    null,
+                    XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+                    null
+                );
+                for (let i = 0; i < xpathResult.snapshotLength; i++) {
+                    const el = xpathResult.snapshotItem(i);
+                    const rect = el.getBoundingClientRect();
+                    const style = window.getComputedStyle(el);
+                    if (style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0) {
+                        return true;
+                    }
+                }
+            } catch (e) {}
+            return false;
+        }
+        """
+        deadline = asyncio.get_running_loop().time() + (timeout_ms / 1000)
+        while asyncio.get_running_loop().time() < deadline:
+            try:
+                found_any = await self.page.evaluate(js_check)
+            except Exception:
+                found_any = False
+
+            if not found_any:
+                return
+
+            await asyncio.sleep(0.08)
+
+        logger.warning(
+            "auth_loading_overlay_timeout",
+            extra={"extra_fields": {"timeout_ms": timeout_ms, "action": "continuing_despite_overlay"}},
+        )
+
     # ------------------------------------------------------------------
     # Login result polling & post-login steps
     # ------------------------------------------------------------------
 
-    async def wait_for_login_result(self, timeout_ms: int = 25000) -> bool:
+    async def wait_for_login_result(self, timeout_ms: int = 35000) -> bool:
+        """Wait for login to complete by monitoring page state changes.
+
+        Detection strategies (in order of reliability):
+        1. Logout button visible → logged in
+        2. URL changed away from login URL → redirect succeeded
+        3. Authenticated URL pattern → logged in
+        4. Waybill or authenticated page markers found → logged in
+        5. Login error message appeared → failed
+        Falls back to final state check after timeout.
+        """
         deadline = asyncio.get_running_loop().time() + (timeout_ms / 1000)
+        poll_interval = 0.08
+
         while asyncio.get_running_loop().time() < deadline:
-            if await self.find_selector(AuthSelectors.LOGOUT_SELECTORS, visible=True, timeout=300):
+            # Strategy 1: Logout button (most reliable signal)
+            if await self.find_selector(AuthSelectors.LOGOUT_SELECTORS, visible=True, timeout=400):
                 return True
+
+            current_url = await self.current_url()
+
+            # Strategy 2: URL navigated away from login page — wait for it to settle
+            if current_url and not is_login_url(current_url):
+                if is_authenticated_url(current_url):
+                    return True
+                # Give the page a moment to finish loading after redirect
+                try:
+                    await self.page.wait_for_load_state("domcontentloaded", timeout=3000)
+                except Exception:
+                    pass
+                # Re-check URL after load
+                current_url = await self.current_url()
+                if current_url and not is_login_url(current_url):
+                    return True
+
+            # Strategy 3: Waybill/authenticated page markers
             if await self.find_selector(AuthSelectors.WAYBILL_FORM_MARKERS, timeout=300):
                 return True
             if await self.find_selector(AuthSelectors.AUTHENTICATED_PAGE_MARKERS, timeout=300):
                 return True
-            current_url = await self.current_url()
-            if is_authenticated_url(current_url):
-                return True
-            if not await self.looks_like_login_page():
-                if not is_login_url(current_url):
-                    return True
+
+            # Strategy 4: Explicit login error in the page
             login_error = await self.extract_login_error()
             if login_error:
                 return False
-            await asyncio.sleep(0.07)
-        return not await self.looks_like_login_page() and not is_login_url(await self.current_url())
+
+            await asyncio.sleep(poll_interval)
+
+        # Timeout reached — final authoritative state check
+        final_url = await self.current_url()
+        if final_url and not is_login_url(final_url):
+            return True
+        return not await self.looks_like_login_page()
 
     async def handle_post_login(self) -> bool:
         try:

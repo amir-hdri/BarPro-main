@@ -145,7 +145,10 @@ class SmartLocator:
                 # Update cache on success
                 self._cache[cache_key] = raw_selector
                 if index > 1:
-                    self._logger.info(f"smart_locator_selector_fallback_success: {raw_selector} (index={index})")
+                    self._logger.warning(
+                        f"smart_locator_selector_fallback_success: {raw_selector} (index={index}). "
+                        f"Primary selector failed. DOM layout might have changed."
+                    )
                 return locator
             except Exception as exc:
                 failures.append({"selector": raw_selector, "error": str(exc)})

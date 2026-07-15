@@ -251,6 +251,8 @@ export interface WaybillJob {
   started_at?: string | null;
   finished_at?: string | null;
   payload_json?: string | null;
+  client_name?: string | null;
+  client_code?: string | null;
 }
 
 export interface WaybillTaskListResponse {
@@ -280,6 +282,7 @@ export interface JobTimelineResponse {
   total: number;
   page: number;
   page_size: number;
+  progress_percent?: number;
 }
 
 export interface ReportMetricCard {
@@ -322,6 +325,7 @@ export interface DriverReport {
     client_name: string;
     driver_id: number;
     driver_name: string;
+    driver_national_code?: string;
     status: string;
     source: string;
     last_error?: string;
@@ -330,6 +334,7 @@ export interface DriverReport {
     created_at: string;
     finished_at?: string;
   }>;
+
   total: number;
   page: number;
   page_size: number;

@@ -49,7 +49,17 @@ class AsyncCircuitBreaker:
         self._failure_count = 0
         self._opened_at: float | None = None
         self._half_open_inflight = 0
-        self._lock = asyncio.Lock()
+        self._lock: asyncio.Lock | None = None
+        self._lock_loop: asyncio.AbstractEventLoop | None = None
+
+    @property
+    def _safe_lock(self) -> asyncio.Lock:
+        """Recreate lock if event loop changed (cross-loop safety for workers)."""
+        current = asyncio.get_event_loop()
+        if self._lock is None or self._lock_loop != current:
+            self._lock = asyncio.Lock()
+            self._lock_loop = current
+        return self._lock
 
     @property
     def enabled(self) -> bool:
@@ -63,7 +73,7 @@ class AsyncCircuitBreaker:
         if not self._enabled:
             return
 
-        async with self._lock:
+        async with self._safe_lock:
             self._move_open_to_half_open_if_ready()
 
             if self._state == "open":
@@ -78,7 +88,7 @@ class AsyncCircuitBreaker:
         if not self._enabled:
             return
 
-        async with self._lock:
+        async with self._safe_lock:
             self._state = "closed"
             self._failure_count = 0
             self._opened_at = None
@@ -88,7 +98,7 @@ class AsyncCircuitBreaker:
         if not self._enabled:
             return
 
-        async with self._lock:
+        async with self._safe_lock:
             if self._state == "half_open":
                 self._state = "open"
                 self._opened_at = time.monotonic()
@@ -103,7 +113,7 @@ class AsyncCircuitBreaker:
                 self._half_open_inflight = 0
 
     async def snapshot(self) -> CircuitSnapshot:
-        async with self._lock:
+        async with self._safe_lock:
             self._move_open_to_half_open_if_ready()
             return CircuitSnapshot(
                 state=self._state,

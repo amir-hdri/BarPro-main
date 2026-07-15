@@ -4,7 +4,7 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
-from app.auth_multitenant import get_current_client
+from app.auth_multitenant import get_current_client, get_current_user_or_admin
 from app.core.database import get_session
 from app.main import app
 from app.models_multitenant import Client, Driver
@@ -192,6 +192,7 @@ def test_list_drivers_success(test_client):
     mock_session.exec.return_value = mock_result
 
     app.dependency_overrides[get_current_client] = lambda: mock_client
+    app.dependency_overrides[get_current_user_or_admin] = lambda: {"role": "client", "user": mock_client}
     app.dependency_overrides[get_session] = lambda: mock_session
 
     response = test_client.get("/api/v1/drivers")
@@ -235,6 +236,7 @@ def test_list_drivers_with_status_filter(test_client):
     mock_session.exec.return_value = mock_result
 
     app.dependency_overrides[get_current_client] = lambda: mock_client
+    app.dependency_overrides[get_current_user_or_admin] = lambda: {"role": "client", "user": mock_client}
     app.dependency_overrides[get_session] = lambda: mock_session
 
     response = test_client.get("/api/v1/drivers?status_filter=active")

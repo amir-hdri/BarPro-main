@@ -138,7 +138,7 @@ class BrowserManager:
 
     async def recycle_browser(self):
         """Force close the browser and all contexts to free memory (RAM recycling)."""
-        self._ensure_loop_resources()
+        await self._ensure_loop_resources()
         async with self._init_lock:
             logger.info("Recycling browser process to free up memory (RAM recycling)...")
 
@@ -183,7 +183,7 @@ class BrowserManager:
             self._success_count_recycle = 0
             await self.recycle_browser()
 
-    def _ensure_loop_resources(self):
+    async def _ensure_loop_resources(self):
         current_loop = asyncio.get_running_loop()
         if (
             not hasattr(self, "_loop")
@@ -192,6 +192,11 @@ class BrowserManager:
             or self._init_lock is None
         ):
             if hasattr(self, "_loop") and self._loop is not None and self._loop != current_loop:
+                if self.playwright:
+                    try:
+                        await self.playwright.stop()
+                    except Exception:
+                        logger.warning("Failed to stop previous Playwright instance on loop change", exc_info=True)
                 self.playwright = None
                 self.browser = None
                 self._pool = None
@@ -203,7 +208,7 @@ class BrowserManager:
 
     async def initialize(self):
         """Initialize the browser instance"""
-        self._ensure_loop_resources()
+        await self._ensure_loop_resources()
         if self.playwright and self.browser and (not utcms_config.BROWSER_POOL_ENABLED or self._pool is not None):
             return
 
@@ -258,6 +263,7 @@ class BrowserManager:
             "--disable-gpu",
             "--disable-crashpad-for-testing",
             "--disable-crash-reporter",
+            "--disable-dbus",
         ]
 
         # CRITICAL: Always set a writeable, local HOME directory in environment.
@@ -350,7 +356,7 @@ class BrowserManager:
         if auth_state_dir:
             os.makedirs(auth_state_dir, exist_ok=True)
 
-        self._ensure_loop_resources()
+        await self._ensure_loop_resources()
         async with self._state_lock:
             try:
                 await context.storage_state(path=effective_auth_state_path)

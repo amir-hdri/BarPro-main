@@ -11,6 +11,12 @@ from app.core.circuit_breaker import (
 
 
 @pytest.fixture(autouse=True)
+def three_ip_indices():
+    with patch.dict(os.environ, {"AVAILABLE_IP_INDICES": "1,2,3"}):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def clean_redis_cache():
     import app.core.circuit_breaker
 
