@@ -256,14 +256,13 @@ class BrowserManager:
         return await self.playwright.chromium.launch(**options)
 
     async def _launch_browser_with_fallback(self) -> Browser:
+        # Minimal args for Chromium 109 in Docker containers
+        # IMPORTANT: Don't add crashpad/breakpad flags - they cause issues in Celery workers
         launch_args = [
             "--no-sandbox",
             "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
             "--disable-gpu",
-            "--disable-crashpad-for-testing",
-            "--disable-crash-reporter",
-            "--disable-dbus",
         ]
 
         # CRITICAL: Always set a writeable, local HOME directory in environment.
@@ -274,6 +273,9 @@ class BrowserManager:
         os.makedirs(fallback_home, exist_ok=True)
         launch_env = os.environ.copy()
         launch_env["HOME"] = fallback_home
+        # Disable crashpad completely to prevent SIGTRAP
+        launch_env["CHROME_NO_CRASHPAD"] = "1"
+        launch_env["BREAKPAD_DISABLE"] = "1"
 
         launch_options = {
             "headless": utcms_config.HEADLESS,

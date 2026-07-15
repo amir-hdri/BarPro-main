@@ -60,6 +60,8 @@ x-backend-common: &backend-common
     MASTER_ADMIN_PASSWORD: ${MASTER_ADMIN_PASSWORD}
     KERAS_PYTHON_PATH: ${KERAS_PYTHON_PATH:-python3}
     KERAS_MODEL_PATH: ${KERAS_MODEL_PATH:-persian_number_ocr.keras}
+    # ✅ استفاده از system chromium به جای Playwright's chromium (CDN blocked in Iran)
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
   networks: [platform]
   extra_hosts:
     - "host.docker.internal:host-gateway"
@@ -124,6 +126,7 @@ services:
       WORKER_ID: "1"
       WORKER_IP_INDEX: 1
       RPA_PROXIES: http://172.20.0.1:3128
+      PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
     healthcheck:
       test: ['CMD-SHELL', 'celery -A app.workers.celery_app:celery_app inspect ping 2>/dev/null | grep -q pong || exit 1']
       interval: 60s
@@ -157,6 +160,7 @@ services:
       WORKER_ID: "2"
       WORKER_IP_INDEX: 2
       RPA_PROXIES: http://172.20.0.1:3129
+      PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
     healthcheck:
       test: ['CMD-SHELL', 'celery -A app.workers.celery_app:celery_app inspect ping 2>/dev/null | grep -q pong || exit 1']
       interval: 60s
@@ -190,6 +194,7 @@ services:
       WORKER_ID: "3"
       WORKER_IP_INDEX: 3
       RPA_PROXIES: http://172.20.0.1:3130
+      PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
     healthcheck:
       test: ['CMD-SHELL', 'celery -A app.workers.celery_app:celery_app inspect ping 2>/dev/null | grep -q pong || exit 1']
       interval: 60s
