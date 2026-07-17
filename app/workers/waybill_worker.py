@@ -127,6 +127,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
         job.submit_after = None
         runtime_state.state = DriverRuntimeStateValue.SUBMITTING.value
         runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+        await session.commit()
 
         await _add_job_log(
             session=session,
@@ -144,7 +145,6 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
             event_type=JOB_EXECUTION_STARTED,
             payload={"attempt": job.attempt_count, "worker_id": job.worker_id},
         )
-        await session.commit()
 
         driver = await session.get(Driver, job.driver_id)
         if not driver:
@@ -164,14 +164,6 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
         # Use simple worker proxy helper — bypasses proxy_rotator's cooldown/geo-check
         # that could return None, leaving Chromium without proxy → navigation timeout.
         proxy_dict = get_playwright_proxy()
-        proxy_url = proxy_dict.get("server") if proxy_dict else None
-        if proxy_url:
-            from app.automation.worker_proxy import check_proxy_health
-            is_healthy = await check_proxy_health(proxy_url)
-            if not is_healthy:
-                logger.error(f"Proxy health check failed for {proxy_url}. Raising ConnectionError to trigger Celery retry.")
-                raise ConnectionError(f"Squid proxy {proxy_url} is down or unreachable.")
-
         async with managed_browser_session(auth_state_path=auth_state_path, proxy_dict=proxy_dict) as (
             _session_id,
             context,
@@ -203,6 +195,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                     runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
                     runtime_state.next_retry_at = retry_at
                     runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    await session.commit()
 
                     await _add_job_log(
                         session=session,
@@ -221,11 +214,8 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                         event_type=OTP_DETECTED,
                         payload={"retry_at": retry_at.isoformat(), "message": job.last_error},
                     )
-                    await session.commit()
 
                     logger.info(f"Job {job_id} entered OTP_BACKOFF, retry at {job.next_retry_at}")
-                    await browser_manager.record_success_for_recycle()
-                    await _close_page_quickly(page)
                     return result
 
                 if result_status == TaskStatus.SUCCESS.value:
@@ -239,6 +229,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                     runtime_state.state = DriverRuntimeStateValue.READY.value
                     runtime_state.next_retry_at = None
                     runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    await session.commit()
 
                     await _add_job_log(
                         session=session,
@@ -257,11 +248,9 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                         event_type=JOB_EXECUTION_SUCCEEDED,
                         payload={"attempt": job.attempt_count},
                     )
-                    await session.commit()
 
                     logger.info(f"Job {job_id} completed successfully")
                     await browser_manager.record_success_for_recycle()
-                    await _close_page_quickly(page)
                     return result
 
                 job.last_error = result.get("error", "Unknown error")
@@ -294,6 +283,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                     runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
                     runtime_state.next_retry_at = retry_at
                     runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    await session.commit()
 
                     await _add_job_log(
                         session=session,
@@ -317,10 +307,8 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                             "error_category": job.error_category,
                         },
                     )
-                    await session.commit()
 
                     logger.info(f"Job {job_id} moved to WAITING_RETRY until {retry_at.isoformat()}")
-                    await _close_page_quickly(page)
                     return {
                         **result,
                         "status": TaskStatus.WAITING_RETRY.value,
@@ -337,6 +325,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                 runtime_state.state = DriverRuntimeStateValue.READY.value
                 runtime_state.next_retry_at = None
                 runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                await session.commit()
 
                 await _add_job_log(
                     session=session,
@@ -355,29 +344,17 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                     event_type=JOB_EXECUTION_FAILED,
                     payload={"error": job.last_error, "error_category": job.error_category},
                 )
-                await session.commit()
 
                 logger.warning(f"Job {job_id} failed permanently: {result.get('error')}")
-
                 from app.core.circuit_breaker import check_and_report_failure
 
                 await check_and_report_failure(result.get("error", "Unknown error"))
-                await _close_page_quickly(page)
                 return result
-            except Exception:
-                # Ensure page is closed on any bot execution exception
-                await _close_page_quickly(page)
-                raise
             finally:
-                # Final safety: ensure page is closed
-                try:
-                    await _close_page_quickly(page)
-                except Exception:
-                    pass
+                await _close_page_quickly(page)
 
     except Exception as e:
         logger.error(f"Job {job_id} execution error: {e}", exc_info=True)
-
         from app.core.circuit_breaker import check_and_report_failure
 
         await check_and_report_failure(str(e))
@@ -391,6 +368,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                 job.finished_at = _utcnow_naive()
                 runtime_state.state = DriverRuntimeStateValue.ERROR_REVIEW.value
                 runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                await session.commit()
                 await _record_event(
                     session=session,
                     client_id=job.client_id,
@@ -399,7 +377,6 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                     event_type="worker.exception",
                     payload={"error": str(e)},
                 )
-                await session.commit()
         except Exception as persist_err:
             logger.warning("job_failed_state_persist_error", extra={"extra_fields": {"error": str(persist_err)}})
 
@@ -437,21 +414,6 @@ async def _get_or_create_runtime_state(
         state = DriverRuntimeState(client_id=client_id, driver_id=driver_id)
         session.add(state)
         await session.flush()
-    elif state.client_id != client_id:
-        # Self-heal: correct stale client_id in runtime state
-        logger.warning(
-            "worker_runtime_state_client_id_corrected",
-            extra={
-                "extra_fields": {
-                    "driver_id": driver_id,
-                    "old_client_id": state.client_id,
-                    "correct_client_id": client_id,
-                }
-            },
-        )
-        state.client_id = client_id
-        session.add(state)
-        await session.flush()
     return state
 
 
@@ -461,13 +423,7 @@ async def _update_job_status(
     error: str | None = None,
     error_category: str | None = None,
 ):
-    """Update job status in database.
-
-    Reads the previous status so the Redis queue-depth counter can be kept in
-    sync via task_service (avoids counter drift for worker-side updates).
-    """
-    from app.services.task_service import task_service
-
+    """Update job status in database."""
     session = async_session_factory()
     try:
         statement = select(WaybillJob).where(WaybillJob.job_id == job_id)
@@ -475,7 +431,6 @@ async def _update_job_status(
         job = result.first()
 
         if job:
-            old_status = job.status
             job.status = status
             if error:
                 job.last_error = error
@@ -483,10 +438,7 @@ async def _update_job_status(
                 job.error_category = error_category
             if status in [TaskStatus.SUCCESS.value, TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value]:
                 job.finished_at = _utcnow_naive()
-            session.add(job)
-            await session.flush()
-            if old_status != status:
-                await task_service._adjust_queue_depth(old_status, status)
+            await session.commit()
     finally:
         await session.close()
 
@@ -510,7 +462,7 @@ async def _record_event(
         payload_json=json.dumps(payload, ensure_ascii=False),
     )
     session.add(event)
-    await session.flush()
+    await session.commit()
 
 
 async def _add_job_log(
@@ -532,4 +484,4 @@ async def _add_job_log(
         details_json=details_json,
     )
     session.add(log)
-    await session.flush()
+    await session.commit()

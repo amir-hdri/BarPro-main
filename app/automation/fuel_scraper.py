@@ -461,7 +461,8 @@ class FuelScraper:
             await asyncio.sleep(2.0)
 
         # Captcha Solve Loop (in-place retry, no page reload)
-        max_attempts = 4
+        # Increased max attempts to 6 for better reliability on complex Persian word captchas
+        max_attempts = 6
         for attempt in range(1, max_attempts + 1):
             logger.info(f"Captcha attempt {attempt} of {max_attempts} for quota type {quota_type}")
 
@@ -656,13 +657,14 @@ class FuelScraper:
             raise WaybillError("تصویر کپچا در صفحه یافت نشد")
 
         # Extract original image bytes via HTML5 Canvas to avoid CSS scale/border distortion
+        # Added check for naturalWidth to ensure image is actually loaded
         js_code = """
         () => {
             const img = document.querySelector("#imgCapchaEdit1");
-            if (!img) return null;
+            if (!img || !img.complete || img.naturalWidth === 0) return null;
             const canvas = document.createElement("canvas");
-            canvas.width = img.naturalWidth || 300;
-            canvas.height = img.naturalHeight || 40;
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
             const ctx = canvas.getContext("2d");
             ctx.drawImage(img, 0, 0);
             return canvas.toDataURL("image/png");
@@ -671,13 +673,15 @@ class FuelScraper:
         try:
             data_url = await self.page.evaluate(js_code)
             if not data_url or "," not in data_url:
-                raise ValueError("Canvas returned empty or invalid data url")
+                raise ValueError("Canvas returned empty or invalid data url (image might not be loaded)")
             import base64
 
             image_bytes = base64.b64decode(data_url.split(",", 1)[1])
             logger.info("Successfully extracted captcha image via HTML5 canvas.")
         except Exception as e:
             logger.warning(f"Failed to extract captcha via canvas: {e}. Falling back to element screenshot.")
+            # Wait a bit more before screenshot as fallback
+            await asyncio.sleep(1.0)
             image_bytes = await captcha_element.screenshot(type="png")
 
         try:

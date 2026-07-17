@@ -138,7 +138,7 @@ class BrowserManager:
 
     async def recycle_browser(self):
         """Force close the browser and all contexts to free memory (RAM recycling)."""
-        await self._ensure_loop_resources()
+        self._ensure_loop_resources()
         async with self._init_lock:
             logger.info("Recycling browser process to free up memory (RAM recycling)...")
 
@@ -183,7 +183,7 @@ class BrowserManager:
             self._success_count_recycle = 0
             await self.recycle_browser()
 
-    async def _ensure_loop_resources(self):
+    def _ensure_loop_resources(self):
         current_loop = asyncio.get_running_loop()
         if (
             not hasattr(self, "_loop")
@@ -192,11 +192,6 @@ class BrowserManager:
             or self._init_lock is None
         ):
             if hasattr(self, "_loop") and self._loop is not None and self._loop != current_loop:
-                if self.playwright:
-                    try:
-                        await self.playwright.stop()
-                    except Exception:
-                        logger.warning("Failed to stop previous Playwright instance on loop change", exc_info=True)
                 self.playwright = None
                 self.browser = None
                 self._pool = None
@@ -208,7 +203,7 @@ class BrowserManager:
 
     async def initialize(self):
         """Initialize the browser instance"""
-        await self._ensure_loop_resources()
+        self._ensure_loop_resources()
         if self.playwright and self.browser and (not utcms_config.BROWSER_POOL_ENABLED or self._pool is not None):
             return
 
@@ -256,14 +251,13 @@ class BrowserManager:
         return await self.playwright.chromium.launch(**options)
 
     async def _launch_browser_with_fallback(self) -> Browser:
-        # Minimal args for Chromium 109 in Docker containers
-        # IMPORTANT: Don't add crashpad/breakpad flags - they cause issues in Celery workers
         launch_args = [
             "--no-sandbox",
             "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
             "--disable-gpu",
-            "--disable-dbus",
+            "--disable-crashpad-for-testing",
+            "--disable-crash-reporter",
         ]
 
         # CRITICAL: Always set a writeable, local HOME directory in environment.
@@ -274,9 +268,6 @@ class BrowserManager:
         os.makedirs(fallback_home, exist_ok=True)
         launch_env = os.environ.copy()
         launch_env["HOME"] = fallback_home
-        # Disable crashpad completely to prevent SIGTRAP
-        launch_env["CHROME_NO_CRASHPAD"] = "1"
-        launch_env["BREAKPAD_DISABLE"] = "1"
 
         launch_options = {
             "headless": utcms_config.HEADLESS,
@@ -359,7 +350,7 @@ class BrowserManager:
         if auth_state_dir:
             os.makedirs(auth_state_dir, exist_ok=True)
 
-        await self._ensure_loop_resources()
+        self._ensure_loop_resources()
         async with self._state_lock:
             try:
                 await context.storage_state(path=effective_auth_state_path)
@@ -375,13 +366,22 @@ class BrowserManager:
             return
         context = self._contexts[session_id]
         try:
+            # Close all pages within the context explicitly before closing the context itself
+            for page in context.pages:
+                try:
+                    await asyncio.wait_for(page.close(), timeout=5)
+                except Exception as page_exc:
+                    logger.warning(
+                        "close_page_in_context_failed",
+                        extra={"extra_fields": {"session_id": session_id, "page_url": page.url, "error": str(page_exc)}},
+                    )
+
             if self._pool and session_id in self._pooled_sessions:
                 if success:
                     self._pool.record_success(context)
                 else:
                     self._pool.record_failure(context, error or "Context execution failed")
 
-            if session_id in self._pooled_sessions and self._pool is not None:
                 await asyncio.wait_for(self._pool.release(context), timeout=30)
                 self._pooled_sessions.discard(session_id)
             else:

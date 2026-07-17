@@ -1,6 +1,6 @@
 <div align="center">
   <img src="https://img.shields.io/badge/Status-Production%20Ready-success?style=for-the-badge" alt="Status" />
-  <img src="https://img.shields.io/badge/Version-1.0.0-blue?style=for-the-badge" alt="Version" />
+  <img src="https://img.shields.io/badge/Version-1.0.1-blue?style=for-the-badge" alt="Version" />
   <img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge" alt="License" />
 </div>
 
@@ -28,7 +28,6 @@
 
 ### 🏢 Real Multi-tenancy
 * **Data Isolation:** Strict data separation at the database level using scoped access.
-* **Unified Admin Access:** Master Admin can bypass tenant isolation to view and manage resources globally across all tenants with injected metadata.
 * **Independent Profiles:** Manage fleets, drivers, and routes for each tenant securely.
 * **Master Admin Dashboard:** Centralized control for onboarding, quota management, and global live monitoring.
 
@@ -37,12 +36,14 @@
 * **Smart Map Injection:** Direct coordinate injection into JavaScript globals to bypass interactive search bottlenecks.
 * **Intelligent Captcha Solver:** ML-powered login math CAPTCHA, PyTorch fuel CAPTCHA, and Keras OCR fallback with automatic retry logic.
 * **Self-Healing Navigation:** Dynamic element detection and "Loading Overlay" management for resilient web interactions.
+* **Optimized Browser Context Management:** Enhanced cleanup of browser contexts and pages to prevent memory leaks and improve stability.
 
 ### 🛡️ Enterprise-Grade Resilience
-* **Pre-flight Proxy Checks:** Worker-level pre-flight connectivity check verifying Squid proxy availability to UTCMS before launching browser sessions, preventing failures.
 * **Automatic Stuck Job Recovery:** Periodic cleanup of jobs stuck in `QUEUED` or `IN_PROGRESS` states.
 * **Global Safety Net:** Integrated error handling that prevents processing deadlocks during unexpected browser crashes.
 * **Session Persistence:** Intelligent session bundle storage to minimize redundant logins and reduce detection footprints.
+* **Event Loop Stability:** Critical fix implemented in Celery workers to ensure stable asynchronous operations and prevent `RuntimeError: Event loop is already running` issues.
+* **Streamlined Database Transactions:** Optimized database commit frequency to reduce load and improve performance under high concurrency.
 
 ---
 
@@ -88,6 +89,8 @@ cd apps/web && npm install
 ### 2. Environment Setup
 Create a `.env` file in the root directory. Configure your database, Redis, and security keys based on the provided `.env.example` (or internal documentation).
 
+**Important Security Note:** After enabling HTTPS for your Nginx setup, ensure you update `AUTH_COOKIE_SECURE=true` in your `.env` file for enhanced cookie security.
+
 ### 3. Running the System
 The system is managed via a unified management script for easy operations:
 
@@ -122,27 +125,27 @@ bash manage.sh status
 
 ### 💎 ویژگی‌های برتر
 
-* **معماری چند مستاجره واقعی (Multi-tenant):** جداسازی کامل و امن داده‌های شرکت‌های مختلف.
-* **موتور رباتیک پیشرفته:** شبیه‌سازی فوق‌العاده دقیق رفتار انسانی (تایپ، حرکت موس، مکث‌ها) و حل خودکار کپچاهای پیچیده تصویری و ریاضی.
-* **احراز هویت امن‌تر:** JWT در کوکی `httpOnly` نگهداری می‌شود و فرانت‌اند فقط اطلاعات غیرحساس کاربر را در localStorage ذخیره می‌کند.
-* **سرعت بالا و بهینه‌سازی شده:** تزریق مستقیم موقعیت‌های جغرافیایی روی نقشه و حذف تاخیرهای استاتیک جهت تسریع بی‌نظیر صدور بارنامه.
-* **تاب‌آوری هوشمند:** بازیابی خودکار عملیات متوقف شده (Self-Healing) و مقاومت در برابر قطعی‌های موقت شبکه یا اختلال در مرورگر.
+*   **معماری چند مستاجره واقعی (Multi-tenant):** جداسازی کامل و امن داده‌های شرکت‌های مختلف.
+*   **موتور رباتیک پیشرفته:** شبیه‌سازی فوق‌العاده دقیق رفتار انسانی (تایپ، حرکت موس، مکث‌ها) و حل خودکار کپچاهای پیچیده تصویری و ریاضی. مدیریت بهینه Context مرورگر برای جلوگیری از نشت حافظه.
+*   **احراز هویت امن‌تر:** JWT در کوکی `httpOnly` نگهداری می‌شود و فرانت‌اند فقط اطلاعات غیرحساس کاربر را در localStorage ذخیره می‌کند. (با فعالسازی HTTPS، `AUTH_COOKIE_SECURE=true` را تنظیم کنید).
+*   **سرعت بالا و بهینه‌سازی شده:** تزریق مستقیم موقعیت‌های جغرافیایی روی نقشه و حذف تاخیرهای استاتیک جهت تسریع بی‌نظیر صدور بارنامه. بهینه‌سازی مدیریت تراکنش‌های دیتابیس.
+*   **تاب‌آوری هوشمند:** بازیابی خودکار عملیات متوقف شده (Self-Healing) و مقاومت در برابر قطعی‌های موقت شبکه یا اختلال در مرورگر. رفع مشکل تداخل Event Loop در Workerها.
 
 ### 🚦 راه اندازی سریع
 
-1. **نصب وابستگی‌های پایتون:** 
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
-2. **نصب مرورگر مورد نیاز ربات:** `playwright install chromium`
-3. **نصب وابستگی‌های رابط کاربری (Frontend):** `cd apps/web && npm install`
-4. **اجرای سیستم:** 
-   ```bash
-   # راه‌اندازی کل سرویس‌ها با اسکریپت مدیریت
-   bash manage.sh start
-   ```
+1.  **نصب وابستگی‌های پایتون:** 
+    ```bash
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
+    ```
+2.  **نصب مرورگر مورد نیاز ربات:** `playwright install chromium`
+3.  **نصب وابستگی‌های رابط کاربری (Frontend):** `cd apps/web && npm install`
+4.  **اجرای سیستم:** 
+    ```bash
+    # راه‌اندازی کل سرویس‌ها با اسکریپت مدیریت
+    bash manage.sh start
+    ```
 
 ---
 *For extensive architecture and operational documentation, please refer to the `docs/` folder.*
@@ -152,5 +155,5 @@ bash manage.sh status
 - Frontend and backend Docker images build from a clean checkout; `.next/standalone` no longer needs to be uploaded manually.
 - Current HTTP deployment must keep `AUTH_COOKIE_SECURE=false`; after enabling HTTPS, set `AUTH_COOKIE_SECURE=true`.
 - Required runtime ML assets are `persian_number_ocr.keras`, `app/automation/captcha/assets/fuel_captcha_crnn.pth`, and `app/automation/captcha/assets/fuel_captcha_vocab.json`.
-- Current Alembic head is `017_fix_runtime_state_client_id`.
-- Active monitoring now includes a `/proxies/health` latency endpoint for proxy health checks.
+- Current Alembic head is `015_add_client_subscription_dates`.
+- **Nginx HTTPS Enabled**: The Nginx configuration has been updated to enable HTTPS and redirect HTTP traffic. Ensure SSL certificates (`fullchain.pem` and `privkey.pem`) are properly configured in `/etc/nginx/ssl/` on your server.

@@ -9,7 +9,7 @@ import socks
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-IP = "95.38.233.90"
+IP = "188.121.123.16"
 USERNAME = "ubuntu"
 PASSWORD = "Amaterasoo1"
 

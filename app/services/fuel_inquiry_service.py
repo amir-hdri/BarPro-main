@@ -56,6 +56,20 @@ class FuelInquiryService:
                 detail="راننده پلاک فعال ندارد؛ ابتدا یک پلاک فعال ثبت کنید",
             )
 
+        # Check for existing pending/processing inquiry for same driver/period to prevent duplicates
+        existing_stmt = select(FuelInquiry).where(
+            (FuelInquiry.driver_id == driver.id) &
+            (FuelInquiry.year == request.year) &
+            (FuelInquiry.month == request.month) &
+            (FuelInquiry.status.in_(["pending", "processing"]))
+        )
+        existing_res = await session.exec(existing_stmt)
+        if existing_res.first():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="یک استعلام فعال برای این راننده و دوره در جریان است",
+            )
+
         # Create DB record
         inquiry = FuelInquiry(
             client_id=client.id,
@@ -103,12 +117,9 @@ class FuelInquiryService:
             count_stmt = select(func.count(FuelInquiry.id))
         else:
             client = user_context["user"]
-            statement = select(FuelInquiry).where(
-                (FuelInquiry.client_id == client.id) & (FuelInquiry.status != "failed")
-            )
-            count_stmt = select(func.count(FuelInquiry.id)).where(
-                (FuelInquiry.client_id == client.id) & (FuelInquiry.status != "failed")
-            )
+            # Allow clients to see failed inquiries so they know why something didn't work
+            statement = select(FuelInquiry).where(FuelInquiry.client_id == client.id)
+            count_stmt = select(func.count(FuelInquiry.id)).where(FuelInquiry.client_id == client.id)
 
         if driver_id is not None:
             statement = statement.where(FuelInquiry.driver_id == driver_id)
@@ -177,8 +188,7 @@ class FuelInquiryService:
             client = user_context["user"]
             statement = select(FuelInquiry).where(
                 (FuelInquiry.client_id == client.id) & 
-                (FuelInquiry.id == inquiry_id) & 
-                (FuelInquiry.status != "failed")
+                (FuelInquiry.id == inquiry_id)
             )
         result = await session.exec(statement)
         inquiry = result.first()

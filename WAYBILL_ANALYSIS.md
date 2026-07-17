@@ -1,122 +1,67 @@
-# گزارش تحلیل ۳ بارنامه اخیر در سرور (RCA Report)
+# گزارش تحلیل جامع فرآیند ثبت بارنامه در پروژه BarPro
 
-بر اساس بررسی‌های انجام شده در سرور `188.121.123.16` (از طریق اتصال SSH با کاربری `ubuntu`) و دیتابیس PostgreSQL کانتینر `barpro-postgres` (دیتابیس `utcms_rpa`)، وضعیت ۳ بارنامه آخر ثبت شده به همراه علت خطاها و راه‌حل رفع آن‌ها در ادامه آمده است.
+این گزارش نتیجه ارزیابی دقیق معماری بک‌اند، مدل‌های داده، لایه‌های API و فرآیندهای خودکارسازی ثبت بارنامه در پروژه **barpro-main** است.
 
----
+## ۱. معماری و جریان داده (Data Flow)
 
-## 📊 خلاصه وضعیت ۳ بارنامه آخر سرور
+پروژه از دو مسیر موازی برای ثبت بارنامه استفاده می‌کند که نشان‌دهنده یک معماری در حال گذار از سیستم قدیمی به سیستم چند-مستاجری (Multi-tenant) است:
 
-هر ۳ بارنامه آخر ثبت شده در سرور با خطا مواجه شده‌اند:
+### الف) مسیر مستقیم (Direct API)
+- **Endpoint**: `/waybill/create-with-map`
+- **سرویس**: `waybill_service.create_waybill_with_map`
+- **رفتار**: این مسیر به صورت **Synchronous** عمل می‌کند. یک مرورگر Playwright باز شده، عملیات لاگین، حل کپچا و ثبت انجام می‌شود و نتیجه مستقیماً به کاربر برگردانده می‌شود.
+- **ریسک**: در صورت کندی سامانه هدف یا حجم بالای درخواست، این لایه می‌تواند باعث بلاک شدن Workerهای API شود.
 
-| شناسه دیتابیس | شناسه تسک (Job ID) | کلید یکتا (Idempotency Key) | وضعیت | تعداد تلاش | زمان ثبت (UTC) | خطا (Last Error) |
-|---|---|---|---|---|---|---|
-| **6** | `job_01ce2f3d9ca4456a` | `schedule:4:2026-07-05@20:00` | **Failed** | 0 | `2026-07-05 20:00:00` | *(خالی)* |
-| **5** | `job_129f28d9f2cf4901` | `schedule:4:2026-07-04@20:00` | **Failed** | 1 | `2026-07-04 20:40:00` | Task got Future attached to a different loop |
-| **4** | `job_2872e9381f024ce8` | `schedule:4:2026-07-03@20:00` | **Failed** | 2 | `2026-07-03 20:00:00` | Task got Future attached to a different loop |
-
----
-
-## 🔍 جزئیات و لاگ‌های هر بارنامه
-
-### ۱. بارنامه شماره ۴ (`job_2872e9381f024ce8`) و شماره ۵ (`job_129f28d9f2cf4901`)
-
-#### لاگ‌های ثبت شده در جدول `waybill_task_logs`:
-* **بارنامه ۴:**
-  * در تاریخ `2026-07-04 09:24:29`: به وضعیت `pending` و سپس `queued` منتقل شد و اولین تلاش ناموفق بود.
-  * در تاریخ `2026-07-04 09:24:36`: مجدداً ریکوئست دستی انجام شد (تلاش دوم).
-  * در تاریخ `2026-07-05 16:28:31`: مجدداً ریکوئست دستی شد و به کارگر (worker) فرستاده شد که فوراً شکست خورد.
-* **بارنامه ۵:**
-  * در تاریخ `2026-07-05 16:28:11`: ریکوئست دستی شد و به کارگر فرستاده شد.
-  * در تاریخ `2026-07-05 16:28:49`: مجدداً ریکوئست دستی شد و به کارگر فرستاده شد که فوراً شکست خورد.
-
-#### خطای ذخیره شده (Last Error):
-```
-Task <Task pending name='Task-8' coro=<_execute_job() running at /app/app/workers/waybill_worker.py:119>
-cb=[_run_until_complete_cb() at /usr/local/lib/python3.11/asyncio/base_events.py:181]>
-got Future <Future pending cb=[BaseProtocol._on_waiter_completed()]> attached to a different loop
-```
-
-#### 🛡️ علت ریشه‌ای خطا (RCA):
-در بهینه‌سازی‌های اعمال شده در تاریخ ۱۰ تیر ۱۴۰۵ (2026-06-30)، متد `engine.dispose()` از پایان اجرای تسک‌های Celery حذف شد تا از باز و بسته شدن مکرر کانکشن‌های دیتابیس (Connection Storm) جلوگیری شود و اتصالات از طریق Connection Pool باز بمانند.
-اما در فایل `app/workers/waybill_worker.py` تسک اجرای بارنامه همچنان با استفاده از متد استاندارد `asyncio.run(_execute_job(...))` اجرا می‌شود.
-متد `asyncio.run()` برای هر بار اجرای تسک، یک **حلقه رویداد (Event Loop) جدید و موقت** می‌سازد و پس از اتمام کار آن را می‌بندد. از آنجا که اتصال به دیتابیس در Connection Pool گلوبال ذخیره شده و به حلقه قبلی متصل بوده‌است، در اجرای بعدی تسک با حلقه جدید مواجه شده و خطای فوق رخ می‌دهد.
+### ب) مسیر صف‌بندی شده (Queued/Background)
+- **Endpoint**: `/waybill/queue/create-with-map` و `/waybill-jobs` (نسخه جدید)
+- **مدل داده**: `WaybillJob` و `WaybillTask`
+- **سرویس**: `rpa_scheduler_service` و `WaybillJobService`
+- **رفتار**: درخواست در دیتابیس ذخیره شده و توسط Celery Workerها به صورت **Asynchronous** پردازش می‌شود.
 
 ---
 
-### ۲. بارنامه شماره ۶ (`job_01ce2f3d9ca4456a`)
+## ۲. تحلیل مدل‌های داده و Migrationها
 
-#### لاگ‌های ثبت شده در دیتابیس:
-* این تسک هیچ لاگی در جدول `waybill_task_logs` ندارد.
-* در جدول `domain_events` تنها یک رویداد با نام `job.created` در تاریخ `2026-07-05 20:00:00.149345` ثبت شده است.
-* زمان شروع اجرای تسک: `2026-07-05 20:00:00.265206`
-* زمان اتمام تسک: `2026-07-05 20:00:02.844006` (مدت زمان دقیقاً ۲.۵۸ ثانیه)
-* فیلد `last_error` مقدار خالی (`""`) دارد و `attempt_count` برابر با `0` است.
+### ساختار دیتابیس
+- استفاده از **SQLModel** (ترکیب SQLAlchemy و Pydantic) که انتخابی مدرن و کارآمد است.
+- جداسازی منطق داده‌ها در `models_multitenant.py` و `models_rpa.py`.
+- **Tenant Isolation**: در اکثر جداول ستون `client_id` وجود دارد و در لایه سرویس با استفاده از `enforce_tenant_filter` اعمال می‌شود.
 
-#### 🛡️ علت ریشه‌ای خطا (RCA):
-این تسک توسط زمان‌بند خودکار اجرا شده است. طبق کد فایل `app/services/scheduled_waybill_executor.py` در ابتدای متد `_execute_single_job` برای شبیه‌سازی رفتار انسانی، یک لرزش اولیه (Start Jitter) بین ۱ تا ۵ ثانیه اعمال می‌شود:
-```python
-if attempt == 1:
-    start_jitter = random.uniform(1.0, 5.0)
-    await asyncio.sleep(start_jitter)
-```
-در زمان دقیقاً ۲.۵۸ ثانیه پس از شروع تسک (وسط اجرای `asyncio.sleep`)، کانتینر کارگر (Celery Worker) یا داکر سیستم توسط مدیر سرور متوقف یا ری‌استارت شده است (که در لاگ‌ها و زمان ساخت کانتینرها در همان حوالی مشخص است).
-توقف کانتینر باعث فرستادن سیگنال لغو به تسک در حال اجرا و پرتاب استثنای `asyncio.CancelledError` شده است. از آنجا که `str(CancelledError())` یک رشته خالی (`""`) است، خطا به عنوان رشته خالی ثبت شده و چون لغو تسک قبل از اتمام تلاش اول بوده است، فیلد `attempt_count` مقدار `0` باقی مانده است.
+### مشکلات شناسایی شده در لایه داده:
+1.  **ناهمسانی مدل‌ها**: وجود همزمان `WaybillTask` (قدیمی) و `WaybillJob` (جدید چند-مستاجری). این مشکل تا حد زیادی با یکپارچه‌سازی `task_service.py` برای استفاده از `WaybillJob` به جای `WaybillTask` در snapshotها و لیست کردن تسک‌ها برطرف شده است. با این حال، نیاز به مهاجرت کامل داده‌های `WaybillTask` به `WaybillJob` و حذف `WaybillTask` از codebase وجود دارد.
+2.  **Commitهای مکرر**: در فایل `waybill_worker.py` و `task_service.py` در هر مرحله از تغییر وضعیت تسک، یک `commit` جداگانه انجام می‌شود که در بار بالا باعث ایجاد گلوگاه در دیتابیس می‌شود. این مورد نیاز به بهینه‌سازی بیشتر در مدیریت تراکنش‌ها دارد.
 
 ---
 
-## 🛠️ راهکار پیشنهادی برای رفع خطا در سیستم لوکال و سرور
+## ۳. ارزیابی فرآیند خودکارسازی (RPA)
 
-برای حل همیشگی خطای `attached to a different loop` در تسک‌های بارنامه قدیمی، باید فایل [waybill_worker.py](file:///Users/amirheidari/GitHub/BarPro-main/app/workers/waybill_worker.py) را به گونه‌ای اصلاح کنیم که مانند دیگر کارگرها (`tasks.py` و `phase1_tasks.py`) از یک حلقه رویداد پایدار و مشترک در سطح هر پروسس استفاده کند.
+### نقاط قوت:
+- **Self-healing**: استفاده از `SmartLocator` برای مقابله با تغییرات جزئی در DOM سامانه هدف.
+- **Captcha Solving**: سیستم منعطف با قابلیت استفاده از مدل‌های محلی (CNN/Keras) یا سرویس‌های ابری.
+- **Proxy Rotation**: مدیریت هوشمند پروکسی‌ها برای جلوگیری از بن شدن IP.
 
-### تغییرات پیشنهادی در [waybill_worker.py](file:///Users/amirheidari/GitHub/BarPro-main/app/workers/waybill_worker.py):
+### گپ‌ها و مشکلات فنی (Technical Gaps):
+1.  **تداخل Event Loop**: (مشکل بحرانی در سرور) این مشکل با تغییر `waybill_worker.py` برای استفاده از یک Event Loop پایدار و مشترک در سطح هر پروسس Worker حل شده است.
+2.  **مدیریت OTP**: فرآیند OTP به صورت "Backoff" است؛ یعنی اگر OTP لازم باشد، تسک متوقف شده و به زمان دیگری موکول می‌شود. گپ اصلی اینجاست که مکانیزمی برای **دریافت OTP از کاربر در لحظه** (Real-time OTP Injection) در مسیر خودکار وجود ندارد. این مورد نیاز به پیاده‌سازی یک WebSocket Channel برای اطلاع‌رسانی به کاربر و دریافت کد دارد.
+3.  **عدم پاکسازی کامل**: در برخی مسیرهای خطا، Context مرورگر به درستی بسته نمی‌شود که منجر به نشت حافظه (Memory Leak) در درازمدت می‌گردد. این مورد نیاز به بررسی و اطمینان از بسته شدن صحیح تمام منابع Playwright در تمام سناریوهای خطا دارد.
 
-```diff
--def process_waybill_job(self, job_id: str):
--    try:
--        result = asyncio.run(_execute_job(self, job_id))
--        return result
--    except Exception as e:
-+
-+_WAYBILL_EVENT_LOOP: asyncio.AbstractEventLoop | None = None
-+
-+
-+def _get_waybill_loop() -> asyncio.AbstractEventLoop:
-+    global _WAYBILL_EVENT_LOOP
-+    if _WAYBILL_EVENT_LOOP is None or _WAYBILL_EVENT_LOOP.is_closed():
-+        _WAYBILL_EVENT_LOOP = asyncio.new_event_loop()
-+        asyncio.set_event_loop(_WAYBILL_EVENT_LOOP)
-+    return _WAYBILL_EVENT_LOOP
-+
-+
-+def _run(coro):
-+    loop = _get_waybill_loop()
-+    return loop.run_until_complete(coro)
-+
-+
-+@celery_app.task(
-+    bind=True,
-+    base=WaybillTask,
-+    name="waybill.process_job",
-+    queue="waybill_tasks",
-+    acks_late=True,
-+    reject_on_worker_lost=True,
-+)
-+def process_waybill_job(self, job_id: str):
-+    try:
-+        result = _run(_execute_job(self, job_id))
-+        return result
-+    except Exception as e:
-         logger.error(f"Job {job_id} failed with exception: {e}", exc_info=True)
-         from app.core.circuit_breaker import check_and_report_failure
-         try:
--            asyncio.run(check_and_report_failure(str(e)))
-+            _run(check_and_report_failure(str(e)))
-         except Exception as cb_err:
-             logger.warning("circuit_breaker_report_failed", extra={"extra_fields": {"error": str(cb_err)}})
-         try:
--            asyncio.run(_update_job_status(job_id, TaskStatus.FAILED.value, str(e), "unknown"))
-+            _run(_update_job_status(job_id, TaskStatus.FAILED.value, str(e), "unknown"))
-         except Exception as db_err:
-             logger.error("update_job_status_failed", extra={"extra_fields": {"error": str(db_err)}})
-         raise
-```
+---
+
+## ۴. مقایسه نسخه لوکال و سرور
+
+| ویژگی | نسخه سرور (Production) | نسخه لوکال کاربر (پس از اعمال تغییرات) |
+|---|---|---|
+| **وضعیت Git** | پایدار | ۸ کامیت جلوتر از Origin (شامل اصلاحات اعمال شده) |
+| **تغییرات کلیدی** | فاقد بهینه‌سازی‌های اخیر سوخت | اضافه شدن `FuelInquiryService` و جلوگیری از درخواست تکراری، بهبود OCR فارسی، اصلاح Event Loop |
+| **پایداری** | دارای خطای Event Loop | خطای Event Loop برطرف شده است |
+| **قابلیت‌های جدید** | پایه | سیستم استعلام سوخت پیشرفته و بهبود OCR فارسی |
+
+---
+
+## ۵. پیشنهادات معمار بک‌اند (Backend Architect Recommendations)
+
+1.  **یکپارچه‌سازی مدل‌ها**: حذف تدریجی `WaybillTask` و انتقال تمام منطق به `WaybillJob` برای جلوگیری از سردرگمی در گزارش‌گیری. این فرآیند آغاز شده و `task_service.py` برای استفاده از `WaybillJob` به‌روزرسانی شده است.
+2.  **بهبود مدیریت تراکنش**: تجمیع عملیات دیتابیس و کاهش تعداد `commit`ها در چرخه حیات یک تسک. این مورد نیاز به بررسی عمیق‌تر و بازسازی برخی سرویس‌ها دارد.
+3.  **سیستم OTP تعاملی**: پیاده‌سازی یک WebSocket Channel برای اطلاع‌رسانی به کاربر در زمان نیاز به OTP و دریافت کد بدون متوقف کردن کامل فرآیند.
+4.  **امنیت لایه شبکه**: با توجه به نبود HTTPS در تنظیمات Nginx فعلی، اکیداً توصیه می‌شود گواهینامه SSL نصب شده و `AUTH_COOKIE_SECURE` فعال گردد.
+5.  **مانیتورینگ منابع**: با توجه به محدودیت ۱۲ گیگابایتی رم برای ۱۳ کانتینر، مانیتورینگ دقیق `Chromium` برای جلوگیری از OOM (Out of Memory) ضروری است.

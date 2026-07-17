@@ -13,7 +13,6 @@ from app.core.alerts import alert_manager
 from app.core.config import utcms_config
 from app.core.database import engine
 from app.core.execution_context import generate_correlation_id
-from app.core.redis import redis_manager
 from app.models_legacy import WaybillTask
 from app.models_multitenant import WaybillJob
 from app.monitoring.metrics import set_queue_depth, summarize_queue_depth, track_task_status
@@ -24,172 +23,6 @@ logger = logging.getLogger(__name__)
 
 
 class WaybillTaskService:
-    # Redis-backed queue-depth counters (avoid full-table scans on every transition)
-    QUEUE_DEPTH_KEY = "barpro:queue_depth"
-    QUEUE_DEPTH_SEEDED = "barpro:queue_depth:seeded"
-
-    def _queue_depth_status_values(self) -> list[str]:
-        return [
-            TaskStatus.QUEUED.value,
-            TaskStatus.PROCESSING.value,
-            TaskStatus.RETRYING.value,
-            TaskStatus.SUCCEEDED.value,
-            TaskStatus.FAILED.value,
-            TaskStatus.DEAD_LETTER.value,
-        ]
-
-    def _snapshot_from_counts(self, counts: dict[str, int]) -> dict[str, int]:
-        return {
-            "queued": counts.get(TaskStatus.QUEUED.value, 0),
-            "processing": counts.get(TaskStatus.PROCESSING.value, 0),
-            "retrying": counts.get(TaskStatus.RETRYING.value, 0),
-            "succeeded": counts.get(TaskStatus.SUCCEEDED.value, 0),
-            "failed": counts.get(TaskStatus.FAILED.value, 0),
-            "dead_letter": counts.get(TaskStatus.DEAD_LETTER.value, 0),
-        }
-
-    async def _redis_queue_depth(self) -> dict[str, int] | None:
-        """Return cached counters from Redis, or None if unavailable/unseeded."""
-        try:
-            redis = await redis_manager.get()
-        except Exception:
-            return None
-        if redis is None:
-            return None
-        try:
-            seeded = await redis.get(self.QUEUE_DEPTH_SEEDED)
-            if not seeded:
-                return None
-            raw = await redis.hgetall(self.QUEUE_DEPTH_KEY)
-            if not raw:
-                return None
-            return {k: int(v) for k, v in raw.items()}
-        except Exception as exc:
-            logger.warning("queue_depth_redis_read_failed", extra={"extra_fields": {"error": str(exc)}})
-            return None
-
-    async def _ensure_queue_depth_seeded(self) -> None:
-        """Seed the Redis counters once from a DB scan.
-
-        Uses a Redis SETNX lock so that concurrent API processes (or a worker
-        and the API racing at startup) cannot double-seed / double-scan. The
-        loser of the race simply returns; the winner performs the scan and
-        sets the seeded flag inside the lock window.
-        """
-        try:
-            redis = await redis_manager.get()
-        except Exception:
-            return
-        if redis is None:
-            return
-        lock_key = f"{self.QUEUE_DEPTH_KEY}:seed_lock"
-        acquired = False
-        try:
-            # Best-effort distributed lock; fall back to scanning if Redis is
-            # flaky rather than blocking startup.
-            try:
-                acquired = await redis.set(lock_key, "1", nx=True, ex=60)
-            except Exception:
-                acquired = False
-
-            # If we didn't acquire the lock, someone else is (or already has)
-            # seeded. Skip to avoid a redundant full table scan.
-            if not acquired and await redis.get(self.QUEUE_DEPTH_SEEDED):
-                return
-
-            # Re-check after acquiring the lock (or if lock infra failed but it
-            # is not yet seeded) to avoid a second scan by a late caller.
-            if await redis.get(self.QUEUE_DEPTH_SEEDED):
-                return
-
-            async with AsyncSession(engine, expire_on_commit=False) as session:
-                rows = (await session.execute(select(WaybillTask.status))).all()
-            counts = dict.fromkeys(self._queue_depth_status_values(), 0)
-            for row in rows:
-                status = row[0]
-                if status in counts:
-                    counts[status] += 1
-            await redis.hset(self.QUEUE_DEPTH_KEY, mapping={k: str(v) for k, v in counts.items()})
-            await redis.set(self.QUEUE_DEPTH_SEEDED, "1")
-        except Exception as exc:
-            logger.warning("queue_depth_seed_failed", extra={"extra_fields": {"error": str(exc)}})
-        finally:
-            if acquired:
-                try:
-                    await redis.delete(lock_key)
-                except Exception:
-                    pass
-
-    async def reconcile_queue_depth(self) -> dict[str, int] | None:
-        """Recompute counters directly from the DB and overwrite the Redis cache.
-
-        Call this periodically (e.g. from a Celery beat task or a background
-        loop) to self-heal any drift caused by status updates that bypass
-        task_service (direct SQL, worker-side writes, crashed processes, etc).
-        Returns the fresh snapshot, or None if Redis is unavailable.
-        """
-        try:
-            redis = await redis_manager.get()
-        except Exception:
-            return None
-        if redis is None:
-            return None
-        try:
-            async with AsyncSession(engine, expire_on_commit=False) as session:
-                rows = (await session.execute(select(WaybillTask.status))).all()
-            counts = dict.fromkeys(self._queue_depth_status_values(), 0)
-            for row in rows:
-                status = row[0]
-                if status in counts:
-                    counts[status] += 1
-            await redis.hset(self.QUEUE_DEPTH_KEY, mapping={k: str(v) for k, v in counts.items()})
-            await redis.set(self.QUEUE_DEPTH_SEEDED, "1")
-            return self._snapshot_from_counts(counts)
-        except Exception as exc:
-            logger.warning("queue_depth_reconcile_failed", extra={"extra_fields": {"error": str(exc)}})
-            return None
-
-    async def _queue_depth_snapshot(self) -> dict[str, int]:
-        counts = await self._redis_queue_depth()
-        if counts is not None:
-            return self._snapshot_from_counts(counts)
-        # Fallback: seed from DB (full scan) and return the result.
-        await self._ensure_queue_depth_seeded()
-        counts = await self._redis_queue_depth()
-        if counts is not None:
-            return self._snapshot_from_counts(counts)
-        # Last-resort fallback when Redis is unavailable: scan the table.
-        return await self.queue_snapshot()
-
-    async def _adjust_queue_depth(self, old_status: str, new_status: str) -> None:
-        await self._ensure_queue_depth_seeded()
-        try:
-            redis = await redis_manager.get()
-        except Exception:
-            return
-        if redis is None:
-            return
-        try:
-            async with redis.pipeline() as pipe:
-                pipe.hincrby(self.QUEUE_DEPTH_KEY, old_status, -1)
-                pipe.hincrby(self.QUEUE_DEPTH_KEY, new_status, 1)
-                await pipe.execute()
-        except Exception as exc:
-            logger.warning("queue_depth_adjust_failed", extra={"extra_fields": {"error": str(exc)}})
-
-    async def _incr_queue_depth(self, status: str) -> None:
-        await self._ensure_queue_depth_seeded()
-        try:
-            redis = await redis_manager.get()
-        except Exception:
-            return
-        if redis is None:
-            return
-        try:
-            await redis.hincrby(self.QUEUE_DEPTH_KEY, status, 1)
-        except Exception as exc:
-            logger.warning("queue_depth_incr_failed", extra={"extra_fields": {"error": str(exc)}})
-
     @staticmethod
     def build_idempotency_key(payload: dict[str, Any], provided: str | None = None) -> str:
         if provided is not None:
@@ -215,19 +48,26 @@ class WaybillTaskService:
         payload.setdefault("batch_id", payload.get("session_id") or payload["correlation_id"])
         task_payload = json.dumps(payload, ensure_ascii=False)
 
-        async with AsyncSession(engine, expire_on_commit=False) as session:
+        async with AsyncSession(engine) as session:
             existing = await self._find_by_idempotency_key(session, idempotency_key)
             if existing:
                 await self._sync_queue_depth()
-                return existing, True
+                return self._to_public_dict(existing), True
 
-            task = WaybillTask(
-                task_id=str(uuid.uuid4()),
+            task = WaybillJob(
+                job_id=f"job_{uuid.uuid4().hex[:16]}",
                 idempotency_key=idempotency_key,
                 status=TaskStatus.QUEUED.value,
                 payload_json=task_payload,
                 max_retries=max(0, int(retries)),
                 retryable=False,
+                client_id=1, # Assuming a default client_id for legacy tasks, this needs to be properly handled for multi-tenancy
+                driver_id=1, # Assuming a default driver_id for legacy tasks, this needs to be properly handled for multi-tenancy
+                source="legacy",
+                correlation_id=payload.get("correlation_id", generate_correlation_id()),
+                business_date=datetime.now(UTC).strftime("%Y-%m-%d"),
+                priority=payload.get("priority", utcms_config.CELERY_DEFAULT_PRIORITY),
+                submit_after=datetime.now(UTC).replace(tzinfo=None),
             )
             session.add(task)
             try:
@@ -241,16 +81,9 @@ class WaybillTaskService:
                 raise
             await session.refresh(task)
             track_task_status(TaskStatus.QUEUED.value)
-            await self._ensure_queue_depth_seeded()
-            await self._incr_queue_depth(TaskStatus.QUEUED.value)
             await self._sync_queue_depth()
-            await self._emit_task_event(
-                task.task_id,
-                TaskStatus.QUEUED.value,
-                self._to_public_dict(task),
-                self._safe_json_load(task.payload_json),
-            )
-            return task, False
+            await self._emit_task_event(task.job_id, TaskStatus.QUEUED.value)
+            return self._to_public_dict(task), False
 
     async def set_celery_task_id(self, task_id: str, celery_task_id: str) -> None:
         await self._update_task(
@@ -262,8 +95,9 @@ class WaybillTaskService:
                     "updated_at": datetime.now(UTC).replace(tzinfo=None),
                 },
             ),
-            event_type="dispatched",
         )
+        # For WaybillJob, task_id is job_id
+        await self._emit_task_event(task_id, "dispatched")
 
     async def mark_processing(self, task_id: str, worker_id: str | None, attempt_count: int) -> None:
         await self._update_task(
@@ -278,9 +112,9 @@ class WaybillTaskService:
                     "updated_at": datetime.now(UTC).replace(tzinfo=None),
                 },
             ),
-            event_type=TaskStatus.PROCESSING.value,
             metric_status=TaskStatus.PROCESSING.value,
         )
+        await self._emit_task_event(task_id, TaskStatus.PROCESSING.value)
 
     async def mark_retrying(
         self,
@@ -302,9 +136,9 @@ class WaybillTaskService:
                     "updated_at": datetime.now(UTC).replace(tzinfo=None),
                 },
             ),
-            event_type=TaskStatus.RETRYING.value,
             metric_status=TaskStatus.RETRYING.value,
         )
+        await self._emit_task_event(task_id, TaskStatus.RETRYING.value)
 
     async def mark_success(self, task_id: str, result: dict[str, Any], attempt_count: int) -> None:
         await self._update_task(
@@ -321,9 +155,9 @@ class WaybillTaskService:
                     "updated_at": datetime.now(UTC).replace(tzinfo=None),
                 },
             ),
-            event_type=TaskStatus.SUCCEEDED.value,
             metric_status=TaskStatus.SUCCEEDED.value,
         )
+        await self._emit_task_event(task_id, TaskStatus.SUCCEEDED.value)
 
     async def mark_failure(
         self,
@@ -349,9 +183,9 @@ class WaybillTaskService:
                     "updated_at": datetime.now(UTC).replace(tzinfo=None),
                 },
             ),
-            event_type=next_status,
             metric_status=next_status,
         )
+        await self._emit_task_event(task_id, next_status)
         if dead_letter or not retryable:
             status = await self.get_task_status(task_id)
             alert_manager.emit(
@@ -368,7 +202,7 @@ class WaybillTaskService:
             )
 
     async def get_task_status(self, task_id: str) -> dict[str, Any] | None:
-        async with AsyncSession(engine, expire_on_commit=False) as session:
+        async with AsyncSession(engine) as session:
             if task_id.startswith("job_"):
                 statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
                 result = await session.execute(statement)
@@ -385,7 +219,7 @@ class WaybillTaskService:
             return self._to_public_dict(task)
 
     async def get_payload(self, task_id: str) -> dict[str, Any] | None:
-        async with AsyncSession(engine, expire_on_commit=False) as session:
+        async with AsyncSession(engine) as session:
             if task_id.startswith("job_"):
                 statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
                 result = await session.execute(statement)
@@ -402,8 +236,8 @@ class WaybillTaskService:
             return self._safe_json_load(task.payload_json)
 
     async def queue_snapshot(self) -> dict[str, int]:
-        async with AsyncSession(engine, expire_on_commit=False) as session:
-            all_tasks = (await session.execute(select(WaybillTask.status))).all()
+        async with AsyncSession(engine) as session:
+            all_tasks = (await session.execute(select(WaybillJob.status))).all()
             counters = {
                 TaskStatus.QUEUED.value: 0,
                 TaskStatus.PROCESSING.value: 0,
@@ -426,25 +260,19 @@ class WaybillTaskService:
             }
 
     async def list_tasks(self, limit: int = 50) -> list[dict[str, Any]]:
-        async with AsyncSession(engine, expire_on_commit=False) as session:
-            statement = select(WaybillTask).order_by(WaybillTask.updated_at.desc()).limit(max(1, min(500, int(limit))))
+        async with AsyncSession(engine) as session:
+            statement = select(WaybillJob).order_by(WaybillJob.updated_at.desc()).limit(max(1, min(500, int(limit))))
             result = await session.execute(statement)
             tasks = result.scalars().all()
             return [self._to_public_dict(task) for task in tasks]
 
-    async def _find_by_idempotency_key(self, session: AsyncSession, key: str) -> WaybillTask | None:
-        statement = select(WaybillTask).where(WaybillTask.idempotency_key == key)
+    async def _find_by_idempotency_key(self, session: AsyncSession, key: str) -> WaybillJob | None:
+            statement = select(WaybillJob).where(WaybillJob.idempotency_key == key)
         result = await session.execute(statement)
         return result.scalars().first()
 
-    async def _update_task(
-        self,
-        task_id: str,
-        updater,
-        event_type: str | None = None,
-        metric_status: str | None = None,
-    ) -> None:
-        async with AsyncSession(engine, expire_on_commit=False) as session:
+    async def _update_task(self, task_id: str, updater, metric_status: str | None = None) -> None:
+        async with AsyncSession(engine) as session:
             if task_id.startswith("job_"):
                 statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
                 result = await session.execute(statement)
@@ -454,32 +282,22 @@ class WaybillTaskService:
                 updater(job)
                 session.add(job)
                 await session.commit()
-                row = job
             else:
                 statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
                 result = await session.execute(statement)
                 task = result.scalars().first()
                 if not task:
                     return
-                old_status = task.status
                 updater(task)
                 session.add(task)
                 await session.commit()
-                row = task
-                new_status = task.status
-                if old_status != new_status:
-                    await self._adjust_queue_depth(old_status, new_status)
 
         if metric_status:
             track_task_status(metric_status)
         await self._sync_queue_depth()
-        if event_type is not None:
-            status_dict = self._to_public_dict(row)
-            payload_dict = self._safe_json_load(row.payload_json)
-            await self._emit_task_event(task_id, event_type, status_dict, payload_dict)
 
     async def _sync_queue_depth(self) -> None:
-        snapshot = await self._queue_depth_snapshot()
+        snapshot = await self.queue_snapshot()
         set_queue_depth(summarize_queue_depth(snapshot))
 
     @staticmethod
@@ -493,7 +311,7 @@ class WaybillTaskService:
             return None
 
     @staticmethod
-    def _apply_updates(task: WaybillTask, updates: dict[str, Any]) -> None:
+    def _apply_updates(task: Any, updates: dict[str, Any]) -> None:
         for key, value in updates.items():
             setattr(task, key, value)
 
@@ -534,20 +352,11 @@ class WaybillTaskService:
             priority = utcms_config.CELERY_DEFAULT_PRIORITY
         return max(utcms_config.CELERY_MIN_PRIORITY, min(utcms_config.CELERY_MAX_PRIORITY, priority))
 
-    async def _emit_task_event(
-        self,
-        task_id: str,
-        event_type: str,
-        status: dict[str, Any] | None = None,
-        payload: dict[str, Any] | None = None,
-    ) -> None:
-        # Prefer caller-supplied data to avoid re-querying the DB (no N+1 on hot path).
-        if status is None:
-            status = await self.get_task_status(task_id)
-        if status is None:
+    async def _emit_task_event(self, task_id: str, event_type: str) -> None:
+        status = await self.get_task_status(task_id)
+        if not status:
             return
-        if payload is None:
-            payload = await self.get_payload(task_id) or {}
+        payload = await self.get_payload(task_id) or {}
         await event_hub.publish(
             {
                 "type": event_type,

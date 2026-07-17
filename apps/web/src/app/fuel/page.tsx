@@ -179,17 +179,17 @@ const getFriendlyErrorMessage = (errCode: string | undefined): string => {
   if (!errCode) return 'خطای نامشخص سامانه';
   switch (errCode) {
     case '101':
-      return 'کد خطا: ۱۰۱ (عدم موفقیت در حل خودکار کپچا)';
+      return 'کد خطا: ۱۰۱ — عدم موفقیت در حل خودکار کپچا (پس از ۶ تلاش)';
     case '102':
-      return 'کد خطا: ۱۰۲ (اختلال در سامانه پرتال ملی)';
+      return 'کد خطا: ۱۰۲ — اختلال در سامانه پرتال ملی (خطای سرور)';
     case '103':
-      return 'کد خطا: ۱۰۳ (خطای ارتباط با شبکه یا پروکسی)';
+      return 'کد خطا: ۱۰۳ — خطای ارتباط با شبکه یا پروکسی (تایم‌اوت)';
     case '104':
-      return 'کد خطا: ۱۰۴ (پلاک فعال یافت نشد یا اطلاعات راننده نامعتبر است)';
+      return 'کد خطا: ۱۰۴ — پلاک فعال یافت نشد یا اطلاعات راننده نامعتبر است';
     case '100':
-      return 'کد خطا: ۱۰۰ (خطای عمومی نامشخص)';
+      return 'کد خطا: ۱۰۰ — خطای عمومی نامشخص (لطفاً مجدد تلاش کنید)';
     default:
-      return errCode;
+      return `خطای نامشناخته: ${errCode}`;
   }
 };
 
@@ -204,6 +204,40 @@ export default function FuelInquiryPage() {
   
   const [selectedYear, setSelectedYear] = useState<number>(1405);
   const [selectedMonth, setSelectedMonth] = useState<number>(4);
+
+  // Initialize with current Jalali date on mount
+  useEffect(() => {
+    // Simple Jalali date estimation for UI defaults
+    const now = new Date();
+    const tehranOffset = 3.5 * 60 * 60 * 1000;
+    const tehranTime = new Date(now.getTime() + tehranOffset);
+    const gy = tehranTime.getUTCFullYear();
+    const gm = tehranTime.getUTCMonth() + 1;
+    const gd = tehranTime.getUTCDate();
+
+    let jy = gy - 621;
+    let jm = 0;
+    
+    // Day of year
+    const days = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 335];
+    let gDayNo = 365 * (gy - 1) + Math.floor((gy - 1) / 4) - Math.floor((gy - 1) / 100) + Math.floor((gy - 1) / 400) + days[gm - 1] + gd;
+    if (gm > 2 && ((gy % 4 === 0 && gy % 100 !== 0) || gy % 400 === 0)) gDayNo++;
+    
+    let jDayNo = gDayNo - (365 * (jy + 620) + Math.floor((jy + 620) / 4) - Math.floor((jy + 620) / 100) + Math.floor((jy + 620) / 400)) - 79;
+    if (jDayNo < 0) {
+      jy--;
+      jDayNo += ((jy % 33) === 1 || (jy % 33) === 5 || (jy % 33) === 9 || (jy % 33) === 13 || (jy % 33) === 17 || (jy % 33) === 22 || (jy % 33) === 26 || (jy % 33) === 30) ? 366 : 365;
+    }
+
+    if (jDayNo < 186) {
+      jm = 1 + Math.floor(jDayNo / 31);
+    } else {
+      jm = 7 + Math.floor((jDayNo - 186) / 30);
+    }
+    
+    setSelectedYear(jy);
+    setSelectedMonth(jm);
+  }, []);
   
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -270,7 +304,6 @@ export default function FuelInquiryPage() {
   const groupedInquiries = useMemo(() => {
     const groups: Record<string, { driverName: string; plateNumber: string; clientInfo?: string; items: FuelInquiry[] }> = {};
     filteredInquiries.forEach((item) => {
-      if (!isAdmin && item.status === 'failed') return;
 
       const driverName = item.driver_name || 'نامشخص';
       const plateNumber = item.plate_number || 'بدون پلاک';
@@ -672,7 +705,7 @@ export default function FuelInquiryPage() {
                         disabled={submitting || loading}
                         className="field"
                       >
-                        {[1405, 1404, 1403, 1402].map((y) => (
+                        {Array.from({ length: 5 }, (_, i) => selectedYear + 1 - i).map((y) => (
                           <option key={y} value={y} className="bg-slate-900 text-white">{toPersianDigitsPreserveZero(y.toString())}</option>
                         ))}
                       </select>
