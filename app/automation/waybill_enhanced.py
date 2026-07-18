@@ -1314,7 +1314,10 @@ class EnhancedWaybillManager:
         if not isinstance(payload, dict):
             return None
 
-        success = bool(payload.get("success"))
+        success_value = payload.get("success")
+        success = success_value is True or success_value == 1 or (
+            isinstance(success_value, str) and success_value.strip().lower() == "true"
+        )
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         result_code = data.get("resultCode", payload.get("resultCode"))
         result_message = (
@@ -1328,7 +1331,7 @@ class EnhancedWaybillManager:
         document_id = obj.get("id") or payload.get("id")
         is_otp_needed = bool(obj.get("isOtpNeeded"))
 
-        resolved_success = success and (result_code in (None, 200, "200"))
+        resolved_success = success and result_code in (200, "200")
         return {
             "success": resolved_success,
             "document_id": document_id,
@@ -1345,7 +1348,7 @@ class EnhancedWaybillManager:
         result_code = payload.get("resultCode")
         result_message = payload.get("resultMessage") or payload.get("message") or payload.get("detail") or ""
         document_id = payload.get("obj") or payload.get("id")
-        success = result_code in (None, 200, "200")
+        success = result_code in (200, "200")
         return {
             "success": success,
             "document_id": document_id,
@@ -3421,7 +3424,12 @@ class EnhancedWaybillManager:
                     return {"success": False, "handled": True, "document_id": otp_state.get("document_id")}
                 except Exception:
                     continue
-            return {"success": True, "handled": True, "document_id": (submit_state or {}).get("document_id")}
+            return {
+                "success": False,
+                "handled": True,
+                "document_id": (submit_state or {}).get("document_id"),
+                "message": "ارسال کد OTP انجام نشد",
+            }
 
         # انتظار برای ورود دستی OTP
         if utcms_config.HEADLESS:

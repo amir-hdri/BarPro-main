@@ -79,10 +79,29 @@ class SubmitAdapter:
                 utcms_config.RPA_SUBMIT_ENDPOINT, json=payload, headers=headers, cookies=cookies
             )
         latency_ms = int((time.perf_counter() - start) * 1000)
+        raw_payload: dict[str, Any] = {"status_code": response.status_code}
+        try:
+            response_payload = response.json()
+        except ValueError:
+            response_payload = None
+        if isinstance(response_payload, dict):
+            raw_payload.update(response_payload)
+            data = response_payload.get("data") if isinstance(response_payload.get("data"), dict) else {}
+            obj = data.get("obj") if isinstance(data.get("obj"), dict) else {}
+            tracking_code = (
+                response_payload.get("tracking_code")
+                or response_payload.get("trackingCode")
+                or data.get("tracking_code")
+                or data.get("trackingCode")
+                or obj.get("tracking_code")
+                or obj.get("trackingCode")
+            )
+            if tracking_code is not None:
+                raw_payload["tracking_code"] = str(tracking_code).strip()
         return SubmitExecutionResult(
             classification=classify_submit_response(response.status_code, response.text),
             latency_ms=latency_ms,
-            raw_payload={"status_code": response.status_code},
+            raw_payload=raw_payload,
         )
 
 
@@ -226,6 +245,19 @@ class RPAHttpSubmitService:
 
                 await rpa_runtime.increment_attempt(client_id, job.driver_id)
                 classification = result.classification
+                if classification.outcome == SubmitOutcome.SUCCESS:
+                    raw_result = result.raw_payload if isinstance(result.raw_payload, dict) else {}
+                    tracking_code = raw_result.get("tracking_code")
+                    if not isinstance(tracking_code, str) or not tracking_code.strip():
+                        classification = SubmitClassification(
+                            outcome=SubmitOutcome.UNKNOWN_ERROR,
+                            reason_code="submission_unconfirmed",
+                            retryable=False,
+                            http_status=classification.http_status,
+                            message="Portal accepted the request without returning a tracking code",
+                            response_excerpt=classification.response_excerpt,
+                        )
+                        result.classification = classification
                 await self._record_attempt(session, job, runtime_state, classification, result.latency_ms)
 
                 if classification.outcome == SubmitOutcome.SUCCESS:
@@ -310,7 +342,7 @@ class RPAHttpSubmitService:
                 else:
                     job.status = (
                         TaskStatus.NEEDS_REVIEW.value
-                        if classification.outcome == SubmitOutcome.VALIDATION_ERROR
+                        if classification.outcome in {SubmitOutcome.VALIDATION_ERROR, SubmitOutcome.UNKNOWN_ERROR}
                         else TaskStatus.FAILED.value
                     )
                     job.error_category = _map_error_category(classification.outcome, classification.reason_code)
@@ -368,10 +400,11 @@ class RPAHttpSubmitService:
                     },
                 )
                 try:
-                    # Mark job as failed to prevent sticking in IN_PROGRESS
-                    job.status = TaskStatus.FAILED.value
+                    # The portal may have accepted the request before the local
+                    # process failed. Require reconciliation before another submit.
+                    job.status = TaskStatus.NEEDS_REVIEW.value
                     job.last_error = f"Unhandled crash: {str(core_exc)}"
-                    job.error_category = "system_error"
+                    job.error_category = "submission_unknown"
                     job.finished_at = datetime.now(UTC).replace(tzinfo=None)
                     job.celery_task_id = None
                     job.updated_at = datetime.now(UTC).replace(tzinfo=None)

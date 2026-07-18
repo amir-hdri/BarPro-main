@@ -5,6 +5,7 @@ import logging
 import os
 import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from playwright.async_api import BrowserContext, Page
@@ -19,6 +20,7 @@ from app.monitoring import (
 )
 
 logger = logging.getLogger(__name__)
+FUEL_SCREENSHOTS_DIR = Path(os.getenv("FUEL_SCREENSHOTS_DIR", "runtime/screenshots/fuel"))
 
 
 def parse_plate(plate_number: str) -> dict[str, str]:
@@ -100,7 +102,7 @@ class FuelScraper:
 
     async def scrape_fuel_quota(
         self,
-        username: str,
+        national_code: str,
         plate_number: str,
         inquiry_id: int,
         j_year: int | None = None,
@@ -109,7 +111,7 @@ class FuelScraper:
         """
         Queries fuel quota on ShowFuelQuota.aspx using driver national code and plate details.
         """
-        logger.info(f"Starting fuel quota scrape on ShowFuelQuota.aspx for driver {username} and plate {plate_number}")
+        logger.info("Starting fuel quota scrape on ShowFuelQuota.aspx for inquiry %s", inquiry_id)
 
         # Parse plate components
         try:
@@ -134,7 +136,7 @@ class FuelScraper:
         logger.info("Querying base quota...")
         try:
             base_rows = await self._query_quota_type(
-                username=username,
+                national_code=national_code,
                 plate_info=plate_info,
                 j_year=j_year,
                 j_month=j_month,
@@ -151,7 +153,7 @@ class FuelScraper:
         skip_nav_perf = len(base_rows) > 0
         try:
             perf_rows = await self._query_quota_type(
-                username=username,
+                national_code=national_code,
                 plate_info=plate_info,
                 j_year=j_year,
                 j_month=j_month,
@@ -165,7 +167,7 @@ class FuelScraper:
             )
             try:
                 perf_rows = await self._query_quota_type(
-                    username=username,
+                    national_code=national_code,
                     plate_info=plate_info,
                     j_year=j_year,
                     j_month=j_month,
@@ -212,15 +214,14 @@ class FuelScraper:
         perf_quota_sum = parse_liters(perf_rows)
 
         # Save screenshot
-        screenshots_dir = "app/ui/assets/screenshots"
-        os.makedirs(screenshots_dir, exist_ok=True)
+        FUEL_SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
         screenshot_filename = f"fuel_inquiry_{inquiry_id}.png"
-        screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
+        screenshot_path = FUEL_SCREENSHOTS_DIR / screenshot_filename
 
         screenshot_url = None
         try:
-            await self.page.screenshot(path=screenshot_path, full_page=True)
-            screenshot_url = f"/assets/screenshots/{screenshot_filename}"
+            await self.page.screenshot(path=str(screenshot_path), full_page=True)
+            screenshot_url = f"/api/v1/fuel-inquiries/{inquiry_id}/screenshot"
             logger.info(f"Fuel inquiry screenshot saved to {screenshot_path}")
         except Exception as e:
             logger.error(f"Failed to capture screenshot: {e}")
@@ -284,7 +285,7 @@ class FuelScraper:
 
     async def _query_quota_type(
         self,
-        username: str,
+        national_code: str,
         plate_info: dict[str, str],
         j_year: int,
         j_month: int,
@@ -335,7 +336,7 @@ class FuelScraper:
 
             # Fill form fields once
             try:
-                await self.page.fill("#NationalCode", username)
+                await self.page.fill("#NationalCode", national_code)
                 await self.page.select_option("#Year", str(j_year))
                 await self.page.select_option("#Month", str(j_month))
 

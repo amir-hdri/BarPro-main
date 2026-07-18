@@ -13,6 +13,7 @@ from app.core.alerts import alert_manager
 from app.core.config import utcms_config
 from app.core.database import engine
 from app.core.execution_context import generate_correlation_id
+from app.core.redis_client import redis_manager
 from app.models_legacy import WaybillTask
 from app.models_multitenant import WaybillJob
 from app.monitoring.metrics import set_queue_depth, summarize_queue_depth, track_task_status
@@ -23,6 +24,9 @@ logger = logging.getLogger(__name__)
 
 
 class WaybillTaskService:
+    QUEUE_DEPTH_KEY = "waybill:queue_depth"
+    QUEUE_DEPTH_SEEDED = "waybill:queue_depth:seeded"
+
     @staticmethod
     def build_idempotency_key(payload: dict[str, Any], provided: str | None = None) -> str:
         if provided is not None:
@@ -42,7 +46,7 @@ class WaybillTaskService:
         payload: dict[str, Any],
         idempotency_key: str,
         max_retries: int | None = None,
-    ) -> tuple[WaybillTask, bool]:
+    ) -> tuple[dict[str, Any], bool]:
         retries = utcms_config.CELERY_MAX_RETRIES if max_retries is None else max_retries
         payload.setdefault("correlation_id", generate_correlation_id())
         payload.setdefault("batch_id", payload.get("session_id") or payload["correlation_id"])
@@ -242,6 +246,7 @@ class WaybillTaskService:
                 TaskStatus.QUEUED.value: 0,
                 TaskStatus.PROCESSING.value: 0,
                 TaskStatus.RETRYING.value: 0,
+                TaskStatus.OTP_BACKOFF.value: 0,
                 TaskStatus.SUCCEEDED.value: 0,
                 TaskStatus.FAILED.value: 0,
                 TaskStatus.DEAD_LETTER.value: 0,
@@ -254,6 +259,7 @@ class WaybillTaskService:
                 "queued": counters[TaskStatus.QUEUED.value],
                 "processing": counters[TaskStatus.PROCESSING.value],
                 "retrying": counters[TaskStatus.RETRYING.value],
+                "otp_backoff": counters[TaskStatus.OTP_BACKOFF.value],
                 "succeeded": counters[TaskStatus.SUCCEEDED.value],
                 "failed": counters[TaskStatus.FAILED.value],
                 "dead_letter": counters[TaskStatus.DEAD_LETTER.value],
@@ -267,11 +273,13 @@ class WaybillTaskService:
             return [self._to_public_dict(task) for task in tasks]
 
     async def _find_by_idempotency_key(self, session: AsyncSession, key: str) -> WaybillJob | None:
-            statement = select(WaybillJob).where(WaybillJob.idempotency_key == key)
+        statement = select(WaybillJob).where(WaybillJob.idempotency_key == key)
         result = await session.execute(statement)
         return result.scalars().first()
 
     async def _update_task(self, task_id: str, updater, metric_status: str | None = None) -> None:
+        if task_id.startswith("job_"):
+            await self._ensure_queue_depth_seeded()
         async with AsyncSession(engine) as session:
             if task_id.startswith("job_"):
                 statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
@@ -279,9 +287,12 @@ class WaybillTaskService:
                 job = result.scalars().first()
                 if not job:
                     return
+                old_status = job.status
                 updater(job)
+                new_status = job.status
                 session.add(job)
                 await session.commit()
+                await self._adjust_queue_depth(old_status, new_status)
             else:
                 statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
                 result = await session.execute(statement)
@@ -297,8 +308,79 @@ class WaybillTaskService:
         await self._sync_queue_depth()
 
     async def _sync_queue_depth(self) -> None:
-        snapshot = await self.queue_snapshot()
+        snapshot = await self._queue_depth_snapshot()
         set_queue_depth(summarize_queue_depth(snapshot))
+
+    @staticmethod
+    def _queue_depth_status_values() -> tuple[str, ...]:
+        return (
+            TaskStatus.QUEUED.value,
+            TaskStatus.PROCESSING.value,
+            TaskStatus.RETRYING.value,
+            TaskStatus.OTP_BACKOFF.value,
+            TaskStatus.SUCCEEDED.value,
+            TaskStatus.FAILED.value,
+            TaskStatus.DEAD_LETTER.value,
+        )
+
+    async def _ensure_queue_depth_seeded(self) -> dict[str, int]:
+        try:
+            redis = await redis_manager.get()
+            if redis is not None and await redis.get(self.QUEUE_DEPTH_SEEDED):
+                return await self._queue_depth_snapshot()
+        except Exception:
+            logger.warning("queue_depth_redis_unavailable", exc_info=True)
+            return await self.queue_snapshot()
+        return await self.reconcile_queue_depth()
+
+    async def _queue_depth_snapshot(self) -> dict[str, int]:
+        try:
+            redis = await redis_manager.get()
+        except Exception:
+            logger.warning("queue_depth_redis_snapshot_unavailable", exc_info=True)
+            return await self.queue_snapshot()
+        if redis is None:
+            return await self.queue_snapshot()
+        try:
+            values = await redis.hgetall(self.QUEUE_DEPTH_KEY)
+        except Exception:
+            logger.warning("queue_depth_redis_snapshot_command_failed", exc_info=True)
+            return await self.queue_snapshot()
+        return {status: int(values.get(status, 0)) for status in self._queue_depth_status_values()}
+
+    async def _adjust_queue_depth(self, old_status: str | None, new_status: str | None) -> None:
+        if old_status == new_status:
+            return
+        try:
+            redis = await redis_manager.get()
+        except Exception:
+            logger.warning("queue_depth_redis_adjust_unavailable", exc_info=True)
+            return
+        if redis is None:
+            return
+        try:
+            await self._ensure_queue_depth_seeded()
+            if old_status in self._queue_depth_status_values():
+                await redis.hincrby(self.QUEUE_DEPTH_KEY, old_status, -1)
+            if new_status in self._queue_depth_status_values():
+                await redis.hincrby(self.QUEUE_DEPTH_KEY, new_status, 1)
+        except Exception:
+            logger.warning("queue_depth_redis_adjust_command_failed", exc_info=True)
+
+    async def reconcile_queue_depth(self) -> dict[str, int]:
+        snapshot = await self.queue_snapshot()
+        try:
+            redis = await redis_manager.get()
+        except Exception:
+            logger.warning("queue_depth_redis_reconcile_unavailable", exc_info=True)
+            return snapshot
+        if redis is not None:
+            try:
+                await redis.hset(self.QUEUE_DEPTH_KEY, mapping=snapshot)
+                await redis.set(self.QUEUE_DEPTH_SEEDED, "1")
+            except Exception:
+                logger.warning("queue_depth_redis_reconcile_command_failed", exc_info=True)
+        return snapshot
 
     @staticmethod
     def _safe_json_load(raw: str | None) -> dict[str, Any] | None:
@@ -319,6 +401,7 @@ class WaybillTaskService:
         is_job = hasattr(task, "job_id")
         return {
             "task_id": task.job_id if is_job else task.task_id,
+            "client_id": task.client_id if is_job else None,
             "idempotency_key": task.idempotency_key,
             "status": task.status,
             "correlation_id": self._extract_correlation_id(task),
@@ -361,6 +444,7 @@ class WaybillTaskService:
             {
                 "type": event_type,
                 "task_id": status["task_id"],
+                "tenant_id": status.get("client_id"),
                 "correlation_id": status["correlation_id"],
                 "batch_id": payload.get("batch_id"),
                 "priority": status["priority"],

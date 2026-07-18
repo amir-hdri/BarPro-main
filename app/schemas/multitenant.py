@@ -612,9 +612,9 @@ class TaskTimelineResponse(BaseModel):
 class FuelInquiryCreateRequest(BaseModel):
     """Request to trigger a fuel inquiry."""
 
-    driver_id: int
-    year: int | None = None
-    month: int | None = None
+    driver_id: int = Field(gt=0)
+    year: int | None = Field(default=None, ge=1300, le=1600)
+    month: int | None = Field(default=None, ge=1, le=12)
 
 
 class FuelInquiryResponse(BaseModel):

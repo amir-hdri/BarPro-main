@@ -23,9 +23,16 @@ if celery_app is not None:
 
     @celery_app.task(name="phase1.scheduler.cleanup")
     def cleanup_phase1_jobs():
+        from app.services.fuel_inquiry_service import fuel_inquiry_service
         from app.services.rpa_scheduler_service import rpa_scheduler_service
 
-        return _run(rpa_scheduler_service.cleanup_stuck_jobs())
+        async def _cleanup():
+            return {
+                "waybill_jobs": await rpa_scheduler_service.cleanup_stuck_jobs(),
+                "fuel_inquiries": await fuel_inquiry_service.cleanup_stale_inquiries(),
+            }
+
+        return _run(_cleanup())
 
     @celery_app.task(name="phase1.auth.process")
     def process_phase1_auth(client_id: int, driver_id: int, reason: str, resume_job_id: str | None = None):

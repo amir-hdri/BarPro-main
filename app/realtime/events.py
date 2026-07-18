@@ -68,7 +68,8 @@ class WaybillEventHub:
         if stale:
             async with self._lock:
                 for websocket in stale:
-                    await self.disconnect(websocket)
+                    for sockets in self._connections.values():
+                        sockets.discard(websocket)
                     logger.warning("websocket_disconnected_during_publish")
 
     async def publish(self, event: dict[str, Any]) -> None:
@@ -151,8 +152,16 @@ class WaybillEventHub:
                 pass
             self._subscriber_task = None
 
-    def history(self, *, task_id: str | None = None, batch_id: str | None = None) -> list[dict[str, Any]]:
+    def history(
+        self,
+        *,
+        task_id: str | None = None,
+        batch_id: str | None = None,
+        tenant_id: int | None = None,
+    ) -> list[dict[str, Any]]:
         events = list(self._history)
+        if tenant_id is not None:
+            events = [event for event in events if str(event.get("tenant_id")) == str(tenant_id)]
         if task_id:
             events = [event for event in events if event.get("task_id") == task_id]
         if batch_id:

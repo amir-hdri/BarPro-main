@@ -31,8 +31,11 @@ class SessionVault:
         username: str | None = None,
         national_code: str | None = None,
         fallback: str | None = None,
+        scope: str | None = None,
     ) -> str:
         account_key = self.build_account_key(username=username, national_code=national_code, fallback=fallback)
+        if scope:
+            account_key = f"{_slugify(scope)}-{account_key}"
         suffix = self._base_path.suffix or ".json"
         stem = self._base_path.stem or "utcms_state"
         directory = self._base_path.parent

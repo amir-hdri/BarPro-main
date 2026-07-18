@@ -103,6 +103,7 @@ class RPASchedulerService:
                     select(WaybillJob, Driver)
                     .join(Driver, Driver.id == WaybillJob.driver_id)
                     .where(
+                        WaybillJob.schedule_id.is_(None),
                         col(WaybillJob.status).in_(
                             [
                                 TaskStatus.PENDING.value,
@@ -290,10 +291,19 @@ class RPASchedulerService:
                     },
                 )
 
-                job.status = TaskStatus.PENDING.value
-                job.celery_task_id = None
-                job.worker_id = None
-                job.updated_at = _utcnow_naive()
+                if old_status == TaskStatus.IN_PROGRESS.value:
+                    # The worker may have failed after UTCMS accepted the submit.
+                    # Never automatically resubmit an unknown external outcome.
+                    job.status = TaskStatus.NEEDS_REVIEW.value
+                    job.error_category = "submission_unknown"
+                    job.last_error = "Worker lease expired; reconcile UTCMS before retrying"
+                    job.finished_at = _utcnow_naive()
+                    job.updated_at = _utcnow_naive()
+                else:
+                    job.status = TaskStatus.PENDING.value
+                    job.celery_task_id = None
+                    job.worker_id = None
+                    job.updated_at = _utcnow_naive()
                 session.add(job)
 
                 # Add log for visibility
@@ -304,14 +314,17 @@ class RPASchedulerService:
                         job_id=job.job_id,
                         client_id=job.client_id,
                         step="recovery",
-                        status="pending",
-                        message=f"تسک از وضعیت {old_status} بازیابی شد (عدم پاسخگویی کارگر/تایم‌اوت)",
+                        status=job.status,
+                        message=(
+                            "نتیجه ثبت در UTCMS نامشخص است؛ پیش از تلاش مجدد نیاز به بررسی دارد"
+                            if job.status == TaskStatus.NEEDS_REVIEW.value
+                            else f"تسک از وضعیت {old_status} بازیابی شد (عدم پاسخگویی کارگر/تایم‌اوت)"
+                        ),
                     )
                 )
                 count += 1
 
-            if count > 0:
-                await session.commit()
+            await session.commit()
             return count
         finally:
             await session.close()

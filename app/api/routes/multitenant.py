@@ -15,12 +15,13 @@ import logging
 from datetime import UTC, datetime, time, timedelta
 
 from fastapi import APIRouter, Body, Depends, Query, UploadFile, status
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPBearer
 from sqlmodel import case, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth_multitenant import get_current_admin, get_current_client, get_current_user_or_admin
+from app.automation.fuel_scraper import FUEL_SCREENSHOTS_DIR
 from app.core.config import utcms_config
 from app.core.database import get_session
 from app.models_multitenant import Client, Driver, TaskSource, TaskStatus, WaybillJob
@@ -838,3 +839,23 @@ async def get_fuel_inquiry(
     دریافت وضعیت و اطلاعات استخراج‌شده یک استعلام سوخت خاص.
     """
     return await fuel_inquiry_service.get_inquiry(user_context, inquiry_id, session)
+
+
+@router.get("/fuel-inquiries/{inquiry_id}/screenshot", response_class=FileResponse)
+async def get_fuel_inquiry_screenshot(
+    inquiry_id: int,
+    user_context: dict = Depends(get_current_user_or_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Return a fuel screenshot only after tenant/admin ownership validation."""
+    inquiry = await fuel_inquiry_service.get_inquiry(user_context, inquiry_id, session)
+    screenshot_path = FUEL_SCREENSHOTS_DIR / f"fuel_inquiry_{inquiry.id}.png"
+    if not screenshot_path.is_file():
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="تصویر استعلام یافت نشد")
+    return FileResponse(
+        screenshot_path,
+        media_type="image/png",
+        filename=f"fuel-inquiry-{inquiry.id}.png",
+    )

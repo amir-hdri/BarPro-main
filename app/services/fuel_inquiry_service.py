@@ -2,14 +2,16 @@
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
-from sqlmodel import col, select, func
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import col, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.automation.browser import browser_manager, managed_browser_session
-from app.automation.fuel_scraper import FuelScraper
+from app.automation.fuel_scraper import FuelScraper, get_current_jalali
 from app.core.exceptions import WaybillError
 from app.models_multitenant import Client, Driver, DriverPlate, FuelInquiry
 from app.schemas.multitenant import (
@@ -47,7 +49,9 @@ class FuelInquiryService:
         # A fuel inquiry cannot succeed without a plate, so reject early
         # instead of creating a record that gets stuck in "pending" / fails later.
         plate_stmt = select(DriverPlate).where(
-            (DriverPlate.driver_id == driver.id) & (DriverPlate.status == "active")
+            (DriverPlate.client_id == client.id)
+            & (DriverPlate.driver_id == driver.id)
+            & (DriverPlate.status == "active")
         )
         plate_res = await session.exec(plate_stmt)
         if not plate_res.first():
@@ -56,11 +60,15 @@ class FuelInquiryService:
                 detail="راننده پلاک فعال ندارد؛ ابتدا یک پلاک فعال ثبت کنید",
             )
 
+        current_year, current_month = get_current_jalali()
+        inquiry_year = request.year or current_year
+        inquiry_month = request.month or current_month
+
         # Check for existing pending/processing inquiry for same driver/period to prevent duplicates
         existing_stmt = select(FuelInquiry).where(
             (FuelInquiry.driver_id == driver.id) &
-            (FuelInquiry.year == request.year) &
-            (FuelInquiry.month == request.month) &
+            (FuelInquiry.year == inquiry_year) &
+            (FuelInquiry.month == inquiry_month) &
             (FuelInquiry.status.in_(["pending", "processing"]))
         )
         existing_res = await session.exec(existing_stmt)
@@ -75,11 +83,18 @@ class FuelInquiryService:
             client_id=client.id,
             driver_id=driver.id,
             status="pending",
-            year=request.year,
-            month=request.month,
+            year=inquiry_year,
+            month=inquiry_month,
         )
         session.add(inquiry)
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError as exc:
+            await session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="یک استعلام فعال برای این راننده و دوره در جریان است",
+            ) from exc
         await session.refresh(inquiry)
 
         # Enqueue Celery task
@@ -91,10 +106,10 @@ class FuelInquiryService:
             logger.info(f"Enqueued fuel inquiry task for inquiry {inquiry.id}")
         except Exception as e:
             logger.error(f"Failed to enqueue Celery task: {e}")
-            # Fallback to direct thread execution if Celery is not available
             inquiry.status = "failed"
             inquiry.error_message = f"خطا در ایجاد کار پس‌زمینه: {e}"
             session.add(inquiry)
+            await session.commit()
 
         # Map to response schema
         response = FuelInquiryResponse.model_validate(inquiry)
@@ -187,7 +202,7 @@ class FuelInquiryService:
         else:
             client = user_context["user"]
             statement = select(FuelInquiry).where(
-                (FuelInquiry.client_id == client.id) & 
+                (FuelInquiry.client_id == client.id) &
                 (FuelInquiry.id == inquiry_id)
             )
         result = await session.exec(statement)
@@ -229,63 +244,63 @@ class FuelInquiryService:
         Runs the scraper using Playwright and updates the database with results.
         Called by Celery worker or async thread execution.
         """
-        inquiry = await session.get(FuelInquiry, inquiry_id)
-        if not inquiry:
-            logger.error(f"Fuel inquiry {inquiry_id} not found in database")
+        now = datetime.now(UTC).replace(tzinfo=None)
+        claim = await session.execute(
+            update(FuelInquiry)
+            .where((FuelInquiry.id == inquiry_id) & (FuelInquiry.status == "pending"))
+            .values(status="processing", updated_at=now)
+        )
+        if claim.rowcount != 1:
+            await session.rollback()
+            inquiry = await session.get(FuelInquiry, inquiry_id)
+            if inquiry is None:
+                logger.error("Fuel inquiry %s not found in database", inquiry_id)
+            else:
+                logger.info("Fuel inquiry %s skipped because status is %s", inquiry_id, inquiry.status)
             return
-
-        inquiry.status = "processing"
-        inquiry.updated_at = datetime.now(UTC).replace(tzinfo=None)
-        session.add(inquiry)
         await session.commit()
 
-        driver = await session.get(Driver, inquiry.driver_id)
-        if not driver:
-            inquiry.status = "failed"
-            inquiry.error_message = "راننده در پایگاه داده یافت نشد"
-            session.add(inquiry)
-            await session.commit()
-            return
-
-        # Query active driver plate
-        plate_stmt = select(DriverPlate).where((DriverPlate.driver_id == driver.id) & (DriverPlate.status == "active"))
-        plate_res = await session.exec(plate_stmt)
-        driver_plate = plate_res.first()
-        if not driver_plate:
-            inquiry.status = "failed"
-            inquiry.error_message = "پلاک فعال برای راننده در سامانه یافت نشد"
-            session.add(inquiry)
-            await session.commit()
-            return
-
-        plate_number = driver_plate.plate_number
-        username = driver.utcms_username
-
-        auth_state_path = session_vault.auth_state_path_for_account(
-            username=username,
-            national_code=driver.driver_national_code,
-            fallback=username,
-        )
-        # CRITICAL: Chromium inside Docker containers CANNOT reach external sites without proxy.
-        # Use simple worker_proxy helper (bypasses proxy_rotator complexity).
-        # Hostname is resolved to IP at call time to fix Chromium's Docker DNS issues.
-        from app.automation.worker_proxy import get_playwright_proxy
-
-        proxy_dict = get_playwright_proxy()
-        if proxy_dict:
-            proxy_url = proxy_dict.get("server")
-            logger.info(f"fuel_inquiry using proxy: {proxy_url}")
-            if proxy_url:
-                from app.automation.worker_proxy import check_proxy_health
-                is_healthy = await check_proxy_health(proxy_url)
-                if not is_healthy:
-                    raise WaybillError("پروکسی یا شبکه تونل ایران قطع می‌باشد (proxy/network check failed)")
-        else:
-            logger.warning("fuel_inquiry: no proxy configured — Chromium may not reach utcms.ir")
-
-        logger.info(f"Launching browser session for fuel inquiry {inquiry_id}")
-
         try:
+            inquiry = await session.get(FuelInquiry, inquiry_id)
+            if inquiry is None:
+                raise WaybillError("استعلام سوخت پس از دریافت کار یافت نشد")
+
+            driver_stmt = select(Driver).where(
+                (Driver.id == inquiry.driver_id) & (Driver.client_id == inquiry.client_id)
+            )
+            driver = (await session.exec(driver_stmt)).first()
+            if driver is None:
+                raise WaybillError("راننده در پایگاه داده یافت نشد")
+
+            plate_stmt = select(DriverPlate).where(
+                (DriverPlate.client_id == inquiry.client_id)
+                & (DriverPlate.driver_id == driver.id)
+                & (DriverPlate.status == "active")
+            )
+            driver_plate = (await session.exec(plate_stmt)).first()
+            if driver_plate is None:
+                raise WaybillError("پلاک فعال برای راننده در سامانه یافت نشد")
+
+            national_code = driver.driver_national_code
+            auth_state_path = session_vault.auth_state_path_for_account(
+                username=driver.utcms_username,
+                national_code=national_code,
+                fallback=national_code,
+                scope=f"client-{inquiry.client_id}-driver-{driver.id}",
+            )
+
+            from app.automation.worker_proxy import check_proxy_health, get_playwright_proxy
+
+            proxy_dict = get_playwright_proxy()
+            if proxy_dict:
+                proxy_url = proxy_dict.get("server")
+                logger.info("fuel_inquiry using proxy: %s", proxy_url)
+                if proxy_url and not await check_proxy_health(proxy_url):
+                    raise WaybillError("پروکسی یا شبکه تونل ایران قطع می‌باشد (proxy/network check failed)")
+            else:
+                logger.warning("fuel_inquiry: no proxy configured; Chromium may not reach utcms.ir")
+
+            logger.info("Launching browser session for fuel inquiry %s", inquiry_id)
             await browser_manager.initialize()
             async with managed_browser_session(
                 auth_state_path=auth_state_path,
@@ -295,8 +310,8 @@ class FuelInquiryService:
 
                 scraper = FuelScraper(page, context)
                 result = await scraper.scrape_fuel_quota(
-                    username=username,
-                    plate_number=plate_number,
+                    national_code=national_code,
+                    plate_number=driver_plate.plate_number,
                     inquiry_id=inquiry_id,
                     j_year=inquiry.year,
                     j_month=inquiry.month,
@@ -307,7 +322,12 @@ class FuelInquiryService:
 
                 # Update database
                 quota_data = result.get("quota_data", {})
-                if not quota_data or not isinstance(quota_data, dict) or not any(quota_data.values()):
+                tables = quota_data.get("tables") if isinstance(quota_data, dict) else None
+                valid_rows = any(
+                    isinstance(table, dict) and isinstance(table.get("rows"), list) and bool(table["rows"])
+                    for table in (tables or [])
+                )
+                if result.get("success") is not True or not valid_rows:
                     inquiry.status = "failed"
                     inquiry.error_message = "104"  # Data not found / Inactive plate
                 else:
@@ -321,6 +341,10 @@ class FuelInquiryService:
 
         except Exception as e:
             logger.exception(f"Error executing fuel inquiry {inquiry_id}")
+            await session.rollback()
+            inquiry = await session.get(FuelInquiry, inquiry_id)
+            if inquiry is None:
+                return
             inquiry.status = "failed"
 
             # Map exception to clean numeric error code
@@ -339,6 +363,30 @@ class FuelInquiryService:
             inquiry.updated_at = datetime.now(UTC).replace(tzinfo=None)
             session.add(inquiry)
             await session.commit()
+
+    @staticmethod
+    async def cleanup_stale_inquiries() -> int:
+        """Fail abandoned inquiries so users can safely create a fresh request."""
+        from app.core.database import async_session_factory
+
+        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=30)
+        async with async_session_factory() as session:
+            result = await session.execute(
+                update(FuelInquiry)
+                .where(
+                    FuelInquiry.status.in_(["pending", "processing"]),
+                    FuelInquiry.updated_at < cutoff,
+                )
+                .values(
+                    status="failed",
+                    error_message="103",
+                    updated_at=datetime.now(UTC).replace(tzinfo=None),
+                )
+            )
+            await session.commit()
+            if result.rowcount:
+                logger.warning("Recovered %s stale fuel inquiries", result.rowcount)
+            return int(result.rowcount or 0)
 
 
 # Singleton instance

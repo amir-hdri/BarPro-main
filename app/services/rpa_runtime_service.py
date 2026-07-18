@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
+import secrets
 import threading
 import time
+from contextvars import ContextVar
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
@@ -13,11 +16,14 @@ from app.core.config import utcms_config
 from app.core.redis_client import redis_manager
 from app.rpa.contracts import RuntimeCounterSnapshot, SessionBundle
 
+logger = logging.getLogger(__name__)
+
 
 class RPADistributedRuntime:
     def __init__(self) -> None:
         self._memory: dict[str, tuple[str, float | None]] = {}
         self._lock = threading.Lock()
+        self._lock_tokens: ContextVar[dict[str, str] | None] = ContextVar("rpa_lock_tokens", default=None)
 
     def _get_lock(self) -> threading.Lock:
         return self._lock
@@ -81,19 +87,56 @@ class RPADistributedRuntime:
             self._memory.pop(key, None)
 
     async def acquire_lock(self, key: str, ttl_seconds: int) -> bool:
+        token = secrets.token_urlsafe(24)
         redis = await self._get_redis()
         if redis is not None:
-            return bool(await redis.set(key, "1", ex=ttl_seconds, nx=True))
+            acquired = bool(await redis.set(key, token, ex=ttl_seconds, nx=True))
+            if acquired:
+                tokens = (self._lock_tokens.get() or {}).copy()
+                tokens[key] = token
+                self._lock_tokens.set(tokens)
+            return acquired
         with self._get_lock():
             current = self._memory.get(key)
             if current is not None:
                 _, expires_at = current
                 if expires_at is None or expires_at > time.time():
                     return False
-            self._memory[key] = ("1", time.time() + ttl_seconds)
+            self._memory[key] = (token, time.time() + ttl_seconds)
+            tokens = (self._lock_tokens.get() or {}).copy()
+            tokens[key] = token
+            self._lock_tokens.set(tokens)
             return True
 
     async def release_lock(self, key: str) -> None:
+        tokens = (self._lock_tokens.get() or {}).copy()
+        token = tokens.pop(key, None)
+        self._lock_tokens.set(tokens)
+        redis = await self._get_redis()
+        if redis is not None:
+            if token is None:
+                return
+            script = """
+            if redis.call('get', KEYS[1]) == ARGV[1] then
+                return redis.call('del', KEYS[1])
+            end
+            return 0
+            """
+            try:
+                await redis.eval(script, 1, key, token)
+            except Exception:
+                logger.warning("rpa_lock_release_failed", exc_info=True)
+            return
+        with self._get_lock():
+            current = self._memory.get(key)
+            if current is not None and current[0] == token:
+                self._memory.pop(key, None)
+
+    async def force_release_lock(self, key: str) -> None:
+        """Administrative recovery only: remove a lock without ownership checks."""
+        tokens = (self._lock_tokens.get() or {}).copy()
+        tokens.pop(key, None)
+        self._lock_tokens.set(tokens)
         await self._delete_value(key)
 
     async def store_session(self, client_id: int, driver_id: int, bundle: SessionBundle) -> None:

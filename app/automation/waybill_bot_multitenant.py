@@ -37,6 +37,7 @@ class WaybillAutomationBot:
         payload: dict[str, Any],
         job_id: str,
         client_id: int,
+        auth_state_path: str | None = None,
     ) -> dict[str, Any]:
         result: dict[str, Any] = {
             "job_id": job_id,
@@ -59,10 +60,11 @@ class WaybillAutomationBot:
         driver_national_code = payload.get("driver_national_code") or payload.get("vehicle", {}).get(
             "driver_national_code"
         )
-        auth_state_path = session_vault.auth_state_path_for_account(
+        auth_state_path = auth_state_path or session_vault.auth_state_path_for_account(
             username=username,
             national_code=driver_national_code,
             fallback=username,
+            scope=f"client-{client_id}",
         )
 
         try:
@@ -137,9 +139,16 @@ class WaybillAutomationBot:
                 result["error_category"] = "submission_failed"
                 return result
 
+            tracking_code = manager_result.get("tracking_code")
+            if not tracking_code:
+                result["status"] = TaskStatus.FAILED.value
+                result["error"] = "waybill_submission_unconfirmed"
+                result["error_category"] = "submission_unconfirmed"
+                return result
+
             result["status"] = TaskStatus.SUCCESS.value
             result["result"] = {
-                "tracking_code": manager_result.get("tracking_code"),
+                "tracking_code": tracking_code,
                 "url": manager_result.get("url"),
                 "origin_method": manager_result.get("origin_method"),
                 "destination_method": manager_result.get("destination_method"),

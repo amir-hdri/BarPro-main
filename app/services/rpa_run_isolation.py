@@ -27,7 +27,7 @@ async def prepare_live_run_isolation(
         rpa_runtime.auth_lock_key(client_id, driver_id),
         rpa_runtime.submit_lock_key(client_id, driver_id),
     ):
-        await rpa_runtime.release_lock(lock_key)
+        await rpa_runtime.force_release_lock(lock_key)
         released_locks.append(lock_key)
 
     previous = {

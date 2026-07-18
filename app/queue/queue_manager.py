@@ -47,13 +47,13 @@ class WaybillQueueManager:
         if utcms_config.QUEUE_ENABLED:
             try:
                 async_result = dispatch_waybill_task(
-                    task.task_id,
+                    task["task_id"],
                     priority=int(payload.get("priority", utcms_config.CELERY_DEFAULT_PRIORITY)),
                 )
-                await task_service.set_celery_task_id(task.task_id, async_result.id)
+                await task_service.set_celery_task_id(task["task_id"], async_result.id)
                 return EnqueueWaybillResponse(
-                    task_id=task.task_id,
-                    idempotency_key=task.idempotency_key,
+                    task_id=task["task_id"],
+                    idempotency_key=task["idempotency_key"],
                     correlation_id=payload["correlation_id"],
                     priority=int(payload.get("priority", utcms_config.CELERY_DEFAULT_PRIORITY)),
                     status=TaskStatus.QUEUED,
@@ -64,7 +64,7 @@ class WaybillQueueManager:
             except Exception as exc:
                 if not utcms_config.QUEUE_INLINE_FALLBACK:
                     await task_service.mark_failure(
-                        task_id=task.task_id,
+                        task_id=task["task_id"],
                         error_text=f"queue_dispatch_failed: {exc}",
                         category="queue",
                         attempt_count=1,
@@ -75,7 +75,7 @@ class WaybillQueueManager:
                         detail="صف Celery در دسترس نیست و fallback غیرفعال است",
                     ) from exc
 
-        return await self._execute_inline(task.task_id, task.idempotency_key)
+        return await self._execute_inline(task["task_id"], task["idempotency_key"])
 
     async def _execute_inline(self, task_id: str, idempotency_key: str) -> EnqueueWaybillResponse:
         payload = await task_service.get_payload(task_id)

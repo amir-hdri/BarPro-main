@@ -30,6 +30,7 @@ from app.automation.browser import browser_manager, managed_browser_session
 from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload
 from app.automation.proxy_rotator import get_proxy_rotator
 from app.automation.waybill_bot_multitenant import WaybillAutomationBot
+from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.models_multitenant import (
     Client,
@@ -48,6 +49,7 @@ from app.rpa.event_taxonomy import (
     JOB_EXECUTION_SUCCEEDED,
     JOB_RETRY_SCHEDULED,
 )
+from app.services.rpa_runtime_service import rpa_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +165,7 @@ async def _execute_single_job(
         username=username,
         national_code=driver.driver_national_code,
         fallback=username,
+        scope=f"client-{client.id}-driver-{driver.id}",
     )
     proxy_info = await get_proxy_rotator().get_next()
     proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
@@ -180,25 +183,45 @@ async def _execute_single_job(
                 payload=normalized,
                 job_id=job_id,
                 client_id=client.id,
+                auth_state_path=auth_state_path,
             )
             status_str = str(result.get("status", "")).strip().lower()
 
             if status_str == "success":
-                await _add_log(session, job_id, client.id, "submit", "success", "Waybill submitted successfully")
-                await _record_event(
-                    session,
-                    client.id,
-                    driver.id,
-                    job_id,
-                    JOB_EXECUTION_SUCCEEDED,
-                    {
-                        "attempt": attempt,
-                        "steps": result.get("steps", []),
-                    },
-                )
-                await browser_manager.record_success_for_recycle()
-                return result
-            elif status_str == "otp_backoff":
+                result_payload = result.get("result")
+                tracking_code = result_payload.get("tracking_code") if isinstance(result_payload, dict) else None
+                if not tracking_code:
+                    result = {
+                        **result,
+                        "status": "failed",
+                        "error": "Portal success response did not include a tracking code",
+                        "error_category": "submission_unconfirmed",
+                    }
+                    status_str = "failed"
+                else:
+                    job.result_json = json.dumps(result_payload, ensure_ascii=False)
+                    job.last_error = None
+                    job.error_category = None
+                    job.retryable = False
+                    job.next_retry_at = None
+                    job.finished_at = _utcnow()
+                    await session.commit()
+                    await _add_log(session, job_id, client.id, "submit", "success", "Waybill submitted successfully")
+                    await _record_event(
+                        session,
+                        client.id,
+                        driver.id,
+                        job_id,
+                        JOB_EXECUTION_SUCCEEDED,
+                        {
+                            "attempt": attempt,
+                            "steps": result.get("steps", []),
+                            "tracking_code": tracking_code,
+                        },
+                    )
+                    await browser_manager.record_success_for_recycle()
+                    return result
+            if status_str == "otp_backoff":
                 retry_minutes = int(result.get("next_retry_at_minutes_add", 60))
                 retry_at = _utcnow() + timedelta(minutes=retry_minutes)
                 job.status = TaskStatus.WAITING_RETRY.value
@@ -251,7 +274,11 @@ async def _execute_single_job(
                     logger.info(f"Retrying job {job_id}, attempt {attempt + 1}/{MAX_RETRIES} after {delay}s")
                     return await _execute_single_job(client, driver, job, session, attempt + 1)
 
-                job.status = TaskStatus.FAILED.value
+                job.status = (
+                    TaskStatus.NEEDS_REVIEW.value
+                    if result.get("error_category") in {"submission_unconfirmed", "submission_unknown"}
+                    else TaskStatus.FAILED.value
+                )
                 job.finished_at = _utcnow()
                 job.last_error = result.get("error", "Execution failed")
                 job.error_category = result.get("error_category", "unknown")
@@ -270,8 +297,12 @@ async def _execute_single_job(
 async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
     """Execute a single waybill job by its database ID (runs in a worker)."""
     session = async_session_factory()
+    driver_lock_acquired = False
+    driver_lock_key: str | None = None
     try:
-        job = await session.get(WaybillJob, job_id)
+        job = (
+            await session.exec(select(WaybillJob).where(WaybillJob.id == job_id).with_for_update())
+        ).first()
         if not job:
             logger.error(f"Scheduled job {job_id} not found in DB")
             return {"status": "failed", "error": "Job not found"}
@@ -307,6 +338,20 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
             await session.commit()
             return {"status": "failed", "error": "Driver status inactive"}
 
+        driver_lock_key = rpa_runtime.submit_lock_key(client.id, driver.id)
+        driver_lock_acquired = await rpa_runtime.acquire_lock(driver_lock_key, utcms_config.RPA_LOCK_TTL_SECONDS)
+        if not driver_lock_acquired:
+            retry_at = _utcnow() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
+            job.status = TaskStatus.WAITING_RETRY.value
+            job.next_retry_at = retry_at
+            job.submit_after = retry_at
+            job.retryable = True
+            job.last_error = "Another waybill submission is already running for this driver"
+            job.error_category = "driver_submission_in_progress"
+            job.updated_at = _utcnow()
+            await session.commit()
+            return {"status": TaskStatus.WAITING_RETRY.value, "next_retry_at": retry_at.isoformat()}
+
         job.status = TaskStatus.IN_PROGRESS.value
         job.started_at = _utcnow()
         await session.commit()
@@ -318,11 +363,19 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
         if result_status == "success":
             job.status = TaskStatus.SUCCESS.value
             job.finished_at = _utcnow()
+            job.result_json = json.dumps(result.get("result"), ensure_ascii=False)
+            job.last_error = None
+            job.error_category = None
+            job.retryable = False
         elif result_status == TaskStatus.WAITING_RETRY.value:
             # WAITING_RETRY is set inside _execute_single_job and committed there
             pass
         else:
-            job.status = TaskStatus.FAILED.value
+            job.status = (
+                TaskStatus.NEEDS_REVIEW.value
+                if result.get("error_category") in {"submission_unconfirmed", "submission_unknown"}
+                else TaskStatus.FAILED.value
+            )
             job.finished_at = _utcnow()
 
         await session.commit()
@@ -335,14 +388,17 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
         try:
             job = await session.get(WaybillJob, job_id)
             if job:
-                job.status = TaskStatus.FAILED.value
+                job.status = TaskStatus.NEEDS_REVIEW.value
                 job.last_error = str(exc)
+                job.error_category = "submission_unknown"
                 job.finished_at = _utcnow()
                 await session.commit()
         except Exception:
             logger.warning("scheduled_job_mark_failed_failed", exc_info=True)
         return {"status": "failed", "error": str(exc)}
     finally:
+        if driver_lock_acquired and driver_lock_key:
+            await rpa_runtime.release_lock(driver_lock_key)
         await session.close()
 
 

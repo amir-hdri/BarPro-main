@@ -50,11 +50,9 @@ class RPAAuthService:
                     extra={"extra_fields": {"driver_id": driver_id, "client_id": client_id}},
                 )
                 return AuthResult(ok=False, session_bundle=None, reason_code="driver_not_found")
-            # Self-heal: if caller passed wrong client_id, use the one from DB
-            # This handles stale runtime_state data without failing authentication
             if driver.client_id != client_id:
                 logger.warning(
-                    "phase1_auth_client_id_mismatch_self_heal",
+                    "phase1_auth_client_id_mismatch_rejected",
                     extra={
                         "extra_fields": {
                             "driver_id": driver_id,
@@ -63,7 +61,7 @@ class RPAAuthService:
                         }
                     },
                 )
-                client_id = driver.client_id
+                return AuthResult(ok=False, session_bundle=None, reason_code="driver_tenant_mismatch")
 
             runtime_state = await self._get_or_create_runtime_state(session, client_id, driver_id)
             runtime_state.state = DriverRuntimeStateValue.AUTH_IN_PROGRESS.value
@@ -74,6 +72,7 @@ class RPAAuthService:
                 username=driver.utcms_username,
                 national_code=driver.driver_national_code,
                 fallback=str(driver.id),
+                scope=f"client-{client_id}-driver-{driver.id}",
             )
             session_vault.ensure_parent_dir(auth_state_path)
 

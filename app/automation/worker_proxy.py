@@ -122,22 +122,14 @@ def get_playwright_proxy() -> dict | None:
 
 async def check_proxy_health(proxy_url: str, target_url: str = "https://barname.utcms.ir/Barname/Account/Login") -> bool:
     """
-    Verify if the Squid proxy port is open and reachable.
+    Verify that Squid can make a real request to the UTCMS login page.
     """
-    import asyncio
-    from urllib.parse import urlparse
+    import httpx
+
     try:
-        parsed = urlparse(proxy_url)
-        host = parsed.hostname
-        port = parsed.port or 80
-        # Try to establish a socket connection
-        _, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port),
-            timeout=3.0
-        )
-        writer.close()
-        await writer.wait_closed()
-        return True
+        async with httpx.AsyncClient(proxy=proxy_url, timeout=5.0, follow_redirects=True) as client:
+            response = await client.get(target_url)
+        return 200 <= response.status_code < 500
     except Exception as exc:
         logger.warning(
             "worker_proxy_health_check_failed",

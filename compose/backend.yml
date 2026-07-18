@@ -24,6 +24,10 @@ networks:
     external: true
     name: barpro_platform
 
+volumes:
+  runtime_data:
+    name: barpro_runtime_data
+
 # ── متغیرهای مشترک بین تمام سرویس‌های بک‌اند ─────────────────
 x-backend-common: &backend-common
   image: barpro_backend:latest
@@ -52,6 +56,8 @@ x-backend-common: &backend-common
     FRONTEND_URLS: ${FRONTEND_URLS:-}
     FRONTEND_URL_ALT: ${FRONTEND_URL_ALT:-}
     AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+    AUTH_STATE_PATH: /app/runtime/auth/utcms_state.json
+    FUEL_SCREENSHOTS_DIR: /app/runtime/screenshots/fuel
     ENVIRONMENT: ${ENVIRONMENT:-production}
     LOGIN_URL: ${LOGIN_URL:-https://barname.utcms.ir/Barname/Account/Login}
     HEADLESS: ${HEADLESS:-true}
@@ -74,6 +80,7 @@ x-backend-common: &backend-common
     - ../app/api:/app/app/api:ro
     - ../app/bot:/app/app/bot:ro
     - ../alembic:/app/alembic:ro
+    - runtime_data:/app/runtime
   logging:
     driver: json-file
     options:
