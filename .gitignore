@@ -65,6 +65,7 @@ apps/web/public/workbox-*.js
 
 # Temp browser/captcha dirs
 .temp_playwright/
+.playwright-home/
 fuel captcha/
 login captch/
 app/automation/captcha/_model_cache/
