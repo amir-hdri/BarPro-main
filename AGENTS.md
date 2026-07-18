@@ -389,7 +389,26 @@ ON waybill_jobs (status) INCLUDE (id);
 | `bcrypt` hashing/verification moved off the event loop via `asyncio.to_thread` (was blocking all concurrent requests) | `app/auth_multitenant.py` |
 | Bulk `Client` fetch (`Client.id.in_(...)`) replaces per-row `session.get(Client, ...)` in the admin job list | `app/services/multitenant_service.py` |
 
+### Additional Fixes Applied (2026-07-18) — Waybill/Fuel Reliability & Security
+
+| Change | File(s) |
+|--------|---------|
+| Driver submission lock serializes concurrent jobs for the same driver (`WAITING_RETRY` + `error_category=driver_submission_in_progress`) | `app/services/rpa_runtime_service.py`, `app/workers/waybill_worker.py` |
+| Idempotency: skip jobs already holding a UTCMS `tracking_code`; demote `SUCCESS` without tracking code to `NEEDS_REVIEW` (`submission_unconfirmed`) | `app/workers/waybill_worker.py`, `app/services/task_service.py` |
+| New job statuses `OTP_BACKOFF` / `NEEDS_REVIEW` wired through queue-depth counters and frontend status badges | `app/services/task_service.py`, `apps/web/src/lib/format.ts` |
+| Fuel inquiry claim-on-execute (`UPDATE ... WHERE status='pending'`) prevents double processing | `app/services/fuel_inquiry_service.py` |
+| Fuel inquiry de-dup: partial unique index `uq_fuel_inquiries_active_period` (migration `018`); HTTP `409` on duplicate active inquiry | `alembic/versions/018_fuel_inquiry_active_unique.py`, `app/services/fuel_inquiry_service.py` |
+| `RPA_PROXIES` env URLs validated via `_is_safe_proxy_url` before `/proxies/health` uses them (SSRF guard) | `app/api/routes/system.py`, `app/automation/proxy_rotator.py` |
+| JWT stack swapped `python-jose` → `PyJWT[crypto]` to drop vulnerable `ecdsa` transitive dep | `requirements.txt`, `app/core/security.py`, `app/auth_multitenant.py` |
+| Bumped vulnerable deps: Pillow 12.3.0, torch 2.13.0, tensorflow ≥2.18, opencv ≥4.11, setuptools 82.x | `requirements.txt` |
+| Removed legacy `app/frontend/` (7 npm vulns) and stale `apps/web/yarn.lock` (5 npm vulns); `package-lock.json` is source of truth | `.gitignore` |
+| Removed tracked Chromium binaries from `.playwright-home/` (regenerated via `playwright install`) | `.gitignore`, `git filter-repo` |
+| Frontend: display UTCMS `tracking_code` + Persian `error_category`; reports chart/CSV in Persian; friendly HTTP 409 message | `apps/web/src/{lib/format.ts,lib/types.ts,app/history/page.tsx,app/page.tsx,app/admin/reports/page.tsx,app/fuel/page.tsx}` |
+| Added `.github/dependabot.yml` (weekly pip/npm/actions); `requirements-dev.txt` pins relaxed to `>=` | `.github/dependabot.yml`, `requirements-dev.txt` |
+
+> Verification: `pip-audit` → *No known vulnerabilities found*; `npm audit --omit=dev` (apps/web) → 0 vulnerabilities; GitHub Dependabot no longer flags the default branch. `tsc --noEmit` and `next lint` pass on `apps/web`.
+
 ---
 
-*Last updated: 2026-07-10 · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*
+*Last updated: 2026-07-18 · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*
 

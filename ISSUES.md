@@ -18,7 +18,9 @@
 | S6 | JWT در localStorage (نه httpOnly cookie) | ✅ | تکمیل‌شده: توکن‌ها به طور کامل به httpOnly cookie منتقل شدند |
 | S7 | بدون HTTPS | ⬜ | نیاز به Let's Encrypt؛ تا قبل از HTTPS مقدار `AUTH_COOKIE_SECURE=false` بماند |
 | S8 | `network_mode: host` در worker containers | ⬜ | مسدود: routing دو IP نیاز دارد، از `scripts/secure_squid_ports.sh` استفاده کنید |
+| S9 | SSRF در `RPA_PROXIES` (بدون اعتبارسنجی) | ✅ | URLهای محیطی قبل از استفاده در `/proxies/health` از `_is_safe_proxy_url` رد می‌شوند |
 | S9 | SSRF در proxy rotator | ✅ | تکمیل‌شده: اعتبارسنجی دقیق IP/DNS در `_is_safe_proxy_url` اضافه شد |
+| S10 | آسیب‌پذیری‌های وابستگی (Pillow/torch/ecdsa/setuptools/tensorflow/opencv + npm) | ✅ | `pip-audit` → No known vulnerabilities; `npm audit` → 0 vulns; GitHub Dependabot پاک شده. python-jose→PyJWT (حذف ecdsa)، حذف app/frontend و yarn.lock قدیمی |
 
 ---
 
