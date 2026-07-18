@@ -1,8 +1,8 @@
 import asyncio
 import logging
 from urllib.parse import urlparse
-import httpx
 
+import httpx
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
@@ -14,9 +14,7 @@ from app.automation.captcha import barname_ml_solver, captcha_engine
 from app.core.config import utcms_config
 from app.core.database import engine
 from app.core.recovery import recovery_manager
-from app.core.security import require_sensitive_auth
 from app.core.worker_heartbeat import worker_heartbeat_registry
-
 from app.monitoring.metrics import (
     METRICS_CONTENT_TYPE,
     export_metrics,
@@ -535,12 +533,19 @@ async def proxies_health():
             port = 3127 + i  # 3128, 3129, 3130
             proxies_to_check.append((f"Squid {i} (default)", f"http://172.20.0.1:{port}"))
 
-    # 2. Add extra proxies from RPA_PROXIES
+    # 2. Add extra proxies from RPA_PROXIES (validated against SSRF allowlist)
     rpa_proxies_raw = os.getenv("RPA_PROXIES", "")
     if rpa_proxies_raw:
+        from app.automation.proxy_rotator import ProxyRotator
+
         for idx, p in enumerate(rpa_proxies_raw.split(",")):
             p = p.strip()
-            if p and p not in [item[1] for item in proxies_to_check]:
+            if not p:
+                continue
+            if not ProxyRotator._is_safe_proxy_url(p):
+                logger.warning("blocked_unsafe_rpa_proxy", extra={"extra_fields": {"url": p[:60]}})
+                continue
+            if p not in [item[1] for item in proxies_to_check]:
                 proxies_to_check.append((f"RPA Proxy {idx+1}", p))
 
     async def check_single_proxy(name: str, url: str) -> dict:
