@@ -81,3 +81,4 @@ PERSIAN_OCR_USAGE.md
 # Deprecated/legacy frontend (use apps/web instead)
 app/frontend/
 PROJECT.md
+apps/web/yarn.lock
