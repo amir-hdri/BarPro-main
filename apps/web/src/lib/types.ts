@@ -251,6 +251,8 @@ export interface WaybillJob {
   started_at?: string | null;
   finished_at?: string | null;
   payload_json?: string | null;
+  result_json?: string | null;
+  result?: Record<string, unknown> | null;
   client_name?: string | null;
   client_code?: string | null;
 }

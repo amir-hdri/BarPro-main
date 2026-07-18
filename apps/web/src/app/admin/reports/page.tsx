@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { api } from "@/lib/api";
 import { DriverReport, FailureAnalysis } from "@/lib/types";
+import { errorCategoryLabel } from "@/lib/format";
 import { Filter, Loader2, Clock, CheckCircle2, XCircle, BarChart3, Download } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -126,7 +127,7 @@ export default function AdminReportsPage() {
       }
       const headers = ["دسته خطا", "تعداد وقوع", "پیشنهاد رفع خطا"];
       const rows = Object.entries(failureAnalysis.by_category).map(([cat, count]) => [
-        cat,
+        errorCategoryLabel(cat),
         count,
         getRetrySuggestion(cat)
       ]);
@@ -633,10 +634,10 @@ function SVGHorizontalBarChart({ data }: { data: Record<string, number> }) {
           const percent = Math.round((count / maxVal) * 100);
           return (
             <div key={category} className="space-y-1 text-xs">
-              <div className="flex justify-between text-slate-350 font-medium">
-                <span className="truncate max-w-[250px]" title={category}>{category}</span>
-                <strong className="text-red-400 font-mono">{(count).toLocaleString("fa-IR")} مورد</strong>
-              </div>
+               <div className="flex justify-between text-slate-350 font-medium">
+                 <span className="truncate max-w-[250px]" title={category}>{errorCategoryLabel(category)}</span>
+                 <strong className="text-red-400 font-mono">{(count).toLocaleString("fa-IR")} مورد</strong>
+               </div>
               <div className="h-2 w-full rounded-full bg-white/5 overflow-hidden">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-red-500 to-rose-400 transition-all duration-500"

@@ -110,3 +110,48 @@ export function statusTone(status: string): string {
 
   return map[status] || 'bg-slate-500/10 border border-white/5 text-slate-400';
 }
+
+export function errorCategoryLabel(category?: string | null): string {
+  const map: Record<string, string> = {
+    submission_unconfirmed: 'موفق بدون کد رهگیری UTCMS',
+    submission_unknown: 'خطای نامشخص در ثبت',
+    driver_submission_in_progress: 'ارسال همزمان برای راننده در جریان است',
+    invalid_driver_info: 'اطلاعات نامعتبر راننده',
+    incomplete_waybill_info: 'ناقص بودن اطلاعات بارنامه',
+    system_or_network_error: 'خطای سیستمی یا ارتباطی',
+    utcms_login_error: 'خطای ورود به UTCMS',
+    auth_expired: 'نشست منقضی شده',
+    daily_limit_reached: 'سقف روزانه',
+    daily_success_limit_reached: 'سقف موفقیت روزانه',
+    daily_attempt_limit_reached: 'سقف تلاش روزانه',
+    rate_limited: 'محدود شده',
+    invalid_credentials: 'اطلاعات نادرست',
+    duplicate: 'تکراری',
+    validation_error: 'خطای اعتبارسنجی',
+    transient_failure: 'خطای موقت',
+    destination_service_limit: 'محدودیت سرویس مقصد',
+    unknown_error: 'خطای نامشخص',
+  };
+
+  if (!category) return '-';
+  return map[category] || category;
+}
+
+export function trackingCodeFromResult(result?: unknown): string | null {
+  if (!result) return null;
+  if (typeof result === 'string') {
+    try {
+      const parsed = JSON.parse(result);
+      if (parsed && typeof parsed === 'object' && (parsed as Record<string, unknown>).tracking_code) {
+        return String((parsed as Record<string, unknown>).tracking_code);
+      }
+    } catch {
+      // ignore malformed json
+    }
+    return null;
+  }
+  if (typeof result === 'object' && (result as Record<string, unknown>).tracking_code) {
+    return String((result as Record<string, unknown>).tracking_code);
+  }
+  return null;
+}

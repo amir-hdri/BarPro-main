@@ -6,7 +6,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
 import { useSession } from '@/hooks/useSession';
 import { api } from '@/lib/api';
-import { formatDateTime, statusLabel, statusTone, toPersianDigits } from '@/lib/format';
+import { formatDateTime, statusLabel, statusTone, toPersianDigits, trackingCodeFromResult, errorCategoryLabel } from '@/lib/format';
 import type { JobTimelineResponse, WaybillJob, WaybillJobUpdateRequest, WaybillTaskListResponse } from '@/lib/types';
 import { Activity, ListChecks, MoreVertical, Edit2, Trash2, X, Check, AlertCircle } from 'lucide-react';
 
@@ -137,6 +137,22 @@ const JobCard = memo(function JobCard({
           </span>
         </div>
       </div>
+      {(() => {
+        const tc = trackingCodeFromResult(job.result);
+        if (tc) {
+          return (
+            <div className="mt-3 rounded-xl bg-emerald-500/10 p-3 text-[11px] font-medium text-emerald-400 border border-emerald-500/20">
+              <span className="font-bold">کد رهگیری UTCMS:</span> {tc}
+            </div>
+          );
+        }
+        return null;
+      })()}
+      {isAdmin && job.error_category && (
+        <div className="mt-3 rounded-xl bg-amber-500/10 p-3 text-[11px] font-medium text-amber-400 border border-amber-500/20">
+          <span className="font-bold">دسته خطا:</span> {errorCategoryLabel(job.error_category)}
+        </div>
+      )}
       {isAdmin && job.last_error && (
         <div className="mt-3 rounded-xl bg-rose-500/10 p-3 text-[11px] font-medium text-rose-400 border border-rose-500/20">
           <span className="font-bold">علت خطا:</span> {job.last_error}

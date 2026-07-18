@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { AuthGuard } from "@/components/layout/AuthGuard";
 import { useSession } from "@/hooks/useSession";
-import { formatDateTime, statusLabel, statusTone, toPersianDigits } from "@/lib/format";
+import { formatDateTime, statusLabel, statusTone, toPersianDigits, trackingCodeFromResult } from "@/lib/format";
 import type { ClientStats, WaybillJob } from "@/lib/types";
 import {
   ClockIcon,
@@ -292,6 +292,14 @@ export default function DashboardPage() {
                         {statusLabel(job.status)}
                       </span>
                     </div>
+                    {(() => {
+                      const tc = trackingCodeFromResult(job.result);
+                      return tc ? (
+                        <p className="mt-2 text-[11px] font-bold text-emerald-400">
+                          کد رهگیری UTCMS: {tc}
+                        </p>
+                      ) : null;
+                    })()}
                   </div>
                 ))}
               </div>

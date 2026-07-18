@@ -508,7 +508,14 @@ export default function FuelInquiryPage() {
       setInquiries(prev => [newInquiry, ...prev]);
       startPolling(newInquiry.id);
     } else {
-      setError(response.error || 'خطا در ایجاد استعلام جدید');
+      const msg = response.error || 'خطا در ایجاد استعلام جدید';
+      // Backend returns HTTP 409 when an active inquiry already exists for the
+      // same driver/period (enforced by the unique partial index 018).
+      if (/فعال|تکرار|در جریان|duplicate/i.test(msg)) {
+        setError('یک استعلام فعال برای این راننده و دوره در جریان است. لطفاً منتظر تکمیل آن بمانید.');
+      } else {
+        setError(msg);
+      }
       setSubmitting(false);
     }
   };
