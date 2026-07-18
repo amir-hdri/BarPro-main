@@ -4,10 +4,10 @@ uvicorn>=0.34.0
 pydantic>=2.10.3
 aiohttp>=3.11.10
 numpy>=2.2.0
-Pillow>=11.0.0
+Pillow>=12.3.0
 opencv-python-headless>=4.10.0
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch>=2.5.1
+torch>=2.13.0
 httpx>=0.28.2
 sqlmodel>=0.0.38
 asyncpg>=0.30.0
@@ -29,3 +29,7 @@ tensorflow-cpu>=2.16.0; platform_machine == "x86_64"
 tensorflow>=2.16.0; platform_machine != "x86_64"
 keras>=3.0.0
 jdatetime>=5.0.0
+
+# Security: pin transitive deps with known CVEs
+ecdsa>=0.19.3
+setuptools>=83.0.0
