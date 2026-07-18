@@ -24,7 +24,7 @@ openpyxl>=3.1.5
 python-multipart>=0.0.19
 cryptography>=44.0.0
 bcrypt>=4.2.1
-python-jose[cryptography]>=3.3.0
+PyJWT[crypto]>=2.10.1
 tensorflow-cpu>=2.16.0; platform_machine == "x86_64"
 tensorflow>=2.16.0; platform_machine != "x86_64"
 keras>=3.0.0

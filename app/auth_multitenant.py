@@ -11,10 +11,11 @@ import secrets
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
+import jwt
 from cryptography.fernet import Fernet
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+from jwt.exceptions import PyJWTError as JWTError
 from pydantic import BaseModel
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
