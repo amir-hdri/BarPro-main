@@ -353,6 +353,18 @@ class FuelScraper:
                 )
                 logger.info("Plate type selected and forced FreeZoneId = 2 via JS")
 
+                # Log the options for debugging
+                try:
+                    options = await self.page.locator('#pelakComboLogin option').all()
+                    opts_text = []
+                    for opt in options:
+                        val = await opt.get_attribute('value')
+                        text = await opt.inner_text()
+                        opts_text.append(f"{text.strip()}:{val}")
+                    logger.info("pelakComboLogin OPTIONS: " + " | ".join(opts_text))
+                except Exception as e:
+                    logger.warning(f"Could not dump options: {e}")
+
                 # Fill plate components
                 await self.page.fill("#pelakFirstLogin", plate_info["first"])
                 await self.page.select_option("#pelakComboLogin", plate_info["char_val"])
@@ -365,9 +377,15 @@ class FuelScraper:
         # Ensure Quota Type radio inputs are loaded by retrying the page's own AJAX function or manual fallback
         try:
             quota_radio = f"input[name='QoutaType'][value='{quota_type}']"
-            quota_element = await self.page.query_selector(quota_radio)
+            
+            # Wait for the page's own $(document).ready AJAX call to finish
+            try:
+                quota_element = await self.page.wait_for_selector(quota_radio, state="attached", timeout=5000)
+            except Exception:
+                quota_element = None
+                
             if not quota_element:
-                logger.info("QuotaType radio inputs not found in DOM. Retrying GetQoutaType AJAX call...")
+                logger.info("QuotaType radio inputs not found in DOM after 5s. Retrying GetQoutaType AJAX call...")
                 for load_attempt in range(1, 4):
                     # Dismiss any error modal first
                     try:
@@ -384,12 +402,14 @@ class FuelScraper:
                     try:
                         await self.page.evaluate("GetQoutaType()")
                         # Wait for selector to appear
-                        await self.page.wait_for_selector(quota_radio, timeout=3000)
+                        await self.page.wait_for_selector(quota_radio, timeout=5000)
                         quota_element = await self.page.query_selector(quota_radio)
                         if quota_element:
                             logger.info(
                                 f"Successfully loaded QuotaType radio inputs via GetQoutaType() on attempt {load_attempt}"
                             )
+                            # Wait a bit for the DOM to settle after the AJAX callback fully executes
+                            await asyncio.sleep(1.0)
                             break
                     except Exception as ex:
                         logger.warning(f"Attempt {load_attempt} to call GetQoutaType() failed: {ex}")
