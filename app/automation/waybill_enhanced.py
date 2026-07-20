@@ -1196,7 +1196,9 @@ class EnhancedWaybillManager:
 
         tasks = [asyncio.ensure_future(_check_one(s)) for s in selectors]
         try:
-            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED, timeout=max(0.5, timeout_ms / 1000))
+            done, pending = await asyncio.wait(
+                tasks, return_when=asyncio.FIRST_COMPLETED, timeout=max(0.5, timeout_ms / 1000)
+            )
             for t in pending:
                 t.cancel()
             return any(t.result() for t in done if not t.cancelled() and t.exception() is None)
@@ -1315,8 +1317,10 @@ class EnhancedWaybillManager:
             return None
 
         success_value = payload.get("success")
-        success = success_value is True or success_value == 1 or (
-            isinstance(success_value, str) and success_value.strip().lower() == "true"
+        success = (
+            success_value is True
+            or success_value == 1
+            or (isinstance(success_value, str) and success_value.strip().lower() == "true")
         )
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         result_code = data.get("resultCode", payload.get("resultCode"))
@@ -2771,12 +2775,14 @@ class EnhancedWaybillManager:
                     "مشاهده مشخصات راننده",
                     required=True,
                 )
+                await self._wait_for_loading_overlays_to_disappear()
             elif await self._is_element_visible("#driversearch"):
                 await self._click_with_fallback(
                     ["#driversearch"],
                     "جستجوی راننده",
                     required=True,
                 )
+                await self._wait_for_loading_overlays_to_disappear()
 
         if driver_phone:
             await self._fill_verified_text_field(
