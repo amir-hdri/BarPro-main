@@ -20,6 +20,10 @@ import { CheckCircleIcon } from "@heroicons/react/24/solid";
 import { AppShell } from "@/components/layout/AppShell";
 import { AuthGuard } from "@/components/layout/AuthGuard";
 import { PlateInput } from "@/components/PlateInput";
+import { ProvinceCitySelect } from "@/components/ProvinceCitySelect";
+import { SmartAddressInput } from "@/components/SmartAddressInput";
+import { LocationMapPicker } from "@/components/LocationMapPicker";
+import { FavoriteLocationPicker } from "@/components/FavoriteLocationPicker";
 import { api } from "@/lib/api";
 import { canonicalizePlate, normalizeDigits } from "@/lib/plate";
 import { toPersianDigits } from "@/lib/format";
@@ -158,6 +162,12 @@ export default function NewWaybillPage() {
   const [serverMessage, setServerMessage] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
+
+  // Map & Location states
+  const [originCoords, setOriginCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [destinationCoords, setDestinationCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [showOriginMap, setShowOriginMap] = useState(false);
+  const [showDestinationMap, setShowDestinationMap] = useState(false);
 
   // Scheduling state
   const [isScheduled, setIsScheduled] = useState(false);
@@ -298,8 +308,8 @@ export default function NewWaybillPage() {
         otp: parsed.data.shipping_otp || undefined,
         sender: { name: parsed.data.sender_name, phone: parsed.data.sender_phone, national_code: parsed.data.sender_national_code, address: parsed.data.sender_address },
         receiver: { name: parsed.data.receiver_name, phone: parsed.data.receiver_phone, national_code: parsed.data.receiver_national_code, address: parsed.data.receiver_address },
-        origin: { province: parsed.data.origin_province, city: parsed.data.origin, district: parsed.data.origin_district || undefined, address: parsed.data.origin_address },
-        destination: { province: parsed.data.destination_province, city: parsed.data.destination, district: parsed.data.destination_district || undefined, address: parsed.data.destination_address },
+        origin: { province: parsed.data.origin_province, city: parsed.data.origin, district: parsed.data.origin_district || undefined, address: parsed.data.origin_address, coordinates: originCoords || undefined },
+        destination: { province: parsed.data.destination_province, city: parsed.data.destination, district: parsed.data.destination_district || undefined, address: parsed.data.destination_address, coordinates: destinationCoords || undefined },
         cargo: { type: parsed.data.cargo_type, weight: parsed.data.cargo_weight, count: parsed.data.cargo_count, description: parsed.data.cargo_description, value: parsed.data.cargo_value },
         vehicle: { driver_national_code: parsed.data.driver_national_code, driver_phone: parsed.data.driver_phone, plate: parsed.data.plate_number, type: parsed.data.vehicle_type },
         financial: { cost: parsed.data.financial_cost, payment_method: parsed.data.financial_payment_method, cargo_value: parsed.data.cargo_value },
@@ -520,31 +530,82 @@ export default function NewWaybillPage() {
                     title="مبدا بارگیری"
                     subtitle="اطلاعات دقیق مکان مبدا — ربات این اطلاعات را در مرحله ۵ فرم UTCMS پر می‌کند"
                   />
-                  <div className="rounded-xl bg-cyan-500/10 border border-cyan-500/20 px-4 py-3 text-xs text-cyan-400 font-medium flex items-start gap-2">
-                    <SparklesIcon className="h-4 w-4 shrink-0 mt-0.5 text-cyan-400" />
-                    <span>
-                      ربات ابتدا <strong>ddStateSource</strong> (استان) را انتخاب می‌کند، سپس <strong>ddCitySource</strong> (شهر) را بار می‌زند و در نهایت <strong>txtAddressSource</strong> را پر می‌کند.
-                    </span>
+
+                  {/* ورودی هوشمند آدرس سرهم */}
+                  <SmartAddressInput
+                    onParsed={(parsed) => {
+                      if (parsed.province) handleChange("origin_province", parsed.province);
+                      if (parsed.city) handleChange("origin", parsed.city);
+                      if (parsed.district) handleChange("origin_district", parsed.district);
+                      if (parsed.address) handleChange("origin_address", parsed.address);
+                      if (parsed.coordinates) setOriginCoords(parsed.coordinates);
+                    }}
+                  />
+
+                  {/* انتخاب از آدرس‌های محبوب */}
+                  <FavoriteLocationPicker
+                    mode="origin"
+                    currentProvince={form.origin_province}
+                    currentCity={form.origin}
+                    currentDistrict={form.origin_district}
+                    currentAddress={form.origin_address}
+                    currentLat={originCoords?.lat}
+                    currentLng={originCoords?.lng}
+                    onSelectFavorite={(fav) => {
+                      handleChange("origin_province", fav.province);
+                      handleChange("origin", fav.city);
+                      if (fav.district) handleChange("origin_district", fav.district);
+                      handleChange("origin_address", fav.address);
+                      if (fav.latitude && fav.longitude) {
+                        setOriginCoords({ lat: fav.latitude, lng: fav.longitude });
+                      }
+                    }}
+                  />
+
+                  {/* دکمه نمایش / مخفی‌سازی نقشه تعاملی */}
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-xs font-bold text-slate-300">انتخاب استان و شهر:</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowOriginMap(!showOriginMap)}
+                      className="px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-xs font-bold transition-all border border-cyan-500/30 flex items-center gap-1.5"
+                    >
+                      <MapPinIcon className="h-4 w-4" />
+                      <span>{showOriginMap ? "بستن نقشه" : "انتخاب پین روی نقشه تعاملی"}</span>
+                    </button>
                   </div>
-                  <div className="grid gap-5 sm:grid-cols-2">
-                    <Field label="استان مبدا" error={errors.origin_province} required>
-                      <input
-                        className={`field ${errors.origin_province ? "error" : ""}`}
-                        placeholder="مثال: تهران"
-                        value={form.origin_province}
-                        onChange={(e) => handleChange("origin_province", e.target.value)}
-                      />
-                    </Field>
 
-                    <Field label="شهر مبدا" error={errors.origin} required>
-                      <input
-                        className={`field ${errors.origin ? "error" : ""}`}
-                        placeholder="مثال: تهران"
-                        value={form.origin}
-                        onChange={(e) => handleChange("origin", e.target.value)}
-                      />
-                    </Field>
+                  {/* نقشه تعاملی Leaflet */}
+                  {showOriginMap && (
+                    <LocationMapPicker
+                      label="مبدا"
+                      initialLat={originCoords?.lat || 35.6892}
+                      initialLng={originCoords?.lng || 51.3890}
+                      onLocationSelected={(loc) => {
+                        if (loc.province) handleChange("origin_province", loc.province);
+                        if (loc.city) handleChange("origin", loc.city);
+                        if (loc.district) handleChange("origin_district", loc.district);
+                        if (loc.address) handleChange("origin_address", loc.address);
+                        setOriginCoords({ lat: loc.lat, lng: loc.lng });
+                      }}
+                      onClose={() => setShowOriginMap(false)}
+                    />
+                  )}
 
+                  {/* انتخابگر کشویی استان و شهر */}
+                  <ProvinceCitySelect
+                    provinceValue={form.origin_province}
+                    cityValue={form.origin}
+                    onProvinceChange={(prov) => handleChange("origin_province", prov)}
+                    onCityChange={(city, coords) => {
+                      handleChange("origin", city);
+                      if (coords) setOriginCoords(coords);
+                    }}
+                    provinceError={errors.origin_province}
+                    cityError={errors.origin}
+                  />
+
+                  <div className="grid gap-5 sm:grid-cols-2 mt-5">
                     <Field label="آدرس مبدا" error={errors.origin_address} required>
                       <input
                         className={`field ${errors.origin_address ? "error" : ""}`}
@@ -557,7 +618,7 @@ export default function NewWaybillPage() {
                     <Field label="ناحیه / منطقه مبدا" error={errors.origin_district} hint="اختیاری">
                       <input
                         className="field"
-                        placeholder="مثال: منطقه ۱۵"
+                        placeholder="مثال: منطقه ۱۵ یا شهرک صنعتی"
                         value={form.origin_district}
                         onChange={(e) => handleChange("origin_district", e.target.value)}
                       />
@@ -573,31 +634,82 @@ export default function NewWaybillPage() {
                     title="مقصد تحویل"
                     subtitle="اطلاعات دقیق مکان مقصد — ربات در مرحله ۶ فرم UTCMS این اطلاعات را تکمیل می‌کند"
                   />
-                  <div className="rounded-xl bg-cyan-500/10 border border-cyan-500/20 px-4 py-3 text-xs text-cyan-400 font-medium flex items-start gap-2">
-                    <SparklesIcon className="h-4 w-4 shrink-0 mt-0.5 text-cyan-400" />
-                    <span>
-                      ربات <strong>ddStateDest</strong> (استان) و <strong>ddCityDest</strong> (شهر) را به ترتیب انتخاب کرده و <strong>txtAddressDest</strong> را پر می‌کند.
-                    </span>
+
+                  {/* ورودی هوشمند آدرس سرهم */}
+                  <SmartAddressInput
+                    onParsed={(parsed) => {
+                      if (parsed.province) handleChange("destination_province", parsed.province);
+                      if (parsed.city) handleChange("destination", parsed.city);
+                      if (parsed.district) handleChange("destination_district", parsed.district);
+                      if (parsed.address) handleChange("destination_address", parsed.address);
+                      if (parsed.coordinates) setDestinationCoords(parsed.coordinates);
+                    }}
+                  />
+
+                  {/* انتخاب از آدرس‌های محبوب */}
+                  <FavoriteLocationPicker
+                    mode="destination"
+                    currentProvince={form.destination_province}
+                    currentCity={form.destination}
+                    currentDistrict={form.destination_district}
+                    currentAddress={form.destination_address}
+                    currentLat={destinationCoords?.lat}
+                    currentLng={destinationCoords?.lng}
+                    onSelectFavorite={(fav) => {
+                      handleChange("destination_province", fav.province);
+                      handleChange("destination", fav.city);
+                      if (fav.district) handleChange("destination_district", fav.district);
+                      handleChange("destination_address", fav.address);
+                      if (fav.latitude && fav.longitude) {
+                        setDestinationCoords({ lat: fav.latitude, lng: fav.longitude });
+                      }
+                    }}
+                  />
+
+                  {/* دکمه نمایش / مخفی‌سازی نقشه تعاملی */}
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-xs font-bold text-slate-300">انتخاب استان و شهر:</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowDestinationMap(!showDestinationMap)}
+                      className="px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-xs font-bold transition-all border border-cyan-500/30 flex items-center gap-1.5"
+                    >
+                      <MapPinIcon className="h-4 w-4" />
+                      <span>{showDestinationMap ? "بستن نقشه" : "انتخاب پین روی نقشه تعاملی"}</span>
+                    </button>
                   </div>
-                  <div className="grid gap-5 sm:grid-cols-2">
-                    <Field label="استان مقصد" error={errors.destination_province} required>
-                      <input
-                        className={`field ${errors.destination_province ? "error" : ""}`}
-                        placeholder="مثال: اصفهان"
-                        value={form.destination_province}
-                        onChange={(e) => handleChange("destination_province", e.target.value)}
-                      />
-                    </Field>
 
-                    <Field label="شهر مقصد" error={errors.destination} required>
-                      <input
-                        className={`field ${errors.destination ? "error" : ""}`}
-                        placeholder="مثال: اصفهان"
-                        value={form.destination}
-                        onChange={(e) => handleChange("destination", e.target.value)}
-                      />
-                    </Field>
+                  {/* نقشه تعاملی Leaflet */}
+                  {showDestinationMap && (
+                    <LocationMapPicker
+                      label="مقصد"
+                      initialLat={destinationCoords?.lat || 32.6546}
+                      initialLng={destinationCoords?.lng || 51.6680}
+                      onLocationSelected={(loc) => {
+                        if (loc.province) handleChange("destination_province", loc.province);
+                        if (loc.city) handleChange("destination", loc.city);
+                        if (loc.district) handleChange("destination_district", loc.district);
+                        if (loc.address) handleChange("destination_address", loc.address);
+                        setDestinationCoords({ lat: loc.lat, lng: loc.lng });
+                      }}
+                      onClose={() => setShowDestinationMap(false)}
+                    />
+                  )}
 
+                  {/* انتخابگر کشویی استان و شهر */}
+                  <ProvinceCitySelect
+                    provinceValue={form.destination_province}
+                    cityValue={form.destination}
+                    onProvinceChange={(prov) => handleChange("destination_province", prov)}
+                    onCityChange={(city, coords) => {
+                      handleChange("destination", city);
+                      if (coords) setDestinationCoords(coords);
+                    }}
+                    provinceError={errors.destination_province}
+                    cityError={errors.destination}
+                  />
+
+                  <div className="grid gap-5 sm:grid-cols-2 mt-5">
                     <Field label="آدرس مقصد" error={errors.destination_address} required>
                       <input
                         className={`field ${errors.destination_address ? "error" : ""}`}

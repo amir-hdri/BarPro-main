@@ -206,8 +206,11 @@ class LocationSelector:
             "‌": "",
             "\u200f": "",
             "\u200e": "",
+            "\u200c": "",
             "ۀ": "ه",
             "ة": "ه",
+            "أ": "ا",
+            "إ": "ا",
         }
         for source, target in replacements.items():
             normalized = normalized.replace(source, target)
@@ -1824,24 +1827,56 @@ class LocationSelector:
             return {"success": False, "method": "autocomplete", "error": str(e)}
 
     def _find_best_option_match(self, raw_options: list[dict[str, str]], normalized_target: str) -> str | None:
-        """یافتن بهترین تطابق بین گزینه‌ها"""
+        """یافتن بهترین تطابق هوشمند و فازی بین گزینه‌های منوی کشویی"""
+        if not normalized_target:
+            return None
+
+        def clean_prefix(text: str) -> str:
+            for prefix in ("استان", "شهرستان", "شهر", "بخش", "دهستان", "منطقه"):
+                if text.startswith(prefix):
+                    text = text[len(prefix):]
+            return text
+
+        target_clean = clean_prefix(normalized_target)
+
+        # ۱. تطابق کامل (Exact Match)
+        for option in raw_options:
+            option_text = str(option.get("text") or "").strip()
+            option_value = str(option.get("value") or "").strip()
+            norm_text = self._normalize_text(option_text)
+            norm_val = self._normalize_text(option_value)
+
+            if norm_text == "undefined" or norm_val == "undefined" or not (norm_text or norm_val):
+                continue
+
+            if normalized_target in (norm_text, norm_val):
+                return option_value or option_text
+
+        # ۲. تطابق بعد از حذف پیشوندهای متداول مانند "استان " یا "شهرستان "
+        for option in raw_options:
+            option_text = str(option.get("text") or "").strip()
+            option_value = str(option.get("value") or "").strip()
+            norm_text = clean_prefix(self._normalize_text(option_text))
+            norm_val = clean_prefix(self._normalize_text(option_value))
+
+            if target_clean and (target_clean == norm_text or target_clean == norm_val):
+                return option_value or option_text
+
+        # ۳. تطابق عبارت فرعی (Substring Match)
         best_value = None
         for option in raw_options:
             option_text = str(option.get("text") or "").strip()
             option_value = str(option.get("value") or "").strip()
-            normalized_text = self._normalize_text(option_text)
-            normalized_value = self._normalize_text(option_value)
+            norm_text = self._normalize_text(option_text)
+            norm_val = self._normalize_text(option_value)
 
-            if normalized_text == "undefined" or normalized_value == "undefined":
+            if norm_text == "undefined" or norm_val == "undefined":
                 continue
 
-            if normalized_target == normalized_text or normalized_target == normalized_value:
-                return option_value or option_text
-
             if (
-                normalized_target in normalized_text
-                or normalized_target in normalized_value
-                or normalized_text in normalized_target
+                target_clean in norm_text
+                or target_clean in norm_val
+                or norm_text in target_clean
             ):
                 best_value = option_value or option_text
 

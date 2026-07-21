@@ -190,6 +190,18 @@ async def reverse_geocode(lat: float, lng: float):
             "display_name": data.get("display_name", ""),
         }
 
+    from app.core.iran_locations import find_nearest_city_coords
+
+    offline_match = find_nearest_city_coords(lat, lng)
+    if offline_match:
+        return {
+            "success": True,
+            "province": offline_match["province"],
+            "city": offline_match["city"],
+            "district": "",
+            "display_name": f"محدوده {offline_match['city']}، {offline_match['province']}",
+        }
+
     return {
         "success": False,
         "error": "Failed to resolve geocode coordinates",

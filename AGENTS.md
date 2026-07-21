@@ -454,6 +454,23 @@ ON waybill_jobs (status) INCLUDE (id);
 | Added Squid proxy, tunnel failures, ECONNRESET, and 502/503/504 errors to `RETRYABLE_NETWORK_MARKERS` | `app/core/network.py` |
 | Added document `readyState` fallback to `goto_with_retry` / `_goto_with_retry` on navigation timeout to prevent false failures when main document has loaded | `app/automation/auth_navigator.py`, `app/automation/waybill_enhanced.py` |
 
+### Additional Fixes & Features Applied (2026-07-21) — Map, Location & Origin/Destination Registration System
+
+| Change | File(s) |
+|--------|---------|
+| Created centralized dataset for 31 Iranian provinces, main county centers, and coordinates with offline fallback `find_nearest_city_coords` | `app/core/iran_locations.py` |
+| Created `parse_smart_address` for 1-click automatic parsing of unsegmented/raw address strings into province, city, district, and address components | `app/core/iran_locations.py` |
+| Created `LocationFavorite` SQLModel schema for client favorite locations | `app/models/location_favorite.py` |
+| Added `/api/v1/locations` API routes: `/provinces`, `/cities`, `/parse-address`, `/reverse-geocode`, and `/favorites` CRUD | `app/api/routes/location.py` |
+| Upgraded `/api/v1/waybill/reverse-geocode` with security authentication and offline dataset fallback when Nominatim times out | `app/api/routes/waybill_map.py` |
+| Implemented Fuzzy Option Matcher (`_find_best_option_match`) with prefix stripping ("استان", "شهرستان", "شهر") for UTCMS dropdown selection resilience | `app/automation/location_selector.py` |
+| Developed frontend `ProvinceCitySelect` dropdown component with Farsi search & cascading city selection | `apps/web/src/components/ProvinceCitySelect.tsx` |
+| Developed frontend `SmartAddressInput` component for 1-click smart address parsing | `apps/web/src/components/SmartAddressInput.tsx` |
+| Developed frontend `LocationMapPicker` Leaflet interactive map component with draggable marker & geolocation | `apps/web/src/components/LocationMapPicker.tsx` |
+| Developed frontend `FavoriteLocationPicker` component for 1-click favorite address selection and saving | `apps/web/src/components/FavoriteLocationPicker.tsx` |
+| Upgraded steps 2 & 3 in New Waybill page (`apps/web/src/app/new/page.tsx`) with interactive map, favorite address picker, cascading dropdowns, and passing exact `coordinates` in payload | `apps/web/src/app/new/page.tsx` |
+| Added automated tests for location API and smart address parsing | `tests/test_location_api.py` |
+
 ---
 
 *Last updated: 2026-07-21 · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*

@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.routes import (
     admin_reporting,
     itmb_ws,
+    location,
     management,
     multitenant,
     realtime,
@@ -306,6 +307,7 @@ async def request_context_middleware(request: Request, call_next):
 
 
 app.include_router(waybill_map.router)
+app.include_router(location.router)
 app.include_router(waybill_entry.router)
 app.include_router(management.router)
 app.include_router(itmb_ws.router)
