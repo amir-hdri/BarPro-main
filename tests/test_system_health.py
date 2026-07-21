@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -10,8 +11,6 @@ from app.monitoring.metrics import (
     track_captcha_failure,
     track_captcha_success,
 )
-
-import pytest
 
 
 @pytest.fixture(autouse=True)

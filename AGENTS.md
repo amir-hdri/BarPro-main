@@ -408,7 +408,19 @@ ON waybill_jobs (status) INCLUDE (id);
 
 > Verification: `pip-audit` → *No known vulnerabilities found*; `npm audit --omit=dev` (apps/web) → 0 vulnerabilities; GitHub Dependabot no longer flags the default branch. `tsc --noEmit` and `next lint` pass on `apps/web`.
 
+### Additional Fixes Applied (2026-07-21) — Worker Proxy, Rotator & Event Loop Reliability
+
+| Change | File(s) |
+|--------|---------|
+| Fixed sticky `None` caching in `get_worker_proxy_url()` with dynamic TTL-cache (`_PROXY_CACHE_TTL_SUCCESS`/`_PROXY_CACHE_TTL_FAILURE`) and `clear_proxy_cache()` helper | `app/automation/worker_proxy.py` |
+| Added `_rotator_init_lock` (`threading.Lock`) for thread-safe `get_proxy_rotator()` singleton initialization across Celery worker threads | `app/automation/proxy_rotator.py` |
+| Fixed `test_proxy()` URL parsing (`IndexError` prevention) and added `test_proxy.__test__ = False` for pytest compatibility | `app/automation/proxy_rotator.py` |
+| Fixed `InFailedSqlTransactionError` in `waybill_worker._execute_job` exception handler by issuing `await session.rollback()` prior to persisting failure state | `app/workers/waybill_worker.py` |
+| Cleaned up `run_async` in core utils to avoid creating orphan thread pools and removed unused variable `running` (`F841`) | `app/core/utils.py` |
+| Added comprehensive unit test suite `tests/test_worker_proxy_and_rotator.py` | `tests/test_worker_proxy_and_rotator.py` |
+
 ---
 
-*Last updated: 2026-07-18 · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*
+*Last updated: 2026-07-21 · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*
+
 

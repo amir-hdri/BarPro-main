@@ -236,9 +236,9 @@ class BrowserManager:
             "/usr/bin/google-chrome-stable",  # Linux
             "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"  # Windows
         ]
-        
+
         system_chrome = next((path for path in system_chrome_paths if os.path.exists(path)), None)
-        
+
         if system_chrome:
             logger.warning(
                 "browser_launch_retry_system_chrome",
@@ -311,7 +311,7 @@ class BrowserManager:
         # Use a generic Windows UA but dynamically insert the actual browser version to match TLS fingerprint.
         browser_version = self.browser.version if self.browser else "126.0.0.0"
         dynamic_ua = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{browser_version} Safari/537.36"
-        
+
         context_args = {
             "ignore_https_errors": True,
             "user_agent": dynamic_ua,

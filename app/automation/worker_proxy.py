@@ -32,7 +32,7 @@ Proxy addressing:
 import logging
 import os
 import socket
-from functools import lru_cache
+import time
 from urllib.parse import urlparse, urlunparse
 
 logger = logging.getLogger(__name__)
@@ -83,11 +83,23 @@ def _resolve_to_ip(url: str) -> str:
     return url
 
 
-@lru_cache(maxsize=1)
+_cached_proxy_url: str | None = None
+_cached_proxy_timestamp: float = 0.0
+_PROXY_CACHE_TTL_SUCCESS: float = 60.0  # Cache valid proxy for 60s
+_PROXY_CACHE_TTL_FAILURE: float = 5.0   # Retry failed proxy lookup after 5s
+
+
+def clear_proxy_cache() -> None:
+    """Clear cached worker proxy URL to force a fresh health check on next call."""
+    global _cached_proxy_url, _cached_proxy_timestamp
+    _cached_proxy_url = None
+    _cached_proxy_timestamp = 0.0
+
+
 def get_worker_proxy_url() -> str | None:
     """
     Return the Squid proxy URL for this Celery worker, with hostname resolved
-    to a numeric IP. Result is cached at module level (per worker process).
+    to a numeric IP. Result is cached per worker process with short TTL.
 
     Priority order:
     1. WORKER_{WORKER_ID}_PROXY  (e.g. WORKER_1_PROXY=http://172.20.0.1:3128)
@@ -97,12 +109,21 @@ def get_worker_proxy_url() -> str | None:
     If the configured proxy is unreachable (e.g. during local development outside Docker),
     falls back to None for a direct network connection.
     """
+    global _cached_proxy_url, _cached_proxy_timestamp
+
+    now = time.time()
+    ttl = _PROXY_CACHE_TTL_SUCCESS if _cached_proxy_url else _PROXY_CACHE_TTL_FAILURE
+    if _cached_proxy_timestamp > 0 and (now - _cached_proxy_timestamp) < ttl:
+        return _cached_proxy_url
+
     worker_id = os.environ.get(_WORKER_ID_ENV, "1")
     url = os.environ.get(f"WORKER_{worker_id}_PROXY") or (
         os.environ.get("RPA_PROXIES", "").split(",")[0].strip() or None
     )
     if not url:
         logger.warning("worker_proxy: no proxy URL configured — running direct connection")
+        _cached_proxy_url = None
+        _cached_proxy_timestamp = now
         return None
 
     resolved = _resolve_to_ip(url)
@@ -113,13 +134,19 @@ def get_worker_proxy_url() -> str | None:
         try:
             with socket.create_connection((parsed.hostname, parsed.port), timeout=1.0):
                 logger.info(f"worker_proxy: using active proxy {resolved} (worker_id={worker_id})")
+                _cached_proxy_url = resolved
+                _cached_proxy_timestamp = now
                 return resolved
-        except (OSError, socket.timeout):
+        except (OSError, TimeoutError):
             logger.warning(
                 f"worker_proxy: configured proxy {resolved} is unreachable; falling back to direct connection"
             )
+            _cached_proxy_url = None
+            _cached_proxy_timestamp = now
             return None
 
+    _cached_proxy_url = resolved
+    _cached_proxy_timestamp = now
     return resolved
 
 

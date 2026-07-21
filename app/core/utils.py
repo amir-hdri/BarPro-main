@@ -26,24 +26,19 @@ def run_async(coro) -> Any:
     """Run an async coroutine synchronously.
 
     Strategy:
-    1. If a loop is *already running* (e.g. nested call inside async context),
-       use asyncio.get_event_loop().run_until_complete — but this is unusual for
-       Celery workers.  We detect and raise clearly instead of silently creating
-       orphan tasks on a second loop.
+    1. If a loop is already running in the current thread (e.g. inside an async context),
+       delegate execution safely via a thread pool to avoid blocking the running loop.
     2. Otherwise use the thread-local event loop, which persists for the lifetime
-       of this Celery worker process-fork.  This prevents the
-       'Future attached to a different loop' error that occurred when a new loop
-       was created per-task while asyncpg connections were bound to the old loop.
+       of this process thread.
     """
     try:
-        # If there is already a running loop we MUST NOT call run_until_complete on it.
-        running = asyncio.get_running_loop()
-        # We are inside an async context — schedule and wait via a thread
-        import concurrent.futures
+        running_loop = asyncio.get_running_loop()
+        if running_loop.is_running():
+            import concurrent.futures
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(asyncio.run, coro)
-            return future.result()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, coro)
+                return future.result()
     except RuntimeError:
         # No running loop — use the persistent thread-local loop
         pass

@@ -1,10 +1,11 @@
 from unittest.mock import patch
+
 import pytest
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
-from fastapi import HTTPException
 
 from app.models_multitenant import Client, Driver, DriverPlate
 from app.schemas.multitenant import FuelInquiryCreateRequest

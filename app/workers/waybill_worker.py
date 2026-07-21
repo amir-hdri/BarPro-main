@@ -424,6 +424,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
 
         try:
             if job is not None:
+                await session.rollback()
                 runtime_state = await _get_or_create_runtime_state(session, job.client_id, job.driver_id)
                 job.status = TaskStatus.NEEDS_REVIEW.value
                 job.last_error = str(e)

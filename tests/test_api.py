@@ -1,11 +1,10 @@
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.auth_multitenant import get_current_admin
 from app.main import app
-
-import pytest
 
 
 @pytest.fixture(autouse=True)

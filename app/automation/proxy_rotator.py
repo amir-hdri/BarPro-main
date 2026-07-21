@@ -766,19 +766,20 @@ class ProxyRotator:
 async def test_proxy(proxy_url: str, timeout: float = 10.0) -> bool:
     """Quick proxy test."""
     try:
+        proxy_str = (proxy_url or "").strip()
+        if not proxy_str:
+            return False
+
+        if not proxy_str.startswith(("http://", "https://", "socks4://", "socks5://")):
+            proxy_str = f"http://{proxy_str}"
+
         async with ClientSession(timeout=ClientTimeout(total=timeout)) as session:
-            protocol = "socks5" if "socks5://" in proxy_url else "http"
-            proxy_str = proxy_url
-
-            if not proxy_str.startswith(("http://", "https://", "socks4://", "socks5://")):
-                proxy_str = f"http://{proxy_str}"
-
             # Try UTCMS first, then fallback
             for target_url in ("https://barname.utcms.ir", "https://httpbin.org/ip"):
                 try:
                     async with session.get(
                         target_url,
-                        proxy=f"{protocol}://{proxy_str.split('://')[1]}",
+                        proxy=proxy_str,
                     ) as response:
                         if response.status in (200, 301, 302):
                             return True
@@ -789,22 +790,29 @@ async def test_proxy(proxy_url: str, timeout: float = 10.0) -> bool:
         return False
 
 
+test_proxy.__test__ = False
+
+
 # ============================================================================
 # GLOBAL INSTANCE
 # ============================================================================
 
 _global_rotator: ProxyRotator | None = None
+_rotator_init_lock = threading.Lock()
 
 
 def get_proxy_rotator() -> ProxyRotator:
-    """Get or create global proxy rotator instance"""
+    """Get or create global proxy rotator instance (thread-safe)."""
     global _global_rotator
     if _global_rotator is None:
-        _global_rotator = ProxyRotator()
+        with _rotator_init_lock:
+            if _global_rotator is None:
+                _global_rotator = ProxyRotator()
     return _global_rotator
 
 
 def set_proxy_rotator(rotator: ProxyRotator):
     """Set global proxy rotator instance"""
     global _global_rotator
-    _global_rotator = rotator
+    with _rotator_init_lock:
+        _global_rotator = rotator
