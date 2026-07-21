@@ -574,11 +574,28 @@ def parse_smart_address(address_raw: str) -> dict[str, Any]:
             coords = {"lat": p["lat"], "lng": p["lng"]}
             break
 
-    # ۲. جستجوی نام شهر
-    for p in IRAN_PROVINCES_DATA:
-        for c in p["cities"]:
+    # ۲. جستجوی نام شهر (ابتدا جستجو در شهرهای استان شناسایی‌شده)
+    search_provinces = (
+        [p for p in IRAN_PROVINCES_DATA if p["name"] == detected_province] +
+        [p for p in IRAN_PROVINCES_DATA if p["name"] != detected_province]
+    )
+
+    words_in_text = set(re.findall(r"[\w\u200c]+", norm_text))
+
+    for p in search_provinces:
+        # مرتب‌سازی شهرها بر اساس طول نام به صورت نزولی جهت اولویت‌دهی به اسامی کامل‌تر
+        sorted_cities = sorted(p["cities"], key=lambda item: len(item["name"]), reverse=True)
+        for c in sorted_cities:
             c_norm = normalize_farsi_text(c["name"])
-            if c_norm in norm_text:
+            # برای اسامی خیلی کوتاه (مثل ری، قم) کلمه باید به صورت کامل منطبق باشد
+            if len(c_norm) <= 2:
+                if c_norm in words_in_text:
+                    detected_city = c["name"]
+                    if not detected_province:
+                        detected_province = p["name"]
+                    coords = {"lat": c["lat"], "lng": c["lng"]}
+                    break
+            elif c_norm in norm_text:
                 detected_city = c["name"]
                 if not detected_province:
                     detected_province = p["name"]
