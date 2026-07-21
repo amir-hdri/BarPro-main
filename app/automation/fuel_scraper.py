@@ -377,13 +377,13 @@ class FuelScraper:
         # Ensure Quota Type radio inputs are loaded by retrying the page's own AJAX function or manual fallback
         try:
             quota_radio = f"input[name='QoutaType'][value='{quota_type}']"
-            
+
             # Wait for the page's own $(document).ready AJAX call to finish
             try:
                 quota_element = await self.page.wait_for_selector(quota_radio, state="attached", timeout=5000)
             except Exception:
                 quota_element = None
-                
+
             if not quota_element:
                 logger.info("QuotaType radio inputs not found in DOM after 5s. Retrying GetQoutaType AJAX call...")
                 for load_attempt in range(1, 4):
@@ -589,11 +589,15 @@ class FuelScraper:
                     msg_text = (await body_elem.inner_text()).strip()
                 logger.info(f"Base Quota success message: {msg_text}")
 
-                # Parse the quota value from message text
+                # Parse the quota value from message text (normalizing Persian/Arabic digits)
                 import re
 
-                digits = re.findall(r"\d+", msg_text)
-                quota_val = digits[0] if digits else "0"
+                norm_text = msg_text
+                for idx, digit in enumerate("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩"):
+                    norm_text = norm_text.replace(digit, str(idx % 10))
+
+                num_match = re.search(r"(\d[\d,.]*)", norm_text)
+                quota_val = num_match.group(1).replace(",", "") if num_match else "0"
 
                 # Construct a synthetic row matching the table schema
                 rows = [["1", "دوره جاری", quota_val]]
