@@ -114,8 +114,9 @@ class SmartLocator:
         if not selectors:
             raise ValueError("selectors cannot be empty")
 
-        # 1. Try cached successful selector first for speed
-        cache_key = ":".join(selectors)
+        # 1. Try cached successful selector first for speed (scoped by page instance ID)
+        page_id = id(page)
+        cache_key = f"{page_id}:{':'.join(selectors)}"
         if cache_key in self._cache:
             try:
                 cached_selector = self._cache[cache_key]

@@ -161,19 +161,34 @@ class BrowserManager:
 
             if self.browser:
                 try:
-                    await self.browser.close()
+                    await asyncio.wait_for(self.browser.close(), timeout=10.0)
                 except Exception:
-                    logger.warning("browser_operation_failed", exc_info=True)
+                    logger.warning("browser_close_timeout_or_failed", exc_info=True)
                 self.browser = None
 
             if self.playwright:
                 try:
-                    await self.playwright.stop()
+                    await asyncio.wait_for(self.playwright.stop(), timeout=10.0)
                 except Exception:
-                    logger.warning("browser_operation_failed", exc_info=True)
+                    logger.warning("playwright_stop_timeout_or_failed", exc_info=True)
                 self.playwright = None
 
+            self._cleanup_zombie_processes()
             logger.info("Browser successfully recycled.")
+
+    @staticmethod
+    def _cleanup_zombie_processes():
+        """Emergency process cleanup to kill orphan chromium processes and free RAM."""
+        try:
+            import subprocess
+            subprocess.run(
+                ["pkill", "-f", "chrome-headless-shell|chromium"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+        except Exception:
+            pass
 
     async def record_success_for_recycle(self):
         """Increment success counter and recycle browser if it reaches 5."""

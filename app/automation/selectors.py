@@ -317,6 +317,25 @@ class AuthSelectors:
         ".toast-message",
         ".toast-body",
         ".swal2-html-container",
+        ".swal2-content",
+        "#toast-container .toast-title",
+    )
+    MODAL_POPUP_SELECTORS = (
+        ".swal2-container",
+        ".swal2-modal",
+        ".modal.show",
+        "#toast-container",
+        ".bootbox-confirm",
+        ".bootbox-alert",
+    )
+    MODAL_CONFIRM_BUTTONS = (
+        ".swal2-confirm",
+        "button.swal2-confirm",
+        ".modal.show button.btn-primary",
+        ".modal.show button[data-dismiss='modal']",
+        ".modal.show button:has-text('تایید')",
+        ".modal.show button:has-text('بستن')",
+        "button.bootbox-accept",
     )
     OTP_SELECTORS = (
         "#otp",

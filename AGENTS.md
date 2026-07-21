@@ -430,8 +430,20 @@ ON waybill_jobs (status) INCLUDE (id);
 | Enhanced `release_lock()` to support explicit tokens and direct fallback deletion when `ContextVar` context is lost across async worker tasks | `app/services/rpa_runtime_service.py` |
 | Added unit test suite `tests/test_rpa_dispatch_scheduler.py` | `tests/test_rpa_dispatch_scheduler.py` |
 
+### Additional Fixes Applied (2026-07-21) — Smart Locators, Form Validation & Browser/Session Optimization
+
+| Change | File(s) |
+|--------|---------|
+| Scoped `SmartLocator` cache keys by page instance ID (`id(page)`) to prevent cross-page stale selector cache hits | `app/bot/core/smart_locator.py` |
+| Added `MODAL_POPUP_SELECTORS` and `MODAL_CONFIRM_BUTTONS` to `AuthSelectors` for SweetAlert2, Toastr, and Bootstrap modal dismissals | `app/automation/selectors.py` |
+| Added automated native browser dialog interceptor (`page.on("dialog")`) and `_check_and_dismiss_modal_alerts()` to prevent Playwright freezes | `app/automation/waybill_enhanced.py` |
+| Added pre-validation checksum helpers for Iranian National Code (`_is_valid_iranian_national_code`) and Mobile Numbers (`_is_valid_iranian_mobile`) | `app/automation/waybill_enhanced.py` |
+| Removed forced JS step transitions on invalid form states; extract modal and inline error messages to raise early descriptive `WaybillError` | `app/automation/waybill_enhanced.py` |
+| Enforced 10-second `asyncio.wait_for()` timeout wrappers on browser process teardown and added `_cleanup_zombie_processes()` (`pkill chrome-headless-shell`) in `BrowserManager.recycle_browser()` | `app/automation/browser.py` |
+
 ---
 
 *Last updated: 2026-07-21 · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*
+
 
 

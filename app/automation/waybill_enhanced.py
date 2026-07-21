@@ -76,6 +76,71 @@ class EnhancedWaybillManager:
         self.route_calculator = RouteCalculator(page)
         self._active_pill = "bootstrap"
         self._selector_inventory: dict[str, dict[str, Any]] = {}
+        self._last_dialog_message: str | None = None
+        self._setup_dialog_listener()
+
+    def _setup_dialog_listener(self) -> None:
+        """Register automated handler for native browser alert/confirm popups."""
+        try:
+            def handle_dialog(dialog):
+                self._last_dialog_message = dialog.message
+                logger.warning(
+                    "native_browser_dialog_intercepted",
+                    extra={"extra_fields": {"message": dialog.message, "type": dialog.type}},
+                )
+                asyncio.create_task(dialog.accept())
+
+            self.page.on("dialog", handle_dialog)
+        except Exception:
+            logger.warning("failed_to_register_dialog_listener", exc_info=True)
+
+    async def _check_and_dismiss_modal_alerts(self) -> str | None:
+        """Check for visible SweetAlert, Toast, or Bootstrap modals, extract error text, and dismiss."""
+        modal_selectors = [
+            ".swal2-container",
+            ".swal2-modal",
+            ".modal.show",
+            "#toast-container",
+            ".bootbox",
+        ]
+        for sel in modal_selectors:
+            try:
+                if await self.page.is_visible(sel, timeout=300):
+                    text = await self.page.eval_on_selector(
+                        sel,
+                        "el => (el.innerText || el.textContent || '').trim()"
+                    )
+                    logger.warning("modal_popup_detected_and_dismissing", extra={"extra_fields": {"text": text}})
+                    for btn_sel in AuthSelectors.MODAL_CONFIRM_BUTTONS:
+                        if await self.page.is_visible(btn_sel, timeout=200):
+                            await self.page.click(btn_sel, timeout=1000)
+                            break
+                    return text
+            except Exception:
+                continue
+
+        if self._last_dialog_message:
+            msg = self._last_dialog_message
+            self._last_dialog_message = None
+            return msg
+
+        return None
+
+    @staticmethod
+    def _is_valid_iranian_national_code(code: Any) -> bool:
+        clean = re.sub(r"\D", "", str(code or ""))
+        if len(clean) != 10 or len(set(clean)) == 1:
+            return False
+        check = int(clean[9])
+        s = sum(int(clean[i]) * (10 - i) for i in range(9)) % 11
+        return (s < 2 and check == s) or (s >= 2 and check == 11 - s)
+
+    @staticmethod
+    def _is_valid_iranian_mobile(phone: Any) -> bool:
+        clean = re.sub(r"\D", "", str(phone or ""))
+        if clean.startswith("98"):
+            clean = "0" + clean[2:]
+        return bool(re.match(r"^09\d{9}$", clean))
 
     def _pill_name(self, step_index: int) -> str:
         return self._pill_names.get(step_index, f"pill_{step_index}")
@@ -2031,6 +2096,9 @@ class EnhancedWaybillManager:
             "مرحله بعد (فرستنده)",
         )
         if not sender_next:
+            modal_err = await self._check_and_dismiss_modal_alerts()
+            if modal_err:
+                raise WaybillError(f"خطای فرم فرستنده: {modal_err}")
             await self._force_step_transition(2)
 
         # Verify we actually moved to pill 2; if not, extract and raise the form error
@@ -2040,7 +2108,7 @@ class EnhancedWaybillManager:
             timeout_ms=5000,
         )
         if not pill2_ready:
-            form_errors = await self._extract_form_errors()
+            form_errors = await self._extract_form_errors() or await self._check_and_dismiss_modal_alerts()
             error_msg = form_errors or "اعتبارسنجی فرم فرستنده ناموفق بود"
             logger.error("sender_form_validation_blocked", extra={"extra_fields": {"errors": error_msg}})
             raise WaybillError(f"گذر از مرحله فرستنده ناموفق بود: {error_msg}")
