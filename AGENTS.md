@@ -419,6 +419,17 @@ ON waybill_jobs (status) INCLUDE (id);
 | Cleaned up `run_async` in core utils to avoid creating orphan thread pools and removed unused variable `running` (`F841`) | `app/core/utils.py` |
 | Added comprehensive unit test suite `tests/test_worker_proxy_and_rotator.py` | `tests/test_worker_proxy_and_rotator.py` |
 
+### Additional Fixes Applied (2026-07-21) — RPA Services, RPA Dispatch & Scheduler Reliability
+
+| Change | File(s) |
+|--------|---------|
+| Added per-job `try/except` error isolation inside `plan_due_jobs()` so an unexpected error evaluating one job does not abort the entire scheduler batch | `app/services/rpa_scheduler_service.py` |
+| Immediate status reset to `PENDING` in `_dispatch_phase1_task` when `celery_app.send_task()` fails, preventing jobs from being stuck in `QUEUED`/`WAITING_AUTH` | `app/services/rpa_dispatch_service.py` |
+| Wrapped decision dispatches in `dispatch_phase1_decisions()` to isolate single-job dispatch errors | `app/services/rpa_dispatch_service.py` |
+| Added dual Persian solar calendar weekday mapping (`Sat=0...Fri=6`) alongside Python weekday indices in `_evaluate_single_schedule()` | `app/services/scheduled_waybill_executor.py` |
+| Enhanced `release_lock()` to support explicit tokens and direct fallback deletion when `ContextVar` context is lost across async worker tasks | `app/services/rpa_runtime_service.py` |
+| Added unit test suite `tests/test_rpa_dispatch_scheduler.py` | `tests/test_rpa_dispatch_scheduler.py` |
+
 ---
 
 *Last updated: 2026-07-21 · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*

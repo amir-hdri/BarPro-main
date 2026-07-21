@@ -133,90 +133,97 @@ class RPASchedulerService:
                 if job.celery_task_id:
                     continue
 
-                # ── OTP_BACKOFF: only eligible after next_retry_at has passed ──
-                if job.status == TaskStatus.OTP_BACKOFF.value:
-                    if job.next_retry_at is None:
-                        continue  # no retry time set, skip
-                    retry_at = _as_utc(job.next_retry_at)
-                    if retry_at > now:
-                        continue  # not yet due
+                try:
+                    # ── OTP_BACKOFF: only eligible after next_retry_at has passed ──
+                    if job.status == TaskStatus.OTP_BACKOFF.value:
+                        if job.next_retry_at is None:
+                            continue  # no retry time set, skip
+                        retry_at = _as_utc(job.next_retry_at)
+                        if retry_at > now:
+                            continue  # not yet due
 
-                submit_after = _as_utc(job.submit_after)
-                if submit_after and submit_after > now:
-                    continue
+                    submit_after = _as_utc(job.submit_after)
+                    if submit_after and submit_after > now:
+                        continue
 
-                counter = await rpa_runtime.counter_snapshot(job.client_id, driver.id)
-                if persist:
-                    await self._upsert_counter_row(
-                        session, job.client_id, driver.id, counter.business_date, counter.attempts, counter.successes
-                    )
-                if counter.successes >= utcms_config.DRIVER_DAILY_SUCCESS_CAP:
+                    counter = await rpa_runtime.counter_snapshot(job.client_id, driver.id)
                     if persist:
-                        await self._mark_driver_daily_limit(session, driver, job, "daily_success_limit_reached")
-                    continue
-                if counter.attempts >= utcms_config.DRIVER_DAILY_ATTEMPT_CAP:
-                    if persist:
-                        await self._mark_driver_daily_limit(session, driver, job, "daily_attempt_limit_reached")
-                    continue
-                if await rpa_runtime.cooldown_active("tenant", str(job.client_id)):
-                    continue
-
-                runtime_state = await self._ensure_runtime_state(session, job.client_id, driver.id)
-                next_retry_at = _as_utc(runtime_state.next_retry_at)
-                if next_retry_at and next_retry_at > now:
-                    continue
-                paused_until = _as_utc(runtime_state.paused_until)
-                if paused_until and paused_until > now:
-                    continue
-
-                bundle = await rpa_runtime.get_session(job.client_id, driver.id)
-                if bundle is None:
-                    queue_name = utcms_config.RPA_AUTH_QUEUE
-                    reason = "auth_required"
-                    if persist:
-                        driver.runtime_status = DriverStatus.AUTH_REQUIRED.value
-                        runtime_state.state = DriverRuntimeStateValue.AUTH_REQUIRED.value
-                        job.status = TaskStatus.WAITING_AUTH.value
-                        job.submit_after = now + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
-                        await self._record_event(
-                            session,
-                            job.client_id,
-                            driver.id,
-                            job.job_id,
-                            JOB_QUEUED_AUTH,
-                            {"reason": reason, "queue": queue_name},
+                        await self._upsert_counter_row(
+                            session, job.client_id, driver.id, counter.business_date, counter.attempts, counter.successes
                         )
-                else:
-                    queue_name = utcms_config.RPA_SUBMIT_QUEUE
-                    reason = "session_ready"
-                    if persist:
-                        driver.runtime_status = DriverStatus.READY.value
-                        runtime_state.state = DriverRuntimeStateValue.READY.value
-                        job.status = TaskStatus.QUEUED.value
-                        await self._record_event(
-                            session,
-                            job.client_id,
-                            driver.id,
-                            job.job_id,
-                            JOB_QUEUED_SUBMIT,
-                            {"reason": reason, "queue": queue_name},
-                        )
+                    if counter.successes >= utcms_config.DRIVER_DAILY_SUCCESS_CAP:
+                        if persist:
+                            await self._mark_driver_daily_limit(session, driver, job, "daily_success_limit_reached")
+                        continue
+                    if counter.attempts >= utcms_config.DRIVER_DAILY_ATTEMPT_CAP:
+                        if persist:
+                            await self._mark_driver_daily_limit(session, driver, job, "daily_attempt_limit_reached")
+                        continue
+                    if await rpa_runtime.cooldown_active("tenant", str(job.client_id)):
+                        continue
 
-                tenant_counts[job.client_id] += 1
-                if persist:
-                    job.updated_at = _utcnow_naive()
-                    runtime_state.updated_at = _utcnow_naive()
-                    job.business_date = counter.business_date
-                decisions.append(
-                    SchedulerDecision(
-                        job_id=job.job_id,
-                        driver_id=driver.id,
-                        client_id=job.client_id,
-                        queue_name=queue_name,
-                        reason=reason,
-                        priority=job.priority,
+                    runtime_state = await self._ensure_runtime_state(session, job.client_id, driver.id)
+                    next_retry_at = _as_utc(runtime_state.next_retry_at)
+                    if next_retry_at and next_retry_at > now:
+                        continue
+                    paused_until = _as_utc(runtime_state.paused_until)
+                    if paused_until and paused_until > now:
+                        continue
+
+                    bundle = await rpa_runtime.get_session(job.client_id, driver.id)
+                    if bundle is None:
+                        queue_name = utcms_config.RPA_AUTH_QUEUE
+                        reason = "auth_required"
+                        if persist:
+                            driver.runtime_status = DriverStatus.AUTH_REQUIRED.value
+                            runtime_state.state = DriverRuntimeStateValue.AUTH_REQUIRED.value
+                            job.status = TaskStatus.WAITING_AUTH.value
+                            job.submit_after = now + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
+                            await self._record_event(
+                                session,
+                                job.client_id,
+                                driver.id,
+                                job.job_id,
+                                JOB_QUEUED_AUTH,
+                                {"reason": reason, "queue": queue_name},
+                            )
+                    else:
+                        queue_name = utcms_config.RPA_SUBMIT_QUEUE
+                        reason = "session_ready"
+                        if persist:
+                            driver.runtime_status = DriverStatus.READY.value
+                            runtime_state.state = DriverRuntimeStateValue.READY.value
+                            job.status = TaskStatus.QUEUED.value
+                            await self._record_event(
+                                session,
+                                job.client_id,
+                                driver.id,
+                                job.job_id,
+                                JOB_QUEUED_SUBMIT,
+                                {"reason": reason, "queue": queue_name},
+                            )
+
+                    tenant_counts[job.client_id] += 1
+                    if persist:
+                        job.updated_at = _utcnow_naive()
+                        runtime_state.updated_at = _utcnow_naive()
+                        job.business_date = counter.business_date
+                    decisions.append(
+                        SchedulerDecision(
+                            job_id=job.job_id,
+                            driver_id=driver.id,
+                            client_id=job.client_id,
+                            queue_name=queue_name,
+                            reason=reason,
+                            priority=job.priority,
+                        )
                     )
-                )
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception(
+                        "plan_due_jobs_single_job_failed",
+                        extra={"extra_fields": {"job_id": job.job_id, "error": str(exc)}},
+                    )
+                    continue
 
             if persist:
                 await session.commit()

@@ -99,33 +99,40 @@ class RPADispatchService:
         dispatched: list[dict[str, Any]] = []
         try:
             for decision in decisions:
-                job = (
-                    await session.exec(
-                        select(WaybillJob).where(
-                            WaybillJob.job_id == decision.job_id,
-                            WaybillJob.client_id == decision.client_id,
+                try:
+                    job = (
+                        await session.exec(
+                            select(WaybillJob).where(
+                                WaybillJob.job_id == decision.job_id,
+                                WaybillJob.client_id == decision.client_id,
+                            )
                         )
-                    )
-                ).first()
-                if job is None:
-                    dispatched.append(
-                        {
-                            "job_id": decision.job_id,
-                            "queue_name": decision.queue_name,
-                            "status": "missing",
-                        }
-                    )
-                    continue
+                    ).first()
+                    if job is None:
+                        dispatched.append(
+                            {
+                                "job_id": decision.job_id,
+                                "queue_name": decision.queue_name,
+                                "status": "missing",
+                            }
+                        )
+                        continue
 
-                result = await self._dispatch_phase1_task(
-                    session=session,
-                    job=job,
-                    queue_name=decision.queue_name,
-                    requested_at=datetime.now(UTC).replace(tzinfo=None),
-                    reason=decision.reason,
-                    source="scheduler",
-                )
-                dispatched.append(result)
+                    result = await self._dispatch_phase1_task(
+                        session=session,
+                        job=job,
+                        queue_name=decision.queue_name,
+                        requested_at=datetime.now(UTC).replace(tzinfo=None),
+                        reason=decision.reason,
+                        source="scheduler",
+                    )
+                    dispatched.append(result)
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception(
+                        "dispatch_phase1_single_decision_failed",
+                        extra={"extra_fields": {"job_id": decision.job_id, "error": str(exc)}},
+                    )
+                    dispatched.append({"job_id": decision.job_id, "queue_name": decision.queue_name, "status": "failed", "error": str(exc)})
             return dispatched
         finally:
             await session.close()
@@ -208,6 +215,8 @@ class RPADispatchService:
                 extra={"extra_fields": {"job_id": job.job_id, "queue": queue_name, "error": str(exc)}},
             )
             job.celery_task_id = None
+            job.status = TaskStatus.PENDING.value
+            job.updated_at = datetime.now(UTC).replace(tzinfo=None)
             session.add(job)
             await self._record_dispatch_state(
                 session,
@@ -215,7 +224,7 @@ class RPADispatchService:
                 JOB_DISPATCH_FAILED,
                 step,
                 job.status,
-                "Phase 1 dispatch failed",
+                "Phase 1 dispatch failed; reset to pending for scheduler retry",
                 {**payload, "status": "failed", "error": str(exc)},
             )
             return {

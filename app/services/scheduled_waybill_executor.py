@@ -22,6 +22,7 @@ try:
     import jdatetime
 except ImportError:
     jdatetime = None
+from sqlalchemy.orm import joinedload
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -518,12 +519,13 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
     # Check weekdays for weekly schedules
     # Note: Python weekday(): Monday=0..Sunday=6.
     # Persian calendar uses Saturday=0..Friday=6.
-    # The database stores Python-convention weekdays. If Persian convention is used,
-    # adjust by adding 2: (now.weekday() + 2) % 7 maps Mon=0→Sat=2.
     if schedule.frequency == ScheduleFrequency.WEEKLY.value:
         allowed = _parse_weekdays_csv(schedule.weekdays_csv)
-        if allowed and now.weekday() not in allowed:
-            return {"jobs_created": 0, "jobs_success": 0, "jobs_failed": 0, "skipped": True}
+        if allowed:
+            py_wd = now.weekday()
+            fa_wd = (py_wd + 2) % 7  # Maps Mon=0->2, Sat=5->0, Sun=6->1
+            if py_wd not in allowed and fa_wd not in allowed:
+                return {"jobs_created": 0, "jobs_success": 0, "jobs_failed": 0, "skipped": True}
 
     # Determine due timeslots
     run_times = _resolve_run_times(schedule)

@@ -108,13 +108,19 @@ class RPADistributedRuntime:
             self._lock_tokens.set(tokens)
             return True
 
-    async def release_lock(self, key: str) -> None:
+    async def release_lock(self, key: str, token: str | None = None) -> None:
         tokens = (self._lock_tokens.get() or {}).copy()
-        token = tokens.pop(key, None)
+        if token is None:
+            token = tokens.pop(key, None)
+        else:
+            tokens.pop(key, None)
         self._lock_tokens.set(tokens)
         redis = await self._get_redis()
         if redis is not None:
             if token is None:
+                # Token missing from ContextVar (e.g. across async task boundary); delete key directly to avoid orphan lock
+                logger.warning(f"rpa_lock_release_token_missing_for_key_{key}, deleting lock key")
+                await redis.delete(key)
                 return
             script = """
             if redis.call('get', KEYS[1]) == ARGV[1] then
@@ -129,7 +135,7 @@ class RPADistributedRuntime:
             return
         with self._get_lock():
             current = self._memory.get(key)
-            if current is not None and current[0] == token:
+            if current is not None and (token is None or current[0] == token):
                 self._memory.pop(key, None)
 
     async def force_release_lock(self, key: str) -> None:
