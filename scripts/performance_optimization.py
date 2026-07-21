@@ -9,6 +9,7 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
+
 def check_database_indexes():
     """Check if database models have proper indexes"""
     print("🔍 Checking Database Indexes...")
@@ -19,7 +20,7 @@ def check_database_indexes():
     models_to_check = [Driver, WaybillJob, Client, WaybillAttempt, DriverDailyCounter]
 
     for model in models_to_check:
-        table_name = model.__tablename__ if hasattr(model, '__tablename__') else model.__name__
+        table_name = model.__tablename__ if hasattr(model, "__tablename__") else model.__name__
         print(f"   ✓ {table_name}")
 
     print("   ✅ All models checked")
@@ -85,45 +86,45 @@ def suggest_optimizations():
         {
             "title": "Enable Gunicorn workers",
             "description": "Use multiple workers for better CPU utilization",
-            "command": "gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker"
+            "command": "gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker",
         },
         {
             "title": "Enable Redis persistence",
             "description": "Use AOF for better data durability",
-            "config": "appendonly yes in redis.conf"
+            "config": "appendonly yes in redis.conf",
         },
         {
             "title": "Database query optimization",
             "description": "Use select_related/joinedload for related objects",
-            "example": "query.options(joinedload(Driver.client))"
+            "example": "query.options(joinedload(Driver.client))",
         },
         {
             "title": "Enable HTTP/2",
             "description": "Configure nginx with HTTP/2 support",
-            "config": "listen 443 ssl http2;"
+            "config": "listen 443 ssl http2;",
         },
         {
             "title": "Implement rate limiting",
             "description": "Already implemented in nginx and FastAPI",
-            "status": "✅ Done"
+            "status": "✅ Done",
         },
         {
             "title": "Use CDN for static assets",
             "description": "Serve static files from CDN in production",
-            "benefit": "Reduced server load and faster delivery"
-        }
+            "benefit": "Reduced server load and faster delivery",
+        },
     ]
 
     for i, suggestion in enumerate(suggestions, 1):
         print(f"\n{i}. {suggestion['title']}")
         print(f"   {suggestion['description']}")
-        if 'command' in suggestion:
+        if "command" in suggestion:
             print(f"   Command: {suggestion['command']}")
-        if 'config' in suggestion:
+        if "config" in suggestion:
             print(f"   Config: {suggestion['config']}")
-        if 'example' in suggestion:
+        if "example" in suggestion:
             print(f"   Example: {suggestion['example']}")
-        if 'status' in suggestion:
+        if "status" in suggestion:
             print(f"   Status: {suggestion['status']}")
 
 

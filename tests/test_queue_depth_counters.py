@@ -9,7 +9,6 @@ import importlib
 
 import pytest
 
-from app.core.config import utcms_config
 from app.services.task_service import WaybillTaskService
 
 

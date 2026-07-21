@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Generate secure secrets for UTCMS Automation."""
+
 import secrets
 
 from cryptography.fernet import Fernet

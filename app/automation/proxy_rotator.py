@@ -373,9 +373,9 @@ class ProxyRotator:
                 "::1",
                 # Docker bridge gateway — routes to the host where Squid listens
                 # (network_mode: host). Standard Docker bridge subnets:
-                "172.20.0.1",   # barpro_platform network gateway
-                "172.17.0.1",   # default Docker bridge gateway
-                "192.168.65.1", # Docker Desktop for Mac host gateway
+                "172.20.0.1",  # barpro_platform network gateway
+                "172.17.0.1",  # default Docker bridge gateway
+                "192.168.65.1",  # Docker Desktop for Mac host gateway
                 "host.docker.internal",  # Docker Desktop hostname for host
             }
             if host in allowed_internal_hosts:

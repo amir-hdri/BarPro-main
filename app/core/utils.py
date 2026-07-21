@@ -61,4 +61,3 @@ async def resolve_maybe_awaitable(value: Any) -> Any:
             continue
         break
     return resolved
-

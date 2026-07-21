@@ -1,4 +1,5 @@
 """Simulated waybill test to demonstrate the full process."""
+
 import asyncio
 import sys
 import time
@@ -18,12 +19,7 @@ class WaybillSimulator:
     def log_event(self, step: str, status: str, details: str = ""):
         """Log simulation event."""
         elapsed = time.time() - self.start_time
-        event = {
-            "step": step,
-            "status": status,
-            "details": details,
-            "elapsed": f"{elapsed:.2f}s"
-        }
+        event = {"step": step, "status": status, "details": details, "elapsed": f"{elapsed:.2f}s"}
         self.events.append(event)
 
         # نمایش زنده
@@ -61,12 +57,7 @@ class WaybillSimulator:
         self.log_event("اعتبارسنجی", "progress", "بررسی صحت اطلاعات...")
         await asyncio.sleep(1)
 
-        checks = [
-            "کد ملی راننده معتبر است",
-            "شماره پلاک صحیح است",
-            "وزن بار در محدوده مجاز است",
-            "مسیر حمل تایید شد"
-        ]
+        checks = ["کد ملی راننده معتبر است", "شماره پلاک صحیح است", "وزن بار در محدوده مجاز است", "مسیر حمل تایید شد"]
 
         for check in checks:
             self.log_event("اعتبارسنجی", "progress", f"✓ {check}")
@@ -148,7 +139,7 @@ def main():
     """Main entry point."""
     result = asyncio.run(run_simulation())
 
-    if result.get('success'):
+    if result.get("success"):
         print("\n✅ شبیه‌سازی با موفقیت انجام شد!")
         print(f"📝 شماره بارنامه: {result['waybill_number']}")
         sys.exit(0)

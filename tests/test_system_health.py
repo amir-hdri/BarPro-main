@@ -13,14 +13,16 @@ from app.monitoring.metrics import (
 
 import pytest
 
+
 @pytest.fixture(autouse=True)
 def setup_overrides():
     from app.auth_multitenant import get_current_admin
+
     app.dependency_overrides[get_current_admin] = lambda: {"username": "admin", "role": "master_admin"}
     yield
 
-client = TestClient(app)
 
+client = TestClient(app)
 
 
 def test_healthz_returns_ok():

@@ -12,6 +12,7 @@ from app.automation.captcha.persian_number_parser import num_to_persian_words
 LABELS_FILE = PROJECT_ROOT / "datasets" / "fuel_captcha" / "labels.csv"
 BACKUP_FILE = PROJECT_ROOT / "datasets" / "fuel_captcha" / "labels.csv.bak"
 
+
 def main():
     if not LABELS_FILE.exists():
         print(f"❌ Error: labels.csv not found at {LABELS_FILE}")
@@ -19,6 +20,7 @@ def main():
 
     # Backup the original labels.csv first
     import shutil
+
     shutil.copy2(LABELS_FILE, BACKUP_FILE)
     print(f"📦 Created backup of labels.csv at {BACKUP_FILE}")
 
@@ -37,7 +39,7 @@ def main():
         if not digits_str:
             print(f"⚠️ Warning: Empty digits at index {row.get('index')}, skipping.")
             continue
-            
+
         try:
             digits_val = int(digits_str)
         except ValueError:
@@ -46,7 +48,7 @@ def main():
 
         correct_words = num_to_persian_words(digits_val)
         original_words = row.get("words", "")
-        
+
         if correct_words != original_words:
             row["words"] = correct_words
             corrected_count += 1
@@ -61,6 +63,7 @@ def main():
         writer.writeheader()
         writer.writerows(rows)
     print(f"💾 Corrected labels successfully written to {LABELS_FILE}")
+
 
 if __name__ == "__main__":
     main()

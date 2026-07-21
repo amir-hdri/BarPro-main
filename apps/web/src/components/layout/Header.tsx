@@ -12,12 +12,12 @@ interface HeaderProps {
 
 export function Header({ client, role, onLogout, onOpenMenu }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-30 mb-2 md:mb-4 flex items-center justify-between rounded-2xl md:rounded-[2.5rem] border border-white/5 bg-slate-900/50 px-4 py-3 md:px-8 md:py-5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)] backdrop-blur-2xl transition-all duration-300 hover:bg-slate-900/60">
+    <header className="sticky top-0 z-30 mb-3 md:mb-5 flex items-center justify-between rounded-2xl md:rounded-[2.5rem] border border-white/10 bg-slate-900/40 px-4 py-3 md:px-8 md:py-5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.4)] backdrop-blur-xl transition-all duration-400 hover:bg-slate-900/50 hover:border-white/15">
       <div className="flex items-center gap-3 md:gap-5">
         <button
           type="button"
           onClick={onOpenMenu}
-          className="inline-flex h-11 w-11 md:h-12 md:w-12 items-center justify-center rounded-xl md:rounded-[1.25rem] border border-white/10 bg-slate-950 text-slate-300 shadow-sm transition-all hover:bg-slate-900 hover:scale-105 active:scale-95 xl:hidden"
+          className="inline-flex h-11 w-11 md:h-12 md:w-12 items-center justify-center rounded-xl md:rounded-[1.25rem] border border-white/10 bg-slate-950/60 text-slate-300 shadow-sm transition-all hover:bg-slate-900 hover:border-white/20 hover:scale-105 active:scale-95 xl:hidden"
         >
           <Bars3Icon className="h-5 w-5 md:h-6 md:w-6" />
         </button>
@@ -28,7 +28,7 @@ export function Header({ client, role, onLogout, onOpenMenu }: HeaderProps) {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-1.5 w-1.5 md:h-2 md:w-2 bg-emerald-500"></span>
               </span>
-              <span className="text-[9px] md:text-[10px] font-black uppercase text-emerald-400">UTCMS Bot Active</span>
+              <span className="text-[9px] md:text-[10px] font-black uppercase text-emerald-400 tracking-wider">UTCMS Bot Active</span>
             </div>
           </div>
           <h2 className="text-base md:text-xl font-black text-slate-100 bg-clip-text text-transparent bg-gradient-to-r from-slate-100 to-slate-400">کنسول عملیاتی BarPro</h2>
@@ -54,7 +54,7 @@ export function Header({ client, role, onLogout, onOpenMenu }: HeaderProps) {
           <button
             type="button"
             onClick={onLogout}
-            className="group relative inline-flex h-11 w-11 md:h-12 md:w-12 items-center justify-center gap-2 rounded-xl md:rounded-[1.25rem] bg-rose-500/10 border border-rose-500/20 text-rose-400 transition-all hover:bg-rose-600 hover:text-white hover:border-rose-600 shadow-sm hover:shadow-[0_0_15px_rgba(225,29,72,0.3)] sm:w-auto sm:px-5"
+            className="group relative inline-flex h-11 w-11 md:h-12 md:w-12 items-center justify-center gap-2 rounded-xl md:rounded-[1.25rem] bg-rose-500/15 border border-rose-500/30 text-rose-400 transition-all hover:bg-rose-600 hover:text-white hover:border-rose-600 shadow-sm hover:shadow-[0_0_20px_rgba(225,29,72,0.4)] sm:w-auto sm:px-5 active:scale-95"
           >
             <ArrowRightStartOnRectangleIcon className="h-4 w-4 md:h-5 md:w-5 transition-transform group-hover:-translate-x-1" />
             <span className="hidden text-sm font-bold sm:inline">خروج</span>

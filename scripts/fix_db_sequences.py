@@ -5,6 +5,7 @@ Fix database sequences to prevent PK collision errors.
 Run after any manual SQL inserts or data migration:
     docker exec barpro-backend python /app/scripts/fix_db_sequences.py
 """
+
 import asyncio
 import logging
 from sqlalchemy import text

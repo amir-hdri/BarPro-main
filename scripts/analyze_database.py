@@ -6,6 +6,7 @@ Analyzes database performance and suggests optimizations:
 - Table statistics
 - Connection pool settings
 """
+
 import asyncio
 import sys
 from pathlib import Path
@@ -21,10 +22,9 @@ async def is_postgres(conn):
     try:
         res = await conn.execute(text("SELECT version();"))
         version = res.scalar()
-        return 'PostgreSQL' in version
+        return "PostgreSQL" in version
     except Exception:
         return False
-
 
 
 async def analyze_indexes():
@@ -33,7 +33,9 @@ async def analyze_indexes():
 
     async with engine.begin() as conn:
         # Check for missing indexes on foreign keys
-        result = await conn.execute(text("""
+        result = await conn.execute(
+            text(
+                """
             SELECT
                 tablename,
                 indexname,
@@ -41,7 +43,9 @@ async def analyze_indexes():
             FROM pg_indexes
             WHERE schemaname = 'public'
             ORDER BY tablename, indexname;
-        """))
+        """
+            )
+        )
 
         indexes = result.fetchall()
         print(f"\nTotal indexes: {len(indexes)}")
@@ -55,7 +59,9 @@ async def analyze_table_stats():
     print("\n=== Table Statistics ===")
 
     async with engine.begin() as conn:
-        result = await conn.execute(text("""
+        result = await conn.execute(
+            text(
+                """
             SELECT
                 schemaname,
                 tablename,
@@ -66,7 +72,9 @@ async def analyze_table_stats():
                 last_autovacuum
             FROM pg_stat_user_tables
             ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
-        """))
+        """
+            )
+        )
 
         tables = result.fetchall()
         print(f"\n{'Table':<30} {'Size':<15} {'Rows':<12} {'Dead Rows':<12}")
@@ -82,11 +90,15 @@ async def analyze_slow_queries():
 
     async with engine.begin() as conn:
         # Check if pg_stat_statements is available
-        result = await conn.execute(text("""
+        result = await conn.execute(
+            text(
+                """
             SELECT EXISTS (
                 SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements'
             );
-        """))
+        """
+            )
+        )
 
         has_pg_stat = result.scalar()
 
@@ -95,7 +107,9 @@ async def analyze_slow_queries():
             print("Enable with: CREATE EXTENSION pg_stat_statements;")
             return
 
-        result = await conn.execute(text("""
+        result = await conn.execute(
+            text(
+                """
             SELECT
                 substring(query, 1, 100) as query_snippet,
                 calls,
@@ -105,7 +119,9 @@ async def analyze_slow_queries():
             WHERE query NOT LIKE '%pg_stat_statements%'
             ORDER BY mean_exec_time DESC
             LIMIT 10;
-        """))
+        """
+            )
+        )
 
         queries = result.fetchall()
         print(f"\n{'Query':<50} {'Calls':<10} {'Avg Time (ms)':<15}")
@@ -123,7 +139,9 @@ async def suggest_optimizations():
 
     async with engine.begin() as conn:
         # Check for tables without primary keys
-        result = await conn.execute(text("""
+        result = await conn.execute(
+            text(
+                """
             SELECT tablename
             FROM pg_tables
             WHERE schemaname = 'public'
@@ -132,16 +150,18 @@ async def suggest_optimizations():
                 FROM pg_indexes
                 WHERE indexdef LIKE '%PRIMARY KEY%'
             );
-        """))
+        """
+            )
+        )
 
         tables_without_pk = result.fetchall()
         if tables_without_pk:
-            suggestions.append(
-                f"Tables without primary key: {', '.join(t[0] for t in tables_without_pk)}"
-            )
+            suggestions.append(f"Tables without primary key: {', '.join(t[0] for t in tables_without_pk)}")
 
         # Check for high dead tuple ratio
-        result = await conn.execute(text("""
+        result = await conn.execute(
+            text(
+                """
             SELECT
                 tablename,
                 n_dead_tup,
@@ -151,13 +171,13 @@ async def suggest_optimizations():
             WHERE n_live_tup > 0
             AND n_dead_tup * 100.0 / n_live_tup > 10
             ORDER BY dead_ratio DESC;
-        """))
+        """
+            )
+        )
 
         bloated_tables = result.fetchall()
         if bloated_tables:
-            suggestions.append(
-                f"Tables needing VACUUM: {', '.join(t[0] for t in bloated_tables)}"
-            )
+            suggestions.append(f"Tables needing VACUUM: {', '.join(t[0] for t in bloated_tables)}")
 
     if suggestions:
         for i, suggestion in enumerate(suggestions, 1):
@@ -171,7 +191,9 @@ async def check_connection_pool():
     print("\n=== Connection Pool Settings ===")
 
     async with engine.begin() as conn:
-        result = await conn.execute(text("""
+        result = await conn.execute(
+            text(
+                """
             SELECT
                 setting,
                 unit,
@@ -184,7 +206,9 @@ async def check_connection_pool():
                 'work_mem',
                 'maintenance_work_mem'
             );
-        """))
+        """
+            )
+        )
 
         settings = result.fetchall()
         for setting in settings:
@@ -213,6 +237,7 @@ async def main():
     except Exception as e:
         print(f"\nError during analysis: {e}")
         import traceback
+
         traceback.print_exc()
     finally:
         await engine.dispose()

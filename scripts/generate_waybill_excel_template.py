@@ -117,7 +117,13 @@ GUIDE_ROWS = [
     ["کد پستی فرستنده", "توصیه‌شده", "کد پستی 10 رقمی", "1234567891", "وب + WS"],
     ["lat فرستنده", "الزامی", "عرض جغرافیایی محل بارگیری", "32.402286", "وب + WS"],
     ["long فرستنده", "الزامی", "طول جغرافیایی محل بارگیری", "51.381595", "وب + WS"],
-    ["آدرس فرستنده", "توصیه‌شده", "آدرس متنی محل بارگیری؛ اگر خالی باشد از مختصات ساخته می‌شود", "اصفهان - خیابان آزادی", "وب"],
+    [
+        "آدرس فرستنده",
+        "توصیه‌شده",
+        "آدرس متنی محل بارگیری؛ اگر خالی باشد از مختصات ساخته می‌شود",
+        "اصفهان - خیابان آزادی",
+        "وب",
+    ],
     ["نام گیرنده", "الزامی", "نام شخص یا شرکت", "رضا سیار", "وب + WS"],
     ["کد ملی گیرنده", "توصیه‌شده", "برای سازگاری کامل 10 رقمی پر شود", "1234567891", "WS و فرم گیرنده"],
     ["موبایل گیرنده", "الزامی", "شماره موبایل", "09185365222", "وب + WS"],
@@ -134,7 +140,13 @@ GUIDE_ROWS = [
     ["نام کاربری اکانت ثبت", "الزامی", "نام کاربری ورود UTCMS", "9907172420", "وب"],
     ["رمز عبور اکانت ثبت", "الزامی", "رمز عبور ورود UTCMS", "@Aaaa9000111", "وب"],
     ["فاصله بین شروع و پایان حمل (دقیقه)", "اختیاری", "عدد صحیح؛ 0 یعنی بدون محدودیت", "0", "وب (shipping_options)"],
-    ["تاریخ پایان حمل", "اختیاری", "تاریخ شمسی پایان حمل مثل 1403-05-20؛ خالی بگذارید اگر ندارید", "", "وب (shipping_options)"],
+    [
+        "تاریخ پایان حمل",
+        "اختیاری",
+        "تاریخ شمسی پایان حمل مثل 1403-05-20؛ خالی بگذارید اگر ندارید",
+        "",
+        "وب (shipping_options)",
+    ],
     ["نام کاربری راننده (فقط برای حمل)", "اختیاری", "در صورت نیاز حمل", "9907172420", "سناریوی حمل"],
     ["ارسال پیامک به فرستنده (لیست)", "توصیه‌شده", "بله یا خیر", "خیر", "فرم تکمیلی"],
     ["بیمه اختیاری بار (لیست)", "توصیه‌شده", "بله یا خیر", "خیر", "فرم تکمیلی"],
@@ -171,15 +183,12 @@ class SharedStrings:
         return index
 
     def to_xml(self) -> str:
-        body = "".join(
-            f"<si><t xml:space=\"preserve\">{_xml_escape(item)}</t></si>"
-            for item in self.items
-        )
+        body = "".join(f'<si><t xml:space="preserve">{_xml_escape(item)}</t></si>' for item in self.items)
         count = len(self.items)
         return (
-            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-            "<sst xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" "
-            f"count=\"{count}\" uniqueCount=\"{count}\">{body}</sst>"
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            f'count="{count}" uniqueCount="{count}">{body}</sst>'
         )
 
 
@@ -202,83 +211,83 @@ def _sheet_xml(
                 continue
             cell_ref = f"{_column_name(col_number)}{row_number}"
             shared_index = shared_strings.add(str(value))
-            cells_xml.append(f"<c r=\"{cell_ref}\" t=\"s\"><v>{shared_index}</v></c>")
+            cells_xml.append(f'<c r="{cell_ref}" t="s"><v>{shared_index}</v></c>')
         row_xml_parts.append(f"<row r=\"{row_number}\">{''.join(cells_xml)}</row>")
 
     dimension_ref = "A1"
     if max_col and row_xml_parts:
         dimension_ref = f"A1:{_column_name(max_col)}{len(row_xml_parts)}"
 
-    sheet_view = "<sheetView workbookViewId=\"0\""
+    sheet_view = '<sheetView workbookViewId="0"'
     if rtl:
-        sheet_view += " rightToLeft=\"1\""
+        sheet_view += ' rightToLeft="1"'
     sheet_view += ">"
     if freeze_header:
         sheet_view += (
-            "<pane ySplit=\"1\" topLeftCell=\"A2\" activePane=\"bottomLeft\" state=\"frozen\"/>"
-            "<selection pane=\"bottomLeft\" activeCell=\"A2\" sqref=\"A2\"/>"
+            '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>'
+            '<selection pane="bottomLeft" activeCell="A2" sqref="A2"/>'
         )
     sheet_view += "</sheetView>"
 
-    auto_filter_xml = f"<autoFilter ref=\"{auto_filter}\"/>" if auto_filter else ""
+    auto_filter_xml = f'<autoFilter ref="{auto_filter}"/>' if auto_filter else ""
 
     return (
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" "
-        "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
-        f"<dimension ref=\"{dimension_ref}\"/>"
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        f'<dimension ref="{dimension_ref}"/>'
         f"<sheetViews>{sheet_view}</sheetViews>"
-        "<sheetFormatPr defaultRowHeight=\"15\"/>"
+        '<sheetFormatPr defaultRowHeight="15"/>'
         f"{auto_filter_xml}"
         f"<sheetData>{''.join(row_xml_parts)}</sheetData>"
-        "<pageMargins left=\"0.7\" right=\"0.7\" top=\"0.75\" bottom=\"0.75\" "
-        "header=\"0.3\" footer=\"0.3\"/>"
+        '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" '
+        'header="0.3" footer="0.3"/>'
         "</worksheet>"
     )
 
 
 def _content_types_xml() -> str:
     return (
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
-        "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
-        "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
-        "<Override PartName=\"/xl/workbook.xml\" "
-        "ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>"
-        "<Override PartName=\"/xl/worksheets/sheet1.xml\" "
-        "ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
-        "<Override PartName=\"/xl/worksheets/sheet2.xml\" "
-        "ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
-        "<Override PartName=\"/xl/styles.xml\" "
-        "ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>"
-        "<Override PartName=\"/xl/sharedStrings.xml\" "
-        "ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml\"/>"
-        "<Override PartName=\"/docProps/core.xml\" ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>"
-        "<Override PartName=\"/docProps/app.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.extended-properties+xml\"/>"
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet2.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        '<Override PartName="/xl/styles.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+        '<Override PartName="/xl/sharedStrings.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>'
+        '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+        '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'
         "</Types>"
     )
 
 
 def _root_rels_xml() -> str:
     return (
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
-        "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>"
-        "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties\" Target=\"docProps/core.xml\"/>"
-        "<Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties\" Target=\"docProps/app.xml\"/>"
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
+        '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>'
         "</Relationships>"
     )
 
 
 def _workbook_xml() -> str:
     return (
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" "
-        "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
-        "<bookViews><workbookView xWindow=\"0\" yWindow=\"0\" windowWidth=\"24000\" windowHeight=\"14000\"/></bookViews>"
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<bookViews><workbookView xWindow="0" yWindow="0" windowWidth="24000" windowHeight="14000"/></bookViews>'
         "<sheets>"
-        "<sheet name=\"ورود اطلاعات\" sheetId=\"1\" r:id=\"rId1\"/>"
-        "<sheet name=\"راهنما\" sheetId=\"2\" r:id=\"rId2\"/>"
+        '<sheet name="ورود اطلاعات" sheetId="1" r:id="rId1"/>'
+        '<sheet name="راهنما" sheetId="2" r:id="rId2"/>'
         "</sheets>"
         "</workbook>"
     )
@@ -286,38 +295,38 @@ def _workbook_xml() -> str:
 
 def _workbook_rels_xml() -> str:
     return (
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
-        "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/>"
-        "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet2.xml\"/>"
-        "<Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>"
-        "<Relationship Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings\" Target=\"sharedStrings.xml\"/>"
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>'
+        '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+        '<Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>'
         "</Relationships>"
     )
 
 
 def _styles_xml() -> str:
     return (
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
-        "<fonts count=\"1\"><font><sz val=\"11\"/><name val=\"Calibri\"/></font></fonts>"
-        "<fills count=\"2\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill></fills>"
-        "<borders count=\"1\"><border><left/><right/><top/><bottom/><diagonal/></border></borders>"
-        "<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>"
-        "<cellXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/></cellXfs>"
-        "<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles>"
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>'
+        '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
+        '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        '<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>'
+        '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
         "</styleSheet>"
     )
 
 
 def _core_xml() -> str:
     return (
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        "<cp:coreProperties xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" "
-        "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
-        "xmlns:dcterms=\"http://purl.org/dc/terms/\" "
-        "xmlns:dcmitype=\"http://purl.org/dc/dcmitype/\" "
-        "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">"
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
+        'xmlns:dc="http://purl.org/dc/elements/1.1/" '
+        'xmlns:dcterms="http://purl.org/dc/terms/" '
+        'xmlns:dcmitype="http://purl.org/dc/dcmitype/" '
+        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
         "<dc:title>Waybill Excel Template</dc:title>"
         "<dc:creator>Codex CLI</dc:creator>"
         "</cp:coreProperties>"
@@ -326,9 +335,9 @@ def _core_xml() -> str:
 
 def _app_xml() -> str:
     return (
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        "<Properties xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/extended-properties\" "
-        "xmlns:vt=\"http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes\">"
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" '
+        'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
         "<Application>Codex CLI</Application>"
         "</Properties>"
     )

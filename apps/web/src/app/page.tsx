@@ -132,8 +132,8 @@ export default function DashboardPage() {
   return (
     <AuthGuard requiredRole="client">
       <AppShell>
-        <section className="grid gap-4 sm:gap-6 xl:gap-8 xl:grid-cols-[1.2fr_0.8fr] mb-6 md:mb-8">
-          <div className="relative overflow-hidden rounded-[2rem] lg:rounded-[3rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl px-5 py-6 sm:px-8 sm:py-10 lg:px-10 lg:py-14 shadow-2xl">
+        <section className="grid gap-6 sm:gap-8 xl:grid-cols-[1.3fr_0.7fr] mb-8 md:mb-12">
+          <div className="relative overflow-hidden rounded-[2.5rem] lg:rounded-[3.5rem] border border-white/10 bg-slate-900/40 backdrop-blur-2xl px-6 py-8 sm:px-10 sm:py-12 lg:px-12 lg:py-16 shadow-2xl transition-all hover:border-white/20">
             <div className="absolute -right-32 -top-32 h-96 w-96 rounded-full bg-gradient-to-br from-cyan-400/10 to-blue-500/10 blur-[100px] animate-pulse-glow"></div>
             <div className="relative z-10">
               <span className="inline-flex items-center gap-2 rounded-2xl bg-cyan-500/10 px-4 py-2 text-[11px] font-black uppercase text-cyan-400 border border-cyan-500/20 shadow-sm animate-in fade-in slide-in-from-bottom-4">
@@ -143,9 +143,9 @@ export default function DashboardPage() {
                 </span>
                 Dashboard Overview
               </span>
-              <h1 className="mt-6 lg:mt-8 text-3xl md:text-4xl lg:text-5xl font-black leading-tight text-white animate-in fade-in slide-in-from-bottom-6">
+              <h1 className="mt-6 lg:mt-10 text-4xl md:text-5xl lg:text-6xl font-black leading-[1.1] tracking-tight text-white animate-in fade-in slide-in-from-bottom-6">
                 مدیریت هوشمند <br className="hidden sm:block" />
-                <span className="bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">عملیات بارنامه</span>
+                <span className="bg-gradient-to-r from-cyan-400 via-blue-400 to-indigo-500 bg-clip-text text-transparent">عملیات بارنامه</span>
               </h1>
               <p className="mt-4 lg:mt-6 max-w-xl text-sm md:text-base lg:text-lg leading-relaxed text-slate-300 font-medium animate-in fade-in slide-in-from-bottom-8">
                 سیستم جامع مانیتورینگ ناوگان و تحلیل دقیق ثبت‌ها. عملیات خود را با بالاترین سرعت و دقت مدیریت کنید.
@@ -153,14 +153,14 @@ export default function DashboardPage() {
               <div className="mt-8 md:mt-10 flex flex-wrap gap-4 animate-in fade-in slide-in-from-bottom-10">
                 <Link
                   href="/new"
-                  className="group relative flex-1 sm:flex-none inline-flex items-center justify-center overflow-hidden rounded-2xl bg-slate-950 border border-white/10 px-6 lg:px-8 py-3.5 lg:py-4 text-sm font-bold text-white transition-transform hover:scale-105 active:scale-95 shadow-[0_10px_20px_-10px_rgba(0,0,0,0.5)]"
+                  className="group relative flex-1 sm:flex-none inline-flex items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 border border-cyan-400/30 px-6 lg:px-8 py-3.5 lg:py-4 text-sm font-bold text-white transition-all hover:scale-105 active:scale-95 shadow-[0_15px_30px_-10px_rgba(6,182,212,0.4)] hover:shadow-[0_20px_40px_-10px_rgba(6,182,212,0.6)]"
                 >
-                  <span className="absolute inset-0 bg-gradient-to-r from-cyan-500 to-blue-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"></span>
-                  <span className="relative z-10">ثبت بارنامه جدید</span>
+                  <span className="absolute inset-0 bg-gradient-to-r from-cyan-400 to-blue-400 opacity-0 transition-opacity duration-300 group-hover:opacity-20"></span>
+                  <span className="relative z-10 flex items-center gap-2">ثبت بارنامه جدید</span>
                 </Link>
                 <Link
                   href="/drivers"
-                  className="inline-flex flex-1 sm:flex-none items-center justify-center rounded-2xl border border-white/10 bg-slate-900/50 px-6 lg:px-8 py-3.5 lg:py-4 text-sm font-bold text-slate-200 transition hover:bg-slate-800 hover:border-white/20 active:scale-95"
+                  className="inline-flex flex-1 sm:flex-none items-center justify-center rounded-2xl border border-white/20 bg-slate-900/60 backdrop-blur-sm px-6 lg:px-8 py-3.5 lg:py-4 text-sm font-bold text-slate-100 transition-all hover:bg-slate-800 hover:border-white/30 hover:shadow-lg active:scale-95"
                 >
                   مدیریت ناوگان
                 </Link>

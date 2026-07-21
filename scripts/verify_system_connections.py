@@ -27,10 +27,7 @@ class VerificationReport:
         if category not in self.results:
             self.results[category] = {}
 
-        self.results[category][name] = {
-            "passed": passed,
-            "message": message
-        }
+        self.results[category][name] = {"passed": passed, "message": message}
 
         if passed:
             self.passed_checks += 1
@@ -38,9 +35,9 @@ class VerificationReport:
             self.failed_checks += 1
 
     def print_report(self):
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("🔍 BarPro System Verification Report")
-        print("="*70 + "\n")
+        print("=" * 70 + "\n")
 
         for category, checks in self.results.items():
             print(f"\n📦 {category}")
@@ -52,9 +49,9 @@ class VerificationReport:
                 if result["message"]:
                     print(f"     → {result['message']}")
 
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print(f"📊 Summary: {self.passed_checks} passed, {self.failed_checks} failed, {self.warnings} warnings")
-        print("="*70 + "\n")
+        print("=" * 70 + "\n")
 
         return self.failed_checks == 0
 
@@ -78,21 +75,11 @@ def check_environment() -> tuple[bool, VerificationReport]:
 
         for name, value in checks:
             is_set = bool(value)
-            report.add_check(
-                "Environment",
-                name,
-                is_set,
-                f"{'Set' if is_set else 'Not set'}"
-            )
+            report.add_check("Environment", name, is_set, f"{'Set' if is_set else 'Not set'}")
 
         # Frontend URL check
         frontend_url = utcms_config.FRONTEND_URL
-        report.add_check(
-            "Environment",
-            "FRONTEND_URL",
-            bool(frontend_url),
-            f"Set to {frontend_url}"
-        )
+        report.add_check("Environment", "FRONTEND_URL", bool(frontend_url), f"Set to {frontend_url}")
 
     except Exception as e:
         report.add_check("Environment", "Config Load", False, str(e))
@@ -130,7 +117,7 @@ def check_database_config() -> tuple[bool, VerificationReport]:
                 "Connection Pool",
                 "pool_size" in engine_kwargs,
                 f"pool_size={engine_kwargs.get('pool_size', 'N/A')}, "
-                f"max_overflow={engine_kwargs.get('max_overflow', 'N/A')}"
+                f"max_overflow={engine_kwargs.get('max_overflow', 'N/A')}",
             )
         except Exception as e:
             report.add_check("Database Config", "Connection Pool", False, str(e))
@@ -152,20 +139,9 @@ def check_cors_config() -> tuple[bool, VerificationReport]:
 
         frontend_url = utcms_config.FRONTEND_URL
 
+        report.add_check("CORS", "Frontend URL Configured", bool(frontend_url), f"URL: {frontend_url}")
 
-        report.add_check(
-            "CORS",
-            "Frontend URL Configured",
-            bool(frontend_url),
-            f"URL: {frontend_url}"
-        )
-
-        report.add_check(
-            "CORS",
-            "Localhost Allowed",
-            True,
-            "Both localhost:3000 and 127.0.0.1:3000"
-        )
+        report.add_check("CORS", "Localhost Allowed", True, "Both localhost:3000 and 127.0.0.1:3000")
 
     except Exception as e:
         report.add_check("CORS", "Config Load", False, str(e))
@@ -183,40 +159,20 @@ def check_frontend_integration() -> tuple[bool, VerificationReport]:
 
     # Check package.json
     package_json = frontend_path / "package.json"
-    report.add_check(
-        "Frontend",
-        "package.json exists",
-        package_json.exists(),
-        str(package_json)
-    )
+    report.add_check("Frontend", "package.json exists", package_json.exists(), str(package_json))
 
     # Check .env.local
     env_local = frontend_path / ".env.local"
-    report.add_check(
-        "Frontend",
-        ".env.local exists",
-        env_local.exists(),
-        str(env_local)
-    )
+    report.add_check("Frontend", ".env.local exists", env_local.exists(), str(env_local))
 
     if env_local.exists():
         content = env_local.read_text()
         has_api_url = "NEXT_PUBLIC_API_URL" in content
-        report.add_check(
-            "Frontend",
-            "NEXT_PUBLIC_API_URL configured",
-            has_api_url,
-            "API URL set in environment"
-        )
+        report.add_check("Frontend", "NEXT_PUBLIC_API_URL configured", has_api_url, "API URL set in environment")
 
     # Check api.ts
     api_ts = frontend_path / "src" / "lib" / "api.ts"
-    report.add_check(
-        "Frontend",
-        "API client (api.ts) exists",
-        api_ts.exists(),
-        str(api_ts)
-    )
+    report.add_check("Frontend", "API client (api.ts) exists", api_ts.exists(), str(api_ts))
 
     if api_ts.exists():
         api_content = api_ts.read_text()
@@ -239,12 +195,7 @@ def check_docker_compose() -> tuple[bool, VerificationReport]:
     print("\n🐳 Checking Docker Configuration...")
 
     docker_compose = project_root / "docker-compose.yml"
-    report.add_check(
-        "Docker",
-        "docker-compose.yml exists",
-        docker_compose.exists(),
-        str(docker_compose)
-    )
+    report.add_check("Docker", "docker-compose.yml exists", docker_compose.exists(), str(docker_compose))
 
     if docker_compose.exists():
         content = docker_compose.read_text()
@@ -258,34 +209,16 @@ def check_docker_compose() -> tuple[bool, VerificationReport]:
         ]
 
         for service_name, marker in services:
-            report.add_check(
-                "Docker Services",
-                service_name,
-                marker in content,
-                "Service configured"
-            )
+            report.add_check("Docker Services", service_name, marker in content, "Service configured")
 
         # Check healthchecks
-        report.add_check(
-            "Docker Health",
-            "PostgreSQL healthcheck",
-            "pg_isready" in content,
-            "Health check configured"
-        )
+        report.add_check("Docker Health", "PostgreSQL healthcheck", "pg_isready" in content, "Health check configured")
 
-        report.add_check(
-            "Docker Health",
-            "Redis healthcheck",
-            "redis-cli" in content,
-            "Health check configured"
-        )
+        report.add_check("Docker Health", "Redis healthcheck", "redis-cli" in content, "Health check configured")
 
         # Check dependencies
         report.add_check(
-            "Docker Config",
-            "Service dependencies",
-            "depends_on:" in content,
-            "Service ordering configured"
+            "Docker Config", "Service dependencies", "depends_on:" in content, "Service ordering configured"
         )
 
     return True, report
@@ -300,19 +233,9 @@ def check_alembic_migrations() -> tuple[bool, VerificationReport]:
     alembic_ini = project_root / "alembic.ini"
     alembic_versions = project_root / "alembic" / "versions"
 
-    report.add_check(
-        "Migrations",
-        "alembic.ini exists",
-        alembic_ini.exists(),
-        str(alembic_ini)
-    )
+    report.add_check("Migrations", "alembic.ini exists", alembic_ini.exists(), str(alembic_ini))
 
-    report.add_check(
-        "Migrations",
-        "versions directory exists",
-        alembic_versions.exists(),
-        str(alembic_versions)
-    )
+    report.add_check("Migrations", "versions directory exists", alembic_versions.exists(), str(alembic_versions))
 
     if alembic_versions.exists():
         migration_files = list(alembic_versions.glob("*.py"))
@@ -320,7 +243,7 @@ def check_alembic_migrations() -> tuple[bool, VerificationReport]:
             "Migrations",
             "Migration files exist",
             len(migration_files) > 0,
-            f"Found {len(migration_files)} migration files"
+            f"Found {len(migration_files)} migration files",
         )
 
     return True, report
@@ -334,12 +257,7 @@ def check_api_routes() -> tuple[bool, VerificationReport]:
 
     routes_dir = project_root / "app" / "api" / "routes"
 
-    report.add_check(
-        "API Routes",
-        "routes directory exists",
-        routes_dir.exists(),
-        str(routes_dir)
-    )
+    report.add_check("API Routes", "routes directory exists", routes_dir.exists(), str(routes_dir))
 
     if routes_dir.exists():
         list(routes_dir.glob("*.py"))
@@ -352,12 +270,7 @@ def check_api_routes() -> tuple[bool, VerificationReport]:
 
         for route in expected_routes:
             route_path = routes_dir / route
-            report.add_check(
-                "API Endpoints",
-                f"{route} exists",
-                route_path.exists(),
-                "Route handler present"
-            )
+            report.add_check("API Endpoints", f"{route} exists", route_path.exists(), "Route handler present")
 
     # Check main.py for router inclusion
     main_py = project_root / "app" / "main.py"
@@ -371,26 +284,13 @@ def check_api_routes() -> tuple[bool, VerificationReport]:
         ]
 
         for check_name, marker in include_checks:
-            report.add_check(
-                "Router Inclusion",
-                check_name,
-                marker in content,
-                "Router registered"
-            )
+            report.add_check("Router Inclusion", check_name, marker in content, "Router registered")
 
         # Check middleware
-        report.add_check(
-            "Middleware",
-            "CORS middleware",
-            "CORSMiddleware" in content,
-            "CORS enabled"
-        )
+        report.add_check("Middleware", "CORS middleware", "CORSMiddleware" in content, "CORS enabled")
 
         report.add_check(
-            "Middleware",
-            "HTTP middleware",
-            "request_context_middleware" in content,
-            "Request tracking enabled"
+            "Middleware", "HTTP middleware", "request_context_middleware" in content, "Request tracking enabled"
         )
 
     return True, report
@@ -409,19 +309,9 @@ async def check_async_connectivity() -> tuple[bool, VerificationReport]:
 
         async with engine.begin() as conn:
             result = await conn.execute(text("SELECT 1"))
-            report.add_check(
-                "Async Database",
-                "Engine connectivity",
-                result is not None,
-                "Connected to database"
-            )
+            report.add_check("Async Database", "Engine connectivity", result is not None, "Connected to database")
     except Exception as e:
-        report.add_check(
-            "Async Database",
-            "Engine connectivity",
-            False,
-            f"Connection failed: {str(e)[:100]}"
-        )
+        report.add_check("Async Database", "Engine connectivity", False, f"Connection failed: {str(e)[:100]}")
 
     return True, report
 
@@ -448,7 +338,9 @@ async def check_utcms_connectivity() -> tuple[bool, VerificationReport]:
     try:
         req = urllib.request.Request(
             target_url,
-            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            },
         )
         with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
             code = response.getcode()
@@ -466,21 +358,13 @@ async def check_utcms_connectivity() -> tuple[bool, VerificationReport]:
     except Exception as e:
         error_msg = f"Error: {str(e)}"
 
-    report.add_check(
-        "UTCMS Connection",
-        "Direct connection to UTCMS",
-        utcms_ok,
-        error_msg
-    )
+    report.add_check("UTCMS Connection", "Direct connection to UTCMS", utcms_ok, error_msg)
 
     # 2. IP Location Check
     country_code = "UNKNOWN"
     ip_address = "UNKNOWN"
     try:
-        req = urllib.request.Request(
-            "https://freeipapi.com/api/json/",
-            headers={"User-Agent": "Mozilla/5.0"}
-        )
+        req = urllib.request.Request("https://freeipapi.com/api/json/", headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, context=ctx, timeout=5) as response:
             data = json.loads(response.read().decode())
             country_code = data.get("countryCode", "UNKNOWN")
@@ -488,10 +372,11 @@ async def check_utcms_connectivity() -> tuple[bool, VerificationReport]:
     except Exception:
         pass
 
-    is_iranian = (country_code == "IR")
+    is_iranian = country_code == "IR"
     has_proxies = False
     try:
         from app.automation.proxy_rotator import get_proxy_rotator
+
         rotator = get_proxy_rotator()
         has_proxies = bool(hasattr(rotator, "proxies") and rotator.proxies)
     except Exception:
@@ -505,36 +390,29 @@ async def check_utcms_connectivity() -> tuple[bool, VerificationReport]:
         else:
             ip_msg += " ❌ (WARNING: VPN is active or non-Iranian IP. UTCMS will block requests because no proxies are loaded!)"
 
-    report.add_check(
-        "UTCMS Connection",
-        "IP Location Check (Must be IR or have proxies)",
-        passed,
-        ip_msg
-    )
+    report.add_check("UTCMS Connection", "IP Location Check (Must be IR or have proxies)", passed, ip_msg)
 
     # 3. Proxy Connection Check
     try:
         from app.automation.proxy_rotator import get_proxy_rotator
+
         rotator = get_proxy_rotator()
         if hasattr(rotator, "proxies") and rotator.proxies:
-            report.add_check(
-                "UTCMS Proxy",
-                "Proxy Pool Loaded",
-                True,
-                f"{len(rotator.proxies)} proxies configured"
-            )
+            report.add_check("UTCMS Proxy", "Proxy Pool Loaded", True, f"{len(rotator.proxies)} proxies configured")
             proxy = await rotator.get_next(require_iran_ip=False)
             if proxy:
                 proxy_ok = False
                 proxy_err = ""
                 try:
-                    proxy_support = urllib.request.ProxyHandler({'https': proxy.full_url})
+                    proxy_support = urllib.request.ProxyHandler({"https": proxy.full_url})
                     opener = urllib.request.build_opener(proxy_support)
                     urllib.request.install_opener(opener)
 
                     req = urllib.request.Request(
                         target_url,
-                        headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+                        headers={
+                            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                        },
                     )
                     with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
                         if response.getcode() in (200, 301, 302):
@@ -545,18 +423,10 @@ async def check_utcms_connectivity() -> tuple[bool, VerificationReport]:
                 finally:
                     urllib.request.install_opener(None)
 
-                report.add_check(
-                    "UTCMS Proxy",
-                    "Proxy connectivity to UTCMS",
-                    proxy_ok,
-                    proxy_err
-                )
+                report.add_check("UTCMS Proxy", "Proxy connectivity to UTCMS", proxy_ok, proxy_err)
         else:
             report.add_check(
-                "UTCMS Proxy",
-                "Proxy Pool Status",
-                True,
-                "No proxies loaded in pool. System relies on direct local IP."
+                "UTCMS Proxy", "Proxy Pool Status", True, "No proxies loaded in pool. System relies on direct local IP."
             )
     except Exception:
         pass
@@ -567,9 +437,9 @@ async def check_utcms_connectivity() -> tuple[bool, VerificationReport]:
 def main():
     """اجرای تمام بررسی‌ها"""
 
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("🚀 BarPro System Verification - بررسی جامع سیستم BarPro")
-    print("="*70)
+    print("=" * 70)
 
     all_reports = []
 
@@ -606,12 +476,7 @@ def main():
     for report in all_reports:
         for category, checks in report.results.items():
             for check_name, result in checks.items():
-                final_report.add_check(
-                    category,
-                    check_name,
-                    result["passed"],
-                    result["message"]
-                )
+                final_report.add_check(category, check_name, result["passed"], result["message"])
 
     # Print final report
     success = final_report.print_report()

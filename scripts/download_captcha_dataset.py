@@ -19,16 +19,18 @@ DELAY_BETWEEN_REQUESTS = 0.3
 MAX_WORKERS = 5
 
 session = requests.Session()
-session.headers.update({
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9,fa;q=0.8",
-    "Referer": "https://utcms.ir/ShowFuelQuota.aspx",
-})
+session.headers.update(
+    {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,fa;q=0.8",
+        "Referer": "https://utcms.ir/ShowFuelQuota.aspx",
+    }
+)
 
 
 def download_one(index: int) -> dict:
@@ -120,6 +122,7 @@ def main():
     results.sort(key=lambda r: r["index"])
 
     import csv
+
     metadata_path = OUTPUT_DIR / "metadata.csv"
     with open(metadata_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["index", "filename", "size", "mode", "content_type", "bytes", "error"])

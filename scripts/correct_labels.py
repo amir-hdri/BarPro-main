@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import csv
-import sys
 import subprocess
 from pathlib import Path
 
@@ -14,6 +13,7 @@ ones = ["", "یک", "دو", "سه", "چهار", "پنج", "شش", "هفت", "ه�
 teens = ["ده", "یازده", "دوازده", "سیزده", "چهارده", "پانزده", "شانزده", "هفده", "هجده", "نوزده"]
 tens = ["", "", "بیست", "سی", "چهل", "پنجاه", "شصت", "هفتاد", "هشتاد", "نود"]
 hundreds = ["", "صد", "دویست", "سیصد", "چهارصد", "پانصد", "ششصد", "هفتصد", "هشتصد", "نهصد"]
+
 
 def parse_under_1000(n: int) -> str:
     if n == 0:
@@ -35,6 +35,7 @@ def parse_under_1000(n: int) -> str:
                 parts.append(ones[u])
     return " و ".join([p for p in parts if p])
 
+
 def num_to_persian_words(num: int) -> str:
     if num == 0:
         return "صفر"
@@ -46,6 +47,7 @@ def num_to_persian_words(num: int) -> str:
     if remainder > 0:
         parts.append(parse_under_1000(remainder))
     return " و ".join(parts)
+
 
 def main():
     if not LABELS_FILE.exists():
@@ -108,7 +110,7 @@ def main():
             except KeyboardInterrupt:
                 break
 
-            if user_input.lower() == 'q':
+            if user_input.lower() == "q":
                 print("\nSaving progress and quitting...")
                 break
 
@@ -136,6 +138,7 @@ def main():
             for row in rows:
                 writer.writerow(row)
         print("💾 All progress saved to labels.csv!")
+
 
 if __name__ == "__main__":
     main()

@@ -18,12 +18,8 @@ if not API_KEY:
     exit(1)
 
 # List of models to try in sequence when rate limited
-AVAILABLE_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-flash-latest",
-    "gemini-flash-lite-latest",
-    "gemini-2.0-flash"
-]
+AVAILABLE_MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.0-flash"]
+
 
 def load_existing_labels() -> dict[int, dict]:
     labels = {}
@@ -36,9 +32,10 @@ def load_existing_labels() -> dict[int, dict]:
                     labels[idx] = {
                         "filename": row.get("filename"),
                         "words": row.get("words"),
-                        "digits": row.get("digits")
+                        "digits": row.get("digits"),
                     }
     return labels
+
 
 def save_labels(labels: dict[int, dict]):
     with open(LABELS_FILE, "w", newline="", encoding="utf-8") as f:
@@ -49,6 +46,7 @@ def save_labels(labels: dict[int, dict]):
             writer.writerow([idx, row["filename"], row["words"], row["digits"]])
     print(f"💾 Saved {len(labels)} labels to {LABELS_FILE}")
 
+
 def get_unlabeled_indices(labels: dict[int, dict]) -> list[int]:
     all_indices = []
     for p in IMAGES_DIR.glob("captcha_*.png"):
@@ -57,17 +55,18 @@ def get_unlabeled_indices(labels: dict[int, dict]) -> list[int]:
             all_indices.append(idx)
         except (IndexError, ValueError):
             pass
-    
+
     unlabeled = [idx for idx in all_indices if idx not in labels]
     return sorted(unlabeled)
+
 
 def call_gemini_ocr(idx: int) -> tuple[int, str, str, str | None]:
     filename = f"captcha_{idx:04d}.png"
     img_path = IMAGES_DIR / filename
-    
+
     if not img_path.exists():
         return idx, filename, "", f"File not found: {img_path}"
-        
+
     try:
         with open(img_path, "rb") as f:
             img_data = base64.b64encode(f.read()).decode("utf-8")
@@ -88,22 +87,17 @@ def call_gemini_ocr(idx: int) -> tuple[int, str, str, str | None]:
                             "Return ONLY the raw JSON string, without any markdown formatting or code blocks."
                         )
                     },
-                    {
-                        "inlineData": {
-                            "mimeType": "image/png",
-                            "data": img_data
-                        }
-                    }
+                    {"inlineData": {"mimeType": "image/png", "data": img_data}},
                 ]
             }
         ]
     }
-    
+
     headers = {"Content-Type": "application/json"}
-    
+
     max_retries = 3
     backoff = 3.0
-    
+
     for attempt in range(max_retries):
         # Try each model in sequence to bypass rate limits
         for model in AVAILABLE_MODELS:
@@ -118,7 +112,7 @@ def call_gemini_ocr(idx: int) -> tuple[int, str, str, str | None]:
                         lines = text.splitlines()
                         if lines[0].startswith("```json") or lines[0].startswith("```"):
                             text = "\n".join(lines[1:-1]).strip()
-                    
+
                     # Parse JSON response
                     data = json.loads(text)
                     words = data.get("words", "").strip()
@@ -137,16 +131,18 @@ def call_gemini_ocr(idx: int) -> tuple[int, str, str, str | None]:
             except Exception:
                 # Connection or parsing error, try next model
                 continue
-        
+
         # If we went through all models and all failed/rate limited, wait and retry
         print(f"⚠️ All models rate limited or failed for captcha_{idx:04d}.png. Sleeping {backoff:.1f}s...")
         time.sleep(backoff)
         backoff *= 2.0
-                
+
     return idx, filename, "", "All models rate limited or failed after retries"
+
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="Label fuel captchas using Gemini API")
     parser.add_argument("--limit", type=int, default=200, help="Maximum number of new images to label in this run")
     args = parser.parse_args()
@@ -154,19 +150,19 @@ def main():
     DATASET_DIR.mkdir(parents=True, exist_ok=True)
     labels = load_existing_labels()
     unlabeled = get_unlabeled_indices(labels)
-    
+
     if not unlabeled:
         print("🎉 All images are already labeled!")
         return
-        
+
     limit = min(args.limit, len(unlabeled))
     print(f"🚀 Starting parallel labeling of up to {limit} images (out of {len(unlabeled)} unlabeled) using Gemini...")
-    
+
     to_label = unlabeled[:limit]
-    
+
     batch_count = 0
     save_every = 10
-    
+
     try:
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = []
@@ -174,29 +170,26 @@ def main():
                 # Stagger thread submission slightly to avoid hitting API rate limits instantly
                 time.sleep(1.2)
                 futures.append(executor.submit(call_gemini_ocr, idx))
-                
+
             for future in as_completed(futures):
                 result_idx, filename, words, digits = future.result()
                 if words and digits:
-                    labels[result_idx] = {
-                        "filename": filename,
-                        "words": words,
-                        "digits": digits
-                    }
+                    labels[result_idx] = {"filename": filename, "words": words, "digits": digits}
                     batch_count += 1
                     print(f"✅ [{batch_count}/{limit}] captcha_{result_idx:04d}.png: '{words}' -> {digits}")
-                    
+
                     if batch_count % save_every == 0:
                         save_labels(labels)
                 else:
                     error_msg = digits if not words else "Unknown error"
                     print(f"❌ Failed for captcha_{result_idx:04d}.png: {error_msg}")
-                    
+
     except KeyboardInterrupt:
         print("\nStopping and saving progress...")
     finally:
         save_labels(labels)
         print("Done.")
+
 
 if __name__ == "__main__":
     main()

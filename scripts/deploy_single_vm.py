@@ -37,36 +37,50 @@ from scp import SCPClient
 #  ⚙️  پیکربندی سرور — فقط اینجا ویرایش کنید
 # ═══════════════════════════════════════════════════════════════════
 
-PRIMARY_IP   = "188.121.123.16"   # IP اصلی (eth0) — ورودی ترافیک + egress 1
-SECONDARY_IP = "95.38.233.90"     # IP ثانویه (eth1) — egress 2
+PRIMARY_IP = "188.121.123.16"  # IP اصلی (eth0) — ورودی ترافیک + egress 1
+SECONDARY_IP = "95.38.233.90"  # IP ثانویه (eth1) — egress 2
 
 # Gateway پیش‌فرض هر اینترفیس در آروان‌کلود
-PRIMARY_GW   = "188.121.120.1"
+PRIMARY_GW = "188.121.120.1"
 SECONDARY_GW = "95.38.232.1"
 
-SSH_USER   = "ubuntu"
-SSH_PASS   = os.environ.get("SSH_PASSWORD", "")
+SSH_USER = "ubuntu"
+SSH_PASS = os.environ.get("SSH_PASSWORD", "")
 
-REMOTE_DIR = "/opt/barpro"          # محل استقرار روی سرور
-DB_NAME    = "utcms_rpa"
+REMOTE_DIR = "/opt/barpro"  # محل استقرار روی سرور
+DB_NAME = "utcms_rpa"
 
 # Registry آروان‌کلود (بدون تحریم — بدون نیاز به VPN)
 ARVAN_REGISTRY = "docker.arvancloud.ir"
-ARVAN_PYPI     = "https://pypi.arvancloud.ir/simple"
+ARVAN_PYPI = "https://pypi.arvancloud.ir/simple"
 
 # ═══════════════════════════════════════════════════════════════════
 #  📁 آیتم‌هایی که در آرشیو آپلودی نباشند
 # ═══════════════════════════════════════════════════════════════════
 
 EXCLUDE_DIRS = {
-    ".git", ".venv", "venv", "node_modules",
-    ".mypy_cache", ".pytest_cache", ".ruff_cache", "__pycache__",
-    ".auth", "output", "build", "dist", "evidence",
-    ".github", "examples", "docs",
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "__pycache__",
+    ".auth",
+    "output",
+    "build",
+    "dist",
+    "evidence",
+    ".github",
+    "examples",
+    "docs",
     # توجه: .next را حذف کردیم تا فایل‌های بیلد شده فرانت‌اند آپلود شوند
 }
 EXCLUDE_FILES = {
-    "backend.log", "rpa_inspector.log", "celerybeat-schedule.db",
+    "backend.log",
+    "rpa_inspector.log",
+    "celerybeat-schedule.db",
     ".env",
 }
 EXCLUDE_EXTS = {".pyc", ".pid", ".db-shm", ".db-wal", ".log"}
@@ -75,41 +89,61 @@ EXCLUDE_EXTS = {".pyc", ".pid", ".db-shm", ".db-wal", ".log"}
 #  🎨 رنگ‌بندی ترمینال
 # ═══════════════════════════════════════════════════════════════════
 
-class C:
-    RESET  = "\033[0m"
-    BOLD   = "\033[1m"
-    GREEN  = "\033[92m"
-    YELLOW = "\033[93m"
-    RED    = "\033[91m"
-    CYAN   = "\033[96m"
-    BLUE   = "\033[94m"
-    GRAY   = "\033[90m"
 
-def ok(msg: str)   -> None: print(f"  {C.GREEN}✓{C.RESET}  {msg}")
-def err(msg: str)  -> None: print(f"  {C.RED}✗{C.RESET}  {C.RED}{msg}{C.RESET}")
-def warn(msg: str) -> None: print(f"  {C.YELLOW}⚠{C.RESET}  {C.YELLOW}{msg}{C.RESET}")
-def info(msg: str) -> None: print(f"  {C.CYAN}→{C.RESET}  {msg}")
-def cmd(msg: str)  -> None: print(f"  {C.GRAY}$ {msg}{C.RESET}")
+class C:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    RED = "\033[91m"
+    CYAN = "\033[96m"
+    BLUE = "\033[94m"
+    GRAY = "\033[90m"
+
+
+def ok(msg: str) -> None:
+    print(f"  {C.GREEN}✓{C.RESET}  {msg}")
+
+
+def err(msg: str) -> None:
+    print(f"  {C.RED}✗{C.RESET}  {C.RED}{msg}{C.RESET}")
+
+
+def warn(msg: str) -> None:
+    print(f"  {C.YELLOW}⚠{C.RESET}  {C.YELLOW}{msg}{C.RESET}")
+
+
+def info(msg: str) -> None:
+    print(f"  {C.CYAN}→{C.RESET}  {msg}")
+
+
+def cmd(msg: str) -> None:
+    print(f"  {C.GRAY}$ {msg}{C.RESET}")
+
 
 def section(title: str) -> None:
     print(f"\n{C.BOLD}{C.BLUE}{'─'*62}{C.RESET}")
     print(f"{C.BOLD}{C.BLUE}  {title}{C.RESET}")
     print(f"{C.BOLD}{C.BLUE}{'─'*62}{C.RESET}")
 
+
 def banner() -> None:
-    print(f"""
+    print(
+        f"""
 {C.BOLD}{C.CYAN}╔══════════════════════════════════════════════════════════════╗
 ║       BarPro — ArvanCloud Deployment Agent  🚀              ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Primary  : {PRIMARY_IP:<47}║
 ║  Secondary: {SECONDARY_IP:<47}║
 ║  Remote   : {REMOTE_DIR:<47}║
-╚══════════════════════════════════════════════════════════════╝{C.RESET}""")
+╚══════════════════════════════════════════════════════════════╝{C.RESET}"""
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════
 #  🔌 اتصال SSH
 # ═══════════════════════════════════════════════════════════════════
+
 
 def ssh_connect(retries: int = 6, delay: int = 8) -> paramiko.SSHClient:
     """اتصال SSH با قابلیت تلاش مجدد."""
@@ -135,16 +169,18 @@ def ssh_connect(retries: int = 6, delay: int = 8) -> paramiko.SSHClient:
                 info(f"  {delay} ثانیه صبر...")
                 time.sleep(delay)
 
-    raise SystemExit(f"\n{C.RED}❌  اتصال SSH بعد از {retries} تلاش ممکن نشد.{C.RESET}\n"
-                     "    لطفاً بررسی کنید:\n"
-                     "    1) آیا VPN روشن است؟ (اگر fail2ban IP شما را block کرده)\n"
-                     "    2) سرور از ArvanCloud Console ری‌استارت شده؟\n"
-                     "    3) دستور: sudo fail2ban-client set sshd unbanip ALL")
+    raise SystemExit(
+        f"\n{C.RED}❌  اتصال SSH بعد از {retries} تلاش ممکن نشد.{C.RESET}\n"
+        "    لطفاً بررسی کنید:\n"
+        "    1) آیا VPN روشن است؟ (اگر fail2ban IP شما را block کرده)\n"
+        "    2) سرور از ArvanCloud Console ری‌استارت شده؟\n"
+        "    3) دستور: sudo fail2ban-client set sshd unbanip ALL"
+    )
 
 
-def run(ssh: paramiko.SSHClient, command: str, *,
-        check: bool = True, timeout: int = 3600,
-        silent: bool = False) -> tuple[bool, str]:
+def run(
+    ssh: paramiko.SSHClient, command: str, *, check: bool = True, timeout: int = 3600, silent: bool = False
+) -> tuple[bool, str]:
     """
     دستور را روی سرور اجرا و stdout را streaming می‌کند.
     خروجی: (موفق, متن_کامل)
@@ -169,9 +205,7 @@ def run(ssh: paramiko.SSHClient, command: str, *,
             chunk = chunk.replace(SSH_PASS, "***")
             # فیلتر هشدار sudo بی‌خطر
             for line in chunk.splitlines(keepends=True):
-                if "unable to resolve host" in line or (
-                    line.strip().startswith("sudo:") and "unable" in line
-                ):
+                if "unable to resolve host" in line or (line.strip().startswith("sudo:") and "unable" in line):
                     continue
                 sys.stdout.write("    " + line)
                 sys.stdout.flush()
@@ -256,13 +290,17 @@ def step_network(ssh: paramiko.SSHClient) -> bool:
         err(f"آپلود فایل Netplan ناموفق: {exc}")
         return False
 
-    return run_script(ssh, "اعمال Netplan", [
-        "sudo mv /tmp/60-policy-routing.yaml /etc/netplan/60-policy-routing.yaml",
-        "sudo chown root:root /etc/netplan/60-policy-routing.yaml",
-        "sudo chmod 600 /etc/netplan/60-policy-routing.yaml",
-        "sudo netplan apply",
-        f"ip route show table 100; ip route show table 101",
-    ])
+    return run_script(
+        ssh,
+        "اعمال Netplan",
+        [
+            "sudo mv /tmp/60-policy-routing.yaml /etc/netplan/60-policy-routing.yaml",
+            "sudo chown root:root /etc/netplan/60-policy-routing.yaml",
+            "sudo chmod 600 /etc/netplan/60-policy-routing.yaml",
+            "sudo netplan apply",
+            f"ip route show table 100; ip route show table 101",
+        ],
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -297,13 +335,17 @@ def step_docker(ssh: paramiko.SSHClient) -> bool:
 
     if not docker_installed:
         info("Docker یافت نشد — در حال نصب از مخزن رسمی...")
-        ok_flag = run_script(ssh, "نصب Docker", [
-            "sudo apt-get update -qq",
-            "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2",
-            "sudo systemctl enable docker",
-            "sudo systemctl start docker",
-            f"sudo usermod -aG docker {SSH_USER}",
-        ])
+        ok_flag = run_script(
+            ssh,
+            "نصب Docker",
+            [
+                "sudo apt-get update -qq",
+                "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2",
+                "sudo systemctl enable docker",
+                "sudo systemctl start docker",
+                f"sudo usermod -aG docker {SSH_USER}",
+            ],
+        )
         if not ok_flag:
             return False
     else:
@@ -321,19 +363,24 @@ def step_docker(ssh: paramiko.SSHClient) -> bool:
         err(f"آپلود daemon.json ناموفق: {exc}")
         return False
 
-    return run_script(ssh, "پیکربندی Docker Mirror", [
-        "sudo mkdir -p /etc/docker",
-        "sudo mv /tmp/daemon.json /etc/docker/daemon.json",
-        "sudo chown root:root /etc/docker/daemon.json",
-        "sudo systemctl daemon-reload",
-        "sudo systemctl restart docker",
-        "sudo docker info 2>/dev/null | grep -A3 'Registry Mirrors' || true",
-    ])
+    return run_script(
+        ssh,
+        "پیکربندی Docker Mirror",
+        [
+            "sudo mkdir -p /etc/docker",
+            "sudo mv /tmp/daemon.json /etc/docker/daemon.json",
+            "sudo chown root:root /etc/docker/daemon.json",
+            "sudo systemctl daemon-reload",
+            "sudo systemctl restart docker",
+            "sudo docker info 2>/dev/null | grep -A3 'Registry Mirrors' || true",
+        ],
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════
 #  📦 مرحله ۳ — آرشیو و آپلود کد
 # ═══════════════════════════════════════════════════════════════════
+
 
 def _build_archive() -> str:
     """آرشیو tar.gz پروژه را می‌سازد و مسیر فایل موقت را برمی‌گرداند."""
@@ -351,7 +398,7 @@ def _build_archive() -> str:
                 if any(file.endswith(ext) for ext in EXCLUDE_EXTS):
                     continue
                 full = os.path.join(root, file)
-                rel  = os.path.relpath(full, project_root)
+                rel = os.path.relpath(full, project_root)
                 tar.add(full, arcname=rel)
 
     size_mb = Path(path).stat().st_size / (1024 * 1024)
@@ -363,11 +410,18 @@ def _build_production_env() -> str:
     """محتوای .env تولیدی را می‌سازد."""
     # متغیرهایی که باید از .env محلی حذف شوند
     LOCAL_ONLY = {
-        "FRONTEND_URL", "NEXT_PUBLIC_API_URL",
+        "FRONTEND_URL",
+        "NEXT_PUBLIC_API_URL",
         "AVAILABLE_IP_INDICES",
-        "WORKER_1_PROXY", "WORKER_2_PROXY", "WORKER_3_PROXY",
-        "ENVIRONMENT", "KERAS_PYTHON_PATH", "HEADLESS",
-        "BLOCK_MAP_TILES", "DATABASE_URL", "REDIS_URL",
+        "WORKER_1_PROXY",
+        "WORKER_2_PROXY",
+        "WORKER_3_PROXY",
+        "ENVIRONMENT",
+        "KERAS_PYTHON_PATH",
+        "HEADLESS",
+        "BLOCK_MAP_TILES",
+        "DATABASE_URL",
+        "REDIS_URL",
     }
 
     lines: list[str] = []
@@ -383,10 +437,11 @@ def _build_production_env() -> str:
                     lines.append(line if line.endswith("\n") else line + "\n")
 
     # واریابل‌های تولید
-    pg_pass  = _extract_env("POSTGRES_PASSWORD", "postgres")
+    pg_pass = _extract_env("POSTGRES_PASSWORD", "postgres")
     redis_pw = _extract_env("REDIS_PASSWORD", "redis")
 
-    lines.append(f"""
+    lines.append(
+        f"""
 # ── تنظیمات تولید (auto-generated) ──────────────────────────────
 ENVIRONMENT="production"
 HEADLESS="true"
@@ -409,7 +464,8 @@ WORKER_3_PROXY="http://squid_3:3128"
 
 # مسیر مدل OCR در کانتینر
 KERAS_PYTHON_PATH="python3"
-""")
+"""
+    )
     return "".join(lines)
 
 
@@ -441,10 +497,7 @@ def step_build_frontend() -> bool:
         return True
 
     info("در حال نصب پکیج‌های npm...")
-    r1 = subprocess.run(
-        ["npm", "install"],
-        cwd=str(web_dir), capture_output=False, text=True
-    )
+    r1 = subprocess.run(["npm", "install"], cwd=str(web_dir), capture_output=False, text=True)
     if r1.returncode != 0:
         err("npm install شکست خورد")
         warn("VPN را خاموش کنید و دوباره امتحان کنید")
@@ -454,10 +507,7 @@ def step_build_frontend() -> bool:
     env = os.environ.copy()
     env["NODE_ENV"] = "production"
     env["NEXT_PUBLIC_API_URL"] = "/api"
-    r2 = subprocess.run(
-        ["npm", "run", "build"],
-        cwd=str(web_dir), capture_output=False, text=True, env=env
-    )
+    r2 = subprocess.run(["npm", "run", "build"], cwd=str(web_dir), capture_output=False, text=True, env=env)
     if r2.returncode != 0:
         err("npm run build شکست خورد")
         return False
@@ -478,8 +528,7 @@ def step_upload(ssh: paramiko.SSHClient) -> bool:
 
     try:
         # ایجاد پوشه مقصد
-        run(ssh, f"sudo mkdir -p {REMOTE_DIR}/output/backups && "
-                 f"sudo chown -R {SSH_USER}:{SSH_USER} {REMOTE_DIR}")
+        run(ssh, f"sudo mkdir -p {REMOTE_DIR}/output/backups && " f"sudo chown -R {SSH_USER}:{SSH_USER} {REMOTE_DIR}")
 
         # آپلود آرشیو با نوار پیشرفت
         info(f"آپلود به {REMOTE_DIR}/code.tar.gz ...")
@@ -519,6 +568,7 @@ def step_upload(ssh: paramiko.SSHClient) -> bool:
 #  🔧 مرحله ۴ — استقرار و راه‌اندازی سرویس‌ها
 # ═══════════════════════════════════════════════════════════════════
 
+
 def _get_compose_cmd(ssh: paramiko.SSHClient) -> str:
     ok_flag, _ = run(ssh, "docker compose version", silent=True)
     return "docker compose" if ok_flag else "docker-compose"
@@ -534,32 +584,23 @@ def step_deploy(ssh: paramiko.SSHClient) -> bool:
     commands = [
         # استخراج آرشیو
         f"cd {REMOTE_DIR} && tar -xzf code.tar.gz --overwrite && rm -f code.tar.gz",
-
         # جایگزینی placeholder های IP در کانفیگ Squid
         f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_1/{PRIMARY_IP}/g'   infra/squid/squid_1.conf",
         f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_2/{SECONDARY_IP}/g' infra/squid/squid_2.conf",
         f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_3/{SECONDARY_IP}/g' infra/squid/squid_3.conf",
-
         # تصحیح Prometheus — از backend:8000 به جای host.docker.internal استفاده می‌کنیم
         f"cd {REMOTE_DIR} && sed -i "
         f"'s/host.docker.internal:8000/backend:8000/g' "
         f"infra/prometheus/prometheus.yml",
-
         # نصب پکیج‌های Node و بیلد فرانت‌اند روی سرور (npm از طریق apt نصب شده)
         f"cd {REMOTE_DIR}/apps/web && npm install --prefer-offline 2>&1 | tail -5 || npm install 2>&1 | tail -5",
         f"cd {REMOTE_DIR}/apps/web && NODE_ENV=production NEXT_PUBLIC_API_URL=/api npm run build 2>&1 | tail -20",
-
         # Pull ایمیج‌های بدون build (سریع‌تر از wait کردن در build)
         f"cd {REMOTE_DIR} && {compose} pull --quiet postgres redis nginx prometheus || true",
-
         # Build و راه‌اندازی همه سرویس‌ها (با --profile docker-backend)
-        f"cd {REMOTE_DIR} && {compose} --profile docker-backend "
-        f"up -d --build --remove-orphans "
-        f"--timeout 300",
-
+        f"cd {REMOTE_DIR} && {compose} --profile docker-backend " f"up -d --build --remove-orphans " f"--timeout 300",
         # اجرایی کردن اسکریپت بکاپ
         f"chmod +x {REMOTE_DIR}/scripts/db_backup.sh",
-
         # تنظیم cron بکاپ روزانه ساعت ۳ صبح
         f"(crontab -l 2>/dev/null | grep -Fv '{REMOTE_DIR}/scripts/db_backup.sh' ; "
         f"echo '0 3 * * * {REMOTE_DIR}/scripts/db_backup.sh >> "
@@ -573,6 +614,7 @@ def step_deploy(ssh: paramiko.SSHClient) -> bool:
 #  🗄️ مرحله ۵ — مایگریشن دیتابیس (Alembic)
 # ═══════════════════════════════════════════════════════════════════
 
+
 def step_migrate(ssh: paramiko.SSHClient) -> bool:
     section("🗄️   مرحله ۵ — مایگریشن دیتابیس (Alembic)")
 
@@ -583,8 +625,7 @@ def step_migrate(ssh: paramiko.SSHClient) -> bool:
     for i in range(40):
         ok_flag, _ = run(
             ssh,
-            f"cd {REMOTE_DIR} && {compose} exec -T postgres "
-            f"pg_isready -U postgres -d {DB_NAME} 2>/dev/null",
+            f"cd {REMOTE_DIR} && {compose} exec -T postgres " f"pg_isready -U postgres -d {DB_NAME} 2>/dev/null",
             silent=True,
             check=False,
         )
@@ -601,8 +642,7 @@ def step_migrate(ssh: paramiko.SSHClient) -> bool:
     print()
     ok_flag, _ = run(
         ssh,
-        f"cd {REMOTE_DIR} && {compose} exec -T backend "
-        f"alembic upgrade head",
+        f"cd {REMOTE_DIR} && {compose} exec -T backend " f"alembic upgrade head",
         timeout=120,
     )
 
@@ -618,15 +658,18 @@ def step_migrate(ssh: paramiko.SSHClient) -> bool:
 #  🔍 وضعیت و لاگ‌ها
 # ═══════════════════════════════════════════════════════════════════
 
+
 def cmd_status(ssh: paramiko.SSHClient) -> None:
     section("📊  وضعیت سرویس‌ها")
     compose = _get_compose_cmd(ssh)
     run(ssh, f"cd {REMOTE_DIR} && {compose} ps", check=False)
 
     section("📈  مصرف منابع")
-    run(ssh, "docker stats --no-stream --format "
-             "'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}'",
-        check=False)
+    run(
+        ssh,
+        "docker stats --no-stream --format " "'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}'",
+        check=False,
+    )
 
     section("🌐  وضعیت شبکه")
     run(ssh, f"ip addr show eth0 | grep 'inet ' ; ip addr show eth1 | grep 'inet '", check=False)
@@ -638,8 +681,7 @@ def cmd_logs(ssh: paramiko.SSHClient, service: Optional[str] = None) -> None:
     compose = _get_compose_cmd(ssh)
     svc = service or ""
     section(f"📋  لاگ‌ها: {svc or 'همه'}")
-    run(ssh, f"cd {REMOTE_DIR} && {compose} logs --tail=100 --no-color {svc}",
-        check=False, timeout=60)
+    run(ssh, f"cd {REMOTE_DIR} && {compose} logs --tail=100 --no-color {svc}", check=False, timeout=60)
 
 
 def cmd_restart(ssh: paramiko.SSHClient) -> None:
@@ -653,6 +695,7 @@ def cmd_restart(ssh: paramiko.SSHClient) -> None:
 #  🩺 بررسی نهایی سلامت
 # ═══════════════════════════════════════════════════════════════════
 
+
 def final_health_check(ssh: paramiko.SSHClient) -> None:
     section("🩺  بررسی سلامت نهایی")
 
@@ -660,27 +703,36 @@ def final_health_check(ssh: paramiko.SSHClient) -> None:
 
     # وضعیت کانتینرها
     info("کانتینرهای در حال اجرا:")
-    run(ssh,
-        "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'",
-        check=False)
+    run(ssh, "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'", check=False)
 
     # تست HTTP
     info("تست دسترسی HTTP...")
     time.sleep(5)  # کمی صبر برای راه‌اندازی کامل
-    run(ssh, f"curl -s -o /dev/null -w 'HTTP Status: %{{http_code}}\\n' "
-             f"http://localhost/api/healthz || true", check=False, timeout=15)
-    run(ssh, f"curl -s -o /dev/null -w 'Frontend Status: %{{http_code}}\\n' "
-             f"http://localhost/ || true", check=False, timeout=15)
+    run(
+        ssh,
+        f"curl -s -o /dev/null -w 'HTTP Status: %{{http_code}}\\n' " f"http://localhost/api/healthz || true",
+        check=False,
+        timeout=15,
+    )
+    run(
+        ssh,
+        f"curl -s -o /dev/null -w 'Frontend Status: %{{http_code}}\\n' " f"http://localhost/ || true",
+        check=False,
+        timeout=15,
+    )
 
     # نمایش کانتینرهای ناموفق
-    run(ssh, "docker ps --filter 'status=exited' "
-             "--format 'table {{.Names}}\t{{.Status}}' 2>/dev/null || true",
-        check=False)
+    run(
+        ssh,
+        "docker ps --filter 'status=exited' " "--format 'table {{.Names}}\t{{.Status}}' 2>/dev/null || true",
+        check=False,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════
 #  🚀 نقطه ورود اصلی
 # ═══════════════════════════════════════════════════════════════════
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -703,23 +755,17 @@ def parse_args() -> argparse.Namespace:
     )
 
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--app-only",      action="store_true",
-                      help="فقط آپلود کد و restart کانتینرها (سریع‌ترین حالت)")
-    mode.add_argument("--restart-only",  action="store_true",
-                      help="فقط ری‌استارت کانتینرها")
-    mode.add_argument("--status",        action="store_true",
-                      help="نمایش وضعیت سرویس‌ها و مصرف منابع")
-    mode.add_argument("--migrate-only",  action="store_true",
-                      help="فقط اجرای مایگریشن Alembic")
-    mode.add_argument("--logs",          metavar="SERVICE", nargs="?", const="",
-                      help="نمایش لاگ (اختیاری: نام سرویس مثلاً backend)")
+    mode.add_argument("--app-only", action="store_true", help="فقط آپلود کد و restart کانتینرها (سریع‌ترین حالت)")
+    mode.add_argument("--restart-only", action="store_true", help="فقط ری‌استارت کانتینرها")
+    mode.add_argument("--status", action="store_true", help="نمایش وضعیت سرویس‌ها و مصرف منابع")
+    mode.add_argument("--migrate-only", action="store_true", help="فقط اجرای مایگریشن Alembic")
+    mode.add_argument(
+        "--logs", metavar="SERVICE", nargs="?", const="", help="نمایش لاگ (اختیاری: نام سرویس مثلاً backend)"
+    )
 
-    parser.add_argument("--skip-network",      action="store_true",
-                        help="رد کردن تنظیم Netplan (اگر قبلاً انجام شده)")
-    parser.add_argument("--skip-docker-setup", action="store_true",
-                        help="رد کردن نصب/تنظیم Docker")
-    parser.add_argument("--skip-migrate",      action="store_true",
-                        help="رد کردن مایگریشن Alembic")
+    parser.add_argument("--skip-network", action="store_true", help="رد کردن تنظیم Netplan (اگر قبلاً انجام شده)")
+    parser.add_argument("--skip-docker-setup", action="store_true", help="رد کردن نصب/تنظیم Docker")
+    parser.add_argument("--skip-migrate", action="store_true", help="رد کردن مایگریشن Alembic")
 
     return parser.parse_args()
 
@@ -732,10 +778,12 @@ def main() -> None:
     ssh = ssh_connect()
 
     # Fix hostname (suppress sudo warnings)
-    run(ssh,
-        r"sudo sh -c 'HN=$(hostname); grep -q $HN /etc/hosts || "
-        r"echo \"127.0.1.1 $HN\" >> /etc/hosts'",
-        check=False, silent=True)
+    run(
+        ssh,
+        r"sudo sh -c 'HN=$(hostname); grep -q $HN /etc/hosts || " r"echo \"127.0.1.1 $HN\" >> /etc/hosts'",
+        check=False,
+        silent=True,
+    )
 
     try:
         # ── حالت‌های اجرایی ──────────────────────────────────────
@@ -800,7 +848,8 @@ def main() -> None:
         ssh.close()
 
     # ── خروجی موفق ────────────────────────────────────────────────
-    print(f"""
+    print(
+        f"""
 {C.BOLD}{C.GREEN}╔══════════════════════════════════════════════════════════════╗
 ║                   🎉  استقرار موفق  🎉                       ║
 ╠══════════════════════════════════════════════════════════════╣
@@ -808,7 +857,8 @@ def main() -> None:
 ║  API Docs : http://{PRIMARY_IP}/api/docs{" "*25}║
 ║  Metrics  : http://{PRIMARY_IP}:9090{" "*27}║
 ╚══════════════════════════════════════════════════════════════╝{C.RESET}
-""")
+"""
+    )
 
 
 if __name__ == "__main__":

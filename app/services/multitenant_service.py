@@ -1310,7 +1310,7 @@ class WaybillJobService:
         else:
             client = user_context["user"]
             statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
-            
+
         result = await session.exec(statement)
         job = result.first()
 
@@ -1478,7 +1478,9 @@ class WaybillJobService:
             logs_stmt = select(WaybillTaskLog).where(
                 (WaybillTaskLog.client_id == client.id) & (WaybillTaskLog.job_id == job_id)
             )
-            events_stmt = select(DomainEvent).where((DomainEvent.client_id == client.id) & (DomainEvent.job_id == job_id))
+            events_stmt = select(DomainEvent).where(
+                (DomainEvent.client_id == client.id) & (DomainEvent.job_id == job_id)
+            )
 
         logs = (await session.exec(logs_stmt)).all()
         events = (await session.exec(events_stmt)).all()

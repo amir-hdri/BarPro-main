@@ -373,9 +373,9 @@ export default function NewWaybillPage() {
   return (
     <AuthGuard requiredRole="client">
       <AppShell>
-        <div className="max-w-3xl mx-auto">
+        <div className="max-w-4xl mx-auto">
 
-          <div className="relative overflow-hidden rounded-[2rem] bg-slate-950 px-5 py-6 sm:px-8 sm:py-10 text-white shadow-2xl shadow-slate-900/20 mb-6 md:mb-8">
+          <div className="relative overflow-hidden rounded-[2.5rem] bg-slate-950 px-6 py-8 sm:px-10 sm:py-12 text-white shadow-2xl shadow-slate-900/40 mb-8 md:mb-10">
             <div className="absolute -right-24 -top-24 h-64 w-64 rounded-full bg-cyan-400/10 blur-[80px]" />
             <div className="absolute -left-16 -bottom-16 h-48 w-48 rounded-full bg-indigo-400/10 blur-[80px]" />
             <div className="relative z-10 flex items-center justify-between">
@@ -404,9 +404,9 @@ export default function NewWaybillPage() {
                 <span>مرحله {toPersianDigits(currentStep)} از {toPersianDigits(STEPS.length)}</span>
                 <span className="text-cyan-400 font-bold">{step?.label}</span>
               </div>
-              <div className="h-1.5 w-full rounded-full bg-white/10">
+              <div className="h-2 w-full rounded-full bg-white/5 overflow-hidden border border-white/5">
                 <div
-                  className="h-full rounded-full bg-cyan-400 transition-all duration-500 ease-out shadow-[0_0_8px_rgba(34,211,238,0.5)]"
+                  className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-blue-400 to-indigo-500 transition-all duration-700 ease-out shadow-[0_0_15px_rgba(34,211,238,0.4)]"
                   style={{ width: `${(currentStep / STEPS.length) * 100}%` }}
                 />
               </div>

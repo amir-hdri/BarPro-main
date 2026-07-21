@@ -300,9 +300,7 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
     driver_lock_acquired = False
     driver_lock_key: str | None = None
     try:
-        job = (
-            await session.exec(select(WaybillJob).where(WaybillJob.id == job_id).with_for_update())
-        ).first()
+        job = (await session.exec(select(WaybillJob).where(WaybillJob.id == job_id).with_for_update())).first()
         if not job:
             logger.error(f"Scheduled job {job_id} not found in DB")
             return {"status": "failed", "error": "Job not found"}

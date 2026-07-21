@@ -111,6 +111,7 @@ def interactive_label():
             continue
         elif label == "v":
             import subprocess
+
             subprocess.run(["open", "-R", str(img_path)])
             print(f"   (Finder opened) Enter label: ", end="", flush=True)
             label = sys.stdin.readline().strip()
@@ -175,9 +176,7 @@ def test_model_on_dataset():
         pred_time_major = tf.transpose(pred, perm=[1, 0, 2])
         input_len = np.ones(pred.shape[0]) * pred.shape[1]
         decoded, _ = tf.nn.ctc_greedy_decoder(
-            pred_time_major,
-            sequence_length=tf.cast(input_len, tf.int32),
-            blank_index=BLANK_INDEX
+            pred_time_major, sequence_length=tf.cast(input_len, tf.int32), blank_index=BLANK_INDEX
         )
         dense_decoded = tf.sparse.to_dense(decoded[0], default_value=-1).numpy()
         digits = [CHARS[int(c)] for c in dense_decoded[0] if c != -1]
@@ -220,10 +219,12 @@ def export_tfds():
             continue
         dst = TFDS_DIR / "images" / f"captcha_{idx:04d}.png"
         dst.write_bytes(src.read_bytes())
-        records.append({
-            "image": f"captcha_{idx:04d}.png",
-            "label": labels[idx],
-        })
+        records.append(
+            {
+                "image": f"captcha_{idx:04d}.png",
+                "label": labels[idx],
+            }
+        )
 
     with open(TFDS_DIR / "_dataset.json", "w", encoding="utf-8") as f:
         json.dump(records, f, ensure_ascii=False, indent=2)

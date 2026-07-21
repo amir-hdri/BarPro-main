@@ -417,7 +417,7 @@ async def get_current_user_or_admin(
                 "user": {
                     "username": utcms_config.MASTER_ADMIN_USERNAME,
                     "role": "master_admin",
-                }
+                },
             }
         elif role == "client":
             raw_client_id = payload.get("sub")
@@ -456,10 +456,7 @@ async def get_current_user_or_admin(
                     detail="اشتراک شما به پایان رسیده است.",
                 )
 
-            return {
-                "role": "client",
-                "user": client
-            }
+            return {"role": "client", "user": client}
         else:
             raise credentials_exception
     except JWTError:

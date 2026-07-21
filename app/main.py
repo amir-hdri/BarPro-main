@@ -94,12 +94,10 @@ def _frontend_origins() -> list[str]:
             origin = f"{scheme}://{parsed.netloc}"
             origins.add(origin)
 
-            if parsed.hostname == "localhost":
-                variant_netloc = parsed.netloc.replace("localhost", "127.0.0.1", 1)
-                origins.add(f"{scheme}://{variant_netloc}")
-            elif parsed.hostname == "127.0.0.1":
-                variant_netloc = parsed.netloc.replace("127.0.0.1", "localhost", 1)
-                origins.add(f"{scheme}://{variant_netloc}")
+            if parsed.hostname in ("localhost", "127.0.0.1"):
+                for host in ("localhost", "127.0.0.1"):
+                    for port in ("", ":3000", ":8000", ":80"):
+                        origins.add(f"{scheme}://{host}{port}")
         except Exception as exc:
             logger.warning(
                 "Failed to parse CORS origin", extra={"extra_fields": {"origin": configured, "error": str(exc)}}

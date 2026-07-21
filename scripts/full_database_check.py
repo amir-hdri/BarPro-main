@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """بررسی کامل وضعیت پایگاه داده."""
+
 import os
 import sys
 
@@ -14,7 +15,7 @@ def check_database():
             port=int(os.getenv("POSTGRES_PORT", 5432)),
             database=os.getenv("POSTGRES_DB", "utcms_rpa"),
             user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", "postgres")
+            password=os.getenv("POSTGRES_PASSWORD", "postgres"),
         )
 
         cursor = conn.cursor()
@@ -34,13 +35,15 @@ def check_database():
 
         # 2. لیست جداول
         print("\n2️⃣ جداول موجود:")
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT table_name,
                    pg_size_pretty(pg_total_relation_size(quote_ident(table_name)::regclass)) as size
             FROM information_schema.tables
             WHERE table_schema = 'public'
             ORDER BY table_name
-        """)
+        """
+        )
         tables = cursor.fetchall()
         print(f"   تعداد کل: {len(tables)} جدول")
         for table, size in tables:
@@ -50,13 +53,15 @@ def check_database():
 
         # 3. بررسی indexes
         print("\n3️⃣ Indexes عملکردی:")
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT indexname, tablename
             FROM pg_indexes
             WHERE schemaname = 'public'
             AND indexname LIKE 'idx_%'
             ORDER BY tablename, indexname
-        """)
+        """
+        )
         indexes = cursor.fetchall()
         if indexes:
             print(f"   تعداد: {len(indexes)} index")
@@ -71,18 +76,21 @@ def check_database():
 
         # 4. بررسی constraints
         print("\n4️⃣ Constraints:")
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT conname, contype, conrelid::regclass
             FROM pg_constraint
             WHERE connamespace = 'public'::regnamespace
             ORDER BY conrelid::regclass::text, contype
-        """)
+        """
+        )
         constraints = cursor.fetchall()
         print(f"   تعداد: {len(constraints)} constraint")
 
         # 5. بررسی foreign keys
         print("\n5️⃣ Foreign Keys:")
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT
                 tc.table_name,
                 kcu.column_name,
@@ -98,7 +106,8 @@ def check_database():
             WHERE tc.constraint_type = 'FOREIGN KEY'
             AND tc.table_schema = 'public'
             ORDER BY tc.table_name
-        """)
+        """
+        )
         fks = cursor.fetchall()
         if fks:
             print(f"   تعداد: {len(fks)} foreign key")
@@ -133,11 +142,13 @@ def check_database():
         jobs_count = cursor.fetchone()[0]
         print(f"   📦 Waybill Jobs: {jobs_count}")
         if jobs_count > 0:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT status, COUNT(*)
                 FROM waybill_jobs
                 GROUP BY status
-            """)
+            """
+            )
             for status, count in cursor.fetchall():
                 print(f"      - {status}: {count}")
 
@@ -146,11 +157,13 @@ def check_database():
         tasks_count = cursor.fetchone()[0]
         print(f"   📋 Waybill Tasks: {tasks_count}")
         if tasks_count > 0:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT status, COUNT(*)
                 FROM waybilltask
                 GROUP BY status
-            """)
+            """
+            )
             for status, count in cursor.fetchall():
                 print(f"      - {status}: {count}")
 
@@ -159,7 +172,7 @@ def check_database():
         issues = []
 
         # آیا migration کامل شده؟
-        if version and version[0] != '006_add_performance_indexes':
+        if version and version[0] != "006_add_performance_indexes":
             issues.append(f"⚠️  Migration ناقص است (فعلی: {version[0]}, مورد انتظار: 006_add_performance_indexes)")
 
         # آیا indexes ساخته شده؟
@@ -198,8 +211,10 @@ def check_database():
     except Exception as e:
         print(f"\n❌ خطای غیرمنتظره: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 if __name__ == "__main__":
     success = check_database()

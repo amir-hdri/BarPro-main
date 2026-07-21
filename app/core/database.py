@@ -76,7 +76,7 @@ async def run_migrations() -> None:
             extra={"extra_fields": {"note": "SKIP_MIGRATIONS=true set, skipping migrations."}},
         )
         return
-    
+
     if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ or os.getenv("ENVIRONMENT") == "test":
         logger.info(
             "database_migrations_skipped",

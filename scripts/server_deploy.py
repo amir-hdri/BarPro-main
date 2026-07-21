@@ -7,6 +7,7 @@
 ║  Server: 188.121.123.16                                             ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
+
 from __future__ import annotations
 
 import os
@@ -20,39 +21,72 @@ import paramiko
 from scp import SCPClient
 
 # ═══════════════════════════════════════════════════════════════════
-DEFAULT_IP   = "188.121.123.16"
-SSH_USER     = "ubuntu"
-REMOTE_DIR   = "/opt/barpro"
-DB_NAME      = "utcms_rpa"
+DEFAULT_IP = "188.121.123.16"
+SSH_USER = "ubuntu"
+REMOTE_DIR = "/opt/barpro"
+DB_NAME = "utcms_rpa"
 
 # فایل‌ها و پوشه‌های مستثنی شده برای آپلود سبک (حذف فایل‌های سنگین مدل و پکیج‌ها)
 EXCLUDE_DIRS = {
-    ".git", ".venv", "venv", "node_modules", "__pycache__", ".next",
-    ".auth", "output", "build", "dist", "evidence", ".github", "examples",
-    "docs", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".temp_playwright",
-    ".agents", "playwright-browsers", "playwright-zips"
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    ".next",
+    ".auth",
+    "output",
+    "build",
+    "dist",
+    "evidence",
+    ".github",
+    "examples",
+    "docs",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".temp_playwright",
+    ".agents",
+    "playwright-browsers",
+    "playwright-zips",
 }
-EXCLUDE_EXTS = {
-    ".pyc", ".log", ".pid", ".tar.gz", ".zip", ".save", ".keras", ".pth"
-}
-EXCLUDE_FILES = {
-    ".env", "backend.log", "celerybeat-schedule.db", "rpa_inspector.log"
-}
+EXCLUDE_EXTS = {".pyc", ".log", ".pid", ".tar.gz", ".zip", ".save", ".keras", ".pth"}
+EXCLUDE_FILES = {".env", "backend.log", "celerybeat-schedule.db", "rpa_inspector.log"}
 # ═══════════════════════════════════════════════════════════════════
 
-class C:
-    RESET  = "\033[0m"; BOLD = "\033[1m"; GREEN = "\033[92m"
-    YELLOW = "\033[93m"; RED  = "\033[91m"; CYAN = "\033[96m"
-    BLUE   = "\033[94m"; GRAY = "\033[90m"
 
-def ok(m):   print(f"  {C.GREEN}✓{C.RESET}  {m}")
-def err(m):  print(f"  {C.RED}✗{C.RESET}  {C.RED}{m}{C.RESET}")
-def warn(m): print(f"  {C.YELLOW}⚠{C.RESET}  {C.YELLOW}{m}{C.RESET}")
-def info(m): print(f"  {C.CYAN}→{C.RESET}  {m}")
+class C:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    RED = "\033[91m"
+    CYAN = "\033[96m"
+    BLUE = "\033[94m"
+    GRAY = "\033[90m"
+
+
+def ok(m):
+    print(f"  {C.GREEN}✓{C.RESET}  {m}")
+
+
+def err(m):
+    print(f"  {C.RED}✗{C.RESET}  {C.RED}{m}{C.RESET}")
+
+
+def warn(m):
+    print(f"  {C.YELLOW}⚠{C.RESET}  {C.YELLOW}{m}{C.RESET}")
+
+
+def info(m):
+    print(f"  {C.CYAN}→{C.RESET}  {m}")
+
+
 def hdr(t):
     print(f"\n{C.BOLD}{C.BLUE}{'─'*62}{C.RESET}")
     print(f"{C.BOLD}{C.BLUE}  {t}{C.RESET}")
     print(f"{C.BOLD}{C.BLUE}{'─'*62}{C.RESET}")
+
 
 def ssh_connect(ip: str, user: str, password: str) -> paramiko.SSHClient:
     hdr("🔗  اتصال SSH به سرور")
@@ -62,9 +96,14 @@ def ssh_connect(ip: str, user: str, password: str) -> paramiko.SSHClient:
     for attempt in range(5):
         try:
             ssh.connect(
-                ip, username=user, password=password,
-                timeout=30, banner_timeout=120, auth_timeout=30,
-                allow_agent=False, look_for_keys=False,
+                ip,
+                username=user,
+                password=password,
+                timeout=30,
+                banner_timeout=120,
+                auth_timeout=30,
+                allow_agent=False,
+                look_for_keys=False,
             )
             ok("اتصال برقرار شد")
             return ssh
@@ -74,8 +113,10 @@ def ssh_connect(ip: str, user: str, password: str) -> paramiko.SSHClient:
     err("اتصال SSH برقرار نشد")
     sys.exit(1)
 
-def run_cmd(ssh: paramiko.SSHClient, cmd: str, title: str = "",
-            timeout: int = 3600, check: bool = True) -> tuple[bool, str]:
+
+def run_cmd(
+    ssh: paramiko.SSHClient, cmd: str, title: str = "", timeout: int = 3600, check: bool = True
+) -> tuple[bool, str]:
     if title:
         info(title)
     print(f"  {C.GRAY}$ {cmd[:120]}{'...' if len(cmd)>120 else ''}{C.RESET}")
@@ -89,17 +130,18 @@ def run_cmd(ssh: paramiko.SSHClient, cmd: str, title: str = "",
     except Exception:
         pass
     rc = stdout.channel.recv_exit_status()
-    success = (rc == 0)
+    success = rc == 0
     if check and not success:
         err(f"دستور با exit code {rc} شکست خورد")
     return success, "\n".join(out_lines)
+
 
 def build_local_archive() -> str:
     info("ساخت آرشیو کدهای محلی (سبک و فشرده)...")
     root = Path(__file__).resolve().parent.parent
     fd, path = tempfile.mkstemp(suffix=".tar.gz", prefix="barpro_update_")
     os.close(fd)
-    
+
     with tarfile.open(path, "w:gz") as tar:
         for r, dirs, files in os.walk(root):
             # نادیده گرفتن پوشه‌های مستثنی شده
@@ -110,12 +152,13 @@ def build_local_archive() -> str:
                 if any(f.endswith(ext) for ext in EXCLUDE_EXTS):
                     continue
                 full = os.path.join(r, f)
-                rel  = os.path.relpath(full, root)
+                rel = os.path.relpath(full, root)
                 tar.add(full, arcname=rel)
-                
+
     size = Path(path).stat().st_size / 1024 / 1024
     ok(f"آرشیو ساخته شد: {size:.2f} MB (حجم بهینه)")
     return path
+
 
 def main():
     parser = argparse.ArgumentParser(description="BarPro Step-by-Step Deployment Tool")
@@ -123,46 +166,53 @@ def main():
         "--steps",
         default="1,3,4,5",
         help="مراحل اجرای استقرار (کاما جدا شده). مثال: 1,3,4,5\n"
-             "1: آپلود کدهای جدید\n"
-             "2: نصب پکیج‌ها و بیلد فرانت‌اند (زمان‌بر)\n"
-             "3: ساخت ایمیج‌ها و اجرای داکر کانتینرها\n"
-             "4: اجرای مایگریشن‌های دیتابیس\n"
-             "5: تست سلامت و وضعیت نهایی"
+        "1: آپلود کدهای جدید\n"
+        "2: نصب پکیج‌ها و بیلد فرانت‌اند (زمان‌بر)\n"
+        "3: ساخت ایمیج‌ها و اجرای داکر کانتینرها\n"
+        "4: اجرای مایگریشن‌های دیتابیس\n"
+        "5: تست سلامت و وضعیت نهایی",
     )
     parser.add_argument("--ip", default=DEFAULT_IP, help="IP آدرس سرور")
     parser.add_argument("--user", default=SSH_USER, help="نام کاربری SSH")
     parser.add_argument("--password", help="رمز عبور SSH (در صورت عدم ارائه، از متغیر محیطی SSH_PASSWORD خوانده می‌شود)")
-    
+
     args = parser.parse_args()
-    
+
     # تعیین رمز عبور
     password = args.password or os.environ.get("SSH_PASSWORD", "")
     if not password:
         err("خطا: رمز عبور SSH مشخص نشده است. لطفا از --password یا متغیر محیطی SSH_PASSWORD استفاده کنید.")
         sys.exit(1)
-        
+
     # پارس کردن مراحل
     step_list = []
     for s in args.steps.split(","):
         s = s.strip()
         if s.isdigit():
             step_list.append(int(s))
-        elif s == "upload": step_list.append(1)
-        elif s == "build-ui": step_list.append(2)
-        elif s == "docker": step_list.append(3)
-        elif s == "migrate": step_list.append(4)
-        elif s == "health": step_list.append(5)
-        
+        elif s == "upload":
+            step_list.append(1)
+        elif s == "build-ui":
+            step_list.append(2)
+        elif s == "docker":
+            step_list.append(3)
+        elif s == "migrate":
+            step_list.append(4)
+        elif s == "health":
+            step_list.append(5)
+
     step_list = sorted(list(set(step_list)))
-    
-    print(f"""
+
+    print(
+        f"""
 {C.BOLD}{C.BLUE}╔══════════════════════════════════════════════════════════════╗
 ║      BarPro — ابزار مدیریت استقرار سرور                      ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  سرور  : {args.ip:<50}║
 ║  مراحل : {str(step_list):<50}║
 ╚══════════════════════════════════════════════════════════════╝{C.RESET}
-""")
+"""
+    )
 
     ssh = ssh_connect(args.ip, args.user, password)
 
@@ -173,30 +223,32 @@ def main():
         if 1 in step_list:
             hdr("🟢  مرحله ۱ — آپلود و استخراج کدهای جدید")
             local_archive = build_local_archive()
-            
+
             info("در حال آپلود آرشیو کدهای جدید...")
             transport = ssh.get_transport()
             transport.default_window_size = 4 * 1024 * 1024
-            
+
             def progress_bar(filename, size_sent, size_total):
                 percent = int(size_sent / size_total * 100) if size_total > 0 else 0
                 sys.stdout.write(f"\r  آپلود: {percent}% [{size_sent/1024/1024:.2f}/{size_total/1024/1024:.2f} MB]")
                 sys.stdout.flush()
-                
+
             with SCPClient(transport, progress=progress_bar) as scp:
                 scp.put(local_archive, f"{REMOTE_DIR}/update.tar.gz")
             print()
             os.unlink(local_archive)
             ok("آپلود کدهای جدید به سرور با موفقیت انجام شد")
-            
+
             run_cmd(
                 ssh,
                 f"cd {REMOTE_DIR} && find . -name '._*' -delete && tar -xzf update.tar.gz --overwrite && rm -f update.tar.gz",
-                "حذف فایل‌های فراداده مک و استخراج کدهای جدید روی سرور"
+                "حذف فایل‌های فراداده مک و استخراج کدهای جدید روی سرور",
             )
-            
+
             # اطمینان از دسترسی‌های اسکریپت‌ها
-            run_cmd(ssh, f"chmod +x {REMOTE_DIR}/manage.sh && chmod +x {REMOTE_DIR}/scripts/*.sh", "تنظیم دسترسی اسکریپت‌ها")
+            run_cmd(
+                ssh, f"chmod +x {REMOTE_DIR}/manage.sh && chmod +x {REMOTE_DIR}/scripts/*.sh", "تنظیم دسترسی اسکریپت‌ها"
+            )
             ok("مرحله ۱ با موفقیت پایان یافت.")
 
         # ──────────────────────────────────────────────────────────────
@@ -204,33 +256,34 @@ def main():
         # ──────────────────────────────────────────────────────────────
         if 2 in step_list:
             hdr("🌐  مرحله ۲ — نصب پکیج‌ها و بیلد فرانت‌اند Next.js روی سرور")
-            
+
             # بررسی وجود npm
             ok_npm, _ = run_cmd(ssh, "which npm", check=False)
             if not ok_npm:
                 info("نصب npm روی سرور...")
-                run_cmd(ssh, "sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y npm 2>&1 | tail -5")
-                
+                run_cmd(
+                    ssh,
+                    "sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y npm 2>&1 | tail -5",
+                )
+
             # نصب پکیج‌های فرانت‌اند
             info("نصب پکیج‌های npm فرانت‌اند...")
             ok_install, _ = run_cmd(
                 ssh,
                 f"cd {REMOTE_DIR}/apps/web && npm install --legacy-peer-deps 2>&1 | tail -10",
                 timeout=600,
-                check=False
+                check=False,
             )
             if not ok_install:
                 err("خطا در نصب پکیج‌های npm فرانت‌اند")
                 sys.exit(1)
-                
+
             # بیلد Next.js
             run_cmd(
                 ssh,
-                f"cd {REMOTE_DIR}/apps/web && "
-                f"NODE_ENV=production NEXT_PUBLIC_API_URL=/api "
-                f"npm run build 2>&1",
+                f"cd {REMOTE_DIR}/apps/web && " f"NODE_ENV=production NEXT_PUBLIC_API_URL=/api " f"npm run build 2>&1",
                 "بیلد Next.js فرانت‌اند (این کار ممکن است حافظه سرور را تحت فشار قرار دهد)",
-                timeout=900
+                timeout=900,
             )
             ok("مرحله ۲ با موفقیت پایان یافت.")
 
@@ -239,17 +292,33 @@ def main():
         # ──────────────────────────────────────────────────────────────
         if 3 in step_list:
             hdr("🐳  مرحله ۳ — راه‌اندازی و بیلد داکر کانتینرها")
-            
+
             # تصحیح دستی متغیرهای پراکسی و تنظیمات
-            run_cmd(ssh, f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_1/188.121.123.16/g' infra/squid/squid_1.conf 2>/dev/null || true", check=False)
-            run_cmd(ssh, f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_2/95.38.233.90/g' infra/squid/squid_2.conf 2>/dev/null || true", check=False)
-            run_cmd(ssh, f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_3/95.38.233.90/g' infra/squid/squid_3.conf 2>/dev/null || true", check=False)
-            
+            run_cmd(
+                ssh,
+                f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_1/188.121.123.16/g' infra/squid/squid_1.conf 2>/dev/null || true",
+                check=False,
+            )
+            run_cmd(
+                ssh,
+                f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_2/95.38.233.90/g' infra/squid/squid_2.conf 2>/dev/null || true",
+                check=False,
+            )
+            run_cmd(
+                ssh,
+                f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_3/95.38.233.90/g' infra/squid/squid_3.conf 2>/dev/null || true",
+                check=False,
+            )
+
             # تشخیص دستور compose
             ok_dc, _ = run_cmd(ssh, "docker compose version", check=False)
             compose = "docker compose" if ok_dc else "docker-compose"
             # پاک‌سازی کانتینرهای متداخل هم‌نام
-            run_cmd(ssh, "docker rm -f barpro-squid-2 barpro-squid-3 barpro-squid-1 barpro-postgres barpro-redis barpro-backend barpro-frontend barpro-worker-1 barpro-worker-2 barpro-worker-3 barpro-beat barpro-prometheus barpro-nginx 2>/dev/null || true", "حذف کانتینرهای قدیمی متداخل")
+            run_cmd(
+                ssh,
+                "docker rm -f barpro-squid-2 barpro-squid-3 barpro-squid-1 barpro-postgres barpro-redis barpro-backend barpro-frontend barpro-worker-1 barpro-worker-2 barpro-worker-3 barpro-beat barpro-prometheus barpro-nginx 2>/dev/null || true",
+                "حذف کانتینرهای قدیمی متداخل",
+            )
             # ساخت و بالا آوردن کانتینرها با تایم‌اوت بالا
             success, _ = run_cmd(
                 ssh,
@@ -257,7 +326,7 @@ def main():
                 f"up -d --build --remove-orphans --timeout 300 2>&1",
                 "اجرای docker compose build & up",
                 timeout=2400,
-                check=False
+                check=False,
             )
             if not success:
                 err("راه‌اندازی داکر با خطا مواجه شد. لطفا لاگ‌ها را بررسی کنید.")
@@ -269,17 +338,17 @@ def main():
         # ──────────────────────────────────────────────────────────────
         if 4 in step_list:
             hdr("🗄️  مرحله ۴ — مایگریشن دیتابیس (Alembic)")
-            
+
             ok_dc, _ = run_cmd(ssh, "docker compose version", check=False)
             compose = "docker compose" if ok_dc else "docker-compose"
-            
+
             info("صبر برای آماده شدن PostgreSQL...")
             pg_ready = False
             for i in range(15):
                 ok_pg, _ = run_cmd(
                     ssh,
                     f"cd {REMOTE_DIR} && {compose} exec -T postgres pg_isready -U postgres -d {DB_NAME} 2>/dev/null",
-                    check=False
+                    check=False,
                 )
                 if ok_pg:
                     ok("PostgreSQL آماده اتصال است")
@@ -288,12 +357,12 @@ def main():
                 print(f"\r    انتظار برای دیتابیس... {i+1}/15", end="", flush=True)
                 time.sleep(4)
             print()
-            
+
             if pg_ready:
                 run_cmd(
                     ssh,
                     f"cd {REMOTE_DIR} && {compose} exec -T backend alembic upgrade head 2>&1",
-                    "اجرای alembic upgrade head inside backend"
+                    "اجرای alembic upgrade head inside backend",
                 )
                 ok("مایگریشن دیتابیس با موفقیت اعمال شد.")
             else:
@@ -304,17 +373,30 @@ def main():
         # ──────────────────────────────────────────────────────────────
         if 5 in step_list:
             hdr("📊  مرحله ۵ — بررسی وضعیت نهایی و تست سلامت")
-            
+
             ok_dc, _ = run_cmd(ssh, "docker compose version", check=False)
             compose = "docker compose" if ok_dc else "docker-compose"
-            
+
             run_cmd(ssh, f"cd {REMOTE_DIR} && {compose} ps 2>&1", "وضعیت کانتینرها", check=False)
-            
+
             print()
-            run_cmd(ssh, f"curl -sf http://localhost/api/healthz 2>&1 || curl -sf http://localhost:8000/healthz 2>&1 || echo 'API در حال آماده‌سازی'", "تست بک‌اند", check=False, timeout=15)
-            run_cmd(ssh, f"curl -sI http://localhost/ 2>&1 | head -5 || echo 'فرانت‌اند در حال آماده‌سازی'", "تست فرانت‌اند", check=False, timeout=15)
-            
-            print(f"""
+            run_cmd(
+                ssh,
+                f"curl -sf http://localhost/api/healthz 2>&1 || curl -sf http://localhost:8000/healthz 2>&1 || echo 'API در حال آماده‌سازی'",
+                "تست بک‌اند",
+                check=False,
+                timeout=15,
+            )
+            run_cmd(
+                ssh,
+                f"curl -sI http://localhost/ 2>&1 | head -5 || echo 'فرانت‌اند در حال آماده‌سازی'",
+                "تست فرانت‌اند",
+                check=False,
+                timeout=15,
+            )
+
+            print(
+                f"""
 {C.BOLD}{C.GREEN}╔══════════════════════════════════════════════════════════════╗
 ║              🎉  وضعیت نهایی استقرار                         ║
 ╠══════════════════════════════════════════════════════════════╣
@@ -322,11 +404,13 @@ def main():
 ║  Frontend    : http://{args.ip}                          ║
 ║  Prometheus  : http://{args.ip}:9090                     ║
 ╚══════════════════════════════════════════════════════════════╝{C.RESET}
-""")
+"""
+            )
 
     finally:
         ssh.close()
         ok("اتصال SSH بسته شد.")
+
 
 if __name__ == "__main__":
     main()

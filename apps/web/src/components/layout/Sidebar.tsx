@@ -46,7 +46,7 @@ export function Sidebar({ onNavigate, onClose }: SidebarProps) {
   const navigation = isAdmin ? adminNavigation : clientNavigation;
 
   return (
-    <aside className="relative flex h-full flex-col rounded-[2.5rem] bg-slate-950 p-6 text-white shadow-[0_20px_60px_-15px_rgba(2,6,23,0.6)] border border-white/10 overflow-hidden">
+    <aside className="relative flex h-full flex-col rounded-[2.5rem] bg-slate-950/60 p-6 text-white shadow-[0_20px_60px_-15px_rgba(2,6,23,0.5)] border border-white/10 overflow-hidden backdrop-blur-xl transition-all duration-400">
       <div className="absolute -top-32 -left-32 h-64 w-64 rounded-full bg-cyan-500/20 blur-[80px] pointer-events-none" />
       <div className="absolute -bottom-32 -right-32 h-64 w-64 rounded-full bg-blue-500/10 blur-[80px] pointer-events-none" />
 
@@ -96,10 +96,10 @@ export function Sidebar({ onNavigate, onClose }: SidebarProps) {
                 href={item.href}
                 onClick={onNavigate}
                 className={[
-                  'group flex items-center gap-4 rounded-2xl px-5 py-5 text-sm font-bold transition-all duration-300 relative overflow-hidden',
+                  'group flex items-center gap-4 rounded-2xl px-5 py-5 text-sm font-bold transition-all duration-400 relative overflow-hidden',
                   active
-                    ? 'bg-gradient-to-r from-cyan-500/10 to-transparent text-cyan-400 border border-cyan-500/20 shadow-[inset_4px_0_0_0_rgba(6,182,212,1)]'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-white',
+                    ? 'bg-gradient-to-r from-cyan-500/15 to-transparent text-cyan-400 border border-cyan-500/30 shadow-[inset_4px_0_0_0_rgba(6,182,212,1)] shadow-[0_0_15px_rgba(6,182,212,0.2)]'
+                    : 'text-slate-400 hover:bg-white/8 hover:text-white hover:border-white/10 border border-transparent',
                 ].join(' ')}
               >
                 <item.icon
@@ -119,7 +119,8 @@ export function Sidebar({ onNavigate, onClose }: SidebarProps) {
           })}
         </nav>
 
-        <div className="rounded-3xl bg-gradient-to-br from-cyan-900/40 to-slate-900/40 border border-cyan-500/20 p-5 backdrop-blur-md shrink-0">
+        <div className="rounded-3xl bg-gradient-to-br from-cyan-900/30 to-slate-900/30 border border-cyan-500/20 p-5 backdrop-blur-lg shrink-0 transition-all hover:border-cyan-500/40 hover:bg-gradient-to-br hover:from-cyan-900/40 hover:to-slate-900/40">
+
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 shrink-0">
               <Cog6ToothIcon className="h-4 w-4 text-cyan-400 animate-[spin_4s_linear_infinite]" />

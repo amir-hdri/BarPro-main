@@ -30,13 +30,45 @@ const withPWA = withPWAInit({
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
   outputFileTracingRoot: process.cwd(),
   images: {
     remotePatterns: [],
+  },
+  async rewrites() {
+    const backendUrl = process.env.INTERNAL_BACKEND_URL || "http://127.0.0.1:8000";
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${backendUrl}/api/:path*`,
+      },
+      {
+        source: "/readyz",
+        destination: `${backendUrl}/readyz`,
+      },
+      {
+        source: "/browser-pool/:path*",
+        destination: `${backendUrl}/browser-pool/:path*`,
+      },
+      {
+        source: "/workers/:path*",
+        destination: `${backendUrl}/workers/:path*`,
+      },
+      {
+        source: "/proxies/:path*",
+        destination: `${backendUrl}/proxies/:path*`,
+      },
+      {
+        source: "/captcha/:path*",
+        destination: `${backendUrl}/captcha/:path*`,
+      },
+      {
+        source: "/circuit-breaker/:path*",
+        destination: `${backendUrl}/circuit-breaker/:path*`,
+      },
+    ];
   },
 };
 

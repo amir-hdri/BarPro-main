@@ -14,6 +14,7 @@ new_password = os.environ.get("SSH_NEW_PASSWORD", "")
 ip = os.environ.get("SSH_HOST", "188.121.123.16")
 username = os.environ.get("SSH_USER", "ubuntu")
 
+
 def handler(title, instructions, prompt_list):
     print("--- auth_interactive handler ---")
     print("Title:", title)
@@ -35,6 +36,7 @@ def handler(title, instructions, prompt_list):
             print("Unknown prompt, replying empty")
             answers.append("")
     return answers
+
 
 try:
     print(f"Connecting to {ip}...")

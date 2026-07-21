@@ -156,7 +156,9 @@ class RPAHttpSubmitService:
                     if result_data.get("tracking_code"):
                         logger.warning(
                             "job_already_has_tracking_code_skipping_duplicate_submit",
-                            extra={"extra_fields": {"job_id": job_id, "tracking_code": result_data.get("tracking_code")}},
+                            extra={
+                                "extra_fields": {"job_id": job_id, "tracking_code": result_data.get("tracking_code")}
+                            },
                         )
                         return SubmitExecutionResult(
                             classification=SubmitClassification(

@@ -138,7 +138,7 @@ class BrowserManager:
 
     async def recycle_browser(self):
         """Force close the browser and all contexts to free memory (RAM recycling)."""
-        self._ensure_loop_resources()
+        await self._ensure_loop_resources()
         async with self._init_lock:
             logger.info("Recycling browser process to free up memory (RAM recycling)...")
 
@@ -183,7 +183,7 @@ class BrowserManager:
             self._success_count_recycle = 0
             await self.recycle_browser()
 
-    def _ensure_loop_resources(self):
+    async def _ensure_loop_resources(self):
         current_loop = asyncio.get_running_loop()
         if (
             not hasattr(self, "_loop")
@@ -192,6 +192,13 @@ class BrowserManager:
             or self._init_lock is None
         ):
             if hasattr(self, "_loop") and self._loop is not None and self._loop != current_loop:
+                # CRITICAL: Properly stop the previous Playwright instance before clearing references.
+                # Without this, the old Playwright stays alive in memory and the new start() fails.
+                if self.playwright:
+                    try:
+                        await self.playwright.stop()
+                    except Exception:
+                        logger.warning("Failed to stop previous Playwright instance on loop change", exc_info=True)
                 self.playwright = None
                 self.browser = None
                 self._pool = None
@@ -203,7 +210,7 @@ class BrowserManager:
 
     async def initialize(self):
         """Initialize the browser instance"""
-        self._ensure_loop_resources()
+        await self._ensure_loop_resources()
         if self.playwright and self.browser and (not utcms_config.BROWSER_POOL_ENABLED or self._pool is not None):
             return
 
@@ -221,13 +228,21 @@ class BrowserManager:
         """Attempt to launch Chromium with standard options."""
         return await self.playwright.chromium.launch(**launch_options)
 
-    async def _try_system_chrome_launch(self, launch_options: dict, first_error: Exception) -> Browser:
+    async def _try_system_chrome_launch(self, launch_options: dict) -> Browser:
         """Attempt to launch using system Google Chrome if available."""
-        system_chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-        if os.path.exists(system_chrome):
+        system_chrome_paths = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",  # macOS
+            "/usr/bin/google-chrome",  # Linux
+            "/usr/bin/google-chrome-stable",  # Linux
+            "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"  # Windows
+        ]
+        
+        system_chrome = next((path for path in system_chrome_paths if os.path.exists(path)), None)
+        
+        if system_chrome:
             logger.warning(
                 "browser_launch_retry_system_chrome",
-                extra={"extra_fields": {"error": str(first_error), "executable_path": system_chrome}},
+                extra={"extra_fields": {"error": "Standard Chromium failed", "executable_path": system_chrome}},
             )
             return await self.playwright.chromium.launch(
                 **launch_options,
@@ -258,6 +273,7 @@ class BrowserManager:
             "--disable-gpu",
             "--disable-crashpad-for-testing",
             "--disable-crash-reporter",
+            "--disable-dbus",  # Prevent FD/D-Bus errors in Docker containers
         ]
 
         # CRITICAL: Always set a writeable, local HOME directory in environment.
@@ -282,21 +298,23 @@ class BrowserManager:
             return await self._try_standard_launch(launch_options)
         except Exception as first_error:
             try:
-                return await self._try_system_chrome_launch(launch_options, first_error)
+                return await self._try_system_chrome_launch(launch_options)
             except Exception as system_error:
                 first_error = system_error if "System Chrome not found" not in str(system_error) else first_error
 
             return await self._try_local_home_launch(launch_options, first_error)
 
     def _build_context_args(self, auth_state_path: str | None = None, proxy_dict: dict | None = None) -> dict:
-        # CRITICAL: Always use a realistic, modern Windows Chrome User-Agent.
-        # WAF/firewalls on Iranian national servers (like UTCMS) heavily filter Mac/Linux/Edge
-        # user agents or flag inconsistencies, leading to immediate aborts (Status 444).
-        win_chrome_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-
+        # CRITICAL: Do NOT hardcode a specific Chrome version (like 122) because Playwright's
+        # underlying Chromium will have a different TLS fingerprint.
+        # WAFs detect TLS vs User-Agent mismatch and drop connections.
+        # Use a generic Windows UA but dynamically insert the actual browser version to match TLS fingerprint.
+        browser_version = self.browser.version if self.browser else "126.0.0.0"
+        dynamic_ua = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{browser_version} Safari/537.36"
+        
         context_args = {
             "ignore_https_errors": True,
-            "user_agent": win_chrome_ua,
+            "user_agent": dynamic_ua,
             "locale": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
             "timezone_id": "Asia/Tehran",
             "viewport": {"width": 1920, "height": 1080},
@@ -350,7 +368,7 @@ class BrowserManager:
         if auth_state_dir:
             os.makedirs(auth_state_dir, exist_ok=True)
 
-        self._ensure_loop_resources()
+        await self._ensure_loop_resources()
         async with self._state_lock:
             try:
                 await context.storage_state(path=effective_auth_state_path)
@@ -373,7 +391,9 @@ class BrowserManager:
                 except Exception as page_exc:
                     logger.warning(
                         "close_page_in_context_failed",
-                        extra={"extra_fields": {"session_id": session_id, "page_url": page.url, "error": str(page_exc)}},
+                        extra={
+                            "extra_fields": {"session_id": session_id, "page_url": page.url, "error": str(page_exc)}
+                        },
                     )
 
             if self._pool and session_id in self._pooled_sessions:

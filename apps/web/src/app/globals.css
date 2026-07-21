@@ -45,22 +45,23 @@ textarea {
 /* ─── Base field style (Dark Theme) ──────────────────────────────── */
 .field {
   width: 100%;
-  border-radius: 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(15, 23, 42, 0.6);
+  border-radius: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.4);
   backdrop-filter: blur(12px);
-  padding: 0.85rem 1.2rem;
+  padding: 1rem 1.25rem;
   color: #ffffff;
   outline: none;
-  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 300ms cubic-bezier(0.23, 1, 0.32, 1);
   font-size: 0.95rem;
-  box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.1);
 }
 
 .field:focus {
   border-color: var(--cyan);
-  box-shadow: 0 0 0 4px var(--cyan-light), inset 0 2px 4px 0 rgba(0, 0, 0, 0.1);
-  background: #0f172a;
+  box-shadow: 0 0 0 5px var(--cyan-light), inset 0 2px 4px 0 rgba(0, 0, 0, 0.1);
+  background: rgba(15, 23, 42, 0.6);
+  transform: translateY(-1px);
 }
 
 .field:hover:not(:focus) {
@@ -74,8 +75,8 @@ textarea {
 
 .field.error {
   border-color: #f43f5e;
-  box-shadow: 0 0 0 4px rgba(244, 63, 94, 0.15);
-  background: rgba(244, 63, 94, 0.1);
+  box-shadow: 0 0 0 5px rgba(244, 63, 94, 0.1);
+  background: rgba(244, 63, 94, 0.08);
 }
 
 select.field {
@@ -148,14 +149,14 @@ select.field {
 
 /* ─── Section card (Dark Theme) ───────────────────────────────── */
 .section-card {
-  background: rgba(15, 23, 42, 0.5);
+  background: rgba(15, 23, 42, 0.4);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 2rem;
   padding: 1.5rem;
-  box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
-  transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.4), inset 0 1px 1px 0 rgba(255, 255, 255, 0.05);
+  transition: all 400ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 @media (min-width: 640px) {
@@ -165,20 +166,21 @@ select.field {
 }
 
 .section-card:hover {
-  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.7), inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
-  transform: translateY(-2px);
-  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.6), inset 0 1px 1px 0 rgba(255, 255, 255, 0.08);
+  transform: translateY(-4px);
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(15, 23, 42, 0.5);
 }
 
 /* ─── Stat card (Dark Theme) ──────────────────────────────────── */
 .stat-card {
-  background: rgba(15, 23, 42, 0.5);
+  background: rgba(15, 23, 42, 0.4);
   backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 1.5rem;
-  padding: 1.25rem;
-  box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.3), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
-  transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 2rem;
+  padding: 1.5rem;
+  box-shadow: 0 8px 32px -4px rgba(0, 0, 0, 0.3), inset 0 1px 1px 0 rgba(255, 255, 255, 0.05);
+  transition: all 400ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 @media (min-width: 640px) {
@@ -189,9 +191,10 @@ select.field {
 }
 
 .stat-card:hover {
-  transform: translateY(-4px);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 12px 40px -8px rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+  transform: translateY(-6px);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 16px 48px -8px rgba(0, 0, 0, 0.6), inset 0 1px 1px 0 rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.5);
 }
 
 /* ─── Status badge ────────────────────────────────────────────── */
@@ -416,3 +419,38 @@ a, button, input, select, textarea, .section-card, .stat-card, .badge, .field {
   }
 }
 
+
+/* ─── Enhanced Animations ────────────────────────────────────── */
+@keyframes float-up {
+  0% { transform: translateY(0); opacity: 0; }
+  100% { transform: translateY(-4px); opacity: 1; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(6, 182, 212, 0.3); }
+  50% { box-shadow: 0 0 30px rgba(6, 182, 212, 0.5); }
+}
+
+.animate-float-up {
+  animation: float-up 0.6s ease-out;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* ─── Button Enhancements ────────────────────────────────────── */
+button:not(:disabled) {
+  position: relative;
+}
+
+button:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+/* ─── Smooth Color Transitions ──────────────────────────────── */
+.transition-smooth {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, backdrop-filter;
+  transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  transition-duration: 350ms;
+}

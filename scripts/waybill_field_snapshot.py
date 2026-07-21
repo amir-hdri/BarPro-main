@@ -120,7 +120,9 @@ async def run_snapshot(username: str, password: str, headless: bool, output_json
         }
 
         if not login_ok:
-            snapshot["note"] = "Login failed; waybill fields cannot be fully captured without valid authenticated access."
+            snapshot["note"] = (
+                "Login failed; waybill fields cannot be fully captured without valid authenticated access."
+            )
             output_json.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
             output_html.write_text(await page.content(), encoding="utf-8")
             await context.close()

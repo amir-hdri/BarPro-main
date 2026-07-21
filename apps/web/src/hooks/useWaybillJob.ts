@@ -10,14 +10,17 @@ function logError(...args: unknown[]) {
 // Determine the WebSocket URL based on the current environment and API_URL
 function getWebSocketUrl(): string {
   try {
-    // In browser: dynamically resolve based on current window location
     if (typeof window !== "undefined") {
+      if (window.location.port === "3000") {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        return `${protocol}//${window.location.hostname}:8000/ws/waybill`;
+      }
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       return `${protocol}//${window.location.host}/ws/waybill`;
     }
-    return "ws://localhost:8000/ws/waybill";
+    return "ws://127.0.0.1:8000/ws/waybill";
   } catch {
-    return "ws://localhost:8000/ws/waybill";
+    return "ws://127.0.0.1:8000/ws/waybill";
   }
 }
 

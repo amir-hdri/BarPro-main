@@ -24,7 +24,7 @@ export default function AuthPage() {
 
   const completeClientLogin = (payload: AuthLoginResponse) => {
     const client = payload.client;
-    persistSession('', {
+    persistSession(payload.access_token, {
       id: client.id,
       name: client.name,
       email: client.email,
@@ -36,7 +36,7 @@ export default function AuthPage() {
   };
 
   const completeAdminLogin = (payload: AdminLoginResponse) => {
-    persistSession('', {
+    persistSession(payload.access_token, {
       id: null,
       name: payload.admin.username,
       email: `${payload.admin.username}@local.admin`,

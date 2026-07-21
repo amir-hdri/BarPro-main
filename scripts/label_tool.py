@@ -11,6 +11,7 @@ Input is via terminal:
 
 Progress is automatically saved to labels.csv after each label.
 """
+
 import os
 import sys
 import json
@@ -19,7 +20,8 @@ from pathlib import Path
 from PIL import Image
 import numpy as np
 import matplotlib
-matplotlib.use('TkAgg')  # Try TkAgg first, fall back to macosx
+
+matplotlib.use("TkAgg")  # Try TkAgg first, fall back to macosx
 import matplotlib.pyplot as plt
 
 import os
@@ -71,8 +73,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from app.automation.captcha.persian_number_parser import persian_words_to_number
 
 
-
-
 class CRNN(nn.Module):
     def __init__(self, num_classes, img_channel=1):
         super(CRNN, self).__init__()
@@ -94,11 +94,10 @@ class CRNN(nn.Module):
             nn.Conv2d(256, 256, kernel_size=3, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 1))
+            nn.MaxPool2d(kernel_size=(2, 1)),
         )
         self.rnn = nn.GRU(
-            input_size=256, hidden_size=128, num_layers=2,
-            bidirectional=True, batch_first=True, dropout=0.3
+            input_size=256, hidden_size=128, num_layers=2, bidirectional=True, batch_first=True, dropout=0.3
         )
         self.fc = nn.Linear(128 * 2, num_classes)
 
@@ -132,7 +131,7 @@ def center_text_image(img, target_w=300):
 
 
 def predict_image(model, vocab, img_path, device):
-    img = Image.open(img_path).convert('L')
+    img = Image.open(img_path).convert("L")
     img = center_text_image(img, 300)
     img_resized = img.resize((300, 32), Image.Resampling.BILINEAR)
     img_arr = np.array(img_resized, dtype=np.float32) / 255.0
@@ -235,7 +234,7 @@ def main():
     # Setup matplotlib for interactive display
     plt.ion()
     fig, ax = plt.subplots(1, 1, figsize=(10, 3))
-    fig.patch.set_facecolor('#1a1a2e')
+    fig.patch.set_facecolor("#1a1a2e")
 
     for i, filename in enumerate(unlabeled):
         img_path = IMAGES_DIR / filename
@@ -245,13 +244,15 @@ def main():
 
         # Show image in matplotlib
         ax.clear()
-        img_display = Image.open(img_path).convert('RGB')
-        ax.imshow(np.array(img_display), aspect='auto')
+        img_display = Image.open(img_path).convert("RGB")
+        ax.imshow(np.array(img_display), aspect="auto")
         ax.set_title(
             f"[{i+1}/{total_unlabeled}] {filename}    |    Model: {digits}",
-            fontsize=14, color='white', fontweight='bold'
+            fontsize=14,
+            color="white",
+            fontweight="bold",
         )
-        ax.axis('off')
+        ax.axis("off")
         fig.canvas.draw()
         fig.canvas.flush_events()
         plt.pause(0.1)
@@ -265,13 +266,13 @@ def main():
 
         user_input = input("   ▶ Enter=تأیید / عدد=تصحیح / s=رد / q=خروج: ").strip()
 
-        if user_input.lower() == 'q':
+        if user_input.lower() == "q":
             print(f"\n💾 خروج. {labeled_count} لیبل جدید ذخیره شد.")
             break
-        elif user_input.lower() == 's':
+        elif user_input.lower() == "s":
             print(f"   ⏭ رد شد.")
             continue
-        elif user_input == '':
+        elif user_input == "":
             # Accept model prediction
             if not digits:
                 print("   ⚠ مدل پیش‌بینی ندارد. عدد صحیح را وارد کنید:")
@@ -293,7 +294,7 @@ def main():
         next_idx += 1
         labeled_count += 1
 
-        status = "✅ تأیید" if user_input == '' else f"✏️ {digits} → {final_digits}"
+        status = "✅ تأیید" if user_input == "" else f"✏️ {digits} → {final_digits}"
         print(f"   💾 ذخیره: {filename} = {final_digits} ({status})")
 
     plt.ioff()

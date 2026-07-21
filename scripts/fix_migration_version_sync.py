@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Fix alembic version in database using psycopg2."""
+
 import os
 
 import psycopg2
@@ -12,7 +13,7 @@ def fix_version():
         port=int(os.getenv("POSTGRES_PORT", 5432)),
         database=os.getenv("POSTGRES_DB", "utcms_rpa"),
         user=os.getenv("POSTGRES_USER", "postgres"),
-        password=os.getenv("POSTGRES_PASSWORD", "postgres")
+        password=os.getenv("POSTGRES_PASSWORD", "postgres"),
     )
 
     try:
@@ -34,6 +35,7 @@ def fix_version():
 
     finally:
         conn.close()
+
 
 if __name__ == "__main__":
     fix_version()

@@ -230,13 +230,9 @@ async def _build_request(
     destination_city = (destination_geo or {}).get("city") or default_city
     destination_district = (destination_geo or {}).get("district") or None
 
-    origin_address = (
-        sender_address_col
-        or f"{origin_city} - مختصات: {origin_lat:.6f}, {origin_lng:.6f}"
-    )
+    origin_address = sender_address_col or f"{origin_city} - مختصات: {origin_lat:.6f}, {origin_lng:.6f}"
     destination_address = (
-        receiver_address_col
-        or f"{destination_city} - مختصات: {destination_lat:.6f}, {destination_lng:.6f}"
+        receiver_address_col or f"{destination_city} - مختصات: {destination_lat:.6f}, {destination_lng:.6f}"
     )
 
     # cargo type: prefer human-readable name for web form dropdown; fall back to GOOD-<id>
@@ -488,11 +484,7 @@ async def run(
                         "detail": exc.detail,
                     }
 
-                    should_retry_with_auth = (
-                        exc.status_code == 401
-                        and not include_auth
-                        and bool(username and password)
-                    )
+                    should_retry_with_auth = exc.status_code == 401 and not include_auth and bool(username and password)
                     if should_retry_with_auth:
                         include_auth = True
                         request_model, excerpt, credential_key = await _build_request(

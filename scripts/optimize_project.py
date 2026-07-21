@@ -25,16 +25,16 @@ class ProjectOptimizer:
                 continue
 
             try:
-                content = py_file.read_text(encoding='utf-8')
-                imports = re.findall(r'^import\s+(\S+)', content, re.MULTILINE)
-                from_imports = re.findall(r'^from\s+(\S+)\s+import', content, re.MULTILINE)
+                content = py_file.read_text(encoding="utf-8")
+                imports = re.findall(r"^import\s+(\S+)", content, re.MULTILINE)
+                from_imports = re.findall(r"^from\s+(\S+)\s+import", content, re.MULTILINE)
 
                 # Check for duplicate imports
                 all_imports = imports + from_imports
                 if len(all_imports) != len(set(all_imports)):
                     duplicates = [x for x in all_imports if all_imports.count(x) > 1]
                     self.issues.append(f"Duplicate imports in {py_file.relative_to(self.root)}: {set(duplicates)}")
-                    self.stats['duplicate_imports'] += 1
+                    self.stats["duplicate_imports"] += 1
 
             except Exception:
                 pass
@@ -47,10 +47,10 @@ class ProjectOptimizer:
 
         # Files that are likely unused
         suspicious_patterns = [
-            r'.*_old\.py$',
-            r'.*_backup\.py$',
-            r'.*_test_old\.py$',
-            r'.*\.bak$',
+            r".*_old\.py$",
+            r".*_backup\.py$",
+            r".*_test_old\.py$",
+            r".*\.bak$",
         ]
 
         for py_file in self.root.rglob("*.py"):
@@ -60,7 +60,7 @@ class ProjectOptimizer:
             for pattern in suspicious_patterns:
                 if re.match(pattern, py_file.name):
                     self.issues.append(f"Potentially unused: {py_file.relative_to(self.root)}")
-                    self.stats['unused_files'] += 1
+                    self.stats["unused_files"] += 1
 
         print(f"✅ Found {self.stats['unused_files']} potentially unused files")
 
@@ -73,12 +73,12 @@ class ProjectOptimizer:
                 continue
 
             try:
-                content = py_file.read_text(encoding='utf-8')
+                content = py_file.read_text(encoding="utf-8")
 
                 # Check for relative imports that could be absolute
-                relative_imports = re.findall(r'^from\s+\.(.*?)\s+import', content, re.MULTILINE)
+                relative_imports = re.findall(r"^from\s+\.(.*?)\s+import", content, re.MULTILINE)
                 if relative_imports:
-                    self.stats['relative_imports'] += len(relative_imports)
+                    self.stats["relative_imports"] += len(relative_imports)
 
             except Exception:
                 pass
@@ -94,17 +94,17 @@ class ProjectOptimizer:
                 continue
 
             try:
-                content = py_file.read_text(encoding='utf-8')
-                lines = content.split('\n')
+                content = py_file.read_text(encoding="utf-8")
+                lines = content.split("\n")
 
                 # Count lines
-                self.stats['total_lines'] += len(lines)
-                self.stats['total_files'] += 1
+                self.stats["total_lines"] += len(lines)
+                self.stats["total_files"] += 1
 
                 # Check for long files
                 if len(lines) > 1000:
                     self.issues.append(f"Large file ({len(lines)} lines): {py_file.relative_to(self.root)}")
-                    self.stats['large_files'] += 1
+                    self.stats["large_files"] += 1
 
             except Exception:
                 pass
@@ -114,9 +114,9 @@ class ProjectOptimizer:
 
     def generate_report(self):
         """Generate optimization report."""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("📊 OPTIMIZATION REPORT")
-        print("="*60)
+        print("=" * 60)
 
         print("\n📈 Statistics:")
         print(f"   Total Python files: {self.stats['total_files']}")
@@ -136,19 +136,19 @@ class ProjectOptimizer:
             print("\n✅ No issues found!")
 
         print("\n💡 Recommendations:")
-        if self.stats['duplicate_imports'] > 0:
+        if self.stats["duplicate_imports"] > 0:
             print("   - Remove duplicate imports to improve code clarity")
-        if self.stats['unused_files'] > 0:
+        if self.stats["unused_files"] > 0:
             print("   - Review and remove unused files")
-        if self.stats['large_files'] > 0:
+        if self.stats["large_files"] > 0:
             print("   - Consider splitting large files into smaller modules")
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
 
     def run(self):
         """Run all optimization checks."""
         print("🚀 Starting Project Optimization")
-        print("="*60)
+        print("=" * 60)
 
         self.analyze_imports()
         self.find_unused_files()

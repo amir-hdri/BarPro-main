@@ -577,4 +577,3 @@ async def proxies_health():
     results = await asyncio.gather(*tasks)
 
     return {"status": "success", "proxies": results}
-

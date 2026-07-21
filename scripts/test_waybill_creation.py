@@ -1,4 +1,5 @@
 """Test script for complete waybill creation flow."""
+
 import asyncio
 import sys
 import time
@@ -42,7 +43,7 @@ async def test_with_mock_data():
         5: "origin",
         6: "destination",
         7: "address_preview",
-        8: "financial"
+        8: "financial",
     }
 
     for step, expected in pills.items():
@@ -58,7 +59,7 @@ async def test_with_mock_data():
         status="filled",
         selector_used="#txtSenderFirstName",
         value="علی احمدی",
-        pill="sender"
+        pill="sender",
     )
     print("  ✓ Recorded: نام فرستنده")
 
@@ -68,7 +69,7 @@ async def test_with_mock_data():
         status="filled",
         selector_used="#txtSenderMobile",
         value="09121234567",
-        pill="sender"
+        pill="sender",
     )
     print("  ✓ Recorded: تلفن فرستنده")
 
@@ -78,7 +79,7 @@ async def test_with_mock_data():
         status="filled",
         selector_used="#txtReceiverFirstName",
         value="محمد رضایی",
-        pill="receiver"
+        pill="receiver",
     )
     print("  ✓ Recorded: نام گیرنده")
 
@@ -101,7 +102,7 @@ async def test_with_mock_data():
 
     # Summary
     total_fields = len(manager._selector_inventory)
-    filled = sum(1 for item in manager._selector_inventory.values() if item.get('status') == 'filled')
+    filled = sum(1 for item in manager._selector_inventory.values() if item.get("status") == "filled")
 
     print("\n📊 Summary:")
     print(f"  Total fields tracked: {total_fields}")
@@ -129,7 +130,7 @@ def main():
         print("=" * 80)
         print(f"⏱️  زمان اجرا: {elapsed:.2f} ثانیه")
 
-        if result.get('success'):
+        if result.get("success"):
             print("✅ وضعیت: موفق")
             print(f"📊 فیلدهای ردیابی شده: {result.get('fields_tracked', 0)}")
             sys.exit(0)
@@ -143,6 +144,7 @@ def main():
         print(f"  {type(e).__name__}: {str(e)}")
         print(f"  زمان تا خطا: {elapsed:.2f} ثانیه")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Fix alembic version in database."""
+
 import asyncio
 import os
 
@@ -30,6 +31,7 @@ async def fix_version():
 
     finally:
         await conn.close()
+
 
 if __name__ == "__main__":
     asyncio.run(fix_version())

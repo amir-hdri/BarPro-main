@@ -13,6 +13,7 @@ IP = "188.121.123.16"
 USERNAME = "ubuntu"
 PASSWORD = "Amaterasoo1"
 
+
 def find_local_proxy():
     """Probe local ports to find active SOCKS5 proxy (v2ray/Nekoray/Clash)."""
     common_ports = [1080, 10808, 20808, 7890, 1089]
@@ -27,23 +28,26 @@ def find_local_proxy():
             pass
     return None
 
+
 def connect_ssh(retries=5, delay=5):
     """Establish SSH connection, automatically using local proxy if available."""
     proxy_port = find_local_proxy()
-    
+
     for attempt in range(1, retries + 1):
         if proxy_port:
-            logger.info(f"Connecting to remote server at {IP} via local SOCKS5 proxy on port {proxy_port} (Attempt {attempt}/{retries})...")
+            logger.info(
+                f"Connecting to remote server at {IP} via local SOCKS5 proxy on port {proxy_port} (Attempt {attempt}/{retries})..."
+            )
         else:
             logger.info(f"Connecting directly to remote server at {IP} (Attempt {attempt}/{retries})...")
-            
+
         try:
             if proxy_port:
                 # Create a SOCKS5 socket
                 s = socks.socksocket()
                 s.set_proxy(socks.SOCKS5, "127.0.0.1", proxy_port)
                 s.connect((IP, 22))
-                
+
                 # Setup paramiko on top of the proxied socket
                 transport = paramiko.Transport(s)
                 transport.connect(username=USERNAME, password=PASSWORD)
@@ -54,7 +58,7 @@ def connect_ssh(retries=5, delay=5):
                 ssh = paramiko.SSHClient()
                 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
                 ssh.connect(IP, username=USERNAME, password=PASSWORD, timeout=15)
-                
+
             logger.info("Connected successfully via SSH.")
             return ssh
         except Exception as e:
@@ -66,28 +70,29 @@ def connect_ssh(retries=5, delay=5):
                 logger.error("All SSH connection attempts failed.")
                 raise e
 
+
 def fetch_json_from_db_with_reconnect(query, max_query_retries=3):
     """Execute SQL query via remote psql, reconnecting if SSH drops."""
     sql = f"SELECT json_agg(t) FROM ({query}) t;"
     cmd = f'docker exec -i barpro-postgres psql -U postgres -d utcms_rpa -A -t -c "{sql}"'
-    
+
     for attempt in range(1, max_query_retries + 1):
         ssh = None
         try:
             ssh = connect_ssh(retries=2, delay=3)
             logger.info(f"Executing remote query (Attempt {attempt}/{max_query_retries}): {query[:60]}...")
             stdin, stdout, stderr = ssh.exec_command(cmd)
-            
+
             exit_status = stdout.channel.recv_exit_status()
             if exit_status != 0:
                 error_msg = stderr.read().decode("utf-8")
                 logger.error(f"Command failed with exit code {exit_status}: {error_msg}")
                 raise RuntimeError(f"Failed to execute query: {error_msg}")
-                
+
             output = stdout.read().decode("utf-8").strip()
             if not output or output == "None" or output == "(null)":
                 return []
-            
+
             return json.loads(output)
         except Exception as e:
             logger.warning(f"Query execution attempt {attempt} failed: {e}")
@@ -101,6 +106,7 @@ def fetch_json_from_db_with_reconnect(query, max_query_retries=3):
             if ssh:
                 ssh.close()
 
+
 def main():
     try:
         # 1. Fetch all drivers
@@ -110,7 +116,7 @@ def main():
         with open("remote_drivers.json", "w", encoding="utf-8") as f:
             json.dump(drivers, f, indent=4, ensure_ascii=False)
         logger.info("Saved drivers to remote_drivers.json")
-        
+
         # 2. Fetch all driver plates
         logger.info("Step 2: Fetching all driver plates...")
         plates = fetch_json_from_db_with_reconnect("SELECT * FROM driver_plates")
@@ -118,7 +124,7 @@ def main():
         with open("remote_plates.json", "w", encoding="utf-8") as f:
             json.dump(plates, f, indent=4, ensure_ascii=False)
         logger.info("Saved plates to remote_plates.json")
-        
+
         # 3. Fetch last 3 waybills
         logger.info("Step 3: Fetching last 3 waybills...")
         waybills = fetch_json_from_db_with_reconnect("SELECT * FROM waybill_jobs ORDER BY created_at DESC LIMIT 3")
@@ -126,20 +132,17 @@ def main():
         with open("remote_waybills.json", "w", encoding="utf-8") as f:
             json.dump(waybills, f, indent=4, ensure_ascii=False)
         logger.info("Saved waybills to remote_waybills.json")
-        
+
         # Consolidate backup file
-        consolidated = {
-            "drivers": drivers,
-            "driver_plates": plates,
-            "waybill_jobs": waybills
-        }
+        consolidated = {"drivers": drivers, "driver_plates": plates, "waybill_jobs": waybills}
         with open("remote_data_backup.json", "w", encoding="utf-8") as f:
             json.dump(consolidated, f, indent=4, ensure_ascii=False)
         logger.info("Consolidated all remote data into remote_data_backup.json successfully.")
-        
+
     except Exception as e:
         logger.error(f"Migration backup failed: {e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

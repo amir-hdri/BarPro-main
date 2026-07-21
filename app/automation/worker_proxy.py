@@ -87,23 +87,39 @@ def _resolve_to_ip(url: str) -> str:
 def get_worker_proxy_url() -> str | None:
     """
     Return the Squid proxy URL for this Celery worker, with hostname resolved
-    to a numeric IP.  Result is cached at module level (per worker process).
+    to a numeric IP. Result is cached at module level (per worker process).
 
     Priority order:
     1. WORKER_{WORKER_ID}_PROXY  (e.g. WORKER_1_PROXY=http://172.20.0.1:3128)
     2. RPA_PROXIES               (first entry in comma-separated list)
-    3. None                      (no proxy configured — navigation will likely fail)
+    3. None                      (no proxy configured)
+
+    If the configured proxy is unreachable (e.g. during local development outside Docker),
+    falls back to None for a direct network connection.
     """
     worker_id = os.environ.get(_WORKER_ID_ENV, "1")
     url = os.environ.get(f"WORKER_{worker_id}_PROXY") or (
         os.environ.get("RPA_PROXIES", "").split(",")[0].strip() or None
     )
     if not url:
-        logger.warning("worker_proxy: no proxy URL configured — Chromium may not reach external sites")
+        logger.warning("worker_proxy: no proxy URL configured — running direct connection")
         return None
 
     resolved = _resolve_to_ip(url)
-    logger.info(f"worker_proxy: using proxy {resolved} (worker_id={worker_id})")
+
+    # Health check: verify the proxy socket is reachable
+    parsed = urlparse(resolved)
+    if parsed.hostname and parsed.port:
+        try:
+            with socket.create_connection((parsed.hostname, parsed.port), timeout=1.0):
+                logger.info(f"worker_proxy: using active proxy {resolved} (worker_id={worker_id})")
+                return resolved
+        except (OSError, socket.timeout):
+            logger.warning(
+                f"worker_proxy: configured proxy {resolved} is unreachable; falling back to direct connection"
+            )
+            return None
+
     return resolved
 
 
@@ -120,7 +136,9 @@ def get_playwright_proxy() -> dict | None:
     return {"server": url} if url else None
 
 
-async def check_proxy_health(proxy_url: str, target_url: str = "https://barname.utcms.ir/Barname/Account/Login") -> bool:
+async def check_proxy_health(
+    proxy_url: str, target_url: str = "https://barname.utcms.ir/Barname/Account/Login"
+) -> bool:
     """
     Verify that Squid can make a real request to the UTCMS login page.
     """
@@ -133,6 +151,6 @@ async def check_proxy_health(proxy_url: str, target_url: str = "https://barname.
     except Exception as exc:
         logger.warning(
             "worker_proxy_health_check_failed",
-            extra={"extra_fields": {"proxy": proxy_url, "target": target_url, "error": str(exc)}}
+            extra={"extra_fields": {"proxy": proxy_url, "target": target_url, "error": str(exc)}},
         )
         return False

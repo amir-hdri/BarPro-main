@@ -35,7 +35,8 @@ services:
     volumes:
       - ../infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
-    expose: ['9090']
+    ports:
+      - "127.0.0.1:9090:9090"
     networks: [platform]
     mem_limit: 256m
     mem_reservation: 128m

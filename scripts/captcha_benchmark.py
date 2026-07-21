@@ -28,6 +28,7 @@ def run_benchmark(iterations: int) -> dict:
     for _ in range(iterations):
         for image_file, expected in SAMPLES:
             import base64
+
             image_path = Path(image_file)
             if not image_path.exists():
                 continue
@@ -50,7 +51,9 @@ def run_benchmark(iterations: int) -> dict:
         "evaluations": total,
         "accuracy_percent": accuracy,
         "avg_us": statistics.mean(latencies_us) if latencies_us else 0.0,
-        "p95_us": statistics.quantiles(latencies_us, n=20)[18] if len(latencies_us) >= 20 else max(latencies_us, default=0),
+        "p95_us": (
+            statistics.quantiles(latencies_us, n=20)[18] if len(latencies_us) >= 20 else max(latencies_us, default=0)
+        ),
         "max_us": max(latencies_us, default=0.0),
     }
 

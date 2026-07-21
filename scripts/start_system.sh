@@ -384,7 +384,7 @@ with open(log_path, "ab", buffering=0) as log_file:
             "app.workers.phase1_tasks:celery_app",
             "worker",
             "-Q",
-            "waybill_tasks,rpa_auth,rpa_submit,rpa_scheduler,scheduled_tasks",
+            "waybill_tasks,waybill_tasks_1,waybill_tasks_2,waybill_tasks_3,rpa_auth,rpa_auth_1,rpa_auth_2,rpa_auth_3,rpa_submit,rpa_submit_1,rpa_submit_2,rpa_submit_3,rpa_scheduler,scheduled_tasks",
             "-l",
             "info",
             "-B",

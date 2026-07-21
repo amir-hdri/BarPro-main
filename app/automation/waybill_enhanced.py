@@ -1954,17 +1954,22 @@ class EnhancedWaybillManager:
             timeout_ms=4000,
         )
 
+        sender_first = (sender.get("first_name") or "").strip()
+        sender_last = (sender.get("last_name") or "").strip()
         sender_name = (sender.get("name") or "").strip()
-        # Split name into first and last parts for Persian name fields
-        # For single-word names: first = last = full name (e.g., a company name)
-        # For multi-word names: first = first word, last = remaining words
-        if sender_name:
-            parts = sender_name.split(maxsplit=1)
-            sender_first = parts[0]
-            sender_last = parts[1] if len(parts) > 1 else sender_name
-        else:
-            sender_first = ""
-            sender_last = ""
+
+        if not sender_first and not sender_last:
+            if sender_name:
+                parts = sender_name.split(maxsplit=1)
+                sender_first = parts[0]
+                sender_last = parts[1] if len(parts) > 1 else sender_name
+            else:
+                sender_first = "فرستنده"
+                sender_last = "عمومی"
+        elif not sender_first:
+            sender_first = sender_last
+        elif not sender_last:
+            sender_last = sender_first
 
         await self._fill_verified_text_field(
             [
@@ -1975,7 +1980,7 @@ class EnhancedWaybillManager:
             ],
             sender_first,
             "نام فرستنده",
-            required=bool(sender_first),
+            required=True,
         )
         await self._fill_verified_text_field(
             [
@@ -1986,7 +1991,7 @@ class EnhancedWaybillManager:
             ],
             sender_last,
             "نام خانوادگی فرستنده",
-            required=bool(sender_last),
+            required=True,
         )
 
         # National code / company code (optional)
@@ -2068,14 +2073,22 @@ class EnhancedWaybillManager:
             timeout_ms=4000,
         )
 
+        receiver_first = (receiver.get("first_name") or "").strip()
+        receiver_last = (receiver.get("last_name") or "").strip()
         receiver_name = (receiver.get("name") or "").strip()
-        if receiver_name:
-            parts = receiver_name.split(maxsplit=1)
-            receiver_first = parts[0]
-            receiver_last = parts[1] if len(parts) > 1 else receiver_name
-        else:
-            receiver_first = ""
-            receiver_last = ""
+
+        if not receiver_first and not receiver_last:
+            if receiver_name:
+                parts = receiver_name.split(maxsplit=1)
+                receiver_first = parts[0]
+                receiver_last = parts[1] if len(parts) > 1 else receiver_name
+            else:
+                receiver_first = "گیرنده"
+                receiver_last = "عمومی"
+        elif not receiver_first:
+            receiver_first = receiver_last
+        elif not receiver_last:
+            receiver_last = receiver_first
 
         await self._fill_verified_text_field(
             [
@@ -2086,7 +2099,7 @@ class EnhancedWaybillManager:
             ],
             receiver_first,
             "نام گیرنده",
-            required=bool(receiver_first),
+            required=True,
         )
         await self._fill_verified_text_field(
             [
@@ -2097,7 +2110,7 @@ class EnhancedWaybillManager:
             ],
             receiver_last,
             "نام خانوادگی گیرنده",
-            required=bool(receiver_last),
+            required=True,
         )
 
         # National code (optional)

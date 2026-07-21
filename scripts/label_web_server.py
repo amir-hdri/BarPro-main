@@ -6,6 +6,7 @@ Supports two views:
 1. http://localhost:8080/mac  -> Displays the big image on the Mac screen.
 2. http://<mac_ip>:8080/       -> Serves a touch-friendly remote keypad on iPhone.
 """
+
 import os
 import sys
 import json
@@ -15,7 +16,6 @@ from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import urllib.parse
 from PIL import Image
-import io
 import numpy as np
 
 # Load environment first
@@ -52,28 +52,47 @@ except ImportError:
 sys.path.insert(0, str(PROJECT_ROOT))
 from app.automation.captcha.persian_number_parser import persian_words_to_number, num_to_persian_words
 
+
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.connect(('10.255.255.255', 1))
+        s.connect(("10.255.255.255", 1))
         IP = s.getsockname()[0]
     except Exception:
-        IP = '127.0.0.1'
+        IP = "127.0.0.1"
     finally:
         s.close()
     return IP
 
+
 # --- Helper to standardize Persian/Arabic digits to English digits ---
 def standardize_digits(text: str) -> str:
     persian_to_english = {
-        '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',
-        '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
-        '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
-        '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9'
+        "۰": "0",
+        "۱": "1",
+        "۲": "2",
+        "۳": "3",
+        "۴": "4",
+        "۵": "5",
+        "۶": "6",
+        "۷": "7",
+        "۸": "8",
+        "۹": "9",
+        "٠": "0",
+        "١": "1",
+        "٢": "2",
+        "٣": "3",
+        "٤": "4",
+        "٥": "5",
+        "٦": "6",
+        "٧": "7",
+        "٨": "8",
+        "٩": "9",
     }
     for p_dig, e_dig in persian_to_english.items():
         text = text.replace(p_dig, e_dig)
     return text
+
 
 # --- CRNN Architecture ---
 class CRNN(nn.Module):
@@ -97,11 +116,10 @@ class CRNN(nn.Module):
             nn.Conv2d(256, 256, kernel_size=3, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 1))
+            nn.MaxPool2d(kernel_size=(2, 1)),
         )
         self.rnn = nn.GRU(
-            input_size=256, hidden_size=128, num_layers=2,
-            bidirectional=True, batch_first=True, dropout=0.3
+            input_size=256, hidden_size=128, num_layers=2, bidirectional=True, batch_first=True, dropout=0.3
         )
         self.fc = nn.Linear(128 * 2, num_classes)
 
@@ -113,6 +131,7 @@ class CRNN(nn.Module):
         output = self.fc(rnn_out)
         output = output.permute(1, 0, 2)
         return output
+
 
 def center_text_image(img, target_w=300):
     arr = np.array(img)
@@ -132,8 +151,9 @@ def center_text_image(img, target_w=300):
     centered.paste(cropped, (pad_left, 0))
     return centered
 
+
 def predict_image(model, vocab, img_path, device):
-    img = Image.open(img_path).convert('L')
+    img = Image.open(img_path).convert("L")
     img = center_text_image(img, 300)
     img_resized = img.resize((300, 32), Image.Resampling.BILINEAR)
     img_arr = np.array(img_resized, dtype=np.float32) / 255.0
@@ -155,17 +175,16 @@ def predict_image(model, vocab, img_path, device):
     digits = persian_words_to_number(words) if words else ""
     return words, digits
 
+
 def load_existing_labels():
     labeled = {}
     if LABELS_FILE.exists():
         with open(LABELS_FILE, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                labeled[row["filename"]] = {
-                    "words": row["words"],
-                    "digits": row["digits"]
-                }
+                labeled[row["filename"]] = {"words": row["words"], "digits": row["digits"]}
     return labeled
+
 
 def get_next_index():
     if not LABELS_FILE.exists():
@@ -184,6 +203,7 @@ def get_next_index():
                 pass
     return max_idx + 1
 
+
 def save_label(index, filename, words, digits):
     file_exists = LABELS_FILE.exists()
     with open(LABELS_FILE, "a", encoding="utf-8", newline="") as f:
@@ -192,10 +212,12 @@ def save_label(index, filename, words, digits):
             writer.writerow(["index", "filename", "words", "digits"])
         writer.writerow([index, filename, words, digits])
 
+
 # Global state
 MODEL = None
 VOCAB = []
 DEVICE = torch.device("cpu")
+
 
 def init_model():
     global MODEL, VOCAB
@@ -206,6 +228,7 @@ def init_model():
     MODEL.load_state_dict(checkpoint)
     MODEL.to(DEVICE)
     MODEL.eval()
+
 
 # --- Page 1: iPhone Keypad View ---
 IPHONE_PAGE = """
@@ -770,18 +793,23 @@ MAC_PAGE = """
 
 # Global memory state for multi-device collaboration
 CLIENT_ASSIGNMENTS = {}  # { clientId: filename }
-CLIENT_LAST_SEEN = {}    # { clientId: timestamp }
-CLIENT_IP_MAP = {}       # { clientId: ip_address }
+CLIENT_LAST_SEEN = {}  # { clientId: timestamp }
+CLIENT_IP_MAP = {}  # { clientId: ip_address }
+
 
 def cleanup_inactive_clients():
     import time
+
     now = time.time()
     inactive_threshold = 20.0  # 20 seconds timeout
-    inactive_clients = [cid for cid, last_seen in list(CLIENT_LAST_SEEN.items()) if now - last_seen > inactive_threshold]
+    inactive_clients = [
+        cid for cid, last_seen in list(CLIENT_LAST_SEEN.items()) if now - last_seen > inactive_threshold
+    ]
     for cid in inactive_clients:
         CLIENT_ASSIGNMENTS.pop(cid, None)
         CLIENT_LAST_SEEN.pop(cid, None)
         CLIENT_IP_MAP.pop(cid, None)
+
 
 class WebLabelHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -797,14 +825,14 @@ class WebLabelHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
             self.wfile.write(IPHONE_PAGE.encode("utf-8"))
-            
+
         elif path == "/mac" or path == "/mac.html":
             # Serve the Mac View
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
             self.wfile.write(MAC_PAGE.encode("utf-8"))
-            
+
         elif path.startswith("/image/"):
             filename = urllib.parse.unquote(path.split("/")[-1])
             img_path = IMAGES_DIR / filename
@@ -816,35 +844,36 @@ class WebLabelHandler(BaseHTTPRequestHandler):
                     self.wfile.write(f.read())
             else:
                 self.send_error(404, "Image not found")
-                
+
         elif path == "/api/next_info" or path == "/api/current_info":
             # Extract client ID
             import time
+
             query_params = urllib.parse.parse_qs(parsed_path.query)
             client_id = query_params.get("clientId", ["default"])[0]
-            
+
             # Store client IP
             client_ip = self.headers.get("X-Forwarded-For", self.client_address[0])
             CLIENT_IP_MAP[client_id] = client_ip
             CLIENT_LAST_SEEN[client_id] = time.time()
-            
+
             cleanup_inactive_clients()
-            
+
             labeled = load_existing_labels()
             all_images = sorted([f for f in os.listdir(IMAGES_DIR) if f.endswith(".png")])
             unlabeled_current = [f for f in all_images if f not in labeled]
-            
+
             total = len(all_images)
             total_labeled = len(labeled)
             total_unlabeled = len(unlabeled_current)
-            
+
             if total_unlabeled == 0:
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps({"finished": True}).encode("utf-8"))
                 return
-                
+
             # Get assignment
             target_fn = CLIENT_ASSIGNMENTS.get(client_id)
             if not target_fn or target_fn not in unlabeled_current:
@@ -856,68 +885,71 @@ class WebLabelHandler(BaseHTTPRequestHandler):
                 else:
                     target_fn = unlabeled_current[0]
                 CLIENT_ASSIGNMENTS[client_id] = target_fn
-                
+
             img_path = IMAGES_DIR / target_fn
             words, digits = predict_image(MODEL, VOCAB, img_path, DEVICE)
-            
+
             response_data = {
                 "filename": target_fn,
                 "model_words": words,
                 "model_digits": digits,
                 "total": total,
                 "labeled": total_labeled,
-                "unlabeled": total_unlabeled
+                "unlabeled": total_unlabeled,
             }
-            
+
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(response_data).encode("utf-8"))
-            
+
         elif path == "/api/active_sessions":
             import time
+
             cleanup_inactive_clients()
             labeled = load_existing_labels()
             all_images = sorted([f for f in os.listdir(IMAGES_DIR) if f.endswith(".png")])
             unlabeled_current = [f for f in all_images if f not in labeled]
-            
+
             sessions = []
             for cid, fn in list(CLIENT_ASSIGNMENTS.items()):
                 if fn in unlabeled_current:
                     img_path = IMAGES_DIR / fn
                     words, digits = predict_image(MODEL, VOCAB, img_path, DEVICE)
-                    sessions.append({
-                        "clientId": cid,
-                        "ip": CLIENT_IP_MAP.get(cid, "Unknown"),
-                        "filename": fn,
-                        "words": words,
-                        "digits": digits
-                    })
-            
+                    sessions.append(
+                        {
+                            "clientId": cid,
+                            "ip": CLIENT_IP_MAP.get(cid, "Unknown"),
+                            "filename": fn,
+                            "words": words,
+                            "digits": digits,
+                        }
+                    )
+
             response_data = {
                 "sessions": sessions,
                 "total": len(all_images),
                 "labeled": len(labeled),
-                "unlabeled": len(unlabeled_current)
+                "unlabeled": len(unlabeled_current),
             }
-            
+
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(response_data).encode("utf-8"))
-            
+
         elif path.startswith("/api/skip"):
             query_params = urllib.parse.parse_qs(parsed_path.query)
             client_id = query_params.get("clientId", ["default"])[0]
-            
+
             CLIENT_ASSIGNMENTS.pop(client_id, None)
             cleanup_inactive_clients()
-            
+
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"success": True}).encode("utf-8"))
-            
+
         else:
             self.send_error(404, "Not found")
 
@@ -927,12 +959,12 @@ class WebLabelHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers["Content-Length"])
             body = self.rfile.read(content_length)
             data = json.loads(body.decode("utf-8"))
-            
+
             client_id = data.get("clientId", "default")
             filename = data["filename"]
             raw_digits = standardize_digits(data["digits"].strip())
             words = data["words"]
-            
+
             if not raw_digits.isdigit():
                 parsed = persian_words_to_number(raw_digits)
                 if parsed and parsed != "0":
@@ -941,22 +973,22 @@ class WebLabelHandler(BaseHTTPRequestHandler):
                     digits = raw_digits
             else:
                 digits = raw_digits
-            
+
             # Reconstruct words from digits to ensure 100% consistency and clean spelling
             try:
                 words = num_to_persian_words(int(digits))
             except ValueError:
                 words = raw_digits
-            
+
             # Save label
             next_idx = get_next_index()
             save_label(next_idx, filename, words, digits)
             print(f"✅ Saved by {client_id}: {filename} = {digits} ({words})")
-            
+
             # Reset active assignment for this client
             CLIENT_ASSIGNMENTS.pop(client_id, None)
             cleanup_inactive_clients()
-            
+
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -972,11 +1004,11 @@ def main():
     print("🔄 بارگذاری مدل...")
     init_model()
     print("✅ مدل بارگذاری شد.")
-    
+
     local_ip = get_local_ip()
     server_address = ("", 8080)
     httpd = HTTPServer(server_address, WebLabelHandler)
-    
+
     print()
     print("🚀 سرور وب با موفقیت فعال شد!")
     print(f"🖥 آدرس نمایشگر مک:  http://localhost:8080/mac")
@@ -984,7 +1016,7 @@ def main():
     print("   (هر دو دستگاه باید به یک مودم/وای‌فای وصل باشند)")
     print("   برای خروج، در ترمینال Ctrl+C را فشار دهید.")
     print("-" * 60)
-    
+
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

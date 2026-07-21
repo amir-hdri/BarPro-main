@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """بررسی ساختار جدول drivers."""
+
 import os
 
 import psycopg2
@@ -11,7 +12,7 @@ def check_schema():
         port=int(os.getenv("POSTGRES_PORT", 5432)),
         database=os.getenv("POSTGRES_DB", "utcms_rpa"),
         user=os.getenv("POSTGRES_USER", "postgres"),
-        password=os.getenv("POSTGRES_PASSWORD", "postgres")
+        password=os.getenv("POSTGRES_PASSWORD", "postgres"),
     )
 
     cursor = conn.cursor()
@@ -20,12 +21,14 @@ def check_schema():
     print("📋 ساختار جدول drivers")
     print("=" * 80)
 
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT column_name, data_type, is_nullable, column_default
         FROM information_schema.columns
         WHERE table_name = 'drivers'
         ORDER BY ordinal_position
-    """)
+    """
+    )
 
     columns = cursor.fetchall()
     print(f"\nتعداد ستون‌ها: {len(columns)}\n")
@@ -49,6 +52,7 @@ def check_schema():
             print(f"  {col:30s}: {val}")
 
     conn.close()
+
 
 if __name__ == "__main__":
     check_schema()

@@ -29,17 +29,15 @@ from playwright.async_api import Page, Request, Response, async_playwright
 # Setup Logger
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - [%(levelname)s] - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('rpa_inspector.log', encoding='utf-8')
-    ]
+    format="%(asctime)s - [%(levelname)s] - %(message)s",
+    handlers=[logging.StreamHandler(), logging.FileHandler("rpa_inspector.log", encoding="utf-8")],
 )
 logger = logging.getLogger("RPAInspector")
 
 # Project directories setup relative to the project root
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "output" / "rpa_diagnostics"
+
 
 class RPAInspector:
     def __init__(self, output_dir: Path = DEFAULT_OUTPUT_DIR):
@@ -69,10 +67,18 @@ class RPAInspector:
             "step": step,
             "status": status,
             "message": message,
-            "details": details or {}
+            "details": details or {},
         }
         self.logs.append(entry)
-        level = logging.INFO if status in ("SUCCESS", "START", "INFO") else logging.WARNING if status == "WARNING" else logging.ERROR if status == "FAILURE" else logging.DEBUG
+        level = (
+            logging.INFO
+            if status in ("SUCCESS", "START", "INFO")
+            else logging.WARNING
+            if status == "WARNING"
+            else logging.ERROR
+            if status == "FAILURE"
+            else logging.DEBUG
+        )
         logger.log(level, f"[{step}] {status}: {message}")
 
     async def capture_state(self, page: Page, name: str):
@@ -84,7 +90,7 @@ class RPAInspector:
         try:
             await page.screenshot(path=str(ss_path), full_page=True)
             html_content = await page.content()
-            html_path.write_text(html_content, encoding='utf-8')
+            html_path.write_text(html_content, encoding="utf-8")
             self._log_event("DIAGNOSTIC", "INFO", f"Captured state snapshot to {ss_path.name}")
         except Exception as e:
             logger.error(f"Failed to capture state for {name}: {e}")
@@ -114,7 +120,9 @@ class RPAInspector:
                 return results;
             }""")
             if overlays:
-                self._log_event(step, "OVERLAY_DETECTED", "Detected active overlay elements blocking inputs", {"overlays": overlays})
+                self._log_event(
+                    step, "OVERLAY_DETECTED", "Detected active overlay elements blocking inputs", {"overlays": overlays}
+                )
                 return overlays
         except Exception as e:
             logger.debug(f"Failed to scan for overlays: {e}")
@@ -123,7 +131,8 @@ class RPAInspector:
     async def diagnose_element(self, page: Page, selector: str, step: str):
         """Deep analysis of an element if Playwright is unable to interact with it."""
         try:
-            details = await page.evaluate("""(sel) => {
+            details = await page.evaluate(
+                """(sel) => {
                 const el = document.querySelector(sel);
                 if (!el) return { present: false };
                 const rect = el.getBoundingClientRect();
@@ -155,7 +164,9 @@ class RPAInspector:
                     coveredBy: coveredBy,
                     html: el.outerHTML.substring(0, 500)
                 };
-            }""", selector)
+            }""",
+                selector,
+            )
             self._log_event(step, "ELEMENT_DIAGNOSIS", f"Diagnostic report for '{selector}'", {"element": details})
             return details
         except Exception as e:
@@ -197,24 +208,26 @@ class RPAInspector:
             except Exception:
                 response_body = "<failed to read error response text>"
 
-        self.network_logs.append({
-            "timestamp": datetime.now().isoformat(),
-            "url": response.url,
-            "method": request.method,
-            "status": response.status,
-            "status_text": response.status_text,
-            "headers": response.headers,
-            "latency_ms": latency_ms,
-            "content_length": len(response_body),
-            "response_body_sample": response_body
-        })
+        self.network_logs.append(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "url": response.url,
+                "method": request.method,
+                "status": response.status,
+                "status_text": response.status_text,
+                "headers": response.headers,
+                "latency_ms": latency_ms,
+                "content_length": len(response_body),
+                "response_body_sample": response_body,
+            }
+        )
 
     def _on_console(self, msg: Any):
         log_entry = {
             "timestamp": datetime.now().isoformat(),
             "type": msg.type,
             "text": msg.text,
-            "location": msg.location
+            "location": msg.location,
         }
         self.console_logs.append(log_entry)
         if msg.type == "error":
@@ -226,7 +239,7 @@ class RPAInspector:
         error_entry = {
             "timestamp": datetime.now().isoformat(),
             "message": str(err),
-            "stack": getattr(err, "stack", "No stack trace available")
+            "stack": getattr(err, "stack", "No stack trace available"),
         }
         self.js_errors.append(error_entry)
         self._log_event("PAGE_EXCEPTION", "FAILURE", f"Uncaught Javascript error: {err}")
@@ -265,8 +278,19 @@ class RPAInspector:
                     position = f.tell()
 
                     for line in lines:
-                        if any(marker in line for marker in ["LocationSelectionError", "WaybillError", "ERROR", "CRITICAL", "failure_bundle"]):
-                            self._log_event("BACKEND_LOG", "WARNING", f"Detected backend log warning: {line.strip()[:250]}")
+                        if any(
+                            marker in line
+                            for marker in [
+                                "LocationSelectionError",
+                                "WaybillError",
+                                "ERROR",
+                                "CRITICAL",
+                                "failure_bundle",
+                            ]
+                        ):
+                            self._log_event(
+                                "BACKEND_LOG", "WARNING", f"Detected backend log warning: {line.strip()[:250]}"
+                            )
             except Exception as e:
                 logger.debug(f"Error reading backend.log: {e}")
 
@@ -282,28 +306,30 @@ class RPAInspector:
             "execution_summary": {
                 "date": datetime.now().isoformat(),
                 "total_duration_seconds": round(time.time() - self.start_time, 2),
-                "timings_per_phase": self.step_timings
+                "timings_per_phase": self.step_timings,
             },
             "events": self.logs,
             "network_requests": self.network_logs,
             "browser_console": self.console_logs,
-            "javascript_errors": self.js_errors
+            "javascript_errors": self.js_errors,
         }
 
-        report_path.write_text(json.dumps(report_data, indent=2, ensure_ascii=False), encoding='utf-8')
+        report_path.write_text(json.dumps(report_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
         # Save a duplicate at a static endpoint 'latest_report.json'
         latest_path = self.output_dir / "latest_report.json"
-        latest_path.write_text(json.dumps(report_data, indent=2, ensure_ascii=False), encoding='utf-8')
+        latest_path.write_text(json.dumps(report_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
-        logger.info("="*80)
+        logger.info("=" * 80)
         logger.info("RPA Inspector report compiled successfully.")
         logger.info(f"Structured report file:  {report_path}")
         logger.info(f"Latest report link:      {latest_path}")
-        logger.info("="*80)
+        logger.info("=" * 80)
 
     # 1. Navigation & elements check
-    async def run_diagnostic(self, login_url: str, credentials: dict[str, str], proxy: str | None = None, headless: bool = False):
+    async def run_diagnostic(
+        self, login_url: str, credentials: dict[str, str], proxy: str | None = None, headless: bool = False
+    ):
         self._log_event("GLOBAL", "START", "Starting Single Diagnostic Run")
         self.start_time = time.time()
 
@@ -313,7 +339,7 @@ class RPAInspector:
                 launch_args["proxy"] = {"server": proxy}
 
             browser = await p.chromium.launch(headless=headless, **launch_args)
-            context = await browser.new_context(viewport={'width': 1280, 'height': 800}, ignore_https_errors=True)
+            context = await browser.new_context(viewport={"width": 1280, "height": 800}, ignore_https_errors=True)
             page = await context.new_page()
 
             # Attach listeners
@@ -381,7 +407,14 @@ class RPAInspector:
                 await browser.close()
 
     # 2. Daemon mode execution
-    async def run_daemon_mode(self, login_url: str, credentials: dict[str, str], proxy: str | None = None, headless: bool = True, interval_seconds: int = 60):
+    async def run_daemon_mode(
+        self,
+        login_url: str,
+        credentials: dict[str, str],
+        proxy: str | None = None,
+        headless: bool = True,
+        interval_seconds: int = 60,
+    ):
         self._log_event("GLOBAL", "START", "Starting Continuous RPA Monitoring Daemon")
         self.start_time = time.time()
         self.setup_signal_handlers()
@@ -409,7 +442,9 @@ class RPAInspector:
                 if browser:
                     context = None
                     try:
-                        context = await browser.new_context(viewport={'width': 1280, 'height': 800}, ignore_https_errors=True)
+                        context = await browser.new_context(
+                            viewport={"width": 1280, "height": 800}, ignore_https_errors=True
+                        )
                         page = await context.new_page()
 
                         # Attach listeners
@@ -461,7 +496,7 @@ def analyze_report(report_path: str):
         sys.exit(1)
 
     try:
-        data = json.loads(path.read_text(encoding='utf-8'))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception as e:
         print(f"Error reading JSON file: {e}")
         sys.exit(1)
@@ -472,12 +507,12 @@ def analyze_report(report_path: str):
     console = data.get("browser_console", [])
     js_errors = data.get("javascript_errors", [])
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("                    UTCMS RPA BOT DIAGNOSTIC AUDIT REPORT")
-    print("="*80)
+    print("=" * 80)
     print(f"Report Date:      {summary.get('date', 'Unknown')}")
     print(f"Total Duration:   {summary.get('total_duration_seconds', 0)} seconds")
-    print("-"*80)
+    print("-" * 80)
 
     # 1. Timing Profiles
     print("\n⏱️  Timing Profile per Phase:")
@@ -515,8 +550,9 @@ def analyze_report(report_path: str):
     print(f"  - Total Network Responses:     {len(network)}")
 
     failed_requests = [n for n in network if n.get("status", 0) >= 400]
-    slow_requests = sorted([n for n in network if n.get("latency_ms") is not None],
-                           key=lambda x: x["latency_ms"], reverse=True)[:5]
+    slow_requests = sorted(
+        [n for n in network if n.get("latency_ms") is not None], key=lambda x: x["latency_ms"], reverse=True
+    )[:5]
 
     print(f"  - Failed HTTP Requests (>=400): {len(failed_requests)}")
     if failed_requests:
@@ -540,7 +576,7 @@ def analyze_report(report_path: str):
             print(f"  {idx}. Exception: {je.get('message')}")
             print(f"     Stack: {je.get('stack')}")
 
-    print("="*80 + "\n")
+    print("=" * 80 + "\n")
 
 
 if __name__ == "__main__":
@@ -548,8 +584,13 @@ if __name__ == "__main__":
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--run", action="store_true", help="Execute a single live browser diagnostic session")
     group.add_argument("--daemon", action="store_true", help="Run as a continuous monitoring daemon in the background")
-    group.add_argument("--analyze", type=str, nargs='?', const=str(DEFAULT_OUTPUT_DIR / "latest_report.json"),
-                       help="Analyze an existing report JSON output file (defaults to latest_report.json)")
+    group.add_argument(
+        "--analyze",
+        type=str,
+        nargs="?",
+        const=str(DEFAULT_OUTPUT_DIR / "latest_report.json"),
+        help="Analyze an existing report JSON output file (defaults to latest_report.json)",
+    )
 
     parser.add_argument("--user", type=str, default="5729076411", help="UTCMS username")
     parser.add_argument("--password", type=str, default="@M_m123456789", help="UTCMS password")
@@ -566,12 +607,9 @@ if __name__ == "__main__":
         LOGIN_URL = "https://barname.utcms.ir/Barname/Account/Login"
         CREDS = {"user": args.user, "pass": args.password}
 
-        asyncio.run(inspector.run_diagnostic(
-            login_url=LOGIN_URL,
-            credentials=CREDS,
-            proxy=args.proxy,
-            headless=args.headless
-        ))
+        asyncio.run(
+            inspector.run_diagnostic(login_url=LOGIN_URL, credentials=CREDS, proxy=args.proxy, headless=args.headless)
+        )
     elif args.daemon:
         print("--- RPA Inspector: Daemon Mode Started ---")
         inspector = RPAInspector(output_dir=args.output_dir)
@@ -579,13 +617,15 @@ if __name__ == "__main__":
         CREDS = {"user": args.user, "pass": args.password}
 
         try:
-            asyncio.run(inspector.run_daemon_mode(
-                login_url=LOGIN_URL,
-                credentials=CREDS,
-                proxy=args.proxy,
-                headless=args.headless,
-                interval_seconds=args.interval
-            ))
+            asyncio.run(
+                inspector.run_daemon_mode(
+                    login_url=LOGIN_URL,
+                    credentials=CREDS,
+                    proxy=args.proxy,
+                    headless=args.headless,
+                    interval_seconds=args.interval,
+                )
+            )
         except (KeyboardInterrupt, SystemExit):
             print("Daemon stopped by user request.")
     else:

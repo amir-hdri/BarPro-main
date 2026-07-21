@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Check migration status."""
+
 import os
 
 import psycopg2
@@ -12,7 +13,7 @@ def check_status():
         port=int(os.getenv("POSTGRES_PORT", 5432)),
         database=os.getenv("POSTGRES_DB", "utcms_rpa"),
         user=os.getenv("POSTGRES_USER", "postgres"),
-        password=os.getenv("POSTGRES_PASSWORD", "postgres")
+        password=os.getenv("POSTGRES_PASSWORD", "postgres"),
     )
 
     try:
@@ -24,13 +25,15 @@ def check_status():
         print(f"📌 Current migration version: {version}")
 
         # Check indexes
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT indexname
             FROM pg_indexes
             WHERE schemaname = 'public'
             AND indexname LIKE 'idx_%'
             ORDER BY indexname
-        """)
+        """
+        )
 
         indexes = cursor.fetchall()
         print(f"\n📊 Performance indexes ({len(indexes)}):")
@@ -39,6 +42,7 @@ def check_status():
 
     finally:
         conn.close()
+
 
 if __name__ == "__main__":
     check_status()

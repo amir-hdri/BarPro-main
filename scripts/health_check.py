@@ -11,6 +11,7 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
+
 def check_environment():
     """Check environment variables"""
     print("🔍 Checking Environment Variables...")
@@ -69,13 +70,13 @@ def check_dependencies():
     print("\n🔍 Checking Dependencies...")
 
     required = {
-        'torch': 'PyTorch',
-        'cv2': 'OpenCV',
-        'playwright': 'Playwright',
-        'fastapi': 'FastAPI',
-        'sqlalchemy': 'SQLAlchemy',
-        'redis': 'Redis',
-        'cryptography': 'Cryptography',
+        "torch": "PyTorch",
+        "cv2": "OpenCV",
+        "playwright": "Playwright",
+        "fastapi": "FastAPI",
+        "sqlalchemy": "SQLAlchemy",
+        "redis": "Redis",
+        "cryptography": "Cryptography",
     }
 
     missing = []

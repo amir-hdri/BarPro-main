@@ -8,6 +8,7 @@ WaybillJob, and dispatch it through Celery.
 Driver 1: Hussein Ashkhası (national_code 1719262438, UTCMS Bb.1234567890)
 Driver 2: Yoosef Jookar   (national_code 2281808351, UTCMS Kk.1234567890)
 """
+
 import asyncio
 import json
 import uuid

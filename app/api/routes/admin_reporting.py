@@ -104,7 +104,7 @@ async def get_audit_logs(
         driver = drivers_dict.get(j.driver_id) if j.driver_id else None
         driver_code = driver.driver_national_code if driver else "—"
         driver_name = driver.full_name if driver else "—"
-        
+
         desc_parts = [f"بارنامه #{j.id}"]
         if driver_name != "—":
             desc_parts.append(f"راننده: {driver_name} ({driver_code})")
@@ -114,7 +114,7 @@ async def get_audit_logs(
             desc_parts.append(f"خطا: {j.last_error[:60]}")
         else:
             desc_parts.append(f"وضعیت: {j.status}")
-            
+
         entries.append(
             {
                 "id": j.id,
@@ -130,7 +130,6 @@ async def get_audit_logs(
         )
 
     return {"items": entries, "page": page, "page_size": page_size}
-
 
 
 @router.get(

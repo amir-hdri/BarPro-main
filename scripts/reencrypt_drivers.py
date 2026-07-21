@@ -11,6 +11,7 @@ Or with env variable:
 This script MUST be run whenever the DRIVER_ENCRYPTION_KEY is changed.
 It safely re-encrypts all passwords without ever logging the plaintext values.
 """
+
 import argparse
 import asyncio
 import logging

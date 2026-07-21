@@ -47,15 +47,19 @@ payload = {
     },
 }
 
+
 async def main():
     from app.automation.proxy_rotator import get_proxy_rotator
+
     proxy_rotator = get_proxy_rotator()
     proxy_rotator.require_iran_ip = False
-    proxy_rotator.load_from_list([
-        "http://barpro-squid-1:3128",
-        "http://barpro-squid-2:3128",
-        "http://barpro-squid-3:3128",
-    ])
+    proxy_rotator.load_from_list(
+        [
+            "http://barpro-squid-1:3128",
+            "http://barpro-squid-2:3128",
+            "http://barpro-squid-3:3128",
+        ]
+    )
 
     try:
         req = WaybillMapRequest(**payload)
@@ -64,6 +68,7 @@ async def main():
     except Exception as e:
         print("EXCEPTION OCCURRED:")
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

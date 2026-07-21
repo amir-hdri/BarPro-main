@@ -66,10 +66,10 @@ class FuelInquiryService:
 
         # Check for existing pending/processing inquiry for same driver/period to prevent duplicates
         existing_stmt = select(FuelInquiry).where(
-            (FuelInquiry.driver_id == driver.id) &
-            (FuelInquiry.year == inquiry_year) &
-            (FuelInquiry.month == inquiry_month) &
-            (FuelInquiry.status.in_(["pending", "processing"]))
+            (FuelInquiry.driver_id == driver.id)
+            & (FuelInquiry.year == inquiry_year)
+            & (FuelInquiry.month == inquiry_month)
+            & (FuelInquiry.status.in_(["pending", "processing"]))
         )
         existing_res = await session.exec(existing_stmt)
         if existing_res.first():
@@ -159,7 +159,9 @@ class FuelInquiryService:
             if driver:
                 resp.driver_name = driver.full_name
             # Inject plate number dynamically
-            plate_stmt = select(DriverPlate).where((DriverPlate.driver_id == i.driver_id) & (DriverPlate.status == "active"))
+            plate_stmt = select(DriverPlate).where(
+                (DriverPlate.driver_id == i.driver_id) & (DriverPlate.status == "active")
+            )
             plate_res = await session.exec(plate_stmt)
             driver_plate = plate_res.first()
             if driver_plate:
@@ -201,10 +203,7 @@ class FuelInquiryService:
             statement = select(FuelInquiry).where(FuelInquiry.id == inquiry_id)
         else:
             client = user_context["user"]
-            statement = select(FuelInquiry).where(
-                (FuelInquiry.client_id == client.id) &
-                (FuelInquiry.id == inquiry_id)
-            )
+            statement = select(FuelInquiry).where((FuelInquiry.client_id == client.id) & (FuelInquiry.id == inquiry_id))
         result = await session.exec(statement)
         inquiry = result.first()
 
@@ -219,7 +218,9 @@ class FuelInquiryService:
         if driver:
             resp.driver_name = driver.full_name
         # Inject plate number dynamically
-        plate_stmt = select(DriverPlate).where((DriverPlate.driver_id == inquiry.driver_id) & (DriverPlate.status == "active"))
+        plate_stmt = select(DriverPlate).where(
+            (DriverPlate.driver_id == inquiry.driver_id) & (DriverPlate.status == "active")
+        )
         plate_res = await session.exec(plate_stmt)
         driver_plate = plate_res.first()
         if driver_plate:

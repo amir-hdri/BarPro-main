@@ -112,7 +112,7 @@ class RPASchedulerService:
                                 TaskStatus.WAITING_AUTH.value,
                                 TaskStatus.OTP_BACKOFF.value,
                             ]
-                        )
+                        ),
                     )
                     .with_for_update(skip_locked=True)
                     .order_by(col(WaybillJob.priority).desc(), col(WaybillJob.created_at).asc())

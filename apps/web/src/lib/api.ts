@@ -119,6 +119,16 @@ function createApiClient(): AxiosInstance {
   });
 
   inst.interceptors.request.use((config) => {
+    if (typeof window !== 'undefined') {
+      try {
+        const token = localStorage.getItem('utcms_auth_token');
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+      } catch {
+        // ignore
+      }
+    }
     return config;
   });
 
