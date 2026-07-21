@@ -33,8 +33,19 @@ RETRYABLE_NETWORK_MARKERS = (
     "net::err_internet_disconnected",
     "net::err_network_changed",
     "net::err_timed_out",
+    "net::err_proxy_connection_failed",
+    "net::err_tunnel_connection_failed",
     "ns_error_net_reset",
     "ns_error_connection_refused",
+    "econnreset",
+    "econnrefused",
+    "etimedout",
+    "connection reset by peer",
+    "proxy error",
+    "502 bad gateway",
+    "503 service unavailable",
+    "504 gateway timeout",
+    "squid",
 )
 
 

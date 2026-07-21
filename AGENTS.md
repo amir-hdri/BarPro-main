@@ -441,6 +441,19 @@ ON waybill_jobs (status) INCLUDE (id);
 | Removed forced JS step transitions on invalid form states; extract modal and inline error messages to raise early descriptive `WaybillError` | `app/automation/waybill_enhanced.py` |
 | Enforced 10-second `asyncio.wait_for()` timeout wrappers on browser process teardown and added `_cleanup_zombie_processes()` (`pkill chrome-headless-shell`) in `BrowserManager.recycle_browser()` | `app/automation/browser.py` |
 
+### Additional Fixes Applied (2026-07-21) — Retry, Queue/Scheduler & Connection/Timeout Optimization
+
+| Change | File(s) |
+|--------|---------|
+| Reset `attempt_count = 0` on manual job retry API (`POST /waybill-jobs/{job_id}/retry`) to grant a full retry quota | `app/services/multitenant_service.py` |
+| Cleared `celery_task_id = None` on `WAITING_RETRY` and `OTP_BACKOFF` status transitions, allowing due jobs to be re-dispatched cleanly by scheduler | `app/workers/waybill_worker.py` |
+| Allowed reclaiming stale `IN_PROGRESS` jobs (> 5 min) in `waybill_worker` to recover gracefully from Celery worker crashes | `app/workers/waybill_worker.py` |
+| Wrapped RPA bot execution in `asyncio.wait_for(..., timeout=240s)` to prevent worker SIGKILL hard crashes and categorize timeouts cleanly as `system_error` | `app/workers/waybill_worker.py` |
+| Cleared stale `celery_task_id` for due `PENDING`, `WAITING_RETRY`, and `OTP_BACKOFF` jobs inside `plan_due_jobs()` | `app/services/rpa_scheduler_service.py` |
+| Un-exempted `scheduled_tasks` from `EXEMPT_QUEUES` in `circuit_breaker.py` so scheduled tasks get distributed to worker queues `scheduled_tasks_1/2/3` | `app/core/circuit_breaker.py` |
+| Added Squid proxy, tunnel failures, ECONNRESET, and 502/503/504 errors to `RETRYABLE_NETWORK_MARKERS` | `app/core/network.py` |
+| Added document `readyState` fallback to `goto_with_retry` / `_goto_with_retry` on navigation timeout to prevent false failures when main document has loaded | `app/automation/auth_navigator.py`, `app/automation/waybill_enhanced.py` |
+
 ---
 
 *Last updated: 2026-07-21 · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*

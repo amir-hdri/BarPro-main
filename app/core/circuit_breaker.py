@@ -238,7 +238,7 @@ def get_routed_queue(base_queue: str) -> str:
     Suffix the base queue with a healthy IP index (e.g. waybill_tasks_2).
     """
     # Exclude system queues that shouldn't be partitioned
-    EXEMPT_QUEUES = {"rpa_scheduler", "scheduled_tasks"}
+    EXEMPT_QUEUES = {"rpa_scheduler"}
     if base_queue in EXEMPT_QUEUES:
         return base_queue
 

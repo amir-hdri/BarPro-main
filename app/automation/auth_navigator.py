@@ -81,8 +81,22 @@ class AuthNavigator:
         last_error: Exception | None = None
         for attempt in range(1, attempts + 1):
             try:
-                await self.page.goto(url, wait_until=wait_until, timeout=utcms_config.PAGE_NAVIGATION_TIMEOUT)
-                await self.page.wait_for_load_state("domcontentloaded")
+                try:
+                    await self.page.goto(url, wait_until=wait_until, timeout=utcms_config.PAGE_NAVIGATION_TIMEOUT)
+                except Exception as goto_err:
+                    if "timeout" in str(goto_err).lower():
+                        try:
+                            ready_state = await self.page.evaluate("document.readyState")
+                            if ready_state in ("interactive", "complete"):
+                                logger.warning(f"goto reached readyState '{ready_state}' despite timeout: {goto_err}")
+                                return
+                        except Exception:
+                            pass
+                    raise goto_err
+                try:
+                    await self.page.wait_for_load_state("domcontentloaded", timeout=10000)
+                except Exception:
+                    pass
                 return
             except Exception as exc:
                 last_error = exc

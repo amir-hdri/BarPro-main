@@ -148,8 +148,13 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
             TaskStatus.OTP_BACKOFF.value,
         }
         if job.status not in allowed_statuses:
-            logger.info("Skipping waybill job %s in non-claimable status %s", job_id, job.status)
-            return {"status": job.status, "skipped": True}
+            # Allow reclaiming IN_PROGRESS jobs if stuck for > 5 minutes (worker lost/requeued)
+            stale_threshold = _utcnow_naive() - timedelta(minutes=5)
+            if job.status == TaskStatus.IN_PROGRESS.value and job.updated_at and job.updated_at < stale_threshold:
+                logger.warning(f"Reclaiming stuck IN_PROGRESS job {job_id} (last updated {job.updated_at.isoformat()})")
+            else:
+                logger.info("Skipping waybill job %s in non-claimable status %s", job_id, job.status)
+                return {"status": job.status, "skipped": True}
 
         runtime_state = await _get_or_create_runtime_state(session, job.client_id, job.driver_id)
 
@@ -189,6 +194,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
         if not driver_lock_acquired:
             retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
             job.status = TaskStatus.WAITING_RETRY.value
+            job.celery_task_id = None
             job.retryable = True
             job.next_retry_at = retry_at
             job.submit_after = retry_at
@@ -221,14 +227,26 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
 
             try:
                 bot = WaybillAutomationBot(page, context)
-                result = await bot.execute_waybill_job(
-                    username=username,
-                    password=password,
-                    payload=payload,
-                    job_id=job_id,
-                    client_id=job.client_id,
-                    auth_state_path=auth_state_path,
-                )
+                job_timeout = getattr(utcms_config, "JOB_TIMEOUT_SECONDS", 240)
+                try:
+                    result = await asyncio.wait_for(
+                        bot.execute_waybill_job(
+                            username=username,
+                            password=password,
+                            payload=payload,
+                            job_id=job_id,
+                            client_id=job.client_id,
+                            auth_state_path=auth_state_path,
+                        ),
+                        timeout=float(job_timeout),
+                    )
+                except TimeoutError:
+                    logger.warning(f"Job {job_id} automation execution timed out after {job_timeout} seconds")
+                    result = {
+                        "status": "failed",
+                        "error": f"Execution timed out after {job_timeout}s",
+                        "error_category": "system_error",
+                    }
 
                 result_status = str(result.get("status", "")).strip().lower()
                 now = _utcnow_naive()
@@ -237,6 +255,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                     retry_minutes = int(result.get("next_retry_at_minutes_add", 60))
                     retry_at = now + timedelta(minutes=retry_minutes)
                     job.status = TaskStatus.OTP_BACKOFF.value
+                    job.celery_task_id = None
                     job.next_retry_at = retry_at
                     job.submit_after = retry_at
                     job.last_error = result.get("message", "OTP challenge detected")
@@ -334,6 +353,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                 if job.attempt_count < job.max_retries and _is_retryable(result):
                     retry_at = now + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
                     job.status = TaskStatus.WAITING_RETRY.value
+                    job.celery_task_id = None
                     job.retryable = True
                     job.next_retry_at = retry_at
                     job.submit_after = retry_at

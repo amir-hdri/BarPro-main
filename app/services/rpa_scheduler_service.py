@@ -131,7 +131,10 @@ class RPASchedulerService:
                 if tenant_counts[job.client_id] >= tenant_limit:
                     continue
                 if job.celery_task_id:
-                    continue
+                    if job.status in {TaskStatus.PENDING.value, TaskStatus.WAITING_RETRY.value, TaskStatus.OTP_BACKOFF.value}:
+                        job.celery_task_id = None
+                    else:
+                        continue
 
                 try:
                     # ── OTP_BACKOFF: only eligible after next_retry_at has passed ──

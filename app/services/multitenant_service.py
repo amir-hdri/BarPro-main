@@ -1398,6 +1398,7 @@ class WaybillJobService:
             event_payload["force_auth_refresh"] = True
 
         job.status = TaskStatus.PENDING.value
+        job.attempt_count = 0
         job.submit_after = now
         job.next_retry_at = None
         job.finished_at = None
