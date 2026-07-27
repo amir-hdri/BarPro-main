@@ -34,6 +34,9 @@ class TestBrowserManager(unittest.IsolatedAsyncioTestCase):
         # set_default_timeout / set_default_navigation_timeout are sync on real Page
         self.mock_page.set_default_timeout = MagicMock()
         self.mock_page.set_default_navigation_timeout = MagicMock()
+        # page.on() is synchronous in Playwright — must be MagicMock, not AsyncMock
+        # Using AsyncMock causes RuntimeWarning "coroutine never awaited"
+        self.mock_page.on = MagicMock()
 
         # When start() is awaited, return our mock_playwright
         self.mock_start = AsyncMock(return_value=self.mock_playwright)

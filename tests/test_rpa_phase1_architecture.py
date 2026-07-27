@@ -310,8 +310,8 @@ async def test_phase1_dispatch_due_jobs_enqueues_auth_task_and_persists_task_id(
             fake_celery,
         ),
         patch(
-            "app.core.circuit_breaker.get_routed_queue",
-            side_effect=lambda x: x,
+            "app.core.circuit_breaker.get_routed_queue_async",
+            new=AsyncMock(side_effect=lambda x: x),
         ),
     ):
         rpa_runtime._memory.clear()

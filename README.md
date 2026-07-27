@@ -1,6 +1,7 @@
 <div align="center">
   <img src="https://img.shields.io/badge/Status-Production%20Ready-success?style=for-the-badge" alt="Status" />
-  <img src="https://img.shields.io/badge/Version-1.0.1-blue?style=for-the-badge" alt="Version" />
+  <img src="https://img.shields.io/badge/Version-1.2.0-blue?style=for-the-badge" alt="Version" />
+  <img src="https://img.shields.io/badge/Tests-414%20Passed-brightgreen?style=for-the-badge" alt="Tests" />
   <img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge" alt="License" />
 </div>
 
@@ -11,95 +12,150 @@
   <p align="center">
     <strong>Enterprise Multi-tenant RPA & Waybill Automation Framework</strong>
     <br />
-    <br />
-    <a href="#-سیستم-اتوماسیون-جامع-بارنامه-utcms-barpro">🇮🇷 مستندات فارسی (Persian)</a>
+    <em>سیستم اتوماسیون هوشمند بارنامه UTCMS</em>
+    <br /><br />
+    <a href="#-architecture">Architecture</a>
     ·
-    <a href="docs/architecture/PROJECT_STRUCTURE.md">Architecture Docs</a>
+    <a href="#-quick-start">Quick Start</a>
     ·
-    <a href="docs/operations/TROUBLESHOOTING.md">Troubleshooting</a>
+    <a href="#-operational-commands">Operations</a>
+    ·
+    <a href="./CRITICAL_RULES.md">⚠️ Critical Rules</a>
+    ·
+    <a href="./AGENTS.md">AI Agent Guide</a>
   </p>
 </div>
 
 ---
 
-**BarPro** is an advanced, industrial-grade RPA (Robotic Process Automation) framework designed for automated waybill registration on the national portal. Built with a modern full-stack architecture, it combines high-performance backend processing with a seamless user experience, ensuring reliability even under heavy enterprise workloads.
+## ⚠️ مهم — قبل از هر تغییر بخوانید
+
+> **[CRITICAL_RULES.md](./CRITICAL_RULES.md)** — خطوط قرمز و قوانین حیاتی پروژه را پیش از هر توسعه مطالعه کنید.
+
+---
 
 ## 🌟 Key Features
 
 ### 🏢 Real Multi-tenancy
-* **Data Isolation:** Strict data separation at the database level using scoped access.
-* **Independent Profiles:** Manage fleets, drivers, and routes for each tenant securely.
-* **Master Admin Dashboard:** Centralized control for onboarding, quota management, and global live monitoring.
+- **Data Isolation:** Strict data separation at the database level using scoped access
+- **Independent Profiles:** Manage fleets, drivers, and routes per tenant securely
+- **Master Admin Dashboard:** Centralized control for onboarding, quota management, and global live monitoring
+- **Universal Admin Access:** Master admin can view and manage all tenant resources globally
 
 ### 🤖 Advanced RPA Engine
-* **Human-like Behavior:** Sophisticated simulation of human interactions (typing delays, parabolic mouse movements) to bypass WAFs and anti-bot mechanisms.
-* **Smart Map Injection:** Direct coordinate injection into JavaScript globals to bypass interactive search bottlenecks.
-* **Intelligent Captcha Solver:** ML-powered login math CAPTCHA, PyTorch fuel CAPTCHA, and Keras OCR fallback with automatic retry logic.
-* **Self-Healing Navigation:** Dynamic element detection and "Loading Overlay" management for resilient web interactions.
-* **Optimized Browser Context Management:** Enhanced cleanup of browser contexts and pages to prevent memory leaks and improve stability.
+- **Human-like Behavior:** Sophisticated simulation of human interactions (typing delays, parabolic mouse movements) to bypass WAFs and anti-bot mechanisms
+- **Smart Map Injection:** Direct coordinate injection into JavaScript globals to bypass interactive search bottlenecks
+- **Intelligent Captcha Solver:** ML-powered CNN (login math), PyTorch CRNN (fuel Persian), and Keras OCR fallback — all in-process (no subprocess OOM risk)
+- **Self-Healing Navigation:** Dynamic element detection and "Loading Overlay" management for resilient web interactions
+- **Browser Context Pooling:** Chrome instances recycled after 20 successful jobs — 90% fewer cold starts
+- **Pre-flight Proxy Health Check:** Squid proxy is validated before each browser session
 
-### 🛡️ Enterprise-Grade Resilience
-* **Automatic Stuck Job Recovery:** Periodic cleanup of jobs stuck in `QUEUED` or `IN_PROGRESS` states.
-* **Global Safety Net:** Integrated error handling that prevents processing deadlocks during unexpected browser crashes.
-* **Session Persistence:** Intelligent session bundle storage to minimize redundant logins and reduce detection footprints.
-* **Event Loop Stability:** Critical fix implemented in Celery workers to ensure stable asynchronous operations and prevent `RuntimeError: Event loop is already running` issues.
-* **Streamlined Database Transactions:** Optimized database commit frequency to reduce load and improve performance under high concurrency.
+### 🛡️ Enterprise-Grade Security & Resilience
+- **JWT in httpOnly Cookies:** Tokens never exposed to JavaScript — XSS-safe authentication
+- **Fail-closed Rate Limiter:** Returns HTTP 429 even when Redis is unavailable — no bypass possible
+- **Token Blacklist Fail-closed:** Revoked tokens remain invalid even during Redis outages
+- **IP Spoofing Prevention:** Rate limiter uses `request.client.host` (Nginx-set), ignores `X-Forwarded-For`
+- **Automatic Stuck Job Recovery:** Periodic cleanup of jobs stuck in `QUEUED` or `IN_PROGRESS` states
+- **Driver Submission Locking:** Serializes concurrent jobs for the same driver to prevent UTCMS conflicts
+- **Idempotency:** Jobs already holding a UTCMS tracking code are skipped automatically
+
+### ⚡ Performance Optimizations
+- **Redis Queue Depth:** HINCRBY counters replace full table scans on every status transition
+- **WebSocket pub/sub Bridge:** Worker-originated events reach API process cross-process via Redis
+- **Connection Pool Reuse:** `AsyncAdaptedQueuePool(2,2)` — no connection storms
+- **bcrypt Off Event Loop:** Hashing/verification runs via `asyncio.to_thread` — non-blocking
+- **Bulk DB Fetches:** Admin job list uses `Client.id.in_(...)` — no N+1 queries
+- **React.memo:** Table rows and cards don't re-render on every WebSocket tick
 
 ---
 
-## 🏗️ Technology Stack
+## 🏗️ Architecture
 
-| Layer       | Technology |
-| ----------- | ---------- |
-| **Backend** | [FastAPI](https://fastapi.tiangolo.com/) (Python 3.11) |
-| **Frontend**| [Next.js 15](https://nextjs.org/) (TypeScript, Tailwind CSS) |
-| **Database**| [PostgreSQL 16](https://www.postgresql.org/) (SQLModel/AsyncPG) |
-| **Queue**   | [Celery](https://docs.celeryq.dev/) + [Redis](https://redis.io/) |
-| **Automation**| [Playwright](https://playwright.dev/python/) |
-| **Monitoring**| Custom RPA Inspector Event Bridge |
+```
+Client Browser → Nginx (port 80/443) → FastAPI Backend (port 8000)
+                                             ├── PostgreSQL 16 (SQLModel/AsyncPG)
+                                             ├── Redis 7 (cache/queue/pub-sub)
+                                             ├── Celery Workers ×3 (via Squid proxies)
+                                             └── Prometheus (monitoring)
+Frontend: Next.js 15 (TypeScript, Tailwind CSS, React 19)
+```
+
+**Single-server deployment** — 13 Docker containers on one host with 2 public IPs.
+
+| Layer | Technology | Version |
+|-------|-----------|---------|
+| Backend | Python / FastAPI | 3.11 / latest |
+| Frontend | Next.js / TypeScript | 15 / 5.x |
+| Database | PostgreSQL + SQLModel | 16 |
+| Queue | Celery + Redis | latest |
+| RPA | Playwright (Chromium) | latest |
+| Proxy | Squid | latest |
+| Monitoring | Prometheus | latest |
+| Reverse Proxy | Nginx | 1.27-alpine |
+
+### Proxy Topology
+| Proxy | Port | Egress IP | Used By |
+|-------|------|-----------|---------|
+| Squid 1 | 3128 | 188.121.123.16 | Worker 1 |
+| Squid 2 | 3129 | 95.38.233.90 | Worker 2 |
+| Squid 3 | 3130 | 95.38.233.90 | Worker 3 |
+
+### Captcha Models
+| Page | Solver | Model |
+|------|--------|-------|
+| Login (math: "2+3") | PyTorch CNN | `assets/captcha_cnn.pth` |
+| Fuel Inquiry (Persian words) | PyTorch CRNN | `assets/fuel_captcha_crnn.pth` |
+| Fuel Inquiry fallback | Keras OCR | `persian_number_ocr.keras` |
 
 ---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-* Python 3.11+
-* Node.js 20+
-* Docker & Docker Compose
+- Python 3.11+
+- Node.js 20+
+- Docker & Docker Compose
 
-### 1. Installation
+### Installation
 
 ```bash
-# Clone the repository
+# Clone
 git clone <repository_url>
 cd BarPro
 
-# Set up Python virtual environment and install dependencies
+# Python environment
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Install Playwright browsers for the automation engine
+# Playwright browser
 playwright install chromium
 
-# Install Frontend dependencies
-cd apps/web && npm install
+# Frontend
+cd apps/web && npm install && cd ../..
 ```
 
-### 2. Environment Setup
-Create a `.env` file in the root directory. Configure your database, Redis, and security keys based on the provided `.env.example` (or internal documentation).
-
-**Important Security Note:** After enabling HTTPS for your Nginx setup, ensure you update `AUTH_COOKIE_SECURE=true` in your `.env` file for enhanced cookie security.
-
-### 3. Running the System
-The system is managed via a unified management script for easy operations:
+### Environment Setup
 
 ```bash
-# Start all services (Backend, Frontend, Workers, Redis, Postgres)
-bash manage.sh start
+cp .env.example .env
+# Edit .env — fill in all required values
+# JWT_SECRET must be ≥32 characters
+# See CRITICAL_RULES.md for security requirements
+```
 
-# Check real-time service status and resources
-bash manage.sh status
+### Run Tests
+
+```bash
+.venv/bin/pytest tests/ -q --tb=short
+# Expected: ≥414 passed, 0 failed
+```
+
+### Start System
+
+```bash
+bash manage.sh start    # Full system bootstrap
+bash manage.sh health   # Verify all services
 ```
 
 ---
@@ -107,53 +163,133 @@ bash manage.sh status
 ## 🛠️ Operational Commands
 
 | Command | Description |
-| :--- | :--- |
-| `bash manage.sh start` | Full system bootstrap in the background. |
-| `bash manage.sh stop` | Graceful shutdown of all components (retaining data). |
-| `bash manage.sh status` | Show CPU, RAM, disk usage, and container status. |
-| `bash manage.sh health` | Verify active database, Redis, API, and UI endpoints. |
-| `bash manage.sh deploy` | Build backend/frontend images, run migrations, and restart services. |
-| `bash manage.sh migrate` | Run Alembic migrations manually. |
-| `bash manage.sh backup` | Quick Postgres database snapshot compression. |
-| `pytest` | Run comprehensive integration & unit tests. |
+|---------|-------------|
+| `bash manage.sh start` | Full system bootstrap (respects layer order) |
+| `bash manage.sh stop` | Graceful shutdown (data retained) |
+| `bash manage.sh status` | CPU/RAM/disk/container status |
+| `bash manage.sh health` | Verify DB/Redis/API/Frontend health |
+| `bash manage.sh deploy` | Pull from GitHub, run migrations, restart |
+| `bash manage.sh migrate` | Run Alembic migrations manually |
+| `bash manage.sh backup-db` | PostgreSQL snapshot |
+| `.venv/bin/pytest tests/` | Full test suite |
+
+### Docker Compose Layers (in order)
+
+```bash
+docker compose -f compose/infra.yml up -d       # PostgreSQL + Redis
+docker compose -f compose/proxy.yml up -d       # Squid ×3
+docker compose -f compose/backend.yml up -d     # FastAPI + Workers + Beat
+docker compose -f compose/web.yml up -d         # Nginx + Next.js
+docker compose -f compose/monitoring.yml up -d  # Prometheus
+```
 
 ---
 
-# 🚀 سیستم اتوماسیون جامع بارنامه UTCMS (BarPro)
+## 📋 Current Status
 
-**BarPro** یک فریم‌ورک پیشرفته و صنعتی برای خودکارسازی فرآیندهای ثبت بارنامه در سامانه کشوری است. این سیستم با معماری مدرن و قابلیت اطمینان بالا، پایداری عملیات در مقیاس سازمانی را تضمین می‌کند و تمامی مراحل وقت‌گیر را برای شرکت‌های حمل و نقل کاملا اتوماتیک می‌سازد.
+### Tests
+```
+414 passed, 4 skipped, 0 failed  (as of 2026-07-27)
+```
 
-### 💎 ویژگی‌های برتر
+### Alembic Migration Head
+```
+015_add_client_subscription_dates
+```
 
-*   **معماری چند مستاجره واقعی (Multi-tenant):** جداسازی کامل و امن داده‌های شرکت‌های مختلف.
-*   **موتور رباتیک پیشرفته:** شبیه‌سازی فوق‌العاده دقیق رفتار انسانی (تایپ، حرکت موس، مکث‌ها) و حل خودکار کپچاهای پیچیده تصویری و ریاضی. مدیریت بهینه Context مرورگر برای جلوگیری از نشت حافظه.
-*   **احراز هویت امن‌تر:** JWT در کوکی `httpOnly` نگهداری می‌شود و فرانت‌اند فقط اطلاعات غیرحساس کاربر را در localStorage ذخیره می‌کند. (با فعالسازی HTTPS، `AUTH_COOKIE_SECURE=true` را تنظیم کنید).
-*   **سرعت بالا و بهینه‌سازی شده:** تزریق مستقیم موقعیت‌های جغرافیایی روی نقشه و حذف تاخیرهای استاتیک جهت تسریع بی‌نظیر صدور بارنامه. بهینه‌سازی مدیریت تراکنش‌های دیتابیس.
-*   **تاب‌آوری هوشمند:** بازیابی خودکار عملیات متوقف شده (Self-Healing) و مقاومت در برابر قطعی‌های موقت شبکه یا اختلال در مرورگر. رفع مشکل تداخل Event Loop در Workerها.
+### Required ML Assets
+- `persian_number_ocr.keras` (root — Keras OCR for fuel captcha)
+- `app/automation/captcha/assets/captcha_cnn.pth` (login math CNN)
+- `app/automation/captcha/assets/fuel_captcha_crnn.pth` (fuel CRNN)
+- `app/automation/captcha/assets/fuel_captcha_vocab.json` (CRNN vocab)
 
-### 🚦 راه اندازی سریع
-
-1.  **نصب وابستگی‌های پایتون:** 
-    ```bash
-    python3 -m venv .venv
-    source .venv/bin/activate
-    pip install -r requirements.txt
-    ```
-2.  **نصب مرورگر مورد نیاز ربات:** `playwright install chromium`
-3.  **نصب وابستگی‌های رابط کاربری (Frontend):** `cd apps/web && npm install`
-4.  **اجرای سیستم:** 
-    ```bash
-    # راه‌اندازی کل سرویس‌ها با اسکریپت مدیریت
-    bash manage.sh start
-    ```
+### Remaining Server-Side Actions
+- [ ] Install Let's Encrypt cert → uncomment `listen 443` in nginx.conf → set `AUTH_COOKIE_SECURE=true`
+- [ ] Run `bash manage.sh migrate` on production DB
+- [ ] Run `sudo bash scripts/secure_squid_ports.sh` (lock down Squid 3129/3130)
+- [ ] Add to crontab: `@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh`
+- [ ] Run PostgreSQL optimization indexes (see `CRITICAL_RULES.md`)
 
 ---
-*For extensive architecture and operational documentation, please refer to the `docs/` folder.*
 
-## Current Server Readiness Notes
+## 📁 Project Structure
 
-- Frontend and backend Docker images build from a clean checkout; `.next/standalone` no longer needs to be uploaded manually.
-- Current HTTP deployment must keep `AUTH_COOKIE_SECURE=false`; after enabling HTTPS, set `AUTH_COOKIE_SECURE=true`.
-- Required runtime ML assets are `persian_number_ocr.keras`, `app/automation/captcha/assets/fuel_captcha_crnn.pth`, and `app/automation/captcha/assets/fuel_captcha_vocab.json`.
-- Current Alembic head is `015_add_client_subscription_dates`.
-- **Nginx HTTPS Enabled**: The Nginx configuration has been updated to enable HTTPS and redirect HTTP traffic. Ensure SSL certificates (`fullchain.pem` and `privkey.pem`) are properly configured in `/etc/nginx/ssl/` on your server.
+```
+BarPro/
+├── app/                    # Backend (FastAPI)
+│   ├── api/                # Route handlers
+│   ├── automation/         # RPA engine (browser, captcha, proxy)
+│   ├── core/               # Config, database, redis, security, rate_limiter
+│   ├── models/             # SQLModel database models
+│   ├── bot/                # Smart locators + captcha interception
+│   ├── services/           # Business logic layer
+│   ├── workers/            # Celery tasks
+│   ├── realtime/           # WebSocket + Redis pub/sub event hub
+│   └── rpa/                # RPA services (auth, submit, scheduler)
+├── apps/web/               # Frontend (Next.js 15)
+│   └── src/
+│       ├── app/            # App Router pages
+│       ├── components/     # Shared React components
+│       ├── hooks/          # Custom hooks (useWaybillJob, etc.)
+│       ├── lib/            # Utilities (api, auth, plate, format)
+│       └── schemas/        # Zod validation schemas
+├── compose/                # Docker Compose layered files
+├── infra/                  # Nginx, Squid, Prometheus configs
+├── alembic/                # Database migrations
+├── tests/                  # Pytest test suite (414+ tests)
+├── scripts/                # Utility and deploy scripts
+├── CRITICAL_RULES.md       # ⚠️ خطوط قرمز و قوانین حیاتی
+├── AGENTS.md               # AI agent guide
+└── manage.sh               # System management script
+```
+
+---
+
+## 🔐 Security Notes
+
+- **Never hardcode credentials** — use `.env` only
+- **Never commit `.env`** — it's in `.gitignore`
+- **JWT_SECRET** must be ≥32 characters
+- **AUTH_COOKIE_SECURE** must be `false` on HTTP, `true` after HTTPS
+- **Prometheus** port 9090 is internal-only (`expose`, not `ports`)
+- See **[CRITICAL_RULES.md](./CRITICAL_RULES.md)** for complete security requirements
+
+---
+
+## 📄 Documentation Index
+
+| Document | Contents |
+|----------|----------|
+| [CRITICAL_RULES.md](./CRITICAL_RULES.md) | ⚠️ خطوط قرمز — must read before any change |
+| [AGENTS.md](./AGENTS.md) | AI agent guide with full architecture overview |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Detailed system architecture |
+| [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) | Step-by-step deployment |
+| [ISSUES.md](./ISSUES.md) | Known issues and status |
+| [.env.example](./.env.example) | Environment variables template |
+
+---
+
+*For Persian documentation, see the فارسی section below.*
+
+## 🇮🇷 راهنمای فارسی
+
+**BarPro** یک فریم‌ورک پیشرفته و صنعتی برای خودکارسازی فرآیندهای ثبت بارنامه در سامانه کشوری UTCMS است. این سیستم با معماری مدرن چند مستاجره، پایداری عملیات در مقیاس سازمانی را تضمین می‌کند.
+
+### ویژگی‌های کلیدی
+- معماری چند مستاجره با جداسازی کامل داده
+- موتور RPA با شبیه‌سازی رفتار انسانی و حل خودکار کپچا
+- JWT در کوکی httpOnly — امنیت بالا در برابر XSS
+- Rate Limiter fail-closed — بسته شدن در صورت قطع Redis
+- بازیابی خودکار jobهای stuck
+- هدف: ≥414 تست پاس شده، 0 شکست
+
+### راه‌اندازی سریع
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+playwright install chromium
+cp .env.example .env   # تنظیم متغیرهای محیطی
+bash manage.sh start
+```
+
+> **پیش از هر تغییر:** [CRITICAL_RULES.md](./CRITICAL_RULES.md) را مطالعه کنید.

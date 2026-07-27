@@ -11,7 +11,7 @@ Provides:
 
 import logging
 from collections import defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
 from sqlalchemy import case, func
@@ -498,6 +498,66 @@ class UserReportingService:
                 }
             )
         return output
+
+    async def daily_summary(
+        self,
+        client_id: int,
+        days: int,
+        session: AsyncSession,
+    ) -> dict[str, Any]:
+        """Return per-day job statistics for the given client, backfilled over *days* days."""
+        days = max(1, min(days, 90))
+        today = datetime.now(UTC).replace(tzinfo=None).date()
+        start_date = today - timedelta(days=days - 1)
+
+        stmt = (
+            select(
+                func.date(WaybillJob.created_at).label("report_date"),
+                WaybillJob.status,
+                func.count(WaybillJob.id).label("job_count"),
+            )
+            .where(
+                (WaybillJob.client_id == client_id)
+                & (WaybillJob.created_at >= datetime.combine(start_date, time.min))
+                & (WaybillJob.created_at <= datetime.combine(today, time.max))
+            )
+            .group_by(func.date(WaybillJob.created_at), WaybillJob.status)
+            .order_by(func.date(WaybillJob.created_at).desc())
+        )
+
+        result = await session.exec(stmt)
+        rows = result.all()
+
+        per_day: dict[str, dict[str, int]] = {}
+        for report_date, status_value, job_count in rows:
+            day_key = report_date.isoformat() if hasattr(report_date, "isoformat") else str(report_date)
+            stats = per_day.setdefault(day_key, {"total": 0, "success": 0, "failed": 0, "pending": 0})
+            count_int = int(job_count or 0)
+            stats["total"] += count_int
+
+            if status_value == TaskStatus.SUCCESS.value:
+                stats["success"] += count_int
+            elif status_value in {TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.NEEDS_REVIEW.value}:
+                stats["failed"] += count_int
+            else:
+                stats["pending"] += count_int
+
+        summary = []
+        for i in range(days):
+            date_value = today - timedelta(days=i)
+            date_key = date_value.isoformat()
+            day_stats = per_day.get(date_key, {})
+            summary.append(
+                {
+                    "date": date_key,
+                    "total": day_stats.get("total", 0),
+                    "success": day_stats.get("success", 0),
+                    "failed": day_stats.get("failed", 0),
+                    "pending": day_stats.get("pending", 0),
+                }
+            )
+
+        return {"client_id": client_id, "summary": summary}
 
     async def dashboard_stats(
         self,

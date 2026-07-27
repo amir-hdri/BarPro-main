@@ -34,6 +34,9 @@ async def test_enqueue_inline_and_reuse_idempotency():
     with (
         patch("app.services.task_service.engine", test_engine),
         patch("app.core.config.utcms_config.QUEUE_ENABLED", False),
+        patch("app.services.task_service.task_service._emit_task_event", new=AsyncMock()),
+        patch("app.services.task_service.task_service._sync_queue_depth", new=AsyncMock()),
+        patch("app.services.task_service.task_service._ensure_queue_depth_seeded", new=AsyncMock()),
         patch(
             "app.services.waybill_service.waybill_service.create_waybill_with_map",
             new=AsyncMock(
@@ -71,6 +74,9 @@ async def test_enqueue_fails_when_queue_unavailable_and_no_inline_fallback():
         patch("app.services.task_service.engine", test_engine),
         patch("app.core.config.utcms_config.QUEUE_ENABLED", True),
         patch("app.core.config.utcms_config.QUEUE_INLINE_FALLBACK", False),
+        patch("app.services.task_service.task_service._emit_task_event", new=AsyncMock()),
+        patch("app.services.task_service.task_service._sync_queue_depth", new=AsyncMock()),
+        patch("app.services.task_service.task_service._ensure_queue_depth_seeded", new=AsyncMock()),
         patch("app.queue.queue_manager.dispatch_waybill_task", side_effect=RuntimeError("broker-down")),
     ):
         with pytest.raises(HTTPException) as exc:

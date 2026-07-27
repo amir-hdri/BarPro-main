@@ -47,6 +47,10 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         mock_loc.wait_for = AsyncMock()
         mock.locator.return_value = mock_loc
 
+        # page.on() is synchronous in Playwright — MagicMock prevents
+        # RuntimeWarning "coroutine 'AsyncMockMixin._execute_mock_call' was never awaited"
+        mock.on = MagicMock()
+
         return mock
 
     def _setup_patches(self):

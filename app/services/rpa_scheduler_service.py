@@ -50,8 +50,7 @@ class RPASchedulerService:
         correlation_id: str | None = None,
         idempotency_key: str | None = None,
     ) -> WaybillJob:
-        session = async_session_factory()
-        try:
+        async with async_session_factory() as session:
             normalized_key = build_job_idempotency_key(client_id, driver.id, payload, supplied=idempotency_key)
             existing = (
                 await session.exec(
@@ -74,7 +73,7 @@ class RPASchedulerService:
                 driver_id=driver.id,
                 status=TaskStatus.PENDING.value,
                 source=source.value,
-                payload_json=json.dumps(payload, ensure_ascii=False),
+                payload_json=payload,
                 max_retries=max_retries,
                 correlation_id=(correlation_id or f"corr_{uuid.uuid4().hex[:16]}"),
                 business_date=business_date_str(),
@@ -89,12 +88,9 @@ class RPASchedulerService:
             await session.commit()
             await session.refresh(job)
             return job
-        finally:
-            await session.close()
 
     async def plan_due_jobs(self, *, persist: bool = True) -> list[SchedulerDecision]:
-        session = async_session_factory()
-        try:
+        async with async_session_factory() as session:
             # CRITICAL: Use SELECT FOR UPDATE SKIP LOCKED to prevent race conditions
             # when multiple scheduler instances (Beat + workers) run concurrently.
             # This ensures only one scheduler can pick up each job atomically.
@@ -231,13 +227,10 @@ class RPASchedulerService:
             if persist:
                 await session.commit()
             return decisions
-        finally:
-            await session.close()
 
     async def cleanup_stuck_jobs(self) -> int:
         """Detect and recover jobs stuck in QUEUED, IN_PROGRESS, WAITING_AUTH, WAITING_RETRY, or OTP_BACKOFF status."""
-        session = async_session_factory()
-        try:
+        async with async_session_factory() as session:
             now = datetime.now(UTC).replace(tzinfo=None)
             queued_cutoff = now - timedelta(minutes=15)
             in_progress_cutoff = now - timedelta(minutes=30)
@@ -268,7 +261,7 @@ class RPASchedulerService:
                 # by checking for tracking_code in result_json
                 if job.result_json:
                     try:
-                        result_data = json.loads(job.result_json)
+                        result_data = job.result_json  # already deserialized by SQLAlchemy JSON/JSONB
                         if result_data.get("tracking_code"):
                             logger.warning(
                                 "stuck_job_already_has_tracking_code_skipping_recovery",
@@ -336,8 +329,6 @@ class RPASchedulerService:
 
             await session.commit()
             return count
-        finally:
-            await session.close()
 
     async def _ensure_runtime_state(self, session, client_id: int, driver_id: int) -> DriverRuntimeState:
         state = (

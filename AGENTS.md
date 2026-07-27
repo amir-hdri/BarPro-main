@@ -1,5 +1,7 @@
 # BarPro — Agent Guide
 
+> **📋 See also: [CRITICAL_RULES.md](./CRITICAL_RULES.md)** — خطوط قرمز و الزامات فنی حیاتی پروژه
+
 ## Project Identity
 
 **BarPro** is a multi-tenant RPA (Robotic Process Automation) framework for automated waybill (بارنامه) registration on Iran's national transportation portal (barname.utcms.ir). It uses Playwright-driven browser automation with CAPTCHA solving (CNN/PyTorch fuel CRNN/Keras OCR), smart proxy rotation (Squid), and human-behavior simulation.
@@ -471,9 +473,23 @@ ON waybill_jobs (status) INCLUDE (id);
 | Upgraded steps 2 & 3 in New Waybill page (`apps/web/src/app/new/page.tsx`) with interactive map, favorite address picker, cascading dropdowns, and passing exact `coordinates` in payload | `apps/web/src/app/new/page.tsx` |
 | Added automated tests for location API and smart address parsing | `tests/test_location_api.py` |
 
+### Additional Fixes Applied (2026-07-27) — Security Hardening & Test Quality
+
+| Change | File(s) |
+|--------|---------|
+| `JSONB → JSON` dialect-agnostic import — SQLite-based tests can now run `SQLModel.metadata.create_all` | `app/models_multitenant.py` |
+| Fixed double `json.loads()` on already-deserialized JSONB columns (TypeError was silently swallowed) | `app/services/fuel_inquiry_service.py`, `app/services/rpa_scheduler_service.py` |
+| Fixed X-Forwarded-For spoofing — rate limiter now uses `request.client.host` (Nginx-set), ignores spoofable header | `app/core/rate_limiter.py` |
+| Token blacklist fail-closed — `is_blacklisted()` returns `True` (not `False`) when Redis is unavailable | `app/core/token_blacklist.py` |
+| Auth cookie `max_age` now uses `JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60` (was hardcoded 86400) | `app/api/routes/multitenant.py` |
+| Rate limit rule covers `/api/v1/auth/login` and `/api/v1/auth/register` | `app/main.py` |
+| Fixed `mock_page.on = MagicMock()` in browser and waybill tests — Playwright `page.on()` is synchronous | `tests/test_browser_manager.py`, `tests/test_enhanced_waybill_manager.py` |
+| Fixed SQLModel false-positive DeprecationWarning — DML uses `conn = await session.connection()` | `app/services/fuel_inquiry_service.py` |
+| JWT test fixtures use ≥32-byte keys to eliminate `InsecureKeyLengthWarning` | `tests/test_master_admin.py`, `tests/test_multitenant_auth.py` |
+| Created `CRITICAL_RULES.md` — comprehensive technical red lines and mandatory requirements | `CRITICAL_RULES.md` (new) |
+| Updated `README.md` — current test status (414 passed), architecture, security notes, doc index | `README.md` |
+| Updated `.gitignore` — added debug scripts, temp files, large binaries | `.gitignore` |
+
 ---
 
-*Last updated: 2026-07-21 · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*
-
-
-
+*Last updated: 2026-07-27 · Tests: 414 passed, 4 skipped, 0 failed · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*

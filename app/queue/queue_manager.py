@@ -18,8 +18,16 @@ class WaybillQueueManager:
     async def enqueue_waybill(
         self,
         request: WaybillMapRequest,
+        client_id: int = 1,
+        driver_id: int | None = None,
         idempotency_key: str | None = None,
     ) -> EnqueueWaybillResponse:
+        """Enqueue a waybill task.
+
+        The ``client_id`` parameter defaults to ``1`` for legacy (pre-multi-tenant)
+        API routes that use ``require_sensitive_auth`` (API key). Multi-tenant
+        routes should always pass the authenticated client's ID explicitly.
+        """
         payload = request.model_dump()
         payload["correlation_id"] = (payload.get("correlation_id") or generate_correlation_id()).strip()
         payload["batch_id"] = (
@@ -29,19 +37,25 @@ class WaybillQueueManager:
         task, reused = await task_service.create_or_get_task(
             payload=payload,
             idempotency_key=normalized_key,
+            client_id=client_id,
+            driver_id=driver_id,
             max_retries=utcms_config.CELERY_MAX_RETRIES,
         )
 
         if reused:
+            task_id = task["task_id"] if isinstance(task, dict) else task.task_id
+            idempotency_key = task["idempotency_key"] if isinstance(task, dict) else task.idempotency_key
+            status_val = task["status"] if isinstance(task, dict) else task.status
+            celery_task_id = task.get("celery_task_id") if isinstance(task, dict) else getattr(task, "celery_task_id", None)
             return EnqueueWaybillResponse(
-                task_id=task.task_id,
-                idempotency_key=task.idempotency_key,
+                task_id=task_id,
+                idempotency_key=idempotency_key,
                 correlation_id=payload["correlation_id"],
                 priority=int(payload.get("priority", utcms_config.CELERY_DEFAULT_PRIORITY)),
-                status=TaskStatus(task.status),
-                queued=task.status in {TaskStatus.QUEUED.value, TaskStatus.RETRYING.value, TaskStatus.PROCESSING.value},
+                status=TaskStatus(status_val),
+                queued=status_val in {TaskStatus.QUEUED.value, TaskStatus.RETRYING.value, TaskStatus.PROCESSING.value},
                 reused=True,
-                celery_task_id=task.celery_task_id,
+                celery_task_id=celery_task_id,
             )
 
         if utcms_config.QUEUE_ENABLED:

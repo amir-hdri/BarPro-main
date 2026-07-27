@@ -2,19 +2,19 @@
 
 import { memo, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { MagnifyingGlassIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
+import { ChevronDownIcon } from "@heroicons/react/24/outline";
 
 interface City {
   name: string;
-  lat: float;
-  lng: float;
+  lat: number;
+  lng: number;
 }
 
 interface Province {
   name: string;
   capital: string;
-  lat: float;
-  lng: float;
+  lat: number;
+  lng: number;
   cities_count: number;
 }
 

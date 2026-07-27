@@ -260,7 +260,7 @@ class UTCMSConfig:
                 status_code=500,
             )
 
-        self.JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
+        self.JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "240"))
 
         self.DRIVER_ENCRYPTION_KEY = os.getenv("DRIVER_ENCRYPTION_KEY", "")
         if not self.DRIVER_ENCRYPTION_KEY or self.DRIVER_ENCRYPTION_KEY in [

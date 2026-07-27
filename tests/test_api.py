@@ -175,7 +175,22 @@ def test_worker_heartbeats_endpoint():
 
 @patch("app.main.init_db", new_callable=AsyncMock)
 @patch("app.automation.browser.browser_manager.close", new_callable=AsyncMock)
-def test_lifespan(mock_close, mock_init_db):
+@patch("app.core.distributed_traffic.distributed_traffic_controller.initialize", new_callable=AsyncMock)
+@patch("app.core.distributed_traffic.distributed_traffic_controller.close", new_callable=AsyncMock)
+@patch("app.realtime.events.event_hub.start_subscriber")
+@patch("app.realtime.events.event_hub.stop_subscriber", new_callable=AsyncMock)
+@patch("app.services.task_service.task_service._ensure_queue_depth_seeded", new_callable=AsyncMock)
+@patch("app.core.rate_limiter.rate_limiter.close", new_callable=AsyncMock)
+def test_lifespan(
+    mock_close_rl,
+    mock_seed,
+    mock_stop_sub,
+    mock_start_sub,
+    mock_dc_close,
+    mock_dc_init,
+    mock_close,
+    mock_init_db,
+):
     with TestClient(app):
         pass
     mock_init_db.assert_called()

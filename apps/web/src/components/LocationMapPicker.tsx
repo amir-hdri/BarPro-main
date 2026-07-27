@@ -117,6 +117,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
         leafletMap.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleGeocode = async (lat: number, lng: number) => {

@@ -12,19 +12,16 @@ All endpoints enforce tenant isolation - clients can only access their own data.
 """
 
 import logging
-from datetime import UTC, datetime, time, timedelta
-
-from fastapi import APIRouter, Body, Depends, Query, UploadFile, status
+from fastapi import APIRouter, Body, Depends, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPBearer
-from sqlmodel import case, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth_multitenant import get_current_admin, get_current_client, get_current_user_or_admin
 from app.automation.fuel_scraper import FUEL_SCREENSHOTS_DIR
 from app.core.config import utcms_config
 from app.core.database import get_session
-from app.models_multitenant import Client, Driver, TaskSource, TaskStatus, WaybillJob
+from app.models_multitenant import Client, TaskSource
 from app.schemas.multitenant import (
     AdminClientUpdateRequest,
     AdminLoginRequest,
@@ -58,13 +55,12 @@ from app.schemas.multitenant import (
 )
 from app.services.excel_upload_service import ExcelUploadService
 from app.services.fuel_inquiry_service import fuel_inquiry_service
-from app.services.multitenant_service import (
-    ClientService,
-    DriverScheduleService,
-    DriverService,
-    PlateService,
-    WaybillJobService,
-)
+from app.services.client_service import ClientService
+from app.services.driver_schedule_service import DriverScheduleService
+from app.services.driver_service import DriverService
+from app.services.plate_service import PlateService
+from app.services.user_reporting_service import user_reporting_service
+from app.services.waybill_job_service import WaybillJobService
 
 logger = logging.getLogger(__name__)
 
@@ -109,12 +105,13 @@ async def login_client(
     The token is used for all subsequent API calls to enforce tenant isolation.
     """
     result = await ClientService.login_client(request, session)
+    jwt_ttl_seconds = utcms_config.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
         value=result["access_token"],
         httponly=True,
-        max_age=86400,
-        expires=86400,
+        max_age=jwt_ttl_seconds,
+        expires=jwt_ttl_seconds,
         samesite="lax",
         secure=_auth_cookie_secure(),
         path="/",
@@ -129,12 +126,13 @@ async def login_master_admin(
 ):
     """Authenticate the singleton master admin account."""
     result = await ClientService.login_master_admin(request)
+    jwt_ttl_seconds = utcms_config.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
         value=result["access_token"],
         httponly=True,
-        max_age=86400,
-        expires=86400,
+        max_age=jwt_ttl_seconds,
+        expires=jwt_ttl_seconds,
         samesite="lax",
         secure=_auth_cookie_secure(),
         path="/",
@@ -143,8 +141,35 @@ async def login_master_admin(
 
 
 @router.post("/auth/logout")
-async def logout_client(response: Response):
-    """Log out the current user/admin and clear the authentication cookie."""
+async def logout_client(request: Request, response: Response):
+    """Log out the current user/admin and blacklist the JWT token server-side."""
+    # Extract token from Authorization header or cookie for blacklisting
+    from app.auth_multitenant import _decode_jwt
+    from app.core.token_blacklist import blacklist_token
+    from jwt.exceptions import PyJWTError as JWTError
+
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.lower().startswith("bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        token = request.cookies.get(AUTH_COOKIE_NAME)
+
+    if token:
+        try:
+            payload = _decode_jwt(token)
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti and exp:
+                # PyJWT returns exp as a Unix timestamp (int)
+                from datetime import UTC, datetime
+
+                expires_at = datetime.fromtimestamp(int(exp), tz=UTC)
+                await blacklist_token(jti, expires_at)
+        except (JWTError, Exception):
+            # If decoding fails, the token is already invalid — nothing to blacklist
+            logger.debug("logout_token_blacklist_skipped", exc_info=True)
+
     response.delete_cookie(
         key=AUTH_COOKIE_NAME,
         samesite="lax",
@@ -662,58 +687,7 @@ async def get_daily_summary(
     Returns aggregated statistics for the specified number of days.
     Uses func.date(created_at) for SQLite/PostgreSQL compatibility.
     """
-    days = max(1, min(days, 90))
-    today = datetime.now(UTC).replace(tzinfo=None).date()
-    start_date = today - timedelta(days=days - 1)
-
-    stmt = (
-        select(
-            func.date(WaybillJob.created_at).label("report_date"),
-            WaybillJob.status,
-            func.count(WaybillJob.id).label("job_count"),
-        )
-        .where(
-            (WaybillJob.client_id == client.id)
-            & (WaybillJob.created_at >= datetime.combine(start_date, time.min))
-            & (WaybillJob.created_at <= datetime.combine(today, time.max))
-        )
-        .group_by(func.date(WaybillJob.created_at), WaybillJob.status)
-        .order_by(func.date(WaybillJob.created_at).desc())
-    )
-
-    result = await session.exec(stmt)
-    rows = result.all()
-
-    per_day: dict[str, dict[str, int]] = {}
-    for report_date, status_value, job_count in rows:
-        day_key = report_date.isoformat() if hasattr(report_date, "isoformat") else str(report_date)
-        stats = per_day.setdefault(day_key, {"total": 0, "success": 0, "failed": 0, "pending": 0})
-        count_int = int(job_count or 0)
-        stats["total"] += count_int
-
-        if status_value == TaskStatus.SUCCESS.value:
-            stats["success"] += count_int
-        elif status_value in {TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.NEEDS_REVIEW.value}:
-            stats["failed"] += count_int
-        else:
-            stats["pending"] += count_int
-
-    summary = []
-    for i in range(days):
-        date_value = today - timedelta(days=i)
-        date_key = date_value.isoformat()
-        day_stats = per_day.get(date_key, {})
-        summary.append(
-            {
-                "date": date_key,
-                "total": day_stats.get("total", 0),
-                "success": day_stats.get("success", 0),
-                "failed": day_stats.get("failed", 0),
-                "pending": day_stats.get("pending", 0),
-            }
-        )
-
-    return {"client_id": client.id, "summary": summary}
+    return await user_reporting_service.daily_summary(client.id, days, session)
 
 
 @router.get("/reports/driver-performance")
@@ -725,74 +699,20 @@ async def get_driver_performance(
     Get driver performance report.
 
     Shows success rate and job counts for each driver.
-    Uses aggregate query to avoid N+1 problem.
+    Delegates to UserReportingService.driver_performance().
     """
-    # Fetch all drivers for this client
-    drivers_stmt = select(Driver).where(Driver.client_id == client.id)
-    drivers_result = await session.exec(drivers_stmt)
-    drivers = drivers_result.all()
-
-    if not drivers:
-        return {"client_id": client.id, "drivers": []}
-
-    driver_ids = [d.id for d in drivers]
-
-    # Single aggregate query for all driver job statistics
-    success_statuses = [TaskStatus.SUCCESS.value]
-    failed_statuses = [
-        TaskStatus.FAILED.value,
-        TaskStatus.DEAD_LETTER.value,
-        TaskStatus.NEEDS_REVIEW.value,
-    ]
-
-    jobs_agg_stmt = (
-        select(
-            WaybillJob.driver_id,
-            func.count(WaybillJob.id).label("total"),
-            func.count(
-                case(
-                    (WaybillJob.status.in_(success_statuses), WaybillJob.id),
-                    else_=None,
-                )
-            ).label("success"),
-            func.count(
-                case(
-                    (WaybillJob.status.in_(failed_statuses), WaybillJob.id),
-                    else_=None,
-                )
-            ).label("failed"),
-        )
-        .where((WaybillJob.client_id == client.id) & (WaybillJob.driver_id.in_(driver_ids)))
-        .group_by(WaybillJob.driver_id)
-    )
-
-    agg_result = await session.exec(jobs_agg_stmt)
-    stats_by_driver: dict[int, dict] = {
-        row.driver_id: {
-            "total": int(row.total or 0),
-            "success": int(row.success or 0),
-            "failed": int(row.failed or 0),
-        }
-        for row in agg_result.all()
-    }
-
+    drivers_data = await user_reporting_service.driver_performance(client, session, page=1, page_size=1000)
     performance = []
-    for driver in drivers:
-        stats = stats_by_driver.get(driver.id, {"total": 0, "success": 0, "failed": 0})
-        total = stats["total"]
-        success = stats["success"]
-        failed = stats["failed"]
-        success_rate = (success / total * 100) if total > 0 else 0.0
-
+    for d in drivers_data:
         performance.append(
             {
-                "driver_id": driver.id,
-                "driver_name": driver.full_name,
-                "national_code": driver.driver_national_code,
-                "total_jobs": total,
-                "success": success,
-                "failed": failed,
-                "success_rate": round(success_rate, 2),
+                "driver_id": d["driver_id"],
+                "driver_name": d["driver_name"],
+                "national_code": d["national_code"],
+                "total_jobs": d["total_jobs"],
+                "success": d["success_jobs"],
+                "failed": d["failed_jobs"],
+                "success_rate": d["success_rate"],
             }
         )
 

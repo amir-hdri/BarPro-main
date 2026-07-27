@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -31,8 +31,9 @@ async def test_get_current_client_uses_async_session():
         await session.refresh(client)
 
         with (
-            patch("app.auth_multitenant.utcms_config.JWT_SECRET", "test-secret"),
+            patch("app.auth_multitenant.utcms_config.JWT_SECRET", "test-secret-key-32bytes-padding00"),
             patch("app.auth_multitenant.utcms_config.JWT_ALGORITHM", "HS256"),
+            patch("app.auth_multitenant.is_blacklisted", new=AsyncMock(return_value=False)),
         ):
             token = create_access_token(client.id, client.client_code, client.email)
             credentials = type("Creds", (), {"credentials": token})()

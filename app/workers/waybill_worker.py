@@ -273,7 +273,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                         step="otp_backoff",
                         status="waiting_retry",
                         message=f"OTP detected. Retrying in {retry_minutes} minutes.",
-                        details_json=json.dumps(result, ensure_ascii=False),
+                        details_json=result,
                     )
                     await _record_event(
                         session=session,
@@ -297,7 +297,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                         result["error_category"] = "submission_unconfirmed"
                     else:
                         job.status = TaskStatus.SUCCESS.value
-                        job.result_json = json.dumps(result_payload, ensure_ascii=False)
+                        job.result_json = result_payload
                         job.finished_at = now
                         job.last_error = None
                         job.error_category = None
@@ -315,7 +315,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                             step="complete",
                             status="success",
                             message="Waybill registered successfully",
-                            details_json=json.dumps(result_payload, ensure_ascii=False),
+                            details_json=result_payload,
                         )
                         await _record_event(
                             session=session,
@@ -370,7 +370,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                         step="retry_scheduled",
                         status="waiting_retry",
                         message=f"Retry scheduled for {retry_at.isoformat()} (attempt {job.attempt_count}/{job.max_retries})",
-                        details_json=json.dumps(result, ensure_ascii=False),
+                        details_json=result,
                     )
                     await _record_event(
                         session=session,
@@ -417,7 +417,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                     step="failed",
                     status="failed",
                     message=result.get("error", "Failed"),
-                    details_json=json.dumps(result.get("steps", []), ensure_ascii=False),
+                    details_json=result.get("steps", []),
                 )
                 await _record_event(
                     session=session,

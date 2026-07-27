@@ -13,8 +13,8 @@ interface FavoriteLocation {
   address: string;
   latitude?: number;
   longitude?: number;
-  is_origin: bool;
-  is_destination: bool;
+  is_origin: boolean;
+  is_destination: boolean;
 }
 
 interface FavoriteLocationPickerProps {
@@ -39,7 +39,7 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
   onSelectFavorite,
 }: FavoriteLocationPickerProps) {
   const [favorites, setFavorites] = useState<FavoriteLocation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [_loading, setLoading] = useState(true);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [saving, setSaving] = useState(false);

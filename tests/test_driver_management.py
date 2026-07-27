@@ -38,8 +38,10 @@ async def test_driver_limit():
         token = create_access_token(client.id, client.client_code, client.email)
         headers = {"Authorization": f"Bearer {token}"}
 
-        # Override get_session dependency
-        app.dependency_overrides[get_session] = lambda: session
+        async def _override_get_session():
+            yield session
+
+        app.dependency_overrides[get_session] = _override_get_session
 
         from fastapi.testclient import TestClient
 

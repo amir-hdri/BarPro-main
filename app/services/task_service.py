@@ -45,6 +45,8 @@ class WaybillTaskService:
         self,
         payload: dict[str, Any],
         idempotency_key: str,
+        client_id: int,
+        driver_id: int | None = None,
         max_retries: int | None = None,
     ) -> tuple[dict[str, Any], bool]:
         retries = utcms_config.CELERY_MAX_RETRIES if max_retries is None else max_retries
@@ -65,8 +67,8 @@ class WaybillTaskService:
                 payload_json=task_payload,
                 max_retries=max(0, int(retries)),
                 retryable=False,
-                client_id=1,  # Assuming a default client_id for legacy tasks, this needs to be properly handled for multi-tenancy
-                driver_id=1,  # Assuming a default driver_id for legacy tasks, this needs to be properly handled for multi-tenancy
+                client_id=client_id,
+                driver_id=driver_id,
                 source="legacy",
                 correlation_id=payload.get("correlation_id", generate_correlation_id()),
                 business_date=datetime.now(UTC).strftime("%Y-%m-%d"),
@@ -81,7 +83,7 @@ class WaybillTaskService:
                 existing = await self._find_by_idempotency_key(session, idempotency_key)
                 if existing:
                     await self._sync_queue_depth()
-                    return existing, True
+                    return self._to_public_dict(existing), True
                 raise
             await session.refresh(task)
             track_task_status(TaskStatus.QUEUED.value)

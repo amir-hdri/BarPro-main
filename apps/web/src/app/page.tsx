@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { AuthGuard } from "@/components/layout/AuthGuard";
 import { useSession } from "@/hooks/useSession";
+import { useWaybillJob } from "@/hooks/useWaybillJob";
 import { formatDateTime, statusLabel, statusTone, toPersianDigits, trackingCodeFromResult } from "@/lib/format";
 import type { ClientStats, WaybillJob } from "@/lib/types";
 import {
@@ -14,17 +15,19 @@ import {
   TruckIcon,
   CheckCircleIcon,
   XCircleIcon,
-
-  ChartBarIcon,
   UsersIcon,
   QueueListIcon,
+  FireIcon,
+  ChartBarIcon,
 } from "@heroicons/react/24/outline";
-import { Zap, ShieldCheck, XCircle } from "lucide-react";
+import { XCircle, Zap, ShieldCheck } from "lucide-react";
 
 export default function DashboardPage() {
   const { client } = useSession();
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const { lastEvent } = useWaybillJob();
 
   const {
     data: stats = {
@@ -77,6 +80,14 @@ export default function DashboardPage() {
     gcTime: 60000,
     enabled: !!client,
   });
+
+  // Auto refetch stats and jobs on real-time event
+  useEffect(() => {
+    if (lastEvent) {
+      void refetchJobs();
+      void refetchStats();
+    }
+  }, [lastEvent, refetchJobs, refetchStats]);
 
   async function handleRetry(jobId: string) {
     setRetryingJobId(jobId);
@@ -141,14 +152,14 @@ export default function DashboardPage() {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
                 </span>
-                Dashboard Overview
+                نمای کلی داشبورد عملیات
               </span>
               <h1 className="mt-6 lg:mt-10 text-4xl md:text-5xl lg:text-6xl font-black leading-[1.1] tracking-tight text-white animate-in fade-in slide-in-from-bottom-6">
                 مدیریت هوشمند <br className="hidden sm:block" />
                 <span className="bg-gradient-to-r from-cyan-400 via-blue-400 to-indigo-500 bg-clip-text text-transparent">عملیات بارنامه</span>
               </h1>
               <p className="mt-4 lg:mt-6 max-w-xl text-sm md:text-base lg:text-lg leading-relaxed text-slate-300 font-medium animate-in fade-in slide-in-from-bottom-8">
-                سیستم جامع مانیتورینگ ناوگان و تحلیل دقیق ثبت‌ها. عملیات خود را با بالاترین سرعت و دقت مدیریت کنید.
+                سیستم جامع مانیتورینگ ناوگان، استعلام خودکار سهمیه سوخت و ثبت آنلاین بارنامه‌ها با بالاترین سرعت و پایداری.
               </p>
               <div className="mt-8 md:mt-10 flex flex-wrap gap-4 animate-in fade-in slide-in-from-bottom-10">
                 <Link
@@ -157,6 +168,13 @@ export default function DashboardPage() {
                 >
                   <span className="absolute inset-0 bg-gradient-to-r from-cyan-400 to-blue-400 opacity-0 transition-opacity duration-300 group-hover:opacity-20"></span>
                   <span className="relative z-10 flex items-center gap-2">ثبت بارنامه جدید</span>
+                </Link>
+                <Link
+                  href="/fuel"
+                  className="inline-flex flex-1 sm:flex-none items-center justify-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 backdrop-blur-sm px-6 lg:px-8 py-3.5 lg:py-4 text-sm font-bold text-amber-300 transition-all hover:bg-amber-500/20 hover:border-amber-500/50 hover:shadow-lg active:scale-95"
+                >
+                  <FireIcon className="h-4 w-4" />
+                  استعلام سوخت
                 </Link>
                 <Link
                   href="/drivers"

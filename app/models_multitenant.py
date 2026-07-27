@@ -7,9 +7,11 @@ Each client has isolated access to their own drivers and waybill tasks.
 
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Column, DateTime, Index, Integer, Text, UniqueConstraint
-from sqlmodel import Field, SQLModel
+from sqlalchemy import JSON as JSONB  # dialect-agnostic: works on SQLite (tests) and PostgreSQL (prod)
+from sqlmodel import Field, Relationship, SQLModel
 
 # ==================== ENUMS ====================
 
@@ -107,8 +109,17 @@ class Client(SQLModel, table=True):
     max_daily_tasks: int = Field(default=100)
 
     # Metadata
-    metadata_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    metadata_json: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     notes: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+
+    # ORM relationships
+    drivers: list["Driver"] = Relationship(back_populates="client")
+    plates: list["DriverPlate"] = Relationship(back_populates="client")
+    schedules: list["DriverSchedule"] = Relationship(back_populates="client")
+    jobs: list["WaybillJob"] = Relationship(back_populates="client")
+    task_logs: list["WaybillTaskLog"] = Relationship(back_populates="client")
+    upload_batches: list["UploadBatch"] = Relationship(back_populates="client")
+    fuel_inquiries: list["FuelInquiry"] = Relationship(back_populates="client")
 
     # Timestamps
     created_at: datetime = Field(
@@ -161,11 +172,11 @@ class Driver(SQLModel, table=True):
     utcms_password_encrypted: str = Field(sa_column=Column(Text, nullable=False))
 
     # Default waybill information (stored as JSON)
-    default_payload_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    default_payload_json: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
 
     # Status & metadata
     status: str = Field(default=DriverStatus.ACTIVE.value, max_length=20, index=True)
-    metadata_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    metadata_json: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     runtime_status: str = Field(default=DriverStatus.ACTIVE.value, max_length=40, index=True)
     last_auth_at: datetime | None = Field(
         default=None,
@@ -176,6 +187,13 @@ class Driver(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )
     last_error_code: str | None = Field(default=None, max_length=64, index=True)
+
+    # ORM relationships
+    client: Client | None = Relationship(back_populates="drivers")
+    plates: list["DriverPlate"] = Relationship(back_populates="driver")
+    schedules: list["DriverSchedule"] = Relationship(back_populates="driver")
+    jobs: list["WaybillJob"] = Relationship(back_populates="driver")
+    fuel_inquiries: list["FuelInquiry"] = Relationship(back_populates="driver")
 
     # Timestamps
     created_at: datetime = Field(
@@ -215,6 +233,10 @@ class DriverPlate(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
 
+    # ORM relationships
+    client: Client | None = Relationship(back_populates="plates")
+    driver: Driver | None = Relationship(back_populates="plates")
+
 
 class DriverSchedule(SQLModel, table=True):
     """Auto waybill schedule definition per driver."""
@@ -238,7 +260,7 @@ class DriverSchedule(SQLModel, table=True):
     start_date: str | None = Field(default=None, max_length=10)
     end_date: str | None = Field(default=None, max_length=10)
     timezone: str = Field(default="Asia/Tehran", max_length=64)
-    payload_template_json: str = Field(sa_column=Column(Text, nullable=False))
+    payload_template_json: dict = Field(sa_column=Column(JSONB, nullable=False))
     is_active: bool = Field(default=True, sa_column=Column(Boolean, nullable=False, default=True))
     last_run_at: datetime | None = Field(
         default=None,
@@ -257,6 +279,10 @@ class DriverSchedule(SQLModel, table=True):
         default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
+
+    # ORM relationships
+    client: Client | None = Relationship(back_populates="schedules")
+    driver: Driver | None = Relationship(back_populates="schedules")
 
 
 class WaybillJob(SQLModel, table=True):
@@ -289,8 +315,8 @@ class WaybillJob(SQLModel, table=True):
     source: str = Field(default=TaskSource.MANUAL.value, max_length=20)
 
     # Waybill data (JSON payload)
-    payload_json: str = Field(sa_column=Column(Text, nullable=False))
-    result_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    payload_json: dict = Field(sa_column=Column(JSONB, nullable=False))
+    result_json: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     correlation_id: str | None = Field(default=None, max_length=128, index=True)
     business_date: str | None = Field(default=None, max_length=16, index=True)
     priority: int = Field(default=5, index=True)
@@ -337,6 +363,10 @@ class WaybillJob(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=False), nullable=True),
     )
 
+    # ORM relationships
+    client: Client | None = Relationship(back_populates="jobs")
+    driver: Driver | None = Relationship(back_populates="jobs")
+
 
 class WaybillTaskLog(SQLModel, table=True):
     """
@@ -358,7 +388,10 @@ class WaybillTaskLog(SQLModel, table=True):
     step: str = Field(max_length=100)  # e.g., "login", "captcha", "form_fill", "submit"
     status: str = Field(max_length=20)  # "success", "failed", "retry"
     message: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
-    details_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    details_json: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
+
+    # ORM relationship
+    client: Client | None = Relationship(back_populates="task_logs")
 
     # Timestamp
     created_at: datetime = Field(
@@ -391,7 +424,10 @@ class UploadBatch(SQLModel, table=True):
 
     # Processing status
     status: str = Field(default="processing", max_length=20)
-    errors_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    errors_json: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
+
+    # ORM relationship
+    client: Client | None = Relationship(back_populates="upload_batches")
 
     # Timestamps
     created_at: datetime = Field(
@@ -425,7 +461,11 @@ class FuelInquiry(SQLModel, table=True):
     error_message: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
 
     # Quota details (stored as a JSON string)
-    quota_data_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    quota_data_json: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
+
+    # ORM relationships
+    client: Client | None = Relationship(back_populates="fuel_inquiries")
+    driver: Driver | None = Relationship(back_populates="fuel_inquiries")
 
     # Path or URL to screenshot of the fuel quota page
     screenshot_url: str | None = Field(default=None, sa_column=Column(Text, nullable=True))

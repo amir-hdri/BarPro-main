@@ -242,7 +242,7 @@ async def request_context_middleware(request: Request, call_next):
 
     rate_rule = "public"
     # Order matters: first match wins
-    if any(path.startswith(p) for p in ("/api/v1/admin/login", "/admin/login")):
+    if any(path.startswith(p) for p in ("/api/v1/admin/login", "/admin/login", "/api/v1/auth/login", "/api/v1/auth/register")):
         rate_rule = "auth"
     elif any(path.startswith(p) for p in ("/api/v1/admin", "/admin", "/management")):
         rate_rule = "admin"

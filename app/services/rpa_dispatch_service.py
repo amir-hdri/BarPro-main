@@ -95,9 +95,8 @@ class RPADispatchService:
         self,
         decisions: Iterable[SchedulerDecision],
     ) -> list[dict[str, Any]]:
-        session = async_session_factory()
         dispatched: list[dict[str, Any]] = []
-        try:
+        async with async_session_factory() as session:
             for decision in decisions:
                 try:
                     job = (
@@ -134,8 +133,6 @@ class RPADispatchService:
                     )
                     dispatched.append({"job_id": decision.job_id, "queue_name": decision.queue_name, "status": "failed", "error": str(exc)})
             return dispatched
-        finally:
-            await session.close()
 
     async def dispatch_phase1_submit_now(
         self,
@@ -186,9 +183,9 @@ class RPADispatchService:
             return {"job_id": job.job_id, "queue_name": queue_name, "status": "skipped"}
 
         try:
-            from app.core.circuit_breaker import get_routed_queue
+            from app.core.circuit_breaker import get_routed_queue_async
 
-            routed_queue = get_routed_queue(queue_name)
+            routed_queue = await get_routed_queue_async(queue_name)
             result = celery_app.send_task(task_name, args=args, queue=routed_queue)
             job.celery_task_id = getattr(result, "id", None)
             job.updated_at = datetime.now(UTC).replace(tzinfo=None)
@@ -277,7 +274,7 @@ class RPADispatchService:
                 step=step,
                 status=status,
                 message=message,
-                details_json=json.dumps(payload, ensure_ascii=False),
+                details_json=payload,
             )
         )
         await session.commit()

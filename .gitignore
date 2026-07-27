@@ -82,3 +82,22 @@ PERSIAN_OCR_USAGE.md
 app/frontend/
 PROJECT.md
 apps/web/yarn.lock
+
+# Debug & scratch scripts
+check_options.py
+check_options2.py
+dump_html.py
+error_page.html
+error_page.png
+waybill_map_error.png
+fuel_fill_*.png
+rpa_inspector.log
+
+# Runtime state directories
+runtime/
+
+# Large binary/model files tracked separately
+# (persian_number_ocr.keras kept via negation above)
+gym-app-final.tar.gz
+frontend-build.tar.gz
+frontend-slim-build.tar.gz

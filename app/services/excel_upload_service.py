@@ -185,7 +185,7 @@ class ExcelUploadService:
             batch.valid_rows = len(jobs_created)
             batch.invalid_rows = invalid_rows + (len(valid_rows) - len(jobs_created))
             batch.status = "completed"
-            batch.errors_json = json.dumps(errors, ensure_ascii=False) if errors else None
+            batch.errors_json = errors if errors else None
             batch.completed_at = datetime.now(UTC).replace(tzinfo=None)
 
             await session.commit()

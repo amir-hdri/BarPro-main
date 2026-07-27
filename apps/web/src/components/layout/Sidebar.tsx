@@ -59,7 +59,7 @@ export function Sidebar({ onNavigate, onClose }: SidebarProps) {
               </div>
               <div>
                 <h1 className="text-2xl font-black text-white bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">BarPro</h1>
-                <p className="text-[10px] font-bold uppercase text-cyan-400 mt-0.5">Enterprise</p>
+                <p className="text-[10px] font-bold uppercase text-cyan-400 mt-0.5">سامانه سازمانی ناوگان</p>
               </div>
             </div>
 
@@ -83,7 +83,7 @@ export function Sidebar({ onNavigate, onClose }: SidebarProps) {
               </span>
               <span className="text-[11px] font-bold text-slate-200">اتوماسیون فعال</span>
             </div>
-            <span className="text-[10px] font-black text-emerald-400/80 uppercase bg-emerald-400/10 px-2 py-1 rounded-lg">LIVE</span>
+            <span className="text-[10px] font-black text-emerald-400/80 uppercase bg-emerald-400/10 px-2 py-1 rounded-lg">برخط</span>
           </div>
         </div>
 
@@ -127,12 +127,12 @@ export function Sidebar({ onNavigate, onClose }: SidebarProps) {
             </div>
             <div>
               <p className="text-[12px] font-black text-white">
-                {isAdmin ? 'وضعیت سیستم' : 'موتور اتوماسیون v2'}
+                {isAdmin ? 'وضعیت سلامت سیستم' : 'موتور ربات هوشمند'}
               </p>
               <p className="mt-1.5 text-[11px] leading-5 text-slate-400 font-medium">
                 {isAdmin
                   ? 'تمامی سرویس‌های اتوماسیون و مانیتورینگ در وضعیت عملیاتی قرار دارند.'
-                  : 'مسیردهی مستقیم با اولویت Fast-Path فعال است.'}
+                  : 'مسیردهی اختصاصی و هوشمند با اولویت بالا فعال می‌باشد.'}
               </p>
             </div>
           </div>

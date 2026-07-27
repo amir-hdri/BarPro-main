@@ -174,10 +174,9 @@ class FuelInquiryService:
                     resp.client_code = cl.client_code
 
             if i.quota_data_json:
-                try:
-                    resp.quota_data = json.loads(i.quota_data_json)
-                except Exception:
-                    logger.warning("fuel_inquiry_parse_json_list_failed", exc_info=True)
+                # SQLAlchemy already deserializes JSON/JSONB columns to Python dicts;
+                # do NOT call json.loads() again — it raises TypeError on a dict.
+                resp.quota_data = i.quota_data_json if isinstance(i.quota_data_json, dict) else None
             items.append(resp)
 
         total_pages = (total + page_size - 1) // page_size
@@ -233,10 +232,8 @@ class FuelInquiryService:
                 resp.client_code = cl.client_code
 
         if inquiry.quota_data_json:
-            try:
-                resp.quota_data = json.loads(inquiry.quota_data_json)
-            except Exception:
-                logger.warning("fuel_inquiry_parse_json_get_failed", exc_info=True)
+            # Already deserialized by SQLAlchemy — no json.loads() needed.
+            resp.quota_data = inquiry.quota_data_json if isinstance(inquiry.quota_data_json, dict) else None
         return resp
 
     @classmethod
@@ -246,7 +243,12 @@ class FuelInquiryService:
         Called by Celery worker or async thread execution.
         """
         now = datetime.now(UTC).replace(tzinfo=None)
-        claim = await session.execute(
+        # Use the underlying SQLAlchemy engine execute for DML (UPDATE).
+        # SQLModel's session.exec() is for SELECT only; calling session.execute() on
+        # a DML statement triggers a false-positive DeprecationWarning from SQLModel.
+        # Accessing session.connection() bypasses the SQLModel shim for DML.
+        conn = await session.connection()
+        claim = await conn.execute(
             update(FuelInquiry)
             .where((FuelInquiry.id == inquiry_id) & (FuelInquiry.status == "pending"))
             .values(status="processing", updated_at=now)
@@ -333,7 +335,7 @@ class FuelInquiryService:
                     inquiry.error_message = "104"  # Data not found / Inactive plate
                 else:
                     inquiry.status = "success"
-                inquiry.quota_data_json = json.dumps(quota_data)
+                inquiry.quota_data_json = quota_data
                 inquiry.screenshot_url = result.get("screenshot_url")
                 inquiry.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 session.add(inquiry)

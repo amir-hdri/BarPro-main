@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -8,7 +8,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth_multitenant import get_current_admin
 from app.schemas.multitenant import AdminClientUpdateRequest, AdminLoginRequest, ClientRegisterRequest
-from app.services.multitenant_service import ClientService
+from app.services.client_service import ClientService
 
 
 @pytest.mark.asyncio
@@ -16,8 +16,9 @@ async def test_master_admin_login_and_token_resolution():
     with (
         patch("app.auth_multitenant.utcms_config.MASTER_ADMIN_USERNAME", "master_bar"),
         patch("app.auth_multitenant.utcms_config.MASTER_ADMIN_PASSWORD", "secure_test_password_123!"),
-        patch("app.auth_multitenant.utcms_config.JWT_SECRET", "test-secret"),
+        patch("app.auth_multitenant.utcms_config.JWT_SECRET", "test-secret-key-32bytes-padding00"),
         patch("app.auth_multitenant.utcms_config.JWT_ALGORITHM", "HS256"),
+        patch("app.auth_multitenant.is_blacklisted", new=AsyncMock(return_value=False)),
     ):
         payload = await ClientService.login_master_admin(
             AdminLoginRequest(username="master_bar", password="secure_test_password_123!")

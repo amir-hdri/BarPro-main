@@ -148,6 +148,12 @@ def _get_redis_sync() -> "redis.Redis":
     return _redis_sync_client
 
 
+# TTL cache for IP index lookup — avoids hitting Redis on every call
+_ip_index_cache: int | None = None
+_ip_index_cache_expires: float = 0.0
+_IP_INDEX_CACHE_TTL = 5.0  # seconds
+
+
 # Typical block or network/timeout indicators from UTCMS
 IP_BLOCK_PATTERNS = [
     "blocked",
@@ -203,10 +209,61 @@ def get_available_ip_indices() -> list[int]:
         return [1, 2, 3]
 
 
-def get_next_ip_index_sync() -> int:
+async def get_next_ip_index() -> int:
+    """Async IP index lookup with TTL caching — does NOT block the event loop.
+
+    Uses the shared ``redis_manager`` (async) and caches the result for
+    ``_IP_INDEX_CACHE_TTL`` seconds.  Falls back to the first available
+    index when Redis is unavailable.
     """
-    Query Redis synchronously to find the next healthy IP index using round-robin.
-    If all IPs are blocked, falls back to standard round-robin over available indices.
+    global _ip_index_cache, _ip_index_cache_expires
+
+    now = time.monotonic()
+    if _ip_index_cache is not None and now < _ip_index_cache_expires:
+        return _ip_index_cache
+
+    available_indices = get_available_ip_indices()
+    try:
+        r = await redis_manager.get()
+        if r is None:
+            return available_indices[0] if available_indices else 1
+
+        healthy_ips: list[int] = []
+        for i in available_indices:
+            if not await r.exists(f"utcms:circuit_breaker:blocked:{i}"):
+                healthy_ips.append(i)
+
+        if not healthy_ips:
+            logger.warning(f"All IP addresses are currently blocked! Falling back to all {available_indices}")
+            healthy_ips = available_indices
+
+        counter = await r.incr("utcms:dispatcher:counter")
+        selected_ip = healthy_ips[counter % max(len(healthy_ips), 1)]
+
+        _ip_index_cache = selected_ip
+        _ip_index_cache_expires = now + _IP_INDEX_CACHE_TTL
+        return selected_ip
+    except Exception as exc:
+        logger.error(f"Failed to get next IP index from Redis (async): {exc}")
+        return available_indices[0] if available_indices else 1
+
+
+async def get_routed_queue_async(base_queue: str) -> str:
+    """Async version of ``get_routed_queue`` — preferred for async callers."""
+    EXEMPT_QUEUES = {"rpa_scheduler"}
+    if base_queue in EXEMPT_QUEUES:
+        return base_queue
+
+    ip_index = await get_next_ip_index()
+    routed = f"{base_queue}_{ip_index}"
+    logger.info(f"Routed task queue from {base_queue} -> {routed} (IP Index: {ip_index})")
+    return routed
+
+
+def get_next_ip_index_sync() -> int:
+    """Synchronous IP index lookup (legacy — blocks the event loop).
+
+    Prefer :func:`get_next_ip_index` in async code paths.
     """
     available_indices = get_available_ip_indices()
     try:
@@ -236,6 +293,9 @@ def get_next_ip_index_sync() -> int:
 def get_routed_queue(base_queue: str) -> str:
     """
     Suffix the base queue with a healthy IP index (e.g. waybill_tasks_2).
+
+    NOTE: This uses synchronous Redis and will block the event loop.
+    Prefer :func:`get_routed_queue_async` in async code paths.
     """
     # Exclude system queues that shouldn't be partitioned
     EXEMPT_QUEUES = {"rpa_scheduler"}

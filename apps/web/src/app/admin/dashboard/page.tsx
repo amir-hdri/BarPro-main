@@ -15,10 +15,9 @@ import {
   TrendingUp,
   RefreshCw,
   Server,
-  Globe,
+  Download,
+  ArrowUpDown,
 } from "lucide-react";
-
-
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -26,7 +25,8 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [fetchError, setFetchError] = useState<string | null>(null);
-
+  const [sortBy, setSortBy] = useState<"total_jobs" | "success_rate" | "name" | "active_drivers">("total_jobs");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
   useEffect(() => {
     loadSummary();
@@ -48,9 +48,55 @@ export default function AdminDashboardPage() {
     setLoading(false);
   }
 
-  const filtered = (summary?.rows || []).filter((c) =>
-    c.name.includes(search) || c.client_code.includes(search) || c.email.includes(search)
-  ) || [];
+  const handleSort = (field: "total_jobs" | "success_rate" | "name" | "active_drivers") => {
+    if (sortBy === field) {
+      setSortOrder(prev => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(field);
+      setSortOrder("desc");
+    }
+  };
+
+  const exportCSV = () => {
+    if (!summary?.rows || summary.rows.length === 0) return;
+    const headers = ["کد مشتری", "نام", "ایمیل", "وضعیت", "رانندگان", "پلاک‌ها", "کل بارنامه", "موفق", "ناموفق", "نرخ موفقیت (%)", "آخرین فعالیت"];
+    const rows = summary.rows.map(c => [
+      c.client_code,
+      c.name,
+      c.email,
+      c.status === "active" ? "فعال" : "غیرفعال",
+      c.total_drivers,
+      c.total_plates,
+      c.total_jobs,
+      c.success_jobs,
+      c.failed_jobs,
+      c.success_rate,
+      c.last_activity || ""
+    ]);
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `barpro_clients_summary_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const filtered = (summary?.rows || [])
+    .filter((c) =>
+      c.name.includes(search) || c.client_code.includes(search) || c.email.includes(search)
+    )
+    .sort((a, b) => {
+      let aVal: any = a[sortBy];
+      let bVal: any = b[sortBy];
+      if (typeof aVal === "string") {
+        return sortOrder === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+      return sortOrder === "asc" ? aVal - bVal : bVal - aVal;
+    });
 
   const totalClients = summary?.total_clients || 0;
   const activeClients = summary?.active_clients || 0;
@@ -109,28 +155,39 @@ export default function AdminDashboardPage() {
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-slate-900/30 p-4">
-        <span className="text-sm font-medium text-slate-400 ml-2">اقدامات سریع:</span>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/30 p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-slate-400 ml-2">اقدامات سریع:</span>
+          <button
+            onClick={loadSummary}
+            className="flex items-center gap-2 rounded-lg bg-white/5 hover:bg-white/10 hover:text-cyan-300 px-4 py-2.5 text-sm text-slate-200 transition"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            بروزرسانی داده‌ها
+          </button>
+          <button
+            onClick={() => router.push("/admin/health")}
+            className="flex items-center gap-2 rounded-lg bg-white/5 hover:bg-white/10 hover:text-cyan-300 px-4 py-2.5 text-sm text-slate-200 transition"
+          >
+            <Server className="h-4 w-4" />
+            سلامت سیستم
+          </button>
+          <button
+            onClick={() => router.push("/admin/clients")}
+            className="flex items-center gap-2 rounded-lg bg-white/5 hover:bg-white/10 hover:text-cyan-300 px-4 py-2.5 text-sm text-slate-200 transition"
+          >
+            <Users className="h-4 w-4" />
+            مدیریت مستاجران
+          </button>
+        </div>
+
         <button
-          onClick={loadSummary}
-          className="flex items-center gap-2 rounded-lg bg-white/5 hover:bg-white/10 hover:text-cyan-300 px-4 py-2.5 text-sm text-slate-200 transition"
+          onClick={exportCSV}
+          disabled={!summary?.rows || summary.rows.length === 0}
+          className="flex items-center gap-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/20 px-4 py-2.5 text-sm text-cyan-300 font-bold transition disabled:opacity-40"
         >
-          <RefreshCw className="h-4 w-4" />
-          بروزرسانی کش
-        </button>
-        <button
-          onClick={() => router.push("/admin/health")}
-          className="flex items-center gap-2 rounded-lg bg-white/5 hover:bg-white/10 hover:text-cyan-300 px-4 py-2.5 text-sm text-slate-200 transition"
-        >
-          <Server className="h-4 w-4" />
-          سلامت سیستم
-        </button>
-        <button
-          onClick={() => router.push("/admin/health")}
-          className="flex items-center gap-2 rounded-lg bg-white/5 hover:bg-white/10 hover:text-cyan-300 px-4 py-2.5 text-sm text-slate-200 transition"
-        >
-          <Globe className="h-4 w-4" />
-          مدیریت پروکسی
+          <Download className="h-4 w-4" />
+          خروجی CSV اکسل
         </button>
       </div>
 
@@ -140,7 +197,7 @@ export default function AdminDashboardPage() {
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="جستجوی مشتری..."
+          placeholder="جستجوی مشتری بر اساس نام، کد یا ایمیل..."
           className="w-full bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-500"
         />
       </div>
@@ -151,14 +208,46 @@ export default function AdminDashboardPage() {
             <thead className="border-b border-white/10 bg-slate-800/50 whitespace-nowrap">
               <tr>
                 <th className="px-4 py-3 text-right font-medium text-slate-300">کد مشتری</th>
-                <th className="px-4 py-3 text-right font-medium text-slate-300">نام</th>
+                <th 
+                  onClick={() => handleSort("name")}
+                  className="px-4 py-3 text-right font-medium text-slate-300 cursor-pointer hover:text-cyan-300 transition"
+                >
+                  <div className="flex items-center gap-1">
+                    نام
+                    <ArrowUpDown className="h-3 w-3 opacity-60" />
+                  </div>
+                </th>
                 <th className="px-4 py-3 text-right font-medium text-slate-300">وضعیت</th>
-                <th className="px-4 py-3 text-right font-medium text-slate-300">رانندگان</th>
+                <th 
+                  onClick={() => handleSort("active_drivers")}
+                  className="px-4 py-3 text-right font-medium text-slate-300 cursor-pointer hover:text-cyan-300 transition"
+                >
+                  <div className="flex items-center gap-1">
+                    رانندگان
+                    <ArrowUpDown className="h-3 w-3 opacity-60" />
+                  </div>
+                </th>
                 <th className="px-4 py-3 text-right font-medium text-slate-300">پلاک‌ها</th>
-                <th className="px-4 py-3 text-right font-medium text-slate-300">کل بارنامه</th>
+                <th 
+                  onClick={() => handleSort("total_jobs")}
+                  className="px-4 py-3 text-right font-medium text-slate-300 cursor-pointer hover:text-cyan-300 transition"
+                >
+                  <div className="flex items-center gap-1">
+                    کل بارنامه
+                    <ArrowUpDown className="h-3 w-3 opacity-60" />
+                  </div>
+                </th>
                 <th className="px-4 py-3 text-right font-medium text-slate-300">موفق</th>
                 <th className="px-4 py-3 text-right font-medium text-slate-300">ناموفق</th>
-                <th className="px-4 py-3 text-right font-medium text-slate-300">نرخ موفقیت</th>
+                <th 
+                  onClick={() => handleSort("success_rate")}
+                  className="px-4 py-3 text-right font-medium text-slate-300 cursor-pointer hover:text-cyan-300 transition"
+                >
+                  <div className="flex items-center gap-1">
+                    نرخ موفقیت
+                    <ArrowUpDown className="h-3 w-3 opacity-60" />
+                  </div>
+                </th>
                 <th className="px-4 py-3 text-right font-medium text-slate-300">آخرین فعالیت</th>
               </tr>
             </thead>

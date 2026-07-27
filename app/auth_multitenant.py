@@ -8,6 +8,7 @@ Each client can only access their own drivers and waybill tasks.
 import asyncio
 import logging
 import secrets
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
@@ -22,6 +23,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import utcms_config
 from app.core.database import get_session
+from app.core.token_blacklist import is_blacklisted
 from app.models_multitenant import Client, ClientStatus
 
 logger = logging.getLogger(__name__)
@@ -145,6 +147,41 @@ def decrypt_driver_password(encrypted_password: str) -> str:
         ) from exc
 
 
+def _decode_jwt(token: str) -> dict:
+    """Centralized JWT decode with consistent audience/issuer verification.
+
+    All decode paths in this module must use this helper to ensure audience and
+    issuer claims are verified when configured, matching the behaviour of
+    ``security._is_jwt_valid()``.
+    """
+    kwargs: dict = {
+        "algorithms": [utcms_config.JWT_ALGORITHM],
+    }
+    if utcms_config.JWT_AUDIENCE:
+        kwargs["audience"] = utcms_config.JWT_AUDIENCE
+    if utcms_config.JWT_ISSUER:
+        kwargs["issuer"] = utcms_config.JWT_ISSUER
+    return jwt.decode(token, utcms_config.JWT_SECRET, **kwargs)
+
+
+async def _check_token_blacklist(payload: dict) -> None:
+    """Raise 401 if the decoded token's JTI has been blacklisted (logout).
+
+    Tokens without a ``jti`` claim (issued before the blacklist feature was
+    added) are not checked — they will expire naturally within the reduced
+    4-hour window.
+    """
+    jti = payload.get("jti")
+    if not jti:
+        return
+    if await is_blacklisted(jti):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 def create_access_token(
     client_id: int,
     client_code: str,
@@ -167,7 +204,15 @@ def create_access_token(
         "role": role,
         "iat": datetime.now(UTC).replace(tzinfo=None),
         "exp": expire,
+        "jti": uuid.uuid4().hex,
     }
+
+    # Include audience and issuer claims when configured, so that
+    # ``_decode_jwt`` can verify them on every decode path.
+    if utcms_config.JWT_AUDIENCE:
+        to_encode["aud"] = utcms_config.JWT_AUDIENCE
+    if utcms_config.JWT_ISSUER:
+        to_encode["iss"] = utcms_config.JWT_ISSUER
 
     encoded_jwt = jwt.encode(
         to_encode,
@@ -180,12 +225,7 @@ def create_access_token(
 def decode_access_token(token: str) -> dict:
     """Decode and validate a JWT access token."""
     try:
-        payload = jwt.decode(
-            token,
-            utcms_config.JWT_SECRET,
-            algorithms=[utcms_config.JWT_ALGORITHM],
-            options={"verify_aud": False},
-        )
+        payload = _decode_jwt(token)
         # Convert sub to int if it's a string
         if isinstance(payload.get("sub"), str) and payload["sub"].isdigit():
             payload["sub"] = int(payload["sub"])
@@ -223,12 +263,9 @@ async def get_current_client(
         raise credentials_exception
 
     try:
-        payload = jwt.decode(
-            token,
-            utcms_config.JWT_SECRET,
-            algorithms=[utcms_config.JWT_ALGORITHM],
-        )
-        if payload.get("role", "client") != "client":
+        payload = _decode_jwt(token)
+        await _check_token_blacklist(payload)
+        if payload.get("role") != "client":
             raise credentials_exception
         raw_client_id = payload.get("sub")
         if raw_client_id is None:
@@ -325,11 +362,8 @@ async def get_current_admin(
         raise credentials_exception
 
     try:
-        payload = jwt.decode(
-            token,
-            utcms_config.JWT_SECRET,
-            algorithms=[utcms_config.JWT_ALGORITHM],
-        )
+        payload = _decode_jwt(token)
+        await _check_token_blacklist(payload)
         if payload.get("role") != "master_admin":
             raise credentials_exception
         if payload.get("client_code") != utcms_config.MASTER_ADMIN_USERNAME:
@@ -403,11 +437,8 @@ async def get_current_user_or_admin(
         raise credentials_exception
 
     try:
-        payload = jwt.decode(
-            token,
-            utcms_config.JWT_SECRET,
-            algorithms=[utcms_config.JWT_ALGORITHM],
-        )
+        payload = _decode_jwt(token)
+        await _check_token_blacklist(payload)
         role = payload.get("role")
         if role == "master_admin":
             if payload.get("client_code") != utcms_config.MASTER_ADMIN_USERNAME:

@@ -5,7 +5,7 @@ import pytest
 
 from app.models_multitenant import Client
 from app.schemas.multitenant import ClientResponse
-from app.services.multitenant_service import ClientService
+from app.services.client_service import ClientService
 
 
 @pytest.mark.asyncio
@@ -26,7 +26,7 @@ async def test_get_client_profile_success():
 
     mock_session = AsyncMock()
 
-    with patch("app.services.multitenant_service.ClientResponse.model_validate") as mock_validate:
+    with patch("app.services.client_service.ClientResponse.model_validate") as mock_validate:
         mock_validate.return_value = ClientResponse(
             id=1,
             client_code="tenant-1",

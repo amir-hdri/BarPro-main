@@ -38,11 +38,12 @@ async def test_fuel_scraper_form_elements():
     Verifies that the scraper can load ShowFuelQuota.aspx and find all necessary elements.
     """
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context()
-        page = await context.new_page()
-
+        browser = None
         try:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context()
+            page = await context.new_page()
+
             # Go directly to target URL
             await page.goto("https://utcms.ir/ShowFuelQuota.aspx", wait_until="domcontentloaded", timeout=20000)
 
@@ -61,6 +62,7 @@ async def test_fuel_scraper_form_elements():
             assert await page.query_selector("#Login") is not None
 
         except Exception as e:
-            pytest.skip(f"Live website not reachable or slow: {e}")
+            pytest.skip(f"Live website or browser not reachable: {e}")
         finally:
-            await browser.close()
+            if browser:
+                await browser.close()

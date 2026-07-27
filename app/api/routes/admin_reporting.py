@@ -7,16 +7,13 @@ Provides endpoints for the master admin to:
 - View failure analysis across all tenants
 """
 
-from datetime import datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlmodel import select
+from fastapi import APIRouter, Depends, Query
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth_multitenant import get_current_admin
 from app.core.database import get_session
-from app.models_multitenant import Client, Driver, DriverPlate, WaybillJob
 from app.schemas.admin import DriverReportFilter
 from app.services.admin_reporting_service import admin_reporting_service
 
@@ -87,49 +84,12 @@ async def get_audit_logs(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Get recent waybill job activity as audit log entries."""
-    offset = (page - 1) * page_size
-    stmt = select(WaybillJob).order_by(WaybillJob.updated_at.desc()).offset(offset).limit(page_size)
-    result = await session.exec(stmt)
-    jobs = result.all()
-
-    # Bulk fetch drivers to prevent N+1 queries
-    driver_ids = list({j.driver_id for j in jobs if j.driver_id})
-    drivers_dict = {}
-    if driver_ids:
-        drivers_res = await session.exec(select(Driver).where(Driver.id.in_(driver_ids)))
-        drivers_dict = {d.id: d for d in drivers_res.all()}
-
-    entries = []
-    for j in jobs:
-        driver = drivers_dict.get(j.driver_id) if j.driver_id else None
-        driver_code = driver.driver_national_code if driver else "—"
-        driver_name = driver.full_name if driver else "—"
-
-        desc_parts = [f"بارنامه #{j.id}"]
-        if driver_name != "—":
-            desc_parts.append(f"راننده: {driver_name} ({driver_code})")
-        if j.worker_id:
-            desc_parts.append(f"ورکر: {j.worker_id}")
-        if j.last_error:
-            desc_parts.append(f"خطا: {j.last_error[:60]}")
-        else:
-            desc_parts.append(f"وضعیت: {j.status}")
-
-        entries.append(
-            {
-                "id": j.id,
-                "user_type": "client",
-                "user_id": j.client_id,
-                "action": j.status.upper() if j.status else "UNKNOWN",
-                "entity_type": "waybill_job",
-                "entity_id": j.id,
-                "description": " — ".join(desc_parts),
-                "ip_address": j.worker_id or "system",
-                "created_at": (j.updated_at or j.created_at).isoformat() if (j.updated_at or j.created_at) else None,
-            }
-        )
-
-    return {"items": entries, "page": page, "page_size": page_size}
+    return await admin_reporting_service.audit_logs(
+        client_id=None,
+        page=page,
+        page_size=page_size,
+        session=session,
+    )
 
 
 @router.get(
@@ -144,85 +104,9 @@ async def get_client_detail(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Get detailed report for a specific client."""
-    client = await session.get(Client, client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-
-    drivers_stmt = select(Driver).where(Driver.client_id == client_id)
-    drivers_result = await session.exec(drivers_stmt)
-    drivers = drivers_result.all()
-
-    total_drivers = len(drivers)
-    active_drivers = sum(1 for d in drivers if d.status == "active")
-
-    plates_stmt = select(DriverPlate).where(DriverPlate.client_id == client_id)
-    plates_result = await session.exec(plates_stmt)
-    plates = plates_result.all()
-    total_plates = len(plates)
-
-    jobs_stmt = select(WaybillJob).where(WaybillJob.client_id == client_id)
-    if date_from:
-        try:
-            dt = datetime.fromisoformat(date_from)
-            jobs_stmt = jobs_stmt.where(WaybillJob.created_at >= dt)
-        except ValueError:
-            raise HTTPException(
-                status_code=422, detail=f"Invalid date_from format: '{date_from}'. Use YYYY-MM-DD."
-            ) from None
-    if date_to:
-        try:
-            dt = datetime.fromisoformat(date_to) + timedelta(days=1)
-            jobs_stmt = jobs_stmt.where(WaybillJob.created_at < dt)
-        except ValueError:
-            raise HTTPException(
-                status_code=422, detail=f"Invalid date_to format: '{date_to}'. Use YYYY-MM-DD."
-            ) from None
-    jobs_result = await session.exec(jobs_stmt)
-    jobs = jobs_result.all()
-
-    total_jobs = len(jobs)
-    success_jobs = sum(1 for j in jobs if j.status == "success")
-    failed_jobs = sum(1 for j in jobs if j.status in ("failed", "dead_letter", "needs_review"))
-
-    # Per-driver breakdown
-    driver_breakdown = []
-    for driver in drivers:
-        driver_jobs = [j for j in jobs if j.driver_id == driver.id]
-        driver_success = sum(1 for j in driver_jobs if j.status == "success")
-        driver_failed = sum(1 for j in driver_jobs if j.status in ("failed", "dead_letter", "needs_review"))
-
-        driver_breakdown.append(
-            {
-                "driver_id": driver.id,
-                "driver_name": driver.full_name,
-                "national_code": driver.driver_national_code,
-                "total_jobs": len(driver_jobs),
-                "success": driver_success,
-                "failed": driver_failed,
-                "success_rate": round(driver_success / max(1, len(driver_jobs)) * 100, 2),
-            }
-        )
-
-    # Top failure reasons
-    failure_reasons = {}
-    for j in jobs:
-        if j.error_category:
-            failure_reasons[j.error_category] = failure_reasons.get(j.error_category, 0) + 1
-
-    return {
-        "client_id": client.id,
-        "client_code": client.client_code,
-        "name": client.name,
-        "email": client.email,
-        "status": client.status,
-        "total_drivers": total_drivers,
-        "active_drivers": active_drivers,
-        "total_plates": total_plates,
-        "total_jobs": total_jobs,
-        "success_jobs": success_jobs,
-        "failed_jobs": failed_jobs,
-        "success_rate": round(success_jobs / max(1, total_jobs) * 100, 2),
-        "failure_reasons": failure_reasons,
-        "driver_breakdown": driver_breakdown,
-        "created_at": client.created_at.isoformat(),
-    }
+    return await admin_reporting_service.client_detail(
+        client_id=client_id,
+        session=session,
+        date_from=date_from,
+        date_to=date_to,
+    )

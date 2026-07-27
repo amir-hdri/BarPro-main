@@ -115,7 +115,7 @@ async def _add_log(
         step=step,
         status=status,
         message=message,
-        details_json=json.dumps(details, ensure_ascii=False) if details else None,
+        details_json=details if details else None,
     )
     session.add(log)
     await session.commit()
@@ -200,7 +200,7 @@ async def _execute_single_job(
                     }
                     status_str = "failed"
                 else:
-                    job.result_json = json.dumps(result_payload, ensure_ascii=False)
+                    job.result_json = result_payload
                     job.last_error = None
                     job.error_category = None
                     job.retryable = False
@@ -362,7 +362,7 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
         if result_status == "success":
             job.status = TaskStatus.SUCCESS.value
             job.finished_at = _utcnow()
-            job.result_json = json.dumps(result.get("result"), ensure_ascii=False)
+            job.result_json = result.get("result")
             job.last_error = None
             job.error_category = None
             job.retryable = False
@@ -581,7 +581,7 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
         driver_id=driver.id,
         status=TaskStatus.PENDING.value,
         source=TaskSource.API.value,
-        payload_json=json.dumps(payload, ensure_ascii=False),
+        payload_json=payload,
         max_retries=3,
         correlation_id=f"schedule:{schedule.id}",
         business_date=_utcnow().strftime("%Y-%m-%d"),

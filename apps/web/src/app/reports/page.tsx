@@ -72,9 +72,9 @@ export default function ReportsPage() {
       <AppShell>
         <section className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-[32px] border border-white/20 bg-slate-950 p-6 text-white shadow-2xl shadow-slate-900/20">
-            <p className="text-xs uppercase  text-cyan-300">Analytics</p>
+            <p className="text-xs uppercase text-cyan-300">تحلیل و آمار لایو</p>
             <h1 className="mt-4 text-3xl font-semibold">گزارش عملکرد مشتری</h1>
-            <p className="mt-3 text-sm leading-7 text-slate-300">این صفحه به جای mock، از آمار واقعی مشتری و jobهای ثبت‌شده ساخته می‌شود و برای مرور روزانه عملیات مناسب است.</p>
+            <p className="mt-3 text-sm leading-7 text-slate-300">گزارش لحظه‌ای از عملکرد سیستم، نرخ موفقیت ثبت بارنامه‌ها و مانیتورینگ روزانه ناوگان.</p>
             <div className="mt-8 grid gap-4 sm:grid-cols-2">
               {rateCards.map(([label, value, hint]) => (
                 <article key={label} className="rounded-3xl border border-white/10 bg-white/5 p-5">

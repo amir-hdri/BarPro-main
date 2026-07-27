@@ -118,19 +118,7 @@ function createApiClient(): AxiosInstance {
     withCredentials: true,
   });
 
-  inst.interceptors.request.use((config) => {
-    if (typeof window !== 'undefined') {
-      try {
-        const token = localStorage.getItem('utcms_auth_token');
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
-      } catch {
-        // ignore
-      }
-    }
-    return config;
-  });
+  // Credentials (httpOnly cookies) are sent automatically via withCredentials: true
 
   inst.interceptors.response.use(
     (res) => res,

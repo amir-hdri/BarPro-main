@@ -28,10 +28,10 @@ export function Header({ client, role, onLogout, onOpenMenu }: HeaderProps) {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-1.5 w-1.5 md:h-2 md:w-2 bg-emerald-500"></span>
               </span>
-              <span className="text-[9px] md:text-[10px] font-black uppercase text-emerald-400 tracking-wider">UTCMS Bot Active</span>
+              <span className="text-[9px] md:text-[10px] font-black text-emerald-400 tracking-wider">ربات سامانه ملی آنلاین</span>
             </div>
           </div>
-          <h2 className="text-base md:text-xl font-black text-slate-100 bg-clip-text text-transparent bg-gradient-to-r from-slate-100 to-slate-400">کنسول عملیاتی BarPro</h2>
+          <h2 className="text-base md:text-xl font-black text-slate-100 bg-clip-text text-transparent bg-gradient-to-r from-slate-100 to-slate-400">کنسول عملیاتی و اتوماسیون بارنامه BarPro</h2>
         </div>
       </div>
 

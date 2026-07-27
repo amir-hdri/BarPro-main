@@ -275,7 +275,7 @@ class RPAHttpSubmitService:
                         for k in ["waybill_screenshot", "tracking_code", "url", "route"]:
                             if k in result.raw_payload:
                                 res_json[k] = result.raw_payload[k]
-                    job.result_json = json.dumps(res_json, ensure_ascii=False)
+                    job.result_json = res_json
                     job.finished_at = datetime.now(UTC).replace(tzinfo=None)
                     job.submit_after = None
                     job.next_retry_at = None
@@ -313,17 +313,14 @@ class RPAHttpSubmitService:
                     job.finished_at = None
                     job.celery_task_id = None
                     job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                    job.result_json = json.dumps(
-                        {
-                            "status": "waiting_retry",
-                            "reason": classification.reason_code,
-                            "error_category": job.error_category,
-                            "message": classification.message,
-                            "http_status": classification.http_status,
-                            "retry_at": job.next_retry_at.isoformat() if job.next_retry_at else None,
-                        },
-                        ensure_ascii=False,
-                    )
+                    job.result_json = {
+                        "status": "waiting_retry",
+                        "reason": classification.reason_code,
+                        "error_category": job.error_category,
+                        "message": classification.message,
+                        "http_status": classification.http_status,
+                        "retry_at": job.next_retry_at.isoformat() if job.next_retry_at else None,
+                    }
                     runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
                     runtime_state.next_retry_at = job.next_retry_at
                     runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
@@ -355,16 +352,13 @@ class RPAHttpSubmitService:
                     job.terminal_reason = classification.reason_code
                     job.celery_task_id = None
                     job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                    job.result_json = json.dumps(
-                        {
-                            "status": job.status,
-                            "reason": classification.reason_code,
-                            "error_category": job.error_category,
-                            "message": classification.message,
-                            "http_status": classification.http_status,
-                        },
-                        ensure_ascii=False,
-                    )
+                    job.result_json = {
+                        "status": job.status,
+                        "reason": classification.reason_code,
+                        "error_category": job.error_category,
+                        "message": classification.message,
+                        "http_status": classification.http_status,
+                    }
                     runtime_state.state = DriverRuntimeStateValue.READY.value
                     runtime_state.next_retry_at = None
                     runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
@@ -437,14 +431,11 @@ class RPAHttpSubmitService:
         job.finished_at = None
         job.celery_task_id = None
         job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-        job.result_json = json.dumps(
-            {
-                "status": "waiting_auth",
-                "reason": reason,
-                "error_category": "utcms_login_error",
-            },
-            ensure_ascii=False,
-        )
+        job.result_json = {
+            "status": "waiting_auth",
+            "reason": reason,
+            "error_category": "utcms_login_error",
+        }
         runtime_state.state = DriverRuntimeStateValue.AUTH_REQUIRED.value
         runtime_state.next_retry_at = None
         runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)

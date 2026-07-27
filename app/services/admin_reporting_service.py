@@ -21,7 +21,10 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
+from fastapi import HTTPException
+from sqlalchemy import case, func
 from sqlmodel import col, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.database import async_session_factory
 from app.models_multitenant import (
@@ -384,6 +387,211 @@ class AdminReportingService:
             }
         finally:
             await session.close()
+
+    async def audit_logs(
+        self,
+        client_id: int | None,
+        page: int,
+        page_size: int,
+        session: AsyncSession,
+    ) -> dict[str, Any]:
+        """Return recent waybill job activity as audit log entries."""
+        offset = (page - 1) * page_size
+        stmt = select(WaybillJob).order_by(WaybillJob.updated_at.desc()).offset(offset).limit(page_size)
+
+        if client_id is not None:
+            stmt = stmt.where(WaybillJob.client_id == client_id)
+
+        result = await session.exec(stmt)
+        jobs = result.all()
+
+        # Bulk fetch drivers to prevent N+1 queries
+        driver_ids = list({j.driver_id for j in jobs if j.driver_id})
+        drivers_dict = {}
+        if driver_ids:
+            drivers_res = await session.exec(select(Driver).where(Driver.id.in_(driver_ids)))
+            drivers_dict = {d.id: d for d in drivers_res.all()}
+
+        entries = []
+        for j in jobs:
+            driver = drivers_dict.get(j.driver_id) if j.driver_id else None
+            driver_code = driver.driver_national_code if driver else "—"
+            driver_name = driver.full_name if driver else "—"
+
+            desc_parts = [f"بارنامه #{j.id}"]
+            if driver_name != "—":
+                desc_parts.append(f"راننده: {driver_name} ({driver_code})")
+            if j.worker_id:
+                desc_parts.append(f"ورکر: {j.worker_id}")
+            if j.last_error:
+                desc_parts.append(f"خطا: {j.last_error[:60]}")
+            else:
+                desc_parts.append(f"وضعیت: {j.status}")
+
+            entries.append(
+                {
+                    "id": j.id,
+                    "user_type": "client",
+                    "user_id": j.client_id,
+                    "action": j.status.upper() if j.status else "UNKNOWN",
+                    "entity_type": "waybill_job",
+                    "entity_id": j.id,
+                    "description": " — ".join(desc_parts),
+                    "ip_address": j.worker_id or "system",
+                    "created_at": (j.updated_at or j.created_at).isoformat()
+                    if (j.updated_at or j.created_at)
+                    else None,
+                }
+            )
+
+        return {"items": entries, "page": page, "page_size": page_size}
+
+    async def client_detail(
+        self,
+        client_id: int,
+        session: AsyncSession,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict[str, Any]:
+        """Return detailed report for a specific client using SQL aggregation."""
+        client = await session.get(Client, client_id)
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        # --- Driver counts via SQL aggregation ---
+        drivers_stmt = select(Driver).where(Driver.client_id == client_id)
+        drivers_result = await session.exec(drivers_stmt)
+        drivers = drivers_result.all()
+
+        total_drivers = len(drivers)
+        active_drivers = sum(1 for d in drivers if d.status == "active")
+
+        # --- Plate count via SQL count ---
+        plates_count_stmt = select(func.count(DriverPlate.id)).where(DriverPlate.client_id == client_id)
+        plates_result = await session.exec(plates_count_stmt)
+        total_plates = plates_result.one()
+
+        # --- Job aggregation (overall) ---
+        failed_statuses = [
+            TaskStatus.FAILED.value,
+            TaskStatus.DEAD_LETTER.value,
+            TaskStatus.NEEDS_REVIEW.value,
+        ]
+
+        jobs_agg_stmt = select(
+            func.count(WaybillJob.id).label("total_jobs"),
+            func.sum(case((WaybillJob.status == TaskStatus.SUCCESS.value, 1), else_=0)).label("success_jobs"),
+            func.sum(case((col(WaybillJob.status).in_(failed_statuses), 1), else_=0)).label("failed_jobs"),
+        ).where(WaybillJob.client_id == client_id)
+
+        if date_from:
+            try:
+                dt = datetime.fromisoformat(date_from)
+                jobs_agg_stmt = jobs_agg_stmt.where(WaybillJob.created_at >= dt)
+            except ValueError:
+                raise HTTPException(
+                    status_code=422, detail=f"Invalid date_from format: '{date_from}'. Use YYYY-MM-DD."
+                ) from None
+        if date_to:
+            try:
+                dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+                jobs_agg_stmt = jobs_agg_stmt.where(WaybillJob.created_at < dt)
+            except ValueError:
+                raise HTTPException(
+                    status_code=422, detail=f"Invalid date_to format: '{date_to}'. Use YYYY-MM-DD."
+                ) from None
+
+        agg_result = await session.exec(jobs_agg_stmt)
+        agg_row = agg_result.one()
+
+        total_jobs = int(agg_row.total_jobs) if agg_row.total_jobs else 0
+        success_jobs = int(agg_row.success_jobs) if agg_row.success_jobs else 0
+        failed_jobs = int(agg_row.failed_jobs) if agg_row.failed_jobs else 0
+
+        # --- Per-driver breakdown via SQL aggregation ---
+        driver_ids = [d.id for d in drivers]
+        driver_breakdown = []
+        if driver_ids:
+            driver_agg_stmt = (
+                select(
+                    WaybillJob.driver_id,
+                    func.count(WaybillJob.id).label("total_jobs"),
+                    func.sum(case((WaybillJob.status == TaskStatus.SUCCESS.value, 1), else_=0)).label("success_jobs"),
+                    func.sum(case((col(WaybillJob.status).in_(failed_statuses), 1), else_=0)).label("failed_jobs"),
+                )
+                .where(WaybillJob.client_id == client_id, col(WaybillJob.driver_id).in_(driver_ids))
+                .group_by(WaybillJob.driver_id)
+            )
+
+            if date_from:
+                dt = datetime.fromisoformat(date_from)
+                driver_agg_stmt = driver_agg_stmt.where(WaybillJob.created_at >= dt)
+            if date_to:
+                dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+                driver_agg_stmt = driver_agg_stmt.where(WaybillJob.created_at < dt)
+
+            driver_agg_result = await session.exec(driver_agg_stmt)
+            stats_by_driver = {row.driver_id: row for row in driver_agg_result.all()}
+
+            for driver in drivers:
+                stats = stats_by_driver.get(driver.id)
+                d_total = int(stats.total_jobs) if stats and stats.total_jobs else 0
+                d_success = int(stats.success_jobs) if stats and stats.success_jobs else 0
+                d_failed = int(stats.failed_jobs) if stats and stats.failed_jobs else 0
+
+                driver_breakdown.append(
+                    {
+                        "driver_id": driver.id,
+                        "driver_name": driver.full_name,
+                        "national_code": driver.driver_national_code,
+                        "total_jobs": d_total,
+                        "success": d_success,
+                        "failed": d_failed,
+                        "success_rate": round(d_success / max(1, d_total) * 100, 2),
+                    }
+                )
+
+        # --- Failure reasons via SQL aggregation ---
+        failure_stmt = (
+            select(
+                WaybillJob.error_category,
+                func.count(WaybillJob.id).label("count"),
+            )
+            .where(
+                WaybillJob.client_id == client_id,
+                WaybillJob.error_category.isnot(None),
+                col(WaybillJob.status).in_(failed_statuses),
+            )
+            .group_by(WaybillJob.error_category)
+        )
+
+        if date_from:
+            dt = datetime.fromisoformat(date_from)
+            failure_stmt = failure_stmt.where(WaybillJob.created_at >= dt)
+        if date_to:
+            dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+            failure_stmt = failure_stmt.where(WaybillJob.created_at < dt)
+
+        failure_result = await session.exec(failure_stmt)
+        failure_reasons = {row.error_category: int(row.count) for row in failure_result.all()}
+
+        return {
+            "client_id": client.id,
+            "client_code": client.client_code,
+            "name": client.name,
+            "email": client.email,
+            "status": client.status,
+            "total_drivers": total_drivers,
+            "active_drivers": active_drivers,
+            "total_plates": total_plates,
+            "total_jobs": total_jobs,
+            "success_jobs": success_jobs,
+            "failed_jobs": failed_jobs,
+            "success_rate": round(success_jobs / max(1, total_jobs) * 100, 2),
+            "failure_reasons": failure_reasons,
+            "driver_breakdown": driver_breakdown,
+            "created_at": client.created_at.isoformat(),
+        }
 
 
 admin_reporting_service = AdminReportingService()
