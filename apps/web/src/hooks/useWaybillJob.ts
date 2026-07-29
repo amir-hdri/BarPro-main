@@ -38,6 +38,7 @@ const BACKOFF_FACTOR = 2;
 const MAX_RECONNECT_ATTEMPTS = 10;
 
 export function useWaybillJob(options: UseWaybillJobOptions = {}) {
+  const { taskId, batchId, correlationId } = options;
   const [status, setStatus] = useState<WebSocketStatus>("disconnected");
   const [lastEvent, setLastEvent] = useState<WebSocketEvent | null>(null);
   const [events, setEvents] = useState<WebSocketEvent[]>([]);
