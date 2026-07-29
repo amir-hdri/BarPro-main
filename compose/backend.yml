@@ -73,12 +73,7 @@ x-backend-common: &backend-common
   extra_hosts:
     - "host.docker.internal:host-gateway"
   volumes:
-    - ../app/services:/app/app/services:ro
-    - ../app/workers:/app/app/workers:ro
-    - ../app/core:/app/app/core:ro
-    - ../app/automation:/app/app/automation:ro
-    - ../app/api:/app/app/api:ro
-    - ../app/bot:/app/app/bot:ro
+    - ../app:/app/app:ro
     - ../alembic:/app/alembic:ro
     - runtime_data:/app/runtime
   logging:

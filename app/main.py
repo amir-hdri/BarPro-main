@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.exceptions import RequestValidationError
+from fastapi.exceptions import RequestValidationError, ResponseValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -401,6 +401,32 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "correlation_id": request.headers.get(utcms_config.TRACE_HEADER_NAME),
         },
     )
+
+
+@app.exception_handler(ResponseValidationError)
+async def response_validation_exception_handler(request: Request, exc: ResponseValidationError):
+    """Handle FastAPI response validation errors with detailed logging and structured response."""
+    logger.error(
+        "response_validation_error",
+        extra={
+            "extra_fields": {
+                "method": request.method,
+                "path": request.url.path,
+                "errors": exc.errors(),
+            }
+        },
+    )
+    is_production = os.getenv("ENVIRONMENT", "development").lower() == "production"
+    response_body: dict = {
+        "error": "RESPONSE_VALIDATION_ERROR",
+        "message": "خطا در قالب‌بندی پاسخ سرور",
+        "request_id": request.headers.get("X-Request-ID"),
+        "correlation_id": request.headers.get(utcms_config.TRACE_HEADER_NAME),
+    }
+    if not is_production:
+        response_body["details"] = exc.errors()
+    return JSONResponse(status_code=500, content=response_body)
+
 
 
 @app.get("/", tags=["وضعیت سیستم"])

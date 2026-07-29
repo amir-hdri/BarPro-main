@@ -3,8 +3,9 @@ Schemas for Client Panel API
 """
 
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ==================== Driver Management Schemas ====================
 
@@ -87,6 +88,8 @@ class DriverResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    model_config = ConfigDict(from_attributes=True)
+
 
 class DriverListResponse(BaseModel):
     """Driver list item response"""
@@ -105,6 +108,8 @@ class DriverListResponse(BaseModel):
     last_waybill_at: datetime | None = None
     created_at: datetime
 
+    model_config = ConfigDict(from_attributes=True)
+
 
 # ==================== Schedule Management Schemas ====================
 
@@ -119,12 +124,14 @@ class ScheduleCreateRequest(BaseModel):
     # Waybill template
     waybill_template: dict = Field(
         description="Template for waybill data",
-        example={
-            "sender_name": "شرکت حمل و نقل",
-            "sender_phone": "09123456789",
-            "receiver_name": "مقصد",
-            "cargo_type": "کالای عمومی",
-            "cargo_weight": "1000",
+        json_schema_extra={
+            "example": {
+                "sender_name": "شرکت حمل و نقل",
+                "sender_phone": "09123456789",
+                "receiver_name": "مقصد",
+                "cargo_type": "کالای عمومی",
+                "cargo_weight": "1000",
+            }
         },
     )
 
@@ -157,6 +164,8 @@ class ScheduleResponse(BaseModel):
     success_rate: float = 0.0
     created_at: datetime
     updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==================== Waybill Management Schemas ====================
@@ -219,7 +228,8 @@ class WaybillResponse(BaseModel):
 
     # Result
     waybill_number: str | None = None
-    result_json: dict | None = None
+    payload_json: dict | list | str | Any | None = None
+    result_json: dict | list | str | Any | None = None
 
     # Error info
     terminal_reason: str | None = None
@@ -230,6 +240,24 @@ class WaybillResponse(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     duration_seconds: float | None = None
+
+    @field_validator("payload_json", "result_json", mode="before")
+    @classmethod
+    def coerce_json_fields(cls, v: Any) -> Any:
+        if v is None:
+            return v
+        if isinstance(v, (dict, list)):
+            return v
+        if isinstance(v, str):
+            import json
+
+            try:
+                return json.loads(v)
+            except (ValueError, TypeError):
+                return v
+        return v
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WaybillListResponse(BaseModel):

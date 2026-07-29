@@ -2,6 +2,7 @@
 Pydantic schemas for multi-tenant API requests and responses.
 """
 
+import json
 import re
 from datetime import datetime
 from typing import Any
@@ -20,6 +21,24 @@ from app.schemas.waybill import (
 
 PERSIAN_PLATE_LETTERS = "اآبپتثجچحخدذرزژسشصضطظعغفقکگلمنوهی"
 PLATE_PATTERN = re.compile(rf"^\d{{2}}(الف|[{PERSIAN_PLATE_LETTERS}])\d{{3}}ایران\d{{2}}$")
+
+
+def _coerce_json_field(value: Any) -> Any:
+    """Safely coerce JSON strings or dicts for schema compatibility."""
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        trimmed = value.strip()
+        if not trimmed:
+            return None
+        if (trimmed.startswith("{") and trimmed.endswith("}")) or (trimmed.startswith("[") and trimmed.endswith("]")):
+            try:
+                return json.loads(trimmed)
+            except Exception:
+                return value
+    return value
 
 
 def _normalize_digits(value: str) -> str:
@@ -127,6 +146,12 @@ class ClientResponse(BaseModel):
 
     created_at: datetime
     last_login_at: datetime | None
+    metadata_json: dict | list | str | Any | None = None
+
+    @field_validator("metadata_json", mode="before")
+    @classmethod
+    def coerce_metadata_json(cls, v: Any) -> Any:
+        return _coerce_json_field(v)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -209,6 +234,13 @@ class DriverResponse(BaseModel):
     last_error_code: str | None = None
     created_at: datetime
     updated_at: datetime
+    default_payload_json: dict | list | str | Any | None = None
+    metadata_json: dict | list | str | Any | None = None
+
+    @field_validator("default_payload_json", "metadata_json", mode="before")
+    @classmethod
+    def coerce_json_fields(cls, v: Any) -> Any:
+        return _coerce_json_field(v)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -415,7 +447,7 @@ class WaybillJobCreateRequest(BaseModel):
     @classmethod
     def validate_driver_national_code(cls, value: str) -> str:
         normalized = _normalize_national_code(str(value))
-        if not DriverCreateRequest._validate_iran_national_code(normalized):
+        if not WaybillPayload._validate_iran_national_code(normalized):
             raise ValueError("کد ملی راننده معتبر نیست (checksum نامعتبر)")
         return normalized
 
@@ -463,9 +495,15 @@ class WaybillJobResponse(BaseModel):
     updated_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
-    payload_json: str | None = None
+    payload_json: dict | list | str | Any | None = None
+    result_json: dict | list | str | Any | None = None
     client_name: str | None = None
     client_code: str | None = None
+
+    @field_validator("payload_json", "result_json", mode="before")
+    @classmethod
+    def coerce_json_fields(cls, v: Any) -> Any:
+        return _coerce_json_field(v)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -555,8 +593,13 @@ class TaskLogEntry(BaseModel):
     step: str
     status: str
     message: str | None
-    details_json: dict | None
+    details_json: dict | list | str | Any | None = None
     created_at: datetime
+
+    @field_validator("details_json", mode="before")
+    @classmethod
+    def coerce_details_json(cls, v: Any) -> Any:
+        return _coerce_json_field(v)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -618,7 +661,13 @@ class FuelInquiryCreateRequest(BaseModel):
 
 
 class FuelInquiryResponse(BaseModel):
-    """Response representing a fuel inquiry."""
+    """Response representing a fuel inquiry.
+
+    The ``quota_data`` field maps the ORM column ``quota_data_json`` so that:
+    - model_validate(orm_obj) reads from orm_obj.quota_data_json  (validation_alias)
+    - JSON serialisation outputs the key as ``quota_data``          (field name)
+    - The frontend never sees ``quota_data_json`` in the response
+    """
 
     id: int
     client_id: int
@@ -626,7 +675,11 @@ class FuelInquiryResponse(BaseModel):
     driver_name: str | None = None
     status: str
     error_message: str | None = None
-    quota_data: dict | None = None
+    # Maps ORM column quota_data_json → response key quota_data
+    quota_data: dict | list | str | Any | None = Field(
+        default=None,
+        validation_alias="quota_data_json",
+    )
     screenshot_url: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -636,7 +689,13 @@ class FuelInquiryResponse(BaseModel):
     client_name: str | None = None
     client_code: str | None = None
 
-    model_config = ConfigDict(from_attributes=True)
+    @field_validator("quota_data", mode="before")
+    @classmethod
+    def coerce_quota_data(cls, v: Any) -> Any:
+        return _coerce_json_field(v)
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
 
 
 class FuelInquiryListResponse(BaseModel):

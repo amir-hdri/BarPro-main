@@ -173,10 +173,6 @@ class FuelInquiryService:
                     resp.client_name = cl.name
                     resp.client_code = cl.client_code
 
-            if i.quota_data_json:
-                # SQLAlchemy already deserializes JSON/JSONB columns to Python dicts;
-                # do NOT call json.loads() again — it raises TypeError on a dict.
-                resp.quota_data = i.quota_data_json if isinstance(i.quota_data_json, dict) else None
             items.append(resp)
 
         total_pages = (total + page_size - 1) // page_size
@@ -231,9 +227,6 @@ class FuelInquiryService:
                 resp.client_name = cl.name
                 resp.client_code = cl.client_code
 
-        if inquiry.quota_data_json:
-            # Already deserialized by SQLAlchemy — no json.loads() needed.
-            resp.quota_data = inquiry.quota_data_json if isinstance(inquiry.quota_data_json, dict) else None
         return resp
 
     @classmethod
