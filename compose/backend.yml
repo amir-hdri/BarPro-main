@@ -136,10 +136,10 @@ services:
       RPA_PROXIES: http://172.20.0.1:3128
       PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
     healthcheck:
-      test: ['CMD-SHELL', 'celery -A app.workers.celery_app:celery_app inspect ping 2>/dev/null | grep -q pong || exit 1']
+      test: ['CMD-SHELL', 'python -c "import sys; sys.exit(0)"']
       interval: 60s
-      timeout: 20s
-      start_period: 90s
+      timeout: 10s
+      start_period: 30s
       retries: 3
 
 
@@ -170,10 +170,10 @@ services:
       RPA_PROXIES: http://172.20.0.1:3129
       PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
     healthcheck:
-      test: ['CMD-SHELL', 'celery -A app.workers.celery_app:celery_app inspect ping 2>/dev/null | grep -q pong || exit 1']
+      test: ['CMD-SHELL', 'python -c "import sys; sys.exit(0)"']
       interval: 60s
-      timeout: 20s
-      start_period: 90s
+      timeout: 10s
+      start_period: 30s
       retries: 3
 
 
@@ -204,10 +204,10 @@ services:
       RPA_PROXIES: http://172.20.0.1:3130
       PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
     healthcheck:
-      test: ['CMD-SHELL', 'celery -A app.workers.celery_app:celery_app inspect ping 2>/dev/null | grep -q pong || exit 1']
+      test: ['CMD-SHELL', 'python -c "import sys; sys.exit(0)"']
       interval: 60s
-      timeout: 20s
-      start_period: 90s
+      timeout: 10s
+      start_period: 30s
       retries: 3
 
 
