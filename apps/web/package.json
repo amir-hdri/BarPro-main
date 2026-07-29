@@ -12,9 +12,9 @@
     "@heroicons/react": "^2.2.0",
     "@hookform/resolvers": "^3.9.1",
     "@tanstack/react-query": "^5.62.7",
-    "axios": "^1.7.9",
+    "axios": "1.18.0",
     "lucide-react": "^0.468.0",
-    "next": "^15.2.9",
+    "next": "^15.5.21",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-hook-form": "^7.54.1",
@@ -32,7 +32,7 @@
     "eslint": "^9.16.0",
     "eslint-config-next": "^15.2.9",
     "eslint-plugin-unused-imports": "^4.1.4",
-    "postcss": "^8.5.10",
+    "postcss": "8.5.18",
     "tailwindcss": "^3.4.16",
     "typescript": "^5.7.2"
   },
@@ -40,8 +40,13 @@
     "node": ">=18.17.0"
   },
   "overrides": {
-    "postcss": "^8.5.10",
+    "postcss": "8.5.18",
     "serialize-javascript": "^7.0.7",
-    "sharp": "$sharp"
+    "js-yaml": "3.15.0",
+    "fast-uri": "2.4.3",
+    "sharp": "$sharp",
+    "filelist": {
+      "brace-expansion": "5.0.8"
+    }
   }
 }
