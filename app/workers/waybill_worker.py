@@ -18,7 +18,7 @@ from celery import Task
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.auth_multitenant import decrypt_driver_password
+from app.auth_multitenant import DriverPasswordDecryptError, decrypt_driver_password
 from app.automation.browser import browser_manager, managed_browser_session
 from app.automation.waybill_bot_multitenant import WaybillAutomationBot
 from app.automation.worker_proxy import get_playwright_proxy
@@ -128,6 +128,11 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
             logger.error(f"Job {job_id} not found in database")
             return {"status": "failed", "error": "Job not found"}
 
+        # Cache client_id and driver_id to avoid MissingGreenlet error in finally block
+        # These are accessed multiple times and need to be loaded before session closes
+        cached_client_id = job.client_id
+        cached_driver_id = job.driver_id
+
         existing_result = _safe_json(job.result_json)
         if existing_result.get("tracking_code"):
             logger.info("Skipping already completed waybill job %s", job_id)
@@ -156,7 +161,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
                 logger.info("Skipping waybill job %s in non-claimable status %s", job_id, job.status)
                 return {"status": job.status, "skipped": True}
 
-        runtime_state = await _get_or_create_runtime_state(session, job.client_id, job.driver_id)
+        runtime_state = await _get_or_create_runtime_state(session, cached_client_id, cached_driver_id)
 
         job.status = TaskStatus.IN_PROGRESS.value
         job.started_at = _utcnow_naive()
@@ -189,6 +194,27 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
         if not driver or driver.client_id != job.client_id:
             raise ValueError(f"Driver {job.driver_id} not found")
 
+        username = driver.utcms_username
+        # ─── Decrypt BEFORE acquiring the driver lock ────────────────────────────
+        # Doing this first prevents a zombie lock when the key is mismatched:
+        # if decrypt fails we set NEEDS_REVIEW immediately and return without
+        # ever touching Redis, so subsequent jobs for the same driver are free.
+        try:
+            password = decrypt_driver_password(driver.utcms_password_encrypted)
+        except DriverPasswordDecryptError as exc:
+            logger.error(
+                "worker_driver_key_mismatch",
+                extra={"extra_fields": {"driver_id": driver.id, "job_id": job_id}},
+            )
+            job.status = TaskStatus.NEEDS_REVIEW.value
+            job.last_error = str(exc)
+            job.error_category = "driver_key_mismatch"
+            job.finished_at = _utcnow_naive()
+            job.updated_at = _utcnow_naive()
+            await session.commit()
+            return {"status": TaskStatus.NEEDS_REVIEW.value, "error_category": "driver_key_mismatch"}
+        # ────────────────────────────────────────────────────────────────────────
+
         driver_lock_key = rpa_runtime.submit_lock_key(job.client_id, driver.id)
         driver_lock_acquired = await rpa_runtime.acquire_lock(driver_lock_key, utcms_config.RPA_LOCK_TTL_SECONDS)
         if not driver_lock_acquired:
@@ -203,10 +229,12 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
             job.updated_at = _utcnow_naive()
             await session.commit()
             return {"status": TaskStatus.WAITING_RETRY.value, "next_retry_at": retry_at.isoformat()}
-
-        username = driver.utcms_username
-        password = decrypt_driver_password(driver.utcms_password_encrypted)
-        payload = json.loads(job.payload_json)
+        if isinstance(job.payload_json, dict):
+            payload = job.payload_json
+        elif isinstance(job.payload_json, str):
+            payload = json.loads(job.payload_json)
+        else:
+            payload = {}
 
         from app.services.session_vault import session_vault
 
@@ -445,7 +473,7 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
         try:
             if job is not None:
                 await session.rollback()
-                runtime_state = await _get_or_create_runtime_state(session, job.client_id, job.driver_id)
+                runtime_state = await _get_or_create_runtime_state(session, cached_client_id, cached_driver_id)
                 job.status = TaskStatus.NEEDS_REVIEW.value
                 job.last_error = str(e)
                 job.error_category = "submission_unknown"
@@ -466,8 +494,10 @@ async def _execute_job(task, job_id: str) -> dict[str, Any]:
 
         raise
     finally:
-        if driver_lock_acquired and job is not None and job.driver_id is not None:
-            await rpa_runtime.release_lock(rpa_runtime.submit_lock_key(job.client_id, job.driver_id))
+        if driver_lock_acquired and job is not None:
+            # Use cached values to avoid MissingGreenlet error
+            if cached_client_id is not None and cached_driver_id is not None:
+                await rpa_runtime.release_lock(rpa_runtime.submit_lock_key(cached_client_id, cached_driver_id))
         await session.close()
 
 

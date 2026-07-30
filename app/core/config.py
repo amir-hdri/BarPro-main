@@ -188,8 +188,8 @@ class UTCMSConfig:
                 self.DATABASE_URL = "sqlite+aiosqlite:///./bot_stats.db"
         # self.POSTGRES_DSN = os.getenv("POSTGRES_DSN", "").strip()  # unused — kept as reference
 
-        self.QUEUE_ENABLED = _to_bool(os.getenv("QUEUE_ENABLED", "False"), default=False)
-        self.QUEUE_INLINE_FALLBACK = _to_bool(os.getenv("QUEUE_INLINE_FALLBACK", "True"), default=True)
+        self.QUEUE_ENABLED = _to_bool(os.getenv("QUEUE_ENABLED", "True"), default=True)
+        self.QUEUE_INLINE_FALLBACK = _to_bool(os.getenv("QUEUE_INLINE_FALLBACK", "False"), default=False)
         self.QUEUE_IDEMPOTENCY_HEADER = os.getenv("QUEUE_IDEMPOTENCY_HEADER", "X-Idempotency-Key").strip()
         self.QUEUE_READYZ_LIVE_CHECK = _to_bool(os.getenv("QUEUE_READYZ_LIVE_CHECK", "False"), default=False)
 
@@ -233,6 +233,7 @@ class UTCMSConfig:
         self.LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "5"))
         self.LOG_DIR = os.getenv("LOG_DIR", "/var/log/barpro").strip()
         self.ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "").strip()
+        self.ALERT_WEBHOOK_SECRET = os.getenv("ALERT_WEBHOOK_SECRET", "").strip()
         self.WS_EVENT_HISTORY_LIMIT = int(os.getenv("WS_EVENT_HISTORY_LIMIT", "500"))
         self.WORKER_HEARTBEAT_INTERVAL_SECONDS = float(os.getenv("WORKER_HEARTBEAT_INTERVAL_SECONDS", "5"))
         self.WORKER_STALL_TIMEOUT_SECONDS = float(os.getenv("WORKER_STALL_TIMEOUT_SECONDS", "45"))
@@ -281,7 +282,7 @@ class UTCMSConfig:
         self.DRIVER_DAILY_SUCCESS_CAP = int(os.getenv("DRIVER_DAILY_SUCCESS_CAP", "10"))
         self.DRIVER_DAILY_ATTEMPT_CAP = int(os.getenv("DRIVER_DAILY_ATTEMPT_CAP", "200"))
         self.DRIVER_RETRY_DELAY_SECONDS = int(os.getenv("DRIVER_RETRY_DELAY_SECONDS", "1800"))
-        self.RPA_LOCK_TTL_SECONDS = int(os.getenv("RPA_LOCK_TTL_SECONDS", "900"))
+        self.RPA_LOCK_TTL_SECONDS = int(os.getenv("RPA_LOCK_TTL_SECONDS", "360"))
         self.RPA_SESSION_TTL_SECONDS = int(os.getenv("RPA_SESSION_TTL_SECONDS", "7200"))
         self.RPA_SESSION_REFRESH_SKEW_SECONDS = int(os.getenv("RPA_SESSION_REFRESH_SKEW_SECONDS", "300"))
         self.RPA_SCHEDULER_BATCH_SIZE = int(os.getenv("RPA_SCHEDULER_BATCH_SIZE", "200"))

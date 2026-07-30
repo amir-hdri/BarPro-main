@@ -137,6 +137,7 @@ class RPAHttpSubmitService:
         session_bundle_override: SessionBundle | None = None,
     ) -> SubmitExecutionResult:
         session = async_session_factory()
+        lock_acquired = False
         try:
             job = (
                 await session.exec(
@@ -152,7 +153,12 @@ class RPAHttpSubmitService:
             # by checking for existing tracking_code in result_json
             if job.result_json:
                 try:
-                    result_data = json.loads(job.result_json)
+                    if isinstance(job.result_json, dict):
+                        result_data = job.result_json
+                    elif isinstance(job.result_json, str):
+                        result_data = json.loads(job.result_json)
+                    else:
+                        result_data = {}
                     if result_data.get("tracking_code"):
                         logger.warning(
                             "job_already_has_tracking_code_skipping_duplicate_submit",
@@ -169,7 +175,7 @@ class RPAHttpSubmitService:
                             ),
                             latency_ms=0,
                         )
-                except json.JSONDecodeError:
+                except (json.JSONDecodeError, TypeError):
                     pass  # Ignore corrupted result_json
 
             driver = await session.get(Driver, job.driver_id)
@@ -204,7 +210,12 @@ class RPAHttpSubmitService:
             if session_bundle is None:
                 return await self._mark_waiting_auth(session, job, driver, runtime_state, "missing_session")
 
-            payload = json.loads(job.payload_json)
+            if isinstance(job.payload_json, dict):
+                payload = job.payload_json
+            elif isinstance(job.payload_json, str):
+                payload = json.loads(job.payload_json)
+            else:
+                payload = {}
             job.status = TaskStatus.IN_PROGRESS.value
             job.updated_at = datetime.now(UTC).replace(tzinfo=None)
             driver.runtime_status = DriverStatus.READY.value

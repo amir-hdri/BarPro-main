@@ -223,7 +223,7 @@ start_local_backend() {
     export REDIS_URL="redis://:${REDIS_PASSWORD}@127.0.0.1:6379/0"
     export REDIS_PASSWORD="${REDIS_PASSWORD}"
     export PORT=8000
-    export HEADLESS=false
+    export HEADLESS="${HEADLESS:-true}"
 
     ensure_port_free 8000 "backend" || return 1
 
@@ -363,7 +363,7 @@ start_local_worker() {
     export REDIS_URL="redis://:${REDIS_PASSWORD}@127.0.0.1:6379/0"
     export CELERY_BROKER_URL="$REDIS_URL"
     export CELERY_RESULT_BACKEND="$REDIS_URL"
-    export HEADLESS=false
+    export HEADLESS="${HEADLESS:-true}"
 
     local worker_pid
     worker_pid=$(

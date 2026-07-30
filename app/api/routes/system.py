@@ -577,3 +577,101 @@ async def proxies_health():
     results = await asyncio.gather(*tasks)
 
     return {"status": "success", "proxies": results}
+
+
+# ==================== ADMIN DRIVER LOCK MANAGEMENT ====================
+
+
+@router.get(
+    "/admin/locks",
+    summary="List all active driver locks",
+    description=(
+        "Returns all active ``lock:submit:*`` and ``lock:auth:*`` keys in Redis "
+        "with their remaining TTL. Useful for identifying zombie locks left behind "
+        "after worker crashes or container restarts."
+    ),
+)
+async def list_driver_locks(_: dict = Depends(get_current_admin)):
+    """List all active driver submit/auth locks stored in Redis."""
+    from app.services.rpa_runtime_service import rpa_runtime
+
+    locks = await rpa_runtime.list_driver_locks()
+    return {
+        "count": len(locks),
+        "locks": locks,
+    }
+
+
+@router.delete(
+    "/admin/locks/{client_id}/{driver_id}",
+    summary="Force-release a specific driver lock",
+    description=(
+        "Forcibly removes the submit lock for a specific driver regardless of "
+        "ownership. Use when a driver's jobs are stuck with "
+        "``error_category=driver_submission_in_progress`` after a worker crash."
+    ),
+)
+async def force_release_driver_lock(
+    client_id: int,
+    driver_id: int,
+    lock_type: str = Query(default="submit", pattern="^(submit|auth)$"),
+    _: dict = Depends(get_current_admin),
+):
+    """Force-release driver submit or auth lock (admin-only recovery action)."""
+    from app.services.rpa_runtime_service import rpa_runtime
+
+    if lock_type == "auth":
+        key = rpa_runtime.auth_lock_key(client_id, driver_id)
+    else:
+        key = rpa_runtime.submit_lock_key(client_id, driver_id)
+
+    was_held = await rpa_runtime.is_lock_held(key)
+    await rpa_runtime.force_release_lock(key)
+    logger.warning(
+        "admin_driver_lock_force_released",
+        extra={
+            "extra_fields": {
+                "key": key,
+                "client_id": client_id,
+                "driver_id": driver_id,
+                "lock_type": lock_type,
+                "was_held": was_held,
+            }
+        },
+    )
+    return {
+        "released": True,
+        "key": key,
+        "was_held": was_held,
+    }
+
+
+@router.delete(
+    "/admin/locks/stale",
+    summary="Release all stale driver locks",
+    description=(
+        "Scans Redis for all ``lock:submit:*`` and ``lock:auth:*`` keys and "
+        "removes every one of them. Use this as a bulk recovery action when "
+        "multiple workers crash simultaneously and leave many zombie locks. "
+        "**This is a destructive operation** — only call it when all workers "
+        "are confirmed idle or restarting."
+    ),
+)
+async def force_release_all_driver_locks(_: dict = Depends(get_current_admin)):
+    """Force-release all driver locks (admin nuclear option)."""
+    from app.services.rpa_runtime_service import rpa_runtime
+
+    locks = await rpa_runtime.list_driver_locks()
+    released = []
+    for lock in locks:
+        await rpa_runtime.force_release_lock(lock["key"])
+        released.append(lock["key"])
+
+    logger.warning(
+        "admin_all_driver_locks_force_released",
+        extra={"extra_fields": {"count": len(released), "keys": released}},
+    )
+    return {
+        "released_count": len(released),
+        "released_keys": released,
+    }

@@ -26,7 +26,7 @@ from sqlalchemy.orm import joinedload
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.auth_multitenant import decrypt_driver_password
+from app.auth_multitenant import DriverPasswordDecryptError, decrypt_driver_password
 from app.automation.browser import browser_manager, managed_browser_session
 from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload
 from app.automation.proxy_rotator import get_proxy_rotator
@@ -90,9 +90,11 @@ def _parse_csv_list(raw: str | None) -> list[str]:
     return [p.strip() for p in raw.split(",") if p.strip()]
 
 
-def _safe_json(raw: str | None) -> dict:
+def _safe_json(raw: str | dict | None) -> dict:
     if not raw:
         return {}
+    if isinstance(raw, dict):
+        return raw
     try:
         data = json.loads(raw)
         return data if isinstance(data, dict) else {}
@@ -147,8 +149,14 @@ async def _execute_single_job(
     job: WaybillJob,
     session: AsyncSession,
     attempt: int = 1,
+    driver_password: str | None = None,
 ) -> dict[str, Any]:
-    """Execute a single waybill job with retry logic."""
+    """Execute a single waybill job with retry logic.
+
+    Args:
+        driver_password: Pre-decrypted UTCMS password. When ``None`` the password
+                         is decrypted here (legacy/recursive-retry path).
+    """
     if attempt == 1:
         start_jitter = random.uniform(1.0, 5.0)
         logger.info(f"Adding start jitter of {start_jitter:.2f}s for scheduled job {job.job_id}")
@@ -157,7 +165,13 @@ async def _execute_single_job(
     payload_data = _safe_json(job.payload_json)
     normalized = build_enhanced_waybill_payload(payload_data)
     username = driver.utcms_username
-    password = decrypt_driver_password(driver.utcms_password_encrypted)
+    # Use pre-decrypted password when available; fall back to decrypting here
+    # (this path is taken on recursive retry calls which pass the password through).
+    password = (
+        driver_password
+        if driver_password is not None
+        else decrypt_driver_password(driver.utcms_password_encrypted)
+    )
     job_id = job.job_id
 
     from app.services.session_vault import session_vault
@@ -273,7 +287,9 @@ async def _execute_single_job(
                     delay = min(RETRY_BASE_DELAY * (2 ** (attempt - 1)), RETRY_MAX_DELAY)
                     await asyncio.sleep(delay)
                     logger.info(f"Retrying job {job_id}, attempt {attempt + 1}/{MAX_RETRIES} after {delay}s")
-                    return await _execute_single_job(client, driver, job, session, attempt + 1)
+                    return await _execute_single_job(
+                        client, driver, job, session, attempt + 1, driver_password=password
+                    )
 
                 job.status = (
                     TaskStatus.NEEDS_REVIEW.value
@@ -338,6 +354,26 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
             return {"status": "failed", "error": "Driver status inactive"}
 
         driver_lock_key = rpa_runtime.submit_lock_key(client.id, driver.id)
+
+        # ─── Decrypt BEFORE acquiring the driver lock ────────────────────────────
+        # Decryption failure (key mismatch) must be caught before we hold the
+        # Redis lock so we do not leave a zombie lock on driver’s behalf.
+        try:
+            driver_plaintext_password = decrypt_driver_password(driver.utcms_password_encrypted)
+        except DriverPasswordDecryptError as exc:
+            logger.error(
+                "scheduled_executor_driver_key_mismatch",
+                extra={"extra_fields": {"driver_id": driver.id, "job_id": job_id}},
+            )
+            job.status = TaskStatus.NEEDS_REVIEW.value
+            job.last_error = str(exc)
+            job.error_category = "driver_key_mismatch"
+            job.finished_at = _utcnow()
+            job.retryable = False
+            await session.commit()
+            return {"status": TaskStatus.NEEDS_REVIEW.value, "error_category": "driver_key_mismatch"}
+        # ────────────────────────────────────────────────────────────────────────
+
         driver_lock_acquired = await rpa_runtime.acquire_lock(driver_lock_key, utcms_config.RPA_LOCK_TTL_SECONDS)
         if not driver_lock_acquired:
             retry_at = _utcnow() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
@@ -355,8 +391,10 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
         job.started_at = _utcnow()
         await session.commit()
 
-        # Execute the automation bot
-        result = await _execute_single_job(client, driver, job, session, attempt=job.attempt_count + 1)
+        # Execute the automation bot (pass pre-decrypted password to avoid re-decryption)
+        result = await _execute_single_job(
+            client, driver, job, session, attempt=job.attempt_count + 1, driver_password=driver_plaintext_password
+        )
         result_status = str(result.get("status", "")).strip().lower()
 
         if result_status == "success":
