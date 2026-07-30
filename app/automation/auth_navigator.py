@@ -234,7 +234,32 @@ class AuthNavigator:
             return false;
         }
         """
+        js_remove_overlays = """
+        () => {
+            const selectors = [
+                ".loading", ".spinner", ".k-loading-mask", ".k-loading-image", ".k-loading-color",
+                "#loading", "#loading-box", ".loading-overlay", ".loading-mask", "div.modal-backdrop",
+                ".blockUI", ".blockMsg", ".blockPage"
+            ];
+            let removed = 0;
+            for (const sel of selectors) {
+                try {
+                    const els = document.querySelectorAll(sel);
+                    for (const el of els) {
+                        try {
+                            el.style.display = 'none';
+                            el.style.visibility = 'hidden';
+                            el.remove();
+                            removed++;
+                        } catch (e) {}
+                    }
+                } catch (e) {}
+            }
+            return removed;
+        }
+        """
         deadline = asyncio.get_running_loop().time() + (timeout_ms / 1000)
+        removal_attempted = False
         while asyncio.get_running_loop().time() < deadline:
             try:
                 found_any = await self.page.evaluate(js_check)
@@ -243,6 +268,20 @@ class AuthNavigator:
 
             if not found_any:
                 return
+
+            # If we've been waiting for more than 50% of the timeout, try to remove overlays
+            remaining_time_ms = (deadline - asyncio.get_running_loop().time()) * 1000
+            if not removal_attempted and remaining_time_ms < (timeout_ms * 0.5):
+                try:
+                    removed_count = await self.page.evaluate(js_remove_overlays)
+                    if removed_count > 0:
+                        logger.warning(
+                            "auth_loading_overlay_force_removed",
+                            extra={"extra_fields": {"removed_count": removed_count, "action": "removed_via_js"}},
+                        )
+                except Exception:
+                    pass
+                removal_attempted = True
 
             await asyncio.sleep(0.08)
 

@@ -3693,7 +3693,7 @@ class EnhancedWaybillManager:
             import time
 
             try:
-                debug_dir = "/app/output/screenshots/debug"
+                debug_dir = os.path.join(os.getcwd(), "output", "screenshots", "debug")
                 os.makedirs(debug_dir, exist_ok=True)
                 ts = int(time.time())
                 debug_html_path = os.path.join(debug_dir, f"{job_id or 'unknown'}_{ts}.html")

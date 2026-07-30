@@ -42,12 +42,15 @@ export function getStoredClient(): StoredClient | null {
   }
 }
 
-export function persistSession(_token: string, client: StoredClient): void {
+export function persistSession(token: string, client: StoredClient): void {
   if (typeof window === 'undefined') {
     return;
   }
 
   try {
+    if (token) {
+      window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+    }
     window.localStorage.setItem(AUTH_CLIENT_KEY, JSON.stringify(client));
     window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
   } catch (e) {
@@ -64,6 +67,7 @@ export function clearSession(): void {
   post('/api/v1/auth/logout').catch(() => {});
 
   try {
+    window.localStorage.removeItem(AUTH_TOKEN_KEY);
     window.localStorage.removeItem(AUTH_CLIENT_KEY);
     window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
   } catch (e) {

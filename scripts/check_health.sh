@@ -70,7 +70,13 @@ fi
      set -a && source .env && set +a
  fi
  
- PYTHON_BIN="${PYTHON_BIN:-python3}"
+ if [ -z "$PYTHON_BIN" ]; then
+    if [ -x ".venv/bin/python" ]; then
+        PYTHON_BIN=".venv/bin/python"
+    elif command -v python3 >/dev/null 2>&1; then
+        PYTHON_BIN="$(command -v python3)"
+    fi
+fi
  if command -v "$PYTHON_BIN" >/dev/null 2>&1; then
      VERSION=$("$PYTHON_BIN" -c "import sys; sys.path.insert(0, '.'); from alembic.config import Config; from app.core.config import utcms_config; alembic_cfg = Config('alembic.ini'); alembic_cfg.set_main_option('sqlalchemy.url', utcms_config.DATABASE_URL); from alembic.script import ScriptDirectory; script = ScriptDirectory.from_config(alembic_cfg); head = script.get_current_head(); print(head if head else 'unknown')" 2>/dev/null)
      

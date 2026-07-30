@@ -337,3 +337,99 @@ class DriverService:
         password = decrypt_driver_password(driver.utcms_password_encrypted)
 
         return username, password
+
+    @staticmethod
+    async def reencrypt_driver_password(
+        driver_id: int,
+        new_plain_password: str,
+        session: AsyncSession,
+        client_id: int | None = None,
+    ) -> Driver:
+        """Re-encrypt a driver's UTCMS password with the current DRIVER_ENCRYPTION_KEY.
+
+        This is the recovery path when a driver's stored ciphertext was encrypted with
+        a different (old) key and decryption fails with ``InvalidToken``.
+
+        Args:
+            driver_id:         Primary key of the driver to update.
+            new_plain_password: The plaintext UTCMS password to encrypt and store.
+            session:           Active async database session.
+            client_id:         When provided, enforces that the driver belongs to this
+                               tenant (admin callers may pass ``None`` to skip the check).
+
+        Returns:
+            The updated ``Driver`` ORM object.
+
+        Raises:
+            HTTPException 404: Driver not found.
+            HTTPException 400: Encryption failed (propagated from Fernet).
+        """
+        driver = await session.get(Driver, driver_id)
+        if not driver:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found")
+
+        if client_id is not None and driver.client_id != client_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found")
+
+        try:
+            driver.utcms_password_encrypted = encrypt_driver_password(new_plain_password)
+        except Exception as exc:
+            logger.error(
+                "driver_reencrypt_failed",
+                extra={"extra_fields": {"driver_id": driver_id, "error": str(exc)}},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to encrypt driver password. Check DRIVER_ENCRYPTION_KEY configuration.",
+            ) from exc
+
+        driver.updated_at = datetime.now(UTC).replace(tzinfo=None)
+        session.add(driver)
+        await session.commit()
+        await session.refresh(driver)
+        logger.info("driver_password_reencrypted", extra={"extra_fields": {"driver_id": driver_id}})
+        return driver
+
+    @staticmethod
+    async def check_all_drivers_encryption_health(
+        session: AsyncSession,
+        client_id: int | None = None,
+    ) -> dict:
+        """Check which drivers cannot be decrypted with the current DRIVER_ENCRYPTION_KEY.
+
+        Iterates all drivers (optionally filtered by tenant) and attempts decryption.
+        Returns a summary with counts and a list of problematic driver IDs.
+
+        This is a *read-only* operation — no passwords are modified.
+        """
+        from sqlmodel import select as _select
+
+        from app.auth_multitenant import DriverPasswordDecryptError
+
+        stmt = _select(Driver)
+        if client_id is not None:
+            stmt = stmt.where(Driver.client_id == client_id)
+        drivers = (await session.exec(stmt)).all()
+
+        ok_count = 0
+        failed: list[dict] = []
+
+        for driver in drivers:
+            try:
+                decrypt_driver_password(driver.utcms_password_encrypted)
+                ok_count += 1
+            except (DriverPasswordDecryptError, Exception):
+                failed.append(
+                    {
+                        "driver_id": driver.id,
+                        "client_id": driver.client_id,
+                        "utcms_username": driver.utcms_username,
+                    }
+                )
+
+        return {
+            "total": len(drivers),
+            "ok": ok_count,
+            "failed_count": len(failed),
+            "failed_drivers": failed,
+        }

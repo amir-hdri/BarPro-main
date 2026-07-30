@@ -118,7 +118,19 @@ function createApiClient(): AxiosInstance {
     withCredentials: true,
   });
 
-  // Credentials (httpOnly cookies) are sent automatically via withCredentials: true
+  inst.interceptors.request.use((config) => {
+    if (typeof window !== 'undefined') {
+      try {
+        const token = window.localStorage.getItem('utcms_auth_token');
+        if (token && !config.headers.Authorization) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return config;
+  });
 
   inst.interceptors.response.use(
     (res) => res,

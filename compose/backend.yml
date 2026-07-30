@@ -67,8 +67,8 @@ x-backend-common: &backend-common
     MASTER_ADMIN_PASSWORD: ${MASTER_ADMIN_PASSWORD}
     KERAS_PYTHON_PATH: ${KERAS_PYTHON_PATH:-python3}
     KERAS_MODEL_PATH: ${KERAS_MODEL_PATH:-persian_number_ocr.keras}
-    # ✅ استفاده از system chromium به جای Playwright's chromium (CDN blocked in Iran)
-    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
+    # ✅ استفاده از کرومیوم مدیریت شده توسط Playwright در /opt/playwright-browsers/
+    # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده - از کرومیوم Playwright استفاده می‌شود
   networks: [platform]
   extra_hosts:
     - "host.docker.internal:host-gateway"
@@ -122,6 +122,7 @@ services:
       - -Q
       - waybill_tasks_1,rpa_auth_1,rpa_submit_1,scheduled_tasks_1
       - --concurrency=1
+      - --prefetch-multiplier=1
       - -n
       - worker_1@%h
     environment:
@@ -129,7 +130,7 @@ services:
       WORKER_ID: "1"
       WORKER_IP_INDEX: 1
       RPA_PROXIES: http://172.20.0.1:3128
-      PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
+      # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
     healthcheck:
       test: ['CMD-SHELL', 'python -c "import sys; sys.exit(0)"']
       interval: 60s
@@ -156,6 +157,7 @@ services:
       - -Q
       - waybill_tasks_2,rpa_auth_2,rpa_submit_2,scheduled_tasks_2
       - --concurrency=1
+      - --prefetch-multiplier=1
       - -n
       - worker_2@%h
     environment:
@@ -163,7 +165,7 @@ services:
       WORKER_ID: "2"
       WORKER_IP_INDEX: 2
       RPA_PROXIES: http://172.20.0.1:3129
-      PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
+      # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
     healthcheck:
       test: ['CMD-SHELL', 'python -c "import sys; sys.exit(0)"']
       interval: 60s
@@ -190,6 +192,7 @@ services:
       - -Q
       - waybill_tasks_3,rpa_auth_3,rpa_submit_3,scheduled_tasks_3,rpa_scheduler,scheduled_tasks
       - --concurrency=1
+      - --prefetch-multiplier=1
       - -n
       - worker_3@%h
     environment:
@@ -197,7 +200,7 @@ services:
       WORKER_ID: "3"
       WORKER_IP_INDEX: 3
       RPA_PROXIES: http://172.20.0.1:3130
-      PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
+      # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
     healthcheck:
       test: ['CMD-SHELL', 'python -c "import sys; sys.exit(0)"']
       interval: 60s

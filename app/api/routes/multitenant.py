@@ -15,6 +15,7 @@ import logging
 from fastapi import APIRouter, Body, Depends, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPBearer
+from pydantic import BaseModel, Field
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth_multitenant import get_current_admin, get_current_client, get_current_user_or_admin
@@ -779,3 +780,68 @@ async def get_fuel_inquiry_screenshot(
         media_type="image/png",
         filename=f"fuel-inquiry-{inquiry.id}.png",
     )
+
+
+# ==================== ADMIN DRIVER ENCRYPTION RECOVERY ====================
+
+
+class DriverReencryptRequest(BaseModel):
+    """Request body for re-encrypting a driver's UTCMS password."""
+
+    plain_password: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Plaintext UTCMS password for this driver. "
+            "It will be encrypted with the current DRIVER_ENCRYPTION_KEY before storage."
+        ),
+    )
+
+
+@router.post(
+    "/admin/drivers/{driver_id}/reencrypt-password",
+    summary="Re-encrypt driver password with current key",
+    description=(
+        "Sets and re-encrypts a driver's UTCMS password using the currently active "
+        "``DRIVER_ENCRYPTION_KEY``. Use this to recover from an "
+        "``InvalidToken`` / ``driver_key_mismatch`` error caused by a key rotation "
+        "or environment mismatch. The plaintext password is **never logged**."
+    ),
+)
+async def admin_reencrypt_driver_password(
+    driver_id: int,
+    body: DriverReencryptRequest,
+    _: dict = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Re-encrypt a driver's UTCMS password with the current DRIVER_ENCRYPTION_KEY (admin-only)."""
+    await DriverService.reencrypt_driver_password(
+        driver_id=driver_id,
+        new_plain_password=body.plain_password,
+        session=session,
+        client_id=None,  # Admin may update any tenant's driver
+    )
+    return {
+        "success": True,
+        "driver_id": driver_id,
+        "message": "Driver password re-encrypted with current DRIVER_ENCRYPTION_KEY.",
+    }
+
+
+@router.get(
+    "/admin/drivers/encryption-health",
+    summary="Check encryption health for all drivers",
+    description=(
+        "Attempts to decrypt every driver's stored UTCMS password with the current "
+        "``DRIVER_ENCRYPTION_KEY`` and reports which drivers fail (key mismatch). "
+        "Use this after a key rotation to quickly identify which drivers need their "
+        "password re-saved via ``/admin/drivers/{id}/reencrypt-password``."
+    ),
+)
+async def admin_check_driver_encryption_health(
+    client_id: int | None = Query(default=None, description="Filter by client tenant ID (omit for all tenants)"),
+    _: dict = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Check which drivers cannot be decrypted with the current DRIVER_ENCRYPTION_KEY (admin-only)."""
+    return await DriverService.check_all_drivers_encryption_health(session=session, client_id=client_id)
