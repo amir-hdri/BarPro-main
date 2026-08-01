@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class TaskStatus(StrEnum):
+    PENDING = "pending"
     QUEUED = "queued"
     PROCESSING = "processing"
     RETRYING = "retrying"

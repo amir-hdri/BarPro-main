@@ -6,6 +6,7 @@ and intelligent rotation for maximum anonymity and reliability.
 """
 
 import asyncio
+import re
 import contextlib
 import ipaddress
 import os
@@ -358,18 +359,15 @@ class ProxyRotator:
             parsed = urlparse(proxy_str)
             host = (parsed.hostname or "").strip().lower()
 
-            # Explicit whitelist of allowed internal docker hosts
-            # These are Docker gateway/internal addresses used to reach the
-            # Squid proxy (which runs with network_mode: host) from within
-            # Docker bridge network containers. They are architecturally safe
-            # because Squid enforces its own ACL rules for external access.
+            # Dynamic Squid hostname check — accepts squid_N or squid-N for any N.
+            # This allows adding new Squid instances (squid_4, squid_99, …) without
+            # changing this file. All Squid containers run with network_mode: host
+            # so they are architecturally safe: Squid itself enforces external ACLs.
+            if re.match(r"^squid[_-]?\d+$", host):
+                return True
+
+            # Fixed whitelist for other allowed internal Docker / host addresses
             allowed_internal_hosts = {
-                "squid_1",
-                "squid_2",
-                "squid_3",
-                "squid-1",
-                "squid-2",
-                "squid-3",
                 "localhost",
                 "127.0.0.1",
                 "::1",
@@ -389,8 +387,14 @@ class ProxyRotator:
                 if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
                     return False
                 return True
-            except ValueError:
-                pass
+            except ValueError as exc:
+                # `ip_address` raises ValueError when `host` is a DNS name
+                # rather than an IP literal; the caller treats that as a
+                # fallback signal to resolve the hostname below.
+                logger.debug(
+                    "proxy_rotator_ip_literal_parse_failed",
+                    extra={"extra_fields": {"host": host, "error": str(exc)}},
+                )
 
             # 2. If it's a hostname, resolve it and check the IPs
             import socket

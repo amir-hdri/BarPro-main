@@ -8,13 +8,14 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.auth_multitenant import get_current_admin
 from app.automation.browser import browser_manager
 from app.automation.captcha import barname_ml_solver, captcha_engine
 from app.core.config import utcms_config
-from app.core.database import engine
+from app.core.database import engine, get_session
 from app.core.recovery import recovery_manager
-from app.core.worker_heartbeat import worker_heartbeat_registry
 from app.monitoring.metrics import (
     METRICS_CONTENT_TYPE,
     export_metrics,
@@ -273,9 +274,72 @@ async def readyz():
 
 @router.get("/metrics")
 async def metrics():
+    # 1. Update queue depth
     queue_snapshot = await _safe_queue_snapshot()
     if queue_snapshot is None:
         set_queue_depth(0)
+        
+    # 2. Update SLO gauges
+    from app.models_rpa import WorkerRegistry
+    from app.models_multitenant import WaybillJob
+    from sqlmodel import select, func
+    from datetime import datetime, UTC, timedelta
+    from app.monitoring.metrics import (
+        set_active_worker_count,
+        set_worker_liveness,
+        set_reconciliation_backlog,
+        set_db_pool_utilization,
+        set_healthy_proxy_count,
+    )
+    from app.core.database import engine
+    
+    # Update active workers and proxy health gauges
+    try:
+        async with async_session_factory() as session:
+            result = await session.exec(select(WorkerRegistry))
+            workers = result.all()
+            
+            now = datetime.now(UTC).replace(tzinfo=None)
+            cutoff = now - timedelta(seconds=90)
+            
+            active_count = 0
+            healthy_proxies = 0
+            for w in workers:
+                is_alive = w.updated_at >= cutoff
+                set_worker_liveness(w.worker_id, is_alive)
+                if is_alive:
+                    active_count += 1
+                    if w.status != "draining":
+                        healthy_proxies += 1
+                        
+            set_active_worker_count(active_count)
+            set_healthy_proxy_count(healthy_proxies)
+    except Exception as exc:
+        logger.error(f"Failed to populate worker liveness/proxy metrics: {exc}")
+
+    # Update reconciliation backlog gauge
+    try:
+        async with async_session_factory() as session:
+            backlog_res = await session.exec(select(func.count(WaybillJob.job_id)).where(WaybillJob.status == "unknown"))
+            set_reconciliation_backlog(backlog_res.one())
+    except Exception as exc:
+        logger.error(f"Failed to populate reconciliation backlog metric: {exc}")
+
+    # Update DB connection pool utilization gauge
+    try:
+        pool = engine.pool
+        checkedout = pool.checkedout()
+        size = pool.size()
+        overflow = getattr(pool, "overflow", lambda: 0)()
+        total_connections = size + max(0, overflow)
+        if total_connections > 0:
+            utilization = (checkedout / total_connections) * 100
+            set_db_pool_utilization(utilization)
+        else:
+            set_db_pool_utilization(0.0)
+    except Exception:
+        set_db_pool_utilization(0.0)
+
     return Response(content=export_metrics(), media_type=METRICS_CONTENT_TYPE)
 
 
@@ -288,12 +352,42 @@ async def event_history(task_id: str | None = Query(default=None), batch_id: str
 
 
 @router.get("/workers/heartbeats", dependencies=[Depends(get_current_admin)])
-async def worker_heartbeats():
-    stalled = worker_heartbeat_registry.detect_stalled(utcms_config.WORKER_STALL_TIMEOUT_SECONDS)
+@router.get("/api/v1/admin/workers/heartbeats", dependencies=[Depends(get_current_admin)])
+async def worker_heartbeats(session: AsyncSession = Depends(get_session)):
+    from app.models_rpa import WorkerRegistry
+    from sqlmodel import select
+    from datetime import datetime, UTC
+    import json
+    
+    result = await session.exec(select(WorkerRegistry))
+    workers = result.all()
+    
+    snapshot = {}
+    stalled = {}
+    now = datetime.now(UTC).replace(tzinfo=None)
+    timeout = utcms_config.WORKER_STALL_TIMEOUT_SECONDS
+    
+    for w in workers:
+        last_beat = w.last_heartbeat_at
+        diff = (now - last_beat).total_seconds()
+        is_stalled = diff > timeout and w.status == "active"
+        
+        info = {
+            "worker_id": w.worker_id,
+            "hostname": w.hostname,
+            "status": w.status,
+            "last_heartbeat_at": last_beat.timestamp(),
+            "capabilities": json.loads(w.capabilities_json) if w.capabilities_json else [],
+            "capacity": w.capacity,
+        }
+        snapshot[w.worker_id] = info
+        if is_stalled:
+            stalled[w.worker_id] = info
+            
     return {
-        "active": worker_heartbeat_registry.snapshot(),
+        "active": snapshot,
         "stalled": stalled,
-        "stall_timeout_seconds": utcms_config.WORKER_STALL_TIMEOUT_SECONDS,
+        "stall_timeout_seconds": timeout,
     }
 
 
@@ -516,28 +610,53 @@ async def toggle_circuit_breaker(enabled: bool = Query(...)):
 
 @router.get("/proxies/health", dependencies=[Depends(get_current_admin)])
 async def proxies_health():
-    """Check connection latency and health for Squid proxies."""
+    """Check connection latency and health for Squid proxies.
+
+    Worker list is read dynamically from ``worker_registry`` (populated by
+    Celery worker_process_init signals) so that adding a new Worker node
+    never requires changing this file.  The legacy ``RPA_PROXIES`` env-var
+    path is kept as a secondary/override source.
+    """
     import os
     import time
 
-    # List of proxies to check
-    proxies_to_check = []
+    from app.automation.proxy_rotator import ProxyRotator
+    from app.services.worker_dashboard_service import get_active_worker_proxies
 
-    # 1. Add standard worker proxies from environment
-    for i in (1, 2, 3):
-        env_val = os.getenv(f"WORKER_{i}_PROXY")
-        if env_val:
-            proxies_to_check.append((f"Squid {i} ({env_val})", env_val))
-        else:
-            # Fallback default port on host.docker.internal
-            port = 3127 + i  # 3128, 3129, 3130
-            proxies_to_check.append((f"Squid {i} (default)", f"http://172.20.0.1:{port}"))
+    proxies_to_check: list[tuple[str, str]] = []
+    seen_urls: set[str] = set()
 
-    # 2. Add extra proxies from RPA_PROXIES (validated against SSRF allowlist)
+    # 1. Primary: workers registered in the DB (dynamic, no hardcoded count)
+    active_workers = await get_active_worker_proxies()
+    for w in active_workers:
+        if w.proxy_url not in seen_urls:
+            proxies_to_check.append((w.display_name, w.proxy_url))
+            seen_urls.add(w.proxy_url)
+
+    # 2. Fallback for single-server / local dev: WORKER_{N}_PROXY env vars
+    #    (still useful when workers haven't registered yet, e.g. on first boot)
+    if not active_workers:
+        for i in range(1, 10):
+            env_val = os.getenv(f"WORKER_{i}_PROXY")
+            if env_val:
+                if env_val not in seen_urls:
+                    proxies_to_check.append((f"Squid {i} (env)", env_val))
+                    seen_urls.add(env_val)
+            else:
+                # Only auto-generate defaults for workers 1-3 (known local deployment)
+                if i <= 3:
+                    port = 3127 + i  # 3128, 3129, 3130
+                    url = f"http://172.20.0.1:{port}"
+                    if url not in seen_urls:
+                        proxies_to_check.append((f"Squid {i} (default)", url))
+                        seen_urls.add(url)
+                else:
+                    # Stop scanning env vars once we hit a gap above worker 3
+                    break
+
+    # 3. Extra proxies from RPA_PROXIES (validated against SSRF allowlist)
     rpa_proxies_raw = os.getenv("RPA_PROXIES", "")
     if rpa_proxies_raw:
-        from app.automation.proxy_rotator import ProxyRotator
-
         for idx, p in enumerate(rpa_proxies_raw.split(",")):
             p = p.strip()
             if not p:
@@ -545,8 +664,9 @@ async def proxies_health():
             if not ProxyRotator._is_safe_proxy_url(p):
                 logger.warning("blocked_unsafe_rpa_proxy", extra={"extra_fields": {"url": p[:60]}})
                 continue
-            if p not in [item[1] for item in proxies_to_check]:
-                proxies_to_check.append((f"RPA Proxy {idx+1}", p))
+            if p not in seen_urls:
+                proxies_to_check.append((f"RPA Proxy {idx + 1}", p))
+                seen_urls.add(p)
 
     async def check_single_proxy(name: str, url: str) -> dict:
         start_time = time.time()
@@ -572,11 +692,15 @@ async def proxies_health():
                 "error": str(e),
             }
 
-    # Run checks in parallel
+    # Run all checks in parallel
     tasks = [check_single_proxy(name, url) for name, url in proxies_to_check]
     results = await asyncio.gather(*tasks)
 
-    return {"status": "success", "proxies": results}
+    return {
+        "status": "success",
+        "source": "worker_registry" if active_workers else "env_fallback",
+        "proxies": results,
+    }
 
 
 # ==================== ADMIN DRIVER LOCK MANAGEMENT ====================

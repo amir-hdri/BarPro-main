@@ -38,6 +38,8 @@ class TaskStatus(StrEnum):
     PENDING = "pending"
     QUEUED = "queued"
     IN_PROGRESS = "in_progress"
+    CLAIMED = "claimed"
+    RUNNING = "running"
     RETRYING = "retrying"
     WAITING_AUTH = "waiting_auth"
     WAITING_RETRY = "waiting_retry"
@@ -47,6 +49,9 @@ class TaskStatus(StrEnum):
     FAILED = "failed"
     DAILY_LIMIT_REACHED = "daily_limit_reached"
     DEAD_LETTER = "dead_letter"
+    CANCELLED = "cancelled"
+    UNKNOWN = "unknown"
+    RECONCILING = "reconciling"
 
 
 class TaskSource(StrEnum):
@@ -459,6 +464,7 @@ class FuelInquiry(SQLModel, table=True):
     # Status of the inquiry (pending, processing, success, failed)
     status: str = Field(default="pending", max_length=20, index=True)
     error_message: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    error_category: str | None = Field(default=None, max_length=50, index=True)
 
     # Quota details (stored as a JSON string)
     quota_data_json: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))

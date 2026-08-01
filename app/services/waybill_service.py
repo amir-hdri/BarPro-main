@@ -321,7 +321,8 @@ class WaybillService:
         return await manager.create_waybill_with_map(waybill_payload, dry_run=dry_run)
 
     async def _inject_map_into_page(self, page, waybill_data: dict) -> None:
-        pass
+        """Hook for injecting a Leaflet map into the page DOM before submission."""
+        return None
 
     @staticmethod
     async def _cleanup_browser_session(session: BrowserSession, request_id: str) -> None:

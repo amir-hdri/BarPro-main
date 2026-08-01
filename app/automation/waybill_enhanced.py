@@ -1519,13 +1519,21 @@ class EnhancedWaybillManager:
                             if ready_state in ("interactive", "complete"):
                                 logger.warning(f"goto reached readyState '{ready_state}' despite timeout: {goto_err}")
                                 return
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            # `evaluate` can fail if the page navigated or
+                            # closed; not actionable at this layer.
+                            logger.debug(
+                                "waybill_goto_readystate_check_failed",
+                                extra={"extra_fields": {"error": str(exc)}},
+                            )
                     raise goto_err
                 try:
                     await self.page.wait_for_load_state("domcontentloaded", timeout=10000)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug(
+                        "waybill_wait_domcontentloaded_timeout",
+                        extra={"extra_fields": {"error": str(exc)}},
+                    )
                 return
             except Exception as exc:
                 last_error = exc

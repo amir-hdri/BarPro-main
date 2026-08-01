@@ -224,8 +224,11 @@ class UTCMSAuthenticator:
         body_text = ""
         try:
             body_text = await self.navigator.as_clean_text(await self.page.text_content("body"))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "auth_body_text_extraction_failed",
+                extra={"extra_fields": {"error": str(exc)}},
+            )
 
         meta_path.write_text(
             json.dumps(
@@ -576,8 +579,14 @@ class UTCMSAuthenticator:
             clicked = True
             try:
                 await self.page.wait_for_load_state("domcontentloaded", timeout=3000)
-            except Exception:
-                pass
+            except Exception as exc:
+                # `wait_for_load_state` commonly times out when the page is
+                # already loaded or when SPA routing has already completed;
+                # not actionable, log at debug level.
+                logger.debug(
+                    "auth_wait_domcontentloaded_timeout",
+                    extra={"extra_fields": {"error": str(exc)}},
+                )
         except Exception as click_err:
             logger.warning(f"Normal click failed, trying force click: {click_err}")
             try:
@@ -587,8 +596,11 @@ class UTCMSAuthenticator:
                 clicked = True
                 try:
                     await self.page.wait_for_load_state("domcontentloaded", timeout=3000)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug(
+                        "auth_wait_domcontentloaded_timeout",
+                        extra={"extra_fields": {"error": str(exc)}},
+                    )
             except Exception:
                 clicked = False
 

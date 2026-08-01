@@ -4,7 +4,7 @@
 ║         BarPro — اسکریپت استقرار مرحله‌ای روی سرور (Step-by-Step)   ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  امکان اجرای انتخابی هر مرحله برای جلوگیری از آپلود و بیلد تکراری  ║
-║  Server: 188.121.123.16                                             ║
+║  Server: configured via CENTRAL_IP env var or prompt               ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -21,8 +21,8 @@ import paramiko
 from scp import SCPClient
 
 # ═══════════════════════════════════════════════════════════════════
-DEFAULT_IP = "188.121.123.16"
-SSH_USER = "ubuntu"
+DEFAULT_IP = os.environ.get("CENTRAL_IP", "<YOUR_CENTRAL_SERVER_IP>")
+SSH_USER = os.environ.get("DEPLOY_USER", "ubuntu")
 REMOTE_DIR = "/opt/barpro"
 DB_NAME = "utcms_rpa"
 
@@ -296,17 +296,17 @@ def main():
             # تصحیح دستی متغیرهای پراکسی و تنظیمات
             run_cmd(
                 ssh,
-                f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_1/188.121.123.16/g' infra/squid/squid_1.conf 2>/dev/null || true",
+                f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_1/{DEFAULT_IP}/g' infra/squid/squid_1.conf 2>/dev/null || true",
                 check=False,
             )
             run_cmd(
                 ssh,
-                f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_2/95.38.233.90/g' infra/squid/squid_2.conf 2>/dev/null || true",
+                f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_2/{os.environ.get('SECONDARY_IP', '<SECONDARY_EGRESS_IP>')}/g' infra/squid/squid_2.conf 2>/dev/null || true",
                 check=False,
             )
             run_cmd(
                 ssh,
-                f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_3/95.38.233.90/g' infra/squid/squid_3.conf 2>/dev/null || true",
+                f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_3/{os.environ.get('SECONDARY_IP', '<SECONDARY_EGRESS_IP>')}/g' infra/squid/squid_3.conf 2>/dev/null || true",
                 check=False,
             )
 

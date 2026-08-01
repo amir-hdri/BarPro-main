@@ -187,8 +187,11 @@ class BrowserManager:
                 stderr=subprocess.DEVNULL,
                 timeout=5,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(
+                "browser_zombie_kill_failed",
+                extra={"extra_fields": {"error": str(exc)}},
+            )
 
     async def record_success_for_recycle(self):
         """Increment success counter and recycle browser if it reaches 5."""
@@ -237,7 +240,7 @@ class BrowserManager:
                 self.browser = await self._launch_browser_with_fallback()
             if utcms_config.BROWSER_POOL_ENABLED and self._pool is None:
                 self._pool = BrowserPool(size=utcms_config.BROWSER_POOL_SIZE)
-                await self._pool.start(self.browser, context_args=self._build_context_args())
+                await self._pool.start(self.browser, context_args=await self._build_context_args())
 
     async def _try_standard_launch(self, launch_options: dict) -> Browser:
         """Attempt to launch Chromium with standard options."""
@@ -319,7 +322,7 @@ class BrowserManager:
 
             return await self._try_local_home_launch(launch_options, first_error)
 
-    def _build_context_args(self, auth_state_path: str | None = None, proxy_dict: dict | None = None) -> dict:
+    async def _build_context_args(self, auth_state_path: str | None = None, proxy_dict: dict | None = None) -> dict:
         # CRITICAL: Do NOT hardcode a specific Chrome version (like 122) because Playwright's
         # underlying Chromium will have a different TLS fingerprint.
         # WAFs detect TLS vs User-Agent mismatch and drop connections.
@@ -342,7 +345,9 @@ class BrowserManager:
 
         if utcms_config.USE_PERSISTENT_AUTH_STATE:
             effective_auth_state_path = os.path.abspath(auth_state_path or utcms_config.AUTH_STATE_PATH)
-            if os.path.exists(effective_auth_state_path):
+            from app.services.session_vault import session_vault
+            if await session_vault.async_auth_state_exists(effective_auth_state_path):
+                await session_vault.restore_auth_state_to_file(effective_auth_state_path)
                 context_args["storage_state"] = effective_auth_state_path
         return context_args
 
@@ -359,7 +364,7 @@ class BrowserManager:
             self._pooled_sessions.add(session_id)
         else:
             context = await self.browser.new_context(
-                **self._build_context_args(auth_state_path=auth_state_path, proxy_dict=proxy_dict)
+                **(await self._build_context_args(auth_state_path=auth_state_path, proxy_dict=proxy_dict))
             )
             # CRITICAL: Always inject navigator.webdriver override to context level.
             # This masks Chromium's automation flag for WAF/anti-bot systems like UTCMS
@@ -373,7 +378,7 @@ class BrowserManager:
 
         return session_id, context
 
-    async def save_auth_state(self, context: BrowserContext, auth_state_path: str | None = None):
+    async def save_auth_state(self, context: BrowserContext, auth_state_path: str | None = None, session_version: int = 0):
         """Persist current authenticated state for future sessions."""
         if not utcms_config.USE_PERSISTENT_AUTH_STATE:
             return
@@ -387,6 +392,8 @@ class BrowserManager:
         async with self._state_lock:
             try:
                 await context.storage_state(path=effective_auth_state_path)
+                from app.services.session_vault import session_vault
+                await session_vault.store_auth_state_from_file(effective_auth_state_path, session_version=session_version)
             except Exception as exc:
                 logger.warning(
                     "save_auth_state_failed",

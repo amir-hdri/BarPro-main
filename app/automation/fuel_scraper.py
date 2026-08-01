@@ -315,8 +315,11 @@ class FuelScraper:
                 await asyncio.sleep(1.0)
                 try:
                     await self.page.wait_for_load_state("networkidle", timeout=6000)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug(
+                        "fuel_scraper_networkidle_timeout",
+                        extra={"extra_fields": {"error": str(exc)}},
+                    )
             except Exception as e:
                 logger.error(f"Failed to load ShowFuelQuota.aspx: {e}")
                 raise WaybillError(f"صفحه استعلام سوخت بارگذاری نشد: {e}") from e
@@ -395,8 +398,11 @@ class FuelScraper:
                             if close_btn:
                                 await close_btn.click()
                                 await asyncio.sleep(0.5)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug(
+                            "fuel_scraper_modal_dismissal_failed",
+                            extra={"extra_fields": {"error": str(exc)}},
+                        )
 
                     # Execute page's own GetQoutaType function
                     try:
@@ -716,8 +722,13 @@ class FuelScraper:
             os.makedirs(scratch_dir, exist_ok=True)
             with open(os.path.join(scratch_dir, "fuel_last_captcha.png"), "wb") as f:
                 f.write(image_bytes)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Debug-only artefact; missing filesystem permissions shouldn't
+            # fail the main flow.
+            logger.debug(
+                "fuel_scraper_captcha_artifacts_failed",
+                extra={"extra_fields": {"error": str(exc)}},
+            )
         import base64
 
         image_base64 = base64.b64encode(image_bytes).decode("utf-8")

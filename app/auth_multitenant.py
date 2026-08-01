@@ -390,8 +390,6 @@ def enforce_tenant_filter(client: Client, query, model_class):
 class TenantIsolationError(Exception):
     """Raised when tenant isolation is violated."""
 
-    pass
-
 
 def verify_tenant_ownership(
     client: Client,

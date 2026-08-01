@@ -12,8 +12,8 @@ from pathlib import Path
 import paramiko
 from scp import SCPClient
 
-HOST = "188.121.123.16"
-USER = "ubuntu"
+HOST = os.environ.get("DEPLOY_HOST", "<YOUR_CENTRAL_SERVER_IP>")
+USER = os.environ.get("DEPLOY_USER", "ubuntu")
 PASS = os.environ.get("SSH_PASSWORD", "")
 REMOTE = "/opt/barpro"
 

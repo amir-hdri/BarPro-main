@@ -39,27 +39,11 @@ if worker_process_init is not None:
             logger.warning("No RPA proxies loaded in worker. Automation will run on local IP.")
 
 
-def _build_celery() -> Celery | None:
-    if Celery is None:
-        return None
-
-    app = Celery(
-        "utcms",
-        broker=utcms_config.CELERY_BROKER_URL,
-        backend=utcms_config.CELERY_RESULT_BACKEND,
-        include=["app.workers.tasks", "app.workers.phase1_tasks", "app.workers.waybill_worker"],
-    )
-    app.conf.update(
-        task_serializer="json",
-        accept_content=["json"],
-        result_serializer="json",
-        task_default_queue=utcms_config.CELERY_TASK_QUEUE,
-        worker_prefetch_multiplier=max(1, utcms_config.CELERY_WORKER_PREFETCH_MULTIPLIER),
-        task_acks_late=True,
-        task_track_started=True,
-        task_soft_time_limit=utcms_config.CELERY_TASK_SOFT_TIME_LIMIT,
-        task_time_limit=utcms_config.CELERY_TASK_TIME_LIMIT,
-        beat_schedule={
+def _build_beat_schedule() -> dict:
+    schedule_dict = {}
+    
+    if not utcms_config.DEPRECATE_OLD_EXECUTION_PATH:
+        schedule_dict.update({
             "phase1-scheduler-plan": {
                 "task": "phase1.scheduler.plan",
                 "schedule": schedule(utcms_config.RPA_SCHEDULER_INTERVAL_SECONDS),
@@ -91,17 +75,83 @@ def _build_celery() -> Celery | None:
                 "schedule": crontab(hour="0", minute="0"),
                 "options": {"queue": "scheduled_tasks"},
             },
-            "rpa-session-keepalive": {
-                "task": "rpa.session.keepalive",
-                "schedule": crontab(minute="*/30"),
-                "options": {"queue": utcms_config.RPA_SCHEDULER_QUEUE},
+        })
+    
+    schedule_dict.update({
+        "rpa-session-keepalive": {
+            "task": "rpa.session.keepalive",
+            "schedule": crontab(minute="*/30"),
+            "options": {"queue": utcms_config.RPA_SCHEDULER_QUEUE},
+        },
+        "orchestrator-scheduler": {
+            "task": "orchestrator.scheduler.run",
+            "schedule": schedule(utcms_config.RPA_SCHEDULER_INTERVAL_SECONDS),
+            "options": {
+                "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                "expires": max(10, utcms_config.RPA_SCHEDULER_INTERVAL_SECONDS - 5),
             },
         },
+        "orchestrator-dispatcher": {
+            "task": "orchestrator.dispatcher.run",
+            "schedule": schedule(5.0),
+            "options": {
+                "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                "expires": 4,
+            },
+        },
+        "orchestrator-orphan-detector": {
+            "task": "orchestrator.orphan_detector.run",
+            "schedule": schedule(30.0),
+            "options": {
+                "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                "expires": 25,
+            },
+        },
+        "orchestrator-reconciliation": {
+            "task": "orchestrator.reconciliation.run",
+            "schedule": crontab(minute="*/15"),
+            "options": {
+                "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                "expires": 840,
+            },
+        },
+    })
+    
+    return schedule_dict
+
+
+def _build_celery() -> Celery | None:
+    if Celery is None:
+        return None
+
+    app = Celery(
+        "utcms",
+        broker=utcms_config.CELERY_BROKER_URL,
+        backend=utcms_config.CELERY_RESULT_BACKEND,
+        include=["app.workers.tasks", "app.workers.phase1_tasks", "app.workers.waybill_worker"],
+    )
+    app.conf.update(
+        task_serializer="json",
+        accept_content=["json"],
+        result_serializer="json",
+        task_default_queue=utcms_config.CELERY_TASK_QUEUE,
+        worker_prefetch_multiplier=max(1, utcms_config.CELERY_WORKER_PREFETCH_MULTIPLIER),
+        task_acks_late=True,
+        task_track_started=True,
+        task_soft_time_limit=utcms_config.CELERY_TASK_SOFT_TIME_LIMIT,
+        task_time_limit=utcms_config.CELERY_TASK_TIME_LIMIT,
+        beat_scheduler="redbeat.RedBeatScheduler",
+        redbeat_redis_url=utcms_config.REDIS_URL,
+        redbeat_lock_timeout=120,
+        beat_schedule=_build_beat_schedule(),
     )
     return app
 
 
 celery_app = _build_celery()
+
+if celery_app is not None:
+    import app.orchestrator.worker_lifecycle
 
 
 def is_celery_available() -> bool:

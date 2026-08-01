@@ -5,10 +5,10 @@
 # Exit on error
 set -e
 
-# Default configurations
-NODE1_IP="188.121.123.16"
-NODE2_IP="95.38.233.90"
-DEFAULT_USER="ubuntu"
+# Default configurations — override with environment variables or edit for your deployment
+NODE1_IP="${CENTRAL_IP:-<YOUR_CENTRAL_SERVER_IP>}"
+NODE2_IP="${SECONDARY_IP:-<YOUR_SECONDARY_EGRESS_IP>}"
+DEFAULT_USER="${DEPLOY_USER:-ubuntu}"
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." &> /dev/null && pwd)"
 cd "$PROJECT_ROOT"
@@ -23,8 +23,8 @@ echo ""
 
 # Ask what to deploy
 echo "What would you like to deploy?"
-echo "1) Deploy Squid Proxy to Node 2 only (95.38.233.90)"
-echo "2) Deploy Main Application to Node 1 only (188.121.123.16)"
+echo "1) Deploy Squid Proxy to Node 2 only (<SECONDARY_EGRESS_IP>)"
+echo "2) Deploy Main Application to Node 1 only (<CENTRAL_IP>)"
 echo "3) Deploy Both (Full Stack)"
 read -rp "Enter choice [1-3]: " DEPLOY_CHOICE
 

@@ -16,6 +16,7 @@ from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.models_multitenant import TaskStatus, WaybillJob, WaybillTaskLog
 from app.models_rpa import DomainEvent
+from app.orchestrator.state_machine import JobStateMachine
 from app.rpa.contracts import SchedulerDecision
 from app.rpa.event_taxonomy import JOB_DISPATCH_FAILED, JOB_DISPATCH_SKIPPED, JOB_DISPATCHED
 from app.workers.celery_app import celery_app
@@ -51,10 +52,14 @@ class RPADispatchService:
                 args=[job.job_id],
                 queue=routed_queue,
             )
-            job.status = TaskStatus.QUEUED.value
-            job.submit_after = requested_at
-            job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-            job.celery_task_id = getattr(result, "id", None)
+            JobStateMachine.transition(
+                session,
+                job,
+                TaskStatus.QUEUED.value,
+                submit_after=requested_at,
+                updated_at=datetime.now(UTC).replace(tzinfo=None),
+                celery_task_id=getattr(result, "id", None),
+            )
             session.add(job)
             await self._record_dispatch_state(
                 session,
@@ -212,8 +217,12 @@ class RPADispatchService:
                 extra={"extra_fields": {"job_id": job.job_id, "queue": queue_name, "error": str(exc)}},
             )
             job.celery_task_id = None
-            job.status = TaskStatus.PENDING.value
-            job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+            JobStateMachine.transition(
+                session,
+                job,
+                TaskStatus.PENDING.value,
+                updated_at=datetime.now(UTC).replace(tzinfo=None),
+            )
             session.add(job)
             await self._record_dispatch_state(
                 session,

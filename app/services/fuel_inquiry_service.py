@@ -1,6 +1,5 @@
 """Service layer for managing and executing fuel quota inquiries."""
 
-import json
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -12,8 +11,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.automation.browser import browser_manager, managed_browser_session
 from app.automation.fuel_scraper import FuelScraper, get_current_jalali
+from app.core.error_taxonomy import FUEL_INQUIRY_ERROR_CODE, ErrorCategory, classify_fuel_inquiry_exception
 from app.core.exceptions import WaybillError
 from app.models_multitenant import Client, Driver, DriverPlate, FuelInquiry
+from app.orchestrator.state_machine import set_fuel_inquiry_status
 from app.schemas.multitenant import (
     FuelInquiryCreateRequest,
     FuelInquiryListResponse,
@@ -106,7 +107,7 @@ class FuelInquiryService:
             logger.info(f"Enqueued fuel inquiry task for inquiry {inquiry.id}")
         except Exception as e:
             logger.error(f"Failed to enqueue Celery task: {e}")
-            inquiry.status = "failed"
+            set_fuel_inquiry_status(inquiry, "failed")
             inquiry.error_message = f"خطا در ایجاد کار پس‌زمینه: {e}"
             session.add(inquiry)
             await session.commit()
@@ -324,10 +325,13 @@ class FuelInquiryService:
                     for table in (tables or [])
                 )
                 if result.get("success") is not True or not valid_rows:
-                    inquiry.status = "failed"
-                    inquiry.error_message = "104"  # Data not found / Inactive plate
+                    set_fuel_inquiry_status(inquiry, "failed")
+                    inquiry.error_message = FUEL_INQUIRY_ERROR_CODE[ErrorCategory.USER_DATA_ERROR]
+                    inquiry.error_category = ErrorCategory.USER_DATA_ERROR.value
                 else:
-                    inquiry.status = "success"
+                    set_fuel_inquiry_status(inquiry, "success")
+                    inquiry.error_message = None
+                    inquiry.error_category = None
                 inquiry.quota_data_json = quota_data
                 inquiry.screenshot_url = result.get("screenshot_url")
                 inquiry.updated_at = datetime.now(UTC).replace(tzinfo=None)
@@ -337,24 +341,29 @@ class FuelInquiryService:
 
         except Exception as e:
             logger.exception(f"Error executing fuel inquiry {inquiry_id}")
+
+            # Check for browser crash and recycle
+            err_msg = str(e).lower()
+            if any(msg in err_msg for msg in ("target closed", "browser closed", "context closed", "page closed")):
+                logger.warning("Browser crash detected during fuel inquiry. Triggering browser recycle.")
+                try:
+                    await browser_manager.recycle_browser()
+                except Exception as recycle_err:
+                    logger.error(f"Failed to recycle browser after crash in fuel inquiry: {recycle_err}")
+
             await session.rollback()
             inquiry = await session.get(FuelInquiry, inquiry_id)
             if inquiry is None:
                 return
-            inquiry.status = "failed"
+            set_fuel_inquiry_status(inquiry, "failed")
 
-            # Map exception to clean numeric error code
-            msg = str(e).lower()
-            if "کپچا" in msg or "captcha" in msg:
-                inquiry.error_message = "101"  # Captcha solving failure
-            elif "خطا در سامانه" in msg or "system error" in msg:
-                inquiry.error_message = "102"  # Portal system error
-            elif "timeout" in msg or "connection" in msg or "network" in msg or "proxy" in msg:
-                inquiry.error_message = "103"  # Connection/Network Timeout
-            elif "پلاک" in msg or "plate" in msg or "credentials" in msg or "راننده" in msg:
-                inquiry.error_message = "104"  # Inactive plate or driver details error
-            else:
-                inquiry.error_message = "100"  # General unknown failure
+            # Map exception to clean numeric error code via the shared classifier.
+            # The (category, code) tuple is computed once and both fields are
+            # persisted so the frontend can render the right message while the
+            # backend keeps a typed category for analytics.
+            category, error_code = classify_fuel_inquiry_exception(e)
+            inquiry.error_message = error_code
+            inquiry.error_category = category.value
 
             inquiry.updated_at = datetime.now(UTC).replace(tzinfo=None)
             session.add(inquiry)
@@ -375,7 +384,7 @@ class FuelInquiryService:
                 )
                 .values(
                     status="failed",
-                    error_message="103",
+                    error_message=FUEL_INQUIRY_ERROR_CODE[ErrorCategory.TRANSIENT_INFRA_ERROR],
                     updated_at=datetime.now(UTC).replace(tzinfo=None),
                 )
             )

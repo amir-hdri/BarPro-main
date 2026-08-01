@@ -66,6 +66,27 @@ ITMB_CIRCUIT_STATE = Gauge(
     "itmb_circuit_breaker_state",
     "Circuit breaker state: 0 closed, 1 half-open, 2 open",
 )
+RECONCILIATION_BACKLOG = Gauge(
+    "reconciliation_backlog",
+    "Current number of jobs needing reconciliation",
+)
+DB_POOL_UTILIZATION = Gauge(
+    "db_pool_utilization",
+    "FastAPI DB connection pool utilization percentage",
+)
+ACTIVE_WORKER_COUNT = Gauge(
+    "active_worker_count",
+    "Number of active RPA workers",
+)
+WORKER_LIVENESS = Gauge(
+    "worker_liveness",
+    "Liveness status per worker (1=alive, 0=dead)",
+    ["worker_id"],
+)
+HEALTHY_PROXY_COUNT = Gauge(
+    "healthy_proxy_count",
+    "Number of healthy worker proxies",
+)
 CAPTCHA_ATTEMPTS = Counter(
     "captcha_attempts_total",
     "Captcha solve attempts by strategy",
@@ -163,6 +184,26 @@ def set_queue_depth(depth: int) -> None:
 def set_circuit_breaker_state(state: str) -> None:
     state_map = {"closed": 0, "half_open": 1, "open": 2}
     ITMB_CIRCUIT_STATE.set(state_map.get((state or "").lower(), 0))
+
+
+def set_reconciliation_backlog(backlog: int) -> None:
+    RECONCILIATION_BACKLOG.set(max(0, int(backlog)))
+
+
+def set_db_pool_utilization(utilization: float) -> None:
+    DB_POOL_UTILIZATION.set(max(0.0, float(utilization)))
+
+
+def set_active_worker_count(count: int) -> None:
+    ACTIVE_WORKER_COUNT.set(max(0, int(count)))
+
+
+def set_worker_liveness(worker_id: str, is_alive: bool) -> None:
+    WORKER_LIVENESS.labels(worker_id=worker_id).set(1 if is_alive else 0)
+
+
+def set_healthy_proxy_count(count: int) -> None:
+    HEALTHY_PROXY_COUNT.set(max(0, int(count)))
 
 
 def track_captcha_attempt(strategy: str, phase: str = "unknown", attempt: int | None = None) -> None:

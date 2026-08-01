@@ -11,7 +11,6 @@ from app.schemas.task import EnqueueWaybillResponse, TaskStatus
 from app.schemas.waybill import WaybillMapRequest
 from app.services.task_service import task_service
 from app.services.waybill_service import waybill_service
-from app.workers.tasks import dispatch_waybill_task
 
 
 class WaybillQueueManager:
@@ -59,35 +58,35 @@ class WaybillQueueManager:
             )
 
         if utcms_config.QUEUE_ENABLED:
+            from app.core.redis import redis_manager
+            broker_down = False
             try:
-                async_result = dispatch_waybill_task(
-                    task["task_id"],
-                    priority=int(payload.get("priority", utcms_config.CELERY_DEFAULT_PRIORITY)),
+                redis_client = await redis_manager.get()
+                if redis_client is None:
+                    broker_down = True
+                else:
+                    await redis_client.ping()
+            except Exception:
+                broker_down = True
+
+            if broker_down:
+                if getattr(utcms_config, "QUEUE_INLINE_FALLBACK", False):
+                    return await self._execute_inline(task["task_id"], task["idempotency_key"])
+                raise HTTPException(
+                    status_code=503,
+                    detail="Database write succeeded but task cannot be dispatched because broker is down, and inline fallback is disabled."
                 )
-                await task_service.set_celery_task_id(task["task_id"], async_result.id)
-                return EnqueueWaybillResponse(
-                    task_id=task["task_id"],
-                    idempotency_key=task["idempotency_key"],
-                    correlation_id=payload["correlation_id"],
-                    priority=int(payload.get("priority", utcms_config.CELERY_DEFAULT_PRIORITY)),
-                    status=TaskStatus.QUEUED,
-                    queued=True,
-                    reused=False,
-                    celery_task_id=async_result.id,
-                )
-            except Exception as exc:
-                if not utcms_config.QUEUE_INLINE_FALLBACK:
-                    await task_service.mark_failure(
-                        task_id=task["task_id"],
-                        error_text=f"queue_dispatch_failed: {exc}",
-                        category="queue",
-                        attempt_count=1,
-                        retryable=True,
-                    )
-                    raise HTTPException(
-                        status_code=503,
-                        detail="صف Celery در دسترس نیست و fallback غیرفعال است",
-                    ) from exc
+
+            return EnqueueWaybillResponse(
+                task_id=task["task_id"],
+                idempotency_key=task["idempotency_key"],
+                correlation_id=payload["correlation_id"],
+                priority=int(payload.get("priority", utcms_config.CELERY_DEFAULT_PRIORITY)),
+                status=TaskStatus.PENDING,
+                queued=True,
+                reused=False,
+                celery_task_id=None,
+            )
 
         return await self._execute_inline(task["task_id"], task["idempotency_key"])
 

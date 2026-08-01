@@ -1,0 +1,18 @@
+# pg_hba_worker.conf.patch
+# ========================
+# This patch restricts connections from the Worker servers to PostgreSQL
+# to use SSL/TLS only (hostssl) and enforces the least-privilege barpro_worker role.
+#
+# Apply to your PostgreSQL pg_hba.conf file:
+#   cat infra/postgres/pg_hba_worker.conf.patch >> /var/lib/postgresql/data/pg_hba.conf
+#   docker exec barpro-postgres pg_ctl reload -D /var/lib/postgresql/data
+
+# Type  Database        User            Address                 Method
+
+# Allow connection from remote workers (10.0.0.0/8 internal subnet)
+# requires SSL/TLS connection (hostssl) and SCRAM password authentication.
+hostssl all             barpro_worker   10.0.0.0/8              scram-sha-256
+
+# Allow connection from remote workers (using public IPs, restricted by UFW)
+# requires SSL/TLS connection (hostssl) and SCRAM password authentication.
+hostssl all             barpro_worker   all                     scram-sha-256

@@ -29,6 +29,7 @@ tensorflow-cpu>=2.18.0; platform_machine == "x86_64"
 tensorflow>=2.18.0; platform_machine != "x86_64"
 keras>=3.0.0
 jdatetime>=5.0.0
+celery-redbeat>=2.2.0
 
 # Security: keep setuptools below torch's upper bound but above vulnerable 81.0.0
 setuptools>=82.0.0,<82.1.0

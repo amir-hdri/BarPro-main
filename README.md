@@ -96,9 +96,9 @@ Frontend: Next.js 15 (TypeScript, Tailwind CSS, React 19)
 ### Proxy Topology
 | Proxy | Port | Egress IP | Used By |
 |-------|------|-----------|---------|
-| Squid 1 | 3128 | 188.121.123.16 | Worker 1 |
-| Squid 2 | 3129 | 95.38.233.90 | Worker 2 |
-| Squid 3 | 3130 | 95.38.233.90 | Worker 3 |
+| Squid 1 | 3128 | <CENTRAL_IP>    | Worker 1 |
+| Squid 2 | 3129 | <SECONDARY_EGRESS_IP>  | Worker 2 |
+| Squid 3 | 3130 | <SECONDARY_EGRESS_IP>  | Worker 3 |
 
 ### Captcha Models
 | Page | Solver | Model |

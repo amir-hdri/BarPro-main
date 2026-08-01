@@ -9,7 +9,6 @@ from app.core.error_taxonomy import classify_exception
 from app.core.execution_context import bind_execution_context, reset_execution_context
 from app.core.network import is_retryable_network_error
 from app.core.utils import run_async as _run_async
-from app.core.worker_heartbeat import heartbeat_lease, worker_heartbeat_registry
 from app.monitoring.metrics import track_task_latency
 from app.schemas.waybill import WaybillMapRequest
 from app.services.task_service import task_service
@@ -43,48 +42,51 @@ if celery_app is not None:
 
     @celery_app.task(bind=True, name="app.workers.tasks.process_waybill_task")
     def process_waybill_task(self, task_id: str) -> Any:
-        max_retries = max(0, utcms_config.CELERY_MAX_RETRIES)
-        attempt = int(self.request.retries) + 1
-        worker_id = self.request.hostname or "celery-worker"
-        started_at = time.perf_counter()
-
-        _run_async(task_service.mark_processing(task_id, worker_id=worker_id, attempt_count=attempt))
-        payload = _run_async(task_service.get_payload(task_id))
-        if payload is None:
-            _run_async(
-                task_service.mark_failure(
-                    task_id=task_id,
-                    error_text="payload_not_found",
-                    category="unknown",
-                    attempt_count=attempt,
-                    retryable=False,
-                )
+        if utcms_config.DEPRECATE_OLD_EXECUTION_PATH:
+            logger.warning(
+                f"Deprecation Warning: app.workers.tasks.process_waybill_task called for {task_id}. "
+                "Redirecting execution to waybill.process_job."
             )
-            raise RuntimeError("Task payload not found")
+            from app.workers.waybill_worker import process_waybill_job
+            return process_waybill_job.apply_async(
+                args=[task_id],
+                queue="waybill_tasks",
+                priority=self.request.priority or 5,
+            )
+        else:
+            max_retries = max(0, utcms_config.CELERY_MAX_RETRIES)
+            attempt = int(self.request.retries) + 1
+            worker_id = self.request.hostname or "celery-worker"
+            started_at = time.perf_counter()
 
-        request = WaybillMapRequest.model_validate(payload)
-        execution_tokens = bind_execution_context(
-            correlation_id=payload.get("correlation_id"),
-            task_id=task_id,
-            batch_id=payload.get("batch_id"),
-            worker_id=worker_id,
-        )
+            _run_async(task_service.mark_processing(task_id, worker_id=worker_id, attempt_count=attempt))
+            payload = _run_async(task_service.get_payload(task_id))
+            if payload is None:
+                _run_async(
+                    task_service.mark_failure(
+                        task_id=task_id,
+                        error_text="payload_not_found",
+                        category="unknown",
+                        attempt_count=attempt,
+                        retryable=False,
+                    )
+                )
+                raise RuntimeError("Task payload not found")
 
-        try:
-            with heartbeat_lease(
-                task_id,
+            request = WaybillMapRequest.model_validate(payload)
+            execution_tokens = bind_execution_context(
+                correlation_id=payload.get("correlation_id"),
+                task_id=task_id,
+                batch_id=payload.get("batch_id"),
                 worker_id=worker_id,
-                correlation_id=str(payload.get("correlation_id") or task_id),
-                batch_id=str(payload.get("batch_id") or task_id),
-                interval_seconds=utcms_config.WORKER_HEARTBEAT_INTERVAL_SECONDS,
-            ):
-                worker_heartbeat_registry.beat(task_id, current_step="execute_waybill")
+            )
+
+            try:
                 try:
                     result = _run_async(waybill_service.create_waybill_with_map(request))
                 except Exception as exc:
                     retryable = _is_retryable_exception(exc)
                     category = _error_category(exc)
-                    worker_heartbeat_registry.beat(task_id, status="failing", current_step=category)
 
                     if retryable and self.request.retries < max_retries:
                         _run_async(
@@ -109,12 +111,11 @@ if celery_app is not None:
                     )
                     raise
 
-                worker_heartbeat_registry.finish(task_id, "succeeded")
                 _run_async(task_service.mark_success(task_id=task_id, result=result, attempt_count=attempt))
                 track_task_latency(time.perf_counter() - started_at)
                 return result
-        finally:
-            reset_execution_context(execution_tokens)
+            finally:
+                reset_execution_context(execution_tokens)
 
     @celery_app.task(bind=True, name="app.workers.tasks.process_fuel_inquiry_task")
     def process_fuel_inquiry_task(self, inquiry_id: int) -> Any:
@@ -122,6 +123,30 @@ if celery_app is not None:
         from app.services.fuel_inquiry_service import fuel_inquiry_service
 
         async def _run():
+            import socket
+            import os
+            w_id = os.environ.get("WORKER_ID", socket.gethostname())
+            from app.automation.worker_proxy import is_worker_draining, drain_worker_consumers, increment_worker_failures, transition_worker_to_draining
+            
+            # Check if draining before execution
+            if await is_worker_draining(w_id):
+                logger.warning(f"Worker {w_id} is draining, refusing fuel inquiry {inquiry_id}")
+                drain_worker_consumers(self)
+                from app.models_multitenant import FuelInquiry
+                from app.core.error_taxonomy import ErrorCategory
+                from app.orchestrator.state_machine import set_fuel_inquiry_status
+                from datetime import UTC, datetime
+                async with async_session_factory() as session:
+                    inquiry = await session.get(FuelInquiry, inquiry_id)
+                    if inquiry:
+                        set_fuel_inquiry_status(inquiry, "failed")
+                        inquiry.error_message = "سرور در حال خارج شدن از سرویس (draining) می‌باشد"
+                        inquiry.error_category = ErrorCategory.TRANSIENT_INFRA_ERROR.value
+                        inquiry.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                        session.add(inquiry)
+                        await session.commit()
+                raise ConnectionError(f"Worker {w_id} is currently draining")
+
             async with async_session_factory() as session:
                 try:
                     await fuel_inquiry_service.run_automation(inquiry_id, session)
@@ -129,6 +154,14 @@ if celery_app is not None:
                 except Exception as e:
                     await session.rollback()
                     logger.error(f"Failed in process_fuel_inquiry_task: {e}")
+                    
+                    # Track failures for auto-heal draining on infrastructure errors
+                    err_msg = str(e).lower()
+                    if "proxy" in err_msg or "network" in err_msg or "timeout" in err_msg or any(msg in err_msg for msg in ("target closed", "browser closed", "context closed", "page closed")):
+                        failures = await increment_worker_failures(w_id)
+                        if failures > 3:
+                            await transition_worker_to_draining(w_id)
+                            drain_worker_consumers(self)
                     raise
 
         return _run_async(_run())
@@ -199,3 +232,33 @@ def dispatch_fuel_inquiry_task(inquiry_id: int):
         queue=routed_queue,
         countdown=jitter_countdown,
     )
+
+
+if celery_app is not None:
+    @celery_app.task(name="orchestrator.scheduler.run")
+    def run_scheduler():
+        from app.orchestrator.scheduler_service import scheduler_service
+        return _run_async(scheduler_service.run())
+
+    @celery_app.task(name="orchestrator.dispatcher.run")
+    def run_dispatcher():
+        from app.orchestrator.dispatcher_service import dispatcher_service
+        return _run_async(dispatcher_service.run())
+
+    @celery_app.task(name="orchestrator.orphan_detector.run")
+    def run_orphan_detector():
+        from app.orchestrator.orphan_detector import orphan_detector
+        return _run_async(orphan_detector.run())
+
+    @celery_app.task(name="orchestrator.reconciliation.run")
+    def run_reconciliation():
+        from app.core.database import async_session_factory
+        from app.orchestrator.reconciliation_service import reconciliation_service
+
+        async def _run():
+            async with async_session_factory() as session:
+                return await reconciliation_service.reconcile_orphaned_jobs(session)
+
+        return _run_async(_run())
+
+

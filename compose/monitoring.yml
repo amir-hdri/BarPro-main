@@ -1,13 +1,16 @@
 # ═══════════════════════════════════════════════════════════════
 #  لایه ۵: مانیتورینگ (Monitoring)
-#  شامل: Prometheus
+#  شامل: Prometheus + Alertmanager + Grafana
 #
 #  دیباگ مستقل:
 #    docker compose -f compose/monitoring.yml up
 #    docker compose -f compose/monitoring.yml logs -f prometheus
 #
 #  دسترسی:
-#    Prometheus UI: http://<server-ip>:9090
+#    Prometheus UI: http://<server-ip>:9090  (localhost/127.0.0.1 only)
+#    Grafana UI:    http://<server-ip>:3000
+#
+#  ⚠️ Grafana 11.x  — admin/password از .env یا secrets تنظیم شود.
 # ═══════════════════════════════════════════════════════════════
 
 networks:
@@ -19,6 +22,9 @@ volumes:
   prometheus_data:
     external: true
     name: barpro_prometheus_data
+  grafana_data:
+    external: true
+    name: barpro_grafana_data
 
 services:
 
@@ -34,9 +40,10 @@ services:
       - --web.enable-lifecycle
     volumes:
       - ../infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
-    ports:
-      - "127.0.0.1:9090:9090"
+    expose:
+      - "9090"
     networks: [platform]
     mem_limit: 256m
     mem_reservation: 128m
@@ -50,3 +57,69 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # ── Alertmanager — مسیریابی هشدارها ─────────────────────────
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: barpro-alertmanager
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --cluster.listen-address=""
+    volumes:
+      - ../infra/prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    expose:
+      - "9093"
+    networks: [platform]
+    mem_limit: 128m
+    mem_reservation: 64m
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO/dev/null http://localhost:9093/-/healthy || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Grafana — داشبورد بصری ──────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: barpro-grafana
+    restart: unless-stopped
+    environment:
+      # Set credentials via .env or Docker secrets in production
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_INSTALL_PLUGINS: ""
+      # Provisioning paths (auto-load dashboards & datasources)
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+    volumes:
+      - ../infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks: [platform]
+    mem_limit: 256m
+    mem_reservation: 128m
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO/dev/null http://localhost:3000/api/health || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    cap_add: []
+    security_opt:
+      - no-new-privileges:true

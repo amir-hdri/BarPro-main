@@ -11,7 +11,7 @@ import paramiko
 
 old_password = os.environ.get("SSH_PASSWORD", "")
 new_password = os.environ.get("SSH_NEW_PASSWORD", "")
-ip = os.environ.get("SSH_HOST", "188.121.123.16")
+ip = os.environ.get("SSH_HOST", "<YOUR_CENTRAL_SERVER_IP>")
 username = os.environ.get("SSH_USER", "ubuntu")
 
 

@@ -41,6 +41,22 @@ class TestBrowserManager(unittest.IsolatedAsyncioTestCase):
         # When start() is awaited, return our mock_playwright
         self.mock_start = AsyncMock(return_value=self.mock_playwright)
 
+        # Mock session_vault methods to avoid calling real Redis
+        self.patcher_vault_exists = patch("app.services.session_vault.SessionVault.async_auth_state_exists", new_callable=AsyncMock)
+        self.mock_vault_exists = self.patcher_vault_exists.start()
+        self.mock_vault_exists.return_value = False
+
+        self.patcher_vault_store = patch("app.services.session_vault.SessionVault.store_auth_state_from_file", new_callable=AsyncMock)
+        self.mock_vault_store = self.patcher_vault_store.start()
+
+        self.patcher_vault_restore = patch("app.services.session_vault.SessionVault.restore_auth_state_to_file", new_callable=AsyncMock)
+        self.mock_vault_restore = self.patcher_vault_restore.start()
+
+    async def asyncTearDown(self):
+        self.patcher_vault_exists.stop()
+        self.patcher_vault_store.stop()
+        self.patcher_vault_restore.stop()
+
     @patch("app.automation.browser.async_playwright")
     async def test_initialize(self, mock_async_playwright):
         # Configure the mock to return a context manager that returns our mock_start result
@@ -115,6 +131,7 @@ class TestBrowserManager(unittest.IsolatedAsyncioTestCase):
 
     async def test_create_context_loads_saved_auth_state(self):
         self.browser_manager.browser = self.mock_browser
+        self.mock_vault_exists.return_value = True
 
         with (
             patch("app.core.config.utcms_config.USE_PERSISTENT_AUTH_STATE", True),
@@ -129,6 +146,7 @@ class TestBrowserManager(unittest.IsolatedAsyncioTestCase):
 
     async def test_create_context_loads_custom_auth_state_path(self):
         self.browser_manager.browser = self.mock_browser
+        self.mock_vault_exists.return_value = True
 
         with (
             patch("app.core.config.utcms_config.USE_PERSISTENT_AUTH_STATE", True),

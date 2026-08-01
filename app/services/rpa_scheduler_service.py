@@ -14,8 +14,10 @@ from sqlmodel import col, select
 from app.core.business_time import business_date_str
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
+from app.core.error_taxonomy import ErrorCategory
 from app.models_multitenant import Driver, DriverStatus, TaskSource, TaskStatus, WaybillJob
 from app.models_rpa import DomainEvent, DriverDailyCounter, DriverRuntimeState, DriverRuntimeStateValue
+from app.orchestrator.state_machine import JobStateMachine
 from app.rpa.contracts import SchedulerDecision
 from app.rpa.event_taxonomy import DRIVER_LIMIT_REACHED, JOB_CREATED, JOB_QUEUED_AUTH, JOB_QUEUED_SUBMIT
 from app.services.rpa_runtime_service import rpa_runtime
@@ -176,8 +178,14 @@ class RPASchedulerService:
                         if persist:
                             driver.runtime_status = DriverStatus.AUTH_REQUIRED.value
                             runtime_state.state = DriverRuntimeStateValue.AUTH_REQUIRED.value
-                            job.status = TaskStatus.WAITING_AUTH.value
-                            job.submit_after = now + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
+                            JobStateMachine.transition(
+                                session,
+                                job,
+                                TaskStatus.WAITING_AUTH.value,
+                                submit_after=now + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS),
+                            )
+                            session.add(driver)
+                            session.add(runtime_state)
                             await self._record_event(
                                 session,
                                 job.client_id,
@@ -192,7 +200,11 @@ class RPASchedulerService:
                         if persist:
                             driver.runtime_status = DriverStatus.READY.value
                             runtime_state.state = DriverRuntimeStateValue.READY.value
-                            job.status = TaskStatus.QUEUED.value
+                            JobStateMachine.transition(
+                                session, job, TaskStatus.QUEUED.value
+                            )
+                            session.add(driver)
+                            session.add(runtime_state)
                             await self._record_event(
                                 session,
                                 job.client_id,
@@ -274,13 +286,20 @@ class RPASchedulerService:
                                 },
                             )
                             # Mark as SUCCESS to prevent future recovery attempts
-                            job.status = TaskStatus.SUCCESS.value
-                            job.finished_at = _utcnow_naive()
-                            job.updated_at = _utcnow_naive()
+                            JobStateMachine.transition(
+                                session,
+                                job,
+                                TaskStatus.SUCCESS.value,
+                                finished_at=_utcnow_naive(),
+                                updated_at=_utcnow_naive(),
+                            )
                             session.add(job)
                             continue
-                    except json.JSONDecodeError:
-                        pass  # Ignore corrupted result_json
+                    except json.JSONDecodeError as exc:
+                        logger.debug(
+                            "rpa_scheduler_result_json_corrupted",
+                            extra={"extra_fields": {"job_id": job.job_id, "error": str(exc)}},
+                        )
 
                 old_status = job.status
                 logger.warning(
@@ -297,15 +316,23 @@ class RPASchedulerService:
                 if old_status == TaskStatus.IN_PROGRESS.value:
                     # The worker may have failed after UTCMS accepted the submit.
                     # Never automatically resubmit an unknown external outcome.
-                    job.status = TaskStatus.NEEDS_REVIEW.value
-                    job.error_category = "submission_unknown"
-                    job.last_error = "Worker lease expired; reconcile UTCMS before retrying"
-                    job.finished_at = _utcnow_naive()
-                    job.updated_at = _utcnow_naive()
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.NEEDS_REVIEW.value,
+                        error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                        last_error="Worker lease expired; reconcile UTCMS before retrying",
+                        finished_at=_utcnow_naive(),
+                        updated_at=_utcnow_naive(),
+                    )
                 else:
-                    job.status = TaskStatus.PENDING.value
-                    job.celery_task_id = None
-                    job.worker_id = None
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.PENDING.value,
+                        celery_task_id=None,
+                        worker_id=None,
+                    )
                     job.updated_at = _utcnow_naive()
                 session.add(job)
 
@@ -364,9 +391,13 @@ class RPASchedulerService:
         )
         runtime_state.updated_at = _utcnow_naive()
         driver.runtime_status = DriverStatus.DAILY_LIMIT_REACHED.value
-        job.status = TaskStatus.DAILY_LIMIT_REACHED.value
-        job.terminal_reason = reason
-        job.finished_at = _utcnow_naive()
+        JobStateMachine.transition(
+            session,
+            job,
+            TaskStatus.DAILY_LIMIT_REACHED.value,
+            terminal_reason=reason,
+            finished_at=_utcnow_naive(),
+        )
         await self._record_event(
             session, job.client_id, driver.id, job.job_id, DRIVER_LIMIT_REACHED, {"reason": reason}
         )

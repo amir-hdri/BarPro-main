@@ -22,12 +22,12 @@ Frontend: Next.js 15 (TypeScript, Tailwind, React 19)
 
 ## Server Specifications
 
-| IP | Role | vCPU | RAM |
-|----|------|------|-----|
-| 188.121.123.16 | Primary IP — Nginx (port 80), Backend, Frontend, Squid 1 egress | 4 | 12 GB |
-| 95.38.233.90 | Secondary IP — Squid 2 (port 3129) and Squid 3 (port 3130) egress | — | — |
+| Role | vCPU | RAM |
+|------|------|-----|
+| Central Server — UFW Firewall + Nginx (port 80), Backend, Frontend, Squid 1 egress | 4 | 12 GB |
+| Worker Nodes — Remote VPS with static Iranian IP + local Squid proxy | — | — |
 
-Both IPs point to the **same physical server** (single host, dual networking).
+All containers run on the **central server** (single host, dual networking for egress IPs).
 
 ### Resource Constraints & Implications
 - **12 GB RAM** must be shared across 13 containers — tight budget
@@ -81,16 +81,16 @@ Both IPs point to the **same physical server** (single host, dual networking).
 ## Deployment Topology
 
 ```
-Single Server (188.121.123.16 + 95.38.233.90)
+Single Server (<CENTRAL_IP> + <SECONDARY_EGRESS_IP>)
 ├── PostgreSQL (port 5432, internal only)
 ├── Redis (port 6379, internal only)
-├── Squid 1 (port 3128, egress via 188.121.123.16) ← Worker 1
-├── Squid 2 (port 3129, egress via 95.38.233.90)   ← Worker 2
-├── Squid 3 (port 3130, egress via 95.38.233.90)   ← Worker 3
+├── Squid 1 (port 3128, egress via <CENTRAL_IP>)    ← Worker 1
+├── Squid 2 (port 3129, egress via <SECONDARY_IP>)  ← Worker 2
+├── Squid 3 (port 3130, egress via <SECONDARY_IP>)  ← Worker 3
 ├── FastAPI Backend (port 8000, internal)
-├── Celery Worker 1 → Squid 1 → UTCMS (egress via 188.121.123.16)
-├── Celery Worker 2 → Squid 2 → UTCMS (egress via 95.38.233.90)
-├── Celery Worker 3 → Squid 3 → UTCMS (egress via 95.38.233.90)
+├── Celery Worker 1 → Squid 1 → UTCMS
+├── Celery Worker 2 → Squid 2 → UTCMS
+├── Celery Worker 3 → Squid 3 → UTCMS
 ├── Celery Beat (scheduler)
 ├── Next.js Frontend (port 3000, internal)
 ├── Nginx (port 80, public) → reverse proxy
@@ -100,14 +100,15 @@ Single Server (188.121.123.16 + 95.38.233.90)
 ### Squid Proxy Ports
 | Proxy | Port | Egress IP | Used By |
 |-------|------|-----------|---------|
-| Squid 1 | 3128 | 188.121.123.16 | Worker 1 |
-| Squid 2 | 3129 | 95.38.233.90 | Worker 2 |
-| Squid 3 | 3130 | 95.38.233.90 | Worker 3 |
+| Squid 1 | 3128 | <CENTRAL_IP>    | Worker 1 |
+| Squid 2 | 3129 | <SECONDARY_IP>  | Worker 2 |
+| Squid 3 | 3130 | <SECONDARY_IP>  | Worker 3 |
 
 ### Network Flow
 - **Public entry**: only port 80 (Nginx)
 - **Internal**: Docker bridge network `barpro_platform`
 - **UTCMS egress**: via Squid proxies using different IPs (anti-bot bypass)
+- **Inter-node security**: UFW Firewall restricts database (5432) and Redis (6379) to registered Worker IPs only
 - **Squid 2/3 ports (3129, 3130)**: should be firewall-restricted to localhost only
 
 ## Common Pitfalls

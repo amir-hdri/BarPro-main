@@ -7,6 +7,7 @@ from sqlmodel import SQLModel
 
 from app.queue.queue_manager import WaybillQueueManager
 from app.schemas.waybill import WaybillMapRequest
+from app.schemas.task import TaskStatus
 
 
 def _request_payload():
@@ -62,6 +63,34 @@ async def test_enqueue_inline_and_reuse_idempotency():
 
 
 @pytest.mark.asyncio
+async def test_enqueue_succeeds_when_queue_enabled_and_broker_up():
+    test_engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
+    async with test_engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+
+    manager = WaybillQueueManager()
+    request = WaybillMapRequest.model_validate(_request_payload())
+
+    mock_redis = AsyncMock()
+    mock_redis.ping = AsyncMock()
+
+    with (
+        patch("app.services.task_service.engine", test_engine),
+        patch("app.core.config.utcms_config.QUEUE_ENABLED", True),
+        patch("app.core.config.utcms_config.QUEUE_INLINE_FALLBACK", False),
+        patch("app.services.task_service.task_service._emit_task_event", new=AsyncMock()),
+        patch("app.services.task_service.task_service._sync_queue_depth", new=AsyncMock()),
+        patch("app.services.task_service.task_service._ensure_queue_depth_seeded", new=AsyncMock()),
+        patch("app.core.redis.redis_manager.get", new=AsyncMock(return_value=mock_redis)),
+    ):
+        res = await manager.enqueue_waybill(request, idempotency_key="idem-k2")
+        assert res.status == TaskStatus.PENDING
+        assert res.queued is True
+
+    await test_engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_enqueue_fails_when_queue_unavailable_and_no_inline_fallback():
     test_engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
     async with test_engine.begin() as conn:
@@ -77,10 +106,10 @@ async def test_enqueue_fails_when_queue_unavailable_and_no_inline_fallback():
         patch("app.services.task_service.task_service._emit_task_event", new=AsyncMock()),
         patch("app.services.task_service.task_service._sync_queue_depth", new=AsyncMock()),
         patch("app.services.task_service.task_service._ensure_queue_depth_seeded", new=AsyncMock()),
-        patch("app.queue.queue_manager.dispatch_waybill_task", side_effect=RuntimeError("broker-down")),
+        patch("app.core.redis.redis_manager.get", new=AsyncMock(side_effect=RuntimeError("broker-down"))),
     ):
         with pytest.raises(HTTPException) as exc:
-            await manager.enqueue_waybill(request, idempotency_key="idem-k2")
+            await manager.enqueue_waybill(request, idempotency_key="idem-k3")
         assert exc.value.status_code == 503
 
     await test_engine.dispose()

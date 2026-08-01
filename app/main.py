@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import (
+    admin_alerts,
     admin_reporting,
     itmb_ws,
     location,
@@ -141,12 +142,25 @@ async def lifespan(app: FastAPI):
             extra={"extra_fields": {"model_path": str(barname_ml_solver.model_path)}},
         )
 
-    # Initialize distributed traffic controller
-    from app.core.distributed_traffic import distributed_traffic_controller
-    from app.core.recovery import recovery_manager
-
-    await distributed_traffic_controller.initialize()
-    watchdog_task = asyncio.create_task(recovery_manager.watchdog_loop())
+    # Test Redis connectivity for fail-closed Session Vault
+    import sys
+    if "pytest" not in sys.modules:
+        from app.core.redis import redis_manager
+        redis_client = await redis_manager.get()
+        if redis_client:
+            try:
+                await redis_client.ping()
+                logger.info("Redis connectivity verified for session vault")
+            except Exception as exc:
+                logger.critical(
+                    "redis_connection_failed",
+                    extra={"extra_fields": {"error": str(exc)}},
+                    exc_info=True
+                )
+                raise RuntimeError("Redis connection failed during startup (fail-closed)") from exc
+        else:
+            logger.critical("Redis client is not available during startup (fail-closed)")
+            raise RuntimeError("Redis client is not available during startup (fail-closed)")
 
     # Initialize database
     try:
@@ -159,6 +173,13 @@ async def lifespan(app: FastAPI):
             exc_info=True,
         )
         raise RuntimeError("Database initialization failed during application startup") from exc
+
+    # Initialize distributed traffic controller
+    from app.core.distributed_traffic import distributed_traffic_controller
+    from app.core.recovery import recovery_manager
+
+    await distributed_traffic_controller.initialize()
+    watchdog_task = asyncio.create_task(recovery_manager.watchdog_loop())
 
     # Bridge cross-process waybill events (workers -> API WebSockets) via Redis pub/sub
     from app.realtime.events import event_hub
@@ -318,6 +339,7 @@ app.include_router(rpa_phase1.router)
 app.include_router(system.router)
 app.include_router(ui.router)
 app.include_router(realtime.router)
+app.include_router(admin_alerts.router)
 app.include_router(admin_reporting.router)
 app.include_router(user_reporting.router)
 

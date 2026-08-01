@@ -17,7 +17,6 @@ from app.automation.browser import browser_manager
 from app.automation.proxy_rotator import get_proxy_rotator
 from app.core.config import utcms_config
 from app.core.database import engine
-from app.core.worker_heartbeat import worker_heartbeat_registry
 from app.models_management import (
     ManagedAccount,
     ManagedCustomer,
@@ -218,14 +217,14 @@ class ManagementService:
         )
 
     @staticmethod
-    def _account_has_session_state(account: dict[str, Any]) -> bool:
+    async def _account_has_session_state(account: dict[str, Any]) -> bool:
         path = ManagementService._account_auth_state_path(
             external_name=account.get("external_name"),
             national_code=account.get("national_code"),
             phone_number=account.get("phone_number"),
             raw_payload=account.get("raw"),
         )
-        return session_vault.auth_state_exists(path)
+        return await session_vault.async_auth_state_exists(path)
 
     async def upsert_customer(self, request: ManagedCustomerUpsertRequest) -> dict[str, Any]:
         async with AsyncSession(engine) as session:
@@ -319,7 +318,7 @@ class ManagementService:
             session.add(record)
             await session.commit()
             await session.refresh(record)
-            return self._account_to_dict(record)
+            return await self._account_to_dict(record)
 
     async def list_customers(self) -> list[dict[str, Any]]:
         async with AsyncSession(engine) as session:
@@ -346,7 +345,7 @@ class ManagementService:
                 .scalars()
                 .all()
             )
-            return [self._account_to_dict(row) for row in rows]
+            return [await self._account_to_dict(row) for row in rows]
 
     async def warm_account_session(self, account_external_name: str) -> dict[str, Any]:
         async with AsyncSession(engine) as session:
@@ -420,7 +419,10 @@ class ManagementService:
         queue = await self.list_queue()
         local_queue_count = len([item for item in queue if item.get("source_system") == "local"])
         imported_queue_count = len([item for item in queue if item.get("source_system") != "local"])
-        session_ready_accounts_count = len([item for item in accounts if self._account_has_session_state(item)])
+        session_ready_accounts_count = 0
+        for item in accounts:
+            if await self._account_has_session_state(item):
+                session_ready_accounts_count += 1
         return {
             "customers_count": len(customers),
             "routes_count": len(routes),
@@ -440,6 +442,24 @@ class ManagementService:
         accounts = await self.list_accounts()
         queue = await self.list_queue()
 
+        accounts_missing_session_state = []
+        for item in accounts:
+            if not await self._account_has_session_state(item):
+                accounts_missing_session_state.append(item["external_name"])
+
+        ready_accounts_count = 0
+        for item in accounts:
+            if (
+                item.get("start_shipping") is True
+                and item.get("otp_needed") is not True
+                and item.get("has_driver_data") is not False
+                and item.get("has_truck_data") is not False
+                and item.get("has_valid_location") is not False
+                and item.get("route_key")
+                and await self._account_has_session_state(item)
+            ):
+                ready_accounts_count += 1
+
         issues = {
             "accounts_missing_route": [item["external_name"] for item in accounts if not item.get("route_key")],
             "accounts_missing_phone": [item["external_name"] for item in accounts if not item.get("phone_number")],
@@ -454,9 +474,7 @@ class ManagementService:
             ],
             "accounts_inactive": [item["external_name"] for item in accounts if item.get("start_shipping") is False],
             "accounts_waiting_otp": [item["external_name"] for item in accounts if item.get("otp_needed") is True],
-            "accounts_missing_session_state": [
-                item["external_name"] for item in accounts if not self._account_has_session_state(item)
-            ],
+            "accounts_missing_session_state": accounts_missing_session_state,
             "routes_missing_coordinates": [
                 item["route_key"]
                 for item in routes
@@ -476,19 +494,7 @@ class ManagementService:
         return {
             "summary": await self.summary(),
             "readiness": {
-                "accounts_ready_for_dispatch": len(
-                    [
-                        item
-                        for item in accounts
-                        if item.get("start_shipping") is True
-                        and item.get("otp_needed") is not True
-                        and item.get("has_driver_data") is not False
-                        and item.get("has_truck_data") is not False
-                        and item.get("has_valid_location") is not False
-                        and item.get("route_key")
-                        and self._account_has_session_state(item)
-                    ]
-                ),
+                "accounts_ready_for_dispatch": ready_accounts_count,
                 "routes_ready": len(
                     [
                         item
@@ -555,8 +561,36 @@ class ManagementService:
         summary = await self.summary()
         queue_snapshot = await task_service.queue_snapshot()
         recent_tasks = await task_service.list_tasks(limit=12)
-        active_heartbeats = worker_heartbeat_registry.snapshot()
-        stalled = worker_heartbeat_registry.detect_stalled(utcms_config.WORKER_STALL_TIMEOUT_SECONDS)
+        
+        from app.core.database import async_session_factory
+        from app.models_rpa import WorkerRegistry
+        from sqlmodel import select
+        from datetime import datetime, UTC
+        import json
+        
+        active_heartbeats = {}
+        stalled = {}
+        async with async_session_factory() as db_session:
+            result = await db_session.exec(select(WorkerRegistry))
+            workers = result.all()
+            now = datetime.now(UTC).replace(tzinfo=None)
+            timeout = utcms_config.WORKER_STALL_TIMEOUT_SECONDS
+            for w in workers:
+                last_beat = w.last_heartbeat_at
+                diff = (now - last_beat).total_seconds()
+                is_stalled = diff > timeout and w.status == "active"
+                info = {
+                    "worker_id": w.worker_id,
+                    "hostname": w.hostname,
+                    "status": w.status,
+                    "last_heartbeat_at": last_beat.timestamp(),
+                    "capabilities": json.loads(w.capabilities_json) if w.capabilities_json else [],
+                    "capacity": w.capacity,
+                }
+                active_heartbeats[w.worker_id] = info
+                if is_stalled:
+                    stalled[w.worker_id] = info
+                    
         return {
             "summary": summary,
             "queue": queue_snapshot,
@@ -1068,7 +1102,7 @@ class ManagementService:
         }
 
     @staticmethod
-    def _account_to_dict(record: ManagedAccount) -> dict[str, Any]:
+    async def _account_to_dict(record: ManagedAccount) -> dict[str, Any]:
         raw = _safe_json_load(record.raw_json)
         auth_details = ManagementService._extract_account_auth_details(raw)
         session_state_path = ManagementService._account_auth_state_path(
@@ -1108,7 +1142,7 @@ class ManagementService:
             "auth_username": auth_details.get("username"),
             "auth_login_url": auth_details.get("login_url"),
             "session_state_path": session_state_path,
-            "session_ready": session_vault.auth_state_exists(session_state_path),
+            "session_ready": await session_vault.async_auth_state_exists(session_state_path),
             "synced_at": record.synced_at,
         }
 

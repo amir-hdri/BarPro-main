@@ -9,9 +9,9 @@ import socks
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-IP = "188.121.123.16"
-USERNAME = "ubuntu"
-PASSWORD = "Amaterasoo1"
+IP = os.environ.get("COPY_REMOTE_IP", "<YOUR_CENTRAL_SERVER_IP>")
+USERNAME = os.environ.get("COPY_REMOTE_USER", "ubuntu")
+PASSWORD = os.environ.get("COPY_REMOTE_PASSWORD", "")
 
 
 def find_local_proxy():

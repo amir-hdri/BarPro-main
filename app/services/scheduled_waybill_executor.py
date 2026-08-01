@@ -22,7 +22,6 @@ try:
     import jdatetime
 except ImportError:
     jdatetime = None
-from sqlalchemy.orm import joinedload
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -33,6 +32,7 @@ from app.automation.proxy_rotator import get_proxy_rotator
 from app.automation.waybill_bot_multitenant import WaybillAutomationBot
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
+from app.core.error_taxonomy import ErrorCategory
 from app.models_multitenant import (
     Client,
     Driver,
@@ -44,6 +44,7 @@ from app.models_multitenant import (
     WaybillTaskLog,
 )
 from app.models_rpa import DomainEvent
+from app.orchestrator.state_machine import JobStateMachine
 from app.rpa.event_taxonomy import (
     JOB_CREATED,
     JOB_EXECUTION_FAILED,
@@ -239,11 +240,15 @@ async def _execute_single_job(
             if status_str == "otp_backoff":
                 retry_minutes = int(result.get("next_retry_at_minutes_add", 60))
                 retry_at = _utcnow() + timedelta(minutes=retry_minutes)
-                job.status = TaskStatus.WAITING_RETRY.value
-                job.next_retry_at = retry_at
-                job.submit_after = retry_at
-                job.last_error = result.get("message", "OTP challenge detected")
-                job.error_category = "otp_required"
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.WAITING_RETRY.value,
+                    next_retry_at=retry_at,
+                    submit_after=retry_at,
+                    last_error=result.get("message", "OTP challenge detected"),
+                    error_category="otp_required",
+                )
                 job.attempt_count += 1
                 await session.commit()
                 await _add_log(
@@ -291,14 +296,19 @@ async def _execute_single_job(
                         client, driver, job, session, attempt + 1, driver_password=password
                     )
 
-                job.status = (
+                target_status = (
                     TaskStatus.NEEDS_REVIEW.value
                     if result.get("error_category") in {"submission_unconfirmed", "submission_unknown"}
                     else TaskStatus.FAILED.value
                 )
-                job.finished_at = _utcnow()
-                job.last_error = result.get("error", "Execution failed")
-                job.error_category = result.get("error_category", "unknown")
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    target_status,
+                    finished_at=_utcnow(),
+                    last_error=result.get("error", "Execution failed"),
+                    error_category=result.get("error_category", "unknown"),
+                )
                 job.retryable = False
                 job.attempt_count += 1
                 await session.commit()
@@ -329,26 +339,38 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
 
         client = await session.get(Client, job.client_id)
         if not client or client.status != "active":
-            job.status = TaskStatus.FAILED.value
-            job.finished_at = _utcnow()
-            job.last_error = "Client inactive or not found"
+            JobStateMachine.transition(
+                session,
+                job,
+                TaskStatus.FAILED.value,
+                finished_at=_utcnow(),
+                last_error="Client inactive or not found",
+            )
             job.retryable = False
             await session.commit()
             return {"status": "failed", "error": "Client inactive or not found"}
 
         driver = await session.get(Driver, job.driver_id)
         if not driver or driver.client_id != client.id:
-            job.status = TaskStatus.FAILED.value
-            job.finished_at = _utcnow()
-            job.last_error = "Driver not found or mismatch"
+            JobStateMachine.transition(
+                session,
+                job,
+                TaskStatus.FAILED.value,
+                finished_at=_utcnow(),
+                last_error="Driver not found or mismatch",
+            )
             job.retryable = False
             await session.commit()
             return {"status": "failed", "error": "Driver not found"}
 
         if driver.status not in ("active", "ready"):
-            job.status = TaskStatus.FAILED.value
-            job.finished_at = _utcnow()
-            job.last_error = f"Driver status is inactive ({driver.status})"
+            JobStateMachine.transition(
+                session,
+                job,
+                TaskStatus.FAILED.value,
+                finished_at=_utcnow(),
+                last_error=f"Driver status is inactive ({driver.status})",
+            )
             job.retryable = False
             await session.commit()
             return {"status": "failed", "error": "Driver status inactive"}
@@ -365,10 +387,14 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
                 "scheduled_executor_driver_key_mismatch",
                 extra={"extra_fields": {"driver_id": driver.id, "job_id": job_id}},
             )
-            job.status = TaskStatus.NEEDS_REVIEW.value
-            job.last_error = str(exc)
-            job.error_category = "driver_key_mismatch"
-            job.finished_at = _utcnow()
+            JobStateMachine.transition(
+                session,
+                job,
+                TaskStatus.NEEDS_REVIEW.value,
+                last_error=str(exc),
+                error_category="driver_key_mismatch",
+                finished_at=_utcnow(),
+            )
             job.retryable = False
             await session.commit()
             return {"status": TaskStatus.NEEDS_REVIEW.value, "error_category": "driver_key_mismatch"}
@@ -377,9 +403,13 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
         driver_lock_acquired = await rpa_runtime.acquire_lock(driver_lock_key, utcms_config.RPA_LOCK_TTL_SECONDS)
         if not driver_lock_acquired:
             retry_at = _utcnow() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
-            job.status = TaskStatus.WAITING_RETRY.value
-            job.next_retry_at = retry_at
-            job.submit_after = retry_at
+            JobStateMachine.transition(
+                session,
+                job,
+                TaskStatus.WAITING_RETRY.value,
+                next_retry_at=retry_at,
+                submit_after=retry_at,
+            )
             job.retryable = True
             job.last_error = "Another waybill submission is already running for this driver"
             job.error_category = "driver_submission_in_progress"
@@ -387,8 +417,12 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
             await session.commit()
             return {"status": TaskStatus.WAITING_RETRY.value, "next_retry_at": retry_at.isoformat()}
 
-        job.status = TaskStatus.IN_PROGRESS.value
-        job.started_at = _utcnow()
+        JobStateMachine.transition(
+            session,
+            job,
+            TaskStatus.IN_PROGRESS.value,
+            started_at=_utcnow(),
+        )
         await session.commit()
 
         # Execute the automation bot (pass pre-decrypted password to avoid re-decryption)
@@ -398,22 +432,31 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
         result_status = str(result.get("status", "")).strip().lower()
 
         if result_status == "success":
-            job.status = TaskStatus.SUCCESS.value
-            job.finished_at = _utcnow()
-            job.result_json = result.get("result")
-            job.last_error = None
-            job.error_category = None
+            JobStateMachine.transition(
+                session,
+                job,
+                TaskStatus.SUCCESS.value,
+                finished_at=_utcnow(),
+                result_json=result.get("result"),
+                last_error=None,
+                error_category=None,
+            )
             job.retryable = False
         elif result_status == TaskStatus.WAITING_RETRY.value:
             # WAITING_RETRY is set inside _execute_single_job and committed there
             pass
         else:
-            job.status = (
+            target_status = (
                 TaskStatus.NEEDS_REVIEW.value
                 if result.get("error_category") in {"submission_unconfirmed", "submission_unknown"}
                 else TaskStatus.FAILED.value
             )
-            job.finished_at = _utcnow()
+            JobStateMachine.transition(
+                session,
+                job,
+                target_status,
+                finished_at=_utcnow(),
+            )
 
         await session.commit()
         return result
@@ -425,10 +468,14 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
         try:
             job = await session.get(WaybillJob, job_id)
             if job:
-                job.status = TaskStatus.NEEDS_REVIEW.value
-                job.last_error = str(exc)
-                job.error_category = "submission_unknown"
-                job.finished_at = _utcnow()
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.NEEDS_REVIEW.value,
+                    last_error=str(exc),
+                    error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                    finished_at=_utcnow(),
+                )
                 await session.commit()
         except Exception:
             logger.warning("scheduled_job_mark_failed_failed", exc_info=True)
@@ -533,8 +580,11 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
         if jdatetime is not None:
             try:
                 return jdatetime.date.fromisoformat(date_str).togregorian()
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as exc:
+                logger.debug(
+                    "scheduled_jalali_parse_failed_falling_back",
+                    extra={"extra_fields": {"date_str": date_str, "error": str(exc)}},
+                )
         try:
             return datetime.fromisoformat(date_str).date()
         except (ValueError, TypeError):
@@ -708,18 +758,26 @@ async def retry_failed_scheduled_jobs() -> dict[str, Any]:
         for job in retryable_jobs:
             try:
                 if job.attempt_count >= job.max_retries:
-                    job.status = TaskStatus.DEAD_LETTER.value
-                    job.terminal_reason = "max_retries_exceeded"
-                    job.finished_at = _utcnow()
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.DEAD_LETTER.value,
+                        terminal_reason="max_retries_exceeded",
+                        finished_at=_utcnow(),
+                    )
                     job.retryable = False
                     await session.commit()
                     summary["jobs_retried"] += 0
                     continue
 
-                job.status = TaskStatus.RETRYING.value
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.RETRYING.value,
+                    next_retry_at=None,
+                    started_at=_utcnow(),
+                )
                 job.attempt_count += 1
-                job.next_retry_at = None
-                job.started_at = _utcnow()
                 await session.commit()
 
                 client = await session.get(Client, job.client_id)
@@ -727,16 +785,22 @@ async def retry_failed_scheduled_jobs() -> dict[str, Any]:
 
                 if client and driver:
                     # Update status to Pending to trigger processing on worker
-                    job.status = TaskStatus.PENDING.value
+                    JobStateMachine.transition(
+                        session, job, TaskStatus.PENDING.value
+                    )
                     await session.commit()
 
                     # Dispatch to Celery worker asynchronously
                     dispatch_scheduled_job(job.id)
                     summary["jobs_retried"] += 1
                 else:
-                    job.status = TaskStatus.FAILED.value
-                    job.last_error = "Client or driver not found"
-                    job.finished_at = _utcnow()
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.FAILED.value,
+                        last_error="Client or driver not found",
+                        finished_at=_utcnow(),
+                    )
                     job.retryable = False
                     await session.commit()
             except Exception as exc:
@@ -777,9 +841,13 @@ async def clear_expired_waiting_jobs() -> dict[str, Any]:
 
         for job in stuck_jobs:
             try:
-                job.status = TaskStatus.NEEDS_REVIEW.value
-                job.terminal_reason = "stuck_waiting_retry"
-                job.last_error = "Job stuck in WAITING_RETRY for > 24 hours"
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.NEEDS_REVIEW.value,
+                    terminal_reason="stuck_waiting_retry",
+                    last_error="Job stuck in WAITING_RETRY for > 24 hours",
+                )
                 await session.commit()
                 summary["cleared"] += 1
             except Exception as exc:

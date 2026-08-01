@@ -1,0 +1,69 @@
+# ═══════════════════════════════════════════════════════════════════════
+# BarPro Alertmanager Configuration
+#
+# Routes Prometheus alerts to the BarPro backend webhook.
+# Ops note: After changing this file, send a SIGHUP to the
+#   Alertmanager container or restart it so the config is reloaded.
+#
+# ═══════════════════════════════════════════════════════════════════════
+
+global:
+  # How long Alertmanager waits before declaring an alert resolved
+  resolve_timeout: 5m
+
+# ── Inhibition ────────────────────────────────────────────────────────
+# Critical silences High; High silences Warning for the same alert.
+inhibit_rules:
+  - source_match:
+      severity: "critical"
+    target_match:
+      severity: "high"
+    equal: ["alertname", "group", "namespace"]
+  - source_match:
+      severity: "critical"
+    target_match:
+      severity: "warning"
+    equal: ["alertname", "group", "namespace"]
+  - source_match:
+      severity: "high"
+    target_match:
+      severity: "warning"
+    equal: ["alertname", "group", "namespace"]
+
+# ── Routing tree ──────────────────────────────────────────────────────
+route:
+  group_by: ["alertname", "severity"]
+  # Wait before sending a notification for a group of alerts (allows batching)
+  group_wait: 30s
+  # Wait before sending another notification for the same group
+  group_interval: 5m
+  # Wait before resending a notification if not resolved
+  repeat_interval: 3h
+
+  # Default receiver
+  receiver: "barpro-webhook"
+
+  # Sub-routes: send critical/high alerts faster
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: "barpro-webhook"
+      group_interval: 1m
+      repeat_interval: 1h
+    - matchers:
+        - severity = "high"
+      receiver: "barpro-webhook"
+      group_interval: 2m
+      repeat_interval: 2h
+
+# ── Receivers ─────────────────────────────────────────────────────────
+receivers:
+  - name: "barpro-webhook"
+    webhook_configs:
+      - url: "http://backend:8000/api/v1/admin/alerts/webhook"
+        send_resolved: true
+        # Disable certificate verification for internal Docker network
+        # (backend:8000 is inside the compose network, no TLS is active).
+        http_config:
+          tls_config:
+            insecure_skip_verify: true
