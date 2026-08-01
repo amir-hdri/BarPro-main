@@ -291,7 +291,7 @@ async def metrics():
         set_db_pool_utilization,
         set_healthy_proxy_count,
     )
-    from app.core.database import engine
+    from app.core.database import async_session_factory, engine
     
     # Update active workers and proxy health gauges
     try:
