@@ -500,9 +500,22 @@ def dispatch_scheduled_job(job_id: int):
         )
     else:
         logger.warning(f"Celery is not available. Executing scheduled job {job_id} synchronously in background task.")
-        import asyncio
+        # NOTE: ``dispatch_scheduled_job`` is a synchronous function and is also
+        # called from synchronous contexts (Celery tasks, scripts). Using
+        # ``asyncio.create_task`` here raised ``RuntimeError: no running event
+        # loop`` whenever no loop was bound to the calling thread, silently
+        # dropping the job. ``run_async`` uses the running loop when there is
+        # one and otherwise falls back to the persistent thread-local loop.
+        from app.core.utils import run_async
 
-        asyncio.create_task(execute_scheduled_job_by_id(job_id))
+        try:
+            run_async(execute_scheduled_job_by_id(job_id))
+        except Exception:
+            logger.exception(
+                "inline_scheduled_job_execution_failed",
+                extra={"extra_fields": {"job_id": job_id}},
+            )
+            raise
 
 
 def _is_retryable(result: dict[str, Any]) -> bool:

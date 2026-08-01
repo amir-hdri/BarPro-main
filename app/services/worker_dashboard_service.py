@@ -94,7 +94,11 @@ async def get_active_worker_proxies() -> list[WorkerProxyInfo]:
             try:
                 caps = json.loads(w.capabilities_json or "[]")
             except Exception:
-                pass
+                logger.warning(
+                    "worker_capabilities_parse_failed",
+                    extra={"extra_fields": {"worker_id": w.worker_id}},
+                    exc_info=True,
+                )
 
             proxy_url = _derive_proxy_url(w.worker_id, w.hostname)
             out.append(
