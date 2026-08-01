@@ -1,0 +1,95 @@
+# BarPro — Worker Node Docker Compose Template
+# =============================================
+# Usage: Copy this file to a new Worker server and run:
+#
+#   cp compose/worker-node.yml /opt/barpro/compose/worker-node.yml
+#   # Edit the .env file on the worker server (see docs/adding_new_worker.md)
+#   docker compose -f compose/worker-node.yml up -d
+#
+# Required environment variables on the Worker server:
+#   WORKER_ID          — unique identifier, e.g. "worker_4"
+#   WORKER_PROXY_PORT  — Squid listen port on this server, e.g. "3128"
+#   DATABASE_URL       — postgresql+asyncpg://barpro_worker:<pw>@<CENTRAL_IP>:5432/barpro
+#   REDIS_URL          — redis://:<pw>@<CENTRAL_IP>:6379/0
+#   CELERY_BROKER_URL  — redis://:<pw>@<CENTRAL_IP>:6379/1
+#   CELERY_RESULT_BACKEND — redis://:<pw>@<CENTRAL_IP>:6379/2
+#   CAPTCHA_PROVIDER   — auto
+#   HEADLESS           — true
+
+version: "3.9"
+
+networks:
+  worker_local:
+    driver: bridge
+
+services:
+  # ─────────────────────────────────────────────
+  # Squid Proxy — local egress via THIS server's IP
+  # ─────────────────────────────────────────────
+  squid:
+    image: ubuntu/squid:latest
+    container_name: barpro-squid-worker
+    restart: unless-stopped
+    # network_mode: host is required so Squid uses the Worker server's real IP
+    # when connecting to UTCMS — this is the "one IP per Worker" design.
+    network_mode: host
+    volumes:
+      - ./infra/squid/squid_worker.conf:/etc/squid/squid.conf:ro
+    cap_add:
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    mem_reservation: 64m
+
+  # ─────────────────────────────────────────────
+  # Celery Worker — RPA executor
+  # ─────────────────────────────────────────────
+  worker:
+    image: ghcr.io/amir-hdri/barpro/backend:latest
+    container_name: barpro-celery-worker
+    restart: unless-stopped
+    depends_on:
+      - squid
+    networks:
+      - worker_local
+    command: >
+      celery -A app.workers.celery_app worker
+      --loglevel=info
+      --concurrency=1
+      --prefetch-multiplier=1
+      -Q waybill_tasks,waybill_tasks_${WORKER_ID},rpa_auth_${WORKER_ID},rpa_submit_${WORKER_ID},reconciliation_tasks,reconciliation_tasks_${WORKER_ID},rpa_scheduler,scheduled_tasks
+      --max-tasks-per-child=50
+    environment:
+      # Identity
+      WORKER_ID: ${WORKER_ID:?WORKER_ID is required}
+      # Database (points to Central server — must be reachable via Worker IP allowlist)
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-${REDIS_URL}}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-${REDIS_URL}}
+      # Proxy — routes Playwright traffic through local Squid
+      WORKER_PROXY_URL: http://localhost:${WORKER_PROXY_PORT:-3128}
+      # CAPTCHA & Browser
+      CAPTCHA_PROVIDER: ${CAPTCHA_PROVIDER:-auto}
+      HEADLESS: ${HEADLESS:-true}
+      # Queue feature flags
+      QUEUE_ENABLED: "true"
+      QUEUE_INLINE_FALLBACK: "false"
+    volumes:
+      # Shared memory for Chromium
+      - type: tmpfs
+        target: /dev/shm
+        tmpfs:
+          size: 536870912  # 512 MB
+    shm_size: "512m"
+    cap_add:
+      - SYS_ADMIN   # required for Chromium sandbox
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 4g
+    mem_reservation: 2g
+    extra_hosts:
+      # Makes "central" resolve to the Central server IP
+      - "central:${CENTRAL_IP:-127.0.0.1}"

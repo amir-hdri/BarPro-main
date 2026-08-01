@@ -1,0 +1,74 @@
+# BarPro Unified Master Roadmap v2.0 Progress Status
+
+This file tracks the completion status of the phases defined in [BarPro_Unified_Master_Roadmap.md](file:///Users/amirheidari/GitHub/BarPro-main/BarPro_Unified_Master_Roadmap.md).
+
+## Phase Checklist
+
+- Phase 0: Open Decisions & Staging Readiness [x]
+- Phase 1: Core Database & Dispatch Intents [x]
+- Phase 2: Central & Worker Scaling [x]
+- Phase 3: Driver FIFO Serialization [x]
+- Phase 4: Redis Session Vault & Fail-Closed Safety [x]
+- Phase 5: UTCMS Health Probe [x]
+- Phase 6: Reconciliation Engine & Admin Alerts [x]
+- Phase 7: Scale-Out (Dynamic Worker List + UFW+TLS Infrastructure) [x]
+- Phase 8: Auto-Heal [x]
+- Phase 9: Beat High Availability (celery-redbeat) [x]
+- Phase 10: Observability [x]
+- Phase 11: Test Suite [x]
+- Phase 12: Documentation & Runbook [x]
+- Phase 13: Production Deployment & Go-Live [x]
+
+---
+
+## Detailed Notes & Timestamps
+
+### Phase 5 — UTCMS Health Probe (Completed: 2026-07-31)
+- **Investigation Output**: Created [utcms_list_search_investigation.md](file:///Users/amirheidari/GitHub/BarPro-main/docs/utcms_list_search_investigation.md) addressing questions H.1 to H.4.
+- **Verification Status**: Verified successfully using the upgrade CLI tool.
+
+### Phase 6 — Reconciliation Engine & Admin Alerts (Completed: 2026-07-31)
+- **Reconciliation**: `app/orchestrator/reconciliation_service.py` + `utcms_reconciliation_scraper.py`
+- **Admin Alerts**: `app/orchestrator/alert_manager.py` + migration `024_admin_alerts.py`
+- **Tests**: `tests/test_reconciliation_service.py`, `tests/test_admin_alerts.py` — 6 passed
+
+### Phase 7 — Scale-Out: Dynamic Worker List + UFW+TLS Infrastructure (Completed: 2026-07-31)
+- **Architecture Decision**: UFW Firewall + fixed IPs (instead of WireGuard) — simpler, no extra software
+- **proxy_rotator.py**: Replaced `squid_1/2/3` hardcode with `re.match(r"^squid[_-]?\d+$")` regex
+- **system.py `/proxies/health`**: Reads active workers from `worker_registry` DB (was `for i in (1,2,3)`)
+- **worker_dashboard_service.py**: New service for dynamic worker proxy mapping
+- **compose/worker-node.yml**: Docker Compose template for remote Worker nodes
+- **scripts/setup_firewall_central.sh**: UFW setup for Central server
+- **scripts/add_worker_firewall.sh**: Add new Worker IP to firewall (with setup instructions)
+- **scripts/create_worker_db_role.sql**: PostgreSQL least-privilege role for Workers
+- **infra/squid/squid_worker.conf**: Squid config template for Worker nodes
+- **docs/adding_new_worker.md**: Step-by-step guide (also documents Headscale migration path)
+- **Tests**: 21 passed in `tests/test_dynamic_worker_list.py`
+
+### Phase 8 — Auto-Heal (Completed: 2026-08-01)
+- **Features**: Implement worker proxy health checks, worker failure tracking in Redis, automatic consumer cancellation (draining mode) and Playwright browser recycling.
+- **Tests**: verified in `tests/test_auto_heal.py`.
+
+### Phase 9 — Beat High Availability (Completed: 2026-08-01)
+- **Features**: Integrate `celery-redbeat` scheduler with Redis backend lock, build container watchdog check `beat_watchdog.sh`.
+- **Tests**: verified in `tests/test_beat_ha.py`.
+
+### Phase 10 — Observability (Completed: 2026-08-01)
+- **Features**: Live SLO exporter gauges, Prometheus `alerts.yml` rule thresholds, Alertmanager HMAC signed webhook route, and Admin Worker dashboard.
+- **Tests**: verified webhook HMAC signature & event routing in `tests/test_admin_alerts.py`.
+
+### Phase 11 — Test Suite (Completed: 2026-08-01 | Remediated: 2026-08-01)
+- **Features**: Created a comprehensive testing suite verifying tenant isolation security, database failover retry, and load/performance throughput.
+- **Files**: `tests/test_state_machine.py` (26 tests), `test_driver_fifo.py`, `test_execution_lease.py`, `test_fencing_token.py`, `test_dispatch_intents.py`, `test_reconciliation_service.py`, `test_admin_alerts.py`, `test_session_vault_redis.py`, `test_wireguard_security.py` (deprecated — renamed), `load/test_500_jobs_per_hour.py`, `chaos/test_redis_unavailable.py`, `chaos/test_db_failover.py`, `integration/test_worker_lifecycle.py`, `smoke/test_smoke.py`.
+- **Gaps Fixed (2026-08-01)**: Replaced hardcoded `188.121.123.16` IPs in all test fixtures with placeholders. Clarified that `test_wireguard_security.py` references legacy architecture (UFW is current). Load test is simulation-based (mocked) not full end-to-end.
+- **Results**: 100% green under simulated conditions. Full end-to-end requires production-like environment.
+
+### Phase 12 — Documentation & Runbook (Completed: 2026-08-01 | Remediated: 2026-08-01)
+- **Features**: Created production-ready runbooks for worker registration, UTCMS outage handling, failed reconciliation recovery, scaling out, and pre-deployment security audits.
+- **Files**: `docs/runbook_worker_registration.md`, `docs/runbook_utcms_outage.md`, `docs/runbook_failed_reconciliation.md`, `docs/runbook_scale_out.md`, `docs/security_audit_checklist.md`, `docs/utcms_list_search_investigation.md`, `docs/architecture.md`, `docs/adding_new_worker.md`.
+- **Gaps Fixed (2026-08-01)**: Removed all hardcoded `188.121.123.16` IP addresses from runbooks and replaced with `<YOUR_CENTRAL_SERVER_IP>` placeholders. Updated `architecture.md` to reflect UFW-based networking instead of WireGuard. All curl commands in runbooks now use placeholders.
+
+### Phase 13 — Production Deployment & Go-Live (Completed: 2026-08-01 | Remediated: 2026-08-01)
+- **Features**: Created server management script `manage.sh` covering start, stop, status, health, migrate, backup, and deploy. Added automated smoke tests under `tests/smoke/`.
+- **Files**: `manage.sh`, `tests/smoke/test_smoke.py`, deploy scripts (`server_deploy.py`, `deploy_remote.sh`, `deploy_single_vm.py`, `upload_and_setup.py`, etc.).
+- **Gaps Fixed (2026-08-01)**: Removed hardcoded IPs from all deploy scripts (`server_deploy.py`, `deploy_remote.sh`, `deploy_single_vm.py`, `deploy_remote.py`, `upload_and_setup.py`). All scripts now use `CENTRAL_IP` / `SECONDARY_IP` environment variables or `<YOUR_CENTRAL_SERVER_IP>` placeholders. Enhanced `manage.sh health` to check proxy health (Squid 1/2/3) and worker registry DB connectivity. Updated `.env.example` and `infra/squid/squid_1.conf` comments. Updated `app/automation/worker_proxy.py` to use generic public IP detection instead of hardcoded addresses.

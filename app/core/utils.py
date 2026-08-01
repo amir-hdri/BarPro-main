@@ -31,6 +31,10 @@ def get_shared_event_loop() -> asyncio.AbstractEventLoop:
     try:
         return asyncio.get_running_loop()
     except RuntimeError:
+        # Standard asyncio idiom: `get_running_loop` raises `RuntimeError`
+        # when no loop is bound to the current thread. The fallback below
+        # creates and caches a thread-local loop, so swallowing this error
+        # is intentional (rather than masking a real bug).
         pass
 
     loop: asyncio.AbstractEventLoop | None = getattr(_THREAD_LOCAL, "loop", None)

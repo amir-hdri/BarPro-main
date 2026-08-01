@@ -20,6 +20,7 @@ from app.automation.proxy_rotator import get_proxy_rotator
 from app.automation.waybill_enhanced import EnhancedWaybillManager
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
+from app.core.error_taxonomy import ErrorCategory, classify_exception
 from app.core.exceptions import WaybillError
 from app.models_multitenant import Driver, DriverStatus, TaskStatus, WaybillJob
 from app.models_rpa import (
@@ -32,6 +33,7 @@ from app.models_rpa import (
     DriverSessionMetadata,
     WaybillAttempt,
 )
+from app.orchestrator.state_machine import JobStateMachine
 from app.rpa.contracts import SessionBundle, SubmitClassification, SubmitExecutionResult, SubmitOutcome
 from app.rpa.event_taxonomy import (
     DRIVER_LIMIT_REACHED,
@@ -46,19 +48,29 @@ from app.services.rpa_runtime_service import rpa_runtime
 logger = logging.getLogger(__name__)
 
 
-def _map_error_category(outcome: SubmitOutcome, reason_code: str) -> str:
+def _map_error_category(outcome: SubmitOutcome, reason_code: str) -> ErrorCategory:
+    """Map a SubmitOutcome + raw reason_code into a single ErrorCategory.
+
+    Centralises the classification so individual call sites no longer scatter
+    raw strings; consumers can compare the result directly to ErrorCategory
+    enum members.
+    """
     reason = (reason_code or "").lower()
-    if outcome == SubmitOutcome.AUTH_EXPIRED or "login" in reason or "auth" in reason or "credential" in reason:
-        return "utcms_login_error"
+    if outcome == SubmitOutcome.AUTH_EXPIRED or any(k in reason for k in ("login", "auth", "credential")):
+        return ErrorCategory.AUTH_FAILURE
     if outcome == SubmitOutcome.VALIDATION_ERROR:
         if "driver" in reason:
-            return "invalid_driver_info"
-        return "incomplete_waybill_info"
+            return ErrorCategory.AUTH_FAILURE
+        return ErrorCategory.USER_DATA_ERROR
     if outcome == SubmitOutcome.RATE_LIMITED:
-        return "destination_service_limit"
+        return ErrorCategory.TARGET_SITE_TIMEOUT
     if outcome == SubmitOutcome.TRANSIENT_FAILURE:
-        return "system_or_network_error"
-    return "unknown_error"
+        return ErrorCategory.TRANSIENT_INFRA_ERROR
+    if outcome == SubmitOutcome.UNKNOWN_ERROR:
+        if reason in {"submission_unconfirmed", "submission_unknown"}:
+            return ErrorCategory.SUBMISSION_UNCONFIRMED
+        return ErrorCategory.UNKNOWN_AUTOMATION_ERROR
+    return ErrorCategory.UNKNOWN_AUTOMATION_ERROR
 
 
 class SubmitAdapter:
@@ -175,8 +187,11 @@ class RPAHttpSubmitService:
                             ),
                             latency_ms=0,
                         )
-                except (json.JSONDecodeError, TypeError):
-                    pass  # Ignore corrupted result_json
+                except (json.JSONDecodeError, TypeError) as exc:
+                    logger.debug(
+                        "rpa_submit_result_json_corrupted",
+                        extra={"extra_fields": {"job_id": job.job_id, "error": str(exc)}},
+                    )
 
             driver = await session.get(Driver, job.driver_id)
             runtime_state = await self._get_or_create_runtime_state(session, client_id, job.driver_id)
@@ -184,6 +199,7 @@ class RPAHttpSubmitService:
                 await prepare_live_run_isolation(
                     client_id=client_id,
                     driver_id=job.driver_id,
+                    session=session,
                     job=job,
                     runtime_state=runtime_state,
                 )
@@ -216,8 +232,12 @@ class RPAHttpSubmitService:
                 payload = json.loads(job.payload_json)
             else:
                 payload = {}
-            job.status = TaskStatus.IN_PROGRESS.value
-            job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+            JobStateMachine.transition(
+                session,
+                job,
+                TaskStatus.IN_PROGRESS.value,
+                updated_at=datetime.now(UTC).replace(tzinfo=None),
+            )
             driver.runtime_status = DriverStatus.READY.value
             runtime_state.state = DriverRuntimeStateValue.SUBMITTING.value
             await session.commit()
@@ -275,7 +295,6 @@ class RPAHttpSubmitService:
 
                 if classification.outcome == SubmitOutcome.SUCCESS:
                     await rpa_runtime.increment_success(client_id, job.driver_id)
-                    job.status = TaskStatus.SUCCESS.value
                     res_json = {
                         "status": "success",
                         "reason": classification.reason_code,
@@ -286,15 +305,20 @@ class RPAHttpSubmitService:
                         for k in ["waybill_screenshot", "tracking_code", "url", "route"]:
                             if k in result.raw_payload:
                                 res_json[k] = result.raw_payload[k]
-                    job.result_json = res_json
-                    job.finished_at = datetime.now(UTC).replace(tzinfo=None)
-                    job.submit_after = None
-                    job.next_retry_at = None
-                    job.last_error = None
-                    job.error_category = None
-                    job.terminal_reason = classification.reason_code
-                    job.celery_task_id = None
-                    job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.SUCCESS.value,
+                        result_json=res_json,
+                        finished_at=datetime.now(UTC).replace(tzinfo=None),
+                        submit_after=None,
+                        next_retry_at=None,
+                        last_error=None,
+                        error_category=None,
+                        terminal_reason=classification.reason_code,
+                        celery_task_id=None,
+                        updated_at=datetime.now(UTC).replace(tzinfo=None),
+                    )
                     runtime_state.state = DriverRuntimeStateValue.READY.value
                     runtime_state.next_retry_at = None
                     runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
@@ -314,24 +338,32 @@ class RPAHttpSubmitService:
                         session, job, driver, runtime_state, classification.reason_code
                     )
                 elif classification.outcome in {SubmitOutcome.TRANSIENT_FAILURE, SubmitOutcome.RATE_LIMITED}:
-                    job.status = TaskStatus.WAITING_RETRY.value
-                    job.error_category = _map_error_category(classification.outcome, classification.reason_code)
-                    job.last_error = classification.message or classification.reason_code
-                    job.next_retry_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(
+                    job_error_category = _map_error_category(classification.outcome, classification.reason_code).value
+                    next_retry_at_dt = datetime.now(UTC).replace(tzinfo=None) + timedelta(
                         seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS
                     )
-                    job.submit_after = job.next_retry_at
-                    job.finished_at = None
-                    job.celery_task_id = None
-                    job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                    job.result_json = {
+                    result_json = {
                         "status": "waiting_retry",
                         "reason": classification.reason_code,
-                        "error_category": job.error_category,
+                        "error_category": job_error_category,
                         "message": classification.message,
                         "http_status": classification.http_status,
-                        "retry_at": job.next_retry_at.isoformat() if job.next_retry_at else None,
+                        "retry_at": next_retry_at_dt.isoformat() if next_retry_at_dt else None,
                     }
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.WAITING_RETRY.value,
+                        error_category=job_error_category,
+                        last_error=classification.message or classification.reason_code,
+                        next_retry_at=next_retry_at_dt,
+                        submit_after=next_retry_at_dt,
+                        finished_at=None,
+                        celery_task_id=None,
+                        updated_at=datetime.now(UTC).replace(tzinfo=None),
+                        result_json=result_json,
+                    )
+                    job.result_json = result_json
                     runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
                     runtime_state.next_retry_at = job.next_retry_at
                     runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
@@ -350,26 +382,34 @@ class RPAHttpSubmitService:
                         {"reason": classification.reason_code, "retry_at": job.next_retry_at.isoformat()},
                     )
                 else:
-                    job.status = (
+                    target_status = (
                         TaskStatus.NEEDS_REVIEW.value
                         if classification.outcome in {SubmitOutcome.VALIDATION_ERROR, SubmitOutcome.UNKNOWN_ERROR}
                         else TaskStatus.FAILED.value
                     )
-                    job.error_category = _map_error_category(classification.outcome, classification.reason_code)
-                    job.last_error = classification.message or classification.reason_code
-                    job.finished_at = datetime.now(UTC).replace(tzinfo=None)
-                    job.submit_after = None
-                    job.next_retry_at = None
-                    job.terminal_reason = classification.reason_code
-                    job.celery_task_id = None
-                    job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                    job.result_json = {
-                        "status": job.status,
+                    job_error_category = _map_error_category(classification.outcome, classification.reason_code).value
+                    result_json = {
+                        "status": target_status,
                         "reason": classification.reason_code,
-                        "error_category": job.error_category,
+                        "error_category": job_error_category,
                         "message": classification.message,
                         "http_status": classification.http_status,
                     }
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        target_status,
+                        error_category=job_error_category,
+                        last_error=classification.message or classification.reason_code,
+                        finished_at=datetime.now(UTC).replace(tzinfo=None),
+                        submit_after=None,
+                        next_retry_at=None,
+                        terminal_reason=classification.reason_code,
+                        celery_task_id=None,
+                        updated_at=datetime.now(UTC).replace(tzinfo=None),
+                        result_json=result_json,
+                    )
+                    job.result_json = result_json
                     runtime_state.state = DriverRuntimeStateValue.READY.value
                     runtime_state.next_retry_at = None
                     runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
@@ -409,12 +449,16 @@ class RPAHttpSubmitService:
                 try:
                     # The portal may have accepted the request before the local
                     # process failed. Require reconciliation before another submit.
-                    job.status = TaskStatus.NEEDS_REVIEW.value
-                    job.last_error = f"Unhandled crash: {str(core_exc)}"
-                    job.error_category = "submission_unknown"
-                    job.finished_at = datetime.now(UTC).replace(tzinfo=None)
-                    job.celery_task_id = None
-                    job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.NEEDS_REVIEW.value,
+                        last_error=f"Unhandled crash: {str(core_exc)}",
+                        error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                        finished_at=datetime.now(UTC).replace(tzinfo=None),
+                        celery_task_id=None,
+                        updated_at=datetime.now(UTC).replace(tzinfo=None),
+                    )
                     runtime_state.state = DriverRuntimeStateValue.READY.value
                     runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
                     driver.runtime_status = DriverStatus.READY.value
@@ -432,21 +476,28 @@ class RPAHttpSubmitService:
     async def _mark_waiting_auth(
         self, session, job: WaybillJob, driver: Driver, runtime_state: DriverRuntimeState, reason: str
     ) -> SubmitExecutionResult:
-        job.status = TaskStatus.WAITING_AUTH.value
-        job.error_category = "utcms_login_error"
-        job.last_error = reason
-        job.submit_after = datetime.now(UTC).replace(tzinfo=None) + timedelta(
+        submit_after_dt = datetime.now(UTC).replace(tzinfo=None) + timedelta(
             seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS
         )
-        job.next_retry_at = None
-        job.finished_at = None
-        job.celery_task_id = None
-        job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-        job.result_json = {
+        result_json = {
             "status": "waiting_auth",
             "reason": reason,
-            "error_category": "utcms_login_error",
+            "error_category": ErrorCategory.AUTH_FAILURE.value,
         }
+        JobStateMachine.transition(
+            session,
+            job,
+            TaskStatus.WAITING_AUTH.value,
+            error_category=ErrorCategory.AUTH_FAILURE.value,
+            last_error=reason,
+            submit_after=submit_after_dt,
+            next_retry_at=None,
+            finished_at=None,
+            celery_task_id=None,
+            updated_at=datetime.now(UTC).replace(tzinfo=None),
+            result_json=result_json,
+        )
+        job.result_json = result_json
         runtime_state.state = DriverRuntimeStateValue.AUTH_REQUIRED.value
         runtime_state.next_retry_at = None
         runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
@@ -529,11 +580,23 @@ class RPAHttpSubmitService:
             from app.core.circuit_breaker import check_and_report_failure
 
             await check_and_report_failure(str(exc))
+            category, retryable = classify_exception(exc)
+
+            outcome = SubmitOutcome.UNKNOWN_ERROR
+            if category == ErrorCategory.AUTH_FAILURE:
+                outcome = SubmitOutcome.AUTH_EXPIRED
+            elif category in {ErrorCategory.USER_DATA_ERROR, ErrorCategory.SELECTOR_CHANGED, ErrorCategory.BOT_DETECTED}:
+                outcome = SubmitOutcome.VALIDATION_ERROR
+            elif category == ErrorCategory.TARGET_SITE_TIMEOUT:
+                outcome = SubmitOutcome.RATE_LIMITED
+            elif category in {ErrorCategory.TRANSIENT_INFRA_ERROR, ErrorCategory.CAPTCHA_EXHAUSTION, ErrorCategory.WORKER_RESOURCE_ERROR}:
+                outcome = SubmitOutcome.TRANSIENT_FAILURE
+
             return SubmitExecutionResult(
                 classification=SubmitClassification(
-                    outcome=SubmitOutcome.VALIDATION_ERROR,
-                    reason_code="browser_submit_waybill_error",
-                    retryable=False,
+                    outcome=outcome,
+                    reason_code=f"browser_submit_{category.value.lower()}",
+                    retryable=retryable,
                     message=str(exc),
                 ),
                 latency_ms=latency_ms,
@@ -545,11 +608,23 @@ class RPAHttpSubmitService:
             from app.core.circuit_breaker import check_and_report_failure
 
             await check_and_report_failure(str(exc))
+            category, retryable = classify_exception(exc)
+
+            outcome = SubmitOutcome.UNKNOWN_ERROR
+            if category == ErrorCategory.AUTH_FAILURE:
+                outcome = SubmitOutcome.AUTH_EXPIRED
+            elif category in {ErrorCategory.USER_DATA_ERROR, ErrorCategory.SELECTOR_CHANGED, ErrorCategory.BOT_DETECTED}:
+                outcome = SubmitOutcome.VALIDATION_ERROR
+            elif category == ErrorCategory.TARGET_SITE_TIMEOUT:
+                outcome = SubmitOutcome.RATE_LIMITED
+            elif category in {ErrorCategory.TRANSIENT_INFRA_ERROR, ErrorCategory.CAPTCHA_EXHAUSTION, ErrorCategory.WORKER_RESOURCE_ERROR}:
+                outcome = SubmitOutcome.TRANSIENT_FAILURE
+
             return SubmitExecutionResult(
                 classification=SubmitClassification(
-                    outcome=SubmitOutcome.TRANSIENT_FAILURE,
-                    reason_code="submit_transport_error",
-                    retryable=True,
+                    outcome=outcome,
+                    reason_code=f"submit_{category.value.lower()}",
+                    retryable=retryable,
                     message=f"{prior_error} | browser_fallback_error: {exc}",
                 ),
                 latency_ms=latency_ms,
@@ -625,13 +700,17 @@ class RPAHttpSubmitService:
         self, session, job, driver, runtime_state, counter, success_limit: bool
     ) -> SubmitExecutionResult:
         reason = "daily_success_limit_reached" if success_limit else "daily_attempt_limit_reached"
-        job.status = TaskStatus.DAILY_LIMIT_REACHED.value
-        job.terminal_reason = reason
-        job.finished_at = datetime.now(UTC).replace(tzinfo=None)
-        job.submit_after = None
-        job.next_retry_at = None
-        job.celery_task_id = None
-        job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+        JobStateMachine.transition(
+            session,
+            job,
+            TaskStatus.DAILY_LIMIT_REACHED.value,
+            terminal_reason=reason,
+            finished_at=datetime.now(UTC).replace(tzinfo=None),
+            submit_after=None,
+            next_retry_at=None,
+            celery_task_id=None,
+            updated_at=datetime.now(UTC).replace(tzinfo=None),
+        )
         runtime_state.state = (
             DriverRuntimeStateValue.DAILY_SUCCESS_LIMIT_REACHED.value
             if success_limit
@@ -745,8 +824,14 @@ def classify_submit_response(status_code: int, body: str) -> SubmitClassificatio
     try:
         json_data = json.loads(body)
         is_json = True
-    except (ValueError, TypeError):
-        pass
+    except (ValueError, TypeError) as exc:
+        # Expected when the response body is HTML (portal landing pages,
+        # error pages, etc.). Not actionable.
+        body_prefix = body[:120] if isinstance(body, str) else None
+        logger.debug(
+            "rpa_submit_response_body_not_json",
+            extra={"extra_fields": {"error": str(exc), "body_prefix": body_prefix}},
+        )
 
     if is_json and isinstance(json_data, dict):
         success_val = json_data.get("success")

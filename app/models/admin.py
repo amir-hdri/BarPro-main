@@ -111,3 +111,23 @@ class ActivityLog(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None))
+
+
+class AdminAlert(SQLModel, table=True):
+    """Admin alerts for system events, failed jobs, and reconciliation issues"""
+
+    __tablename__ = "admin_alerts"
+
+    id: int | None = Field(default=None, primary_key=True)
+    tenant_id: int | None = Field(default=None, foreign_key="clients.id", index=True)
+    severity: str = Field(max_length=20, index=True)  # info, warning, high, critical
+    category: str = Field(max_length=50, index=True)  # reconciliation, system, submission_unknown_repeated
+    message: str = Field(max_length=1000)
+    dedupe_key: str = Field(max_length=255, unique=True, index=True)
+    details: dict | None = Field(default=None, sa_column=Column(JSON))
+    is_acknowledged: bool = Field(default=False, index=True)
+    acknowledged_at: datetime | None = None
+    acknowledged_by: int | None = None
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None))
+

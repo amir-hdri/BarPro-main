@@ -20,9 +20,9 @@ except ImportError:
     print("Please run: .venv/bin/pip install paramiko scp")
     sys.exit(1)
 
-# Default IPs
-NODE1_IP = "188.121.123.16"
-NODE2_IP = "95.38.233.90"
+# Default IPs — override with environment variables
+NODE1_IP = os.environ.get("CENTRAL_IP", "<YOUR_CENTRAL_SERVER_IP>")
+NODE2_IP = os.environ.get("SECONDARY_IP", "<YOUR_SECONDARY_EGRESS_IP>")
 
 import time
 

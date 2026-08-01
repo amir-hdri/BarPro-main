@@ -3,11 +3,23 @@ global:
   evaluation_interval: 15s
   scrape_timeout:      5s
 
+rule_files:
+  - "alerts.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['barpro-alertmanager:9093']
+
 scrape_configs:
   - job_name: 'backend'
     metrics_path: /metrics
     static_configs:
       - targets: ['backend:8000']
+
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['barpro-alertmanager:9093']
 
   # nginx مستقیماً قابل اسکرپ توسط Prometheus نیست (stub_status فرمت Prometheus ندارد)
   # برای مانیتورینگ nginx از لاگ‌های Nginx استفاده کنید یا nginx-prometheus-exporter اضافه کنید

@@ -9,6 +9,7 @@ from app.services.rpa_auth_service import rpa_auth_service
 from app.services.rpa_dispatch_service import rpa_dispatch_service
 from app.services.rpa_submit_service import rpa_submit_service
 from app.workers.celery_app import celery_app
+from app.core.config import utcms_config
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +20,16 @@ if celery_app is not None:
 
     @celery_app.task(name="phase1.scheduler.plan")
     def plan_phase1_jobs():
+        if utcms_config.DEPRECATE_OLD_EXECUTION_PATH:
+            logger.warning("Deprecation Warning: phase1.scheduler.plan called. Skipping execution as new Scheduler is preferred.")
+            return None
         return _run(rpa_dispatch_service.dispatch_phase1_due_jobs())
 
     @celery_app.task(name="phase1.scheduler.cleanup")
     def cleanup_phase1_jobs():
+        if utcms_config.DEPRECATE_OLD_EXECUTION_PATH:
+            logger.warning("Deprecation Warning: phase1.scheduler.cleanup called. Skipping execution as new Recovery is preferred.")
+            return None
         from app.services.fuel_inquiry_service import fuel_inquiry_service
         from app.services.rpa_scheduler_service import rpa_scheduler_service
 
@@ -36,6 +43,9 @@ if celery_app is not None:
 
     @celery_app.task(name="phase1.auth.process")
     def process_phase1_auth(client_id: int, driver_id: int, reason: str, resume_job_id: str | None = None):
+        if utcms_config.DEPRECATE_OLD_EXECUTION_PATH:
+            logger.warning("Deprecation Warning: phase1.auth.process called. Authorization is handled inline inside waybill.process_job.")
+            return {"ok": False, "reason_code": "deprecated_path"}
         result = _run(rpa_auth_service.authenticate_driver(client_id, driver_id, reason, resume_job_id=resume_job_id))
         return {
             "ok": result.ok,
@@ -46,6 +56,13 @@ if celery_app is not None:
 
     @celery_app.task(name="phase1.submit.process")
     def process_phase1_submit(client_id: int, job_id: str):
+        if utcms_config.DEPRECATE_OLD_EXECUTION_PATH:
+            logger.warning(
+                f"Deprecation Warning: phase1.submit.process called for job {job_id}. "
+                "Redirecting execution to waybill.process_job."
+            )
+            from app.workers.waybill_worker import process_waybill_job
+            return process_waybill_job.apply_async(args=[job_id], queue="waybill_tasks")
         result = _run(rpa_submit_service.process_job(client_id, job_id))
         return {
             "outcome": result.classification.outcome.value,
@@ -76,6 +93,9 @@ if celery_app is not None:
     )
     def evaluate_and_run_scheduled_waybills():
         """Evaluate all active schedules and execute due ones."""
+        if utcms_config.DEPRECATE_OLD_EXECUTION_PATH:
+            logger.warning("Deprecation Warning: scheduled.waybill.evaluate_and_run called. Skipping execution as new Scheduler is preferred.")
+            return None
         try:
             result = _run(evaluate_and_run_schedules())
             logger.info(
@@ -95,6 +115,9 @@ if celery_app is not None:
     )
     def retry_failed_scheduled_jobs_task():
         """Retry jobs stuck in WAITING_RETRY that are now eligible."""
+        if utcms_config.DEPRECATE_OLD_EXECUTION_PATH:
+            logger.warning("Deprecation Warning: scheduled.waybill.retry_failed called. Skipping execution as new Scheduler/Orphan detector is preferred.")
+            return None
         try:
             result = _run(retry_failed_scheduled_jobs())
             logger.info(
@@ -114,6 +137,9 @@ if celery_app is not None:
     )
     def clear_expired_waiting_jobs_task():
         """Mark stuck WAITING_RETRY jobs for review."""
+        if utcms_config.DEPRECATE_OLD_EXECUTION_PATH:
+            logger.warning("Deprecation Warning: scheduled.waybill.clear_expired called. Skipping execution as new Recovery is preferred.")
+            return None
         try:
             result = _run(clear_expired_waiting_jobs())
             logger.info(
@@ -133,6 +159,27 @@ if celery_app is not None:
     )
     def run_scheduled_job(job_id: int):
         """Execute a single scheduled waybill job on worker."""
+        if utcms_config.DEPRECATE_OLD_EXECUTION_PATH:
+            logger.warning(
+                f"Deprecation Warning: scheduled.waybill.run_job called for job ID {job_id}. "
+                "Redirecting to waybill.process_job."
+            )
+            from app.core.database import async_session_factory
+            from app.models_multitenant import WaybillJob
+            from sqlmodel import select
+            
+            async def get_uuid():
+                async with async_session_factory() as session:
+                    job = await session.get(WaybillJob, job_id)
+                    return job.job_id if job else None
+            
+            uuid_str = _run(get_uuid())
+            if uuid_str:
+                from app.workers.waybill_worker import process_waybill_job
+                return process_waybill_job.apply_async(args=[uuid_str], queue="waybill_tasks")
+            else:
+                logger.error(f"Redirect failed: Job ID {job_id} not found in database.")
+                return None
         try:
             from app.services.scheduled_waybill_executor import execute_scheduled_job_by_id
 

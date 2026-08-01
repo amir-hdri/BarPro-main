@@ -20,6 +20,7 @@ from app.models_multitenant import (
     WaybillTaskLog,
 )
 from app.models_rpa import DomainEvent, DriverRuntimeState, DriverRuntimeStateValue
+from app.orchestrator.state_machine import JobStateMachine
 from app.rpa.event_taxonomy import (
     JOB_RETRY_REQUESTED,
     timeline_phase_for,
@@ -261,19 +262,24 @@ class WaybillJobService:
 
             event_payload["force_auth_refresh"] = True
 
-        job.status = TaskStatus.PENDING.value
-        job.attempt_count = 0
-        job.submit_after = now
-        job.next_retry_at = None
-        job.finished_at = None
-        job.started_at = None
-        job.retryable = True
-        job.updated_at = now
-        job.last_error = None
-        job.error_category = None
-        job.terminal_reason = None
-        job.worker_id = None
-        job.celery_task_id = None
+        JobStateMachine.transition(
+            session,
+            job,
+            TaskStatus.PENDING.value,
+            attempt_count=0,
+            submit_after=now,
+            next_retry_at=None,
+            finished_at=None,
+            started_at=None,
+            retryable=True,
+            updated_at=now,
+            last_error=None,
+            error_category=None,
+            terminal_reason=None,
+            worker_id=None,
+            celery_task_id=None,
+        )
+        job.retryable = True  # ensure mutable flag is set even when previous status blocked keyword-only fields
 
         session.add(job)
         session.add(

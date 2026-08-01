@@ -113,6 +113,7 @@ async def test_fuel_setup_failure_does_not_leave_processing_status():
         await session.refresh(inquiry)
         assert inquiry.status == "failed"
         assert inquiry.error_message == "104"
+        assert inquiry.error_category == "USER_DATA_ERROR"
 
     await engine.dispose()
 

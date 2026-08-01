@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
@@ -36,8 +36,14 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
         async with self.engine.begin() as conn:
             await conn.run_sync(SQLModel.metadata.create_all)
 
+        self.mock_vault_exists = AsyncMock(return_value=False)
+        self.mock_vault_exists_sync = MagicMock(return_value=False)
         self.patches = [
             patch("app.services.management_service.engine", self.engine),
+            patch("app.services.session_vault.session_vault.async_auth_state_exists", self.mock_vault_exists),
+            patch("app.services.session_vault.session_vault.auth_state_exists", self.mock_vault_exists_sync),
+            patch("app.services.session_vault.session_vault.store_auth_state_from_file", AsyncMock()),
+            patch("app.services.session_vault.session_vault.delete_auth_state", MagicMock()),
         ]
         for active_patch in self.patches:
             active_patch.start()
@@ -342,7 +348,8 @@ class TestManagementService(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch(
-            "app.services.management_service.session_vault.auth_state_exists",
+            "app.services.management_service.session_vault.async_auth_state_exists",
+            new_callable=AsyncMock,
             side_effect=lambda path: "LOGIN-IDENTITY" in path,
         ):
             accounts = await management_service.list_accounts()

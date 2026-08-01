@@ -6,9 +6,9 @@ isolation). All Playwright browser sessions MUST route through the worker's
 dedicated Squid proxy.
 
 Each worker has its own Squid instance on a different egress IP:
-  Worker 1 → Squid 1 (port 3128) → egress via 188.121.123.16
-  Worker 2 → Squid 2 (port 3129) → egress via 95.38.233.90
-  Worker 3 → Squid 3 (port 3130) → egress via 95.38.233.90
+  Worker 1 → Squid 1 (port 3128) → egress via <CENTRAL_IP>
+  Worker 2 → Squid 2 (port 3129) → egress via <SECONDARY_EGRESS_IP>
+  Worker 3 → Squid 3 (port 3130) → egress via <SECONDARY_EGRESS_IP>
 
 Design decision: We bypass proxy_rotator entirely here because:
 1. Each worker already has a dedicated IP — no rotation needed per request.
@@ -33,6 +33,7 @@ import logging
 import os
 import socket
 import time
+from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 logger = logging.getLogger(__name__)
@@ -67,9 +68,17 @@ def _resolve_to_ip(url: str) -> str:
 
     try:
         ip = socket.gethostbyname(hostname)
-        # If IP resolves to a public server IP, force to the bridge gateway
-        if ip in ("95.38.233.90", "188.121.123.16"):
-            ip = _DOCKER_GATEWAY
+        # Do NOT leak production server IPs into proxy resolution.
+        # Any resolved public IP is routed through the Docker bridge gateway.
+        # This check prevents accidentally using hardcoded egress IPs in proxy URLs.
+        # If the proxy resolves to a non-local address, force it through the gateway.
+        try:
+            import ipaddress
+            parsed_ip = ipaddress.ip_address(ip)
+            if not parsed_ip.is_private and not parsed_ip.is_loopback:
+                ip = _DOCKER_GATEWAY
+        except ValueError:
+            pass
 
         if ip != hostname:
             # Rebuild netloc with numeric IP
@@ -181,3 +190,82 @@ async def check_proxy_health(
             extra={"extra_fields": {"proxy": proxy_url, "target": target_url, "error": str(exc)}},
         )
         return False
+
+
+async def increment_worker_failures(worker_id: str) -> int:
+    """Increment the sequential failure counter for this worker in Redis (1 minute window)."""
+    from app.core.redis import redis_manager
+    try:
+        client = await redis_manager.get()
+        if client:
+            key = f"worker_retry_attempts:{worker_id}"
+            val = await client.incr(key)
+            if val == 1:
+                await client.expire(key, 60)
+            return val
+    except Exception as e:
+        logger.warning(f"Failed to increment worker failure counter in Redis: {e}")
+    return 0
+
+
+async def transition_worker_to_draining(worker_id: str) -> None:
+    """Transition the worker registry status to 'draining' in the database."""
+    from datetime import UTC, datetime
+    from sqlmodel import select
+    from app.core.database import async_session_factory
+    from app.models_rpa import WorkerRegistry
+
+    async with async_session_factory() as session:
+        try:
+            stmt = select(WorkerRegistry).where(WorkerRegistry.worker_id == worker_id)
+            res = await session.exec(stmt)
+            worker = res.first()
+            if worker and worker.status != "draining":
+                worker.status = "draining"
+                worker.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                session.add(worker)
+                await session.commit()
+                logger.warning(f"Worker {worker_id} has been transitioned to draining due to excessive failures.")
+        except Exception as e:
+            logger.error(f"Failed to transition worker {worker_id} to draining: {e}", exc_info=True)
+            await session.rollback()
+
+
+async def is_worker_draining(worker_id: str) -> bool:
+    """Check if the worker registry status is marked as 'draining'."""
+    from sqlmodel import select
+    from app.core.database import async_session_factory
+    from app.models_rpa import WorkerRegistry
+
+    async with async_session_factory() as session:
+        try:
+            stmt = select(WorkerRegistry).where(WorkerRegistry.worker_id == worker_id)
+            res = await session.exec(stmt)
+            worker = res.first()
+            return worker is not None and worker.status == "draining"
+        except Exception:
+            return False
+
+
+def drain_worker_consumers(task: Any) -> None:
+    """Stop consuming from all waybill and reconciliation queues on this worker process.
+
+    Note: any IN_PROGRESS jobs on this worker should be transitioned to WAITING_RETRY
+    with error_category='worker_drained' after calling this, so reconciliation does
+    not later mark them as orphaned.
+    """
+    worker_name = task.request.hostname
+    logger.warning(f"Draining worker {worker_name} consumers...")
+    for q in [
+        "barpro.waybill.submit",
+        "barpro.waybill.auth",
+        "barpro.fuel.inquiry",
+        "barpro.recovery",
+        "barpro.reconciliation",
+        "waybill_tasks",
+        "reconciliation_tasks"
+    ]:
+        try:
+            task.app.control.cancel_consumer(q, destination=[worker_name])
+        except Exception as exc:
+            logger.debug(f"Failed to cancel consumer for queue {q} on {worker_name}: {exc}")

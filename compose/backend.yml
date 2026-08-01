@@ -120,7 +120,7 @@ services:
       - worker
       - --loglevel=info
       - -Q
-      - waybill_tasks_1,rpa_auth_1,rpa_submit_1,scheduled_tasks_1
+      - waybill_tasks,waybill_tasks_1,rpa_auth_1,rpa_submit_1,reconciliation_tasks,reconciliation_tasks_1
       - --concurrency=1
       - --prefetch-multiplier=1
       - -n
@@ -155,7 +155,7 @@ services:
       - worker
       - --loglevel=info
       - -Q
-      - waybill_tasks_2,rpa_auth_2,rpa_submit_2,scheduled_tasks_2
+      - waybill_tasks,waybill_tasks_2,rpa_auth_2,rpa_submit_2,reconciliation_tasks,reconciliation_tasks_2
       - --concurrency=1
       - --prefetch-multiplier=1
       - -n
@@ -190,7 +190,7 @@ services:
       - worker
       - --loglevel=info
       - -Q
-      - waybill_tasks_3,rpa_auth_3,rpa_submit_3,scheduled_tasks_3,rpa_scheduler,scheduled_tasks
+      - waybill_tasks,waybill_tasks_3,rpa_auth_3,rpa_submit_3,reconciliation_tasks,reconciliation_tasks_3,rpa_scheduler,scheduled_tasks
       - --concurrency=1
       - --prefetch-multiplier=1
       - -n

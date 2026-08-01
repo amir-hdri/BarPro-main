@@ -131,8 +131,11 @@ class WaybillEventHub:
                     try:
                         await pubsub.unsubscribe(REDIS_EVENT_CHANNEL)
                         await pubsub.close()
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning(
+                            "redis_pubsub_cleanup_failed",
+                            extra={"extra_fields": {"error": str(exc)}},
+                        )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -148,8 +151,13 @@ class WaybillEventHub:
             self._subscriber_task.cancel()
             try:
                 await self._subscriber_task
-            except (Exception, asyncio.CancelledError):
-                pass
+            except asyncio.CancelledError:
+                logger.debug("subscriber_task_cancelled_on_stop")
+            except Exception as exc:
+                logger.warning(
+                    "subscriber_task_unexpected_error",
+                    extra={"extra_fields": {"error": str(exc)}},
+                )
             self._subscriber_task = None
 
     def history(

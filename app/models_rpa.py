@@ -59,6 +59,10 @@ class DriverRuntimeState(SQLModel, table=True):
     proxy_key: str | None = Field(default=None, max_length=128, index=True)
     last_error_code: str | None = Field(default=None, max_length=64, index=True)
     last_error_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    auth_lock_owner: str | None = Field(default=None, max_length=128, index=True)
+    auth_lock_acquired_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    auth_lock_ttl_seconds: int | None = Field(default=None)
+    active_execution_id: str | None = Field(default=None, max_length=64, index=True)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
@@ -182,6 +186,85 @@ class ProxyEndpoint(SQLModel, table=True):
     last_failure_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
     cooldown_until: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
     notes: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
+
+
+class DispatchIntent(SQLModel, table=True):
+    __tablename__ = "dispatch_intents"
+    __table_args__ = (
+        UniqueConstraint("intent_id", name="uq_dispatch_intents_intent_id"),
+        Index("idx_dispatch_intents_queue_pending", "status", "created_at"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    intent_id: str = Field(max_length=64, index=True)
+    client_id: int = Field(foreign_key="clients.id", index=True)
+    job_id: str = Field(foreign_key="waybill_jobs.job_id", index=True)
+    attempt_no: int = Field(default=1)
+    operation: str = Field(max_length=32)
+    fencing_token: int = Field(default=1)
+    status: str = Field(default="pending", max_length=20, index=True)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
+
+
+class WorkerRegistry(SQLModel, table=True):
+    __tablename__ = "worker_registry"
+    __table_args__ = (
+        UniqueConstraint("worker_id", name="uq_worker_registry_worker_id"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    worker_id: str = Field(max_length=128, index=True)
+    hostname: str = Field(max_length=256)
+    capabilities_json: str = Field(default="[]", sa_column=Column(Text, nullable=False))
+    capacity: int = Field(default=1)
+    status: str = Field(default="active", max_length=32, index=True)
+    last_heartbeat_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
+
+
+class Execution(SQLModel, table=True):
+    __tablename__ = "executions"
+    __table_args__ = (
+        UniqueConstraint("execution_id", name="uq_executions_execution_id"),
+        Index("idx_executions_orphaned", "status", "lease_expires_at"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    execution_id: str = Field(max_length=64, index=True)
+    intent_id: str = Field(max_length=64, index=True)
+    job_id: str = Field(foreign_key="waybill_jobs.job_id", index=True)
+    attempt_no: int = Field(default=1)
+    operation: str = Field(max_length=32)
+    worker_id: str = Field(max_length=128, index=True)
+    fencing_token: int = Field(default=1)
+    lease_expires_at: datetime = Field(sa_column=Column(DateTime(timezone=False), nullable=False))
+    status: str = Field(default="running", max_length=32, index=True)
+    result_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),

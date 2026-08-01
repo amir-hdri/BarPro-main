@@ -205,6 +205,7 @@ class UTCMSConfig:
         self.CELERY_RETRY_BASE_SECONDS = float(os.getenv("CELERY_RETRY_BASE_SECONDS", "2.0"))
         self.CELERY_RETRY_JITTER_SECONDS = float(os.getenv("CELERY_RETRY_JITTER_SECONDS", "1.5"))
         self.CELERY_WORKER_PREFETCH_MULTIPLIER = int(os.getenv("CELERY_WORKER_PREFETCH_MULTIPLIER", "1"))
+        self.WORKER_STALL_TIMEOUT_SECONDS = int(os.getenv("WORKER_STALL_TIMEOUT_SECONDS", "90"))
 
         self.BROWSER_POOL_ENABLED = _to_bool(os.getenv("BROWSER_POOL_ENABLED", "False"), default=False)
         self.BROWSER_POOL_SIZE = int(os.getenv("BROWSER_POOL_SIZE", "8"))
@@ -243,8 +244,15 @@ class UTCMSConfig:
 
         # Multi-tenant settings
         self.MULTITENANT_ENABLED = _to_bool(os.getenv("MULTITENANT_ENABLED", "False"), default=False)
+        self.DEPRECATE_OLD_EXECUTION_PATH = _to_bool(os.getenv("DEPRECATE_OLD_EXECUTION_PATH", "True"), default=True)
 
         # SECURITY: Validate critical secrets are set
+        if self.ALERT_WEBHOOK_URL and not self.ALERT_WEBHOOK_SECRET:
+            raise ValueError(
+                "ALERT_WEBHOOK_SECRET must be configured if ALERT_WEBHOOK_URL is set "
+                "to ensure integrity of webhooks via HMAC signatures."
+            )
+
         self.JWT_SECRET = os.getenv("JWT_SECRET", "")
         if not self.JWT_SECRET or self.JWT_SECRET in [
             "change-me-jwt-secret-required",

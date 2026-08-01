@@ -1,4 +1,5 @@
 from app.api.routes import (
+    admin_alerts,
     admin_reporting,
     itmb_ws,
     management,
@@ -14,6 +15,7 @@ from app.api.routes import (
 )
 
 __all__ = [
+    "admin_alerts",
     "waybill_map",
     "waybill_entry",
     "management",

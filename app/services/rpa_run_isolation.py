@@ -6,9 +6,12 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlmodel.ext.asyncio.session import AsyncSession
+
 from app.core.logging import monitoring_extra
 from app.models_multitenant import TaskStatus, WaybillJob
 from app.models_rpa import DriverRuntimeState, DriverRuntimeStateValue
+from app.orchestrator.state_machine import JobStateMachine
 from app.services.rpa_runtime_service import rpa_runtime
 
 logger = logging.getLogger(__name__)
@@ -18,6 +21,7 @@ async def prepare_live_run_isolation(
     *,
     client_id: int,
     driver_id: int,
+    session: AsyncSession | None = None,
     job: WaybillJob,
     runtime_state: DriverRuntimeState | None = None,
 ) -> dict[str, Any]:
@@ -54,7 +58,18 @@ async def prepare_live_run_isolation(
         TaskStatus.WAITING_RETRY.value,
         TaskStatus.OTP_BACKOFF.value,
     }:
-        job.status = TaskStatus.PENDING.value
+        JobStateMachine.transition(
+            session,
+            job,
+            TaskStatus.PENDING.value,
+            expected_from={
+                TaskStatus.QUEUED.value,
+                TaskStatus.IN_PROGRESS.value,
+                TaskStatus.WAITING_AUTH.value,
+                TaskStatus.WAITING_RETRY.value,
+                TaskStatus.OTP_BACKOFF.value,
+            },
+        )
 
     if runtime_state is not None:
         runtime_state.next_retry_at = None

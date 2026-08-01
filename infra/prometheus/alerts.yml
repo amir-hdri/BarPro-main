@@ -1,0 +1,65 @@
+groups:
+  - name: barpro-alerts
+    rules:
+      - alert: JobSuccessRateLow
+        expr: (sum(rate(waybill_success_total[1h])) or vector(0)) / (sum(rate(waybill_requests_total[1h])) or vector(1)) * 100 < 80
+        for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "Job success rate is too low"
+          description: "Waybill job success rate is {{ $value }}%, which is below the 80% threshold."
+
+      - alert: WorkerQueueDepthHigh
+        expr: waybill_queue_depth > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Worker queue depth is too high"
+          description: "Queue depth is {{ $value }}, exceeding 100 tasks."
+
+      - alert: ReconciliationBacklogHigh
+        expr: reconciliation_backlog > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Reconciliation backlog is too high"
+          description: "There are {{ $value }} jobs pending reconciliation for more than 10 minutes."
+
+      - alert: WorkerHeartbeatLost
+        expr: worker_liveness == 0
+        for: 90s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Worker heartbeat lost"
+          description: "Worker {{ $labels.worker_id }} has not sent a heartbeat for more than 90 seconds."
+
+      - alert: CaptchaFailureRateHigh
+        expr: (sum(rate(captcha_failure_total[5m])) or vector(0)) / (sum(rate(captcha_attempts_total[5m])) or vector(1)) * 100 > 50
+        for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "Captcha failure rate is too high"
+          description: "Captcha failure rate is {{ $value }}%, exceeding 50% in the last 5 minutes."
+
+      - alert: HealthyProxiesLow
+        expr: healthy_proxy_count < 2
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Healthy proxy count is low"
+          description: "Only {{ $value }} healthy proxies are available (threshold is 2)."
+
+      - alert: DatabaseMaxPoolUtilizationHigh
+        expr: db_pool_utilization > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database connection pool utilization is high"
+          description: "DB connection pool utilization is {{ $value }}%, exceeding 80%."

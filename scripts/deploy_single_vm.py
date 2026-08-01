@@ -4,7 +4,7 @@
 ║         BarPro — ArvanCloud Single-VM Deployment Script             ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Server  : ابرآروان (ArvanCloud) — سرور ایرانی                     ║
-║  Node    : 188.121.123.16 (Primary) + 95.38.233.90 (Secondary egress)║
+║  Node    : <CENTRAL_IP> (Primary) + <SECONDARY_EGRESS_IP> (Secondary) ║
 ║  Stack   : FastAPI · Celery · Next.js · PostgreSQL · Redis · Nginx  ║
 ║  Registry: docker.arvancloud.ir  (بدون نیاز به VPN)               ║
 ╚══════════════════════════════════════════════════════════════════════╝
@@ -37,8 +37,8 @@ from scp import SCPClient
 #  ⚙️  پیکربندی سرور — فقط اینجا ویرایش کنید
 # ═══════════════════════════════════════════════════════════════════
 
-PRIMARY_IP = "188.121.123.16"  # IP اصلی (eth0) — ورودی ترافیک + egress 1
-SECONDARY_IP = "95.38.233.90"  # IP ثانویه (eth1) — egress 2
+PRIMARY_IP = os.environ.get("CENTRAL_IP", "<YOUR_CENTRAL_SERVER_IP>")  # IP اصلی (eth0) — ورودی ترافیک + egress 1
+SECONDARY_IP = os.environ.get("SECONDARY_IP", "<YOUR_SECONDARY_EGRESS_IP>")  # IP ثانویه (eth1) — egress 2
 
 # Gateway پیش‌فرض هر اینترفیس در آروان‌کلود
 PRIMARY_GW = "188.121.120.1"

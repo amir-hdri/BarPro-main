@@ -15,8 +15,10 @@ from app.automation.browser import browser_manager
 from app.automation.proxy_rotator import get_proxy_rotator
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
+from app.core.error_taxonomy import ErrorCategory
 from app.models_multitenant import Driver, DriverStatus, TaskStatus, WaybillJob
 from app.models_rpa import DomainEvent, DriverRuntimeState, DriverRuntimeStateValue, DriverSessionMetadata
+from app.orchestrator.state_machine import JobStateMachine
 from app.rpa.contracts import AuthResult, SessionBundle
 from app.rpa.event_taxonomy import AUTH_FAILED, AUTH_SUCCEEDED
 from app.services.rpa_runtime_service import rpa_runtime
@@ -114,7 +116,7 @@ class RPAAuthService:
                 session_version=runtime_state.session_version + 1,
                 proxy_key=runtime_state.proxy_key,
             )
-            await browser_manager.save_auth_state(context, auth_state_path=auth_state_path)
+            await browser_manager.save_auth_state(context, auth_state_path=auth_state_path, session_version=bundle.session_version)
             await rpa_runtime.store_session(client_id, driver_id, bundle)
 
             metadata = await self._get_or_create_session_metadata(session, client_id, driver_id)
@@ -157,12 +159,17 @@ class RPAAuthService:
                 job = (await session.exec(statement)).first()
                 if job and job.status == TaskStatus.WAITING_AUTH.value:
                     now = datetime.now(UTC).replace(tzinfo=None)
-                    job.status = TaskStatus.QUEUED.value
-                    job.submit_after = now
-                    job.next_retry_at = None
-                    job.last_error = None
-                    job.error_category = None
-                    job.celery_task_id = f"inline-auth-{bundle.session_version}"
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.QUEUED.value,
+                        expected_from={TaskStatus.WAITING_AUTH.value},
+                        submit_after=now,
+                        next_retry_at=None,
+                        last_error=None,
+                        error_category=None,
+                        celery_task_id=f"inline-auth-{bundle.session_version}",
+                    )
 
             await session.commit()
             if resume_job_id:
@@ -295,13 +302,17 @@ class RPAAuthService:
         ).first()
         if job is None:
             return
-        job.status = TaskStatus.WAITING_AUTH.value
-        job.last_error = message
-        job.error_category = "utcms_login_error"
-        job.next_retry_at = retry_at
-        job.submit_after = retry_at
-        job.celery_task_id = None
-        job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+        JobStateMachine.transition(
+            session,
+            job,
+            TaskStatus.WAITING_AUTH.value,
+            last_error=message,
+            error_category=ErrorCategory.AUTH_FAILURE.value,
+            next_retry_at=retry_at,
+            submit_after=retry_at,
+            celery_task_id=None,
+            updated_at=datetime.now(UTC).replace(tzinfo=None),
+        )
         session.add(job)
         await session.commit()
 

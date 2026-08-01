@@ -63,7 +63,7 @@ class WaybillTaskService:
             task = WaybillJob(
                 job_id=f"job_{uuid.uuid4().hex[:16]}",
                 idempotency_key=idempotency_key,
-                status=TaskStatus.QUEUED.value,
+                status=TaskStatus.PENDING.value,
                 payload_json=task_payload,
                 max_retries=max(0, int(retries)),
                 retryable=False,
@@ -86,9 +86,9 @@ class WaybillTaskService:
                     return self._to_public_dict(existing), True
                 raise
             await session.refresh(task)
-            track_task_status(TaskStatus.QUEUED.value)
+            track_task_status(TaskStatus.PENDING.value)
             await self._sync_queue_depth()
-            await self._emit_task_event(task.job_id, TaskStatus.QUEUED.value)
+            await self._emit_task_event(task.job_id, TaskStatus.PENDING.value)
             return self._to_public_dict(task), False
 
     async def set_celery_task_id(self, task_id: str, celery_task_id: str) -> None:

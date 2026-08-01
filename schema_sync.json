@@ -1,0 +1,6 @@
+{
+  "status": "passed",
+  "zod_files_found": [],
+  "pydantic_files_found": [],
+  "schema_match_warnings": []
+}

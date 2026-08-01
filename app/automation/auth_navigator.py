@@ -90,13 +90,19 @@ class AuthNavigator:
                             if ready_state in ("interactive", "complete"):
                                 logger.warning(f"goto reached readyState '{ready_state}' despite timeout: {goto_err}")
                                 return
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug(
+                                "auth_navigator_readystate_check_failed",
+                                extra={"extra_fields": {"error": str(exc)}},
+                            )
                     raise goto_err
                 try:
                     await self.page.wait_for_load_state("domcontentloaded", timeout=10000)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug(
+                        "auth_navigator_domcontentloaded_timeout",
+                        extra={"extra_fields": {"error": str(exc)}},
+                    )
                 return
             except Exception as exc:
                 last_error = exc
@@ -279,8 +285,11 @@ class AuthNavigator:
                             "auth_loading_overlay_force_removed",
                             extra={"extra_fields": {"removed_count": removed_count, "action": "removed_via_js"}},
                         )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug(
+                        "auth_loading_overlay_js_cleanup_failed",
+                        extra={"extra_fields": {"error": str(exc)}},
+                    )
                 removal_attempted = True
 
             await asyncio.sleep(0.08)
@@ -322,8 +331,11 @@ class AuthNavigator:
                 # Give the page a moment to finish loading after redirect
                 try:
                     await self.page.wait_for_load_state("domcontentloaded", timeout=3000)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug(
+                        "auth_navigator_post_login_wait_timeout",
+                        extra={"extra_fields": {"error": str(exc)}},
+                    )
                 # Re-check URL after load
                 current_url = await self.current_url()
                 if current_url and not is_login_url(current_url):

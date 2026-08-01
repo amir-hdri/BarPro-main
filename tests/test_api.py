@@ -157,20 +157,34 @@ def test_system_event_history_endpoint():
 
 
 def test_worker_heartbeats_endpoint():
-    with (
-        patch(
-            "app.core.worker_heartbeat.worker_heartbeat_registry.snapshot",
-            return_value={"task-1": {"status": "running"}},
-        ),
-        patch(
-            "app.core.worker_heartbeat.worker_heartbeat_registry.detect_stalled",
-            return_value={},
-        ),
-    ):
-        response = client.get("/workers/heartbeats")
+    from app.core.database import get_session
+    from app.models_rpa import WorkerRegistry
+    from datetime import datetime, UTC
+    from unittest.mock import MagicMock
+    import json
 
-    assert response.status_code == 200
-    assert "task-1" in response.json()["active"]
+    mock_worker = MagicMock()
+    mock_worker.worker_id = "task-1"
+    mock_worker.hostname = "server-a"
+    mock_worker.status = "active"
+    # Ensure it's not detected as stalled by using a very recent heartbeat
+    mock_worker.last_heartbeat_at = datetime.now(UTC).replace(tzinfo=None)
+    mock_worker.capabilities_json = json.dumps(["waybill"])
+    mock_worker.capacity = 1
+
+    mock_result = MagicMock()
+    mock_result.all.return_value = [mock_worker]
+
+    mock_session = AsyncMock()
+    mock_session.exec = AsyncMock(return_value=mock_result)
+
+    app.dependency_overrides[get_session] = lambda: mock_session
+    try:
+        response = client.get("/workers/heartbeats")
+        assert response.status_code == 200
+        assert "task-1" in response.json()["active"]
+    finally:
+        app.dependency_overrides.pop(get_session, None)
 
 
 @patch("app.main.init_db", new_callable=AsyncMock)

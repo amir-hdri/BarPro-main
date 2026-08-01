@@ -1,0 +1,19 @@
+# Grafana Datasource Provisioning
+# Auto-configures Prometheus as the default datasource on container startup.
+# No manual UI configuration required.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://barpro-prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
+      manageAlerts: true
+      alertmanagerUid: barpro-alertmanager
+    secureJsonData: {}
