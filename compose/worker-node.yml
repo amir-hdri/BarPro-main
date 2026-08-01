@@ -58,7 +58,7 @@ services:
       --loglevel=info
       --concurrency=1
       --prefetch-multiplier=1
-      -Q waybill_tasks,waybill_tasks_${WORKER_ID},rpa_auth_${WORKER_ID},rpa_submit_${WORKER_ID},reconciliation_tasks,reconciliation_tasks_${WORKER_ID},rpa_scheduler,scheduled_tasks
+      -Q waybill_tasks,waybill_tasks_${WORKER_ID},rpa_auth_${WORKER_ID},rpa_submit_${WORKER_ID},reconciliation_tasks,reconciliation_tasks_${WORKER_ID},rpa_scheduler,scheduled_tasks,scheduled_tasks_${WORKER_ID}
       --max-tasks-per-child=50
     environment:
       # Identity

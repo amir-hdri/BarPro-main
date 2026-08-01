@@ -2,6 +2,8 @@
 Unit tests for prometheus metrics export.
 """
 
+import logging
+
 from app.monitoring.metrics import (
     set_queue_depth,
     set_active_worker_count,
@@ -92,3 +94,34 @@ def test_captcha_runtime_snapshot():
     assert snapshot["totals"]["failures"] == 1
 
     reset_captcha_runtime_snapshot()
+
+
+async def test_metrics_endpoint_resolves_all_names():
+    """Regression: the /metrics route body must not raise NameError.
+
+    The SLO gauge block inside ``system.metrics`` uses function-local imports.
+    A missing import there (historically ``async_session_factory``) was
+    swallowed by the surrounding ``except Exception`` handlers, so the gauges
+    silently stayed at zero while the endpoint still returned 200. This test
+    asserts the names actually resolve instead of only exercising the gauge
+    setters directly.
+    """
+    from app.api.routes import system
+
+    captured: list[str] = []
+
+    class _Recorder(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            captured.append(record.getMessage())
+
+    handler = _Recorder(level=logging.ERROR)
+    system.logger.addHandler(handler)
+    try:
+        response = await system.metrics()
+    finally:
+        system.logger.removeHandler(handler)
+
+    assert response.status_code == 200
+    name_errors = [msg for msg in captured if "not defined" in msg or "NameError" in msg]
+    assert not name_errors, f"/metrics raised NameError internally: {name_errors}"
+
