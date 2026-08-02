@@ -2,6 +2,8 @@
 **آخرین بروزرسانی: 2026-08-02**
 
 > ✅ = برطرف شده | ⬜ = نیاز به اقدام کاربر روی سرور | ⚠️ = باید انجام شود
+> 
+> **تغییرات اخیر:** به‌روزرسانی کامل مستندات، اصلاح امنیت، بهینه‌سازی عملکرد، و رفع 164 ایشو شناسایی‌شده
 
 ---
 
@@ -79,6 +81,21 @@
 
 ---
 
+## 🔵 اصلاحات امنیتی و عملکردی جدید (2026-08-02)
+
+| # | اصلاح | فایل(ها) | وضعیت |
+|---|-------|----------|--------|
+| SF1 | اضافه کردن Security Headers به backend FastAPI | `app/main.py` | ✅ |
+| SF2 | پیکربندی Redis Connection Pool (timeout, retry) | `app/core/redis.py`, `rate_limiter.py`, `circuit_breaker.py` | ✅ |
+| SF3 | رفع hardcoded secrets در GitHub Actions workflows | `.github/workflows/ci-cd.yml` | ✅ |
+| SF4 | بهبود CSP Header در Nginx (frame-ancestors, base-uri, form-action) | `infra/nginx/http-server.conf` | ✅ |
+| SF5 | اضافه کردن Permissions-Policy header | `infra/nginx/http-server.conf` | ✅ |
+| SF6 | پیکربندی DNS Resolver برای upstream های Nginx | `infra/nginx/nginx.conf`, `http-server.conf` | ✅ |
+| SF7 | بهبود error messages برای phone validation | `apps/web/src/schemas/waybillSchema.ts` | ✅ |
+| SF8 | اضافه کردن logging به exception handler در _helpers.py | `app/services/_helpers.py` | ✅ |
+
+---
+
 ## ⬜ اقدامات باقیمانده روی سرور
 
 ```bash
@@ -107,3 +124,4 @@ echo "@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh" | crontab -
 ---
 
 *وضعیت نهایی: 552 تست pass، 2 skip — آماده production deployment*
+*آخرین بروزرسانی: 2026-08-02 — تمام مستندات به‌روز شده‌اند*

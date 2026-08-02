@@ -20,6 +20,10 @@ def _build_redis_kwargs() -> dict:
         "encoding": "utf-8",
         "decode_responses": True,
         "max_connections": 20,
+        "socket_connect_timeout": 5,
+        "socket_timeout": 5,
+        "retry_on_timeout": True,
+        "health_check_interval": 30,
     }
     password = (utcms_config.REDIS_PASSWORD or "").strip()
     if password:

@@ -14,9 +14,9 @@ env:
   PYTHON_VERSION: "3.11"
   NODE_VERSION: "20"
   HEADLESS: "true"
-  MASTER_ADMIN_PASSWORD: "test-master-admin-password-for-ci-only"
-  JWT_SECRET: "test-jwt-secret-for-ci-only-which-is-long-enough-32-chars-long"
-  DRIVER_ENCRYPTION_KEY: "6K3_x_43jQ6uJj8O36u1Z91c8u1_o91_2u1Z8u1Z8u0="
+  MASTER_ADMIN_PASSWORD: ${{ secrets.MASTER_ADMIN_PASSWORD }}
+  JWT_SECRET: ${{ secrets.JWT_SECRET }}
+  DRIVER_ENCRYPTION_KEY: ${{ secrets.DRIVER_ENCRYPTION_KEY }}
 
 jobs:
   quality-checks:
@@ -98,14 +98,14 @@ jobs:
         run: |
           playwright install chromium
 
-      - name: Run Unit Tests
-        run: |
-          pytest tests/ -v --tb=short --cov=app --cov-report=term-missing
-        env:
-          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/utcms_rpa_test
-          REDIS_URL: redis://localhost:6379/0
-          JWT_SECRET: ${{ secrets.JWT_SECRET || 'test-jwt-secret-for-ci-only-which-is-long-enough-32-chars-long' }}
-          DRIVER_ENCRYPTION_KEY: ${{ secrets.DRIVER_ENCRYPTION_KEY || '6K3_x_43jQ6uJj8O36u1Z91c8u1_o91_2u1Z8u1Z8u0=' }}
+       - name: Run Unit Tests
+         run: |
+           pytest tests/ -v --tb=short --cov=app --cov-report=term-missing
+         env:
+           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/utcms_rpa_test
+           REDIS_URL: redis://localhost:6379/0
+           JWT_SECRET: ${{ secrets.JWT_SECRET }}
+           DRIVER_ENCRYPTION_KEY: ${{ secrets.DRIVER_ENCRYPTION_KEY }}
 
       - name: Upload Coverage
         uses: actions/upload-artifact@v4

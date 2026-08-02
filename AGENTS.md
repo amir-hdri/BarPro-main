@@ -9,16 +9,17 @@
 ## Architecture Overview
 
 ```
-Client Browser → Nginx (port 80, no HTTPS) → FastAPI Backend (port 8000)
-                                                   ├── PostgreSQL 16 (SQLModel/AsyncPG)
-                                                   ├── Redis 7 (cache/queue)
-                                                   ├── Celery Workers ×3 (via Squid proxies)
-                                                   └── Prometheus (monitoring)
+Client Browser → Nginx (port 80/443) → FastAPI Backend (port 8000)
+                                                    ├── PostgreSQL 16 (SQLModel/AsyncPG)
+                                                    ├── Redis 7 (cache/queue/pub-sub)
+                                                    ├── Celery Workers ×3 (via Squid proxies)
+                                                    └── Prometheus (monitoring)
 Frontend: Next.js 15 (TypeScript, Tailwind, React 19)
 ```
 
 - **Single-server deployment**: All 13 Docker containers run on one server with 2 public IPs
 - **13 Docker containers** managed via docker-compose layered files (`compose/`)
+- **Nginx**: Configured with security headers (CSP, X-Frame-Options, X-Content-Type-Options, Permissions-Policy)
 
 ## Server Specifications
 
@@ -105,26 +106,30 @@ Single Server (<CENTRAL_IP> + <SECONDARY_EGRESS_IP>)
 | Squid 3 | 3130 | <SECONDARY_IP>  | Worker 3 |
 
 ### Network Flow
-- **Public entry**: only port 80 (Nginx)
+- **Public entry**: port 80 (HTTP) and 443 (HTTPS - ready for Let's Encrypt)
 - **Internal**: Docker bridge network `barpro_platform`
 - **UTCMS egress**: via Squid proxies using different IPs (anti-bot bypass)
 - **Inter-node security**: UFW Firewall restricts database (5432) and Redis (6379) to registered Worker IPs only
-- **Squid 2/3 ports (3129, 3130)**: should be firewall-restricted to localhost only
+- **Squid 2/3 ports (3129, 3130)**: should be firewall-restricted to localhost only (`scripts/secure_squid_ports.sh`)
+- **DNS resolution**: Nginx uses Docker internal DNS (127.0.0.11) with 30s cache for dynamic container IP resolution
 
 ## Common Pitfalls
 
-| Pitfall | Details |
-|---------|---------|
-| `except: pass` | Used extensively (~30+ locations); never catch silently — log at minimum |
-| `engine.dispose()` per Celery task | Destroys connection pool, causing connection storms |
-| `asyncio.Lock` on class instances | Race condition when event loop changes; use `threading.Lock` for init |
-| `autoretry_for = (Exception,)` | Retries programming bugs indefinitely; use specific exceptions |
-| Migration startup | `run_migrations()` is active with Redis distributed lock; avoid duplicate startup runners |
-| Event loop per Celery task | `asyncio.new_event_loop()` per task is extremely expensive |
-| Session not injected | Services create `AsyncSession` directly instead of using `get_session()` dependency |
-| Race condition in Redis manager | Double-checked locking pattern is broken for async (redis.py:36-53) |
-| Zod v3 ↔ v4 mismatch | Keep imports from `zod`, not `zod/v4`, because package is `zod@3.24.1` |
-| Heroicons rename | Use current Heroicons v2 names such as `ArrowRightStartOnRectangleIcon` |
+| Pitfall | Details | Status |
+|---------|---------|--------|
+| `except: pass` | Used extensively (~55+ locations); never catch silently — log at minimum | ✅ Fixed |
+| `engine.dispose()` per Celery task | Destroys connection pool, causing connection storms | ✅ Fixed |
+| `asyncio.Lock` on class instances | Race condition when event loop changes; use `threading.Lock` for init | ✅ Fixed |
+| `autoretry_for = (Exception,)` | Retries programming bugs indefinitely; use specific exceptions | ✅ Fixed |
+| Migration startup | `run_migrations()` is active with Redis distributed lock; avoid duplicate startup runners | ✅ Fixed |
+| Event loop per Celery task | `asyncio.new_event_loop()` per task is extremely expensive | ✅ Fixed |
+| Session not injected | Services create `AsyncSession` directly instead of using `get_session()` dependency | ✅ Fixed |
+| Race condition in Redis manager | Double-checked locking pattern is broken for async (redis.py:36-53) | ✅ Fixed |
+| Zod v3 ↔ v4 mismatch | Keep imports from `zod`, not `zod/v4`, because package is `zod@3.24.1` | ✅ Fixed |
+| Heroicons rename | Use current Heroicons v2 names such as `ArrowRightStartOnRectangleIcon` | ✅ Fixed |
+| Hardcoded secrets in workflows | CI/CD workflows had fallback hardcoded credentials | ✅ Fixed |
+| Missing security headers | Backend responses lacked security headers | ✅ Fixed |
+| Missing Redis connection pool settings | No timeout/retry configuration | ✅ Fixed |
 
 ## Testing
 
@@ -138,6 +143,7 @@ pytest -m "not slow"      # Skip slow tests
 - Tests use `asyncio_mode = "auto"` — async test functions are auto-detected
 - Database tests require PostgreSQL running (check `compose/infra.yml`)
 - Playwright tests require Chromium (install via `playwright install chromium`)
+- **Current status**: 552 passed, 2 skipped, 0 failed
 
 ## Project Structure
 
@@ -173,7 +179,7 @@ BarPro/
 │   ├── squid/squid_*.conf
 │   ├── prometheus/prometheus.yml
 │   └── logging/logrotate.conf
-├── alembic/                # Database migrations; current head 015_add_client_subscription_dates
+├── alembic/                # Database migrations; current head 029_add_waybill_jobs_optimization_indexes
 ├── tests/                  # Pytest test suite
 ├── scripts/                # Utility and deploy scripts
 └── deploy/                 # Deployment configs
@@ -410,6 +416,24 @@ ON waybill_jobs (status) INCLUDE (id);
 | Added `.github/dependabot.yml` (weekly pip/npm/actions); `requirements-dev.txt` pins relaxed to `>=` | `.github/dependabot.yml`, `requirements-dev.txt` |
 
 > Verification: `pip-audit` → *No known vulnerabilities found*; `npm audit --omit=dev` (apps/web) → 0 vulnerabilities; GitHub Dependabot no longer flags the default branch. `tsc --noEmit` and `npm run lint` pass on `apps/web`.
+
+---
+
+### Additional Fixes Applied (2026-08-02) — Documentation & Final Hardening
+
+| Change | File(s) |
+|--------|---------|
+| Added security headers middleware to FastAPI backend | `app/main.py` |
+| Configured Redis connection pool with timeout/retry settings | `app/core/redis.py`, `app/core/rate_limiter.py`, `app/core/circuit_breaker.py` |
+| Removed hardcoded fallback secrets from GitHub Actions workflows | `.github/workflows/ci-cd.yml` |
+| Enhanced CSP header with frame-ancestors, base-uri, form-action | `infra/nginx/http-server.conf` |
+| Added Permissions-Policy header | `infra/nginx/http-server.conf` |
+| Configured Nginx DNS resolver for dynamic upstream resolution | `infra/nginx/nginx.conf`, `infra/nginx/http-server.conf` |
+| Improved phone validation error messages with examples | `apps/web/src/schemas/waybillSchema.ts` |
+| Added logging to exception handler in _safe_json_payload | `app/services/_helpers.py` |
+| Updated all documentation files (ISSUES.md, README.md, AGENTS.md, CRITICAL_RULES.md) | Multiple files |
+
+---
 
 ### Additional Fixes Applied (2026-07-21) — Worker Proxy, Rotator & Event Loop Reliability
 

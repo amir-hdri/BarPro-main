@@ -23,7 +23,8 @@ def _safe_json_payload(raw: str | dict | list | None) -> dict | None:
         try:
             payload = json.loads(raw)
             return payload if isinstance(payload, dict) else {"value": payload}
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed to parse JSON payload", exc_info=True, extra={"raw": raw[:100]})
             return {"raw": raw}
     return {"value": raw}
 
