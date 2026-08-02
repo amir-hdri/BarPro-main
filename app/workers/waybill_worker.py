@@ -712,27 +712,27 @@ async def _execute_job(
         # Doing this first prevents a zombie lock when the key is mismatched:
         # if decrypt fails we set NEEDS_REVIEW immediately and return without
         # ever touching Redis, so subsequent jobs for the same driver are free.
-        try:
-            password = decrypt_driver_password(driver.utcms_password_encrypted)
-        except DriverPasswordDecryptError as exc:
-            logger.error(
-                "worker_driver_key_mismatch",
-                extra={"extra_fields": {"driver_id": driver.id, "job_id": job_id}},
-            )
-            JobStateMachine.transition(
-                session,
-                job,
-                TaskStatus.NEEDS_REVIEW.value,
-                last_error=str(exc),
-                error_category="driver_key_mismatch",
-                finished_at=_utcnow_naive(),
-                updated_at=_utcnow_naive()
-            )
-            await session.commit()
-            return {"status": TaskStatus.NEEDS_REVIEW.value, "error_category": "driver_key_mismatch"}
-        # ────────────────────────────────────────────────────────────────────────
+            try:
+                password = decrypt_driver_password(driver.utcms_password_encrypted)
+            except DriverPasswordDecryptError as exc:
+                logger.error(
+                    "worker_driver_key_mismatch",
+                    extra={"extra_fields": {"driver_id": driver.id, "job_id": job_id}},
+                )
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.NEEDS_REVIEW.value,
+                    last_error=str(exc),
+                    error_category="driver_key_mismatch",
+                    finished_at=_utcnow_naive(),
+                    updated_at=_utcnow_naive()
+                )
+                await session.commit()
+                return {"status": TaskStatus.NEEDS_REVIEW.value, "error_category": "driver_key_mismatch"}
+            # ────────────────────────────────────────────────────────────────────────
 
-        auth_lock_key = rpa_runtime.auth_lock_key(job.client_id, driver.id)
+            auth_lock_key = rpa_runtime.auth_lock_key(job.client_id, driver.id)
         auth_lock_acquired = await rpa_runtime.acquire_lock(auth_lock_key, utcms_config.RPA_LOCK_TTL_SECONDS)
         if not auth_lock_acquired:
             retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
