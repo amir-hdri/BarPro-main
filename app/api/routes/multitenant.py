@@ -499,6 +499,8 @@ async def create_waybill_job(
 async def list_waybill_jobs(
     status: str | None = None,
     driver_id: int | None = None,
+    driver_name: str | None = None,
+    plate_number: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     page: int = Query(1, ge=1),
@@ -509,13 +511,17 @@ async def list_waybill_jobs(
     """
     List waybill jobs for the client or admin.
 
-    Supports filtering by status, driver, and date range.
+    Supports filtering by status, driver, plate number, and date range.
     """
+    dt_from = datetime.fromisoformat(date_from) if date_from else None
+    dt_to = datetime.fromisoformat(date_to) if date_to else None
     filters = TaskFilterRequest(
         status=status,
         driver_id=driver_id,
-        date_from=date_from,
-        date_to=date_to,
+        driver_name=driver_name,
+        plate_number=plate_number,
+        date_from=dt_from,
+        date_to=dt_to,
         page=page,
         page_size=page_size,
     )
@@ -741,13 +747,31 @@ async def list_fuel_inquiries(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     driver_id: int | None = Query(None),
+    status: str | None = Query(None),
+    driver_name: str | None = Query(None),
+    plate_number: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
     user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """
-    دریافت لیست تاریخچه استعلام‌های سوخت مربوط به مشتری یا تمام استعلام‌ها برای ادمین.
+    دریافت لیست تاریخچه استعلام‌های سوخت مربوط به مشتری یا تمام استعلام‌ها برای ادمین همراه با فیلترهای پیشرفته.
     """
-    return await fuel_inquiry_service.list_inquiries(user_context, page, page_size, session, driver_id=driver_id)
+    dt_from = datetime.fromisoformat(date_from) if date_from else None
+    dt_to = datetime.fromisoformat(date_to) if date_to else None
+    return await fuel_inquiry_service.list_inquiries(
+        user_context,
+        page,
+        page_size,
+        session,
+        driver_id=driver_id,
+        status=status,
+        driver_name=driver_name,
+        plate_number=plate_number,
+        date_from=dt_from,
+        date_to=dt_to,
+    )
 
 
 @router.get("/fuel-inquiries/{inquiry_id}", response_model=FuelInquiryResponse)

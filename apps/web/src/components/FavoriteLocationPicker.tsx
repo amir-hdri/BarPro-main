@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useState } from "react";
 import { BookmarkIcon, PlusIcon, TrashIcon, CheckIcon } from "@heroicons/react/24/outline";
+import toast from "react-hot-toast";
 import { api } from "@/lib/api";
 
 interface FavoriteLocation {
@@ -43,6 +44,7 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const fetchFavorites = async () => {
     setLoading(true);
@@ -59,7 +61,7 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
 
   const handleSaveCurrent = async () => {
     if (!newTitle.trim() || !currentProvince || !currentCity || !currentAddress) {
-      alert("لطفا ابتدا عنوان، استان، شهر و آدرس را تکمیل کنید.");
+      toast.error("لطفا ابتدا عنوان، استان، شهر و آدرس را تکمیل کنید.");
       return;
     }
     setSaving(true);
@@ -77,20 +79,24 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
     setSaving(false);
 
     if (res.success) {
+      toast.success("مکان منتخب با موفقیت ذخیره شد");
       setShowSaveModal(false);
       setNewTitle("");
       fetchFavorites();
     } else {
-      alert("خطا در ذخیره مکان منتخب");
+      toast.error(res.error || "خطا در ذخیره مکان منتخب");
     }
   };
 
   const handleDelete = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm("آیا از حذف این مکان منتخب مطمئن هستید؟")) return;
     const res = await api.delete(`/api/v1/locations/favorites/${id}`);
+    setDeletingId(null);
     if (res.success) {
+      toast.success("مکان منتخب حذف شد");
       fetchFavorites();
+    } else {
+      toast.error(res.error || "خطا در حذف مکان منتخب");
     }
   };
 
@@ -149,13 +155,39 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
             >
               <span>{fav.title}</span>
               <span className="text-[10px] text-slate-400 font-normal">({fav.city})</span>
-              <button
-                type="button"
-                onClick={(e) => handleDelete(fav.id, e)}
-                className="opacity-0 group-hover:opacity-100 text-rose-400 hover:text-rose-300 transition-opacity p-0.5"
-              >
-                <TrashIcon className="h-3 w-3" />
-              </button>
+
+              {deletingId === fav.id ? (
+                <div className="flex items-center gap-1 mr-1" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={(e) => handleDelete(fav.id, e)}
+                    className="text-[10px] font-bold text-rose-400 hover:underline"
+                  >
+                    تأیید
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeletingId(null);
+                    }}
+                    className="text-[10px] text-slate-400 hover:underline"
+                  >
+                    لغو
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeletingId(fav.id);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 text-rose-400 hover:text-rose-300 transition-opacity p-0.5"
+                >
+                  <TrashIcon className="h-3 w-3" />
+                </button>
+              )}
             </div>
           ))}
         </div>

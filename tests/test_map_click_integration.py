@@ -183,48 +183,6 @@ class TestMapClickIntegration:
         assert result["destination"]["lat"] == 35.7000
 
 
-class TestMapClickUI:
-    """تست‌های رابط کاربری نقشه"""
-
-    def test_ui_file_has_map_tab(self):
-        """تست وجود تب نقشه در UI"""
-        from pathlib import Path
-
-        ui_path = Path("app/ui/index.html")
-        assert ui_path.exists(), "UI file not found"
-
-        with open(ui_path, encoding="utf-8") as f:
-            content = f.read()
-
-        assert "map-tools" in content
-        assert "btn-map-target-origin" in content
-        assert "btn-map-target-destination" in content
-        assert "btn-clear-map-points" in content
-
-    def test_ui_has_click_handler(self):
-        """تست وجود handler کلیک"""
-        from pathlib import Path
-
-        js_path = Path("app/ui/assets/app.js")
-        with open(js_path, encoding="utf-8") as f:
-            content = f.read()
-
-        assert "handleMapClick" in content
-        # assert 'mapClickMode' in content  # Replaced by activeTarget in mapState
-
-    def test_ui_has_display_elements(self):
-        """تست وجود المان‌های نمایش"""
-        from pathlib import Path
-
-        ui_path = Path("app/ui/index.html")
-        with open(ui_path, encoding="utf-8") as f:
-            content = f.read()
-
-        assert "origin-display" in content
-        assert "destination-display" in content
-        assert "origin-card" in content
-        assert "destination-card" in content
-
 
 class TestDataFlow:
     """تست‌های جریان داده"""

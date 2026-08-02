@@ -2,6 +2,8 @@
 
 import { memo, useEffect, useRef, useState } from "react";
 import { MapPinIcon, ArrowPathIcon, GlobeAsiaAustraliaIcon } from "@heroicons/react/24/outline";
+import toast from "react-hot-toast";
+import type * as LType from "leaflet";
 import { api } from "@/lib/api";
 
 interface LocationMapPickerProps {
@@ -27,8 +29,8 @@ export const LocationMapPicker = memo(function LocationMapPicker({
   onClose,
 }: LocationMapPickerProps) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const leafletMap = useRef<any>(null);
-  const markerRef = useRef<any>(null);
+  const leafletMap = useRef<LType.Map | null>(null);
+  const markerRef = useRef<LType.Marker | null>(null);
 
   const [loadingGeocode, setLoadingGeocode] = useState(false);
   const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lng: number }>({
@@ -38,77 +40,56 @@ export const LocationMapPicker = memo(function LocationMapPicker({
   const [resolvedAddress, setResolvedAddress] = useState<string>("");
 
   useEffect(() => {
-    // Dynamic Leaflet CSS and JS injection
-    const cssId = "leaflet-css";
-    if (!document.getElementById(cssId)) {
-      const link = document.createElement("link");
-      link.id = cssId;
-      link.rel = "stylesheet";
-      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-      document.head.appendChild(link);
-    }
-
-    const scriptId = "leaflet-js";
     let isMounted = true;
 
-    const initMap = () => {
-      const L = (window as any).L;
-      if (!L || !mapRef.current || leafletMap.current) return;
+    async function initLeaflet() {
+      if (typeof window === "undefined" || !mapRef.current || leafletMap.current) return;
 
-      const map = L.map(mapRef.current).setView([initialLat, initialLng], 12);
-      leafletMap.current = map;
+      try {
+        const L = (await import("leaflet")).default;
 
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: "© OpenStreetMap",
-      }).addTo(map);
+        if (!isMounted || !mapRef.current || leafletMap.current) return;
 
-      // Custom Pin Icon
-      const pinIcon = L.divIcon({
-        className: "custom-leaflet-marker",
-        html: `<div style="background:#06b6d4;width:24px;height:24px;border-radius:50%;border:3px solid white;box-shadow:0 0 10px rgba(0,0,0,0.5);"></div>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-      });
+        const map = L.map(mapRef.current).setView([initialLat, initialLng], 12);
+        leafletMap.current = map;
 
-      const marker = L.marker([initialLat, initialLng], {
-        draggable: true,
-        icon: pinIcon,
-      }).addTo(map);
-      markerRef.current = marker;
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: "© OpenStreetMap",
+        }).addTo(map);
 
-      // Event on map click
-      map.on("click", (e: any) => {
-        const { lat, lng } = e.latlng;
-        marker.setLatLng([lat, lng]);
-        if (isMounted) handleGeocode(lat, lng);
-      });
+        const pinIcon = L.divIcon({
+          className: "custom-leaflet-marker",
+          html: `<div style="background:#06b6d4;width:24px;height:24px;border-radius:50%;border:3px solid white;box-shadow:0 0 10px rgba(0,0,0,0.5);"></div>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        });
 
-      // Event on marker dragend
-      marker.on("dragend", (e: any) => {
-        const { lat, lng } = e.target.getLatLng();
-        if (isMounted) handleGeocode(lat, lng);
-      });
-    };
+        const marker = L.marker([initialLat, initialLng], {
+          draggable: true,
+          icon: pinIcon,
+        }).addTo(map);
+        markerRef.current = marker;
 
-    if ((window as any).L) {
-      initMap();
-    } else if (!document.getElementById(scriptId)) {
-      const script = document.createElement("script");
-      script.id = scriptId;
-      script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-      script.onload = () => {
-        if (isMounted) initMap();
-      };
-      document.body.appendChild(script);
-    } else {
-      const interval = setInterval(() => {
-        if ((window as any).L) {
-          clearInterval(interval);
-          if (isMounted) initMap();
+        map.on("click", (e: LType.LeafletMouseEvent) => {
+          const { lat, lng } = e.latlng;
+          marker.setLatLng([lat, lng]);
+          if (isMounted) handleGeocode(lat, lng);
+        });
+
+        marker.on("dragend", (e: LType.LeafletEvent) => {
+          const targetMarker = e.target as LType.Marker;
+          const { lat, lng } = targetMarker.getLatLng();
+          if (isMounted) handleGeocode(lat, lng);
+        });
+      } catch (err) {
+        if (process.env.NODE_ENV !== "production") {
+          console.error("Failed to load Leaflet:", err);
         }
-      }, 200);
+      }
     }
+
+    initLeaflet();
 
     return () => {
       isMounted = false;
@@ -160,7 +141,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
           }
         },
         () => {
-          alert("دسترسی به موقعیت جغرافیایی یافت نشد");
+          toast.error("دسترسی به موقعیت جغرافیایی یافت نشد");
         }
       );
     }

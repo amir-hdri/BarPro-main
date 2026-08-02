@@ -111,6 +111,19 @@ class WaybillJobService:
         if filters.driver_id:
             statement = statement.where(WaybillJob.driver_id == filters.driver_id)
             count_stmt = count_stmt.where(WaybillJob.driver_id == filters.driver_id)
+        if filters.driver_name:
+            driver_stmt = select(Driver.id).where(Driver.full_name.ilike(f"%{filters.driver_name.strip()}%"))
+            driver_ids = (await session.exec(driver_stmt)).all()
+            if driver_ids:
+                statement = statement.where(col(WaybillJob.driver_id).in_(driver_ids))
+                count_stmt = count_stmt.where(col(WaybillJob.driver_id).in_(driver_ids))
+            else:
+                statement = statement.where(col(WaybillJob.driver_id) == -1)
+                count_stmt = count_stmt.where(col(WaybillJob.driver_id) == -1)
+        if filters.plate_number:
+            plate_kw = filters.plate_number.strip()
+            statement = statement.where(col(WaybillJob.payload_json).cast(String).ilike(f"%{plate_kw}%"))
+            count_stmt = count_stmt.where(col(WaybillJob.payload_json).cast(String).ilike(f"%{plate_kw}%"))
         if filters.date_from:
             statement = statement.where(WaybillJob.created_at >= filters.date_from)
             count_stmt = count_stmt.where(WaybillJob.created_at >= filters.date_from)

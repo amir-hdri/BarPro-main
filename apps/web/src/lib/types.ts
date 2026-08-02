@@ -252,7 +252,6 @@ export interface WaybillJob {
   finished_at?: string | null;
   payload_json?: Record<string, unknown> | string | null;
   result_json?: Record<string, unknown> | string | null;
-  result?: Record<string, unknown> | null;
   client_name?: string | null;
   client_code?: string | null;
 }
@@ -328,6 +327,7 @@ export interface DriverReport {
     driver_id: number;
     driver_name: string;
     driver_national_code?: string;
+    plate_number?: string;
     status: string;
     source: string;
     last_error?: string;
@@ -341,6 +341,12 @@ export interface DriverReport {
   page: number;
   page_size: number;
   total_pages: number;
+}
+
+export interface ReportFilterOptions {
+  clients: Array<{ id: number; name: string; client_code: string }>;
+  drivers: Array<{ id: number; client_id: number; full_name: string; driver_national_code: string }>;
+  plates: Array<{ id: number; client_id: number; driver_id: number; plate_number: string }>;
 }
 
 export interface FailureAnalysis {
@@ -396,3 +402,113 @@ export interface ClientEditData {
   subscription_start_date?: string;
   subscription_end_date?: string;
 }
+
+export interface UserFilterOptions {
+  drivers: Array<{ id: number; full_name: string; driver_national_code: string }>;
+  plates: Array<{ id: number; driver_id?: number; plate_number: string }>;
+}
+
+export interface UserWaybillItem {
+  job_id: string;
+  driver_id: number;
+  driver_name?: string;
+  driver_national_code?: string;
+  plate_number?: string;
+  status: string;
+  source: string;
+  business_date?: string;
+  last_error?: string;
+  error_category?: string;
+  attempt_count?: number;
+  created_at: string;
+  started_at?: string;
+  finished_at?: string;
+  is_scheduled?: boolean;
+  schedule_id?: number;
+}
+
+export interface UserWaybillHistoryResponse {
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  jobs: UserWaybillItem[];
+}
+
+export interface FuelQuotaData {
+  tables?: Array<{
+    table_index: number;
+    headers: string[];
+    rows: string[][];
+  }>;
+  key_values?: Record<string, string>;
+  summary?: {
+    base_quota?: string;
+    performance_quota?: string;
+    card_number?: string;
+  };
+}
+
+export interface FuelInquiryItem {
+  id: number;
+  client_id: number;
+  driver_id: number;
+  driver_name?: string | null;
+  status: string;
+  error_message?: string | null;
+  quota_data?: FuelQuotaData | null;
+  screenshot_url?: string | null;
+  created_at: string;
+  updated_at: string;
+  year?: number | null;
+  month?: number | null;
+  plate_number?: string | null;
+  client_name?: string | null;
+  client_code?: string | null;
+}
+
+export type FuelInquiry = FuelInquiryItem;
+
+export interface FuelInquiryListResponse {
+  items: FuelInquiryItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface ClientItem {
+  id: number;
+  client_code: string;
+  name: string;
+  email: string;
+  phone: string;
+  status: string;
+  max_drivers: number;
+  max_plates: number;
+  max_concurrent_tasks: number;
+  max_daily_tasks: number;
+  access_level?: string;
+  created_at: string;
+  subscription_start_date?: string;
+  subscription_end_date?: string;
+}
+
+export interface ClientDetail {
+  total_jobs: number;
+  success_jobs: number;
+  failed_jobs: number;
+  success_rate: number;
+  total_drivers: number;
+  active_drivers: number;
+  total_plates: number;
+  failure_reasons: Record<string, number>;
+  driver_breakdown: Array<{
+    driver_name: string;
+    total_jobs: number;
+    success: number;
+    failed: number;
+    success_rate: number;
+  }>;
+}
+

@@ -138,12 +138,36 @@ class RPADistributedRuntime:
             if current is not None and (token is None or current[0] == token):
                 self._memory.pop(key, None)
 
-    async def force_release_lock(self, key: str) -> None:
-        """Administrative recovery only: remove a lock without ownership checks."""
+    async def force_release_lock(self, key: str, token: str | None = None) -> None:
+        """Administrative recovery only: remove a lock without ownership checks.
+
+        When ``token`` is provided the lock is only deleted if its current value
+        matches (compare-and-delete), so a caller that knows the expected owner
+        cannot release a lock held by another execution. With no token the lock
+        is forcibly removed regardless of owner (admin escalation path).
+        """
         tokens = (self._lock_tokens.get() or {}).copy()
         tokens.pop(key, None)
         self._lock_tokens.set(tokens)
-        await self._delete_value(key)
+        redis = await self._get_redis()
+        if redis is not None:
+            if token is not None:
+                script = """
+                if redis.call('get', KEYS[1]) == ARGV[1] then
+                    return redis.call('del', KEYS[1])
+                end
+                return 0
+                """
+                try:
+                    await redis.eval(script, 1, key, token)
+                except Exception:
+                    logger.warning("rpa_lock_force_release_failed", exc_info=True)
+                return
+            await redis.delete(key)
+            return
+        with self._get_lock():
+            if token is None or (self._memory.get(key) is not None and self._memory[key][0] == token):
+                self._memory.pop(key, None)
 
     async def is_lock_held(self, key: str) -> bool:
         """Return True if the lock key currently exists (regardless of owner)."""

@@ -1,36 +1,6 @@
-export interface Driver {
-  id: number;
-  full_name: string;
-  driver_national_code: string;
-  utcms_username: string;
-  status: string;
-}
+import type { Driver, FuelInquiry } from "@/lib/types";
 
-export interface FuelInquiry {
-  id: number;
-  client_id: number;
-  driver_id: number | null;
-  driver_name: string | null;
-  national_code: string;
-  vin: string | null;
-  barname_count: number | null;
-  total_tonnage: number | null;
-  total_distance: number | null;
-  fuel_consumed_liters: number | null;
-  calculated_quota_liters: number | null;
-  year: number;
-  month: number;
-  status: string;
-  retry_count: number;
-  error_message: string | null;
-  result_json: Record<string, unknown> | null;
-  captcha_solved: boolean;
-  solving_time_seconds: number | null;
-  ocr_provider_used: string | null;
-  created_at: string;
-  updated_at: string;
-  completed_at: string | null;
-}
+export type { Driver, FuelInquiry };
 
 export const PERSIAN_MONTHS: Record<number, string> = {
   1: 'فروردین',
@@ -56,7 +26,7 @@ export const toPersianDigitsPreserveZero = (str: string | number): string => {
   return str.toString().replace(/[0-9]/g, (w) => map[w] || w);
 };
 
-export const getTrackingCode = (inquiry: FuelInquiry): string => {
+export const getTrackingCode = (inquiry: { id: number; year?: number | null; month?: number | null }): string => {
   const yy = inquiry.year ? inquiry.year.toString().slice(-2) : '00';
   const mm = inquiry.month ? inquiry.month.toString().padStart(2, '0') : '00';
   const idStr = inquiry.id.toString().padStart(4, '0');

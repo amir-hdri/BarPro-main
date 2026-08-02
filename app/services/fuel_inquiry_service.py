@@ -124,6 +124,11 @@ class FuelInquiryService:
         page_size: int,
         session: AsyncSession,
         driver_id: int | None = None,
+        status: str | None = None,
+        driver_name: str | None = None,
+        plate_number: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
     ) -> FuelInquiryListResponse:
         if isinstance(user_context, Client):
             user_context = {"role": "client", "user": user_context}
@@ -133,13 +138,39 @@ class FuelInquiryService:
             count_stmt = select(func.count(FuelInquiry.id))
         else:
             client = user_context["user"]
-            # Allow clients to see failed inquiries so they know why something didn't work
             statement = select(FuelInquiry).where(FuelInquiry.client_id == client.id)
             count_stmt = select(func.count(FuelInquiry.id)).where(FuelInquiry.client_id == client.id)
 
         if driver_id is not None:
             statement = statement.where(FuelInquiry.driver_id == driver_id)
             count_stmt = count_stmt.where(FuelInquiry.driver_id == driver_id)
+        if status:
+            statement = statement.where(FuelInquiry.status == status)
+            count_stmt = count_stmt.where(FuelInquiry.status == status)
+        if driver_name:
+            d_stmt = select(Driver.id).where(Driver.full_name.ilike(f"%{driver_name.strip()}%"))
+            d_ids = (await session.exec(d_stmt)).all()
+            if d_ids:
+                statement = statement.where(col(FuelInquiry.driver_id).in_(d_ids))
+                count_stmt = count_stmt.where(col(FuelInquiry.driver_id).in_(d_ids))
+            else:
+                statement = statement.where(col(FuelInquiry.driver_id) == -1)
+                count_stmt = count_stmt.where(col(FuelInquiry.driver_id) == -1)
+        if plate_number:
+            p_stmt = select(DriverPlate.driver_id).where(DriverPlate.plate_number.ilike(f"%{plate_number.strip()}%"))
+            p_driver_ids = (await session.exec(p_stmt)).all()
+            if p_driver_ids:
+                statement = statement.where(col(FuelInquiry.driver_id).in_(p_driver_ids))
+                count_stmt = count_stmt.where(col(FuelInquiry.driver_id).in_(p_driver_ids))
+            else:
+                statement = statement.where(col(FuelInquiry.driver_id) == -1)
+                count_stmt = count_stmt.where(col(FuelInquiry.driver_id) == -1)
+        if date_from:
+            statement = statement.where(FuelInquiry.created_at >= date_from)
+            count_stmt = count_stmt.where(FuelInquiry.created_at >= date_from)
+        if date_to:
+            statement = statement.where(FuelInquiry.created_at <= date_to)
+            count_stmt = count_stmt.where(FuelInquiry.created_at <= date_to)
 
         # Get total count
         count_result = await session.exec(count_stmt)

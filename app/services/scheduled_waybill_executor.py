@@ -582,9 +582,18 @@ async def evaluate_and_run_schedules() -> dict[str, Any]:
 
 async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSchedule) -> dict[str, Any]:
     """Evaluate a single schedule and create/execute jobs for due timeslots."""
-    now = _utcnow()
-    today = now.date()
-    current_hhmm = now.strftime("%H:%M")
+    from zoneinfo import ZoneInfo
+
+    utc_now = _utcnow()
+    tz_name = schedule.timezone or "Asia/Tehran"
+    try:
+        local_tz = ZoneInfo(tz_name)
+    except Exception:
+        local_tz = ZoneInfo("Asia/Tehran")
+
+    local_now = datetime.now(local_tz)
+    today = local_now.date()
+    current_hhmm = local_now.strftime("%H:%M")
 
     # Check date range (dates in DB are Persian Solar Hijri)
     def _parse_schedule_date(date_str: str | None) -> date | None:
@@ -623,7 +632,7 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
     if schedule.frequency == ScheduleFrequency.WEEKLY.value:
         allowed = _parse_weekdays_csv(schedule.weekdays_csv)
         if allowed:
-            py_wd = now.weekday()
+            py_wd = local_now.weekday()
             fa_wd = (py_wd + 2) % 7  # Maps Mon=0->2, Sat=5->0, Sun=6->1
             if py_wd not in allowed and fa_wd not in allowed:
                 return {"jobs_created": 0, "jobs_success": 0, "jobs_failed": 0, "skipped": True}

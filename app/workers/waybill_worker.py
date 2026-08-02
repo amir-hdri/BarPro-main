@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from celery import Task
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -1187,7 +1188,14 @@ async def _get_or_create_runtime_state(
     if state is None:
         state = DriverRuntimeState(client_id=client_id, driver_id=driver_id)
         session.add(state)
-        await session.flush()
+        try:
+            await session.flush()
+        except IntegrityError:
+            await session.rollback()
+            result = await session.exec(statement)
+            state = result.first()
+            if state is None:
+                raise
     return state
 
 

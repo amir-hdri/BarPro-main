@@ -437,11 +437,30 @@ class WaybillTaskService:
             priority = utcms_config.CELERY_DEFAULT_PRIORITY
         return max(utcms_config.CELERY_MIN_PRIORITY, min(utcms_config.CELERY_MAX_PRIORITY, priority))
 
+    async def _get_task_status_and_payload(
+        self, task_id: str
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        async with AsyncSession(engine) as session:
+            if task_id.startswith("job_"):
+                statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
+                result = await session.execute(statement)
+                row = result.scalars().first()
+                if not row:
+                    return None, None
+                return self._to_public_dict(row), self._safe_json_load(row.payload_json)
+
+            statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
+            result = await session.execute(statement)
+            row = result.scalars().first()
+            if not row:
+                return None, None
+            return self._to_public_dict(row), self._safe_json_load(row.payload_json)
+
     async def _emit_task_event(self, task_id: str, event_type: str) -> None:
-        status = await self.get_task_status(task_id)
+        status, payload = await self._get_task_status_and_payload(task_id)
         if not status:
             return
-        payload = await self.get_payload(task_id) or {}
+        payload = payload or {}
         await event_hub.publish(
             {
                 "type": event_type,

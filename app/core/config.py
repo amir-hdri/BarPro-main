@@ -150,6 +150,7 @@ class UTCMSConfig:
         self.ITMBOL_VALIDATE_BASEINFO = _to_bool(os.getenv("ITMBOL_VALIDATE_BASEINFO", "False"), default=False)
         self.ITMBOL_READYZ_LIVE_CHECK = _to_bool(os.getenv("ITMBOL_READYZ_LIVE_CHECK", "False"), default=False)
         self.READYZ_BROWSER_TIMEOUT_SECONDS = float(os.getenv("READYZ_BROWSER_TIMEOUT_SECONDS", "8"))
+        self.READYZ_CACHE_TTL_SECONDS = float(os.getenv("READYZ_CACHE_TTL_SECONDS", "30"))
 
         self.WAYBILL_MAX_CONCURRENT = int(os.getenv("WAYBILL_MAX_CONCURRENT", "2"))
         self.WAYBILL_MIN_GAP_SECONDS = float(os.getenv("WAYBILL_MIN_GAP_SECONDS", "8.0"))
@@ -237,7 +238,6 @@ class UTCMSConfig:
         self.ALERT_WEBHOOK_SECRET = os.getenv("ALERT_WEBHOOK_SECRET", "").strip()
         self.WS_EVENT_HISTORY_LIMIT = int(os.getenv("WS_EVENT_HISTORY_LIMIT", "500"))
         self.WORKER_HEARTBEAT_INTERVAL_SECONDS = float(os.getenv("WORKER_HEARTBEAT_INTERVAL_SECONDS", "5"))
-        self.WORKER_STALL_TIMEOUT_SECONDS = float(os.getenv("WORKER_STALL_TIMEOUT_SECONDS", "45"))
         self.CELERY_DEFAULT_PRIORITY = int(os.getenv("CELERY_DEFAULT_PRIORITY", "5"))
         self.CELERY_MIN_PRIORITY = int(os.getenv("CELERY_MIN_PRIORITY", "0"))
         self.CELERY_MAX_PRIORITY = int(os.getenv("CELERY_MAX_PRIORITY", "9"))

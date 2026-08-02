@@ -55,19 +55,35 @@ async def get_driver_report(
 
 
 @router.get(
+    "/filter-options",
+    summary="فهرست گزینه‌های فیلتر برای ادمین",
+    dependencies=[Depends(get_current_admin)],
+)
+async def get_filter_options(
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Get available clients, drivers, and plates for report filtering."""
+    return await admin_reporting_service.get_filter_options()
+
+
+@router.get(
     "/failure-analysis",
     summary="تحلیل شکست‌ها",
     dependencies=[Depends(get_current_admin)],
 )
 async def get_failure_analysis(
     client_id: int | None = Query(None, description="Filter by client"),
+    driver_id: int | None = Query(None, description="Filter by driver"),
+    plate_number: str | None = Query(None, description="Filter by plate number"),
     date_from: str | None = Query(None, description="Start date (YYYY-MM-DD)"),
     date_to: str | None = Query(None, description="End date (YYYY-MM-DD)"),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    """Analyze failures across all tenants or a specific client."""
+    """Analyze failures across all tenants or a specific client/driver/plate."""
     return await admin_reporting_service.failure_analysis(
         client_id=client_id,
+        driver_id=driver_id,
+        plate_number=plate_number,
         date_from=date_from,
         date_to=date_to,
     )

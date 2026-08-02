@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from urllib.parse import urlparse
 
 import httpx
@@ -7,7 +8,6 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import text
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth_multitenant import get_current_admin
@@ -32,6 +32,15 @@ from app.workers.celery_app import celery_app, is_celery_available
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["system"])
+
+_readyz_cache: tuple[float, dict[str, str], dict] | None = None
+_readyz_cache_lock = asyncio.Lock()
+
+
+def _reset_readyz_cache() -> None:
+    """Clear the readyz TTL cache (used by tests between scenarios)."""
+    global _readyz_cache
+    _readyz_cache = None
 
 
 def _database_host() -> str:
@@ -82,8 +91,8 @@ async def healthz():
     return {"status": "ok"}
 
 
-@router.get("/readyz")
-async def readyz():
+async def _compute_readyz_checks() -> tuple[dict[str, str], dict]:
+    """Run all readiness checks (heavy: DB, browser, captcha warmup)."""
     checks = {
         "database": "unknown",
         "browser": "unknown",
@@ -259,6 +268,21 @@ async def readyz():
         checks["circuit_breaker"] = "error"
         details["circuit_breaker"] = {"message": "circuit breaker check failed"}
 
+    return checks, details
+
+
+@router.get("/readyz")
+async def readyz():
+    global _readyz_cache
+    ttl = utcms_config.READYZ_CACHE_TTL_SECONDS
+    async with _readyz_cache_lock:
+        now = time.monotonic()
+        if _readyz_cache is not None and now - _readyz_cache[0] < ttl:
+            checks, details = _readyz_cache[1], _readyz_cache[2]
+        else:
+            checks, details = await _compute_readyz_checks()
+            _readyz_cache = (now, checks, details)
+
     ready = all(value in {"ok", "skipped"} for value in checks.values())
     content = {
         "status": "ready" if ready else "not_ready",
@@ -278,30 +302,32 @@ async def metrics():
     queue_snapshot = await _safe_queue_snapshot()
     if queue_snapshot is None:
         set_queue_depth(0)
-        
+
     # 2. Update SLO gauges
-    from app.models_rpa import WorkerRegistry
+    from datetime import UTC, datetime, timedelta
+
+    from sqlmodel import func, select
+
+    from app.core.database import async_session_factory, engine
     from app.models_multitenant import WaybillJob
-    from sqlmodel import select, func
-    from datetime import datetime, UTC, timedelta
+    from app.models_rpa import WorkerRegistry
     from app.monitoring.metrics import (
         set_active_worker_count,
-        set_worker_liveness,
-        set_reconciliation_backlog,
         set_db_pool_utilization,
         set_healthy_proxy_count,
+        set_reconciliation_backlog,
+        set_worker_liveness,
     )
-    from app.core.database import async_session_factory, engine
-    
+
     # Update active workers and proxy health gauges
     try:
         async with async_session_factory() as session:
             result = await session.exec(select(WorkerRegistry))
             workers = result.all()
-            
+
             now = datetime.now(UTC).replace(tzinfo=None)
             cutoff = now - timedelta(seconds=90)
-            
+
             active_count = 0
             healthy_proxies = 0
             for w in workers:
@@ -311,7 +337,7 @@ async def metrics():
                     active_count += 1
                     if w.status != "draining":
                         healthy_proxies += 1
-                        
+
             set_active_worker_count(active_count)
             set_healthy_proxy_count(healthy_proxies)
     except Exception as exc:
@@ -354,24 +380,26 @@ async def event_history(task_id: str | None = Query(default=None), batch_id: str
 @router.get("/workers/heartbeats", dependencies=[Depends(get_current_admin)])
 @router.get("/api/v1/admin/workers/heartbeats", dependencies=[Depends(get_current_admin)])
 async def worker_heartbeats(session: AsyncSession = Depends(get_session)):
-    from app.models_rpa import WorkerRegistry
-    from sqlmodel import select
-    from datetime import datetime, UTC
     import json
-    
+    from datetime import UTC, datetime
+
+    from sqlmodel import select
+
+    from app.models_rpa import WorkerRegistry
+
     result = await session.exec(select(WorkerRegistry))
     workers = result.all()
-    
+
     snapshot = {}
     stalled = {}
     now = datetime.now(UTC).replace(tzinfo=None)
     timeout = utcms_config.WORKER_STALL_TIMEOUT_SECONDS
-    
+
     for w in workers:
         last_beat = w.last_heartbeat_at
         diff = (now - last_beat).total_seconds()
         is_stalled = diff > timeout and w.status == "active"
-        
+
         info = {
             "worker_id": w.worker_id,
             "hostname": w.hostname,
@@ -383,7 +411,7 @@ async def worker_heartbeats(session: AsyncSession = Depends(get_session)):
         snapshot[w.worker_id] = info
         if is_stalled:
             stalled[w.worker_id] = info
-            
+
     return {
         "active": snapshot,
         "stalled": stalled,
@@ -392,6 +420,7 @@ async def worker_heartbeats(session: AsyncSession = Depends(get_session)):
 
 
 @router.post("/workers/recover-stalled", dependencies=[Depends(get_current_admin)])
+@router.post("/api/v1/admin/workers/recover-stalled", dependencies=[Depends(get_current_admin)])
 async def recover_stalled_workers():
     recovered = await recovery_manager.recover_stalled_tasks()
     return {

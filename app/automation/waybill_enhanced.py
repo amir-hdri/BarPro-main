@@ -3749,13 +3749,13 @@ class EnhancedWaybillManager:
             import time
 
             try:
-                screenshots_dir = "app/ui/assets/screenshots"
+                screenshots_dir = "runtime/screenshots/waybill"
                 os.makedirs(screenshots_dir, exist_ok=True)
                 screenshot_filename = f"{job_id or 'unknown_' + str(int(time.time()))}.png"
                 screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
 
                 await self.page.screenshot(path=screenshot_path, full_page=True)
-                waybill_screenshot = f"/assets/screenshots/{screenshot_filename}"
+                waybill_screenshot = f"/assets/screenshots/waybill/{screenshot_filename}"
                 logger.info(f"Successfully saved waybill screenshot to {screenshot_path}")
             except Exception as e:
                 logger.error(f"Failed to capture waybill screenshot: {e}", exc_info=True)

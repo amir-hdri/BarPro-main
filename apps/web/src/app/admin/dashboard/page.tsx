@@ -90,12 +90,12 @@ export default function AdminDashboardPage() {
       c.name.includes(search) || c.client_code.includes(search) || c.email.includes(search)
     )
     .sort((a, b) => {
-      let aVal: any = a[sortBy];
-      let bVal: any = b[sortBy];
-      if (typeof aVal === "string") {
+      const aVal = a[sortBy as keyof typeof a];
+      const bVal = b[sortBy as keyof typeof b];
+      if (typeof aVal === "string" && typeof bVal === "string") {
         return sortOrder === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
       }
-      return sortOrder === "asc" ? aVal - bVal : bVal - aVal;
+      return sortOrder === "asc" ? Number(aVal || 0) - Number(bVal || 0) : Number(bVal || 0) - Number(aVal || 0);
     });
 
   const totalClients = summary?.total_clients || 0;

@@ -6,6 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { AuthGuard } from "@/components/layout/AuthGuard";
+import { EmptyState, ErrorState, Skeleton } from "@/components/layout/States";
+import { ProgressBar } from "@/components/ProgressBar";
 import { useSession } from "@/hooks/useSession";
 import { useWaybillJob } from "@/hooks/useWaybillJob";
 import { formatDateTime, statusLabel, statusTone, toPersianDigits, trackingCodeFromResult } from "@/lib/format";
@@ -46,6 +48,7 @@ export default function DashboardPage() {
       created_at: new Date(0).toISOString(),
     } as ClientStats,
     isLoading: statsLoading,
+    isError: statsFailed,
     refetch: refetchStats,
   } = useQuery({
     queryKey: ["client-stats"],
@@ -64,6 +67,7 @@ export default function DashboardPage() {
   const {
     data: recentJobs = [] as WaybillJob[],
     isLoading,
+    isError: jobsFailed,
     refetch: refetchJobs,
   } = useQuery({
     queryKey: ["recent-jobs"],
@@ -110,7 +114,8 @@ export default function DashboardPage() {
         icon: UsersIcon,
         hint: "تعداد رانندگان دارای توکن فعال به کل",
         color: "text-cyan-400",
-        bg: "bg-cyan-500/10 border-cyan-500/20"
+        bg: "bg-cyan-500/10 border-cyan-500/20",
+        glow: "bg-cyan-400",
       },
       {
         label: "کل بارنامه‌ها",
@@ -118,7 +123,8 @@ export default function DashboardPage() {
         icon: QueueListIcon,
         hint: "مجموع درخواست‌های ثبت شده در سیستم",
         color: "text-blue-400",
-        bg: "bg-blue-500/10 border-blue-500/20"
+        bg: "bg-blue-500/10 border-blue-500/20",
+        glow: "bg-blue-400",
       },
       {
         label: "ثبت‌های موفق",
@@ -126,7 +132,8 @@ export default function DashboardPage() {
         icon: CheckCircleIcon,
         hint: "بارنامه‌های با موفقیت صادر شده",
         color: "text-emerald-400",
-        bg: "bg-emerald-500/10 border-emerald-500/20"
+        bg: "bg-emerald-500/10 border-emerald-500/20",
+        glow: "bg-emerald-400",
       },
       {
         label: "ناموفق / نیازمند بازبینی",
@@ -134,7 +141,8 @@ export default function DashboardPage() {
         icon: XCircleIcon,
         hint: "درخواست‌های ناموفق یا متوقف شده",
         color: "text-amber-400",
-        bg: "bg-amber-500/10 border-amber-500/20"
+        bg: "bg-amber-500/10 border-amber-500/20",
+        glow: "bg-amber-400",
       },
     ],
     [stats],
@@ -162,26 +170,29 @@ export default function DashboardPage() {
                 سیستم جامع مانیتورینگ ناوگان، استعلام خودکار سهمیه سوخت و ثبت آنلاین بارنامه‌ها با بالاترین سرعت و پایداری.
               </p>
               <div className="mt-8 md:mt-10 flex flex-wrap gap-4 animate-in fade-in slide-in-from-bottom-10">
-                <Link
-                  href="/new"
-                  className="group relative flex-1 sm:flex-none inline-flex items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 border border-cyan-400/30 px-6 lg:px-8 py-3.5 lg:py-4 text-sm font-bold text-white transition-all hover:scale-105 active:scale-95 shadow-[0_15px_30px_-10px_rgba(6,182,212,0.4)] hover:shadow-[0_20px_40px_-10px_rgba(6,182,212,0.6)]"
-                >
-                  <span className="absolute inset-0 bg-gradient-to-r from-cyan-400 to-blue-400 opacity-0 transition-opacity duration-300 group-hover:opacity-20"></span>
-                  <span className="relative z-10 flex items-center gap-2">ثبت بارنامه جدید</span>
-                </Link>
-                <Link
-                  href="/fuel"
-                  className="inline-flex flex-1 sm:flex-none items-center justify-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 backdrop-blur-sm px-6 lg:px-8 py-3.5 lg:py-4 text-sm font-bold text-amber-300 transition-all hover:bg-amber-500/20 hover:border-amber-500/50 hover:shadow-lg active:scale-95"
-                >
-                  <FireIcon className="h-4 w-4" />
-                  استعلام سوخت
-                </Link>
-                <Link
-                  href="/drivers"
-                  className="inline-flex flex-1 sm:flex-none items-center justify-center rounded-2xl border border-white/20 bg-slate-900/60 backdrop-blur-sm px-6 lg:px-8 py-3.5 lg:py-4 text-sm font-bold text-slate-100 transition-all hover:bg-slate-800 hover:border-white/30 hover:shadow-lg active:scale-95"
-                >
-                  مدیریت ناوگان
-                </Link>
+                 <Link
+                   href="/new"
+                   className="group relative flex-1 sm:flex-none inline-flex items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 border border-cyan-400/30 px-6 lg:px-8 py-3.5 lg:py-4 text-sm font-bold text-white transition-all hover:scale-105 active:scale-95 shadow-[0_15px_30px_-10px_rgba(6,182,212,0.4)] hover:shadow-[0_20px_40px_-10px_rgba(6,182,212,0.6)] touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                   aria-label="ثبت بارنامه جدید"
+                 >
+                   <span className="absolute inset-0 bg-gradient-to-r from-cyan-400 to-blue-400 opacity-0 transition-opacity duration-300 group-hover:opacity-20"></span>
+                   <span className="relative z-10 flex items-center gap-2">ثبت بارنامه جدید</span>
+                 </Link>
+                 <Link
+                   href="/fuel"
+                   className="inline-flex flex-1 sm:flex-none items-center justify-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 backdrop-blur-sm px-6 lg:px-8 py-3.5 lg:py-4 text-sm font-bold text-amber-300 transition-all hover:bg-amber-500/20 hover:border-amber-500/50 hover:shadow-lg active:scale-95 touch-target focus:outline-none focus:ring-2 focus:ring-amber-500"
+                   aria-label="استعلام سوخت"
+                 >
+                   <FireIcon className="h-5 w-5" />
+                   استعلام سوخت
+                 </Link>
+                 <Link
+                   href="/drivers"
+                   className="inline-flex flex-1 sm:flex-none items-center justify-center rounded-2xl border border-white/20 bg-slate-900/60 backdrop-blur-sm px-6 lg:px-8 py-3.5 lg:py-4 text-sm font-bold text-slate-100 transition-all hover:bg-slate-800 hover:border-white/30 hover:shadow-lg active:scale-95 touch-target focus:outline-none focus:ring-2 focus:ring-white"
+                   aria-label="مدیریت ناوگان"
+                 >
+                   مدیریت ناوگان
+                 </Link>
               </div>
             </div>
           </div>
@@ -190,17 +201,24 @@ export default function DashboardPage() {
             {statsLoading ? (
               <>
                 {[1, 2, 3, 4].map((item) => (
-                  <div key={item} className="h-32 skeleton rounded-[2rem]" />
+                  <Skeleton key={item} className="h-32 rounded-[2rem]" />
                 ))}
               </>
+            ) : statsFailed ? (
+              <ErrorState
+                className="sm:col-span-2 xl:col-span-1"
+                message="آمار داشبورد دریافت نشد. اتصال شبکه یا وضعیت سرویس را بررسی کنید."
+                onRetry={() => void refetchStats()}
+              />
             ) : (
-              cards.map((card, idx) => (
+              cards.map((card) => (
                 <article
                   key={card.label}
-                  className="stat-card group relative overflow-hidden"
-                  style={{ animationDelay: `${idx * 100}ms` }}
+                  className="stat-card group relative overflow-hidden animate-in fade-in-up"
                 >
-                  <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-0 blur-2xl transition-opacity duration-500 group-hover:opacity-100" style={{ backgroundColor: 'currentColor', color: card.color.replace('text-', 'bg-') }}></div>
+                  <div
+                    className={`absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-0 blur-2xl transition-opacity duration-500 group-hover:opacity-100 ${card.glow}`}
+                  ></div>
                   <div className="relative z-10 flex items-start justify-between">
                     <div>
                       <p className="text-sm font-bold text-slate-400">{card.label}</p>
@@ -233,39 +251,49 @@ export default function DashboardPage() {
                   وضعیت لحظه‌ای ۵ درخواست اخیر ثبت شده در سامانه
                 </p>
               </div>
-              <Link
-                href="/history"
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-3.5 text-xs font-bold text-slate-400 transition hover:bg-slate-900 hover:text-white border border-white/5"
-              >
-                مشاهده آرشیو کامل
-              </Link>
+               <Link
+                 href="/history"
+                 className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-3.5 text-xs font-bold text-slate-400 transition hover:bg-slate-900 hover:text-white border border-white/5 touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                 aria-label="مشاهده آرشیو کامل"
+               >
+                 مشاهده آرشیو کامل
+               </Link>
             </div>
 
             {isLoading ? (
               <div className="space-y-4">
                 {[1, 2, 3].map((item) => (
-                  <div
+                  <Skeleton
                     key={item}
-                    className="h-28 skeleton"
+                    className="h-28"
                   />
                 ))}
               </div>
+            ) : jobsFailed ? (
+              <ErrorState
+                message="آخرین تراکنش‌ها دریافت نشدند. برای دریافت دوباره تلاش کنید."
+                onRetry={() => void refetchJobs()}
+              />
             ) : recentJobs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-[2rem] border border-dashed border-white/5 bg-slate-950/30 py-20">
-                <div className="rounded-full bg-slate-900 p-5 text-slate-500 shadow-sm border border-white/5">
-                  <ClockIcon className="h-10 w-10" />
-                </div>
-                <p className="mt-4 text-sm font-bold text-slate-500">
-                  هنوز هیچ فعالیتی ثبت نشده است.
-                </p>
-              </div>
+              <EmptyState
+                icon={<ClockIcon className="h-7 w-7" />}
+                title="هنوز هیچ فعالیتی ثبت نشده است"
+                description="با ثبت اولین بارنامه، وضعیت عملیات در این بخش نمایش داده می‌شود."
+                action={
+                  <Link
+                    href="/new"
+                    className="inline-flex items-center rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-2 text-xs font-bold text-cyan-300 transition-colors hover:bg-cyan-500/20"
+                  >
+                    ثبت اولین بارنامه
+                  </Link>
+                }
+              />
             ) : (
               <div className="space-y-4">
-                {recentJobs.map((job, idx) => (
+                {recentJobs.map((job) => (
                   <div
                     key={job.job_id}
                     className="group relative flex flex-wrap items-center justify-between gap-4 rounded-[1.5rem] border border-white/5 bg-slate-900/40 p-5 transition-all duration-300 hover:bg-slate-900/60 hover:shadow-xl hover:border-cyan-500/30 animate-in fade-in-up"
-                    style={{ animationDelay: `${idx * 50}ms` }}
                   >
                     <div className="flex items-center gap-5">
                       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 to-slate-950 text-slate-500 shadow-sm transition-transform duration-300 group-hover:scale-110 group-hover:text-cyan-400 border border-white/5">
@@ -291,16 +319,17 @@ export default function DashboardPage() {
                         <p className="text-[10px] font-black uppercase text-slate-500">منبع</p>
                         <p className="mt-0.5 text-xs font-bold text-slate-300">{statusLabel(job.source)}</p>
                       </div>
-                      {(job.status === 'failed' || job.status === 'needs_review') && (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); void handleRetry(job.job_id).catch(e => console.error("Failed to retry job:", e)); }}
-                          disabled={retryingJobId === job.job_id}
-                          className="rounded-xl bg-slate-950 border border-white/10 px-5 py-3.5 text-xs font-bold text-white shadow-md transition hover:bg-slate-900 disabled:opacity-50 active:scale-95"
-                        >
-                          {retryingJobId === job.job_id ? 'در حال ارسال...' : 'تلاش مجدد'}
-                        </button>
-                      )}
+                       {(job.status === 'failed' || job.status === 'needs_review') && (
+                         <button
+                           type="button"
+                           onClick={(e) => { e.stopPropagation(); void handleRetry(job.job_id).catch(e => console.error("Failed to retry job:", e)); }}
+                           disabled={retryingJobId === job.job_id}
+                           className="rounded-xl bg-slate-950 border border-white/10 px-5 py-3.5 text-xs font-bold text-white shadow-md transition hover:bg-slate-900 disabled:opacity-50 active:scale-95 touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                           aria-label="تلاش مجدد"
+                         >
+                           {retryingJobId === job.job_id ? 'در حال ارسال...' : 'تلاش مجدد'}
+                         </button>
+                       )}
                       <span
                         className={[
                           "inline-flex items-center rounded-xl px-4 py-2.5 text-xs font-black shadow-sm border",
@@ -311,7 +340,7 @@ export default function DashboardPage() {
                       </span>
                     </div>
                     {(() => {
-                      const tc = trackingCodeFromResult(job.result);
+                      const tc = trackingCodeFromResult(job.result_json);
                       return tc ? (
                         <p className="mt-2 text-[11px] font-bold text-emerald-400">
                           کد رهگیری UTCMS: {tc}
@@ -334,11 +363,10 @@ export default function DashboardPage() {
                   { label: "کل درخواست‌ها", value: toPersianDigits(stats.today_jobs), icon: Zap, color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
                   { label: "ثبت‌های موفق", value: toPersianDigits(stats.today_success), icon: ShieldCheck, color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
                   { label: "تراکنش‌های ناموفق", value: toPersianDigits(stats.today_failed), icon: XCircle, color: "text-rose-400", bg: "bg-rose-500/10 border-rose-500/20" },
-                ].map((item, idx) => (
+                ].map((item) => (
                   <div
                     key={item.label}
                     className="group flex items-center justify-between rounded-[1.25rem] border border-white/5 bg-slate-900/40 px-5 py-4 transition-all hover:bg-slate-900/60 hover:shadow-md animate-in fade-in-up"
-                    style={{ animationDelay: `${idx * 100}ms` }}
                   >
                     <div className="flex items-center gap-4">
                       <div className={`p-2.5 rounded-xl border ${item.bg} ${item.color} group-hover:scale-110 transition-transform`}>
@@ -360,12 +388,13 @@ export default function DashboardPage() {
                   <p className="text-[10px] font-bold text-cyan-400 bg-cyan-400/10 px-2 py-1 rounded-md">{formatDateTime(stats.created_at)}</p>
                 </div>
                 <div className="relative z-10 mt-6 flex items-center gap-5">
-                  <div className="h-2.5 flex-1 rounded-full bg-slate-800 overflow-hidden border border-slate-700">
-                    <div 
-                      className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.5)] transition-all duration-1000 ease-out" 
-                      style={{ width: `${stats.success_rate}%` }}
-                    ></div>
-                  </div>
+                  <ProgressBar
+                    value={stats.success_rate}
+                    tone="emerald"
+                    size="md"
+                    label="نرخ موفقیت عملیات"
+                    className="flex-1"
+                  />
                   <span className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-emerald-400">
                     {toPersianDigits(Math.round(stats.success_rate))}%
                   </span>

@@ -2,76 +2,164 @@
 
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { api } from "@/lib/api";
-import { DriverReport, FailureAnalysis } from "@/lib/types";
+import { DriverReport, FailureAnalysis, ReportFilterOptions } from "@/lib/types";
 import { errorCategoryLabel } from "@/lib/format";
-import { Filter, Loader2, Clock, CheckCircle2, XCircle, BarChart3, Download } from "lucide-react";
+import {
+  Filter,
+  Loader2,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  BarChart3,
+  Download,
+  User,
+  Truck,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import toast from "react-hot-toast";
-
+import { ProgressBar } from "@/components/ProgressBar";
 
 export default function AdminReportsPage() {
   const [activeTab, setActiveTab] = useState<"driver" | "failure">("driver");
 
   const [driverReport, setDriverReport] = useState<DriverReport | null>(null);
   const [driverLoading, setDriverLoading] = useState(false);
+
+  // Filter States
+  const [clientFilter, setClientFilter] = useState("");
+  const [driverFilter, setDriverFilter] = useState("");
+  const [plateFilter, setPlateFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [driverFilter] = useState("");
+
+  // Dropdown options loaded from backend
+  const [filterOptions, setFilterOptions] = useState<ReportFilterOptions | null>(null);
 
   const [failureAnalysis, setFailureAnalysis] = useState<FailureAnalysis | null>(null);
   const [failureLoading, setFailureLoading] = useState(false);
   const [failureError, setFailureError] = useState<string | null>(null);
-
   const [driverError, setDriverError] = useState<string | null>(null);
+
+  // ── Load filter options for Client, Driver, Plate dropdowns ─────────
+  const loadFilterOptions = useCallback(async () => {
+    try {
+      const res = await api.get<ReportFilterOptions>("/api/v1/admin/reports/filter-options");
+      if (res.data) {
+        setFilterOptions(res.data);
+      }
+    } catch {
+      // Non-critical, user can still type or filter manually
+    }
+  }, []);
 
   const loadDriverReport = useCallback(async () => {
     setDriverLoading(true);
     setDriverError(null);
     const params: Record<string, string> = { page: "1", page_size: "50" };
+    if (clientFilter) params.client_id = clientFilter;
+    if (driverFilter) params.driver_id = driverFilter;
+    if (plateFilter) params.plate_number = plateFilter;
     if (dateFrom) params.date_from = dateFrom;
     if (dateTo) params.date_to = dateTo;
     if (statusFilter) params.status = statusFilter;
-    if (driverFilter) params.driver_id = driverFilter;
 
     try {
       const res = await api.get<DriverReport>("/api/v1/admin/reports/drivers/report", params);
       if (res.data) setDriverReport(res.data);
-      else setDriverError(res.error || 'خطا در بارگذاری گزارش');
+      else setDriverError(res.error || "خطا در بارگذاری گزارش");
     } catch {
-      setDriverError('خطا در ارتباط با سرور');
+      setDriverError("خطا در ارتباط با سرور");
     }
     setDriverLoading(false);
-  }, [dateFrom, dateTo, statusFilter, driverFilter]);
+  }, [clientFilter, driverFilter, plateFilter, dateFrom, dateTo, statusFilter]);
 
   const loadFailureAnalysis = useCallback(async () => {
     setFailureLoading(true);
     setFailureError(null);
     const params: Record<string, string> = {};
+    if (clientFilter) params.client_id = clientFilter;
+    if (driverFilter) params.driver_id = driverFilter;
+    if (plateFilter) params.plate_number = plateFilter;
     if (dateFrom) params.date_from = dateFrom;
     if (dateTo) params.date_to = dateTo;
 
     try {
       const res = await api.get<FailureAnalysis>("/api/v1/admin/reports/failure-analysis", params);
       if (res.data) setFailureAnalysis(res.data);
-      else setFailureError(res.error || 'خطا در بارگذاری تحلیل');
+      else setFailureError(res.error || "خطا در بارگذاری تحلیل");
     } catch {
-      setFailureError('خطا در ارتباط با سرور');
+      setFailureError("خطا در ارتباط با سرور");
     }
     setFailureLoading(false);
-  }, [dateFrom, dateTo]);
+  }, [clientFilter, driverFilter, plateFilter, dateFrom, dateTo]);
+
+  useEffect(() => {
+    loadFilterOptions();
+  }, [loadFilterOptions]);
 
   useEffect(() => {
     if (activeTab === "driver") loadDriverReport();
     else loadFailureAnalysis();
   }, [activeTab, loadDriverReport, loadFailureAnalysis]);
 
+  const clearFilters = useCallback(() => {
+    setClientFilter("");
+    setDriverFilter("");
+    setPlateFilter("");
+    setStatusFilter("");
+    setDateFrom("");
+    setDateTo("");
+  }, []);
+
+  // ── Active Entity Info for "Separate Report Card" ──────────────────
+  const activeEntityInfo = useMemo(() => {
+    const parts: string[] = [];
+    let mainType = "client";
+
+    if (clientFilter) {
+      const c = filterOptions?.clients.find((x) => String(x.id) === clientFilter);
+      parts.push(`مشتری: ${c ? `${c.name} (${c.client_code})` : `#${clientFilter}`}`);
+      mainType = "client";
+    }
+    if (driverFilter) {
+      const d = filterOptions?.drivers.find((x) => String(x.id) === driverFilter);
+      parts.push(`راننده: ${d ? `${d.full_name} (${d.driver_national_code})` : `#${driverFilter}`}`);
+      if (!clientFilter) mainType = "driver";
+    }
+    if (plateFilter) {
+      parts.push(`پلاک: ${plateFilter}`);
+      if (!clientFilter && !driverFilter) mainType = "plate";
+    }
+
+    if (parts.length === 0) return null;
+    return {
+      type: mainType,
+      typeName: parts.length > 1 ? "ترکیبی" : mainType === "client" ? "مشتری / کاربر" : mainType === "driver" ? "راننده" : "پلاک خودرو",
+      name: parts.join(" — "),
+    };
+  }, [clientFilter, driverFilter, plateFilter, filterOptions]);
+
+  const entityStats = useMemo(() => {
+    if (!driverReport || !driverReport.jobs) return { total: 0, success: 0, failed: 0, inProgress: 0, rate: 0 };
+    const total = driverReport.total;
+    const success = driverReport.jobs.filter((j) => j.status === "success").length;
+    const failed = driverReport.jobs.filter((j) => ["failed", "dead_letter", "needs_review"].includes(j.status)).length;
+    const inProgress = driverReport.jobs.filter((j) => ["in_progress", "pending", "queued"].includes(j.status)).length;
+    const rate = total > 0 ? Math.round((success / total) * 100) : 0;
+    return { total, success, failed, inProgress, rate };
+  }, [driverReport]);
+
   // ── CSV Download logic ──────────────────────────────────────────────
-  const downloadCSV = useCallback((filename: string, headers: string[], rows: any[][]) => {
-    const csvContent = "\uFEFF" + [
-      headers.join(","),
-      ...rows.map(row => row.map(val => `"${String(val ?? "").replace(/"/g, '""')}"`).join(","))
-    ].join("\n");
-    
+  const downloadCSV = useCallback((filename: string, headers: string[], rows: (string | number | boolean | null | undefined)[][]) => {
+    const csvContent =
+      "\uFEFF" +
+      [
+        headers.join(","),
+        ...rows.map((row) => row.map((val) => `"${String(val ?? "").replace(/"/g, '""')}"`).join(",")),
+      ].join("\n");
+
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -95,28 +183,31 @@ export default function AdminReportsPage() {
         "مشتری",
         "راننده",
         "کد ملی راننده",
+        "پلاک",
         "وضعیت",
         "تعداد تلاش",
         "مدت زمان (ثانیه)",
         "منبع",
         "آخرین خطا",
-        "تاریخ ایجاد"
+        "تاریخ ایجاد",
       ];
-      const rows = driverReport.jobs.map(j => {
-        const duration = j.finished_at && j.created_at
-          ? Math.round((new Date(j.finished_at).getTime() - new Date(j.created_at).getTime()) / 1000)
-          : "";
+      const rows = driverReport.jobs.map((j) => {
+        const duration =
+          j.finished_at && j.created_at
+            ? Math.round((new Date(j.finished_at).getTime() - new Date(j.created_at).getTime()) / 1000)
+            : "";
         return [
           j.job_id,
           j.client_name || "",
           j.driver_name || "",
           j.driver_national_code || "",
+          j.plate_number || "",
           j.status,
           j.attempt_count || 0,
           duration,
           j.source,
           j.last_error || "",
-          j.created_at
+          j.created_at,
         ];
       });
       downloadCSV("driver_report.csv", headers, rows);
@@ -129,7 +220,7 @@ export default function AdminReportsPage() {
       const rows = Object.entries(failureAnalysis.by_category).map(([cat, count]) => [
         errorCategoryLabel(cat),
         count,
-        getRetrySuggestion(cat)
+        getRetrySuggestion(cat),
       ]);
       downloadCSV("failure_analysis.csv", headers, rows);
     }
@@ -139,7 +230,7 @@ export default function AdminReportsPage() {
   const lineChartData = useMemo(() => {
     if (!driverReport || !driverReport.jobs) return [];
     const groups: Record<string, { success: number; failed: number; total: number }> = {};
-    driverReport.jobs.forEach(j => {
+    driverReport.jobs.forEach((j) => {
       const date = j.created_at.slice(0, 10);
       if (!groups[date]) {
         groups[date] = { success: 0, failed: 0, total: 0 };
@@ -158,11 +249,18 @@ export default function AdminReportsPage() {
       .slice(-7);
   }, [driverReport]);
 
-
   return (
     <div className="space-y-6 animate-fade-in">
-      <h2 className="text-xl font-bold text-slate-100">گزارش عملکرد</h2>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-slate-100">گزارش عملکرد تفکیکی و جامع</h2>
+          <p className="text-xs text-slate-400 mt-1">
+            مشاهده گزارش و آمار عملکرد سامانه به تفکیک کاربر (مشتری)، راننده و پلاک خودرو
+          </p>
+        </div>
+      </div>
 
+      {/* Summary metric cards */}
       {((activeTab === "driver" && driverReport) || (activeTab === "failure" && failureAnalysis)) && (
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
           <SummaryCard
@@ -175,19 +273,23 @@ export default function AdminReportsPage() {
             <>
               <SummaryCard
                 title="موفق"
-                value={driverReport.jobs.filter(j => j.status === "success").length.toLocaleString("fa-IR")}
+                value={driverReport.jobs.filter((j) => j.status === "success").length.toLocaleString("fa-IR")}
                 icon={CheckCircle2}
                 color="emerald"
               />
               <SummaryCard
                 title="ناموفق"
-                value={driverReport.jobs.filter(j => ["failed", "dead_letter", "needs_review"].includes(j.status)).length.toLocaleString("fa-IR")}
+                value={driverReport.jobs
+                  .filter((j) => ["failed", "dead_letter", "needs_review"].includes(j.status))
+                  .length.toLocaleString("fa-IR")}
                 icon={XCircle}
                 color="red"
               />
               <SummaryCard
                 title="در حال پردازش"
-                value={driverReport.jobs.filter(j => ["in_progress", "pending", "queued"].includes(j.status)).length.toLocaleString("fa-IR")}
+                value={driverReport.jobs
+                  .filter((j) => ["in_progress", "pending", "queued"].includes(j.status))
+                  .length.toLocaleString("fa-IR")}
                 icon={Clock}
                 color="amber"
               />
@@ -208,7 +310,13 @@ export default function AdminReportsPage() {
               />
               <SummaryCard
                 title="میانگین هر دسته"
-                value={failureAnalysis.total_failed > 0 ? Math.round(failureAnalysis.total_failed / Math.max(1, Object.keys(failureAnalysis.by_category).length)).toLocaleString("fa-IR") : "0"}
+                value={
+                  failureAnalysis.total_failed > 0
+                    ? Math.round(
+                        failureAnalysis.total_failed / Math.max(1, Object.keys(failureAnalysis.by_category).length)
+                      ).toLocaleString("fa-IR")
+                    : "0"
+                }
                 icon={BarChart3}
                 color="amber"
               />
@@ -217,13 +325,68 @@ export default function AdminReportsPage() {
         </div>
       )}
 
-      {activeTab === "driver" && lineChartData.length > 0 && (
-        <SVGLineChart data={lineChartData} />
+      {/* Dedicated Entity Report Banner */}
+      {activeEntityInfo && (
+        <div className="rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-slate-900 via-cyan-950/30 to-slate-900 p-5 space-y-4 shadow-lg">
+          <div className="flex items-center justify-between border-b border-white/10 pb-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                {activeEntityInfo.type === "client" ? (
+                  <User className="h-5 w-5" />
+                ) : activeEntityInfo.type === "driver" ? (
+                  <User className="h-5 w-5 text-amber-400" />
+                ) : (
+                  <Truck className="h-5 w-5 text-emerald-400" />
+                )}
+              </span>
+              <div>
+                <span className="text-xs font-semibold text-cyan-400">گزارش تفکیکی مجزا ({activeEntityInfo.typeName})</span>
+                <h3 className="text-base font-bold text-slate-100">{activeEntityInfo.name}</h3>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setClientFilter("");
+                setDriverFilter("");
+                setPlateFilter("");
+              }}
+              className="text-xs text-slate-300 hover:text-rose-400 flex items-center gap-1.5 bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg border border-white/10 transition"
+            >
+              <X className="h-3.5 w-3.5 text-rose-400" />
+              حذف این فیلتر
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="rounded-xl border border-white/10 bg-slate-900/60 p-3">
+              <div className="text-[11px] font-medium text-slate-400">کل بارنامه‌های این موجودیت</div>
+              <div className="text-lg font-bold text-slate-100 mt-1">{entityStats.total.toLocaleString("fa-IR")}</div>
+            </div>
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-950/20 p-3">
+              <div className="text-[11px] font-medium text-emerald-400">موفق (نرخ موفقیت)</div>
+              <div className="text-lg font-bold text-emerald-300 mt-1">
+                {entityStats.success.toLocaleString("fa-IR")} ({entityStats.rate}٪)
+              </div>
+            </div>
+            <div className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-3">
+              <div className="text-[11px] font-medium text-rose-400">ناموفق</div>
+              <div className="text-lg font-bold text-rose-300 mt-1">{entityStats.failed.toLocaleString("fa-IR")}</div>
+            </div>
+            <div className="rounded-xl border border-amber-500/20 bg-amber-950/20 p-3">
+              <div className="text-[11px] font-medium text-amber-400">در حال پردازش / صف</div>
+              <div className="text-lg font-bold text-amber-300 mt-1">{entityStats.inProgress.toLocaleString("fa-IR")}</div>
+            </div>
+          </div>
+        </div>
       )}
+
+      {/* SVG Charts */}
+      {activeTab === "driver" && lineChartData.length > 0 && <SVGLineChart data={lineChartData} />}
       {activeTab === "failure" && failureAnalysis && Object.keys(failureAnalysis.by_category).length > 0 && (
         <SVGHorizontalBarChart data={failureAnalysis.by_category} />
       )}
 
+      {/* Tab Selectors */}
       <div className="flex rounded-xl border border-white/10 bg-slate-800/50 p-1">
         {(["driver", "failure"] as const).map((tab) => (
           <button
@@ -231,50 +394,153 @@ export default function AdminReportsPage() {
             onClick={() => setActiveTab(tab)}
             className={`flex-1 rounded-lg py-3.5 text-sm font-medium transition-all ${
               activeTab === tab
-                ? "bg-gradient-to-r from-cyan-500 to-amber-400 text-slate-950"
+                ? "bg-gradient-to-r from-cyan-500 to-amber-400 text-slate-950 font-bold"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
-            {tab === "driver" ? "گزارش رانندگان" : "تحلیل شکست‌ها"}
+            {tab === "driver" ? "گزارش رانندگان و ثبت بارنامه" : "تحلیل خطاهـا و شکست‌ها"}
           </button>
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-slate-900/30 p-4">
-        <Filter className="h-5 w-5 text-slate-400" />
-        <div className="relative group">
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
-            className="rounded-lg border border-white/10 bg-slate-900/50 px-3 py-3.5 text-sm text-slate-100 focus:border-cyan-400" />
-          <div className="absolute bottom-full mb-1 right-0 hidden group-hover:block bg-slate-800 text-[10px] text-slate-200 px-2 py-1 rounded shadow-lg whitespace-nowrap">
-            تاریخ شروع (میلادی)
+      {/* Comprehensive Filter Bar (Client, Driver, Plate, Status, Dates) */}
+      <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4">
+        <div className="flex items-center gap-2 pb-1 text-xs font-semibold text-cyan-400">
+          <Filter className="h-4 w-4" />
+          <span>فیلترهای مجزای گزارش ادمین</span>
+        </div>
+
+        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+          {/* Client Filter Dropdown */}
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
+              <User className="h-3 w-3 text-cyan-400" />
+              مشتری / کاربر
+            </label>
+            <select
+              value={clientFilter}
+              onChange={(e) => setClientFilter(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2.5 text-xs text-slate-100 focus:border-cyan-400 focus:outline-none"
+            >
+              <option value="">همه مشتریان</option>
+              {filterOptions?.clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.client_code})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Driver Filter Dropdown */}
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
+              <User className="h-3 w-3 text-amber-400" />
+              راننده (کد ملی)
+            </label>
+            <select
+              value={driverFilter}
+              onChange={(e) => setDriverFilter(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2.5 text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
+            >
+              <option value="">همه رانندگان</option>
+              {filterOptions?.drivers.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.full_name} ({d.driver_national_code})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Plate Filter Dropdown */}
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
+              <Truck className="h-3 w-3 text-emerald-400" />
+              پلاک خودرو
+            </label>
+            <select
+              value={plateFilter}
+              onChange={(e) => setPlateFilter(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2.5 text-xs text-slate-100 focus:border-emerald-400 focus:outline-none"
+            >
+              <option value="">همه پلاک‌ها</option>
+              {filterOptions?.plates.map((p) => (
+                <option key={p.id} value={p.plate_number}>
+                  {p.plate_number}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Status Filter */}
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-slate-400">وضعیت بارنامه</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2.5 text-xs text-slate-100 focus:border-cyan-400 focus:outline-none"
+            >
+              <option value="">همه وضعیت‌ها</option>
+              <option value="success">موفق</option>
+              <option value="failed">ناموفق</option>
+              <option value="in_progress">در حال پردازش</option>
+              <option value="pending">در انتظار</option>
+            </select>
+          </div>
+
+          {/* Date From */}
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-slate-400">از تاریخ</label>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-100 focus:border-cyan-400 focus:outline-none"
+            />
+          </div>
+
+          {/* Date To */}
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-slate-400">تا تاریخ</label>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-100 focus:border-cyan-400 focus:outline-none"
+            />
           </div>
         </div>
-        <div className="relative group">
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
-            className="rounded-lg border border-white/10 bg-slate-900/50 px-3 py-3.5 text-sm text-slate-100 focus:border-cyan-400" />
-          <div className="absolute bottom-full mb-1 right-0 hidden group-hover:block bg-slate-800 text-[10px] text-slate-200 px-2 py-1 rounded shadow-lg whitespace-nowrap">
-            تاریخ پایان (میلادی)
+
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-white/5">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => (activeTab === "driver" ? loadDriverReport() : loadFailureAnalysis())}
+              className="rounded-xl bg-gradient-to-r from-cyan-500 to-amber-400 px-5 py-2.5 text-sm font-semibold text-slate-950 hover:opacity-90 transition"
+            >
+              اعمال فیلترها
+            </button>
+            {(clientFilter || driverFilter || plateFilter || statusFilter || dateFrom || dateTo) && (
+              <button
+                onClick={clearFilters}
+                className="flex items-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-white/10 px-4 py-2.5 text-xs font-medium text-slate-300 transition"
+              >
+                <RotateCcw className="h-3.5 w-3.5 text-rose-400" />
+                پاکسازی فیلترها
+              </button>
+            )}
           </div>
+
+          <button
+            onClick={handleExportCSV}
+            className="flex items-center gap-2 rounded-xl bg-white/5 hover:bg-white/10 hover:text-cyan-300 border border-white/10 px-4 py-2 text-xs font-medium text-slate-200 transition"
+          >
+            <Download className="h-4 w-4" />
+            دانلود CSV
+          </button>
         </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-lg border border-white/10 bg-slate-900/50 px-3 py-3.5 text-sm text-slate-100 focus:border-cyan-400">
-          <option value="">همه وضعیت‌ها</option>
-          <option value="success">موفق</option>
-          <option value="failed">ناموفق</option>
-          <option value="in_progress">در حال پردازش</option>
-          <option value="pending">در انتظار</option>
-        </select>
-        <button onClick={() => activeTab === "driver" ? loadDriverReport() : loadFailureAnalysis()}
-          className="rounded-xl bg-gradient-to-r from-cyan-500 to-amber-400 px-5 py-3.5 text-sm font-medium text-slate-950">
-          فیلتر
-        </button>
-        <button onClick={handleExportCSV}
-          className="flex items-center gap-2 rounded-xl bg-white/5 hover:bg-white/10 hover:text-cyan-300 border border-white/10 px-5 py-3.5 text-sm font-medium text-slate-200 mr-auto transition">
-          <Download className="h-4 w-4" />
-          دانلود CSV
-        </button>
       </div>
 
+      {/* Driver Report Tab Content */}
       {activeTab === "driver" && (
         <div className="space-y-4">
           {driverError && (
@@ -283,12 +549,24 @@ export default function AdminReportsPage() {
             </div>
           )}
           {driverLoading ? (
-            <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-slate-400" /></div>
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+            </div>
           ) : driverReport ? (
             <>
-              <div className="rounded-xl border border-white/10 bg-slate-900/30 p-4 text-sm text-slate-300">
-                کل نتایج: <strong>{driverReport.total.toLocaleString("fa-IR")}</strong> | صفحه {driverReport.page} از {driverReport.total_pages}
+              <div className="rounded-xl border border-white/10 bg-slate-900/30 p-4 text-sm text-slate-300 flex items-center justify-between">
+                <div>
+                  کل نتایج: <strong>{driverReport.total.toLocaleString("fa-IR")}</strong> بارنامه | صفحه {driverReport.page}{" "}
+                  از {driverReport.total_pages}
+                </div>
+                {(clientFilter || driverFilter || plateFilter) && (
+                  <span className="text-xs text-cyan-400 bg-cyan-500/10 px-3 py-1 rounded-full border border-cyan-500/20">
+                    گزارش تفکیکی فعال است
+                  </span>
+                )}
               </div>
+
+              {/* Desktop Table */}
               <div className="overflow-hidden rounded-xl border border-white/10 bg-slate-900/30 hidden md:block">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -297,6 +575,7 @@ export default function AdminReportsPage() {
                         <th className="px-4 py-3 text-right font-medium text-slate-300">شناسه</th>
                         <th className="px-4 py-3 text-right font-medium text-slate-300">مشتری</th>
                         <th className="px-4 py-3 text-right font-medium text-slate-300">راننده</th>
+                        <th className="px-4 py-3 text-right font-medium text-slate-300">پلاک خودرو</th>
                         <th className="px-4 py-3 text-right font-medium text-slate-300">وضعیت</th>
                         <th className="px-4 py-3 text-right font-medium text-slate-300">تلاش‌ها</th>
                         <th className="px-4 py-3 text-right font-medium text-slate-300">مدت زمان</th>
@@ -307,103 +586,167 @@ export default function AdminReportsPage() {
                     </thead>
                     <tbody>
                       {(driverReport?.jobs || []).map((j) => {
-                        const duration = j.finished_at && j.created_at
-                          ? Math.round((new Date(j.finished_at).getTime() - new Date(j.created_at).getTime()) / 1000)
-                          : null;
+                        const duration =
+                          j.finished_at && j.created_at
+                            ? Math.round(
+                                (new Date(j.finished_at).getTime() - new Date(j.created_at).getTime()) / 1000
+                              )
+                            : null;
                         return (
-                        <tr key={j.job_id} className="border-b border-white/5 hover:bg-white/5">
-                          <td className="px-4 py-3 font-mono text-xs text-slate-400">{j.job_id.slice(0, 16)}</td>
-                          <td className="px-4 py-3 text-slate-200">{j.client_name || `#${j.client_id}`}</td>
-                          <td className="px-4 py-3 text-slate-200">{j.driver_name || "-"}</td>
-                          <td className="px-4 py-3">
-                            <StatusBadge status={j.status} />
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="font-mono text-xs text-slate-300">{j.attempt_count ?? "—"}</span>
-                          </td>
-                          <td className="px-4 py-3">
-                            {duration !== null ? (
-                              <span className={`font-mono text-xs ${duration > 120 ? "text-red-300" : duration > 60 ? "text-amber-300" : "text-slate-300"}`}>
-                                {duration < 60 ? `${duration}s` : `${Math.floor(duration / 60)}m ${duration % 60}s`}
-                              </span>
-                            ) : "—"}
-                          </td>
-                          <td className="px-4 py-3 text-slate-300">{j.source}</td>
-                          <td className="px-4 py-3">
-                            {j.last_error ? (
-                              <span className="text-xs text-red-300">{j.last_error.slice(0, 40)}{j.last_error.length > 40 ? "..." : ""}</span>
-                            ) : "-"}
-                          </td>
-                          <td className="px-4 py-3 text-slate-300">{j.created_at.slice(0, 10)}</td>
-                        </tr>
+                          <tr key={j.job_id} className="border-b border-white/5 hover:bg-white/5 transition">
+                            <td className="px-4 py-3 font-mono text-xs text-slate-400">{j.job_id.slice(0, 16)}</td>
+                            <td className="px-4 py-3 text-slate-200">
+                              <button
+                                onClick={() => setClientFilter(String(j.client_id))}
+                                className="hover:text-cyan-400 hover:underline text-right transition"
+                                title="فیلتر بر اساس این مشتری"
+                              >
+                                {j.client_name || `#${j.client_id}`}
+                              </button>
+                            </td>
+                            <td className="px-4 py-3 text-slate-200">
+                              {j.driver_id ? (
+                                <button
+                                  onClick={() => setDriverFilter(String(j.driver_id))}
+                                  className="hover:text-amber-400 hover:underline text-right transition"
+                                  title="فیلتر بر اساس این راننده"
+                                >
+                                  {j.driver_name || `راننده #${j.driver_id}`}
+                                </button>
+                              ) : (
+                                "-"
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-slate-200">
+                              {j.plate_number && j.plate_number !== "-" ? (
+                                <button
+                                  onClick={() => setPlateFilter(j.plate_number!)}
+                                  className="inline-flex items-center gap-1 rounded bg-white/5 border border-white/10 px-2 py-0.5 font-mono text-xs text-emerald-300 hover:border-emerald-400 transition"
+                                  title="فیلتر بر اساس این پلاک"
+                                >
+                                  <Truck className="h-3 w-3" />
+                                  {j.plate_number}
+                                </button>
+                              ) : (
+                                <span className="text-slate-500">-</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              <StatusBadge status={j.status} />
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="font-mono text-xs text-slate-300">{j.attempt_count ?? "—"}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              {duration !== null ? (
+                                <span
+                                  className={`font-mono text-xs ${
+                                    duration > 120 ? "text-red-300" : duration > 60 ? "text-amber-300" : "text-slate-300"
+                                  }`}
+                                >
+                                  {duration < 60 ? `${duration}s` : `${Math.floor(duration / 60)}m ${duration % 60}s`}
+                                </span>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-slate-300">{j.source}</td>
+                            <td className="px-4 py-3">
+                              {j.last_error ? (
+                                <span className="text-xs text-red-300">
+                                  {j.last_error.slice(0, 40)}
+                                  {j.last_error.length > 40 ? "..." : ""}
+                                </span>
+                              ) : (
+                                "-"
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-slate-300">{j.created_at.slice(0, 10)}</td>
+                          </tr>
                         );
                       })}
                       {(driverReport?.jobs || []).length === 0 && (
-                        <tr><td colSpan={9} className="py-8 text-center text-slate-400">نتیجه‌ای یافت نشد</td></tr>
+                        <tr>
+                          <td colSpan={10} className="py-8 text-center text-slate-400">
+                            نتیجه‌ای با این فیلترها یافت نشد
+                          </td>
+                        </tr>
                       )}
                     </tbody>
                   </table>
                 </div>
               </div>
 
+              {/* Mobile Cards */}
               <div className="block md:hidden space-y-3">
                 {(driverReport?.jobs || []).length === 0 ? (
                   <div className="py-8 text-center text-slate-400">نتیجه‌ای یافت نشد</div>
                 ) : (
                   (driverReport?.jobs || []).map((j) => {
-                    const duration = j.finished_at && j.created_at
-                      ? Math.round((new Date(j.finished_at).getTime() - new Date(j.created_at).getTime()) / 1000)
-                      : null;
+                    const duration =
+                      j.finished_at && j.created_at
+                        ? Math.round(
+                            (new Date(j.finished_at).getTime() - new Date(j.created_at).getTime()) / 1000
+                          )
+                        : null;
                     return (
-                    <div key={j.job_id} className="rounded-2xl border border-white/10 bg-slate-900/40 p-4 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="font-mono text-xs text-slate-400">{j.job_id.slice(0, 12)}</div>
-                        <StatusBadge status={j.status} />
-                      </div>
-                      <div className="space-y-1">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-400">مشتری:</span>
-                          <span className="text-slate-200">{j.client_name || `#${j.client_id}`}</span>
+                      <div key={j.job_id} className="rounded-2xl border border-white/10 bg-slate-900/40 p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="font-mono text-xs text-slate-400">{j.job_id.slice(0, 12)}</div>
+                          <StatusBadge status={j.status} />
                         </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-400">راننده:</span>
-                          <span className="text-slate-200">{j.driver_name || "-"}</span>
-                        </div>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-slate-400">تلاش‌ها:</span>
-                          <span className="font-mono text-slate-300">{j.attempt_count ?? "—"}</span>
-                        </div>
-                        {duration !== null && (
+                         <div className="space-y-1 text-sm">
+                           <div className="flex justify-between">
+                             <span className="text-slate-400">مشتری:</span>
+                             <button onClick={() => setClientFilter(String(j.client_id))} className="text-cyan-300 hover:underline transition touch-target">
+                               {j.client_name || `#${j.client_id}`}
+                             </button>
+                           </div>
+                           <div className="flex justify-between">
+                             <span className="text-slate-400">راننده:</span>
+                             <button onClick={() => j.driver_id && setDriverFilter(String(j.driver_id))} className="text-amber-300 hover:underline transition touch-target">
+                               {j.driver_name || "-"}
+                             </button>
+                           </div>
+                           <div className="flex justify-between">
+                             <span className="text-slate-400">پلاک:</span>
+                             <button onClick={() => j.plate_number && setPlateFilter(j.plate_number)} className="font-mono text-emerald-300 hover:underline transition touch-target">
+                               {j.plate_number || "-"}
+                             </button>
+                           </div>
                           <div className="flex justify-between text-xs">
-                            <span className="text-slate-400">مدت زمان:</span>
-                            <span className={`font-mono ${duration > 120 ? "text-red-300" : duration > 60 ? "text-amber-300" : "text-slate-300"}`}>
-                              {duration < 60 ? `${duration}s` : `${Math.floor(duration / 60)}m ${duration % 60}s`}
-                            </span>
+                            <span className="text-slate-400">تلاش‌ها:</span>
+                            <span className="font-mono text-slate-300">{j.attempt_count ?? "—"}</span>
                           </div>
-                        )}
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-400">منبع:</span>
-                          <span className="text-slate-300">{j.source}</span>
+                          {duration !== null && (
+                            <div className="flex justify-between text-xs">
+                              <span className="text-slate-400">مدت زمان:</span>
+                              <span
+                                className={`font-mono ${
+                                  duration > 120 ? "text-red-300" : duration > 60 ? "text-amber-300" : "text-slate-300"
+                                }`}
+                              >
+                                {duration < 60 ? `${duration}s` : `${Math.floor(duration / 60)}m ${duration % 60}s`}
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">تاریخ:</span>
+                            <span className="text-slate-300">{j.created_at.slice(0, 10)}</span>
+                          </div>
+                          {j.last_error && <div className="text-xs text-red-300 mt-1">{j.last_error.slice(0, 60)}</div>}
                         </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-400">تاریخ:</span>
-                          <span className="text-slate-300">{j.created_at.slice(0, 10)}</span>
-                        </div>
-                        {j.last_error && (
-                          <div className="text-xs text-red-300 mt-1">{j.last_error.slice(0, 60)}</div>
-                        )}
                       </div>
-                    </div>
                     );
                   })
                 )}
               </div>
-
             </>
           ) : null}
         </div>
       )}
 
+      {/* Failure Analysis Tab Content */}
       {activeTab === "failure" && (
         <div className="space-y-4">
           {failureError && (
@@ -412,7 +755,9 @@ export default function AdminReportsPage() {
             </div>
           )}
           {failureLoading ? (
-            <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-slate-400" /></div>
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+            </div>
           ) : failureAnalysis ? (
             <>
               <div className="rounded-xl border border-white/10 bg-slate-900/30 p-4 text-sm text-slate-300">
@@ -422,22 +767,20 @@ export default function AdminReportsPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="rounded-xl border border-white/10 bg-slate-900/30 p-5 overflow-x-auto">
                   <h3 className="mb-3 font-semibold text-slate-200">تفکیک بر اساس نوع خطا</h3>
-                  {Object.entries((failureAnalysis?.by_category || {})).map(([cat, count]) => (
+                  {Object.entries(failureAnalysis?.by_category || {}).map(([cat, count]) => (
                     <div key={cat} className="mb-3">
                       <div className="flex items-center justify-between text-sm whitespace-nowrap gap-4">
                         <span className="text-slate-300">{cat}</span>
                         <span className="font-mono text-red-300">{count}</span>
                       </div>
-                      <p className="mt-1 text-[10px] text-cyan-400/70 leading-relaxed">
-                        {getRetrySuggestion(cat)}
-                      </p>
+                      <p className="mt-1 text-[10px] text-cyan-400/70 leading-relaxed">{getRetrySuggestion(cat)}</p>
                     </div>
                   ))}
                 </div>
                 <div className="space-y-4">
                   <div className="rounded-xl border border-white/10 bg-slate-900/30 p-5 overflow-x-auto">
                     <h3 className="mb-3 font-semibold text-slate-200">تفکیک بر اساس مشتری</h3>
-                    {Object.entries((failureAnalysis?.by_client || {})).map(([name, count]) => (
+                    {Object.entries(failureAnalysis?.by_client || {}).map(([name, count]) => (
                       <div key={name} className="mb-2 flex items-center justify-between text-sm whitespace-nowrap min-w-max gap-4">
                         <span className="text-slate-300">{name}</span>
                         <span className="font-mono text-red-300">{count}</span>
@@ -455,13 +798,17 @@ export default function AdminReportsPage() {
 
               <div className="rounded-xl border border-white/10 bg-slate-900/30 p-5">
                 <h3 className="mb-3 font-semibold text-slate-200">نمونه خطاها</h3>
-                {Object.entries((failureAnalysis?.examples || {})).map(([cat, items]) => (
+                {Object.entries(failureAnalysis?.examples || {}).map(([cat, items]) => (
                   <details key={cat} className="mb-3 rounded-lg border border-white/5 bg-slate-800/30 p-3">
-                    <summary className="cursor-pointer text-sm font-medium text-amber-300">{cat} ({items.length})</summary>
+                    <summary className="cursor-pointer text-sm font-medium text-amber-300">
+                      {cat} ({items.length})
+                    </summary>
                     <div className="mt-2 space-y-2">
                       {items.map((ex, i: number) => (
                         <div key={i} className="rounded bg-slate-900/50 p-2 text-xs text-slate-300">
-                          <div>مشتری: {ex.client} | راننده: {ex.driver}</div>
+                          <div>
+                            مشتری: {ex.client} | راننده: {ex.driver}
+                          </div>
                           <div className="text-red-300">{ex.error}</div>
                           <div className="text-slate-500">{ex.created_at}</div>
                         </div>
@@ -510,14 +857,20 @@ function SummaryCard({
 
 function getRetrySuggestion(category: string): string {
   const cat = category.toLowerCase();
-  if (cat.includes("timeout") || cat.includes("connection") || cat.includes("network")) return "بررسی اتصال اینترنت، افزایش timeout یا تغییر پروکسی";
+  if (cat.includes("timeout") || cat.includes("connection") || cat.includes("network"))
+    return "بررسی اتصال اینترنت، افزایش timeout یا تغییر پروکسی";
   if (cat.includes("captcha") || cat.includes("recaptcha")) return "بررسی اعتبار API کپچا، انقضای توکن یا تغییر provider";
-  if (cat.includes("auth") || cat.includes("login") || cat.includes("credential")) return "بررسی اعتبار حساب کاربری در سامانه UTCMS";
-  if (cat.includes("not_found") || cat.includes("404") || cat.includes("missing")) return "بررسی صحت کد راننده، پلاک یا اطلاعات ورودی";
-  if (cat.includes("rate") || cat.includes("limit") || cat.includes("throttle")) return "کاهش نرخ درخواست‌ها، افزایش تاخیر بین تسک‌ها";
-  if (cat.includes("parse") || cat.includes("validation") || cat.includes("invalid")) return "بررسی فرمت داده‌های ورودی و تطابق با سامانه";
+  if (cat.includes("auth") || cat.includes("login") || cat.includes("credential"))
+    return "بررسی اعتبار حساب کاربری در سامانه UTCMS";
+  if (cat.includes("not_found") || cat.includes("404") || cat.includes("missing"))
+    return "بررسی صحت کد راننده، پلاک یا اطلاعات ورودی";
+  if (cat.includes("rate") || cat.includes("limit") || cat.includes("throttle"))
+    return "کاهش نرخ درخواست‌ها، افزایش تاخیر بین تسک‌ها";
+  if (cat.includes("parse") || cat.includes("validation") || cat.includes("invalid"))
+    return "بررسی فرمت داده‌های ورودی و تطابق با سامانه";
   if (cat.includes("otp") || cat.includes("sms")) return "بررسی سرویس پیامک و زمان انقضای رمز یکبارمصرف";
-  if (cat.includes("server") || cat.includes("internal") || cat.includes("500")) return "بررسی وضعیت سامانه UTCMS — خطای سمت سرور";
+  if (cat.includes("server") || cat.includes("internal") || cat.includes("500"))
+    return "بررسی وضعیت سامانه UTCMS — خطای سمت سرور";
   return "بررسی لاگ خطا و عیب‌یابی دستی";
 }
 
@@ -545,7 +898,7 @@ function SVGLineChart({ data }: { data: Array<{ date: string; success: number; f
   const padding = 40;
   const chartWidth = 600;
   const chartHeight = 200;
-  const maxVal = Math.max(...data.map(d => d.total), 5);
+  const maxVal = Math.max(...data.map((d) => d.total), 5);
 
   const points = data.map((d, i) => {
     const x = padding + (i * (chartWidth - padding * 2)) / Math.max(1, data.length - 1);
@@ -569,7 +922,7 @@ function SVGLineChart({ data }: { data: Array<{ date: string; success: number; f
   return (
     <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-5 space-y-4">
       <h3 className="text-sm font-bold text-slate-200">نمودار روند ثبت بارنامه‌ها (۷ روز اخیر در گزارش)</h3>
-      <div className="relative w-full overflow-hidden" style={{ aspectRatio: "600/200" }}>
+      <div className="relative w-full overflow-hidden aspect-[600/200]">
         <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-full">
           {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
             const y = padding + ratio * (chartHeight - padding * 2);
@@ -577,11 +930,13 @@ function SVGLineChart({ data }: { data: Array<{ date: string; success: number; f
             return (
               <g key={idx} className="opacity-10">
                 <line x1={padding} y1={y} x2={chartWidth - padding} y2={y} stroke="#fff" strokeWidth={1} strokeDasharray="4 4" />
-                <text x={padding - 10} y={y + 3} fill="#fff" fontSize={9} textAnchor="end" className="font-mono">{val}</text>
+                <text x={padding - 10} y={y + 3} fill="#fff" fontSize={9} textAnchor="end" className="font-mono">
+                  {val}
+                </text>
               </g>
             );
           })}
-          
+
           {points.map((p, idx) => (
             <text key={idx} x={p.x} y={chartHeight - 15} fill="#94a3b8" fontSize={9} textAnchor="middle" className="font-mono">
               {p.label}
@@ -592,7 +947,13 @@ function SVGLineChart({ data }: { data: Array<{ date: string; success: number; f
             <>
               <path d={pathSuccess} fill="none" stroke="#34d399" strokeWidth={2.5} strokeLinecap="round" />
               {points.map((p, idx) => (
-                <circle key={idx} cx={p.x} cy={p.ySuccess} r={3.5} className="fill-emerald-400 stroke-slate-900 stroke-[2px] transition-all hover:r-5 cursor-pointer" />
+                <circle
+                  key={idx}
+                  cx={p.x}
+                  cy={p.ySuccess}
+                  r={3.5}
+                  className="fill-emerald-400 stroke-slate-900 stroke-[2px] transition-all hover:r-5 cursor-pointer"
+                />
               ))}
             </>
           )}
@@ -601,7 +962,13 @@ function SVGLineChart({ data }: { data: Array<{ date: string; success: number; f
             <>
               <path d={pathFailed} fill="none" stroke="#f87171" strokeWidth={2.5} strokeLinecap="round" />
               {points.map((p, idx) => (
-                <circle key={idx} cx={p.x} cy={p.yFailed} r={3.5} className="fill-red-400 stroke-slate-900 stroke-[2px] transition-all hover:r-5 cursor-pointer" />
+                <circle
+                  key={idx}
+                  cx={p.x}
+                  cy={p.yFailed}
+                  r={3.5}
+                  className="fill-red-400 stroke-slate-900 stroke-[2px] transition-all hover:r-5 cursor-pointer"
+                />
               ))}
             </>
           )}
@@ -624,7 +991,7 @@ function SVGLineChart({ data }: { data: Array<{ date: string; success: number; f
 function SVGHorizontalBarChart({ data }: { data: Record<string, number> }) {
   const entries = Object.entries(data).sort((a, b) => b[1] - a[1]);
   if (entries.length === 0) return null;
-  const maxVal = Math.max(...entries.map(e => e[1]), 1);
+  const maxVal = Math.max(...entries.map((e) => e[1]), 1);
 
   return (
     <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-5 space-y-4">
@@ -634,16 +1001,17 @@ function SVGHorizontalBarChart({ data }: { data: Record<string, number> }) {
           const percent = Math.round((count / maxVal) * 100);
           return (
             <div key={category} className="space-y-1 text-xs">
-               <div className="flex justify-between text-slate-350 font-medium">
-                 <span className="truncate max-w-[250px]" title={category}>{errorCategoryLabel(category)}</span>
-                 <strong className="text-red-400 font-mono">{(count).toLocaleString("fa-IR")} مورد</strong>
-               </div>
-              <div className="h-2 w-full rounded-full bg-white/5 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-red-500 to-rose-400 transition-all duration-500"
-                  style={{ width: `${percent}%` }}
-                />
+              <div className="flex justify-between text-slate-300 font-medium">
+                <span className="truncate max-w-[250px]" title={category}>
+                  {errorCategoryLabel(category)}
+                </span>
+                <strong className="text-red-400 font-mono">{count.toLocaleString("fa-IR")} مورد</strong>
               </div>
+              <ProgressBar
+                value={percent}
+                tone="rose"
+                label={`سهم خطای ${errorCategoryLabel(category)}`}
+              />
             </div>
           );
         })}
@@ -651,4 +1019,3 @@ function SVGHorizontalBarChart({ data }: { data: Record<string, number> }) {
     </div>
   );
 }
-

@@ -142,9 +142,14 @@ class DriverScheduleService:
         # Import here to avoid circular dependency at module level
         from app.services.waybill_job_service import WaybillJobService
 
-        now = datetime.now(UTC).replace(tzinfo=None)
-        today = now.date()
-        current_hhmm = now.strftime("%H:%M")
+        from zoneinfo import ZoneInfo
+        try:
+            import jdatetime
+        except ImportError:
+            jdatetime = None
+
+        utc_now = datetime.now(UTC).replace(tzinfo=None)
+
         schedules = (
             await session.exec(
                 select(DriverSchedule).where(
@@ -163,25 +168,60 @@ class DriverScheduleService:
             )
             drivers_map = {d.id: d for d in drivers_result.all()}
 
+        def _parse_schedule_date(date_str: str | None) -> date | None:
+            if not date_str:
+                return None
+            if jdatetime is not None:
+                try:
+                    return jdatetime.date.fromisoformat(date_str).togregorian()
+                except Exception:
+                    pass
+            try:
+                return datetime.fromisoformat(date_str).date()
+            except Exception:
+                return None
+
         for schedule in schedules:
-            if schedule.next_run_at and schedule.next_run_at > now:
+            tz_name = schedule.timezone or "Asia/Tehran"
+            try:
+                local_tz = ZoneInfo(tz_name)
+            except Exception:
+                local_tz = ZoneInfo("Asia/Tehran")
+
+            local_now = datetime.now(local_tz)
+            today = local_now.date()
+            current_hhmm = local_now.strftime("%H:%M")
+
+            if schedule.next_run_at and schedule.next_run_at > utc_now:
                 skipped += 1
                 continue
-            if schedule.start_date and today < date.fromisoformat(schedule.start_date):
+
+            start_d = _parse_schedule_date(schedule.start_date)
+            if start_d and today < start_d:
                 skipped += 1
                 continue
-            if schedule.end_date and today > date.fromisoformat(schedule.end_date):
+
+            end_d = _parse_schedule_date(schedule.end_date)
+            if end_d and today > end_d:
                 skipped += 1
                 continue
+
             specific_dates = _parse_csv_list(schedule.specific_dates_csv)
-            if specific_dates and today.isoformat() not in specific_dates:
-                skipped += 1
-                continue
-            if schedule.frequency == ScheduleFrequency.WEEKLY.value:
-                allowed = _parse_weekdays_csv(schedule.weekdays_csv)
-                if allowed and now.weekday() not in allowed:
+            if specific_dates:
+                today_persian = jdatetime.date.fromgregorian(date=today).isoformat() if jdatetime else today.isoformat()
+                if today_persian not in specific_dates and today.isoformat() not in specific_dates:
                     skipped += 1
                     continue
+
+            if schedule.frequency == ScheduleFrequency.WEEKLY.value:
+                allowed = _parse_weekdays_csv(schedule.weekdays_csv)
+                if allowed:
+                    py_wd = local_now.weekday()
+                    fa_wd = (py_wd + 2) % 7
+                    if py_wd not in allowed and fa_wd not in allowed:
+                        skipped += 1
+                        continue
+
             due_times = [value for value in _resolve_run_times(schedule) if value <= current_hhmm]
             if not due_times:
                 skipped += 1

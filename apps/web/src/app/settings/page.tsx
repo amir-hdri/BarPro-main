@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, memo } from 'react';
+import { toast } from 'react-hot-toast';
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
 import { api } from '@/lib/api';
@@ -72,16 +73,16 @@ export default function SettingsPage() {
     loadProfile();
   }, [role]);
 
-  const loadSystemStatus = useCallback(async () => {
+  const loadSystemStatus = useCallback(async (signal?: AbortSignal) => {
     if (role !== "client") return;
     setLoadingCache(true);
-    
-    const cacheRes = await api.get<CacheStatus>('/waybill/baseinfo/status');
+
+    const cacheRes = await api.get<CacheStatus>('/waybill/baseinfo/status', undefined, { signal });
     if (cacheRes.success && cacheRes.data) {
       setCacheStatus(cacheRes.data);
     }
 
-    const readyzRes = await api.get<ReadyzResponse>('/readyz');
+    const readyzRes = await api.get<ReadyzResponse>('/readyz', undefined, { signal });
     if (readyzRes.success && readyzRes.data) {
       const cb = readyzRes.data?.details?.circuit_breaker?.status;
       if (cb) {
@@ -98,7 +99,9 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (activeTab === 'system') {
-      void loadSystemStatus().catch(e => console.error("Failed to load system status:", e));
+      const controller = new AbortController();
+      void loadSystemStatus(controller.signal).catch(e => console.error("Failed to load system status:", e));
+      return () => controller.abort();
     }
   }, [activeTab, loadSystemStatus]);
 
@@ -108,9 +111,11 @@ export default function SettingsPage() {
     
     const response = await api.post('/waybill/baseinfo/refresh', {});
     if (response.success) {
+      toast.success('کش اطلاعات پایه وب‌سرویس ITMB با موفقیت بروزرسانی شد.');
       setSystemMessage('کش اطلاعات پایه وب‌سرویس ITMB با موفقیت بروزرسانی شد.');
       void loadSystemStatus().catch(e => console.error("Failed to load system status:", e));
     } else {
+      toast.error(`بروزرسانی کش ناموفق بود: ${response.error || 'خطای سرور'}`);
       setSystemMessage(`بروزرسانی کش ناموفق بود: ${response.error || 'خطای سرور'}`);
     }
     setRefreshingCache(false);
@@ -122,9 +127,11 @@ export default function SettingsPage() {
     const targetEnabled = !currentEnabled;
     const response = await api.post(`/circuit-breaker/toggle?enabled=${targetEnabled}`, {});
     if (response.success) {
+      toast.success(`سیستم قطع‌کننده مدار با موفقیت ${targetEnabled ? 'فعال' : 'غیرفعال'} شد.`);
       setSystemMessage(`سیستم قطع‌کننده مدار با موفقیت ${targetEnabled ? 'فعال' : 'غیرفعال'} شد.`);
       void loadSystemStatus().catch(e => console.error("Failed to load system status:", e));
     } else {
+      toast.error(`خطا در تغییر وضعیت قطع‌کننده مدار: ${response.error || 'خطای سرور'}`);
       setSystemMessage(`خطا در تغییر وضعیت قطع‌کننده مدار: ${response.error || 'خطای سرور'}`);
     }
     setTogglingCB(false);
@@ -364,42 +371,73 @@ export default function SettingsPage() {
                     <RefreshCw className="h-6 w-6 animate-spin text-cyan-400 mr-2" />
                     <span>در حال واکشی اطلاعات جداول...</span>
                   </div>
-                ) : cacheStatus ? (
-                  <div className="overflow-hidden rounded-2xl border border-white/5 bg-slate-950/40">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="border-b border-white/5 bg-slate-950/80">
-                          <tr>
-                            <th className="px-6 py-4 text-right font-bold text-slate-300">نوع داده</th>
-                            <th className="px-6 py-4 text-right font-bold text-slate-300">وضعیت کش</th>
-                            <th className="px-6 py-4 text-right font-bold text-slate-300">تعداد آیتم‌ها</th>
-                            <th className="px-6 py-4 text-right font-bold text-slate-300">آخرین بروزرسانی</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {Object.entries(cacheStatus.items).map(([key, item]) => (
-                            <tr key={key} className="border-b border-white/5 transition-colors hover:bg-white/5">
-                              <td className="px-6 py-4 text-slate-200 font-bold">{getCacheKeyLabel(key)}</td>
-                              <td className="px-6 py-4">
-                                <span className={`inline-flex rounded-xl px-3 py-1 text-xs font-bold ${
-                                  item.cached && !item.is_stale
-                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                    : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                                }`}>
-                                  {item.cached ? (item.is_stale ? 'منقضی شده' : 'کش شده') : 'خالی'}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4 text-slate-200 font-mono">{toPersianDigits(item.count)} آیتم</td>
-                              <td className="px-6 py-4 text-slate-400 font-mono">
-                                {item.last_updated ? formatDateTime(item.last_updated) : 'ثبت نشده'}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : (
+                 ) : cacheStatus ? (
+                   <>
+                     {/* Desktop Table */}
+                     <div className="hidden md:block overflow-hidden rounded-2xl border border-white/5 bg-slate-950/40">
+                       <div className="overflow-x-auto">
+                         <table className="w-full text-sm">
+                           <thead className="border-b border-white/5 bg-slate-950/80">
+                             <tr>
+                               <th className="px-6 py-4 text-right font-bold text-slate-300">نوع داده</th>
+                               <th className="px-6 py-4 text-right font-bold text-slate-300">وضعیت کش</th>
+                               <th className="px-6 py-4 text-right font-bold text-slate-300">تعداد آیتم‌ها</th>
+                               <th className="px-6 py-4 text-right font-bold text-slate-300">آخرین بروزرسانی</th>
+                             </tr>
+                           </thead>
+                           <tbody>
+                             {Object.entries(cacheStatus.items).map(([key, item]) => (
+                               <tr key={key} className="border-b border-white/5 transition-colors hover:bg-white/5">
+                                 <td className="px-6 py-4 text-slate-200 font-bold">{getCacheKeyLabel(key)}</td>
+                                 <td className="px-6 py-4">
+                                   <span className={`inline-flex rounded-xl px-3 py-1 text-xs font-bold ${
+                                     item.cached && !item.is_stale
+                                       ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                       : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                   }`}>
+                                     {item.cached ? (item.is_stale ? 'منقضی شده' : 'کش شده') : 'خالی'}
+                                   </span>
+                                 </td>
+                                 <td className="px-6 py-4 text-slate-200 font-mono">{toPersianDigits(item.count)} آیتم</td>
+                                 <td className="px-6 py-4 text-slate-400 font-mono">
+                                   {item.last_updated ? formatDateTime(item.last_updated) : 'ثبت نشده'}
+                                 </td>
+                               </tr>
+                             ))}
+                           </tbody>
+                         </table>
+                       </div>
+                     </div>
+
+                     {/* Mobile Cards */}
+                     <div className="md:hidden space-y-3">
+                       {Object.entries(cacheStatus.items).map(([key, item]) => (
+                         <div key={key} className="rounded-2xl border border-white/5 bg-slate-950/40 p-4 space-y-3">
+                           <div className="flex items-center justify-between">
+                             <span className="text-sm font-bold text-slate-200">{getCacheKeyLabel(key)}</span>
+                             <span className={`inline-flex rounded-xl px-3 py-1.5 text-xs font-bold ${
+                               item.cached && !item.is_stale
+                                 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                 : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                             }`}>
+                               {item.cached ? (item.is_stale ? 'منقضی شده' : 'کش شده') : 'خالی'}
+                             </span>
+                           </div>
+                           <div className="grid grid-cols-2 gap-3 text-sm">
+                             <div>
+                               <span className="text-xs text-slate-400">تعداد آیتم‌ها:</span>
+                               <div className="font-mono text-slate-200">{toPersianDigits(item.count)} آیتم</div>
+                             </div>
+                             <div>
+                               <span className="text-xs text-slate-400">آخرین بروزرسانی:</span>
+                               <div className="font-mono text-slate-300">{item.last_updated ? formatDateTime(item.last_updated) : 'ثبت نشده'}</div>
+                             </div>
+                           </div>
+                         </div>
+                       ))}
+                     </div>
+                   </>
+                 ) : (
                   <div className="py-12 text-center text-slate-400">خطا در بارگذاری جزئیات کش</div>
                 )}
               </section>

@@ -1,3 +1,5 @@
+@import 'leaflet/dist/leaflet.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -294,6 +296,12 @@ select.field {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* ─── Touch target utility for mobile accessibility ─────────────── */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
 /* ─── Scrollbar ──────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 @media (min-width: 640px) {
@@ -346,6 +354,16 @@ a, button, input, select, textarea, .section-card, .stat-card, .badge, .field {
     transform: scale(0.97);
     opacity: 0.9;
   }
+}
+
+/* Focus visible styles for keyboard accessibility */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #06b6d4;
+  outline-offset: 2px;
 }
 
 /* ─── Custom Select and Stepper Styles ────────────────────────── */
@@ -453,4 +471,23 @@ button:not(:disabled):active {
   transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, backdrop-filter;
   transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
   transition-duration: 350ms;
+}
+
+/* ─── Mobile Ergonomics & Safe Area Overrides ────────────────── */
+@media (max-width: 767px) {
+  .field {
+    font-size: 1rem !important;
+  }
+}
+
+body {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+header {
+  padding-top: max(0.75rem, env(safe-area-inset-top, 0px)) !important;
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px) !important;
 }

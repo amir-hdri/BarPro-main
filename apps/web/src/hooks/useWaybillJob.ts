@@ -1,25 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { WebSocketEvent } from "@/lib/types";
+import { buildWebSocketUrl } from "@/lib/ws";
 
 function logError(...args: unknown[]) {
   if (process.env.NODE_ENV !== "production") {
     console.error(...args);
-  }
-}
-
-function getWebSocketUrl(): string {
-  try {
-    if (typeof window !== "undefined") {
-      if (window.location.port === "3000") {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        return `${protocol}//${window.location.hostname}:8000/ws/waybill`;
-      }
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      return `${protocol}//${window.location.host}/ws/waybill`;
-    }
-    return "ws://127.0.0.1:8000/ws/waybill";
-  } catch {
-    return "ws://127.0.0.1:8000/ws/waybill";
   }
 }
 
@@ -83,12 +68,13 @@ export function useWaybillJob(options: UseWaybillJobOptions = {}) {
     setStatus("connecting");
 
     try {
-      const url = new URL(getWebSocketUrl());
-      if (taskId) url.searchParams.append("task_id", taskId);
-      if (batchId) url.searchParams.append("batch_id", batchId);
-      if (correlationId) url.searchParams.append("correlation_id", correlationId);
+      const wsUrl = buildWebSocketUrl("/ws/waybill", {
+        task_id: taskId,
+        batch_id: batchId,
+        correlation_id: correlationId,
+      });
 
-      const ws = new WebSocket(url.toString());
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {

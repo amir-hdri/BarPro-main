@@ -8,7 +8,6 @@ from app.api.routes import (
     reports,
     rpa_phase1,
     system,
-    ui,
     user_reporting,
     waybill_entry,
     waybill_map,
@@ -24,8 +23,8 @@ __all__ = [
     "multitenant",
     "rpa_phase1",
     "system",
-    "ui",
     "realtime",
     "admin_reporting",
     "user_reporting",
 ]
+

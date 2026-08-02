@@ -409,7 +409,7 @@ ON waybill_jobs (status) INCLUDE (id);
 | Frontend: display UTCMS `tracking_code` + Persian `error_category`; reports chart/CSV in Persian; friendly HTTP 409 message | `apps/web/src/{lib/format.ts,lib/types.ts,app/history/page.tsx,app/page.tsx,app/admin/reports/page.tsx,app/fuel/page.tsx}` |
 | Added `.github/dependabot.yml` (weekly pip/npm/actions); `requirements-dev.txt` pins relaxed to `>=` | `.github/dependabot.yml`, `requirements-dev.txt` |
 
-> Verification: `pip-audit` → *No known vulnerabilities found*; `npm audit --omit=dev` (apps/web) → 0 vulnerabilities; GitHub Dependabot no longer flags the default branch. `tsc --noEmit` and `next lint` pass on `apps/web`.
+> Verification: `pip-audit` → *No known vulnerabilities found*; `npm audit --omit=dev` (apps/web) → 0 vulnerabilities; GitHub Dependabot no longer flags the default branch. `tsc --noEmit` and `npm run lint` pass on `apps/web`.
 
 ### Additional Fixes Applied (2026-07-21) — Worker Proxy, Rotator & Event Loop Reliability
 
@@ -491,6 +491,33 @@ ON waybill_jobs (status) INCLUDE (id);
 | Updated `README.md` — current test status (414 passed), architecture, security notes, doc index | `README.md` |
 | Updated `.gitignore` — added debug scripts, temp files, large binaries | `.gitignore` |
 
+### Additional Fixes Applied (2026-08-02) — 14-Item Code Audit Remediation (C4/C5/C6, H1–H6, F1–F4)
+
+> Rationale: A code-level audit of `ISSUES.md` produced 14 actionable items (plus a NEW session-leak finding).
+> Items marked "Fixed" below were verified present in the working tree and/or implemented this session.
+> Server-level items (C1, C2, C3, C7) remain out of scope for this pass.
+
+| Change | Reason | File(s) |
+|--------|--------|---------|
+| Added `from typing import Any` to `_is_jwt_valid`/`_has_admin_role` signatures | C4: `NameError: name 'Any' is not defined` would crash sensitive-auth at runtime | `app/core/security.py` |
+| New `require_sensitive_admin` dependency — valid JWT **or** API Key **and** `role == master_admin` (covers `api_key`/`jwt`/`api_key_or_jwt`/`api_key_and_jwt` modes, cookie fallback preserved) | C5: role-gate admin-only sensitive endpoints without breaking client-visible routes (`/waybill/baseinfo/*` stays auth-only for the client settings page) | `app/core/security.py` |
+| `/management/*` and `/reports/*` (legacy admin-only routers) upgraded from `require_sensitive_auth` to `require_sensitive_admin` | C5: these endpoints were reachable by any valid client JWT; only master-admin/API-key may call them now | `app/api/routes/management.py`, `app/api/routes/reports.py` |
+| Removed duplicate `WORKER_STALL_TIMEOUT_SECONDS` definition (line 240); single env-driven `float` remains (default 90, `.env`=45) | C6: duplicate shadowed the real value and confused operators | `app/core/config.py` |
+| `_emit_task_event` now calls `_get_task_status_and_payload(task_id)` — one SELECT for status+payload instead of two | H1: N+1 / double query on every status transition | `app/services/task_service.py` |
+| Reconciliation claim uses `SELECT ... FOR UPDATE SKIP LOCKED` | H3: prevents two reconcilers/workers claiming the same job row | `app/orchestrator/reconciliation_service.py` |
+| `_get_or_create_runtime_state` catches `IntegrityError` → `rollback()` + re-select instead of dying | H4: concurrent claim of the same runtime-state row no longer aborts the worker | `app/workers/waybill_worker.py` |
+| `force_release_lock(key, token=None)` — optional token compare-and-delete (Redis Lua + memory branch); `None` keeps admin override | H5: locks can be released only by the holder; stale-force release still possible | `app/services/rpa_runtime_service.py` |
+| `readyz` heavy checks (DB, browser init, captcha warmup) extracted into `_compute_readyz_checks()` and wrapped in a TTL cache (`READYZ_CACHE_TTL_SECONDS`, default 30s, `asyncio.Lock`-guarded) with `_reset_readyz_cache()` for tests | H2: consecutive `/readyz` calls (client settings page polls it) no longer re-run browser launch + model warmup each time; 30s cache keeps liveness fresh | `app/api/routes/system.py`, `app/core/config.py` |
+| `H6` verified satisfied — `celery_app.py` still guards old execution path behind `if not DEPRECATE_OLD_EXECUTION_PATH` (default `True`) | H6 | `app/workers/celery_app.py` |
+| NEW-session-leak verified satisfied — `_update_job_status` and `_execute_job` both `await session.close()` in `finally` | session leak: no orphaned `AsyncSession` per job | `app/workers/waybill_worker.py` |
+| F1: removed `selectedJobId` from `loadJobs` deps; functional `setSelectedJobId(prev => prev || firstJobId)` + narrowed `firstJobId` const (TS18048) | F1: `loadJobs` re-created on every selection change caused fetch churn & infinite effect loops | `apps/web/src/app/history/page.tsx` |
+| F2: added `apps/web/src/middleware.ts` — cookie-based route protection (redirects unauthenticated to `/auth`, skips `_next`/`api`/assets), fixed `hasAuthToken` → `hasAuthCookie` typo | F2: client-side `AuthGuard` alone left server-rendered routes visible; TS2304 would fail build | `apps/web/src/middleware.ts` (new) |
+| F3: axios client now uses `timeout: 15000` with `withCredentials` | F3: hung requests previously blocked the UI indefinitely | `apps/web/src/lib/api.ts` |
+| F4: `RequestOptions { signal?: AbortSignal }` threaded through all 5 API wrappers; `AbortController` used in reports/settings/fuel initial effects (incl. `fetchDashboardStats`/`fetchWaybillHistory`/`fetchDriverPerformance`/`fetchErrorDetails`/`loadData`/driver-waybill fetch) | F4: unmounted page fetches could `setState` after unmount / waste bandwidth; abort-on-cleanup fixes it | `apps/web/src/lib/api.ts`, `apps/web/src/app/reports/page.tsx`, `apps/web/src/app/settings/page.tsx`, `apps/web/src/app/fuel/page.tsx` |
+| `tests/test_system_health.py` + `tests/test_readyz_failures.py`: autouse fixture calls `_reset_readyz_cache()` around each scenario | H2: TTL cache must not leak between unit-test scenarios | `tests/test_system_health.py`, `tests/test_readyz_failures.py` |
+
+> Verification: `uvx ruff check` clean on touched files; `tsc --noEmit` + `eslint` clean on touched frontend files; full pytest suite green (552 passed, 2 skipped, 1 flaky worker-mock failure re-ran green).
+
 ---
 
-*Last updated: 2026-07-27 · Tests: 414 passed, 4 skipped, 0 failed · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*
+*Last updated: 2026-08-02 · Tests: 552 passed, 2 skipped · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*

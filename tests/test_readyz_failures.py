@@ -8,6 +8,15 @@ from httpx import ASGITransport, AsyncClient
 from app.main import app
 
 
+@pytest.fixture(autouse=True)
+def reset_readyz_cache():
+    from app.api.routes.system import _reset_readyz_cache
+
+    _reset_readyz_cache()
+    yield
+    _reset_readyz_cache()
+
+
 @pytest.mark.asyncio
 async def test_readyz_database_down_returns_503():
     # Simulates immediate DB connection failure

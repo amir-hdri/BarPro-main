@@ -95,10 +95,7 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
 
   return (
     <div className={`flex flex-col gap-2 ${className}`}>
-      <div 
-        className="flex items-stretch h-14 bg-white border-[3px] border-slate-900 rounded-2xl overflow-hidden shadow-lg font-sans transition-all focus-within:ring-4 focus-within:ring-cyan-500/20 focus-within:border-cyan-600"
-        style={{ direction: 'ltr' }}
-      >
+      <div className="flex items-stretch h-14 bg-white border-[3px] border-slate-900 rounded-2xl overflow-hidden shadow-lg font-sans transition-all focus-within:ring-4 focus-within:ring-cyan-500/20 focus-within:border-cyan-600 dir-ltr">
         <div className="w-10 bg-[#003399] flex flex-col items-center justify-end pb-2 relative select-none shrink-0">
            <div className="absolute top-0 left-0 w-full h-[4px] bg-emerald-600"></div>
            <div className="absolute top-[4px] left-0 w-full h-[4px] bg-white"></div>
@@ -122,13 +119,12 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
         <input
           ref={part2Ref}
           type="text"
-          className="w-12 text-center text-2xl font-black bg-transparent border-r border-slate-200 outline-none text-slate-950 placeholder:text-slate-300 font-sans"
+          className="w-12 text-center text-2xl font-black bg-transparent border-r border-slate-200 outline-none text-slate-950 placeholder:text-slate-300 font-sans dir-rtl"
           value={parts.part2}
           onChange={(e) => handleInputChange(1, e.target.value)}
           onKeyDown={(e) => handleKeyDown(1, e)}
           maxLength={parts.part2.startsWith("ا") ? 3 : 1}
           placeholder="الف"
-          style={{ direction: 'rtl' }}
         />
 
         <input

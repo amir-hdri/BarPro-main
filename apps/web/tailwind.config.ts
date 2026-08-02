@@ -9,7 +9,12 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['var(--font-rubik)', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+        sans: ['var(--font-vazirmatn)', 'var(--font-rubik)', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+      },
+      boxShadow: {
+        'panel-sm': '0 5px 15px -5px rgba(2,6,23,0.4)',
+        'panel': '0 10px 40px -10px rgba(0, 0, 0, 0.4)',
+        'panel-lg': '0 20px 60px -15px rgba(2,6,23,0.5)',
       },
       animation: {
         'in': 'animate-in 0.3s ease-out',

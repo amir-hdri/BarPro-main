@@ -548,6 +548,8 @@ class TaskFilterRequest(BaseModel):
 
     status: str | None = None
     driver_id: int | None = None
+    driver_name: str | None = None
+    plate_number: str | None = None
     date_from: datetime | None = None
     date_to: datetime | None = None
     page: int = Field(default=1, ge=1)

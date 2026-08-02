@@ -188,52 +188,73 @@ class AdminReportingService:
     ) -> dict[str, Any]:
         session = async_session_factory()
         try:
-            stmt = select(WaybillJob)
-            if filters.client_id:
-                stmt = stmt.where(WaybillJob.client_id == filters.client_id)
-            if filters.driver_id:
-                stmt = stmt.where(WaybillJob.driver_id == filters.driver_id)
-            if filters.plate_id:
+            from sqlalchemy import or_
+
+            # Build subqueries for driver national code/name and plate number searches
+            driver_subquery = None
+            if filters.driver_national_code or filters.driver_name:
+                d_stmt = select(Driver.id)
+                if filters.driver_national_code:
+                    d_stmt = d_stmt.where(col(Driver.driver_national_code).contains(filters.driver_national_code.strip()))
+                if filters.driver_name:
+                    d_stmt = d_stmt.where(col(Driver.full_name).contains(filters.driver_name.strip()))
+                driver_subquery = d_stmt
+
+            plate_subquery = None
+            if filters.plate_id or filters.plate_number:
                 from app.models_multitenant import DriverPlate
 
-                plate_driver_subquery = select(DriverPlate.driver_id).where(DriverPlate.id == filters.plate_id)
-                stmt = stmt.where(WaybillJob.driver_id.in_(plate_driver_subquery))
-            if filters.status:
-                stmt = stmt.where(WaybillJob.status == filters.status)
-            if filters.date_from:
-                dt = datetime.fromisoformat(filters.date_from)
-                stmt = stmt.where(WaybillJob.created_at >= dt)
-            if filters.date_to:
-                dt = datetime.fromisoformat(filters.date_to) + timedelta(days=1)
-                stmt = stmt.where(WaybillJob.created_at < dt)
-            if filters.operation_type:
-                stmt = stmt.where(WaybillJob.source == filters.operation_type)
-            stmt = stmt.order_by(col(WaybillJob.created_at).desc())
+                p_stmt = select(DriverPlate.driver_id)
+                if filters.plate_id:
+                    p_stmt = p_stmt.where(DriverPlate.id == filters.plate_id)
+                if filters.plate_number:
+                    p_stmt = p_stmt.where(col(DriverPlate.plate_number).contains(filters.plate_number.strip()))
+                plate_subquery = p_stmt
+
+            # Helper to apply conditions to queries
+            def apply_filters(query):
+                if filters.client_id:
+                    query = query.where(WaybillJob.client_id == filters.client_id)
+                if filters.driver_id:
+                    query = query.where(WaybillJob.driver_id == filters.driver_id)
+
+                if driver_subquery is not None or filters.driver_national_code:
+                    d_conds = []
+                    if driver_subquery is not None:
+                        d_conds.append(col(WaybillJob.driver_id).in_(driver_subquery))
+                    if filters.driver_national_code:
+                        nc = filters.driver_national_code.strip()
+                        d_conds.append(col(WaybillJob.payload_json)["driver_national_code"].as_string().contains(nc))
+                    query = query.where(or_(*d_conds))
+
+                if plate_subquery is not None or filters.plate_number:
+                    p_conds = []
+                    if plate_subquery is not None:
+                        p_conds.append(col(WaybillJob.driver_id).in_(plate_subquery))
+                    if filters.plate_number:
+                        pn = filters.plate_number.strip()
+                        p_conds.append(col(WaybillJob.payload_json)["plate_number"].as_string().contains(pn))
+                        p_conds.append(col(WaybillJob.payload_json)["vehicle_plate"].as_string().contains(pn))
+                    query = query.where(or_(*p_conds))
+
+                if filters.status:
+                    query = query.where(WaybillJob.status == filters.status)
+                if filters.date_from:
+                    dt = datetime.fromisoformat(filters.date_from)
+                    query = query.where(WaybillJob.created_at >= dt)
+                if filters.date_to:
+                    dt = datetime.fromisoformat(filters.date_to) + timedelta(days=1)
+                    query = query.where(WaybillJob.created_at < dt)
+                if filters.operation_type:
+                    query = query.where(WaybillJob.source == filters.operation_type)
+                return query
+
+            stmt = apply_filters(select(WaybillJob)).order_by(col(WaybillJob.created_at).desc())
 
             # Get total count using a light aggregate query
             from sqlalchemy import func
 
-            count_stmt = select(func.count(WaybillJob.id))
-            if filters.client_id:
-                count_stmt = count_stmt.where(WaybillJob.client_id == filters.client_id)
-            if filters.driver_id:
-                count_stmt = count_stmt.where(WaybillJob.driver_id == filters.driver_id)
-            if filters.plate_id:
-                from app.models_multitenant import DriverPlate
-
-                plate_driver_subquery = select(DriverPlate.driver_id).where(DriverPlate.id == filters.plate_id)
-                count_stmt = count_stmt.where(WaybillJob.driver_id.in_(plate_driver_subquery))
-            if filters.status:
-                count_stmt = count_stmt.where(WaybillJob.status == filters.status)
-            if filters.date_from:
-                dt = datetime.fromisoformat(filters.date_from)
-                count_stmt = count_stmt.where(WaybillJob.created_at >= dt)
-            if filters.date_to:
-                dt = datetime.fromisoformat(filters.date_to) + timedelta(days=1)
-                count_stmt = count_stmt.where(WaybillJob.created_at < dt)
-            if filters.operation_type:
-                count_stmt = count_stmt.where(WaybillJob.source == filters.operation_type)
-
+            count_stmt = apply_filters(select(func.count(WaybillJob.id)))
             count_result = await session.exec(count_stmt)
             total = count_result.one()
 
@@ -243,7 +264,7 @@ class AdminReportingService:
             result = await session.exec(stmt)
             paginated = result.all()
 
-            # Bulk fetch clients and drivers to prevent N+1 queries
+            # Bulk fetch clients, drivers, and plates to prevent N+1 queries
             client_ids = list({job.client_id for job in paginated if job.client_id})
             driver_ids = list({job.driver_id for job in paginated if job.driver_id})
 
@@ -257,10 +278,25 @@ class AdminReportingService:
                 drivers_res = await session.exec(select(Driver).where(col(Driver.id).in_(driver_ids)))
                 drivers_dict = {d.id: d for d in drivers_res.all()}
 
+            plates_dict = {}
+            if driver_ids:
+                from app.models_multitenant import DriverPlate
+
+                plates_res = await session.exec(select(DriverPlate).where(col(DriverPlate.driver_id).in_(driver_ids)))
+                for p in plates_res.all():
+                    if p.driver_id not in plates_dict:
+                        plates_dict[p.driver_id] = p.plate_number
+
             rows = []
             for job in paginated:
                 driver = drivers_dict.get(job.driver_id) if job.driver_id else None
                 client = clients_dict.get(job.client_id)
+                plate_str = (
+                    plates_dict.get(job.driver_id)
+                    or (job.payload_json.get("plate_number") if isinstance(job.payload_json, dict) else None)
+                    or (job.payload_json.get("vehicle_plate") if isinstance(job.payload_json, dict) else None)
+                    or "-"
+                )
 
                 rows.append(
                     {
@@ -270,6 +306,7 @@ class AdminReportingService:
                         "driver_id": job.driver_id,
                         "driver_name": driver.full_name if driver else None,
                         "driver_national_code": driver.driver_national_code if driver else None,
+                        "plate_number": plate_str,
                         "status": job.status,
                         "source": job.source,
                         "business_date": job.business_date,
@@ -296,6 +333,8 @@ class AdminReportingService:
     async def failure_analysis(
         self,
         client_id: int | None = None,
+        driver_id: int | None = None,
+        plate_number: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
     ) -> dict[str, Any]:
@@ -312,6 +351,13 @@ class AdminReportingService:
             )
             if client_id:
                 stmt = stmt.where(WaybillJob.client_id == client_id)
+            if driver_id:
+                stmt = stmt.where(WaybillJob.driver_id == driver_id)
+            if plate_number:
+                from app.models_multitenant import DriverPlate
+
+                p_stmt = select(DriverPlate.driver_id).where(col(DriverPlate.plate_number).contains(plate_number.strip()))
+                stmt = stmt.where(col(WaybillJob.driver_id).in_(p_stmt))
             if date_from:
                 dt = datetime.fromisoformat(date_from)
                 stmt = stmt.where(WaybillJob.created_at >= dt)
@@ -340,17 +386,6 @@ class AdminReportingService:
             if driver_ids:
                 drivers_res = await session.exec(select(Driver).where(col(Driver.id).in_(driver_ids)))
                 drivers_dict = {d.id: d for d in drivers_res.all()}
-                client_stmt = select(Client).where(col(Client.id).in_(client_ids))
-                client_result = await session.exec(client_stmt)
-                for c in client_result.all():
-                    clients_dict[c.id] = c
-
-            drivers_dict = {}
-            if driver_ids:
-                driver_stmt = select(Driver).where(col(Driver.id).in_(driver_ids))
-                driver_result = await session.exec(driver_stmt)
-                for d in driver_result.all():
-                    drivers_dict[d.id] = d
 
             for job in failed_jobs:
                 cat = job.error_category or "unknown"
@@ -384,6 +419,48 @@ class AdminReportingService:
                 "by_client": dict(by_client),
                 "by_driver": dict(by_driver),
                 "examples": dict(examples),
+            }
+        finally:
+            await session.close()
+
+    async def get_filter_options(self) -> dict[str, Any]:
+        """Fetch available clients, drivers, and plates for admin dropdown filters."""
+        session = async_session_factory()
+        try:
+            from app.models_multitenant import DriverPlate
+
+            clients_res = await session.exec(select(Client).order_by(Client.name))
+            clients = [
+                {"id": c.id, "name": c.name, "client_code": c.client_code}
+                for c in clients_res.all()
+            ]
+
+            drivers_res = await session.exec(select(Driver).order_by(Driver.full_name))
+            drivers = [
+                {
+                    "id": d.id,
+                    "client_id": d.client_id,
+                    "full_name": d.full_name,
+                    "driver_national_code": d.driver_national_code,
+                }
+                for d in drivers_res.all()
+            ]
+
+            plates_res = await session.exec(select(DriverPlate).order_by(DriverPlate.plate_number))
+            plates = [
+                {
+                    "id": p.id,
+                    "client_id": p.client_id,
+                    "driver_id": p.driver_id,
+                    "plate_number": p.plate_number,
+                }
+                for p in plates_res.all()
+            ]
+
+            return {
+                "clients": clients,
+                "drivers": drivers,
+                "plates": plates,
             }
         finally:
             await session.close()

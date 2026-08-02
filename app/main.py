@@ -23,7 +23,6 @@ from app.api.routes import (
     reports,
     rpa_phase1,
     system,
-    ui,
     user_reporting,
     waybill_entry,
     waybill_map,
@@ -229,14 +228,26 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.mount("/assets", StaticFiles(directory="app/ui/assets"), name="assets")
+from pathlib import Path
+_screenshots_dir = Path("runtime/screenshots")
+_screenshots_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/assets/screenshots", StaticFiles(directory=str(_screenshots_dir)), name="screenshots")
 
 cors_origins = _frontend_origins()
 if not cors_origins:
+    if utcms_config.ENVIRONMENT == "production":
+        logger.critical(
+            "CORS: FRONTEND_URL is not configured in production environment! "
+            "This will block all cross-origin requests from the client. "
+            "Exiting application setup due to critical configuration risk."
+        )
+        raise RuntimeError("FRONTEND_URL must be configured in production environment.")
     cors_origins = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
+
+logger.info("CORS allowed origins configured", extra={"extra_fields": {"cors_origins": cors_origins}})
 
 app.add_middleware(
     CORSMiddleware,
@@ -337,7 +348,6 @@ app.include_router(multitenant.router)
 app.include_router(multitenant.alias_router)
 app.include_router(rpa_phase1.router)
 app.include_router(system.router)
-app.include_router(ui.router)
 app.include_router(realtime.router)
 app.include_router(admin_alerts.router)
 app.include_router(admin_reporting.router)

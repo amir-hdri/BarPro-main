@@ -184,6 +184,10 @@ bash manage.sh migrate   # یا: alembic upgrade head
 4. bash manage.sh deploy
 ```
 
+### 16.5 تنظیم FRONTEND_URL در دیپلوی Production
+- متغیر محیطی `FRONTEND_URL` (یا `FRONTEND_URLS`) حتماً باید در محیط production ست شده باشد.
+- در غیر این صورت، برنامه در زمان راه‌اندازی با خطای `RuntimeError` بالا نخواهد آمد تا از وقوع بی‌صدای خطای CORS جلوگیری شود.
+
 ---
 
 ## 🟢 فرآیندهای عملیاتی

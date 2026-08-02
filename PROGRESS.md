@@ -72,3 +72,10 @@ This file tracks the completion status of the phases defined in [BarPro_Unified_
 - **Features**: Created server management script `manage.sh` covering start, stop, status, health, migrate, backup, and deploy. Added automated smoke tests under `tests/smoke/`.
 - **Files**: `manage.sh`, `tests/smoke/test_smoke.py`, deploy scripts (`server_deploy.py`, `deploy_remote.sh`, `deploy_single_vm.py`, `upload_and_setup.py`, etc.).
 - **Gaps Fixed (2026-08-01)**: Removed hardcoded IPs from all deploy scripts (`server_deploy.py`, `deploy_remote.sh`, `deploy_single_vm.py`, `deploy_remote.py`, `upload_and_setup.py`). All scripts now use `CENTRAL_IP` / `SECONDARY_IP` environment variables or `<YOUR_CENTRAL_SERVER_IP>` placeholders. Enhanced `manage.sh health` to check proxy health (Squid 1/2/3) and worker registry DB connectivity. Updated `.env.example` and `infra/squid/squid_1.conf` comments. Updated `app/automation/worker_proxy.py` to use generic public IP detection instead of hardcoded addresses.
+
+### UI/UX, Typography, and Motion Upgrades (Completed: 2026-08-02)
+- **Features**: Comprehensive visual, responsiveness, typography, and motion upgrade across the Next.js 15 web panel. Set up the Vazirmatn variable font, resolved iOS Safari auto-zoom issues, set notch-compatible viewport parameters, built an interactive mobile navigation drawer with spring transitions and Drag-to-dismiss via Framer Motion, transition templates on route navigation, and converted grids/nested sub-tables to flexible cards on mobile.
+- **Verification & Audit**: Successfully passed the pre-flight frontend UI/UX audit (`ui_ux_cli.py audit-ui --output ui_audit.json`) with 0 violations.
+- **Font File Fix**: Remedied a critical issue where the Vazirmatn variable font file was corrupted (HTML 404 placeholder) by downloading and extracting the official TrueType variable font (`Vazirmatn[wght].ttf`) from Saber Rastikerdar's repository releases.
+- **Build Status**: Verified successfully with `npm run build` compiling the production bundle in 6.9s without warnings.
+

@@ -44,7 +44,7 @@ class UserReportingService:
     ) -> list[dict[str, Any]]:
         stmt = select(Driver).where(Driver.client_id == client.id).order_by(col(Driver.created_at).desc())
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
-        result = session.exec(stmt)
+        result = await session.exec(stmt)
         drivers = result.all()
 
         if not drivers:
@@ -68,12 +68,12 @@ class UserReportingService:
             .where(WaybillJob.client_id == client.id, col(WaybillJob.driver_id).in_(driver_ids))
             .group_by(WaybillJob.driver_id)
         )
-        agg_result = session.exec(agg_stmt)
+        agg_result = await session.exec(agg_stmt)
         jobs_by_driver = {row.driver_id: row for row in agg_result.all()}
 
         # Fetch all DriverRuntimeStates
         runtime_stmt = select(DriverRuntimeState).where(col(DriverRuntimeState.driver_id).in_(driver_ids))
-        runtime_result = session.exec(runtime_stmt)
+        runtime_result = await session.exec(runtime_stmt)
         runtime_by_driver = {r.driver_id: r for r in runtime_result.all()}
 
         # Fetch all DriverSchedules
@@ -81,7 +81,7 @@ class UserReportingService:
             DriverSchedule.client_id == client.id,
             col(DriverSchedule.driver_id).in_(driver_ids),
         )
-        schedules_result = session.exec(schedules_stmt)
+        schedules_result = await session.exec(schedules_stmt)
         schedules_by_driver = defaultdict(list)
         for schedule in schedules_result.all():
             schedules_by_driver[schedule.driver_id].append(schedule)
@@ -91,7 +91,7 @@ class UserReportingService:
             DriverPlate.client_id == client.id,
             col(DriverPlate.driver_id).in_(driver_ids),
         )
-        plates_result = session.exec(plates_stmt)
+        plates_result = await session.exec(plates_stmt)
         plates_by_driver = defaultdict(list)
         for plate in plates_result.all():
             plates_by_driver[plate.driver_id].append(plate)
@@ -156,66 +156,142 @@ class UserReportingService:
             )
         return output
 
+    async def get_filter_options(
+        self,
+        client: Client,
+        session: AsyncSession,
+    ) -> dict[str, Any]:
+        """Get distinct driver and plate filter options for the client."""
+        drivers_res = await session.exec(select(Driver).where(Driver.client_id == client.id).order_by(Driver.full_name))
+        drivers = drivers_res.all()
+
+        plates_res = await session.exec(select(DriverPlate).where(DriverPlate.client_id == client.id).order_by(DriverPlate.plate_number))
+        plates = plates_res.all()
+
+        return {
+            "drivers": [
+                {
+                    "id": d.id,
+                    "full_name": d.full_name,
+                    "driver_national_code": d.driver_national_code,
+                }
+                for d in drivers
+            ],
+            "plates": [
+                {
+                    "id": p.id,
+                    "plate_number": p.plate_number,
+                    "driver_id": p.driver_id,
+                }
+                for p in plates
+            ],
+        }
+
     async def waybill_history(
         self,
         client: Client,
         session: AsyncSession,
         driver_id: int | None = None,
+        driver_name: str | None = None,
+        plate_number: str | None = None,
         status: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
         page: int = 1,
         page_size: int = 50,
     ) -> dict[str, Any]:
-        stmt = select(WaybillJob).where(WaybillJob.client_id == client.id)
-        if driver_id:
-            stmt = stmt.where(WaybillJob.driver_id == driver_id)
-        if status:
-            stmt = stmt.where(WaybillJob.status == status)
-        if date_from:
-            dt = datetime.fromisoformat(date_from)
-            stmt = stmt.where(WaybillJob.created_at >= dt)
-        if date_to:
-            dt = datetime.fromisoformat(date_to) + timedelta(days=1)
-            stmt = stmt.where(WaybillJob.created_at < dt)
-        stmt = stmt.order_by(col(WaybillJob.created_at).desc())
+        from sqlalchemy import or_
 
-        count_stmt = select(func.count(WaybillJob.id)).where(WaybillJob.client_id == client.id)
-        if driver_id:
-            count_stmt = count_stmt.where(WaybillJob.driver_id == driver_id)
-        if status:
-            count_stmt = count_stmt.where(WaybillJob.status == status)
-        if date_from:
-            dt = datetime.fromisoformat(date_from)
-            count_stmt = count_stmt.where(WaybillJob.created_at >= dt)
-        if date_to:
-            dt = datetime.fromisoformat(date_to) + timedelta(days=1)
-            count_stmt = count_stmt.where(WaybillJob.created_at < dt)
-        count_result = session.exec(count_stmt)
+        driver_subquery = None
+        if driver_name:
+            d_stmt = select(Driver.id).where(
+                Driver.client_id == client.id,
+                col(Driver.full_name).contains(driver_name.strip()),
+            )
+            driver_subquery = d_stmt
+
+        plate_subquery = None
+        if plate_number:
+            p_stmt = select(DriverPlate.driver_id).where(
+                DriverPlate.client_id == client.id,
+                col(DriverPlate.plate_number).contains(plate_number.strip()),
+            )
+            plate_subquery = p_stmt
+
+        def apply_filters(query):
+            query = query.where(WaybillJob.client_id == client.id)
+            if driver_id:
+                query = query.where(WaybillJob.driver_id == driver_id)
+            if driver_subquery is not None or driver_name:
+                d_conds = []
+                if driver_subquery is not None:
+                    d_conds.append(col(WaybillJob.driver_id).in_(driver_subquery))
+                if driver_name:
+                    dn = driver_name.strip()
+                    d_conds.append(col(WaybillJob.payload_json)["driver_name"].as_string().contains(dn))
+                query = query.where(or_(*d_conds))
+
+            if plate_subquery is not None or plate_number:
+                p_conds = []
+                if plate_subquery is not None:
+                    p_conds.append(col(WaybillJob.driver_id).in_(plate_subquery))
+                if plate_number:
+                    pn = plate_number.strip()
+                    p_conds.append(col(WaybillJob.payload_json)["plate_number"].as_string().contains(pn))
+                    p_conds.append(col(WaybillJob.payload_json)["vehicle_plate"].as_string().contains(pn))
+                query = query.where(or_(*p_conds))
+
+            if status:
+                query = query.where(WaybillJob.status == status)
+            if date_from:
+                dt = datetime.fromisoformat(date_from)
+                query = query.where(WaybillJob.created_at >= dt)
+            if date_to:
+                dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+                query = query.where(WaybillJob.created_at < dt)
+            return query
+
+        stmt = apply_filters(select(WaybillJob)).order_by(col(WaybillJob.created_at).desc())
+        count_stmt = apply_filters(select(func.count(WaybillJob.id)))
+
+        count_result = await session.exec(count_stmt)
         total = count_result.one()
 
         start = (page - 1) * page_size
         stmt = stmt.offset(start).limit(page_size)
-        result = session.exec(stmt)
+        result = await session.exec(stmt)
         jobs = result.all()
 
-        # Optimization: Bulk fetch drivers
+        # Bulk fetch drivers and plates for display
         driver_ids = {j.driver_id for j in jobs if j.driver_id}
         drivers_map = {}
+        plates_map = {}
         if driver_ids:
             drivers_stmt = select(Driver).where(col(Driver.id).in_(list(driver_ids)))
-            drivers_result = session.exec(drivers_stmt)
+            drivers_result = await session.exec(drivers_stmt)
             drivers_map = {d.id: d for d in drivers_result.all()}
+
+            plates_stmt = select(DriverPlate).where(col(DriverPlate.driver_id).in_(list(driver_ids)))
+            plates_result = await session.exec(plates_stmt)
+            for p in plates_result.all():
+                plates_map[p.driver_id] = p.plate_number
 
         rows = []
         for job in jobs:
             driver = drivers_map.get(job.driver_id)
+            plate_no = (
+                plates_map.get(job.driver_id)
+                or (job.payload_json or {}).get("plate_number")
+                or (job.payload_json or {}).get("vehicle_plate")
+                or None
+            )
             rows.append(
                 {
                     "job_id": job.job_id,
                     "driver_id": job.driver_id,
-                    "driver_name": driver.full_name if driver else None,
+                    "driver_name": driver.full_name if driver else (job.payload_json or {}).get("driver_name"),
                     "driver_national_code": driver.driver_national_code if driver else None,
+                    "plate_number": plate_no,
                     "status": job.status,
                     "source": job.source,
                     "business_date": job.business_date,
@@ -267,7 +343,7 @@ class UserReportingService:
             stmt = stmt.where(WaybillJob.created_at < dt)
         stmt = stmt.order_by(col(WaybillJob.created_at).desc()).limit(limit)
 
-        result = session.exec(stmt)
+        result = await session.exec(stmt)
         failed_jobs = result.all()
 
         if not failed_jobs:
@@ -278,7 +354,7 @@ class UserReportingService:
         drivers_map = {}
         if driver_ids:
             drivers_stmt = select(Driver).where(col(Driver.id).in_(list(driver_ids)))
-            drivers_result = session.exec(drivers_stmt)
+            drivers_result = await session.exec(drivers_stmt)
             drivers_map = {d.id: d for d in drivers_result.all()}
 
         job_ids = [j.job_id for j in failed_jobs]
@@ -293,7 +369,7 @@ class UserReportingService:
                 .order_by(col(WaybillTaskLog.job_id), col(WaybillTaskLog.created_at).desc())
             )
 
-            logs_result = session.exec(logs_stmt)
+            logs_result = await session.exec(logs_stmt)
             for log in logs_result.all():
                 if len(logs_map[log.job_id]) < 10:
                     logs_map[log.job_id].append(log)
@@ -341,7 +417,7 @@ class UserReportingService:
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
-        result = session.exec(schedules_stmt)
+        result = await session.exec(schedules_stmt)
         schedules = result.all()
 
         if not schedules:
@@ -352,7 +428,7 @@ class UserReportingService:
         drivers_map = {}
         if driver_ids:
             drivers_stmt = select(Driver).where(col(Driver.id).in_(list(driver_ids)))
-            drivers_result = session.exec(drivers_stmt)
+            drivers_result = await session.exec(drivers_stmt)
             drivers_map = {d.id: d for d in drivers_result.all()}
 
         schedule_ids = [s.id for s in schedules]
@@ -375,7 +451,7 @@ class UserReportingService:
                 .where(WaybillJob.client_id == client.id, col(WaybillJob.schedule_id).in_(schedule_ids))
                 .group_by(WaybillJob.schedule_id)
             )
-            agg_result = session.exec(agg_stmt)
+            agg_result = await session.exec(agg_stmt)
             stats_by_schedule = {row.schedule_id: row for row in agg_result.all()}
 
             # 2. Fetch top 5 recent jobs per schedule using a window function efficiently
@@ -397,7 +473,7 @@ class UserReportingService:
                 .where(subq.c.rn <= 5)
                 .order_by(col(WaybillJob.schedule_id), col(WaybillJob.created_at).desc())
             )
-            recent_jobs_res = session.exec(recent_jobs_stmt)
+            recent_jobs_res = await session.exec(recent_jobs_stmt)
             for j in recent_jobs_res.all():
                 recent_jobs_by_schedule[j.schedule_id].append(j)
 
@@ -451,7 +527,7 @@ class UserReportingService:
         drivers_stmt = (
             select(Driver).where(Driver.client_id == client.id).offset((page - 1) * page_size).limit(page_size)
         )
-        drivers_result = session.exec(drivers_stmt)
+        drivers_result = await session.exec(drivers_stmt)
         drivers = drivers_result.all()
 
         if not drivers:
@@ -471,7 +547,7 @@ class UserReportingService:
             .where(WaybillJob.client_id == client.id)
             .group_by(WaybillJob.driver_id)
         )
-        agg_result = session.exec(agg_stmt)
+        agg_result = await session.exec(agg_stmt)
         stats_by_driver = {row.driver_id: row for row in agg_result.all()}
 
         output = []
@@ -565,13 +641,13 @@ class UserReportingService:
         session: AsyncSession,
     ) -> dict[str, Any]:
         drivers_stmt = select(Driver).where(Driver.client_id == client.id)
-        drivers_result = session.exec(drivers_stmt)
+        drivers_result = await session.exec(drivers_stmt)
         drivers = drivers_result.all()
         total_drivers = len(drivers)
         active_drivers = sum(1 for d in drivers if d.status == "active")
 
         plates_stmt = select(DriverPlate).where(DriverPlate.client_id == client.id)
-        plates_result = session.exec(plates_stmt)
+        plates_result = await session.exec(plates_stmt)
         plates = plates_result.all()
         total_plates = len(plates)
 
@@ -599,7 +675,7 @@ class UserReportingService:
                 )
             ).label("today_failed"),
         ).where(WaybillJob.client_id == client.id)
-        agg_result = session.exec(agg_stmt)
+        agg_result = await session.exec(agg_stmt)
         stats = agg_result.first()
 
         total_jobs = int(stats.total_jobs) if stats and stats.total_jobs else 0

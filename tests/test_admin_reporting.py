@@ -87,7 +87,9 @@ def test_get_driver_report_success_with_filters():
                 params={
                     "client_id": 10,
                     "driver_id": 42,
+                    "driver_national_code": "1234567890",
                     "plate_id": 100,
+                    "plate_number": "12B345IR77",
                     "status": "success",
                     "date_from": "2023-01-01",
                     "date_to": "2023-12-31",
@@ -108,7 +110,9 @@ def test_get_driver_report_success_with_filters():
             assert isinstance(filters, DriverReportFilter)
             assert filters.client_id == 10
             assert filters.driver_id == 42
+            assert filters.driver_national_code == "1234567890"
             assert filters.plate_id == 100
+            assert filters.plate_number == "12B345IR77"
             assert filters.status == "success"
             assert filters.date_from == "2023-01-01"
             assert filters.date_to == "2023-12-31"
@@ -118,3 +122,27 @@ def test_get_driver_report_success_with_filters():
         finally:
             # Clear overrides
             app_for_test.dependency_overrides.clear()
+
+
+def test_get_filter_options_success():
+    """Test that filter options endpoint returns clients, drivers, and plates list."""
+    mock_filter_data = {
+        "clients": [{"id": 1, "name": "Client A", "client_code": "C01"}],
+        "drivers": [{"id": 5, "client_id": 1, "full_name": "Driver A", "driver_national_code": "1111111111"}],
+        "plates": [{"id": 10, "client_id": 1, "driver_id": 5, "plate_number": "12A345IR11"}],
+    }
+
+    app_for_test.dependency_overrides[get_current_admin] = lambda: {"sub": "admin123", "role": "admin"}
+
+    with patch(
+        "app.api.routes.admin_reporting.admin_reporting_service.get_filter_options", new_callable=AsyncMock
+    ) as mock_get_filter_options:
+        mock_get_filter_options.return_value = mock_filter_data
+
+        try:
+            response = client.get("/api/v1/admin/reports/filter-options")
+            assert response.status_code == 200
+            assert response.json() == mock_filter_data
+        finally:
+            app_for_test.dependency_overrides.clear()
+

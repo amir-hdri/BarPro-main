@@ -3,36 +3,35 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  BuildingOffice2Icon,
-  ChartBarIcon,
-  ClockIcon,
-  DocumentPlusIcon,
-  HomeIcon,
-  TruckIcon,
-  UserCircleIcon,
-  Cog6ToothIcon,
-  FireIcon,
-  XMarkIcon,
-} from '@heroicons/react/24/outline';
-import { SparklesIcon } from '@heroicons/react/24/solid';
+  Home,
+  FilePlus2,
+  Flame,
+  Clock,
+  Truck,
+  BarChart3,
+  User,
+  Building2,
+  Settings,
+  X,
+  Sparkles,
+} from 'lucide-react';
 
 import { useSession } from '@/hooks/useSession';
 
 const clientNavigation = [
-  { href: '/', icon: HomeIcon, label: 'داشبورد', badge: null },
-  { href: '/new', icon: DocumentPlusIcon, label: 'ثبت بارنامه', badge: 'جدید' },
-  { href: '/fuel', icon: FireIcon, label: 'استعلام سوخت', badge: null },
-  { href: '/history', icon: ClockIcon, label: 'پیگیری کارها', badge: null },
-  { href: '/drivers', icon: TruckIcon, label: 'رانندگان', badge: null },
-  { href: '/reports', icon: ChartBarIcon, label: 'گزارش‌ها', badge: null },
-  { href: '/settings', icon: UserCircleIcon, label: 'حساب کاربری', badge: null },
+  { href: '/', icon: Home, label: 'داشبورد', badge: null },
+  { href: '/new', icon: FilePlus2, label: 'ثبت بارنامه', badge: 'جدید' },
+  { href: '/fuel', icon: Flame, label: 'استعلام سوخت', badge: null },
+  { href: '/history', icon: Clock, label: 'پیگیری کارها', badge: null },
+  { href: '/drivers', icon: Truck, label: 'رانندگان', badge: null },
+  { href: '/reports', icon: BarChart3, label: 'گزارش‌ها', badge: null },
+  { href: '/settings', icon: User, label: 'حساب کاربری', badge: null },
 ];
 
-
 const adminNavigation = [
-  { href: '/admin', icon: BuildingOffice2Icon, label: 'مدیریت مشتری‌ها', badge: null },
-  { href: '/fuel', icon: FireIcon, label: 'استعلام سوخت', badge: null },
-  { href: '/history', icon: ClockIcon, label: 'پیگیری کارها', badge: null },
+  { href: '/admin', icon: Building2, label: 'مدیریت مشتری‌ها', badge: null },
+  { href: '/fuel', icon: Flame, label: 'استعلام سوخت', badge: null },
+  { href: '/history', icon: Clock, label: 'پیگیری کارها', badge: null },
 ];
 
 interface SidebarProps {
@@ -46,7 +45,7 @@ export function Sidebar({ onNavigate, onClose }: SidebarProps) {
   const navigation = isAdmin ? adminNavigation : clientNavigation;
 
   return (
-    <aside className="relative flex h-full flex-col rounded-[2.5rem] bg-slate-950/60 p-6 text-white shadow-[0_20px_60px_-15px_rgba(2,6,23,0.5)] border border-white/10 overflow-hidden backdrop-blur-xl transition-all duration-400">
+    <aside role="navigation" aria-label="منوی اصلی داشبورد" className="relative flex h-full flex-col rounded-[2.5rem] bg-slate-950/60 p-6 text-white shadow-panel-lg border border-white/10 overflow-hidden backdrop-blur-xl transition-all duration-400">
       <div className="absolute -top-32 -left-32 h-64 w-64 rounded-full bg-cyan-500/20 blur-[80px] pointer-events-none" />
       <div className="absolute -bottom-32 -right-32 h-64 w-64 rounded-full bg-blue-500/10 blur-[80px] pointer-events-none" />
 
@@ -55,7 +54,7 @@ export function Sidebar({ onNavigate, onClose }: SidebarProps) {
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="flex h-12 w-12 items-center justify-center rounded-[1.25rem] bg-gradient-to-br from-cyan-400 to-cyan-600 shadow-[0_0_30px_rgba(6,182,212,0.5)]">
-                <SparklesIcon className="h-6 w-6 text-white animate-pulse" />
+                <Sparkles className="h-6 w-6 text-white animate-pulse" />
               </div>
               <div>
                 <h1 className="text-2xl font-black text-white bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">BarPro</h1>
@@ -70,7 +69,7 @@ export function Sidebar({ onNavigate, onClose }: SidebarProps) {
                 className="xl:hidden inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 transition-all active:scale-95 shadow-sm"
                 aria-label="close menu"
               >
-                <XMarkIcon className="h-5 w-5" />
+                <X className="h-5 w-5" />
               </button>
             )}
           </div>
@@ -123,7 +122,7 @@ export function Sidebar({ onNavigate, onClose }: SidebarProps) {
 
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 shrink-0">
-              <Cog6ToothIcon className="h-4 w-4 text-cyan-400 animate-[spin_4s_linear_infinite]" />
+              <Settings className="h-4 w-4 text-cyan-400 animate-[spin_4s_linear_infinite]" />
             </div>
             <div>
               <p className="text-[12px] font-black text-white">
