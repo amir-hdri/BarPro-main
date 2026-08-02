@@ -732,73 +732,73 @@ async def _execute_job(
                 return {"status": TaskStatus.NEEDS_REVIEW.value, "error_category": "driver_key_mismatch"}
             # ────────────────────────────────────────────────────────────────────────
 
-            auth_lock_key = rpa_runtime.auth_lock_key(job.client_id, driver.id)
-        auth_lock_acquired = await rpa_runtime.acquire_lock(auth_lock_key, utcms_config.RPA_LOCK_TTL_SECONDS)
-        if not auth_lock_acquired:
-            retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
-            JobStateMachine.transition(
-                session,
-                job,
-                TaskStatus.WAITING_RETRY.value,
-                celery_task_id=None,
-                retryable=True,
-                next_retry_at=retry_at,
-                submit_after=retry_at,
-                last_error="Another authorization is already running for this driver",
-                error_category="driver_submission_in_progress",
-                updated_at=_utcnow_naive()
-            )
-            await session.commit()
-            return {"status": TaskStatus.WAITING_RETRY.value, "next_retry_at": retry_at.isoformat()}
+                auth_lock_key = rpa_runtime.auth_lock_key(job.client_id, driver.id)
+                auth_lock_acquired = await rpa_runtime.acquire_lock(auth_lock_key, utcms_config.RPA_LOCK_TTL_SECONDS)
+                if not auth_lock_acquired:
+                    retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.WAITING_RETRY.value,
+                        celery_task_id=None,
+                        retryable=True,
+                        next_retry_at=retry_at,
+                        submit_after=retry_at,
+                        last_error="Another authorization is already running for this driver",
+                        error_category="driver_submission_in_progress",
+                        updated_at=_utcnow_naive()
+                    )
+                    await session.commit()
+                    return {"status": TaskStatus.WAITING_RETRY.value, "next_retry_at": retry_at.isoformat()}
 
-        # Persist ownership of the auth lock in DB
-        runtime_state = await _get_or_create_runtime_state(session, cached_client_id, cached_driver_id)
-        runtime_state.auth_lock_owner = task.request.id or "worker"
-        runtime_state.auth_lock_acquired_at = _utcnow_naive()
-        runtime_state.auth_lock_ttl_seconds = utcms_config.RPA_LOCK_TTL_SECONDS
-        await session.commit()
+                # Persist ownership of the auth lock in DB
+                runtime_state = await _get_or_create_runtime_state(session, cached_client_id, cached_driver_id)
+                runtime_state.auth_lock_owner = task.request.id or "worker"
+                runtime_state.auth_lock_acquired_at = _utcnow_naive()
+                runtime_state.auth_lock_ttl_seconds = utcms_config.RPA_LOCK_TTL_SECONDS
+                await session.commit()
 
-        driver_lock_key = rpa_runtime.submit_lock_key(job.client_id, driver.id)
-        driver_lock_acquired = await rpa_runtime.acquire_lock(driver_lock_key, utcms_config.RPA_LOCK_TTL_SECONDS)
-        if not driver_lock_acquired:
-            # Release auth lock since submit lock failed
-            await rpa_runtime.release_lock(auth_lock_key)
-            auth_lock_acquired = False
-            runtime_state.auth_lock_owner = None
-            runtime_state.auth_lock_acquired_at = None
-            runtime_state.auth_lock_ttl_seconds = None
-            await session.commit()
+                driver_lock_key = rpa_runtime.submit_lock_key(job.client_id, driver.id)
+                driver_lock_acquired = await rpa_runtime.acquire_lock(driver_lock_key, utcms_config.RPA_LOCK_TTL_SECONDS)
+                if not driver_lock_acquired:
+                    # Release auth lock since submit lock failed
+                    await rpa_runtime.release_lock(auth_lock_key)
+                    auth_lock_acquired = False
+                    runtime_state.auth_lock_owner = None
+                    runtime_state.auth_lock_acquired_at = None
+                    runtime_state.auth_lock_ttl_seconds = None
+                    await session.commit()
 
-            retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
-            JobStateMachine.transition(
-                session,
-                job,
-                TaskStatus.WAITING_RETRY.value,
-                celery_task_id=None,
-                retryable=True,
-                next_retry_at=retry_at,
-                submit_after=retry_at,
-                last_error="Another waybill submission is already running for this driver",
-                error_category="driver_submission_in_progress",
-                updated_at=_utcnow_naive()
-            )
-            await session.commit()
-            return {"status": TaskStatus.WAITING_RETRY.value, "next_retry_at": retry_at.isoformat()}
-        if isinstance(job.payload_json, dict):
-            payload = job.payload_json
-        elif isinstance(job.payload_json, str):
-            payload = json.loads(job.payload_json)
-        else:
-            payload = {}
+                    retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.WAITING_RETRY.value,
+                        celery_task_id=None,
+                        retryable=True,
+                        next_retry_at=retry_at,
+                        submit_after=retry_at,
+                        last_error="Another waybill submission is already running for this driver",
+                        error_category="driver_submission_in_progress",
+                        updated_at=_utcnow_naive()
+                    )
+                    await session.commit()
+                    return {"status": TaskStatus.WAITING_RETRY.value, "next_retry_at": retry_at.isoformat()}
+                if isinstance(job.payload_json, dict):
+                    payload = job.payload_json
+                elif isinstance(job.payload_json, str):
+                    payload = json.loads(job.payload_json)
+                else:
+                    payload = {}
 
-        from app.services.session_vault import session_vault
+                from app.services.session_vault import session_vault
 
-        auth_state_path = session_vault.auth_state_path_for_account(
-            username=username,
-            national_code=driver.driver_national_code,
-            fallback=username,
-            scope=f"client-{job.client_id}-driver-{driver.id}",
-        )
+                auth_state_path = session_vault.auth_state_path_for_account(
+                    username=username,
+                    national_code=driver.driver_national_code,
+                    fallback=username,
+                    scope=f"client-{job.client_id}-driver-{driver.id}",
+                )
 
         # Check session version mismatch (Session Versioning logic)
         try:
