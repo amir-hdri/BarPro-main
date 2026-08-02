@@ -9,8 +9,8 @@ Usage: SSH_PASSWORD="your-old-password" SSH_NEW_PASSWORD="your-new-password" pyt
 import os
 import paramiko
 
-old_password = os.environ.get("SSH_PASSWORD", "")
-new_password = os.environ.get("SSH_NEW_PASSWORD", "")
+old_password = os.environ["SSH_PASSWORD"]
+new_password = os.environ["SSH_NEW_PASSWORD"]
 ip = os.environ.get("SSH_HOST", "<YOUR_CENTRAL_SERVER_IP>")
 username = os.environ.get("SSH_USER", "ubuntu")
 

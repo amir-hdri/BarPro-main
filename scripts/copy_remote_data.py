@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 IP = os.environ.get("COPY_REMOTE_IP", "<YOUR_CENTRAL_SERVER_IP>")
 USERNAME = os.environ.get("COPY_REMOTE_USER", "ubuntu")
-PASSWORD = os.environ.get("COPY_REMOTE_PASSWORD", "")
+PASSWORD = os.environ["COPY_REMOTE_PASSWORD"]
 
 
 def find_local_proxy():

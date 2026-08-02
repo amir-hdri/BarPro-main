@@ -95,14 +95,14 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
 
   return (
     <div className={`flex flex-col gap-2 ${className}`}>
-      <div className="flex items-stretch h-14 bg-white border-[3px] border-slate-900 rounded-2xl overflow-hidden shadow-lg font-sans transition-all focus-within:ring-4 focus-within:ring-cyan-500/20 focus-within:border-cyan-600 dir-ltr">
-        <div className="w-10 bg-[#003399] flex flex-col items-center justify-end pb-2 relative select-none shrink-0">
-           <div className="absolute top-0 left-0 w-full h-[4px] bg-emerald-600"></div>
-           <div className="absolute top-[4px] left-0 w-full h-[4px] bg-white"></div>
-           <div className="absolute top-[8px] left-0 w-full h-[4px] bg-rose-600"></div>
-           <span className="text-[8px] font-black text-white leading-none">I.R.</span>
-           <span className="text-[8px] font-black text-white leading-none mt-1">IRAN</span>
-        </div>
+       <div className="flex items-stretch h-14 bg-white border-[3px] border-slate-900 rounded-2xl overflow-hidden shadow-lg font-sans transition-all focus-within:ring-4 focus-within:ring-cyan-500/20 focus-within:border-cyan-600 dir-ltr">
+         <div className="w-10 bg-cyan-800 flex flex-col items-center justify-end pb-2 relative select-none shrink-0">
+            <div className="absolute top-0 left-0 w-full h-[4px] bg-emerald-600"></div>
+            <div className="absolute top-[4px] left-0 w-full h-[4px] bg-white"></div>
+            <div className="absolute top-[8px] left-0 w-full h-[4px] bg-rose-600"></div>
+            <span className="text-[8px] font-black text-white leading-none">I.R.</span>
+            <span className="text-[8px] font-black text-white leading-none mt-1">IRAN</span>
+         </div>
 
         <input
           ref={part1Ref}

@@ -73,7 +73,7 @@ async def _close_page_quickly(page: Any) -> None:
 class WaybillTask(Task):
     """Base task for waybill processing with common utilities."""
 
-    autoretry_for = (ConnectionError, TimeoutError, OSError, IOError)
+    autoretry_for = (ConnectionError, TimeoutError, asyncio.TimeoutError)
     max_retries = utcms_config.CELERY_MAX_RETRIES
     retry_backoff = True
     retry_backoff_max = 300
@@ -617,6 +617,7 @@ async def _execute_job(
     job: WaybillJob | None = None
     driver_lock_acquired = False
     auth_lock_acquired = False
+    page = None
 
     try:
         statement = select(WaybillJob).where(WaybillJob.job_id == job_id).with_for_update()
@@ -1206,8 +1207,7 @@ async def _update_job_status(
     error_category: str | None = None,
 ):
     """Update job status in database."""
-    session = async_session_factory()
-    try:
+    async with async_session_factory() as session:
         statement = select(WaybillJob).where(WaybillJob.job_id == job_id)
         result = await session.exec(statement)
         job = result.first()
@@ -1222,8 +1222,6 @@ async def _update_job_status(
                 extra_fields["finished_at"] = _utcnow_naive()
             JobStateMachine.transition(session, job, status, **extra_fields)
             await session.commit()
-    finally:
-        await session.close()
 
 
 async def _record_event(

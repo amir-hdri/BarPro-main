@@ -1,8 +1,10 @@
 import axios, { AxiosInstance } from 'axios';
 
+export const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || 'utcms_auth_token';
+
 export const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000')
+  (typeof window !== 'undefined' ? window.location.origin.replace(/:\d+$/, ':8000') : 'http://localhost:8000')
 ).replace(/\/+$/, '').replace(/\/api$/, '');
 
 // ─── URL helpers ─────────────────────────────────────────────────────────────
@@ -109,6 +111,8 @@ function createApiClient(): AxiosInstance {
       if (status === 401 && typeof window !== 'undefined') {
         try {
           window.localStorage.removeItem('utcms_auth_client');
+          // Clear the auth cookie
+          document.cookie = `${AUTH_COOKIE_NAME}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
           if (!window.location.pathname.startsWith('/auth')) {
             window.location.href = '/auth';
           }

@@ -79,7 +79,10 @@ def _ensure_auth_config(mode: str) -> None:
 
 
 async def require_sensitive_auth(request: Request) -> None:
-    """Protect sensitive endpoints with API Key / JWT."""
+    """Protect sensitive endpoints with API Key / JWT.
+    
+    Validates that JWT has a valid role (client or master_admin) when JWT is used.
+    """
     mode = utcms_config.API_AUTH_MODE.strip().lower()
 
     if mode in ("off", "none", "disabled"):
@@ -92,27 +95,34 @@ async def require_sensitive_auth(request: Request) -> None:
 
     api_key = request.headers.get(utcms_config.API_KEY_HEADER)
     token = _extract_bearer_token(request.headers.get("Authorization"))
-    if not token:
-        token = request.cookies.get("utcms_auth_token")
 
     has_api_key = _is_api_key_valid(api_key)
-    has_jwt = _is_jwt_valid(token)
+    decoded_jwt = _is_jwt_valid(token)
 
     authorized = False
     if mode == "api_key":
         authorized = has_api_key
     elif mode == "jwt":
-        authorized = has_jwt
+        authorized = decoded_jwt is not None
     elif mode == "api_key_or_jwt":
-        authorized = has_api_key or has_jwt
+        authorized = has_api_key or decoded_jwt is not None
     elif mode == "api_key_and_jwt":
-        authorized = has_api_key and has_jwt
+        authorized = has_api_key and decoded_jwt is not None
 
     if not authorized:
         raise HTTPException(
             status_code=401,
-            detail="دسترسی به endpoint حساس مجاز نیست (API Key/JWT نامعتبر یا غایب)",
+            detail="دسترسی به endpoint حساس مجاز نیست (API Key/JWT نامتبر یا غایب)",
         )
+    
+    # If JWT is used, validate it has a valid role
+    if decoded_jwt:
+        role = decoded_jwt.get("role") or decoded_jwt.get("type")
+        if role not in ("client", "master_admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="دسترسی مجاز نیست: نقش کاربر معتبر نیست",
+            )
 
 
 async def require_sensitive_admin(request: Request) -> None:

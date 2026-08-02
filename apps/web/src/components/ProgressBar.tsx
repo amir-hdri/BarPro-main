@@ -34,7 +34,8 @@ export function ProgressBar({
 }: ProgressBarProps) {
   const safeMax = Math.max(max, 1);
   const safeSegments = Math.max(Math.round(segments), 1);
-  const percent = Math.min(Math.max((value / safeMax) * 100, 0), 100);
+  const clampedValue = Math.min(Math.max(value, 0), safeMax);
+  const percent = (clampedValue / safeMax) * 100;
   const filledSegments = percent >= 100 ? safeSegments : Math.floor((percent / 100) * safeSegments);
 
   return (
@@ -43,7 +44,7 @@ export function ProgressBar({
       aria-label={label}
       aria-valuemin={0}
       aria-valuemax={safeMax}
-      aria-valuenow={Math.min(Math.max(value, 0), safeMax)}
+      aria-valuenow={clampedValue}
       className={`flex w-full gap-0.5 rounded-full border border-white/5 bg-slate-800/80 p-0.5 ${sizeClasses[size]} ${className}`}
     >
       {Array.from({ length: safeSegments }, (_, index) => (

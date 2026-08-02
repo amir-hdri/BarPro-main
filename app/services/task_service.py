@@ -22,6 +22,9 @@ from app.schemas.task import TaskStatus
 
 logger = logging.getLogger(__name__)
 
+# Maximum length for idempotency keys before SHA-256 hashing
+IDEMPOTENCY_KEY_MAX_LENGTH = 200
+
 
 class WaybillTaskService:
     QUEUE_DEPTH_KEY = "waybill:queue_depth"
@@ -31,11 +34,11 @@ class WaybillTaskService:
     def build_idempotency_key(payload: dict[str, Any], provided: str | None = None) -> str:
         if provided is not None:
             candidate = str(provided).strip()
-            if candidate:
-                if len(candidate) > 200:
-                    digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
-                    return f"user-{digest}"
-                return candidate
+        if candidate:
+            if len(candidate) > IDEMPOTENCY_KEY_MAX_LENGTH:
+                digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
+                return f"user-{digest}"
+            return candidate
 
         serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()

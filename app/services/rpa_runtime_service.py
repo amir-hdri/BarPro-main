@@ -198,6 +198,8 @@ class RPADistributedRuntime:
         """Return all active driver submit/auth locks with their remaining TTL.
 
         Scans Redis for keys matching ``lock:submit:*`` and ``lock:auth:*``.
+        WARNING: This performs a full key scan which can be slow on large Redis instances.
+        Consider maintaining a separate Redis set of active lock keys for production.
         Falls back to the in-memory store when Redis is unavailable.
         Returns a list of dicts: {"key", "ttl_seconds", "type"}.
         """

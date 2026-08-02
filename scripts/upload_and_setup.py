@@ -14,7 +14,7 @@ from scp import SCPClient
 
 HOST = os.environ.get("DEPLOY_HOST", "<YOUR_CENTRAL_SERVER_IP>")
 USER = os.environ.get("DEPLOY_USER", "ubuntu")
-PASS = os.environ.get("SSH_PASSWORD", "")
+PASS = os.environ["SSH_PASSWORD"]
 REMOTE = "/opt/barpro"
 
 EXCLUDE = {

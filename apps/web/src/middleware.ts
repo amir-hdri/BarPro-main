@@ -10,7 +10,8 @@ function isPublicPath(pathname: string): boolean {
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const hasAuthCookie = Boolean(request.cookies.get(AUTH_COOKIE_NAME));
+  const authCookie = request.cookies.get(AUTH_COOKIE_NAME);
+  const hasAuthCookie = Boolean(authCookie);
 
   // Skip assets, API rewrites and static data
   if (
@@ -40,7 +41,7 @@ export function middleware(request: NextRequest) {
   if (!hasAuthCookie) {
     const url = request.nextUrl.clone();
     url.pathname = '/auth';
-    url.search = '';
+    url.search = request.nextUrl.search;
     return NextResponse.redirect(url);
   }
 

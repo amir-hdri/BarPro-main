@@ -30,7 +30,7 @@ log_err() { echo -e "${RED}✗${NC} $1"; }
 # تنظیمات
 # ════════════════════════════════════════════════════════════════════
 
-API_KEY="utcms_5e128ee6c4c1d5fddb498e956afc0ee6d12ae12af03e99827dcc8de5cb596a50"
+API_KEY="${API_KEY:-}"
 API_URL="http://localhost"
 
 # دریافت Client ID و Driver ID
