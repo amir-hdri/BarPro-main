@@ -613,99 +613,99 @@ async def _execute_job(
     stop_event: threading.Event | None = None,
 ) -> dict[str, Any]:
     """Execute a waybill job with full lifecycle management."""
-    session = async_session_factory()
     job: WaybillJob | None = None
     driver_lock_acquired = False
     auth_lock_acquired = False
     page = None
 
-    try:
-        statement = select(WaybillJob).where(WaybillJob.job_id == job_id).with_for_update()
-        result = await session.exec(statement)
-        job = result.first()
+    async with async_session_factory() as session:
+        try:
+            statement = select(WaybillJob).where(WaybillJob.job_id == job_id).with_for_update()
+            result = await session.exec(statement)
+            job = result.first()
 
-        if not job:
-            logger.error(f"Job {job_id} not found in database")
-            return {"status": "failed", "error": "Job not found"}
+            if not job:
+                logger.error(f"Job {job_id} not found in database")
+                return {"status": "failed", "error": "Job not found"}
 
-        # Cache client_id and driver_id to avoid MissingGreenlet error in finally block
-        # These are accessed multiple times and need to be loaded before session closes
-        cached_client_id = job.client_id
-        cached_driver_id = job.driver_id
+            # Cache client_id and driver_id to avoid MissingGreenlet error in finally block
+            # These are accessed multiple times and need to be loaded before session closes
+            cached_client_id = job.client_id
+            cached_driver_id = job.driver_id
 
-        existing_result = _safe_json(job.result_json)
-        if existing_result.get("tracking_code"):
-            logger.info("Skipping already completed waybill job %s", job_id)
-            return {"status": TaskStatus.SUCCESS.value, "result": existing_result, "reused": True}
-        if job.status == TaskStatus.SUCCESS.value:
-            JobStateMachine.transition(
-                session,
-                job,
-                TaskStatus.NEEDS_REVIEW.value,
-                error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
-                last_error="Success state has no UTCMS tracking code",
-                updated_at=_utcnow_naive()
-            )
+            existing_result = _safe_json(job.result_json)
+            if existing_result.get("tracking_code"):
+                logger.info("Skipping already completed waybill job %s", job_id)
+                return {"status": TaskStatus.SUCCESS.value, "result": existing_result, "reused": True}
+            if job.status == TaskStatus.SUCCESS.value:
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.NEEDS_REVIEW.value,
+                    error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                    last_error="Success state has no UTCMS tracking code",
+                    updated_at=_utcnow_naive()
+                )
+                await session.commit()
+                logger.warning("Waybill job %s has success status without tracking code", job_id)
+                return {"status": TaskStatus.NEEDS_REVIEW.value, "skipped": True}
+            is_running_path = (job.status == TaskStatus.RUNNING.value)
+
+            if not is_running_path:
+                allowed_statuses = {
+                    TaskStatus.PENDING.value,
+                    TaskStatus.QUEUED.value,
+                    TaskStatus.WAITING_RETRY.value,
+                    TaskStatus.RETRYING.value,
+                    TaskStatus.OTP_BACKOFF.value,
+                }
+                if job.status not in allowed_statuses:
+                    # Allow reclaiming IN_PROGRESS jobs if stuck for > 5 minutes (worker lost/requeued)
+                    stale_threshold = _utcnow_naive() - timedelta(minutes=5)
+                    if job.status == TaskStatus.IN_PROGRESS.value and job.updated_at and job.updated_at < stale_threshold:
+                        logger.warning(f"Reclaiming stuck IN_PROGRESS job {job_id} (last updated {job.updated_at.isoformat()})")
+                    else:
+                        logger.info("Skipping waybill job %s in non-claimable status %s", job_id, job.status)
+                        return {"status": job.status, "skipped": True}
+
+            runtime_state = await _get_or_create_runtime_state(session, cached_client_id, cached_driver_id)
+
+            if not is_running_path:
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.IN_PROGRESS.value,
+                    started_at=_utcnow_naive(),
+                    attempt_count=job.attempt_count + 1,
+                    worker_id=task.request.hostname,
+                    updated_at=_utcnow_naive(),
+                    submit_after=None
+                )
+                await session.commit()
+            runtime_state.state = DriverRuntimeStateValue.SUBMITTING.value
+            runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
             await session.commit()
-            logger.warning("Waybill job %s has success status without tracking code", job_id)
-            return {"status": TaskStatus.NEEDS_REVIEW.value, "skipped": True}
-        is_running_path = (job.status == TaskStatus.RUNNING.value)
 
-        if not is_running_path:
-            allowed_statuses = {
-                TaskStatus.PENDING.value,
-                TaskStatus.QUEUED.value,
-                TaskStatus.WAITING_RETRY.value,
-                TaskStatus.RETRYING.value,
-                TaskStatus.OTP_BACKOFF.value,
-            }
-            if job.status not in allowed_statuses:
-                # Allow reclaiming IN_PROGRESS jobs if stuck for > 5 minutes (worker lost/requeued)
-                stale_threshold = _utcnow_naive() - timedelta(minutes=5)
-                if job.status == TaskStatus.IN_PROGRESS.value and job.updated_at and job.updated_at < stale_threshold:
-                    logger.warning(f"Reclaiming stuck IN_PROGRESS job {job_id} (last updated {job.updated_at.isoformat()})")
-                else:
-                    logger.info("Skipping waybill job %s in non-claimable status %s", job_id, job.status)
-                    return {"status": job.status, "skipped": True}
-
-        runtime_state = await _get_or_create_runtime_state(session, cached_client_id, cached_driver_id)
-
-        if not is_running_path:
-            JobStateMachine.transition(
-                session,
-                job,
-                TaskStatus.IN_PROGRESS.value,
-                started_at=_utcnow_naive(),
-                attempt_count=job.attempt_count + 1,
-                worker_id=task.request.hostname,
-                updated_at=_utcnow_naive(),
-                submit_after=None
+            await _add_job_log(
+                session=session,
+                job_id=job_id,
+                client_id=job.client_id,
+                step="start",
+                status="success",
+                message=f"Job started, attempt {job.attempt_count}",
             )
-            await session.commit()
-        runtime_state.state = DriverRuntimeStateValue.SUBMITTING.value
-        runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
-        await session.commit()
+            await _record_event(
+                session=session,
+                client_id=job.client_id,
+                driver_id=job.driver_id,
+                job_id=job.job_id,
+                event_type=JOB_EXECUTION_STARTED,
+                payload={"attempt": job.attempt_count, "worker_id": job.worker_id},
+            )
 
-        await _add_job_log(
-            session=session,
-            job_id=job_id,
-            client_id=job.client_id,
-            step="start",
-            status="success",
-            message=f"Job started, attempt {job.attempt_count}",
-        )
-        await _record_event(
-            session=session,
-            client_id=job.client_id,
-            driver_id=job.driver_id,
-            job_id=job.job_id,
-            event_type=JOB_EXECUTION_STARTED,
-            payload={"attempt": job.attempt_count, "worker_id": job.worker_id},
-        )
-
-        driver = await session.get(Driver, job.driver_id)
-        if not driver or driver.client_id != job.client_id:
-            raise ValueError(f"Driver {job.driver_id} not found")
+            driver = await session.get(Driver, job.driver_id)
+            if not driver or driver.client_id != job.client_id:
+                raise ValueError(f"Driver {job.driver_id} not found")
 
         username = driver.utcms_username
         # ─── Decrypt BEFORE acquiring the driver lock ────────────────────────────
