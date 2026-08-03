@@ -1187,12 +1187,12 @@ async def _get_or_create_runtime_state(
     result = await session.exec(statement)
     state = result.first()
     if state is None:
-        state = DriverRuntimeState(client_id=client_id, driver_id=driver_id)
-        session.add(state)
         try:
-            await session.flush()
+            async with session.begin_nested():
+                state = DriverRuntimeState(client_id=client_id, driver_id=driver_id)
+                session.add(state)
+                await session.flush()
         except IntegrityError:
-            await session.rollback()
             result = await session.exec(statement)
             state = result.first()
             if state is None:

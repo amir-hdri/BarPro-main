@@ -359,11 +359,14 @@ class ProxyRotator:
             parsed = urlparse(proxy_str)
             host = (parsed.hostname or "").strip().lower()
 
-            # Dynamic Squid hostname check — accepts squid_N or squid-N for any N.
+            # Dynamic Squid hostname check — accepts squid_N or squid-N for any N,
+            # plus bare "squid" (used by remote worker nodes: extra_hosts maps
+            # "squid" → host-gateway, the Docker bridge gateway of the worker_local
+            # network, where the host-network Squid listens).
             # This allows adding new Squid instances (squid_4, squid_99, …) without
             # changing this file. All Squid containers run with network_mode: host
             # so they are architecturally safe: Squid itself enforces external ACLs.
-            if re.match(r"^squid[_-]?\d+$", host):
+            if re.match(r"^squid([_-]?\d+)?$", host):
                 return True
 
             # Fixed whitelist for other allowed internal Docker / host addresses
@@ -539,7 +542,7 @@ class ProxyRotator:
             parsed = urlparse(chosen.url)
             host = parsed.hostname
             port = parsed.port
-            if host and port:
+            if host and port and not is_testing:
                     try:
                         def check_socket():
                             with socket.create_connection((host, port), timeout=2.0):

@@ -114,7 +114,7 @@ done
 log_header "Task 2: تست Auth یک Driver"
 
 log_info "بررسی clients و drivers موجود..."
-CLIENT_DRIVER=$(docker exec barpro-postgres psql -U barpro_user -d barpro_db -t -c "
+CLIENT_DRIVER=$(docker exec barpro-postgres psql -U postgres -d utcms_rpa -t -c "
 SELECT c.id, d.id 
 FROM clients c 
 JOIN drivers d ON d.client_id = c.id 
@@ -127,21 +127,21 @@ if [ -z "$CLIENT_DRIVER" ]; then
     log_warn "ایجاد client و driver نمونه..."
     
     # ایجاد client نمونه
-    docker exec barpro-postgres psql -U barpro_user -d barpro_db -c "
+    docker exec barpro-postgres psql -U postgres -d utcms_rpa -c "
     INSERT INTO clients (name, active, created_at, updated_at) 
     VALUES ('تست کلاینت', true, NOW(), NOW()) 
     ON CONFLICT DO NOTHING;
     "
     
     # ایجاد driver نمونه
-    docker exec barpro-postgres psql -U barpro_user -d barpro_db -c "
+    docker exec barpro-postgres psql -U postgres -d utcms_rpa -c "
     INSERT INTO drivers (client_id, name, username, password_encrypted, active, created_at, updated_at)
     SELECT id, 'راننده تست', 'test_driver', 'encrypted_pass', true, NOW(), NOW()
     FROM clients WHERE name = 'تست کلاینت' LIMIT 1
     ON CONFLICT DO NOTHING;
     "
     
-    CLIENT_DRIVER=$(docker exec barpro-postgres psql -U barpro_user -d barpro_db -t -c "
+    CLIENT_DRIVER=$(docker exec barpro-postgres psql -U postgres -d utcms_rpa -t -c "
     SELECT c.id, d.id 
     FROM clients c 
     JOIN drivers d ON d.client_id = c.id 
@@ -157,7 +157,7 @@ log_info "استفاده از Client ID: $CLIENT_ID, Driver ID: $DRIVER_ID"
 
 # تمیز کردن auth sessions قبلی
 log_info "تمیز کردن auth sessions قبلی..."
-docker exec barpro-postgres psql -U barpro_user -d barpro_db -c "
+docker exec barpro-postgres psql -U postgres -d utcms_rpa -c "
 DELETE FROM auth_sessions WHERE driver_id = $DRIVER_ID AND created_at < NOW() - INTERVAL '1 hour';
 "
 
@@ -189,7 +189,7 @@ else
     for i in {1..30}; do
         sleep 2
         
-        AUTH_STATUS=$(docker exec barpro-postgres psql -U barpro_user -d barpro_db -t -c "
+        AUTH_STATUS=$(docker exec barpro-postgres psql -U postgres -d utcms_rpa -t -c "
         SELECT status FROM auth_sessions 
         WHERE driver_id = $DRIVER_ID 
         ORDER BY created_at DESC 
@@ -237,7 +237,7 @@ fi
 log_header "Task 3: تست ثبت بارنامه"
 
 log_info "تمیز کردن waybill jobs قدیمی..."
-docker exec barpro-postgres psql -U barpro_user -d barpro_db -c "
+docker exec barpro-postgres psql -U postgres -d utcms_rpa -c "
 DELETE FROM waybill_jobs WHERE created_at < NOW() - INTERVAL '1 hour';
 "
 
@@ -271,7 +271,7 @@ else
     for i in {1..60}; do
         sleep 2
         
-        WAYBILL_STATUS=$(docker exec barpro-postgres psql -U barpro_user -d barpro_db -t -c "
+        WAYBILL_STATUS=$(docker exec barpro-postgres psql -U postgres -d utcms_rpa -t -c "
         SELECT status FROM waybill_jobs 
         WHERE id = $WAYBILL_JOB_ID;
         " | tr -d ' ')
@@ -284,7 +284,7 @@ else
         elif [ "$WAYBILL_STATUS" = "failed" ]; then
             log_err "Waybill شکست خورد: status = failed"
             
-            ERROR_MSG=$(docker exec barpro-postgres psql -U barpro_user -d barpro_db -t -c "
+            ERROR_MSG=$(docker exec barpro-postgres psql -U postgres -d utcms_rpa -t -c "
             SELECT error_message FROM waybill_jobs WHERE id = $WAYBILL_JOB_ID;
             " | tr -d '\n' | sed 's/^[ \t]*//;s/[ \t]*$//')
             
@@ -313,7 +313,7 @@ fi
 log_header "Task 4: تست استعلام سوخت"
 
 log_info "تمیز کردن fuel inquiries قدیمی..."
-docker exec barpro-postgres psql -U barpro_user -d barpro_db -c "
+docker exec barpro-postgres psql -U postgres -d utcms_rpa -c "
 DELETE FROM fuel_inquiries WHERE created_at < NOW() - INTERVAL '1 hour';
 "
 
@@ -344,7 +344,7 @@ else
     for i in {1..60}; do
         sleep 2
         
-        FUEL_STATUS=$(docker exec barpro-postgres psql -U barpro_user -d barpro_db -t -c "
+        FUEL_STATUS=$(docker exec barpro-postgres psql -U postgres -d utcms_rpa -t -c "
         SELECT status FROM fuel_inquiries 
         WHERE id = $FUEL_ID;
         " | tr -d ' ')
@@ -357,7 +357,7 @@ else
         elif [ "$FUEL_STATUS" = "failed" ]; then
             log_err "Fuel inquiry شکست خورد: status = failed"
             
-            ERROR_MSG=$(docker exec barpro-postgres psql -U barpro_user -d barpro_db -t -c "
+            ERROR_MSG=$(docker exec barpro-postgres psql -U postgres -d utcms_rpa -t -c "
             SELECT error_message FROM fuel_inquiries WHERE id = $FUEL_ID;
             " | tr -d '\n' | sed 's/^[ \t]*//;s/[ \t]*$//')
             
@@ -442,22 +442,22 @@ while true; do
     fi
     
     # شمارش وضعیت‌ها
-    WAYBILL_COMPLETED=$(docker exec barpro-postgres psql -U barpro_user -d barpro_db -t -c "
+    WAYBILL_COMPLETED=$(docker exec barpro-postgres psql -U postgres -d utcms_rpa -t -c "
     SELECT COUNT(*) FROM waybill_jobs 
     WHERE id IN ($(IFS=,; echo "${WAYBILL_IDS[*]}")) AND status = 'completed';
     " | tr -d ' ')
     
-    WAYBILL_FAILED=$(docker exec barpro-postgres psql -U barpro_user -d barpro_db -t -c "
+    WAYBILL_FAILED=$(docker exec barpro-postgres psql -U postgres -d utcms_rpa -t -c "
     SELECT COUNT(*) FROM waybill_jobs 
     WHERE id IN ($(IFS=,; echo "${WAYBILL_IDS[*]}")) AND status = 'failed';
     " | tr -d ' ')
     
-    FUEL_COMPLETED=$(docker exec barpro-postgres psql -U barpro_user -d barpro_db -t -c "
+    FUEL_COMPLETED=$(docker exec barpro-postgres psql -U postgres -d utcms_rpa -t -c "
     SELECT COUNT(*) FROM fuel_inquiries 
     WHERE id IN ($(IFS=,; echo "${FUEL_IDS[*]}")) AND status = 'completed';
     " | tr -d ' ')
     
-    FUEL_FAILED=$(docker exec barpro-postgres psql -U barpro_user -d barpro_db -t -c "
+    FUEL_FAILED=$(docker exec barpro-postgres psql -U postgres -d utcms_rpa -t -c "
     SELECT COUNT(*) FROM fuel_inquiries 
     WHERE id IN ($(IFS=,; echo "${FUEL_IDS[*]}")) AND status = 'failed';
     " | tr -d ' ')

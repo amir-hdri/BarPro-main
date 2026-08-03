@@ -33,8 +33,10 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # ✅ امنیت: پورت فقط برای لوکال‌هاست باز است (تست‌ها و ابزارهای محلی)
-    ports: ['127.0.0.1:5432:5432']
+    # ✅ امنیت: به‌طور پیش‌فرض فقط روی localhost بایند است (تست‌ها و ابزارهای محلی)
+    # در Model B (ورکرهای راه‌دور) از .env روی 0.0.0.0 تنظیم می‌شود؛
+    # دسترسی از بیرون فقط با UFW allowlist (setup_firewall_central.sh) مجاز است.
+    ports: ['${POSTGRES_BIND:-127.0.0.1}:5432:5432']
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres -d ${POSTGRES_DB:-utcms_rpa}']
       interval: 10s
@@ -64,8 +66,9 @@ services:
       - --save 60 1
     volumes:
       - redis_data:/data
-    # ✅ لوکال: پورت برای ابزارهای محلی و تست‌ها باز است
-    ports: ['127.0.0.1:6379:6379']
+    # ✅ امنیت: به‌طور پیش‌فرض فقط روی localhost بایند است؛ در Model B از .env روی 0.0.0.0
+    # (UFW فقط به IP ورکرها اجازه می‌دهد)
+    ports: ['${REDIS_BIND:-127.0.0.1}:6379:6379']
     healthcheck:
       test: ['CMD-SHELL', 'REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli ping | grep PONG']
       interval: 10s

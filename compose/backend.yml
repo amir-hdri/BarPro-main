@@ -144,6 +144,10 @@ services:
     <<: *backend-common
     image: barpro_celery_worker_2:latest
     container_name: barpro-worker-2
+    # Model B (scale-out): worker 2/3 run on REMOTE worker nodes.
+    # On the central server they are optional — enable with:
+    #   docker compose -f compose/backend.yml --profile scale-out up -d
+    profiles: ["scale-out"]
     shm_size: '512m'
     mem_limit: 2.5g
     mem_reservation: 2g
@@ -179,6 +183,10 @@ services:
     <<: *backend-common
     image: barpro_celery_worker_3:latest
     container_name: barpro-worker-3
+    # Model B (scale-out): worker 2/3 run on REMOTE worker nodes.
+    # On the central server they are optional — enable with:
+    #   docker compose -f compose/backend.yml --profile scale-out up -d
+    profiles: ["scale-out"]
     shm_size: '512m'
     mem_limit: 2.5g
     mem_reservation: 2g

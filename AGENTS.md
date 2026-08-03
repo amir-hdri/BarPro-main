@@ -81,21 +81,30 @@ All containers run on the **central server** (single host, dual networking for e
 
 ## Deployment Topology
 
+> **Current deployment (Model B — scale-out):** the central server has a **single public IP**
+> (87.107.5.238). Multi-IP egress is provided by **remote Worker VPSes**, each with its own
+> static Iranian IP and a local Squid proxy. Postgres/Redis bind `0.0.0.0` on the central
+> server (`POSTGRES_BIND`/`REDIS_BIND` in `.env`) and are protected by the UFW allowlist
+> (`scripts/setup_firewall_central.sh`, `scripts/add_worker_firewall.sh`).
+> Workers 2/3 run on the remote nodes via `compose/worker-node.yml`; on the central server
+> they are disabled by default (compose profile `scale-out`).
+
 ```
-Single Server (<CENTRAL_IP> + <SECONDARY_EGRESS_IP>)
-├── PostgreSQL (port 5432, internal only)
-├── Redis (port 6379, internal only)
-├── Squid 1 (port 3128, egress via <CENTRAL_IP>)    ← Worker 1
-├── Squid 2 (port 3129, egress via <SECONDARY_IP>)  ← Worker 2
-├── Squid 3 (port 3130, egress via <SECONDARY_IP>)  ← Worker 3
+Central Server (single IP: <CENTRAL_IP> = 87.107.5.238)
+├── PostgreSQL (port 5432, bind 0.0.0.0, UFW: workers only)
+├── Redis (port 6379, bind 0.0.0.0, UFW: workers only)
+├── Squid 1 (port 3128, egress via <CENTRAL_IP>)    ← Worker 1 (local)
 ├── FastAPI Backend (port 8000, internal)
 ├── Celery Worker 1 → Squid 1 → UTCMS
-├── Celery Worker 2 → Squid 2 → UTCMS
-├── Celery Worker 3 → Squid 3 → UTCMS
 ├── Celery Beat (scheduler)
 ├── Next.js Frontend (port 3000, internal)
 ├── Nginx (port 80, public) → reverse proxy
-└── Prometheus (port 9090, public — INSECURE)
+└── Prometheus (port 9090, exposed internally)
+
+Remote Worker Nodes (each: 2 vCPU / ~6 GB / own static Iranian IP)
+├── Squid (port 3128, egress via the Worker's own IP)   ← Workers 2/3
+└── Celery Worker 2/3 → local Squid → UTCMS
+    (via compose/worker-node.yml; DB/Redis at <CENTRAL_IP>)
 ```
 
 ### Squid Proxy Ports

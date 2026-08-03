@@ -42,6 +42,7 @@ class TestDynamicSquidHostname:
             "squid-1",
             "squid-4",
             "squid-99",
+            "squid",
         ],
     )
     def test_squid_dynamic_hostname_accepted(self, hostname: str):
@@ -49,6 +50,11 @@ class TestDynamicSquidHostname:
         assert ProxyRotator._is_safe_proxy_url(url) is True, (
             f"Expected {url!r} to be accepted by _is_safe_proxy_url"
         )
+
+    def test_bare_squid_accepted(self):
+        """Remote worker nodes route via hostname "squid" (extra_hosts →
+        host-gateway). Bare squid must be accepted without a numeric suffix."""
+        assert ProxyRotator._is_safe_proxy_url("http://squid:3128") is True
 
     @pytest.mark.parametrize(
         "url",
@@ -70,7 +76,7 @@ class TestDynamicSquidHostname:
         import re
 
         host = url.split("://")[1].split(":")[0].lower()
-        assert not re.match(r"^squid[_-]?\d+$", host), (
+        assert not re.match(r"^squid([_-]?\d+)?$", host), (
             f"Hostname {host!r} should NOT match the squid_N regex"
         )
 

@@ -8,7 +8,11 @@
 #   sudo bash scripts/add_worker_firewall.sh <WORKER_IP> <WORKER_ID>
 #
 # Example:
-#   sudo bash scripts/add_worker_firewall.sh 185.1.2.3 worker_4
+#   sudo bash scripts/add_worker_firewall.sh 185.1.2.3 2
+#
+# WORKER_ID must be the numeric IP index (2 or 3) matching AVAILABLE_IP_INDICES
+# on the Central server — Celery queue suffixes (waybill_tasks_2, ...) and the
+# worker registry key are derived from it.
 #
 # What this script does:
 #   1. Adds UFW rules to allow WORKER_IP → PostgreSQL (5432) and Redis (6379)
@@ -76,27 +80,39 @@ cd /opt/barpro
 
 ${CYAN}# 3. Create .env file${NC}
 cat > /opt/barpro/.env << 'ENVEOF'
+# Numeric IP index — MUST be in AVAILABLE_IP_INDICES on the Central server
+# (first remote worker = 2, second remote worker = 3)
 WORKER_ID=${WORKER_ID}
+WORKER_IP_INDEX=${WORKER_ID}
+
 CENTRAL_IP=${CENTRAL_IP}
 
 # Database — uses barpro_worker role (least privilege)
 # Replace <WORKER_DB_PASSWORD> with the password from create_worker_db_role.sql
-DATABASE_URL=postgresql+asyncpg://barpro_worker:<WORKER_DB_PASSWORD>@${CENTRAL_IP}:5432/barpro
+DATABASE_URL=postgresql+asyncpg://barpro_worker:<WORKER_DB_PASSWORD>@${CENTRAL_IP}:5432/utcms_rpa
 
 # Redis — use the same password as the Central server's REDIS_PASSWORD
+# ⚠️ CELERY_BROKER_URL MUST use DB 0 (Central publishes tasks on DB 0)
 REDIS_URL=redis://:<REDIS_PASSWORD>@${CENTRAL_IP}:6379/0
-CELERY_BROKER_URL=redis://:<REDIS_PASSWORD>@${CENTRAL_IP}:6379/1
-CELERY_RESULT_BACKEND=redis://:<REDIS_PASSWORD>@${CENTRAL_IP}:6379/2
+CELERY_BROKER_URL=redis://:<REDIS_PASSWORD>@${CENTRAL_IP}:6379/0
+CELERY_RESULT_BACKEND=redis://:<REDIS_PASSWORD>@${CENTRAL_IP}:6379/0
 
 WORKER_PROXY_PORT=3128
+# This VPS's own public IP — for Squid tcp_outgoing_address (egress to UTCMS)
+WORKER_EGRESS_IP=${WORKER_IP}
 CAPTCHA_PROVIDER=auto
 HEADLESS=true
 ENVEOF
 
-${CYAN}# 4. Start the Worker${NC}
+${CYAN}# 4. Substitute Squid placeholders before first run${NC}
+cd /opt/barpro
+sed -i "s/__WORKER_EGRESS_IP__/${WORKER_IP}/g" infra/squid/squid_worker.conf
+sed -i "s/__CENTRAL_IP__/${CENTRAL_IP}/g" infra/squid/squid_worker.conf
+
+${CYAN}# 5. Start the Worker${NC}
 docker compose -f compose/worker-node.yml up -d
 
-${CYAN}# 5. Verify registration (run on Central server)${NC}
+${CYAN}# 6. Verify registration (run on Central server)${NC}
 # The worker should appear in worker_registry within 30 seconds of startup.
 # docker exec barpro-backend python -c "
 # import asyncio

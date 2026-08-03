@@ -4,6 +4,7 @@ from pathlib import Path
 
 def test_config_bootstrap_applies_generated_secrets_before_instantiating_config(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
     monkeypatch.delenv("API_KEY", raising=False)
     monkeypatch.delenv("JWT_SECRET", raising=False)
     monkeypatch.delenv("DRIVER_ENCRYPTION_KEY", raising=False)

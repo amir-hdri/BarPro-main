@@ -8,7 +8,6 @@ const requiredText = (min: number, minMessage: string, max: number, maxMessage: 
   z.string().trim().min(min, minMessage).max(max, maxMessage);
 
 const digitsOnly = (value: string) => normalizeDigits(value).replace(/\D/g, "");
-const phoneDigitsOnly = (value: string) => normalizeDigits(value).replace(/\D/g, "");
 const numericText = (requiredMessage: string, invalidMessage: string, max: number, maxMessage: string) =>
   z
     .string()

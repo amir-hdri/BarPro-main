@@ -34,8 +34,7 @@
 
 ```bash
 # WORKER_IP = IP ثابت VPS جدید
-# WORKER_ID = شناسه منحصربه‌فرد، مثلاً worker_4
-
+# WORKER_ID = شناسه عددی IP ایندکس (2 یا 3 — باید در AVAILABLE_IP_INDICES مرکزی باشد)
 sudo bash scripts/add_worker_firewall.sh <WORKER_IP> <WORKER_ID>
 ```
 
@@ -58,7 +57,7 @@ sudo bash scripts/setup_firewall_central.sh
 
 ```bash
 # جایگزین <strong-password> با یک رمز تصادفی قوی کنید
-docker exec -i barpro-postgres psql -U postgres -d barpro \
+docker exec -i barpro-postgres psql -U postgres -d utcms_rpa \
   -v WORKER_DB_PASSWORD="<strong-password>" \
   -f /opt/barpro/scripts/create_worker_db_role.sql
 ```
@@ -80,22 +79,29 @@ cd /opt/barpro
 
 ```bash
 cat > /opt/barpro/.env << 'EOF'
-# شناسه منحصربه‌فرد — برای ثبت در worker_registry
-WORKER_ID=worker_4
+# شناسه عددی IP ایندکس — باید در AVAILABLE_IP_INDICES مرکزی باشد
+# ورکر اول ریموت → WORKER_ID=2 ، ورکر دوم ریموت → WORKER_ID=3
+# صف‌های Celery با همین عدد ساخته می‌شوند: waybill_tasks_2 ، rpa_auth_3 و ...
+WORKER_ID=2
+WORKER_IP_INDEX=2
 
 # IP سرور مرکزی
 CENTRAL_IP=<YOUR_CENTRAL_SERVER_IP>
 
 # دیتابیس (با role کم‌دسترسی)
-DATABASE_URL=postgresql+asyncpg://barpro_worker:<WORKER_DB_PASSWORD>@<YOUR_CENTRAL_SERVER_IP>:5432/barpro
+DATABASE_URL=postgresql+asyncpg://barpro_worker:<WORKER_DB_PASSWORD>@<YOUR_CENTRAL_SERVER_IP>:5432/utcms_rpa
 
-# Redis (همان رمز سرور مرکزی)
+# Redis (همان رمز سرور مرکزی) — ⚠️ CELERY_BROKER_URL باید DB 0 باشد
+# چون مرکزی task ها را روی DB 0 منتشر می‌کند؛ DB 1/2 باعث می‌شود task ها هرگز به ورکر نرسند
 REDIS_URL=redis://:<REDIS_PASSWORD>@<YOUR_CENTRAL_SERVER_IP>:6379/0
-CELERY_BROKER_URL=redis://:<REDIS_PASSWORD>@<YOUR_CENTRAL_SERVER_IP>:6379/1
-CELERY_RESULT_BACKEND=redis://:<REDIS_PASSWORD>@<YOUR_CENTRAL_SERVER_IP>:6379/2
+CELERY_BROKER_URL=redis://:<REDIS_PASSWORD>@<YOUR_CENTRAL_SERVER_IP>:6379/0
+CELERY_RESULT_BACKEND=redis://:<REDIS_PASSWORD>@<YOUR_CENTRAL_SERVER_IP>:6379/0
 
 # Squid Proxy محلی
 WORKER_PROXY_PORT=3128
+
+# IP عمومی این VPS — برای tcp_outgoing_address در Squid (egress اختصاصی به UTCMS)
+WORKER_EGRESS_IP=<IP این VPS>
 
 # مرورگر و کپچا
 CAPTCHA_PROVIDER=auto
@@ -105,6 +111,14 @@ HEADLESS=true
 QUEUE_ENABLED=true
 QUEUE_INLINE_FALLBACK=false
 EOF
+```
+
+قبل از اولین اجرا، placeholder های کانفیگ Squid را جایگزین کنید (IP اگریس این VPS و IP سرور مرکزی برای health check):
+
+```bash
+cd /opt/barpro
+sed -i "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:-<IP این VPS>}/g" infra/squid/squid_worker.conf
+sed -i "s/__CENTRAL_IP__/${CENTRAL_IP:-<IP سرور مرکزی>}/g" infra/squid/squid_worker.conf
 ```
 
 ---
@@ -130,7 +144,7 @@ docker compose -f compose/worker-node.yml logs -f worker
 
 ```bash
 # داخل psql
-docker exec -it barpro-postgres psql -U postgres -d barpro -c \
+docker exec -it barpro-postgres psql -U postgres -d utcms_rpa -c \
   "SELECT worker_id, hostname, status, last_heartbeat_at FROM worker_registry ORDER BY created_at;"
 ```
 

@@ -13,7 +13,6 @@ import {
   Building2,
   Settings,
   X,
-  Sparkles,
 } from 'lucide-react';
 
 import { useSession } from '@/hooks/useSession';
@@ -52,15 +51,15 @@ export function Sidebar({ onNavigate, onClose }: SidebarProps) {
       <div className="relative z-10 flex flex-col flex-1 overflow-y-auto overflow-x-hidden gap-6 scrollbar-none">
         <div className="px-2 pt-2">
           <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-[1.25rem] bg-gradient-to-br from-cyan-400 to-cyan-600 shadow-[0_0_30px_rgba(6,182,212,0.5)]">
-                <Sparkles className="h-6 w-6 text-white animate-pulse" />
+              <div className="flex items-center gap-4">
+               <div className="flex h-14 w-14 items-center justify-center rounded-[1.25rem] bg-gradient-to-br from-cyan-400 to-cyan-600 shadow-[0_0_30px_rgba(6,182,212,0.5)]">
+                 <img src="/logo_white.svg" alt="BarPro" className="w-9 h-auto object-contain" />
+               </div>
+                <div>
+                  <h1 className="text-2xl font-black text-white bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">BarPro</h1>
+                  <p className="text-[10px] font-bold uppercase text-cyan-400 mt-0.5">سامانه سازمانی ناوگان</p>
+                </div>
               </div>
-              <div>
-                <h1 className="text-2xl font-black text-white bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">BarPro</h1>
-                <p className="text-[10px] font-bold uppercase text-cyan-400 mt-0.5">سامانه سازمانی ناوگان</p>
-              </div>
-            </div>
 
             {onClose && (
               <button

@@ -25,6 +25,7 @@ def mock_external_services():
         patch("app.services.task_service.task_service._ensure_queue_depth_seeded", new_callable=AsyncMock),
         patch("app.core.rate_limiter.rate_limiter.close", new_callable=AsyncMock),
         patch("app.auth_multitenant.is_blacklisted", new=AsyncMock(return_value=False)),
+        patch("app.automation.worker_proxy.check_proxy_health", new=AsyncMock(return_value=True)),
     ):
         yield
 

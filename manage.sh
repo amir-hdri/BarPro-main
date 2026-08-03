@@ -10,8 +10,18 @@ fi
 
 COMPOSE_FILES="-f compose/infra.yml -f compose/proxy.yml -f compose/backend.yml -f compose/web.yml -f compose/monitoring.yml"
 
+# Ensure the shared docker network exists with the expected subnet.
+# Workers reach host Squid proxies via the bridge gateway 172.20.0.1.
+ensure_network() {
+    if ! docker network inspect barpro_platform >/dev/null 2>&1; then
+        echo "Creating docker network barpro_platform (172.20.0.0/16)..."
+        docker network create --subnet=172.20.0.0/16 barpro_platform
+    fi
+}
+
 case "$1" in
     start)
+        ensure_network
         echo "Starting BarPro Infrastructure (Postgres, Redis)..."
         docker compose -f compose/infra.yml up -d
         

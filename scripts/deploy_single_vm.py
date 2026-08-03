@@ -584,6 +584,9 @@ def step_deploy(ssh: paramiko.SSHClient) -> bool:
     commands = [
         # استخراج آرشیو
         f"cd {REMOTE_DIR} && tar -xzf code.tar.gz --overwrite && rm -f code.tar.gz",
+        # شبکه داکر مشترک (با subnet مشخص — ورکرها از گیت‌وی 172.20.0.1 استفاده می‌کنند)
+        "docker network inspect barpro_platform >/dev/null 2>&1 || "
+        "docker network create --subnet=172.20.0.0/16 barpro_platform",
         # جایگزینی placeholder های IP در کانفیگ Squid
         f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_1/{PRIMARY_IP}/g'   infra/squid/squid_1.conf",
         f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_2/{SECONDARY_IP}/g' infra/squid/squid_2.conf",
@@ -598,7 +601,9 @@ def step_deploy(ssh: paramiko.SSHClient) -> bool:
         # Pull ایمیج‌های بدون build (سریع‌تر از wait کردن در build)
         f"cd {REMOTE_DIR} && {compose} pull --quiet postgres redis nginx prometheus || true",
         # Build و راه‌اندازی همه سرویس‌ها (با --profile docker-backend)
-        f"cd {REMOTE_DIR} && {compose} --profile docker-backend " f"up -d --build --remove-orphans " f"--timeout 300",
+        # (--profile scale-out شامل worker 2/3 است — برای استقرار تک‌سروره Model A)
+        f"cd {REMOTE_DIR} && {compose} --profile docker-backend --profile scale-out "
+        f"up -d --build --remove-orphans --timeout 300",
         # اجرایی کردن اسکریپت بکاپ
         f"chmod +x {REMOTE_DIR}/scripts/db_backup.sh",
         # تنظیم cron بکاپ روزانه ساعت ۳ صبح

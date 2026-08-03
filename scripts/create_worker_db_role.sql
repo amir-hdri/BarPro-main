@@ -4,12 +4,12 @@
 -- Run this on the CENTRAL server's PostgreSQL instance ONCE.
 --
 -- Usage:
---   docker exec -i barpro-postgres psql -U postgres -d barpro \
+--   docker exec -i barpro-postgres psql -U postgres -d utcms_rpa \
 --     -v WORKER_DB_PASSWORD="<strong-random-password>" \
 --     -f scripts/create_worker_db_role.sql
 --
 -- Or interactively:
---   docker exec -it barpro-postgres psql -U postgres -d barpro
+--   docker exec -it barpro-postgres psql -U postgres -d utcms_rpa
 --   \i /path/to/create_worker_db_role.sql
 -- =============================================================================
 
@@ -28,7 +28,7 @@ END
 $$;
 
 -- 2. Allow connection to the database
-GRANT CONNECT ON DATABASE barpro TO barpro_worker;
+GRANT CONNECT ON DATABASE utcms_rpa TO barpro_worker;
 
 -- 3. Allow usage of the public schema
 GRANT USAGE ON SCHEMA public TO barpro_worker;
@@ -66,4 +66,4 @@ WHERE rolname = 'barpro_worker';
 \echo '   Workers can SELECT/INSERT/UPDATE but NOT DELETE/CREATE/DROP/TRUNCATE.'
 \echo ''
 \echo 'Next step: add the password to the Worker .env file:'
-\echo '   DATABASE_URL=postgresql+asyncpg://barpro_worker:<password>@<CENTRAL_IP>:5432/barpro'
+\echo '   DATABASE_URL=postgresql+asyncpg://barpro_worker:<password>@<CENTRAL_IP>:5432/utcms_rpa'

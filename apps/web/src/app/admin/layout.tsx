@@ -15,7 +15,6 @@ import {
   Menu,
   X,
   ChevronLeft,
-  Shield,
   Server,
   Cpu,
   Bell,
@@ -119,8 +118,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {/* Sidebar header */}
           <div className="flex items-center justify-between border-b border-white/10 px-5 py-5">
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-amber-400 shadow-lg">
-                <Shield className="h-5 w-5 text-slate-950" />
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-amber-400 shadow-lg">
+                <img src="/logo_white.svg" alt="BarPro" className="w-8 h-auto object-contain" />
               </div>
               <div>
                 <h2 className="text-base font-black text-slate-100 leading-none">BarPro</h2>

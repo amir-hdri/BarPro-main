@@ -113,7 +113,14 @@ def test_exempt_queue_is_not_suffixed():
 
 
 def test_worker_node_template_consumes_its_own_partitions():
-    """The remote worker template must consume its ${WORKER_ID} partitions."""
+    """The remote worker template must consume its ${WORKER_IP_INDEX} partitions.
+
+    The partition suffix must be the numeric IP index (WORKER_IP_INDEX), NOT the
+    registry identity (WORKER_ID). get_routed_queue() suffixes with the numeric
+    IP index from AVAILABLE_IP_INDICES (waybill_tasks_2, ...), so a template
+    consuming waybill_tasks_${WORKER_ID} with WORKER_ID="worker_4" would create
+    waybill_tasks_worker_4 — which nobody dispatches to.
+    """
     template = COMPOSE_BACKEND.parent / "worker-node.yml"
     text = template.read_text(encoding="utf-8")
 
@@ -122,7 +129,7 @@ def test_worker_node_template_consumes_its_own_partitions():
     queues = {q.strip() for q in q_match.group(1).split(",")}
 
     for base in ROUTED_BASE_QUEUES:
-        expected = f"{base}_${{WORKER_ID}}"
+        expected = f"{base}_${{WORKER_IP_INDEX}}"
         assert expected in queues, (
             f"worker-node.yml does not consume {expected}; a remote worker "
             f"would never receive routed {base} tasks."

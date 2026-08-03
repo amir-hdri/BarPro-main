@@ -28,7 +28,8 @@ def test_read_root(client):
 
 
 def test_traffic_status(client):
-    response = client.get("/waybill/traffic-status")
+    with patch("app.core.config.utcms_config.API_AUTH_MODE", "off"):
+        response = client.get("/waybill/traffic-status")
     assert response.status_code == 200
     body = response.json()
     assert "active_requests" in body

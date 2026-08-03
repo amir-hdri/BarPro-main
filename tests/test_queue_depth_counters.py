@@ -202,7 +202,7 @@ async def test_reconcile_overwrites_stale_cache_from_db(fake_redis, monkeypatch)
     def _fake_session(*a, **k):
         return _FakeSession()
 
-    monkeypatch.setattr(ts, "AsyncSession", _fake_session)
+    monkeypatch.setattr(ts, "async_session_factory", _fake_session)
 
     result = await svc.reconcile_queue_depth()
     assert result is not None

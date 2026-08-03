@@ -7,14 +7,19 @@
 #   docker compose -f compose/worker-node.yml up -d
 #
 # Required environment variables on the Worker server:
-#   WORKER_ID          — unique identifier, e.g. "worker_4"
+#   WORKER_ID          — registry identity, e.g. "worker_2" (must match IP index)
+#   WORKER_IP_INDEX    — numeric IP index: 2 or 3 (must be in AVAILABLE_IP_INDICES
+#                        on the Central server; used for queue suffixes + circuit breaker)
 #   WORKER_PROXY_PORT  — Squid listen port on this server, e.g. "3128"
-#   DATABASE_URL       — postgresql+asyncpg://barpro_worker:<pw>@<CENTRAL_IP>:5432/barpro
+#   DATABASE_URL       — postgresql+asyncpg://barpro_worker:<pw>@<CENTRAL_IP>:5432/utcms_rpa
 #   REDIS_URL          — redis://:<pw>@<CENTRAL_IP>:6379/0
-#   CELERY_BROKER_URL  — redis://:<pw>@<CENTRAL_IP>:6379/1
-#   CELERY_RESULT_BACKEND — redis://:<pw>@<CENTRAL_IP>:6379/2
+#   CELERY_BROKER_URL  — MUST use DB 0 (same as Central): redis://:<pw>@<CENTRAL_IP>:6379/0
+#   CELERY_RESULT_BACKEND — same DB 0 (defaults to REDIS_URL if unset)
 #   CAPTCHA_PROVIDER   — auto
 #   HEADLESS           — true
+#
+# IMPORTANT: CELERY_BROKER_URL must point to Redis DB 0 — the Central API publishes
+# tasks to DB 0. Using DB 1/2 silently breaks task delivery to remote workers.
 
 version: "3.9"
 
@@ -46,7 +51,9 @@ services:
   # Celery Worker — RPA executor
   # ─────────────────────────────────────────────
   worker:
-    image: ghcr.io/amir-hdri/barpro/backend:latest
+    # Published by .github/workflows/cd-deploy.yml (tag "latest" on main).
+    # Verify on the worker: docker pull ghcr.io/amir-hdri/barpro-main/barpro-backend:latest
+    image: ghcr.io/amir-hdri/barpro-main/barpro-backend:latest
     container_name: barpro-celery-worker
     restart: unless-stopped
     depends_on:
@@ -58,18 +65,22 @@ services:
       --loglevel=info
       --concurrency=1
       --prefetch-multiplier=1
-      -Q waybill_tasks,waybill_tasks_${WORKER_ID},rpa_auth_${WORKER_ID},rpa_submit_${WORKER_ID},reconciliation_tasks,reconciliation_tasks_${WORKER_ID},rpa_scheduler,scheduled_tasks,scheduled_tasks_${WORKER_ID}
+      -Q waybill_tasks,waybill_tasks_${WORKER_IP_INDEX},rpa_auth_${WORKER_IP_INDEX},rpa_submit_${WORKER_IP_INDEX},reconciliation_tasks,reconciliation_tasks_${WORKER_IP_INDEX},rpa_scheduler,scheduled_tasks,scheduled_tasks_${WORKER_IP_INDEX}
       --max-tasks-per-child=50
     environment:
       # Identity
       WORKER_ID: ${WORKER_ID:?WORKER_ID is required}
+      WORKER_IP_INDEX: ${WORKER_IP_INDEX:?WORKER_IP_INDEX is required (2 or 3, must match AVAILABLE_IP_INDICES on Central)}
       # Database (points to Central server — must be reachable via Worker IP allowlist)
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-${REDIS_URL}}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-${REDIS_URL}}
       # Proxy — routes Playwright traffic through local Squid
-      WORKER_PROXY_URL: http://localhost:${WORKER_PROXY_PORT:-3128}
+      # get_worker_proxy_url() reads WORKER_{WORKER_ID}_PROXY or RPA_PROXIES.
+      # "squid" resolves to the host via host-gateway (Docker 20.10+), so the
+      # container reaches the host-network Squid through the bridge gateway.
+      RPA_PROXIES: http://squid:${WORKER_PROXY_PORT:-3128}
       # CAPTCHA & Browser
       CAPTCHA_PROVIDER: ${CAPTCHA_PROVIDER:-auto}
       HEADLESS: ${HEADLESS:-true}
@@ -93,3 +104,5 @@ services:
     extra_hosts:
       # Makes "central" resolve to the Central server IP
       - "central:${CENTRAL_IP:-127.0.0.1}"
+      # Makes "squid" resolve to the host gateway (host-network Squid)
+      - "squid:host-gateway"

@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { persistSession } from '@/lib/auth';
 import type { AdminLoginResponse, AuthLoginResponse } from '@/lib/types';
-import { TruckIcon, ShieldCheckIcon } from '@heroicons/react/24/solid';
 
 export default function AuthPage() {
   const router = useRouter();
@@ -111,21 +110,10 @@ export default function AuthPage() {
             <div className="absolute -inset-1 rounded-full bg-gradient-to-b from-cyan-400 to-blue-600 opacity-50 blur-sm"></div>
             
             {/* Main logo circle */}
-            <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-slate-950 border border-white/10 shadow-[inset_0_2px_20px_rgba(255,255,255,0.1)] overflow-hidden">
+            <div className="relative flex h-36 w-36 items-center justify-center rounded-full bg-slate-950 border border-white/10 shadow-[inset_0_2px_20px_rgba(255,255,255,0.1)] overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/20 to-transparent"></div>
-              <TruckIcon className="h-9 w-9 text-cyan-400 transform transition-transform duration-500 group-hover:scale-110 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]" />
+              <img src="/logo_white.svg" alt="BarPro Logo" className="w-28 h-auto object-contain z-10 transform transition-transform duration-500 group-hover:scale-110" />
             </div>
-          </div>
-          
-          <h1 className="text-4xl sm:text-5xl font-black bg-clip-text text-transparent bg-gradient-to-b from-white via-slate-200 to-slate-500 drop-shadow-sm">
-            Bar Pro
-          </h1>
-          <div className="mt-3 flex items-center justify-center gap-2">
-            <span className="h-px w-8 bg-gradient-to-r from-transparent to-cyan-500/50"></span>
-            <p className="text-[11px] font-bold uppercase text-cyan-400/90 tracking-widest">
-              Enterprise Edition
-            </p>
-            <span className="h-px w-8 bg-gradient-to-l from-transparent to-cyan-500/50"></span>
           </div>
         </div>
 
@@ -146,7 +134,6 @@ export default function AuthPage() {
                   mode === 'login' ? 'text-white shadow-lg border border-white/10 bg-slate-800' : 'text-slate-400 hover:text-slate-200'
                 ].join(' ')}
               >
-                <TruckIcon className="h-4 w-4" />
                 ورود کاربر
                 {mode === 'login' && <div className="absolute inset-0 rounded-[0.85rem] bg-gradient-to-b from-white/5 to-transparent pointer-events-none"></div>}
               </button>
@@ -159,7 +146,6 @@ export default function AuthPage() {
                   mode === 'admin' ? 'text-white shadow-lg border border-white/10 bg-slate-800' : 'text-slate-400 hover:text-slate-200'
                 ].join(' ')}
               >
-                <ShieldCheckIcon className="h-4 w-4" />
                 ورود ادمین
                 {mode === 'admin' && <div className="absolute inset-0 rounded-[0.85rem] bg-gradient-to-b from-white/5 to-transparent pointer-events-none"></div>}
               </button>

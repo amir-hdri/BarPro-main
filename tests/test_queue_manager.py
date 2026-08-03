@@ -3,7 +3,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.queue.queue_manager import WaybillQueueManager
 from app.schemas.waybill import WaybillMapRequest
@@ -32,8 +34,10 @@ async def test_enqueue_inline_and_reuse_idempotency():
     manager = WaybillQueueManager()
     request = WaybillMapRequest.model_validate(_request_payload())
 
+    test_session_factory = sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     with (
         patch("app.services.task_service.engine", test_engine),
+        patch("app.services.task_service.async_session_factory", test_session_factory),
         patch("app.core.config.utcms_config.QUEUE_ENABLED", False),
         patch("app.services.task_service.task_service._emit_task_event", new=AsyncMock()),
         patch("app.services.task_service.task_service._sync_queue_depth", new=AsyncMock()),
@@ -74,8 +78,10 @@ async def test_enqueue_succeeds_when_queue_enabled_and_broker_up():
     mock_redis = AsyncMock()
     mock_redis.ping = AsyncMock()
 
+    test_session_factory = sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     with (
         patch("app.services.task_service.engine", test_engine),
+        patch("app.services.task_service.async_session_factory", test_session_factory),
         patch("app.core.config.utcms_config.QUEUE_ENABLED", True),
         patch("app.core.config.utcms_config.QUEUE_INLINE_FALLBACK", False),
         patch("app.services.task_service.task_service._emit_task_event", new=AsyncMock()),
@@ -99,8 +105,10 @@ async def test_enqueue_fails_when_queue_unavailable_and_no_inline_fallback():
     manager = WaybillQueueManager()
     request = WaybillMapRequest.model_validate(_request_payload())
 
+    test_session_factory = sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     with (
         patch("app.services.task_service.engine", test_engine),
+        patch("app.services.task_service.async_session_factory", test_session_factory),
         patch("app.core.config.utcms_config.QUEUE_ENABLED", True),
         patch("app.core.config.utcms_config.QUEUE_INLINE_FALLBACK", False),
         patch("app.services.task_service.task_service._emit_task_event", new=AsyncMock()),

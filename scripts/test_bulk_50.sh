@@ -36,7 +36,7 @@ API_URL="http://localhost"
 # دریافت Client ID و Driver ID
 log_header "آماده‌سازی تست Bulk"
 
-CLIENT_DRIVER=$(docker exec barpro-postgres psql -U barpro_user -d barpro_db -t -c "
+CLIENT_DRIVER=$(docker exec barpro-postgres psql -U postgres -d utcms_rpa -t -c "
 SELECT c.id, d.id 
 FROM clients c 
 JOIN drivers d ON d.client_id = c.id 
@@ -59,7 +59,7 @@ log_info "استفاده از Client ID: $CLIENT_ID, Driver ID: $DRIVER_ID"
 # ════════════════════════════════════════════════════════════════════
 
 log_info "تمیز کردن jobs قدیمی..."
-docker exec barpro-postgres psql -U barpro_user -d barpro_db -c "
+docker exec barpro-postgres psql -U postgres -d utcms_rpa -c "
 DELETE FROM waybill_jobs WHERE created_at < NOW() - INTERVAL '30 minutes';
 DELETE FROM fuel_inquiries WHERE created_at < NOW() - INTERVAL '30 minutes';
 " > /dev/null
@@ -176,7 +176,7 @@ while true; do
     fi
     
     # شمارش وضعیت‌ها
-    STATS=$(docker exec barpro-postgres psql -U barpro_user -d barpro_db -t -c "
+    STATS=$(docker exec barpro-postgres psql -U postgres -d utcms_rpa -t -c "
     SELECT 
       (SELECT COUNT(*) FROM waybill_jobs WHERE id IN ($(IFS=,; echo "${WAYBILL_IDS[*]}"))) as w_total,
       (SELECT COUNT(*) FROM waybill_jobs WHERE id IN ($(IFS=,; echo "${WAYBILL_IDS[*]}")) AND status='completed') as w_completed,
@@ -236,7 +236,7 @@ TOTAL_TIME=$((MONITOR_END - MONITOR_START))
 log_header "نتایج نهایی"
 
 # جمع‌آوری آمار نهایی
-FINAL_STATS=$(docker exec barpro-postgres psql -U barpro_user -d barpro_db -t -c "
+FINAL_STATS=$(docker exec barpro-postgres psql -U postgres -d utcms_rpa -t -c "
 SELECT 
   'Waybill' as type,
   COUNT(*) as total,
@@ -303,7 +303,7 @@ else
     
     # لیست failed jobs
     log_warn "لیست 10 job شکست خورده:"
-    docker exec barpro-postgres psql -U barpro_user -d barpro_db -c "
+    docker exec barpro-postgres psql -U postgres -d utcms_rpa -c "
     SELECT 'Waybill' as type, id, error_message 
     FROM waybill_jobs 
     WHERE status='failed' AND id IN ($(IFS=,; echo "${WAYBILL_IDS[*]}"))
