@@ -583,7 +583,7 @@ export default function AdminHealthPage() {
                       const successCount = captcha.successes_by_strategy[strategy] || 0;
                       const rate = count > 0 ? Math.round((successCount / count) * 100) : 0;
                       return (
-                        <div key={strategy} className="flex items-center justify-between bg-slate-850 p-2 rounded border border-white/5" dir="ltr">
+                        <div key={strategy} className="flex items-center justify-between bg-slate-800 p-2 rounded border border-white/5" dir="ltr">
                           <span className="font-mono text-cyan-400">{strategy}</span>
                           <span className="text-slate-400">
                             استفاده: <strong className="text-slate-200">{count}</strong> | دقت: <strong className="text-emerald-400">{rate}%</strong>

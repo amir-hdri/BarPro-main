@@ -144,7 +144,14 @@ _redis_sync_client: "redis.Redis | None" = None
 def _get_redis_sync() -> "redis.Redis":
     global _redis_sync_client
     if _redis_sync_client is None:
-        _redis_sync_client = redis.Redis.from_url(utcms_config.REDIS_URL, decode_responses=True)
+        _redis_sync_client = redis.Redis.from_url(
+            utcms_config.REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=5,
+            socket_timeout=5,
+            retry_on_timeout=True,
+            max_connections=10,
+        )
     return _redis_sync_client
 
 

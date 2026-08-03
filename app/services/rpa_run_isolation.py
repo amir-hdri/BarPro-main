@@ -27,11 +27,16 @@ async def prepare_live_run_isolation(
 ) -> dict[str, Any]:
     """Clear stale queue/lock markers before an inline/live submit run."""
     released_locks: list[str] = []
+    # Get tokens from ContextVar to pass to force_release_lock for ownership verification
+    lock_tokens = rpa_runtime._lock_tokens.get() or {}
+    
     for lock_key in (
         rpa_runtime.auth_lock_key(client_id, driver_id),
         rpa_runtime.submit_lock_key(client_id, driver_id),
     ):
-        await rpa_runtime.force_release_lock(lock_key)
+        # Pass the token if available for this lock key (ownership verification)
+        token = lock_tokens.get(lock_key)
+        await rpa_runtime.force_release_lock(lock_key, token)
         released_locks.append(lock_key)
 
     previous = {

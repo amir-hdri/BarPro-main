@@ -1,22 +1,11 @@
 import axios, { AxiosInstance } from 'axios';
 
+export const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || 'utcms_auth_token';
+
 export const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000')
+  (typeof window !== 'undefined' ? window.location.origin.replace(/:\d+$/, ':8000') : 'http://localhost:8000')
 ).replace(/\/+$/, '').replace(/\/api$/, '');
-
-function clearAllAuthTokens() {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.removeItem('utcms_auth_token');
-    localStorage.removeItem('utcms_auth_client');
-    localStorage.removeItem('utcms_token');
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('token');
-  } catch (e) {
-    console.error('Failed to clear auth tokens:', e);
-  }
-}
 
 // ─── URL helpers ─────────────────────────────────────────────────────────────
 
@@ -59,15 +48,12 @@ export function extractErrorMessage(payload: unknown): string {
 
   const record = payload as Record<string, unknown>;
 
-  // Common patterns
   const directMessage =
     normalizeToString(record.message) ||
     normalizeToString(record.detail) ||
     normalizeToString(record.msg);
   if (directMessage) return directMessage;
 
-  // FastAPI/Pydantic validation errors often appear as:
-  // { detail: [ { msg, loc, ... } ] } or { errors: [...] }
   const detail = record.detail;
   if (Array.isArray(detail)) {
     const parts = detail
@@ -102,7 +88,6 @@ export function extractErrorMessage(payload: unknown): string {
     if (parts.length) return parts.join('، ');
   }
 
-  // Some validators return { loc, msg, ... } at top-level
   const topMsg = normalizeToString(record.msg) || normalizeToString(record.loc);
   if (topMsg) return topMsg;
 
@@ -116,39 +101,23 @@ function createApiClient(): AxiosInstance {
     baseURL: API_BASE_URL,
     headers: { 'Content-Type': 'application/json' },
     withCredentials: true,
-  });
-
-  inst.interceptors.request.use((config) => {
-    if (typeof window !== 'undefined') {
-      try {
-        const token = window.localStorage.getItem('utcms_auth_token');
-        if (token && !config.headers.Authorization) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
-      } catch {
-        // ignore
-      }
-    }
-    return config;
+    timeout: 15000,
   });
 
   inst.interceptors.response.use(
     (res) => res,
     (err) => {
       const status = err?.response?.status;
-      // Only clear session on 401 (Unauthorized) — not 403 (Forbidden)
-      // 403 means authenticated but lacking permission, redirect without logout
-      if (status === 401) {
-        clearAllAuthTokens();
-        if (typeof window !== 'undefined') {
-          try {
-            // Prevent redirect loop if already on /auth
-            if (!window.location.pathname.startsWith('/auth')) {
-              window.location.href = '/auth';
-            }
-          } catch {
-            // ignore
+      if (status === 401 && typeof window !== 'undefined') {
+        try {
+          window.localStorage.removeItem('utcms_auth_client');
+          // Clear the auth cookie
+          document.cookie = `${AUTH_COOKIE_NAME}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+          if (!window.location.pathname.startsWith('/auth')) {
+            window.location.href = '/auth';
           }
+        } catch {
+          // ignore
         }
       }
       return Promise.reject(err);
@@ -168,14 +137,19 @@ export interface ApiResponse<T = unknown> {
   success?: boolean;
 }
 
+export interface RequestOptions {
+  signal?: AbortSignal;
+}
+
 // ─── CRUD wrappers ────────────────────────────────────────────────────────────
 
 export async function get<T = unknown>(
   path: string,
-  params?: Record<string, string | number | boolean | undefined | null>
+  params?: Record<string, string | number | boolean | undefined | null>,
+  options?: RequestOptions
 ): Promise<ApiResponse<T>> {
   try {
-    const res = await axiosClient.get<T>(path, { params });
+    const res = await axiosClient.get<T>(path, { params, signal: options?.signal });
     return { data: res.data, success: true };
   } catch (e: unknown) {
     const axiosError = e as { response?: { data?: unknown } };
@@ -184,9 +158,13 @@ export async function get<T = unknown>(
   }
 }
 
-export async function post<T = unknown>(path: string, body?: unknown): Promise<ApiResponse<T>> {
+export async function post<T = unknown>(
+  path: string,
+  body?: unknown,
+  options?: RequestOptions
+): Promise<ApiResponse<T>> {
   try {
-    const res = await axiosClient.post<T>(path, body);
+    const res = await axiosClient.post<T>(path, body, { signal: options?.signal });
     return { data: res.data, success: true };
   } catch (e: unknown) {
     const axiosError = e as { response?: { data?: unknown } };
@@ -195,9 +173,13 @@ export async function post<T = unknown>(path: string, body?: unknown): Promise<A
   }
 }
 
-export async function put<T = unknown>(path: string, body?: unknown): Promise<ApiResponse<T>> {
+export async function put<T = unknown>(
+  path: string,
+  body?: unknown,
+  options?: RequestOptions
+): Promise<ApiResponse<T>> {
   try {
-    const res = await axiosClient.put<T>(path, body);
+    const res = await axiosClient.put<T>(path, body, { signal: options?.signal });
     return { data: res.data, success: true };
   } catch (e: unknown) {
     const axiosError = e as { response?: { data?: unknown } };
@@ -206,9 +188,13 @@ export async function put<T = unknown>(path: string, body?: unknown): Promise<Ap
   }
 }
 
-export async function patch<T = unknown>(path: string, body?: unknown): Promise<ApiResponse<T>> {
+export async function patch<T = unknown>(
+  path: string,
+  body?: unknown,
+  options?: RequestOptions
+): Promise<ApiResponse<T>> {
   try {
-    const res = await axiosClient.patch<T>(path, body);
+    const res = await axiosClient.patch<T>(path, body, { signal: options?.signal });
     return { data: res.data, success: true };
   } catch (e: unknown) {
     const axiosError = e as { response?: { data?: unknown } };
@@ -217,9 +203,9 @@ export async function patch<T = unknown>(path: string, body?: unknown): Promise<
   }
 }
 
-export async function del<T = unknown>(path: string): Promise<ApiResponse<T>> {
+export async function del<T = unknown>(path: string, options?: RequestOptions): Promise<ApiResponse<T>> {
   try {
-    const res = await axiosClient.delete<T>(path);
+    const res = await axiosClient.delete<T>(path, { signal: options?.signal });
     return { data: res.data, success: true };
   } catch (e: unknown) {
     const axiosError = e as { response?: { data?: unknown } };

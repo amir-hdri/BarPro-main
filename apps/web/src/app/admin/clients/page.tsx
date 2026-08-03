@@ -21,40 +21,7 @@ import {
   BarChart3,
 } from "lucide-react";
 
-interface ClientItem {
-  id: number;
-  client_code: string;
-  name: string;
-  email: string;
-  phone: string;
-  status: string;
-  max_drivers: number;
-  max_plates: number;
-  max_concurrent_tasks: number;
-  max_daily_tasks: number;
-  access_level?: string;
-  created_at: string;
-  subscription_start_date?: string;
-  subscription_end_date?: string;
-}
-
-interface ClientDetail {
-  total_jobs: number;
-  success_jobs: number;
-  failed_jobs: number;
-  success_rate: number;
-  total_drivers: number;
-  active_drivers: number;
-  total_plates: number;
-  failure_reasons: Record<string, number>;
-  driver_breakdown: Array<{
-    driver_name: string;
-    total_jobs: number;
-    success: number;
-    failed: number;
-    success_rate: number;
-  }>;
-}
+import type { ClientItem, ClientDetail } from "@/lib/types";
 
 export default function AdminClientsPage() {
   const [clients, setClients] = useState<ClientItem[]>([]);
@@ -433,7 +400,7 @@ export default function AdminClientsPage() {
                                       <h4 className="text-sm font-bold text-slate-300 mb-2">
                                         رانندگان ({d.total_drivers} فعال از {d.total_drivers})
                                       </h4>
-                                      <div className="overflow-x-auto">
+                                      <div className="overflow-x-auto hidden sm:block">
                                         <table className="w-full text-xs">
                                           <thead>
                                             <tr className="border-b border-white/5 text-slate-400">
@@ -460,6 +427,25 @@ export default function AdminClientsPage() {
                                             ))}
                                           </tbody>
                                         </table>
+                                      </div>
+
+                                      {/* Mobile Cards */}
+                                      <div className="sm:hidden space-y-2.5">
+                                        {d.driver_breakdown.map((dr) => (
+                                          <div key={dr.driver_name} className="rounded-xl border border-white/5 bg-slate-900/60 p-3 space-y-1.5 text-xs text-slate-300">
+                                            <div className="flex justify-between items-center font-semibold">
+                                              <span className="text-slate-200">{dr.driver_name}</span>
+                                              <span className={`font-mono ${dr.success_rate >= 80 ? "text-emerald-300" : dr.success_rate >= 50 ? "text-amber-300" : "text-red-300"}`}>
+                                                {dr.success_rate}% موفقیت
+                                              </span>
+                                            </div>
+                                            <div className="flex justify-between text-[11px] text-slate-400">
+                                              <span>کل: <strong className="text-slate-200">{dr.total_jobs}</strong></span>
+                                              <span>موفق: <strong className="text-emerald-400">{dr.success}</strong></span>
+                                              <span>ناموفق: <strong className="text-red-400">{dr.failed}</strong></span>
+                                            </div>
+                                          </div>
+                                        ))}
                                       </div>
                                     </div>
 
@@ -507,25 +493,26 @@ export default function AdminClientsPage() {
             <p className="font-bold text-slate-500">هیچ کاربری یافت نشد</p>
           </div>
         ) : (
-          filtered.map((c) => (
-            <div key={c.id} className="rounded-2xl border border-white/10 bg-slate-900/40 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[13px] font-black text-cyan-300">{c.client_code}</span>
-                  {accessLevelBadge(c.access_level)}
-                </div>
-                <button
-                  onClick={() => handleToggleStatus(c.id, c.status)}
-                  className={`inline-flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs font-bold transition-all ${
-                    c.status === "active"
-                      ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
-                      : "bg-slate-500/10 border border-white/5 text-slate-400"
-                  }`}
-                >
-                  <span className={`h-2 w-2 rounded-full ${c.status === "active" ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" : "bg-slate-500"}`} />
-                  {c.status === "active" ? "فعال" : "غیرفعال"}
-                </button>
-              </div>
+           filtered.map((c) => (
+             <div key={c.id} className="rounded-2xl border border-white/10 bg-slate-900/40 p-4 space-y-3">
+               <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-2">
+                   <span className="font-mono text-sm font-black text-cyan-300">{c.client_code}</span>
+                   {accessLevelBadge(c.access_level)}
+                 </div>
+                 <button
+                   onClick={() => handleToggleStatus(c.id, c.status)}
+                   className={`inline-flex items-center gap-2 rounded-lg px-4 py-3 text-xs font-bold transition-all touch-target ${
+                     c.status === "active"
+                       ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
+                       : "bg-slate-500/10 border border-white/5 text-slate-400"
+                   }`}
+                   aria-label={`تغییر وضعیت به ${c.status === "active" ? "غیرفعال" : "فعال"}`}
+                 >
+                   <span className={`h-2 w-2 rounded-full ${c.status === "active" ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" : "bg-slate-500"}`} />
+                   {c.status === "active" ? "فعال" : "غیرفعال"}
+                 </button>
+               </div>
               <div className="space-y-1">
                 <p className="font-bold text-slate-200">{c.name}</p>
                 <p className="text-xs text-slate-400">{c.email}</p>
@@ -556,23 +543,29 @@ export default function AdminClientsPage() {
                   <span>روزانه: <span className="font-mono text-slate-200 font-bold">{c.max_daily_tasks}</span></span>
                 </div>
               </div>
-              <div className="flex items-center justify-between pt-1 border-t border-white/5">
-                <span className="text-xs text-slate-500 font-mono">{c.created_at ? c.created_at.slice(0, 10) : "-"}</span>
-                <div className="flex items-center gap-1">
-                  <button onClick={(e) => { e.stopPropagation(); toggleExpand(c.id); }}
-                    className="rounded-xl p-3 text-slate-400 hover:bg-cyan-500/10 hover:text-cyan-400 transition" title="مشاهده جزئیات">
-                    <BarChart3 className="h-4 w-4" />
-                  </button>
-                  <button onClick={() => { setEditingClient(c); setIsModalOpen(true); }}
-                    className="rounded-xl p-3 text-slate-400 hover:bg-white/10 hover:text-cyan-400 transition" title="ویرایش کاربر">
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                  <button onClick={() => setDeleteConfirmId(c.id)}
-                    className="rounded-xl p-3 text-slate-400 hover:bg-rose-500/10 hover:text-rose-400 transition" title="حذف کاربر">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
+               <div className="flex items-center justify-between pt-1 border-t border-white/5">
+                 <span className="text-xs text-slate-500 font-mono">{c.created_at ? c.created_at.slice(0, 10) : "-"}</span>
+                 <div className="flex items-center gap-1">
+                   <button onClick={(e) => { e.stopPropagation(); toggleExpand(c.id); }}
+                     className="rounded-xl p-4 text-slate-400 hover:bg-cyan-500/10 hover:text-cyan-400 transition touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                     aria-label="مشاهده جزئیات"
+                     title="مشاهده جزئیات">
+                     <BarChart3 className="h-5 w-5" />
+                   </button>
+                   <button onClick={() => { setEditingClient(c); setIsModalOpen(true); }}
+                     className="rounded-xl p-4 text-slate-400 hover:bg-white/10 hover:text-cyan-400 transition touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                     aria-label="ویرایش کاربر"
+                     title="ویرایش کاربر">
+                     <Pencil className="h-5 w-5" />
+                   </button>
+                   <button onClick={() => setDeleteConfirmId(c.id)}
+                     className="rounded-xl p-4 text-slate-400 hover:bg-rose-500/10 hover:text-rose-400 transition touch-target focus:outline-none focus:ring-2 focus:ring-rose-500"
+                     aria-label="حذف کاربر"
+                     title="حذف کاربر">
+                     <Trash2 className="h-5 w-5" />
+                   </button>
+                 </div>
+               </div>
               {/* Mobile expanded detail */}
               {expandedId === c.id && (
                 <div className="border-t border-white/5 pt-3 space-y-3 animate-in slide-in-from-top-1 duration-200">
@@ -634,14 +627,14 @@ export default function AdminClientsPage() {
           <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-slate-900 p-6 shadow-2xl text-white" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-black">تأیید حذف کاربر</h3>
             <p className="mt-2 text-sm text-slate-400">تمام داده‌های مربوط به این کاربر حذف خواهد شد. مطمئن هستید؟</p>
-            <div className="mt-6 flex justify-end gap-3">
-              <button onClick={() => setDeleteConfirmId(null)} className="rounded-xl border border-white/10 bg-slate-950 px-5 py-3.5 text-sm font-bold text-slate-300 hover:bg-slate-900 transition">
-                انصراف
-              </button>
-              <button onClick={() => void handleDelete(deleteConfirmId)} className="rounded-xl bg-rose-500 px-5 py-3.5 text-sm font-bold text-white hover:bg-rose-600 transition">
-                حذف شود
-              </button>
-            </div>
+             <div className="mt-6 flex justify-end gap-3">
+               <button onClick={() => setDeleteConfirmId(null)} className="rounded-xl border border-white/10 bg-slate-950 px-5 py-3.5 text-sm font-bold text-slate-300 hover:bg-slate-900 transition touch-target focus:outline-none focus:ring-2 focus:ring-white">
+                 انصراف
+               </button>
+               <button onClick={() => void handleDelete(deleteConfirmId)} className="rounded-xl bg-rose-500 px-5 py-3.5 text-sm font-bold text-white hover:bg-rose-600 transition touch-target focus:outline-none focus:ring-2 focus:ring-rose-500">
+                 حذف شود
+               </button>
+             </div>
           </div>
         </div>
       )}

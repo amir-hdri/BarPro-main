@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
-from app.core.security import require_sensitive_auth
+from app.core.security import require_sensitive_admin
 from app.schemas.management import (
     ManagedAccountUpsertRequest,
     ManagedCustomerUpsertRequest,
@@ -15,67 +15,67 @@ from app.services.management_service import management_service
 router = APIRouter(prefix="/management", tags=["management"])
 
 
-@router.get("/summary", response_model=dict, dependencies=[Depends(require_sensitive_auth)])
+@router.get("/summary", response_model=dict, dependencies=[Depends(require_sensitive_admin)])
 async def get_summary():
     return await management_service.summary()
 
 
-@router.get("/diagnostics", response_model=dict, dependencies=[Depends(require_sensitive_auth)])
+@router.get("/diagnostics", response_model=dict, dependencies=[Depends(require_sensitive_admin)])
 async def get_diagnostics():
     return await management_service.diagnostics()
 
 
-@router.get("/operator/dashboard", response_model=dict, dependencies=[Depends(require_sensitive_auth)])
+@router.get("/operator/dashboard", response_model=dict, dependencies=[Depends(require_sensitive_admin)])
 async def operator_dashboard():
     return await management_service.operator_dashboard()
 
 
-@router.get("/operator/tasks", response_model=list, dependencies=[Depends(require_sensitive_auth)])
+@router.get("/operator/tasks", response_model=list, dependencies=[Depends(require_sensitive_admin)])
 async def operator_tasks(limit: int = 50):
     return await management_service.operator_tasks(limit=limit)
 
 
-@router.get("/operator/artifacts/{task_id}", response_model=dict, dependencies=[Depends(require_sensitive_auth)])
+@router.get("/operator/artifacts/{task_id}", response_model=dict, dependencies=[Depends(require_sensitive_admin)])
 async def operator_artifacts(task_id: str):
     return await management_service.operator_artifacts(task_id)
 
 
-@router.get("/operator/artifact-content", response_model=dict, dependencies=[Depends(require_sensitive_auth)])
+@router.get("/operator/artifact-content", response_model=dict, dependencies=[Depends(require_sensitive_admin)])
 async def operator_artifact_content(path: str):
     return await management_service.read_artifact_content(path)
 
 
-@router.post("/bootstrap/local", response_model=dict, dependencies=[Depends(require_sensitive_auth)])
+@router.post("/bootstrap/local", response_model=dict, dependencies=[Depends(require_sensitive_admin)])
 async def bootstrap_local(request: ManagementBootstrapRequest):
     return await management_service.bootstrap_local_scenario(request)
 
 
-@router.get("/customers", response_model=list, dependencies=[Depends(require_sensitive_auth)])
+@router.get("/customers", response_model=list, dependencies=[Depends(require_sensitive_admin)])
 async def list_customers():
     return await management_service.list_customers()
 
 
-@router.post("/customers", response_model=dict, dependencies=[Depends(require_sensitive_auth)])
+@router.post("/customers", response_model=dict, dependencies=[Depends(require_sensitive_admin)])
 async def upsert_customer(request: ManagedCustomerUpsertRequest):
     return await management_service.upsert_customer(request)
 
 
-@router.get("/routes", response_model=list, dependencies=[Depends(require_sensitive_auth)])
+@router.get("/routes", response_model=list, dependencies=[Depends(require_sensitive_admin)])
 async def list_routes():
     return await management_service.list_routes()
 
 
-@router.post("/routes", response_model=dict, dependencies=[Depends(require_sensitive_auth)])
+@router.post("/routes", response_model=dict, dependencies=[Depends(require_sensitive_admin)])
 async def upsert_route(request: ManagedRouteUpsertRequest):
     return await management_service.upsert_route(request)
 
 
-@router.get("/accounts", response_model=list, dependencies=[Depends(require_sensitive_auth)])
+@router.get("/accounts", response_model=list, dependencies=[Depends(require_sensitive_admin)])
 async def list_accounts():
     return await management_service.list_accounts()
 
 
-@router.post("/accounts", response_model=dict, dependencies=[Depends(require_sensitive_auth)])
+@router.post("/accounts", response_model=dict, dependencies=[Depends(require_sensitive_admin)])
 async def upsert_account(request: ManagedAccountUpsertRequest):
     return await management_service.upsert_account(request)
 
@@ -83,33 +83,33 @@ async def upsert_account(request: ManagedAccountUpsertRequest):
 @router.post(
     "/accounts/{account_external_name}/warm-session",
     response_model=dict,
-    dependencies=[Depends(require_sensitive_auth)],
+    dependencies=[Depends(require_sensitive_admin)],
 )
 async def warm_account_session(account_external_name: str):
     return await management_service.warm_account_session(account_external_name)
 
 
-@router.get("/queue", response_model=list, dependencies=[Depends(require_sensitive_auth)])
+@router.get("/queue", response_model=list, dependencies=[Depends(require_sensitive_admin)])
 async def list_queue():
     return await management_service.list_queue()
 
 
-@router.post("/queue", response_model=dict, dependencies=[Depends(require_sensitive_auth)])
+@router.post("/queue", response_model=dict, dependencies=[Depends(require_sensitive_admin)])
 async def create_queue_item(request: ManagedQueueCreateRequest):
     return await management_service.create_queue_item(request)
 
 
-@router.post("/queue/{queue_item_id}/dispatch", response_model=dict, dependencies=[Depends(require_sensitive_auth)])
+@router.post("/queue/{queue_item_id}/dispatch", response_model=dict, dependencies=[Depends(require_sensitive_admin)])
 async def dispatch_queue_item(queue_item_id: str, request: ManagedQueueDispatchRequest):
     return await management_service.dispatch_queue_item(queue_item_id, request)
 
 
-@router.get("/sync/logs", response_model=list, dependencies=[Depends(require_sensitive_auth)])
+@router.get("/sync/logs", response_model=list, dependencies=[Depends(require_sensitive_admin)])
 async def sync_logs():
     return await management_service.get_sync_logs()
 
 
-@router.post("/import/excel", dependencies=[Depends(require_sensitive_auth)])
+@router.post("/import/excel", dependencies=[Depends(require_sensitive_admin)])
 async def import_excel(
     file: UploadFile = File(...),
     source_system: str = Form("local"),

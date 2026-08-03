@@ -254,17 +254,20 @@ def drain_worker_consumers(task: Any) -> None:
     with error_category='worker_drained' after calling this, so reconciliation does
     not later mark them as orphaned.
     """
+    from app.core.config import utcms_config
+    
     worker_name = task.request.hostname
     logger.warning(f"Draining worker {worker_name} consumers...")
-    for q in [
-        "barpro.waybill.submit",
-        "barpro.waybill.auth",
-        "barpro.fuel.inquiry",
-        "barpro.recovery",
-        "barpro.reconciliation",
-        "waybill_tasks",
-        "reconciliation_tasks"
-    ]:
+    queues = [
+        utcms_config.CELERY_WAYBILL_SUBMIT_QUEUE,
+        utcms_config.CELERY_WAYBILL_AUTH_QUEUE,
+        utcms_config.CELERY_FUEL_INQUIRY_QUEUE,
+        utcms_config.CELERY_RECOVERY_QUEUE,
+        utcms_config.CELERY_RECONCILIATION_QUEUE,
+        utcms_config.CELERY_WAYBILL_TASKS_QUEUE,
+        utcms_config.CELERY_RECONCILIATION_TASKS_QUEUE,
+    ]
+    for q in queues:
         try:
             task.app.control.cancel_consumer(q, destination=[worker_name])
         except Exception as exc:

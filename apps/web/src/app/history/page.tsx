@@ -1,14 +1,47 @@
 'use client';
 
 import { memo, useCallback, useEffect, useState } from 'react';
+import { toast } from 'react-hot-toast';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
+import { ErrorState } from '@/components/layout/States';
+import { ProgressBar } from '@/components/ProgressBar';
 import { useSession } from '@/hooks/useSession';
 import { api } from '@/lib/api';
-import { formatDateTime, statusLabel, statusTone, toPersianDigits, trackingCodeFromResult, errorCategoryLabel } from '@/lib/format';
-import type { JobTimelineResponse, WaybillJob, WaybillJobUpdateRequest, WaybillTaskListResponse } from '@/lib/types';
-import { Activity, ListChecks, MoreVertical, Edit2, Trash2, X, Check, AlertCircle } from 'lucide-react';
+import {
+  errorCategoryLabel,
+  formatDateTime,
+  statusLabel,
+  statusTone,
+  toPersianDigits,
+  trackingCodeFromResult,
+} from '@/lib/format';
+import type {
+  FuelInquiryItem,
+  FuelInquiryListResponse,
+  JobTimelineResponse,
+  WaybillJob,
+  WaybillJobUpdateRequest,
+  WaybillTaskListResponse,
+} from '@/lib/types';
+import {
+  Activity,
+  AlertCircle,
+  Check,
+  Edit2,
+  Filter,
+  Fuel,
+  FileText,
+  ListChecks,
+  MoreVertical,
+  RotateCcw,
+  Search,
+  Trash2,
+  X,
+  Eye,
+  ChevronRight,
+} from 'lucide-react';
 
 const JobCard = memo(function JobCard({
   job,
@@ -96,7 +129,7 @@ const JobCard = memo(function JobCard({
               data-job-id={job.job_id}
               onClick={handleRetryClick}
               disabled={retryingJobId === job.job_id}
-              className="rounded-lg bg-cyan-500 px-4 py-3 text-[10px] font-bold text-white shadow-sm transition hover:bg-cyan-600 disabled:opacity-50"
+              className="rounded-lg bg-cyan-500 px-3.5 py-2 text-[11px] font-bold text-slate-950 shadow-sm transition hover:bg-cyan-400 disabled:opacity-50"
             >
               {retryingJobId === job.job_id ? '...' : 'تلاش مجدد'}
             </button>
@@ -106,39 +139,40 @@ const JobCard = memo(function JobCard({
             <button
               data-job-id={job.job_id}
               onClick={handleActionOpen}
-              className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 hover:bg-slate-800 transition-colors border border-white/5"
+              className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 hover:bg-slate-800 transition-colors border border-white/5 text-slate-300"
             >
-              <MoreVertical className="h-4 w-4 text-slate-400" />
+              <MoreVertical className="h-4 w-4" />
             </button>
 
             {actionMenuJobId === job.job_id && (
-              <div className="absolute right-0 top-full mt-1 w-48 max-w-[calc(100vw-2rem)] rounded-2xl border border-white/10 bg-slate-950 p-2 shadow-2xl z-50" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center justify-end px-3 py-1">
-                  <button onClick={handleActionClose} className="text-slate-500 hover:text-slate-300">
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
+              <div className="absolute left-0 top-full mt-1 w-44 rounded-2xl border border-white/10 bg-slate-950 p-2 shadow-2xl z-50 text-right" onClick={(e) => e.stopPropagation()}>
+                 <div className="flex items-center justify-between px-3 py-1 border-b border-white/5 mb-1">
+                   <span className="text-[10px] font-bold text-slate-400">عملیات</span>
+                   <button onClick={handleActionClose} className="p-2 text-slate-500 hover:text-slate-300 rounded-lg hover:bg-white/5 transition touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500" aria-label="بستن">
+                     <X className="h-4 w-4" />
+                   </button>
+                 </div>
 
-                <button onClick={handleEditOpen} className="w-full flex items-center gap-3 rounded-xl px-4 py-2.5 text-right text-sm font-medium text-slate-300 hover:bg-white/5 transition-colors">
-                  <Edit2 className="h-4 w-4 text-slate-400" />
-                  ویرایش
-                </button>
+                 <button onClick={handleEditOpen} className="w-full flex items-center gap-2.5 rounded-xl px-4 py-3 text-right text-xs font-bold text-slate-300 hover:bg-white/5 transition-colors touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                   <Edit2 className="h-4 w-4 text-cyan-400" />
+                   ویرایش مشخصات
+                 </button>
 
-                <button data-job-id={job.job_id} onClick={handleDeleteOpen} className="w-full flex items-center gap-3 rounded-xl px-4 py-2.5 text-right text-sm font-medium text-rose-400 hover:bg-rose-500/10 transition-colors">
-                  <Trash2 className="h-4 w-4" />
-                  حذف
-                </button>
+                 <button data-job-id={job.job_id} onClick={handleDeleteOpen} className="w-full flex items-center gap-2.5 rounded-xl px-4 py-3 text-right text-xs font-bold text-rose-400 hover:bg-rose-500/10 transition-colors touch-target focus:outline-none focus:ring-2 focus:ring-rose-500">
+                   <Trash2 className="h-4 w-4" />
+                   حذف ماموریت
+                 </button>
               </div>
             )}
           </div>
 
-          <span className={['rounded-xl px-4 py-2 text-xs font-bold shadow-sm', statusTone(job.status)].join(' ')}>
+          <span className={['rounded-xl px-3.5 py-1.5 text-xs font-bold shadow-sm', statusTone(job.status)].join(' ')}>
             {statusLabel(job.status)}
           </span>
         </div>
       </div>
       {(() => {
-        const tc = trackingCodeFromResult(job.result);
+        const tc = trackingCodeFromResult(job.result_json);
         if (tc) {
           return (
             <div className="mt-3 rounded-xl bg-emerald-500/10 p-3 text-[11px] font-medium text-emerald-400 border border-emerald-500/20">
@@ -158,7 +192,7 @@ const JobCard = memo(function JobCard({
           <span className="font-bold">علت خطا:</span> {job.last_error}
         </div>
       )}
-      <div className="mt-4 flex items-center justify-between text-[11px] font-bold uppercase r text-slate-500">
+      <div className="mt-4 flex items-center justify-between text-[11px] font-bold uppercase text-slate-500">
         <div className="flex items-center gap-2">
           <span>بروزرسانی:</span>
           <span className="text-slate-400">{formatDateTime(job.updated_at)}</span>
@@ -186,7 +220,6 @@ function JobProgressChart({ progress = 10, status = 'pending' }: { progress: num
       
       <h3 className="text-lg font-black text-white mb-6">نمودار پیشرفت عملیات ربات</h3>
       
-      {/* Horizontal Bar Chart representation */}
       <div className="mb-8">
         <div className="flex justify-between items-center text-xs font-bold text-slate-400 mb-2">
           <span>درصد پیشرفت: {toPersianDigits(progress.toString())}٪</span>
@@ -194,19 +227,13 @@ function JobProgressChart({ progress = 10, status = 'pending' }: { progress: num
             وضعیت: {statusLabel(status)}
           </span>
         </div>
-        <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden border border-white/5">
-          <div 
-            className={`h-full rounded-full transition-all duration-500 ${
-              status === 'failed' 
-                ? 'bg-gradient-to-r from-rose-500 to-rose-400 shadow-[0_0_10px_rgba(239,68,68,0.5)]' 
-                : 'bg-gradient-to-r from-cyan-500 to-emerald-400 shadow-[0_0_10px_rgba(6,182,212,0.5)]'
-            }`}
-            style={{ width: `${progress}%` }}
-          />
-        </div>
+        <ProgressBar
+          value={progress}
+          tone={status === 'failed' ? 'rose' : status === 'success' ? 'emerald' : 'cyan'}
+          label="پیشرفت عملیات ربات"
+        />
       </div>
 
-      {/* Stepper Details */}
       <div className="relative border-r-2 border-white/10 pr-6 mr-3 space-y-8">
         {steps.map((step, idx) => {
           const isCompleted = progress >= step.minProgress || (status === 'success' && idx === steps.length - 1);
@@ -215,7 +242,6 @@ function JobProgressChart({ progress = 10, status = 'pending' }: { progress: num
 
           return (
             <div key={idx} className="relative">
-              {/* Stepper Indicator Dot */}
               <span className={`absolute -right-[31px] top-1 flex h-4 w-4 items-center justify-center rounded-full border transition-all duration-300 ${
                 isCompleted 
                   ? 'bg-emerald-500 border-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.5)]' 
@@ -229,7 +255,6 @@ function JobProgressChart({ progress = 10, status = 'pending' }: { progress: num
                 {isFailed && <AlertCircle className="h-2.5 w-2.5 text-white" />}
               </span>
 
-              {/* Stepper Content */}
               <div>
                 <h4 className={`text-sm font-bold transition-colors duration-300 ${
                   isCompleted ? 'text-emerald-400' : isFailed ? 'text-rose-400' : isActive ? 'text-cyan-400 font-black' : 'text-slate-500'
@@ -250,22 +275,43 @@ function JobProgressChart({ progress = 10, status = 'pending' }: { progress: num
 
 export default function HistoryPage() {
   const { isAdmin, role } = useSession();
+
+  // Category Tab state: 'waybills' or 'fuel'
+  const [activeCategory, setActiveCategory] = useState<'waybills' | 'fuel'>('waybills');
+
+  // Multi-Filter & Pagination toolbar state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [driverNameFilter, setDriverNameFilter] = useState('');
+  const [plateFilter, setPlateFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [dateFromFilter, setDateFromFilter] = useState('');
+  const [dateToFilter, setDateToFilter] = useState('');
+
+  // Waybill Jobs state
   const [jobs, setJobs] = useState<WaybillJob[]>([]);
+  const [jobsTotal, setJobsTotal] = useState(0);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-  const [mobileTimelineOpen, setMobileTimelineOpen] = useState(false);
   const [timeline, setTimeline] = useState<JobTimelineResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingJobs, setLoadingJobs] = useState(true);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [timelineError, setTimelineError] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [jobsError, setJobsError] = useState<string | null>(null);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
-  
   const [actionMenuJobId, setActionMenuJobId] = useState<string | null>(null);
-  
+
+  // Fuel Inquiries state
+  const [fuelInquiries, setFuelInquiries] = useState<FuelInquiryItem[]>([]);
+  const [fuelTotal, setFuelTotal] = useState(0);
+  const [loadingFuel, setLoadingFuel] = useState(true);
+  const [fuelError, setFuelError] = useState<string | null>(null);
+  const [retryingFuelId, setRetryingFuelId] = useState<number | null>(null);
+  const [screenshotModalUrl, setScreenshotModalUrl] = useState<string | null>(null);
+
+  // Edit Modals state
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  
+
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<WaybillJob | null>(null);
   const [editForm, setEditForm] = useState<WaybillJobUpdateRequest>({
@@ -279,74 +325,153 @@ export default function HistoryPage() {
   const [editError, setEditError] = useState<string | null>(null);
   const [editSuccess, setEditSuccess] = useState<string | null>(null);
 
+  // Load Waybill Jobs
   const loadJobs = useCallback(async () => {
-    setLoading(true);
-    const response = await api.get<WaybillTaskListResponse>('/api/v1/waybill-jobs', { page: '1', page_size: '25' });
+    setLoadingJobs(true);
+    setJobsError(null);
+    const params: Record<string, string> = { page: String(currentPage), page_size: '20' };
+    if (statusFilter) params.status = statusFilter;
+    if (driverNameFilter.trim()) params.driver_name = driverNameFilter.trim();
+    if (plateFilter.trim()) params.plate_number = plateFilter.trim();
+    if (dateFromFilter) params.date_from = dateFromFilter;
+    if (dateToFilter) params.date_to = dateToFilter;
+
+    const response = await api.get<WaybillTaskListResponse>('/api/v1/waybill-jobs', params);
 
     if (!response.success || !response.data) {
-      setError(response.error || 'تاریخچه کارها بارگذاری نشد');
-      setLoading(false);
+      setJobsError(response.error || 'تاریخچه کارهای بارنامه بارگذاری نشد.');
+      setJobs([]);
+      setJobsTotal(0);
+      setLoadingJobs(false);
       return;
     }
 
     setJobs(response.data.tasks);
-    if (!selectedJobId) {
-      setSelectedJobId(response.data.tasks[0]?.job_id || null);
+    setJobsTotal(response.data.total);
+    const firstJobId = response.data.tasks[0]?.job_id || null;
+    setSelectedJobId((prev) => prev || firstJobId);
+    setLoadingJobs(false);
+  }, [currentPage, statusFilter, driverNameFilter, plateFilter, dateFromFilter, dateToFilter]);
+
+  // Load Fuel Inquiries
+  const loadFuelInquiries = useCallback(async () => {
+    setLoadingFuel(true);
+    setFuelError(null);
+    const params: Record<string, string> = { page: String(currentPage), page_size: '20' };
+    if (statusFilter) params.status = statusFilter;
+    if (driverNameFilter.trim()) params.driver_name = driverNameFilter.trim();
+    if (plateFilter.trim()) params.plate_number = plateFilter.trim();
+    if (dateFromFilter) params.date_from = dateFromFilter;
+    if (dateToFilter) params.date_to = dateToFilter;
+
+    const response = await api.get<FuelInquiryListResponse>('/api/v1/fuel-inquiries', params);
+
+    if (!response.success || !response.data) {
+      setFuelError(response.error || 'تاریخچه استعلام‌های سوخت بارگذاری نشد.');
+      setFuelInquiries([]);
+      setFuelTotal(0);
+      setLoadingFuel(false);
+      return;
     }
-    setError(null);
-    setLoading(false);
-  }, [selectedJobId]);
+
+    setFuelInquiries(response.data.items);
+    setFuelTotal(response.data.total);
+    setLoadingFuel(false);
+  }, [currentPage, statusFilter, driverNameFilter, plateFilter, dateFromFilter, dateToFilter]);
 
   useEffect(() => {
     if (role) {
-      loadJobs();
+      if (activeCategory === 'waybills') {
+        loadJobs();
+      } else {
+        loadFuelInquiries();
+      }
     }
-  }, [role, loadJobs]);
+  }, [role, activeCategory, loadJobs, loadFuelInquiries]);
 
-  const handleRetry = useCallback(async (jobId: string) => {
+  const handleApplyFilters = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (activeCategory === 'waybills') {
+      void loadJobs();
+    } else {
+      void loadFuelInquiries();
+    }
+  };
+
+  const handleResetFilters = () => {
+    setDriverNameFilter('');
+    setPlateFilter('');
+    setStatusFilter('');
+    setDateFromFilter('');
+    setDateToFilter('');
+    setTimeout(() => {
+      if (activeCategory === 'waybills') void loadJobs();
+      else void loadFuelInquiries();
+    }, 50);
+  };
+
+  const handleRetryJob = useCallback(async (jobId: string) => {
     setRetryingJobId(jobId);
     const response = await api.post(`/api/v1/waybill-jobs/${jobId}/retry`, { dispatch_now: true });
     setRetryingJobId(null);
     if (response.success) {
+      toast.success('درخواست اجرای مجدد ثبت شد.');
       await loadJobs();
     } else {
-      setError(response.error || 'تلاش مجدد ناموفق بود');
+      toast.error(response.error || 'تلاش مجدد ناموفق بود');
     }
   }, [loadJobs]);
-  
+
+  const handleRetryFuelInquiry = useCallback(async (inquiry: FuelInquiryItem) => {
+    setRetryingFuelId(inquiry.id);
+    const response = await api.post('/api/v1/fuel-inquiries', {
+      driver_id: inquiry.driver_id,
+      year: inquiry.year || undefined,
+      month: inquiry.month || undefined,
+    });
+    setRetryingFuelId(null);
+    if (response.success) {
+      toast.success('استعلام جدید سوخت ثبت شد و در حال پردازش است.');
+      await loadFuelInquiries();
+    } else {
+      toast.error(response.error || 'ثبت استعلام جدید ناموفق بود');
+    }
+  }, [loadFuelInquiries]);
+
   const handleActionMenuOpen = useCallback((jobId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setActionMenuJobId(prev => prev === jobId ? null : jobId);
   }, []);
-  
+
   const handleActionMenuClose = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     setActionMenuJobId(null);
   }, []);
-  
+
   const handleDeleteModalOpen = useCallback((jobId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setDeletingJobId(jobId);
     setDeleteModalOpen(true);
     setActionMenuJobId(null);
   }, []);
-  
+
   const handleDeleteModalClose = useCallback(() => {
     setDeleteModalOpen(false);
     setDeletingJobId(null);
     setDeleteError(null);
   }, []);
-  
-  const handleDelete = useCallback(async (jobId: string) => {
+
+  const handleDeleteJob = useCallback(async (jobId: string) => {
     const response = await api.delete(`/api/v1/waybill-jobs/${jobId}`);
     if (response.success) {
+      toast.success('ماموریت حذف شد');
       await loadJobs();
       handleDeleteModalClose();
     } else {
       setDeleteError(response.error || 'حذف ناموفق بود');
     }
   }, [loadJobs, handleDeleteModalClose]);
-  
+
   const handleEditModalOpen = useCallback((job: WaybillJob, e: React.MouseEvent) => {
     e.stopPropagation();
     setEditingJob(job);
@@ -361,32 +486,24 @@ export default function HistoryPage() {
     setEditModalOpen(true);
     setActionMenuJobId(null);
   }, []);
-  
+
   const handleEditModalClose = () => {
     setEditModalOpen(false);
     setEditingJob(null);
     setEditError(null);
     setEditSuccess(null);
-    setEditForm({
-      priority: 5,
-      max_retries: 3,
-      status: '',
-      terminal_reason: '',
-      business_date: '',
-      correlation_id: '',
-    });
   };
-  
-  async function handleEdit(jobId: string) {
+
+  async function handleEditJob(jobId: string) {
     const payload = { ...editForm };
     if (payload.status === '') delete payload.status;
     const response = await api.patch(`/api/v1/waybill-jobs/${jobId}`, payload);
     if (response.success) {
-      setEditSuccess('تغییرات با موفقیت ذخیره شد');
+      setEditSuccess('تغییرات ماموریت با موفقیت ذخیره شد');
       setTimeout(() => {
         handleEditModalClose();
         void loadJobs();
-      }, 1500);
+      }, 1200);
     } else {
       setEditError(response.error || 'ویرایش ناموفق بود');
     }
@@ -398,7 +515,7 @@ export default function HistoryPage() {
     setTimeline(null);
     const response = await api.get<JobTimelineResponse>(`/api/v1/waybill-jobs/${jobId}/timeline`, {
       include_payload: 'true',
-      page:' 1',
+      page: '1',
       page_size: '20',
     });
     if (response.success && response.data) {
@@ -410,327 +527,582 @@ export default function HistoryPage() {
   }, []);
 
   useEffect(() => {
-    if (selectedJobId) {
+    if (selectedJobId && activeCategory === 'waybills') {
       void loadTimeline(selectedJobId);
     }
-  }, [selectedJobId, loadTimeline]);
+  }, [selectedJobId, activeCategory, loadTimeline]);
 
   const handleCardClick = useCallback((jobId: string) => {
     setSelectedJobId(jobId);
-    setMobileTimelineOpen(true);
   }, []);
 
   return (
     <AuthGuard>
       <AppShell>
-        <section className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
-          <div className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 sm:p-8 shadow-2xl text-white">
-            <div className="flex items-center justify-between border-b border-white/5 pb-6">
-              <div>
-                <h1 className="text-2xl font-black text-white">پیگیری عملیات</h1>
-                <p className="mt-1 text-sm text-slate-400">مشاهده صف، خطاها و روند پیشرفت هر ماموریت</p>
-              </div>
-              <span className="rounded-full bg-cyan-500/10 border border-cyan-500/20 px-4 py-1.5 text-xs font-black text-cyan-400 shadow-sm">
-                {toPersianDigits(jobs.length)} مورد
-              </span>
+        <section className="flex flex-col gap-6">
+
+          {/* Header and Category Switcher Tabs */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-[2rem] border border-white/10 bg-slate-950/70 p-6 shadow-2xl backdrop-blur-xl">
+            <div>
+              <h1 className="text-2xl font-black text-white">پیگیری و مدیریت عملیات</h1>
+              <p className="mt-1 text-xs font-medium text-slate-400">
+                تفکیک هوشمند کارهای ثبت بارنامه و استعلام سهمیه سوخت به همراه فیلترهای پیشرفته
+              </p>
             </div>
 
-            {loading ? (
-              <div className="mt-6 space-y-4">
-                {[1, 2, 3, 4].map((item) => (
-                  <div key={item} className="h-28 skeleton rounded-2xl" />
-                ))}
-              </div>
-            ) : jobs.length === 0 ? (
-              <div className="mt-10 flex flex-col items-center justify-center rounded-[2rem] border-2 border-dashed border-white/5 bg-slate-950/20 py-16">
-                <p className="text-sm font-medium text-slate-400">هنوز ماموریتی برای نمایش وجود ندارد.</p>
-              </div>
-            ) : (
-              <div className="mt-6 space-y-3">
-                {jobs.map((job) => (
-                  <JobCard
-                    key={job.job_id}
-                    job={job}
-                    selectedJobId={selectedJobId}
-                    retryingJobId={retryingJobId}
-                    actionMenuJobId={actionMenuJobId}
-                    onCardClick={handleCardClick}
-                    onRetry={handleRetry}
-                    onActionMenuOpen={handleActionMenuOpen}
-                    onActionMenuClose={handleActionMenuClose}
-                    onEditModalOpen={handleEditModalOpen}
-                    onDeleteModalOpen={handleDeleteModalOpen}
-                    isAdmin={isAdmin}
-                  />
-                ))}
-              </div>
-            )}
-
-            {error && (
-              <div className="mt-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 p-4 text-sm font-bold text-rose-400 shadow-sm shadow-rose-950/20">
-                {error}
-              </div>
-            )}
-          </div>
-
-          <div className="hidden xl:block relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-950 p-8 text-white shadow-2xl shadow-slate-900/10">
-            <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-cyan-500/10 blur-[80px]"></div>
-            
-            <div className="relative z-10">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/20">
-                  <Activity className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold">{isAdmin ? 'تایم‌لاین اجرایی' : 'وضعیت پیشرفت ماموریت'}</h2>
-                  <p className="text-xs font-medium text-slate-400">{isAdmin ? 'رهگیری لحظه‌ای گام‌های عملیاتی ربات' : 'گزارش کلی پیشرفت اتوماسیون بارنامه'}</p>
-                </div>
-              </div>
-
-              {!selectedJobId ? (
-                <div className="mt-10 flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-white/5 py-20 text-center">
-                  <ListChecks className="h-12 w-12 text-slate-600" />
-                  <p className="mt-4 text-sm font-medium text-slate-400">برای مشاهده جزئیات، یکی از ماموریت‌ها را انتخاب کنید.</p>
-                </div>
-              ) : timelineLoading ? (
-                <div className="mt-10 space-y-4">
-                  {[1, 2, 3].map((item) => (
-                    <div key={item} className="h-24 animate-pulse rounded-3xl bg-white/5" />
-                  ))}
-                </div>
-              ) : timelineError ? (
-                <div className="mt-10 flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-rose-500/20 py-20 text-center">
-                  <AlertCircle className="h-12 w-12 text-rose-400" />
-                  <p className="mt-4 text-sm font-medium text-rose-400">{timelineError}</p>
-                  <button onClick={() => selectedJobId && void loadTimeline(selectedJobId)} className="mt-4 rounded-xl bg-cyan-500 px-6 py-3 text-xs font-bold text-white hover:bg-cyan-600 transition">
-                    تلاش مجدد
-                  </button>
-                </div>
-              ) : !isAdmin ? (
-                <JobProgressChart 
-                  progress={timeline?.progress_percent || 10} 
-                  status={jobs.find(j => j.job_id === selectedJobId)?.status || 'pending'} 
-                />
-              ) : !timeline || timeline.entries.length === 0 ? (
-                <div className="mt-10 flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-white/5 py-20 text-center">
-                  <p className="text-sm font-medium text-slate-400">هنوز رویدادی برای این ماموریت ثبت نشده است.</p>
-                </div>
-              ) : (
-                <div className="mt-10 space-y-4">
-                  {timeline.entries.map((entry) => (
-                    <article key={entry.entry_id} className="group relative rounded-3xl border border-white/10 bg-white/5 p-6 transition-all hover:bg-white/10">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className={`h-2 w-2 rounded-full ${entry.status === 'success' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.5)]'}`}></div>
-                          <h4 className="text-sm font-bold text-slate-200">{entry.title || entry.event_type}</h4>
-                        </div>
-                        <time className="text-[10px] font-bold  text-slate-500">{formatDateTime(entry.created_at)}</time>
-                      </div>
-                      <p className="mt-3 text-sm leading-relaxed text-slate-400">{entry.message}</p>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div
-            className={`fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300 xl:hidden ${
-              mobileTimelineOpen && selectedJobId ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-            }`}
-            onClick={() => setMobileTimelineOpen(false)}
-          />
-
-          <div
-            className={`fixed bottom-0 left-0 right-0 z-50 max-h-[85vh] rounded-t-[2rem] border-t border-white/10 bg-slate-950 p-6 sm:p-8 shadow-2xl transition-transform duration-300 ease-out xl:hidden overflow-y-auto text-right ${
-              mobileTimelineOpen && selectedJobId ? 'translate-y-0' : 'translate-y-full'
-            }`}
-          >
-            <div className="flex justify-center mb-4">
-              <div className="w-12 h-1.5 rounded-full bg-white/10" />
-            </div>
-
-            <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-6">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/20">
-                  <Activity className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-white">{isAdmin ? 'تایم‌لاین اجرایی' : 'وضعیت پیشرفت ماموریت'}</h2>
-                  <p className="text-xs font-medium text-slate-400">{isAdmin ? 'رهگیری لحظه‌ای گام‌های عملیاتی ربات' : 'گزارش کلی پیشرفت اتوماسیون بارنامه'}</p>
-                </div>
-              </div>
+            <div className="flex rounded-2xl bg-slate-900/80 p-1 border border-white/10 shadow-inner">
               <button
-                onClick={() => setMobileTimelineOpen(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-900 border border-white/5 text-slate-400 hover:text-white transition-colors"
+                type="button"
+                onClick={() => setActiveCategory('waybills')}
+                className={`flex items-center gap-2 rounded-xl px-5 py-3 text-xs font-black transition-all ${
+                  activeCategory === 'waybills'
+                    ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
               >
-                <X className="h-4 w-4" />
+                <FileText className="h-4 w-4" />
+                ثبت بارنامه
+                <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-400 border border-cyan-500/20">
+                  {toPersianDigits(jobsTotal)}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveCategory('fuel')}
+                className={`flex items-center gap-2 rounded-xl px-5 py-3 text-xs font-black transition-all ${
+                  activeCategory === 'fuel'
+                    ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Fuel className="h-4 w-4" />
+                استعلام سوخت
+                <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-400 border border-cyan-500/20">
+                  {toPersianDigits(fuelTotal)}
+                </span>
               </button>
             </div>
-
-            {timelineLoading ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map((item) => (
-                  <div key={item} className="h-24 animate-pulse rounded-3xl bg-white/5" />
-                ))}
-              </div>
-            ) : timelineError ? (
-              <div className="flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-rose-500/20 py-20 text-center">
-                <AlertCircle className="h-12 w-12 text-rose-400" />
-                <p className="mt-4 text-sm font-medium text-rose-400">{timelineError}</p>
-                <button onClick={() => selectedJobId && void loadTimeline(selectedJobId)} className="mt-4 rounded-xl bg-cyan-500 px-6 py-3 text-xs font-bold text-white hover:bg-cyan-600 transition">
-                  تلاش مجدد
-                </button>
-              </div>
-            ) : !isAdmin ? (
-              <div className="pb-8">
-                <JobProgressChart 
-                  progress={timeline?.progress_percent || 10} 
-                  status={jobs.find(j => j.job_id === selectedJobId)?.status || 'pending'} 
-                />
-              </div>
-            ) : !timeline || timeline.entries.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-white/5 py-20 text-center">
-                <p className="text-sm font-medium text-slate-400">هنوز رویدادی برای این ماموریت ثبت نشده است.</p>
-              </div>
-            ) : (
-              <div className="space-y-4 pb-8">
-                {timeline.entries.map((entry) => (
-                  <article key={entry.entry_id} className="group relative rounded-3xl border border-white/10 bg-white/5 p-6 transition-all hover:bg-white/10 text-right">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`h-2 w-2 rounded-full ${entry.status === 'success' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.5)]'}`}></div>
-                        <h4 className="text-sm font-bold text-slate-200">{entry.title || entry.event_type}</h4>
-                      </div>
-                      <time className="text-[10px] font-bold text-slate-500">{formatDateTime(entry.created_at)}</time>
-                    </div>
-                    <p className="mt-3 text-sm leading-relaxed text-slate-400">{entry.message}</p>
-                  </article>
-                ))}
-              </div>
-            )}
           </div>
 
-          {deleteModalOpen && deletingJobId && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm overflow-y-auto p-4" role="dialog" aria-modal="true" aria-label="تایید حذف ماموریت">
-              <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900/90 p-8 shadow-2xl backdrop-blur-2xl text-white my-auto" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                      <AlertCircle className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-black text-white">تایید حذف ماموریت</h3>
-                      <p className="mt-1 text-sm text-slate-400">آیا از حذف ماموریت #{deletingJobId} مطمئن هستید؟</p>
-                    </div>
-                  </div>
-                  <button onClick={handleDeleteModalClose} className="text-slate-400 hover:text-slate-200 transition">
-                    <X className="h-5 w-5" />
-                  </button>
+          {/* Advanced Multi-Filter Toolbar */}
+          <form
+            onSubmit={handleApplyFilters}
+            className="rounded-[2rem] border border-white/5 bg-slate-900/40 p-6 shadow-xl backdrop-blur-md text-white"
+          >
+            <div className="flex items-center gap-2 border-b border-white/5 pb-4 mb-4 text-xs font-bold text-slate-300">
+              <Filter className="h-4 w-4 text-cyan-400" />
+              <span>فیلترهای جستجو و جستجوی پیشرفته ({activeCategory === 'waybills' ? 'ثبت بارنامه' : 'استعلام سوخت'})</span>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1.5">نام راننده</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={driverNameFilter}
+                    onChange={(e) => setDriverNameFilter(e.target.value)}
+                    placeholder="مثال: علی رضایی"
+                    className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3.5 py-2.5 text-xs text-white outline-none placeholder:text-slate-500 focus:border-cyan-400 transition"
+                  />
+                  {driverNameFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setDriverNameFilter('')}
+                      className="absolute left-2.5 top-2.5 text-slate-500 hover:text-slate-300"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
-                
-                {deleteError && (
-                  <div className="mt-4 rounded-xl bg-rose-500/10 border border-rose-500/20 p-3 text-sm font-medium text-rose-400">
-                    {deleteError}
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1.5">پلاک خودرو</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={plateFilter}
+                    onChange={(e) => setPlateFilter(e.target.value)}
+                    placeholder="مثال: ۱۲ب۳۴۵"
+                    className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3.5 py-2.5 text-xs text-white outline-none placeholder:text-slate-500 focus:border-cyan-400 transition"
+                  />
+                  {plateFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setPlateFilter('')}
+                      className="absolute left-2.5 top-2.5 text-slate-500 hover:text-slate-300"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1.5">وضعیت کار</label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3.5 py-2.5 text-xs text-white outline-none focus:border-cyan-400 transition"
+                >
+                  <option value="">همه وضعیت‌ها</option>
+                  <option value="success" className="bg-slate-950">موفق (Completed)</option>
+                  <option value="pending" className="bg-slate-950">در صف (Pending)</option>
+                  <option value="in_progress" className="bg-slate-950">در حال اجرا (Running)</option>
+                  <option value="failed" className="bg-slate-950">خطا (Failed)</option>
+                  <option value="needs_review" className="bg-slate-950">نیازمند بررسی (Needs Review)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1.5">از تاریخ (YYYY-MM-DD)</label>
+                <input
+                  type="date"
+                  value={dateFromFilter}
+                  onChange={(e) => setDateFromFilter(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3.5 py-2.5 text-xs text-white outline-none focus:border-cyan-400 transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1.5">تا تاریخ (YYYY-MM-DD)</label>
+                <input
+                  type="date"
+                  value={dateToFilter}
+                  onChange={(e) => setDateToFilter(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3.5 py-2.5 text-xs text-white outline-none focus:border-cyan-400 transition"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end gap-3 border-t border-white/5 pt-4">
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="rounded-xl border border-white/10 bg-slate-950 px-4 py-2.5 text-xs font-bold text-slate-300 hover:bg-slate-900 transition flex items-center gap-1.5"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                پاک کردن فیلترها
+              </button>
+              <button
+                type="submit"
+                className="rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-2.5 text-xs font-black shadow-lg transition flex items-center gap-1.5"
+              >
+                <Search className="h-3.5 w-3.5" />
+                اعمال فیلترها
+              </button>
+            </div>
+          </form>
+
+          {/* MAIN CATEGORY TAB CONTENT */}
+          {activeCategory === 'waybills' ? (
+            /* TAB 1: WAYBILL REGISTRATION TASKS */
+            <section className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
+              <div className={`relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 sm:p-8 shadow-2xl text-white ${
+                selectedJobId ? 'hidden xl:block' : 'block'
+              }`}>
+                <div className="flex items-center justify-between border-b border-white/5 pb-6">
+                  <div>
+                    <h2 className="text-xl font-black text-white">صف ثبت بارنامه</h2>
+                    <p className="mt-1 text-xs text-slate-400">مشاهده صف، خطاها و روند پیشرفت هر بارنامه</p>
+                  </div>
+                  <span className="rounded-full bg-cyan-500/10 border border-cyan-500/20 px-4 py-1.5 text-xs font-black text-cyan-400 shadow-sm">
+                    {toPersianDigits(jobsTotal)} مورد
+                  </span>
+                </div>
+
+                {loadingJobs ? (
+                  <div className="mt-6 space-y-4">
+                    {[1, 2, 3, 4].map((item) => (
+                      <div key={item} className="h-28 skeleton rounded-2xl" />
+                    ))}
+                  </div>
+                ) : jobs.length === 0 ? (
+                  <div className="mt-10 flex flex-col items-center justify-center rounded-[2rem] border-2 border-dashed border-white/5 bg-slate-950/20 py-16">
+                    <FileText className="h-10 w-10 text-slate-600 mb-3" />
+                    <p className="text-sm font-medium text-slate-400">هیچ ماموریت ثبت بارنامه‌ای با این فیلترها یافت نشد.</p>
+                  </div>
+                ) : (
+                  <div className="mt-6 space-y-3">
+                    {jobs.map((job) => (
+                      <JobCard
+                        key={job.job_id}
+                        job={job}
+                        selectedJobId={selectedJobId}
+                        retryingJobId={retryingJobId}
+                        actionMenuJobId={actionMenuJobId}
+                        onCardClick={handleCardClick}
+                        onRetry={handleRetryJob}
+                        onActionMenuOpen={handleActionMenuOpen}
+                        onActionMenuClose={handleActionMenuClose}
+                        onEditModalOpen={handleEditModalOpen}
+                        onDeleteModalOpen={handleDeleteModalOpen}
+                        isAdmin={isAdmin}
+                      />
+                    ))}
                   </div>
                 )}
-                
-                <div className="mt-6 flex justify-end gap-3">
-                  <button onClick={handleDeleteModalClose} className="rounded-xl bg-slate-950 border border-white/5 px-6 py-3.5 text-sm font-bold text-slate-300 hover:bg-slate-900 transition-colors">
-                    انصراف
-                  </button>
-                  <button
-                    onClick={() => void handleDelete(deletingJobId)}
-                    className="rounded-xl bg-rose-500 px-6 py-3.5 text-sm font-bold text-white hover:bg-rose-600 transition-colors"
-                  >
-                    حذف ماموریت
-                  </button>
+
+                {/* Pagination Controls */}
+                {jobsTotal > 20 && (
+                  <div className="mt-6 flex items-center justify-between rounded-2xl border border-white/5 bg-slate-950/60 p-4 text-xs">
+                    <span className="font-bold text-slate-400">
+                      صفحه {toPersianDigits(currentPage)} از {toPersianDigits(Math.ceil(jobsTotal / 20))} ({toPersianDigits(jobsTotal)} مورد)
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={currentPage <= 1 || loadingJobs}
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        className="rounded-xl border border-white/10 bg-slate-900 px-3.5 py-1.5 font-bold text-slate-300 hover:bg-slate-800 disabled:opacity-40 transition"
+                      >
+                        قبلی
+                      </button>
+                      <button
+                        type="button"
+                        disabled={currentPage >= Math.ceil(jobsTotal / 20) || loadingJobs}
+                        onClick={() => setCurrentPage((p) => p + 1)}
+                        className="rounded-xl border border-white/10 bg-slate-900 px-3.5 py-1.5 font-bold text-slate-300 hover:bg-slate-800 disabled:opacity-40 transition"
+                      >
+                        بعدی
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {jobsError && (
+                  <div className="mt-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 p-4 text-xs font-bold text-rose-400 shadow-sm">
+                    {jobsError}
+                  </div>
+                )}
+              </div>
+
+              {/* Waybill Timeline & Progress Panel */}
+              <div className={`${
+                selectedJobId ? 'block' : 'hidden xl:block'
+              } relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-950 p-8 text-white shadow-2xl w-full`}>
+                <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-cyan-500/10 blur-[80px]"></div>
+
+                <div className="relative z-10">
+                  {selectedJobId && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedJobId(null)}
+                      className="xl:hidden mb-6 flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900 px-4 py-2.5 text-xs font-bold text-slate-300 transition hover:bg-slate-800"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                      بازگشت به لیست ماموریت‌ها
+                    </button>
+                  )}
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/20">
+                      <Activity className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold">{isAdmin ? 'تایم‌لاین اجرایی' : 'وضعیت پیشرفت ماموریت'}</h2>
+                      <p className="text-xs font-medium text-slate-400">{isAdmin ? 'رهگیری لحظه‌ای گام‌های عملیاتی ربات' : 'گزارش کلی پیشرفت اتوماسیون بارنامه'}</p>
+                    </div>
+                  </div>
+
+                  {!selectedJobId ? (
+                    <div className="mt-10 flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-white/5 py-20 text-center">
+                      <ListChecks className="h-12 w-12 text-slate-600" />
+                      <p className="mt-4 text-sm font-medium text-slate-400">برای مشاهده جزئیات، یکی از ماموریت‌ها را انتخاب کنید.</p>
+                    </div>
+                  ) : timelineLoading ? (
+                    <div className="mt-10 space-y-4">
+                      {[1, 2, 3].map((item) => (
+                        <div key={item} className="h-24 animate-pulse rounded-3xl bg-white/5" />
+                      ))}
+                    </div>
+                  ) : timelineError ? (
+                    <ErrorState
+                      className="mt-10"
+                      message={timelineError}
+                      onRetry={() => void loadTimeline(selectedJobId)}
+                    />
+                  ) : (
+                    <div className="space-y-6">
+                      <JobProgressChart
+                        progress={
+                          timeline?.progress_percent ||
+                          (jobs.find((j) => j.job_id === selectedJobId)?.status === 'success'
+                            ? 100
+                            : jobs.find((j) => j.job_id === selectedJobId)?.status === 'in_progress'
+                            ? 60
+                            : jobs.find((j) => j.job_id === selectedJobId)?.status === 'failed'
+                            ? 40
+                            : 15)
+                        }
+                        status={jobs.find((j) => j.job_id === selectedJobId)?.status || 'pending'}
+                      />
+
+                      {isAdmin && timeline && timeline.entries.length > 0 && (
+                        <div className="mt-6 space-y-3">
+                          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">جزئیات رخدادهای اتوماسیون</h4>
+                          {timeline.entries.map((entry) => (
+                            <article key={entry.entry_id} className="group relative rounded-2xl border border-white/10 bg-white/5 p-4 transition-all hover:bg-white/10">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                  <div className={`h-2 w-2 rounded-full ${entry.status === 'success' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.5)]'}`}></div>
+                                  <h4 className="text-xs font-bold text-slate-200">{entry.title || entry.event_type}</h4>
+                                </div>
+                                <time className="text-[10px] font-bold text-slate-500">{formatDateTime(entry.created_at)}</time>
+                              </div>
+                              <p className="mt-2 text-xs leading-relaxed text-slate-400">{entry.message}</p>
+                            </article>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
+              </div>
+            </section>
+          ) : (
+            /* TAB 2: FUEL INQUIRY TASKS */
+            <section className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 sm:p-8 shadow-2xl text-white">
+              <div className="flex items-center justify-between border-b border-white/5 pb-6">
+                <div>
+                  <h2 className="text-xl font-black text-white">تاریخچه و پیگیری استعلام‌های سوخت</h2>
+                  <p className="mt-1 text-xs text-slate-400">لیست کلیه استعلام‌های سهمیه سوخت ناوگان همراه با کد پیگیری UTCMS</p>
+                </div>
+                <span className="rounded-full bg-cyan-500/10 border border-cyan-500/20 px-4 py-1.5 text-xs font-black text-cyan-400 shadow-sm">
+                  {toPersianDigits(fuelTotal)} مورد
+                </span>
+              </div>
+
+              {loadingFuel ? (
+                <div className="mt-6 space-y-4">
+                  {[1, 2, 3].map((item) => (
+                    <div key={item} className="h-28 skeleton rounded-2xl" />
+                  ))}
+                </div>
+              ) : fuelInquiries.length === 0 ? (
+                <div className="mt-10 flex flex-col items-center justify-center rounded-[2rem] border-2 border-dashed border-white/5 bg-slate-950/20 py-16">
+                  <Fuel className="h-10 w-10 text-slate-600 mb-3" />
+                  <p className="text-sm font-medium text-slate-400">هیچ استعلام سوختی با فیلترهای انتخابی یافت نشد.</p>
+                </div>
+              ) : (
+                <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {fuelInquiries.map((inquiry) => {
+                    const trackingCode = `UTC-${(inquiry.year || 1403).toString().slice(-2)}${(inquiry.month || 1).toString().padStart(2, '0')}-${inquiry.id}`;
+                    return (
+                      <div
+                        key={inquiry.id}
+                        className="group relative rounded-2xl border border-white/5 bg-slate-950/40 p-5 transition-all hover:border-cyan-500/30 hover:bg-slate-950/70 shadow-lg text-right flex flex-col justify-between"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-2 border-b border-white/5 pb-3">
+                            <span className="font-mono text-xs font-black text-cyan-400 dir-ltr bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded-md">
+                              {trackingCode}
+                            </span>
+                            <span className={['rounded-xl px-3 py-1 text-[11px] font-bold shadow-sm', statusTone(inquiry.status)].join(' ')}>
+                              {statusLabel(inquiry.status)}
+                            </span>
+                          </div>
+
+                          <div className="mt-3 space-y-1.5 text-xs text-slate-300">
+                            <p className="font-bold text-slate-100 text-sm">
+                              {inquiry.driver_name || `راننده #${inquiry.driver_id}`}
+                            </p>
+                            {inquiry.plate_number && (
+                              <p className="text-slate-400">
+                                پلاک: <span className="text-slate-200 font-bold">{inquiry.plate_number}</span>
+                              </p>
+                            )}
+                            {isAdmin && inquiry.client_name && (
+                              <p className="text-[11px] text-cyan-400">
+                                مشتری: {inquiry.client_name} ({inquiry.client_code})
+                              </p>
+                            )}
+                            <p className="text-[11px] text-slate-400">
+                              تاریخ ثبت: {formatDateTime(inquiry.created_at)}
+                            </p>
+                          </div>
+
+                          {inquiry.quota_data && typeof inquiry.quota_data === 'object' && (
+                            <div className="mt-3 rounded-xl bg-slate-900/80 border border-white/5 p-3 text-[11px] space-y-1 text-slate-300">
+                              <p className="font-bold text-cyan-300">اطلاعات سهمیه اختصاص‌یافته:</p>
+                              {Object.entries(inquiry.quota_data).slice(0, 3).map(([k, v]) => (
+                                <div key={k} className="flex justify-between text-slate-400">
+                                  <span>{k}:</span>
+                                  <span className="text-slate-200 font-medium">{String(v)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {inquiry.error_message && (
+                            <div className="mt-3 rounded-xl bg-rose-500/10 border border-rose-500/20 p-2.5 text-[11px] font-medium text-rose-400">
+                              علت خطا: {inquiry.error_message}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-end gap-2 border-t border-white/5 pt-3">
+                          {inquiry.screenshot_url && (
+                            <button
+                              type="button"
+                              onClick={() => setScreenshotModalUrl(inquiry.screenshot_url || null)}
+                              className="rounded-xl border border-white/10 bg-slate-900 px-3 py-1.5 text-[11px] font-bold text-slate-300 hover:bg-slate-800 transition flex items-center gap-1"
+                            >
+                              <Eye className="h-3 w-3 text-cyan-400" />
+                              تصویر
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void handleRetryFuelInquiry(inquiry)}
+                            disabled={retryingFuelId === inquiry.id}
+                            className="rounded-xl bg-cyan-500 px-3 py-1.5 text-[11px] font-bold text-slate-950 hover:bg-cyan-400 transition disabled:opacity-50 flex items-center gap-1"
+                          >
+                            <RotateCcw className="h-3 w-3" />
+                            {retryingFuelId === inquiry.id ? '...' : 'استعلام مجدد'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {fuelError && (
+                <div className="mt-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 p-4 text-xs font-bold text-rose-400 shadow-sm">
+                  {fuelError}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Delete Job Modal */}
+          {deleteModalOpen && deletingJobId && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true">
+              <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900 p-6 shadow-2xl text-white text-right" onClick={(e) => e.stopPropagation()}>
+                 <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                   <h3 className="text-lg font-black text-white">تأیید حذف ماموریت</h3>
+                   <button onClick={handleDeleteModalClose} className="p-3 text-slate-400 hover:text-slate-200 rounded-xl hover:bg-white/5 transition touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500" aria-label="بستن">
+                     <X className="h-5 w-5" />
+                   </button>
+                 </div>
+                 <p className="mt-4 text-sm text-slate-400">آیا از حذف ماموریت #{deletingJobId} اطمینان دارید؟</p>
+                 {deleteError && (
+                   <div className="mt-3 rounded-xl bg-rose-500/10 p-3 text-xs font-bold text-rose-400">
+                     {deleteError}
+                   </div>
+                 )}
+                 <div className="mt-6 flex justify-end gap-3">
+                   <button onClick={handleDeleteModalClose} className="rounded-xl bg-slate-950 border border-white/5 px-5 py-3 text-xs font-bold text-slate-300 touch-target focus:outline-none focus:ring-2 focus:ring-white">
+                     انصراف
+                   </button>
+                   <button onClick={() => void handleDeleteJob(deletingJobId)} className="rounded-xl bg-rose-500 px-5 py-3 text-xs font-bold text-white hover:bg-rose-600 transition touch-target focus:outline-none focus:ring-2 focus:ring-rose-500">
+                     حذف شود
+                   </button>
+                 </div>
               </div>
             </div>
           )}
 
+          {/* Edit Job Modal */}
           {editModalOpen && editingJob && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm overflow-y-auto p-4" role="dialog" aria-modal="true" aria-label="ویرایش ماموریت">
-              <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900/90 p-8 shadow-2xl backdrop-blur-2xl text-white my-auto" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center justify-between border-b border-white/5 pb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                      <Edit2 className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-black text-white">ویرایش ماموریت</h3>
-                      <p className="mt-1 text-sm text-slate-400">ویرایش مشخصات ماموریت #{editingJob.job_id}</p>
-                    </div>
-                  </div>
-                  <button onClick={handleEditModalClose} className="text-slate-400 hover:text-slate-200 transition">
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-                
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true">
+              <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900 p-6 shadow-2xl text-white text-right" onClick={(e) => e.stopPropagation()}>
+                 <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                   <h3 className="text-lg font-black text-white">ویرایش مشخصات ماموریت</h3>
+                   <button onClick={handleEditModalClose} className="p-3 text-slate-400 hover:text-slate-200 rounded-xl hover:bg-white/5 transition touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500" aria-label="بستن">
+                     <X className="h-5 w-5" />
+                   </button>
+                 </div>
+
                 {editSuccess && (
-                  <div className="mt-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-sm font-medium text-emerald-400">
-                    <Check className="h-4 w-4 inline ml-1" />
+                  <div className="mt-3 rounded-xl bg-emerald-500/10 p-3 text-xs font-bold text-emerald-400">
                     {editSuccess}
                   </div>
                 )}
-                
                 {editError && (
-                  <div className="mt-4 rounded-xl bg-rose-500/10 border border-rose-500/20 p-3 text-sm font-medium text-rose-400">
+                  <div className="mt-3 rounded-xl bg-rose-500/10 p-3 text-xs font-bold text-rose-400">
                     {editError}
                   </div>
                 )}
-                
-                <div className="mt-6 space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400">اولویت (0-9)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="9"
-                      value={editForm.priority}
-                      onChange={(e) => setEditForm({...editForm, priority: Number(e.target.value)})}
-                      className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm text-white outline-none focus:border-cyan-500 transition-all"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400">حداکثر تلاش مجدد (0-10)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="10"
-                      value={editForm.max_retries}
-                      onChange={(e) => setEditForm({...editForm, max_retries: Number(e.target.value)})}
-                      className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm text-white outline-none focus:border-cyan-500 transition-all"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400">دلیل پایان (اختیاری)</label>
-                    <input
-                      value={editForm.terminal_reason || ''}
-                      onChange={(e) => setEditForm({...editForm, terminal_reason: e.target.value})}
-                      className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-2.5 text-sm text-white outline-none focus:border-cyan-500 transition-all"
-                      placeholder="مثال: درخواست کاربر"
-                    />
-                  </div>
-                </div>
-                
-                <div className="mt-6 flex justify-end gap-3 border-t border-white/5 pt-4">
-                  <button onClick={handleEditModalClose} className="rounded-xl bg-slate-950 border border-white/5 px-6 py-3.5 text-sm font-bold text-slate-300 hover:bg-slate-900 transition-colors">
-                    انصراف
-                  </button>
-                  <button
-                    onClick={() => void handleEdit(editingJob.job_id)}
-                    className="rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-3.5 text-sm font-bold transition-all shadow-lg"
-                  >
-                    ذخیره تغییرات
-                  </button>
-                </div>
+
+                 <div className="mt-4 space-y-3">
+                   <div>
+                     <label className="block text-xs font-bold text-slate-400 mb-1">اولویت (0 الی 9)</label>
+                     <input
+                       type="number"
+                       min="0"
+                       max="9"
+                       value={editForm.priority}
+                       onChange={(e) => setEditForm({ ...editForm, priority: Number(e.target.value) })}
+                       className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-xs text-white outline-none focus:border-cyan-400 touch-target"
+                     />
+                   </div>
+
+                   <div>
+                     <label className="block text-xs font-bold text-slate-400 mb-1">حداکثر تعداد تلاش مجدد</label>
+                     <input
+                       type="number"
+                       min="0"
+                       max="10"
+                       value={editForm.max_retries}
+                       onChange={(e) => setEditForm({ ...editForm, max_retries: Number(e.target.value) })}
+                       className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-xs text-white outline-none focus:border-cyan-400 touch-target"
+                     />
+                   </div>
+
+                   <div>
+                     <label className="block text-xs font-bold text-slate-400 mb-1">وضعیت دستی (اختیاری)</label>
+                     <select
+                       value={editForm.status || ''}
+                       onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                       className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-xs text-white outline-none focus:border-cyan-400 touch-target"
+                     >
+                       <option value="">بدون تغییر</option>
+                       <option value="pending" className="bg-slate-950">در صف (pending)</option>
+                       <option value="failed" className="bg-slate-950">خطا (failed)</option>
+                       <option value="needs_review" className="bg-slate-950">نیازمند بررسی (needs_review)</option>
+                     </select>
+                   </div>
+
+                   <div>
+                     <label className="block text-xs font-bold text-slate-400 mb-1">علت پایان / یادداشت</label>
+                     <input
+                       type="text"
+                       value={editForm.terminal_reason || ''}
+                       onChange={(e) => setEditForm({ ...editForm, terminal_reason: e.target.value })}
+                       placeholder="مثال: ویرایش اولویت توسط مدیر سیستم"
+                       className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-xs text-white outline-none focus:border-cyan-400 touch-target"
+                     />
+                   </div>
+                 </div>
+
+                 <div className="mt-6 flex justify-end gap-3">
+                   <button onClick={handleEditModalClose} className="rounded-xl bg-slate-950 border border-white/5 px-5 py-3 text-xs font-bold text-slate-300 touch-target focus:outline-none focus:ring-2 focus:ring-white">
+                     انصراف
+                   </button>
+                   <button onClick={() => void handleEditJob(editingJob.job_id)} className="rounded-xl bg-cyan-500 px-5 py-3 text-xs font-bold text-slate-950 hover:bg-cyan-400 transition touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                     ذخیره تغییرات
+                   </button>
+                 </div>
               </div>
             </div>
           )}
+
+          {/* Screenshot Modal */}
+          {screenshotModalUrl && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4" onClick={() => setScreenshotModalUrl(null)}>
+               <div className="relative max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl border border-white/10 bg-slate-950 p-2 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                 <button onClick={() => setScreenshotModalUrl(null)} className="absolute left-4 top-4 z-10 rounded-full bg-slate-900/80 p-3 text-white hover:bg-slate-800 transition touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500" aria-label="بستن">
+                   <X className="h-6 w-6" />
+                 </button>
+                {/* eslint-disable-next-line @next/next/no-img-element -- dynamic backend URL */}
+                <img src={screenshotModalUrl} alt="تصویر استعلام سوخت" className="max-h-[85vh] w-auto rounded-xl object-contain" />
+              </div>
+            </div>
+          )}
+
         </section>
       </AppShell>
     </AuthGuard>

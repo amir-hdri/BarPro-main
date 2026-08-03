@@ -4,9 +4,9 @@ Tokens are blacklisted by their ``jti`` (JWT ID) claim.  The Redis key
 uses a TTL equal to the token's remaining lifetime so that entries are
 automatically cleaned up once the token would have expired anyway.
 
-When Redis is unavailable the blacklist degrades gracefully: ``is_blacklisted``
-returns ``False`` (fail-open for reads) but ``blacklist_token`` logs a warning
-(calls can still invalidate tokens locally in-memory as a secondary defense).
+When Redis is unavailable the blacklist fails closed: ``is_blacklisted``
+returns ``True`` (fail-closed for reads) and ``blacklist_token`` logs a warning.
+This ensures security is maintained even when Redis is down.
 """
 
 from __future__ import annotations

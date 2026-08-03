@@ -6,6 +6,9 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
+  {
+    ignores: [".next/**", "public/**", "node_modules/**", "out/**"],
+  },
   ...compat.extends("next/core-web-vitals"),
   {
     plugins: {

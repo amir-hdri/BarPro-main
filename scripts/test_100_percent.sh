@@ -244,7 +244,7 @@ DELETE FROM waybill_jobs WHERE created_at < NOW() - INTERVAL '1 hour';
 log_info "ارسال Waybill job..."
 WAYBILL_RESPONSE=$(curl -s -X POST http://localhost/api/waybill/submit \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: utcms_5e128ee6c4c1d5fddb498e956afc0ee6d12ae12af03e99827dcc8de5cb596a50" \
+  -H "X-API-Key: ${API_KEY:-}" \
   -d "{
     \"client_id\": $CLIENT_ID,
     \"driver_id\": $DRIVER_ID,
@@ -320,7 +320,7 @@ DELETE FROM fuel_inquiries WHERE created_at < NOW() - INTERVAL '1 hour';
 log_info "ارسال Fuel inquiry..."
 FUEL_RESPONSE=$(curl -s -X POST http://localhost/api/fuel/inquiry \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: utcms_5e128ee6c4c1d5fddb498e956afc0ee6d12ae12af03e99827dcc8de5cb596a50" \
+  -H "X-API-Key: ${API_KEY:-}" \
   -d "{
     \"client_id\": $CLIENT_ID,
     \"driver_id\": $DRIVER_ID,
@@ -390,7 +390,7 @@ WAYBILL_IDS=()
 for i in {1..10}; do
     RESP=$(curl -s -X POST http://localhost/api/waybill/submit \
       -H "Content-Type: application/json" \
-      -H "X-API-Key: utcms_5e128ee6c4c1d5fddb498e956afc0ee6d12ae12af03e99827dcc8de5cb596a50" \
+      -H "X-API-Key: ${API_KEY:-}" \
       -d "{
         \"client_id\": $CLIENT_ID,
         \"driver_id\": $DRIVER_ID,
@@ -414,7 +414,7 @@ for i in {1..10}; do
     PLATE_NUM=$((10 + i))
     RESP=$(curl -s -X POST http://localhost/api/fuel/inquiry \
       -H "Content-Type: application/json" \
-      -H "X-API-Key: utcms_5e128ee6c4c1d5fddb498e956afc0ee6d12ae12af03e99827dcc8de5cb596a50" \
+      -H "X-API-Key: ${API_KEY:-}" \
       -d "{
         \"client_id\": $CLIENT_ID,
         \"driver_id\": $DRIVER_ID,

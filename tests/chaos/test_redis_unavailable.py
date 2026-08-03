@@ -82,6 +82,7 @@ async def test_redis_unavailable_fail_closed(async_session):
 
     # Simulate Redis connection failure in session_vault by mocking redis_manager
     mock_redis = AsyncMock()
+    mock_redis.incr.return_value = 0
     mock_redis.get.side_effect = Exception("Redis connection refused")
 
     with patch("app.workers.waybill_worker.async_session_factory", new=async_session), \

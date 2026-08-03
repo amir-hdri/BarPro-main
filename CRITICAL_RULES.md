@@ -67,6 +67,36 @@
 - Connection pool باید `AsyncAdaptedQueuePool(pool_size=2, max_overflow=2)` باشد
 - `engine.dispose()` فقط در shutdown handler صدا زده می‌شود، نه در هر task
 
+### 6. Security Headers
+
+```
+❌ هرگز security headers را در responses حذف نکنید
+❌ هرگز CSP را بدون frame-ancestors, base-uri, form-action تنظیم نکنید
+❌ هرگز Permissions-Policy را تنظیم نکنید
+```
+
+- تمام responses (Nginx و FastAPI) باید دارای headers زیر باشند:
+  - `X-Content-Type-Options: nosniff`
+  - `X-Frame-Options: DENY`
+  - `X-XSS-Protection: 1; mode=block`
+  - `Referrer-Policy: strict-origin-when-cross-origin`
+  - `Content-Security-Policy` با frame-ancestors 'none', base-uri 'self', form-action 'self'
+  - `Permissions-Policy: geolocation=(), microphone=(), camera=()`
+
+### 7. Redis Configuration
+
+```
+❌ هرگز Redis را بدون connection pool تنظیمات استفاده نکنید
+❌ هرگز timeout و retry برای Redis تنظیم نکنید
+```
+
+- تمام Redis clients باید دارای تنظیمات زیر باشند:
+  - `socket_connect_timeout`: 5
+  - `socket_timeout`: 5
+  - `retry_on_timeout`: True
+  - `health_check_interval`: 30
+  - `max_connections`: 10-20 (بسته به usage)
+
 ---
 
 ## 🟠 قوانین معماری حیاتی
@@ -159,20 +189,20 @@ bash manage.sh migrate   # یا: alembic upgrade head
 
 ### 15. محدودیت‌های منابع (12 GB RAM)
 
-| Container | Limit | Reservation |
-|-----------|-------|-------------|
-| Workers (×3) | 2.5 GB each | 2 GB each |
-| PostgreSQL | 1 GB | 512 MB |
-| Frontend | 512 MB | 256 MB |
-| Nginx | 256 MB | 128 MB |
-| Backend API | 256 MB | 128 MB |
-| Redis | 256 MB | 128 MB |
-| Prometheus | 256 MB | 128 MB |
-| Celery Beat | 128 MB | 64 MB |
-| Squid ×3 | 128 MB each | 64 MB each |
-| **Total** | **~10.5 GB** | — |
-
-**هرگز limit های بالا را افزایش ندهید** بدون بررسی total (headroom: ~1.5 GB)
+| Container | Limit | Reservation | shm_size |
+|-----------|-------|-------------|----------|
+| PostgreSQL | 1 GB | 512 MB | — |
+| Redis | 256 MB | 128 MB | — |
+| Backend API | 256 MB | 128 MB | 256 MB |
+| Celery Worker 1 | 2.5 GB | 2 GB | 512 MB |
+| Celery Worker 2 | 2.5 GB | 2 GB | 512 MB |
+| Celery Worker 3 | 2.5 GB | 2 GB | 512 MB |
+| Celery Beat | 128 MB | 64 MB | — |
+| Frontend (Next.js) | 512 MB | 256 MB | — |
+| Nginx | 256 MB | 128 MB | — |
+| Squid ×3 | 128 MB each | 64 MB each | — |
+| Prometheus | 256 MB | 128 MB | — |
+| **Total limits** | **~10.5 GB** ← fits in 12 GB with ~1.5 GB headroom | | |
 
 ### 16. پس از نصب HTTPS
 
@@ -183,6 +213,10 @@ bash manage.sh migrate   # یا: alembic upgrade head
 3. AUTH_COOKIE_SECURE=true در .env تنظیم کنید
 4. bash manage.sh deploy
 ```
+
+### 16.5 تنظیم FRONTEND_URL در دیپلوی Production
+- متغیر محیطی `FRONTEND_URL` (یا `FRONTEND_URLS`) حتماً باید در محیط production ست شده باشد.
+- در غیر این صورت، برنامه در زمان راه‌اندازی با خطای `RuntimeError` بالا نخواهد آمد تا از وقوع بی‌صدای خطای CORS جلوگیری شود.
 
 ---
 
@@ -219,6 +253,9 @@ auto → CNN (login math) → PyTorch CRNN (fuel Persian) → Keras OCR → Enha
 
 ### 20. Index های Database (اجرا یک بار روی production)
 
+> **توجه**: این index ها در migration 029 (`029_add_waybill_jobs_optimization_indexes.py`) ایجاد شده‌اند.
+> برای اجرای آن‌ها روی production: `bash manage.sh migrate`
+
 ```sql
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wj_status_priority_created
 ON waybill_jobs (status, priority DESC, created_at ASC);
@@ -229,6 +266,13 @@ ON waybill_jobs (status, next_retry_at);
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wj_status_covering
 ON waybill_jobs (status) INCLUDE (id);
 ```
+
+> علاوه بر index های بالا، model `WaybillJob` دارای index های زیر می‌باشد:
+> - `idx_waybill_jobs_client_id` (client_id)
+> - `idx_waybill_jobs_driver_id` (driver_id)
+> - `idx_waybill_jobs_status` (status)
+> - `idx_waybill_jobs_created_at` (created_at)
+> - `idx_waybill_jobs_celery_task_id` (celery_task_id)
 
 ---
 
@@ -262,6 +306,15 @@ ON waybill_jobs (status) INCLUDE (id);
 
 | تاریخ | اصلاح |
 |-------|-------|
+| 2026-08-02 | اضافه کردن security headers به backend FastAPI |
+| 2026-08-02 | پیکربندی Redis connection pool با timeout/retry |
+| 2026-08-02 | حذف hardcoded secrets از GitHub Actions workflows |
+| 2026-08-02 | بهبود CSP header با frame-ancestors, base-uri, form-action |
+| 2026-08-02 | اضافه کردن Permissions-Policy header |
+| 2026-08-02 | پیکربندی Nginx DNS resolver برای dynamic upstream |
+| 2026-08-02 | بهبود error messages برای phone validation |
+| 2026-08-02 | اضافه کردن logging به exception handler در _helpers.py |
+| 2026-08-02 | به‌روزرسانی کامل تمام مستندات |
 | 2026-07-27 | رفع fail-open در token_blacklist و rate_limiter |
 | 2026-07-27 | رفع X-Forwarded-For spoofing در rate_limiter |
 | 2026-07-27 | رفع double json.loads روی JSONB columns |

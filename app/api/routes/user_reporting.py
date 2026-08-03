@@ -24,6 +24,18 @@ router = APIRouter(prefix="/user/reports", tags=["user-reports"])
 
 
 @router.get(
+    "/filter-options",
+    summary="گزینه‌های فیلتر برای کاربر",
+)
+async def get_user_filter_options(
+    client: Client = Depends(get_current_client),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Get drivers and plates available for client reporting filters."""
+    return await user_reporting_service.get_filter_options(client, session)
+
+
+@router.get(
     "/drivers",
     summary="لیست رانندگان با وضعیت",
 )
@@ -42,7 +54,9 @@ async def get_driver_list_with_status(
     summary="تاریخچه بارنامه‌ها",
 )
 async def get_waybill_history(
-    driver_id: int | None = Query(None, description="Filter by driver"),
+    driver_id: int | None = Query(None, description="Filter by driver ID"),
+    driver_name: str | None = Query(None, description="Filter by driver name"),
+    plate_number: str | None = Query(None, description="Filter by vehicle plate"),
     status: str | None = Query(None, description="Filter by status"),
     date_from: str | None = Query(None, description="Start date (YYYY-MM-DD)"),
     date_to: str | None = Query(None, description="End date (YYYY-MM-DD)"),
@@ -56,6 +70,8 @@ async def get_waybill_history(
         client=client,
         session=session,
         driver_id=driver_id,
+        driver_name=driver_name,
+        plate_number=plate_number,
         status=status,
         date_from=date_from,
         date_to=date_to,

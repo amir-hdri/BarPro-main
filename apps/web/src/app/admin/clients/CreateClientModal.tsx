@@ -181,25 +181,25 @@ export function CreateClientModal({
             
             {/* Row 1: Code and Name */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-400">کد مشتری</label>
-                <input
-                  {...register("client_code")}
-                  disabled={isEdit}
-                  placeholder="مثال: company_a"
-                  className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-3 text-sm text-white outline-none focus:border-cyan-500 disabled:opacity-50"
-                />
-                {errors.client_code && (
-                  <p className="text-[11px] text-rose-400">{errors.client_code.message}</p>
-                )}
-              </div>
-              <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-400">نام کامل</label>
-                <input
-                  {...register("name")}
-                  placeholder="مثال: ترابری پتروشیمی آریا"
-                  className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-3 text-sm text-white outline-none focus:border-cyan-500"
-                />
+               <div className="space-y-1">
+                 <label className="block text-xs font-bold text-slate-400">کد مشتری</label>
+                 <input
+                   {...register("client_code")}
+                   disabled={isEdit}
+                   placeholder="مثال: company_a"
+                   className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-4 text-sm text-white outline-none focus:border-cyan-500 disabled:opacity-50 touch-target"
+                 />
+                 {errors.client_code && (
+                   <p className="text-[11px] text-rose-400">{errors.client_code.message}</p>
+                 )}
+               </div>
+               <div className="space-y-1">
+                 <label className="block text-xs font-bold text-slate-400">نام کامل</label>
+                 <input
+                   {...register("name")}
+                   placeholder="مثال: ترابری پتروشیمی آریا"
+                   className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-4 text-sm text-white outline-none focus:border-cyan-500 touch-target"
+                 />
                 {errors.name && (
                   <p className="text-[11px] text-rose-400">{errors.name.message}</p>
                 )}
@@ -207,40 +207,40 @@ export function CreateClientModal({
             </div>
 
             {/* Row 2: Email and Phone */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-400">ایمیل</label>
-                <input
-                  type="email"
-                  {...register("email")}
-                  placeholder="user@domain.com"
-                  className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-3 text-sm text-white outline-none focus:border-cyan-500"
-                />
-                {errors.email && (
-                  <p className="text-[11px] text-rose-400">{errors.email.message}</p>
-                )}
-              </div>
-              <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-400">تلفن تماس (اختیاری)</label>
-                <input
-                  {...register("phone")}
-                  placeholder="۰۹۱۲۳۴۵۶۷۸۹"
-                  className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-3 text-sm text-white outline-none focus:border-cyan-500"
-                />
-              </div>
-            </div>
+             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+               <div className="space-y-1">
+                 <label className="block text-xs font-bold text-slate-400">ایمیل</label>
+                 <input
+                   type="email"
+                   {...register("email")}
+                   placeholder="user@domain.com"
+                   className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-4 text-sm text-white outline-none focus:border-cyan-500 touch-target"
+                 />
+                 {errors.email && (
+                   <p className="text-[11px] text-rose-400">{errors.email.message}</p>
+                 )}
+               </div>
+               <div className="space-y-1">
+                 <label className="block text-xs font-bold text-slate-400">تلفن تماس (اختیاری)</label>
+                 <input
+                   {...register("phone")}
+                   placeholder="۰۹۱۲۳۴۵۶۷۸۹"
+                   className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-4 text-sm text-white outline-none focus:border-cyan-500 touch-target"
+                 />
+               </div>
+             </div>
 
-            {/* Password */}
-            <div className="space-y-1">
-              <label className="block text-xs font-bold text-slate-400">
-                رمز عبور {isEdit && <span className="text-[10px] text-slate-500">(فقط در صورت نیاز به تغییر پر شود)</span>}
-              </label>
-              <input
-                type="password"
-                {...register("password")}
-                placeholder={isEdit ? "••••••••" : "حداقل ۸ کاراکتر"}
-                className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-3 text-sm text-white outline-none focus:border-cyan-500"
-              />
+             {/* Password */}
+             <div className="space-y-1">
+               <label className="block text-xs font-bold text-slate-400">
+                 رمز عبور {isEdit && <span className="text-[10px] text-slate-500">(فقط در صورت نیاز به تغییر پر شود)</span>}
+               </label>
+               <input
+                 type="password"
+                 {...register("password")}
+                 placeholder={isEdit ? "••••••••" : "حداقل ۸ کاراکتر"}
+                 className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-4 text-sm text-white outline-none focus:border-cyan-500 touch-target"
+               />
               {errors.password && (
                 <p className="text-[11px] text-rose-400">{errors.password.message}</p>
               )}
@@ -249,105 +249,107 @@ export function CreateClientModal({
             {/* Row 3: Limits configuration */}
             <div className="border-t border-white/5 pt-4">
               <h3 className="text-xs font-black text-cyan-400 mb-3">پیکربندی سقف دسترسی و محدودیت‌ها</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-slate-400">حداکثر راننده</label>
-                  <input
-                    type="number"
-                    {...register("max_drivers")}
-                    className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-3 py-2.5 text-sm text-white outline-none focus:border-cyan-500 text-center font-mono"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-slate-400">حداکثر پلاک</label>
-                  <input
-                    type="number"
-                    {...register("max_plates")}
-                    className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-3 py-2.5 text-sm text-white outline-none focus:border-cyan-500 text-center font-mono"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-slate-400">کارهای همزمان</label>
-                  <input
-                    type="number"
-                    {...register("max_concurrent_tasks")}
-                    className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-3 py-2.5 text-sm text-white outline-none focus:border-cyan-500 text-center font-mono"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-slate-400">کارهای روزانه</label>
-                  <input
-                    type="number"
-                    {...register("max_daily_tasks")}
-                    className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-3 py-2.5 text-sm text-white outline-none focus:border-cyan-500 text-center font-mono"
-                  />
-                </div>
-              </div>
+               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                 <div className="space-y-1">
+                   <label className="block text-[10px] font-bold text-slate-400">حداکثر راننده</label>
+                   <input
+                     type="number"
+                     {...register("max_drivers")}
+                     className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-3 py-3.5 text-sm text-white outline-none focus:border-cyan-500 text-center font-mono touch-target"
+                   />
+                 </div>
+                 <div className="space-y-1">
+                   <label className="block text-[10px] font-bold text-slate-400">حداکثر پلاک</label>
+                   <input
+                     type="number"
+                     {...register("max_plates")}
+                     className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-3 py-3.5 text-sm text-white outline-none focus:border-cyan-500 text-center font-mono touch-target"
+                   />
+                 </div>
+                 <div className="space-y-1">
+                   <label className="block text-[10px] font-bold text-slate-400">کارهای همزمان</label>
+                   <input
+                     type="number"
+                     {...register("max_concurrent_tasks")}
+                     className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-3 py-3.5 text-sm text-white outline-none focus:border-cyan-500 text-center font-mono touch-target"
+                   />
+                 </div>
+                 <div className="space-y-1">
+                   <label className="block text-[10px] font-bold text-slate-400">کارهای روزانه</label>
+                   <input
+                     type="number"
+                     {...register("max_daily_tasks")}
+                     className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-3 py-3.5 text-sm text-white outline-none focus:border-cyan-500 text-center font-mono touch-target"
+                   />
+                 </div>
+               </div>
             </div>
 
             {/* Row 4: Status and Level */}
-            <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
-              <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-400">وضعیت حساب</label>
-                <select
-                  {...register("status")}
-                  className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-3 text-sm text-white outline-none focus:border-cyan-500"
-                >
-                  <option value="active" className="bg-slate-950">فعال</option>
-                  <option value="inactive" className="bg-slate-950">غیرفعال</option>
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-400">سطح دسترسی</label>
-                <select
-                  {...register("access_level")}
-                  className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-3 text-sm text-white outline-none focus:border-cyan-500"
-                >
-                  <option value="standard" className="bg-slate-950">استاندارد (Standard)</option>
-                  <option value="premium" className="bg-slate-950">پریمیوم (Premium)</option>
-                  <option value="enterprise" className="bg-slate-950">سازمانی (Enterprise)</option>
-                </select>
-              </div>
-            </div>
+             <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
+               <div className="space-y-1">
+                 <label className="block text-xs font-bold text-slate-400">وضعیت حساب</label>
+                 <select
+                   {...register("status")}
+                   className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-4 text-sm text-white outline-none focus:border-cyan-500 touch-target"
+                 >
+                   <option value="active" className="bg-slate-950">فعال</option>
+                   <option value="inactive" className="bg-slate-950">غیرفعال</option>
+                 </select>
+               </div>
+               <div className="space-y-1">
+                 <label className="block text-xs font-bold text-slate-400">سطح دسترسی</label>
+                 <select
+                   {...register("access_level")}
+                   className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-4 text-sm text-white outline-none focus:border-cyan-500 touch-target"
+                 >
+                   <option value="standard" className="bg-slate-950">استاندارد (Standard)</option>
+                   <option value="premium" className="bg-slate-950">پریمیوم (Premium)</option>
+                   <option value="enterprise" className="bg-slate-950">سازمانی (Enterprise)</option>
+                 </select>
+               </div>
+             </div>
 
-            {/* Row 5: Subscription dates */}
-            <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
-              <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-400">تاریخ شروع اشتراک</label>
-                <input
-                  type="date"
-                  {...register("subscription_start_date")}
-                  className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-3 text-sm text-white outline-none focus:border-cyan-500 font-mono"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="block text-xs font-bold text-slate-400">تاریخ پایان اشتراک</label>
-                <input
-                  type="date"
-                  {...register("subscription_end_date")}
-                  className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-3 text-sm text-white outline-none focus:border-cyan-500 font-mono"
-                />
-              </div>
-            </div>
+             {/* Row 5: Subscription dates */}
+             <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
+               <div className="space-y-1">
+                 <label className="block text-xs font-bold text-slate-400">تاریخ شروع اشتراک</label>
+                 <input
+                   type="date"
+                   {...register("subscription_start_date")}
+                   className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-4 text-sm text-white outline-none focus:border-cyan-500 font-mono touch-target"
+                 />
+               </div>
+               <div className="space-y-1">
+                 <label className="block text-xs font-bold text-slate-400">تاریخ پایان اشتراک</label>
+                 <input
+                   type="date"
+                   {...register("subscription_end_date")}
+                   className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-4 text-sm text-white outline-none focus:border-cyan-500 font-mono touch-target"
+                 />
+               </div>
+             </div>
 
-            {/* Actions */}
-            <div className="mt-6 flex justify-end gap-3 border-t border-white/5 pt-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-xl px-5 py-3 text-sm font-bold text-slate-400 hover:bg-white/5 transition"
-              >
-                انصراف
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex items-center gap-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 px-6 py-3 text-sm font-bold text-slate-950 transition active:scale-[0.98] disabled:opacity-50"
-              >
-                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-                {isEdit ? "ثبت تغییرات" : "ایجاد حساب کاربری"}
-              </button>
-            </div>
+             {/* Actions */}
+             <div className="mt-6 flex justify-end gap-3 border-t border-white/5 pt-4">
+               <button
+                 type="button"
+                 onClick={onClose}
+                 className="rounded-xl px-5 py-3 text-sm font-bold text-slate-400 hover:bg-white/5 transition touch-target focus:outline-none focus:ring-2 focus:ring-white"
+                 aria-label="انصراف"
+               >
+                 انصراف
+               </button>
+               <button
+                 type="submit"
+                 disabled={loading}
+                 className="flex items-center gap-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 px-6 py-3 text-sm font-bold text-slate-950 transition active:scale-[0.98] disabled:opacity-50 touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                 aria-label={isEdit ? "ثبت تغییرات" : "ایجاد حساب کاربری"}
+               >
+                 {loading && <Loader2 className="h-5 w-5 animate-spin" />}
+                 {isEdit ? "ثبت تغییرات" : "ایجاد حساب کاربری"}
+               </button>
+             </div>
           </form>
         </div>
       </div>

@@ -2,8 +2,6 @@
 Unit tests for prometheus metrics export.
 """
 
-import logging
-
 from app.monitoring.metrics import (
     set_queue_depth,
     set_active_worker_count,
@@ -96,32 +94,62 @@ def test_captcha_runtime_snapshot():
     reset_captcha_runtime_snapshot()
 
 
-async def test_metrics_endpoint_resolves_all_names():
-    """Regression: the /metrics route body must not raise NameError.
+def test_metrics_endpoint_resolves_all_names():
+    """Regression: the /metrics route body must not reference undefined names.
 
     The SLO gauge block inside ``system.metrics`` uses function-local imports.
     A missing import there (historically ``async_session_factory``) was
     swallowed by the surrounding ``except Exception`` handlers, so the gauges
-    silently stayed at zero while the endpoint still returned 200. This test
-    asserts the names actually resolve instead of only exercising the gauge
-    setters directly.
+    silently stayed at zero while the endpoint still returned 200 — the bug was
+    invisible to tests that only exercised the gauge setters directly.
+
+    This check is static on purpose: actually awaiting ``system.metrics()``
+    performs real database I/O through a module-level engine, which binds to
+    whichever event loop happens to be active and fails intermittently when the
+    full suite runs. Resolving every name the function body references catches
+    the same class of bug deterministically.
     """
+    import ast
+    import builtins
+    import inspect
+    import textwrap
+
     from app.api.routes import system
 
-    captured: list[str] = []
+    source = textwrap.dedent(inspect.getsource(system.metrics))
+    tree = ast.parse(source)
+    func = tree.body[0]
 
-    class _Recorder(logging.Handler):
-        def emit(self, record: logging.LogRecord) -> None:
-            captured.append(record.getMessage())
+    # Names bound inside the function: imports, assignments, comprehension and
+    # loop targets, arguments, and nested function/class definitions.
+    bound: set[str] = set()
+    for node in ast.walk(func):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                bound.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bound.add(node.id)
+        elif isinstance(node, ast.arg):
+            bound.add(node.arg)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(node.name)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            bound.add(node.name)
 
-    handler = _Recorder(level=logging.ERROR)
-    system.logger.addHandler(handler)
-    try:
-        response = await system.metrics()
-    finally:
-        system.logger.removeHandler(handler)
+    available = bound | set(vars(system)) | set(dir(builtins))
 
-    assert response.status_code == 200
-    name_errors = [msg for msg in captured if "not defined" in msg or "NameError" in msg]
-    assert not name_errors, f"/metrics raised NameError internally: {name_errors}"
+    undefined = sorted(
+        node.id
+        for node in ast.walk(func)
+        if isinstance(node, ast.Name)
+        and isinstance(node.ctx, ast.Load)
+        and node.id not in available
+    )
+
+    assert not undefined, (
+        f"/metrics references names that resolve to nothing at runtime: {undefined}. "
+        "These raise NameError inside the route's try/except blocks, silently "
+        "leaving the Prometheus SLO gauges at zero."
+    )
+
 

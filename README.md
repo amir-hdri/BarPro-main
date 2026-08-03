@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://img.shields.io/badge/Status-Production%20Ready-success?style=for-the-badge" alt="Status" />
-  <img src="https://img.shields.io/badge/Version-1.2.0-blue?style=for-the-badge" alt="Version" />
-  <img src="https://img.shields.io/badge/Tests-414%20Passed-brightgreen?style=for-the-badge" alt="Tests" />
+  <img src="https://img.shields.io/badge/Version-2.0.0-blue?style=for-the-badge" alt="Version" />
+  <img src="https://img.shields.io/badge/Tests-552%20Passed-brightgreen?style=for-the-badge" alt="Tests" />
   <img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge" alt="License" />
 </div>
 
@@ -189,12 +189,12 @@ docker compose -f compose/monitoring.yml up -d  # Prometheus
 
 ### Tests
 ```
-414 passed, 4 skipped, 0 failed  (as of 2026-07-27)
+552 passed, 2 skipped, 0 failed  (as of 2026-08-02)
 ```
 
 ### Alembic Migration Head
 ```
-015_add_client_subscription_dates
+029_add_waybill_jobs_optimization_indexes
 ```
 
 ### Required ML Assets
@@ -205,10 +205,9 @@ docker compose -f compose/monitoring.yml up -d  # Prometheus
 
 ### Remaining Server-Side Actions
 - [ ] Install Let's Encrypt cert → uncomment `listen 443` in nginx.conf → set `AUTH_COOKIE_SECURE=true`
-- [ ] Run `bash manage.sh migrate` on production DB
+- [ ] Run `bash manage.sh migrate` on production DB (includes migration 029 with optimization indexes)
 - [ ] Run `sudo bash scripts/secure_squid_ports.sh` (lock down Squid 3129/3130)
 - [ ] Add to crontab: `@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh`
-- [ ] Run PostgreSQL optimization indexes (see `CRITICAL_RULES.md`)
 
 ---
 
@@ -252,6 +251,9 @@ BarPro/
 - **JWT_SECRET** must be ≥32 characters
 - **AUTH_COOKIE_SECURE** must be `false` on HTTP, `true` after HTTPS
 - **Prometheus** port 9090 is internal-only (`expose`, not `ports`)
+- **Security headers** added to both Nginx and FastAPI backend (CSP, X-Frame-Options, X-Content-Type-Options, Permissions-Policy)
+- **Rate limiting** is fail-closed on all endpoints including auth
+- **Token blacklist** is fail-closed when Redis is unavailable
 - See **[CRITICAL_RULES.md](./CRITICAL_RULES.md)** for complete security requirements
 
 ---
@@ -264,8 +266,10 @@ BarPro/
 | [AGENTS.md](./AGENTS.md) | AI agent guide with full architecture overview |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Detailed system architecture |
 | [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) | Step-by-step deployment |
-| [ISSUES.md](./ISSUES.md) | Known issues and status |
+| [ISSUES.md](./ISSUES.md) | Known issues, fixes, and current status |
+| [CHANGELOG.md](./docs/CHANGELOG.md) | Complete change history |
 | [.env.example](./.env.example) | Environment variables template |
+| [BarPro_Unified_Master_Roadmap.md](./BarPro_Unified_Master_Roadmap.md) | Development roadmap |
 
 ---
 

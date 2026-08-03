@@ -30,10 +30,10 @@ class LocationFavorite(SQLModel, table=True):
     is_destination: bool = Field(default=True, description="قابل استفاده به عنوان مقصد")
 
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(UTC),
-        sa_column=Column(DateTime(timezone=True), nullable=False),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(UTC),
-        sa_column=Column(DateTime(timezone=True), nullable=False),
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
     )

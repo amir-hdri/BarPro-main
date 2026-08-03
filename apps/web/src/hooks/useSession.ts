@@ -72,6 +72,5 @@ export function useSession() {
     isReady: isReady,
     logout: clearSession,
     role,
-    token: null,
   };
 }

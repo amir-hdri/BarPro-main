@@ -7,6 +7,7 @@ import { PlusIcon, UserCircleIcon } from '@heroicons/react/24/outline';
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
 import { PlateInput } from '@/components/PlateInput';
+import { toast } from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { formatDateTime, statusLabel, statusTone } from '@/lib/format';
 import { useSession } from "@/hooks/useSession";
@@ -95,10 +96,12 @@ export default function DriversPage() {
     setSaving(false);
 
     if (!response.success) {
+      toast.error(response.error || 'ثبت راننده ناموفق بود');
       setError(response.error || 'ثبت راننده ناموفق بود');
       return;
     }
 
+    toast.success('راننده جدید با موفقیت ثبت شد');
     setForm(initialDriver);
     utcmsPasswordRef.current = '';
     setError(null);
@@ -114,9 +117,11 @@ export default function DriversPage() {
     const response = await api.put<Driver>(`/api/v1/drivers/${editDriver.id}`, editDriver.payload);
     setSaving(false);
     if (!response.success) {
+      toast.error(response.error || 'ویرایش راننده ناموفق بود');
       setError(response.error || 'ویرایش راننده ناموفق بود');
       return;
     }
+    toast.success('اطلاعات راننده بروزرسانی شد');
     setEditDriver(null);
     await Promise.all([refetchDrivers(), loadPlatesAndSchedules()]);
   }
@@ -127,9 +132,11 @@ export default function DriversPage() {
     const response = await api.delete<void>(`/api/v1/drivers/${driverId}`);
     setSaving(false);
     if (!response.success) {
+      toast.error(response.error || 'حذف راننده ناموفق بود');
       setError(response.error || 'حذف راننده ناموفق بود');
       return;
     }
+    toast.success('راننده با موفقیت حذف شد');
     await Promise.all([refetchDrivers(), loadPlatesAndSchedules()]);
   }
 
@@ -147,9 +154,11 @@ export default function DriversPage() {
     const response = await api.post<Plate>('/api/v1/plates', plateForm);
     setSaving(false);
     if (!response.success) {
+      toast.error(response.error || 'ثبت پلاک ناموفق بود');
       setError(response.error || 'ثبت پلاک ناموفق بود');
       return;
     }
+    toast.success('پلاک با موفقیت ثبت شد');
     setPlateForm({ driver_id: 0, plate_number: '', vehicle_type: '', notes: '' });
     await loadPlatesAndSchedules();
   }
@@ -179,9 +188,11 @@ export default function DriversPage() {
     const response = await api.post<DriverSchedule>('/api/v1/driver-schedules', payload);
     setSaving(false);
     if (!response.success) {
+      toast.error(response.error || 'ثبت زمان‌بندی ناموفق بود');
       setError(response.error || 'ثبت زمان‌بندی ناموفق بود');
       return;
     }
+    toast.success('زمان‌بندی جدید ثبت شد');
     setScheduleForm({
       driver_id: 0,
       title: '',
@@ -207,7 +218,34 @@ export default function DriversPage() {
       setError(response.error || 'اجرای زمان‌بندی ناموفق بود');
       return;
     }
+    toast.success(`تعداد ${response.data?.created_count || 0} زمان‌بندی سررسید شده اجرا شد`);
     await loadPlatesAndSchedules();
+  }
+
+  async function handleDeleteSchedule(scheduleId: number) {
+    setSaving(true);
+    const response = await api.delete(`/api/v1/driver-schedules/${scheduleId}`);
+    setSaving(false);
+    if (response.success) {
+      toast.success('زمان‌بندی حذف شد');
+      await loadPlatesAndSchedules();
+    } else {
+      setError(response.error || 'حذف زمان‌بندی ناموفق بود');
+    }
+  }
+
+  async function handleToggleSchedule(schedule: DriverSchedule) {
+    setSaving(true);
+    const response = await api.put(`/api/v1/driver-schedules/${schedule.id}`, {
+      is_active: !schedule.is_active,
+    });
+    setSaving(false);
+    if (response.success) {
+      toast.success(`زمان‌بندی ${!schedule.is_active ? 'فعال' : 'غیرفعال'} شد`);
+      await loadPlatesAndSchedules();
+    } else {
+      setError(response.error || 'تغییر وضعیت زمان‌بندی ناموفق بود');
+    }
   }
 
   useEffect(() => {
@@ -218,39 +256,42 @@ export default function DriversPage() {
   return (
     <AuthGuard requiredRole="client">
       <AppShell>
-        <section className="flex flex-col gap-6 md:gap-10">
+        <section className="flex flex-col gap-6 md:gap-10 xl:grid xl:grid-cols-[1fr_1.3fr] xl:grid-rows-[auto_auto] xl:items-start">
           
-          <div className="flex xl:hidden rounded-2xl bg-slate-900/60 p-1 border border-white/5 mb-2 shadow-inner backdrop-blur-md overflow-x-auto scrollbar-none flex-nowrap shrink-0">
-            <button
-              type="button"
-              onClick={() => setActiveTab('list')}
-              className={`flex-1 min-w-[110px] shrink-0 rounded-xl py-3.5 text-xs font-black transition-all ${
-                activeTab === 'list' ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              رانندگان ناوگان
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('add')}
-              className={`flex-1 min-w-[110px] shrink-0 rounded-xl py-3.5 text-xs font-black transition-all ${
-                activeTab === 'add' ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              ثبت راننده
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('plates_schedules')}
-              className={`flex-1 min-w-[130px] shrink-0 rounded-xl py-3.5 text-xs font-black transition-all ${
-                activeTab === 'plates_schedules' ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              پلاک و زمان‌بندی
-            </button>
-          </div>
+           <div className="flex xl:hidden rounded-2xl bg-slate-900/60 p-1 border border-white/5 mb-2 shadow-inner backdrop-blur-md overflow-x-auto scrollbar-none flex-nowrap shrink-0">
+             <button
+               type="button"
+               onClick={() => setActiveTab('list')}
+               className={`flex-1 min-w-[110px] shrink-0 rounded-xl py-4 text-xs font-black transition-all touch-target ${
+                 activeTab === 'list' ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg' : 'text-slate-400 hover:text-slate-200'
+               }`}
+               aria-label="رانندگان ناوگان"
+             >
+               رانندگان ناوگان
+             </button>
+             <button
+               type="button"
+               onClick={() => setActiveTab('add')}
+               className={`flex-1 min-w-[110px] shrink-0 rounded-xl py-4 text-xs font-black transition-all touch-target ${
+                 activeTab === 'add' ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg' : 'text-slate-400 hover:text-slate-200'
+               }`}
+               aria-label="ثبت راننده"
+             >
+               ثبت راننده
+             </button>
+             <button
+               type="button"
+               onClick={() => setActiveTab('plates_schedules')}
+               className={`flex-1 min-w-[130px] shrink-0 rounded-xl py-4 text-xs font-black transition-all touch-target ${
+                 activeTab === 'plates_schedules' ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg' : 'text-slate-400 hover:text-slate-200'
+               }`}
+               aria-label="پلاک و زمان‌بندی"
+             >
+               پلاک و زمان‌بندی
+             </button>
+           </div>
 
-          <div className={activeTab === 'add' ? 'block animate-in fade-in duration-300' : 'hidden xl:block'}>
+          <div className={`${activeTab === 'add' ? 'block animate-in fade-in duration-300' : 'hidden xl:block'} xl:order-1 xl:col-start-1`}>
             <form onSubmit={handleSubmit} className="relative overflow-hidden rounded-[2.5rem] border border-white/10 bg-slate-950 px-8 py-10 text-white shadow-2xl shadow-slate-900/10">
               <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-cyan-500/10 blur-[80px]"></div>
               
@@ -274,11 +315,11 @@ export default function DriversPage() {
                   <label className="text-sm font-medium text-slate-200"><span className="mb-2 block">رمز عبور UTCMS</span><input type="password" required onChange={(e) => { utcmsPasswordRef.current = e.target.value; }} className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-400" /></label>
                 </div>
 
-                <div className="mt-10 flex justify-end">
-                  <button type="submit" disabled={saving} className="min-w-[200px] min-h-[44px] rounded-2xl bg-cyan-400 px-8 py-4 text-sm font-black text-slate-950 shadow-xl shadow-cyan-400/20 transition hover:bg-cyan-300 active:scale-[0.98] disabled:opacity-60">
-                    {saving ? 'در حال ذخیره...' : 'افزودن به لیست'}
-                  </button>
-                </div>
+                 <div className="mt-10 flex justify-end">
+                   <button type="submit" disabled={saving} className="min-w-[200px] min-h-[44px] rounded-2xl bg-cyan-400 px-8 py-4 text-sm font-black text-slate-950 shadow-xl shadow-cyan-400/20 transition hover:bg-cyan-300 active:scale-[0.98] disabled:opacity-60 touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                     {saving ? 'در حال ذخیره...' : 'افزودن به لیست'}
+                   </button>
+                 </div>
                 {error && (
                   <div className="mt-6 animate-in fade-in slide-in-from-top-2 rounded-2xl bg-rose-500/10 p-4 text-sm font-bold text-rose-200 ring-1 ring-rose-500/20">
                     {error}
@@ -288,16 +329,16 @@ export default function DriversPage() {
             </form>
           </div>
 
-          <div className={activeTab === 'list' ? 'block animate-in fade-in duration-300' : 'hidden xl:block'}>
+          <div className={`${activeTab === 'list' ? 'block animate-in fade-in duration-300' : 'hidden xl:block'} xl:order-3 xl:col-start-2 xl:row-span-2`}>
             <div className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 sm:p-8 shadow-2xl">
               <div className="flex items-center justify-between border-b border-white/5 pb-6">
                 <div>
                   <h2 className="text-xl font-black text-white">رانندگان ناوگان</h2>
                   <p className="mt-1 text-sm text-slate-400">لیست تمامی رانندگان احراز هویت شده و وضعیت فعالیت آن‌ها</p>
                 </div>
-                <button type="button" onClick={() => { void refetchDrivers(); void loadPlatesAndSchedules(); }} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-slate-950 px-5 py-3.5 text-xs font-bold text-slate-300 transition hover:bg-slate-900 hover:scale-105 active:scale-95 shadow-sm">
-                  بروزرسانی لیست
-                </button>
+                 <button type="button" onClick={() => { void refetchDrivers(); void loadPlatesAndSchedules(); }} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-slate-950 px-5 py-3.5 text-xs font-bold text-slate-300 transition hover:bg-slate-900 hover:scale-105 active:scale-95 shadow-sm touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500" aria-label="بروزرسانی لیست">
+                   بروزرسانی لیست
+                 </button>
               </div>
 
               {driversLoading ? (
@@ -405,15 +446,15 @@ export default function DriversPage() {
                 <Input label="رمز جدید (اختیاری)" type="password" value={editDriver.payload.utcms_password || ''} onChange={(value) => setEditDriver((current) => current ? { ...current, payload: { ...current.payload, utcms_password: value } } : current)} />
                 <Input label="وضعیت" value={editDriver.payload.status || 'active'} onChange={(value) => setEditDriver((current) => current ? { ...current, payload: { ...current.payload, status: value } } : current)} />
               </div>
-              <div className="mt-6 flex gap-2">
-                <button type="submit" disabled={saving} className="rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-2.5 text-sm font-bold transition disabled:opacity-50">ذخیره</button>
-                <button type="button" onClick={() => setEditDriver(null)} className="rounded-xl border border-white/10 bg-slate-950 hover:bg-slate-900 px-6 py-2.5 text-sm font-bold text-slate-300 transition">انصراف</button>
-              </div>
+               <div className="mt-6 flex gap-2">
+                 <button type="submit" disabled={saving} className="rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-3 text-sm font-bold transition disabled:opacity-50 touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500">ذخیره</button>
+                 <button type="button" onClick={() => setEditDriver(null)} className="rounded-xl border border-white/10 bg-slate-950 hover:bg-slate-900 px-6 py-3 text-sm font-bold text-slate-300 transition touch-target focus:outline-none focus:ring-2 focus:ring-white">انصراف</button>
+               </div>
             </form>
           )}
 
-          <div className={activeTab === 'plates_schedules' ? 'block animate-in fade-in duration-300' : 'hidden xl:block'}>
-            <section className="grid gap-6 xl:grid-cols-2">
+          <div className={`${activeTab === 'plates_schedules' ? 'block animate-in fade-in duration-300' : 'hidden xl:block'} xl:order-2 xl:col-start-1`}>
+            <section className="grid gap-6 xl:grid-cols-1">
               <form onSubmit={handleCreatePlate} className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 sm:p-8 shadow-2xl text-white">
                 <h2 className="text-xl font-black text-white">مدیریت پلاک</h2>
                 <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -431,7 +472,7 @@ export default function DriversPage() {
                   <Input label="نوع خودرو" value={plateForm.vehicle_type || ''} onChange={(value) => setPlateForm((current) => ({ ...current, vehicle_type: value }))} />
                   <Input label="یادداشت" value={plateForm.notes || ''} onChange={(value) => setPlateForm((current) => ({ ...current, notes: value }))} />
                 </div>
-                <button type="submit" disabled={saving} className="mt-6 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-3.5 text-sm font-bold transition">ثبت پلاک</button>
+                 <button type="submit" disabled={saving} className="mt-6 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-3.5 text-sm font-bold transition touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500">ثبت پلاک</button>
                 <div className="mt-6 space-y-2">
                   {plates.map((plate) => (
                     <div key={plate.id} className="rounded-2xl bg-slate-950/60 border border-white/5 px-4 py-3 text-sm text-slate-300">
@@ -490,18 +531,66 @@ export default function DriversPage() {
                     </select>
                   </label>
                 </div>
-                <div className="mt-6 flex flex-wrap gap-2">
-                  <button type="submit" disabled={saving} className="rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-5 py-2.5 text-sm font-bold transition">ثبت زمان‌بندی</button>
-                  <button type="button" onClick={() => void runSchedulesNow()} disabled={saving} className="rounded-xl border border-white/10 bg-slate-950 hover:bg-slate-900 px-5 py-2.5 text-sm font-bold text-slate-300 transition">
-                    اجرای زمان‌بندی‌های سررسیدشده
-                  </button>
-                </div>
-                <div className="mt-6 space-y-2">
-                  {schedules.map((schedule) => (
-                    <div key={schedule.id} className="rounded-2xl bg-slate-950/60 border border-white/5 px-4 py-3 text-sm text-slate-300">
-                      {schedule.title} - راننده #{schedule.driver_id} - {schedule.frequency} - {(schedule.run_times?.length ? schedule.run_times.join(', ') : schedule.run_time)}
-                    </div>
-                  ))}
+                 <div className="mt-6 flex flex-wrap gap-2">
+                   <button type="submit" disabled={saving} className="rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-5 py-3 text-sm font-bold transition touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500">ثبت زمان‌بندی</button>
+                   <button type="button" onClick={() => void runSchedulesNow()} disabled={saving} className="rounded-xl border border-white/10 bg-slate-950 hover:bg-slate-900 px-5 py-3 text-sm font-bold text-slate-300 transition touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                     اجرای زمان‌بندی‌های سررسیدشده
+                   </button>
+                 </div>
+                <div className="mt-6 space-y-3">
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">لیست زمان‌بندی‌های فعال و تنظیم‌شده</h3>
+                  {schedules.length === 0 ? (
+                    <p className="text-xs text-slate-500 italic py-2">هیچ زمان‌بندی خودکاری ثبت نشده است.</p>
+                  ) : (
+                    schedules.map((schedule) => {
+                      const driverName = drivers.find((d) => d.id === schedule.driver_id)?.full_name || `راننده #${schedule.driver_id}`;
+                      const timesText = schedule.run_times?.length ? schedule.run_times.join(' , ') : schedule.run_time;
+                      const freqLabel = schedule.frequency === 'daily' ? 'روزانه' : schedule.frequency === 'weekly' ? 'هفتگی' : 'یکبار';
+                      return (
+                        <div
+                          key={schedule.id}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-950/80 border border-white/10 p-4 text-xs text-slate-200 transition hover:border-cyan-500/30"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 font-bold text-slate-100">
+                              <span className="text-cyan-400">{schedule.title}</span>
+                              <span className="rounded-md bg-white/10 px-2 py-0.5 text-[10px] text-slate-300">
+                                {freqLabel}
+                              </span>
+                              <span className="font-mono text-cyan-300 dir-ltr text-[11px]">
+                                {timesText}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-400">
+                              راننده: <span className="text-slate-200 font-medium">{driverName}</span>
+                              {schedule.start_date && ` | از: ${schedule.start_date}`}
+                              {schedule.end_date && ` | تا: ${schedule.end_date}`}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleSchedule(schedule)}
+                              className={`rounded-lg px-3 py-1.5 text-[11px] font-bold border transition ${
+                                schedule.is_active
+                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+                                  : 'bg-slate-800 text-slate-400 border-white/5 hover:bg-slate-700'
+                              }`}
+                            >
+                              {schedule.is_active ? 'فعال' : 'غیرفعال'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteSchedule(schedule.id)}
+                              className="rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 px-3 py-1.5 text-[11px] font-bold hover:bg-rose-600 hover:text-white transition"
+                            >
+                              حذف
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </form>
             </section>
@@ -515,14 +604,14 @@ export default function DriversPage() {
           <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-slate-900 p-6 shadow-2xl text-white" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-black">تأیید حذف</h3>
             <p className="mt-2 text-sm text-slate-400">آیا از حذف این راننده اطمینان دارید؟</p>
-            <div className="mt-6 flex justify-end gap-3">
-              <button onClick={() => setDeleteConfirmId(null)} className="rounded-xl border border-white/10 bg-slate-950 px-5 py-2.5 text-sm font-bold text-slate-300 hover:bg-slate-900 transition">
-                انصراف
-              </button>
-              <button onClick={() => void handleDriverDelete(deleteConfirmId)} className="rounded-xl bg-rose-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-rose-600 transition">
-                حذف شود
-              </button>
-            </div>
+             <div className="mt-6 flex justify-end gap-3">
+               <button onClick={() => setDeleteConfirmId(null)} className="rounded-xl border border-white/10 bg-slate-950 px-5 py-3 text-sm font-bold text-slate-300 hover:bg-slate-900 transition touch-target focus:outline-none focus:ring-2 focus:ring-white">
+                 انصراف
+               </button>
+               <button onClick={() => void handleDriverDelete(deleteConfirmId)} className="rounded-xl bg-rose-500 px-5 py-3 text-sm font-bold text-white hover:bg-rose-600 transition touch-target focus:outline-none focus:ring-2 focus:ring-rose-500">
+                 حذف شود
+               </button>
+             </div>
           </div>
         </div>
       )}
@@ -534,7 +623,7 @@ const Input = memo(function Input({ label, onChange, required, type = 'text', va
   return (
     <label className="text-sm font-medium text-slate-200">
       <span className="mb-2 block">{label}</span>
-      <input type={type} required={required} value={value} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-400" />
+      <input type={type} required={required} value={value} onChange={(event) => onChange(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-base md:text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-400 touch-target" />
     </label>
   );
 });

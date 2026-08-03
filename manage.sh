@@ -22,7 +22,7 @@ case "$1" in
         docker compose -f compose/backend.yml up -d
         
         echo "Running Alembic migrations..."
-        docker compose -f compose/backend.yml exec -T backend alembic upgrade head || true
+        docker compose -f compose/backend.yml exec -T backend alembic upgrade head
         
         echo "Starting Nginx & Next.js Frontend..."
         docker compose -f compose/web.yml up -d

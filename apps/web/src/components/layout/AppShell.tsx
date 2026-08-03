@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, type ReactNode } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
 
 import { Header } from '@/components/layout/Header';
 import { Sidebar } from '@/components/layout/Sidebar';
@@ -14,7 +15,21 @@ interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
   const { client, logout, role } = useSession();
+
+  // Close mobile menu on path changes
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  // Lock body scroll when mobile menu is open
+  useEffect(() => {
+    document.body.style.overflow = mobileOpen ? 'hidden' : '';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [mobileOpen]);
 
   const handleLogout = () => {
     logout();
@@ -28,21 +43,41 @@ export function AppShell({ children }: AppShellProps) {
           <Sidebar />
         </div>
 
-        <div className={`fixed inset-0 z-50 xl:hidden transition-all duration-300 ${mobileOpen ? 'visible pointer-events-auto' : 'invisible pointer-events-none'}`}>
-          <button
-            type="button"
-            onClick={() => setMobileOpen(false)}
-            className={`absolute inset-0 w-full h-full bg-slate-950/40 backdrop-blur-sm transition-opacity duration-300 ${mobileOpen ? 'opacity-100' : 'opacity-0'}`}
-            aria-label="close navigation"
-          />
-          <div
-            className={`absolute right-4 top-4 h-[calc(100vh-2rem)] w-[min(320px,calc(100vw-2rem))] transition-all duration-300 origin-right ${
-              mobileOpen ? 'opacity-100 translate-x-0 scale-100' : 'opacity-0 translate-x-full scale-95'
-            }`}
-          >
-            <Sidebar onNavigate={() => setMobileOpen(false)} onClose={() => setMobileOpen(false)} />
-          </div>
-        </div>
+        <AnimatePresence>
+          {mobileOpen && (
+            <div className="fixed inset-0 z-50 xl:hidden">
+              {/* Backdrop */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                onClick={() => setMobileOpen(false)}
+                className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm"
+              />
+              
+              {/* Sliding Drawer */}
+              <motion.div
+                drag="x"
+                dragConstraints={{ left: 0, right: 0 }}
+                dragElastic={{ left: 0, right: 0.4 }}
+                onDragEnd={(_, info) => {
+                  // Sliding to the right (offset x > 80) closes it in RTL
+                  if (info.offset.x > 80) {
+                    setMobileOpen(false);
+                  }
+                }}
+                initial={{ x: '100%', opacity: 0.9 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: '100%', opacity: 0.9 }}
+                transition={{ type: 'spring', damping: 30, stiffness: 350 }}
+                className="absolute right-4 top-4 h-[calc(100vh-2rem)] w-[min(320px,calc(100vw-2rem))] z-10"
+              >
+                <Sidebar onNavigate={() => setMobileOpen(false)} onClose={() => setMobileOpen(false)} />
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
 
         <main className="flex-1 py-2 flex flex-col gap-6 animate-in fade-in duration-700">
           <Header client={client} role={role} onLogout={handleLogout} onOpenMenu={() => setMobileOpen(true)} />

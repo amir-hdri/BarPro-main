@@ -11,7 +11,7 @@ from sqlmodel import select
 
 from app.core.alerts import alert_manager
 from app.core.config import utcms_config
-from app.core.database import engine
+from app.core.database import async_session_factory, engine
 from app.core.execution_context import generate_correlation_id
 from app.core.redis_client import redis_manager
 from app.models_legacy import WaybillTask
@@ -22,6 +22,10 @@ from app.schemas.task import TaskStatus
 
 logger = logging.getLogger(__name__)
 
+# Maximum length for idempotency keys before SHA-256 hashing
+# Configurable via IDEMPOTENCY_KEY_MAX_LENGTH environment variable (default: 200)
+IDEMPOTENCY_KEY_MAX_LENGTH = utcms_config.IDEMPOTENCY_KEY_MAX_LENGTH
+
 
 class WaybillTaskService:
     QUEUE_DEPTH_KEY = "waybill:queue_depth"
@@ -31,11 +35,11 @@ class WaybillTaskService:
     def build_idempotency_key(payload: dict[str, Any], provided: str | None = None) -> str:
         if provided is not None:
             candidate = str(provided).strip()
-            if candidate:
-                if len(candidate) > 200:
-                    digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
-                    return f"user-{digest}"
-                return candidate
+        if candidate:
+            if len(candidate) > IDEMPOTENCY_KEY_MAX_LENGTH:
+                digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
+                return f"user-{digest}"
+            return candidate
 
         serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
@@ -54,7 +58,7 @@ class WaybillTaskService:
         payload.setdefault("batch_id", payload.get("session_id") or payload["correlation_id"])
         task_payload = json.dumps(payload, ensure_ascii=False)
 
-        async with AsyncSession(engine) as session:
+        async with async_session_factory() as session:
             existing = await self._find_by_idempotency_key(session, idempotency_key)
             if existing:
                 await self._sync_queue_depth()
@@ -208,7 +212,7 @@ class WaybillTaskService:
             )
 
     async def get_task_status(self, task_id: str) -> dict[str, Any] | None:
-        async with AsyncSession(engine) as session:
+        async with async_session_factory() as session:
             if task_id.startswith("job_"):
                 statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
                 result = await session.execute(statement)
@@ -225,7 +229,7 @@ class WaybillTaskService:
             return self._to_public_dict(task)
 
     async def get_payload(self, task_id: str) -> dict[str, Any] | None:
-        async with AsyncSession(engine) as session:
+        async with async_session_factory() as session:
             if task_id.startswith("job_"):
                 statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
                 result = await session.execute(statement)
@@ -242,7 +246,7 @@ class WaybillTaskService:
             return self._safe_json_load(task.payload_json)
 
     async def queue_snapshot(self) -> dict[str, int]:
-        async with AsyncSession(engine) as session:
+        async with async_session_factory() as session:
             all_tasks = (await session.execute(select(WaybillJob.status))).all()
             counters = {
                 TaskStatus.QUEUED.value: 0,
@@ -268,7 +272,7 @@ class WaybillTaskService:
             }
 
     async def list_tasks(self, limit: int = 50) -> list[dict[str, Any]]:
-        async with AsyncSession(engine) as session:
+        async with async_session_factory() as session:
             statement = select(WaybillJob).order_by(WaybillJob.updated_at.desc()).limit(max(1, min(500, int(limit))))
             result = await session.execute(statement)
             tasks = result.scalars().all()
@@ -282,7 +286,7 @@ class WaybillTaskService:
     async def _update_task(self, task_id: str, updater, metric_status: str | None = None) -> None:
         if task_id.startswith("job_"):
             await self._ensure_queue_depth_seeded()
-        async with AsyncSession(engine) as session:
+        async with async_session_factory() as session:
             if task_id.startswith("job_"):
                 statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
                 result = await session.execute(statement)
@@ -437,11 +441,30 @@ class WaybillTaskService:
             priority = utcms_config.CELERY_DEFAULT_PRIORITY
         return max(utcms_config.CELERY_MIN_PRIORITY, min(utcms_config.CELERY_MAX_PRIORITY, priority))
 
+    async def _get_task_status_and_payload(
+        self, task_id: str
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        async with async_session_factory() as session:
+            if task_id.startswith("job_"):
+                statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
+                result = await session.execute(statement)
+                row = result.scalars().first()
+                if not row:
+                    return None, None
+                return self._to_public_dict(row), self._safe_json_load(row.payload_json)
+
+            statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
+            result = await session.execute(statement)
+            row = result.scalars().first()
+            if not row:
+                return None, None
+            return self._to_public_dict(row), self._safe_json_load(row.payload_json)
+
     async def _emit_task_event(self, task_id: str, event_type: str) -> None:
-        status = await self.get_task_status(task_id)
+        status, payload = await self._get_task_status_and_payload(task_id)
         if not status:
             return
-        payload = await self.get_payload(task_id) or {}
+        payload = payload or {}
         await event_hub.publish(
             {
                 "type": event_type,

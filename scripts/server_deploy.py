@@ -179,7 +179,9 @@ def main():
     args = parser.parse_args()
 
     # تعیین رمز عبور
-    password = args.password or os.environ.get("SSH_PASSWORD", "")
+    password = args.password
+    if not password:
+        password = os.environ.get("SSH_PASSWORD")
     if not password:
         err("خطا: رمز عبور SSH مشخص نشده است. لطفا از --password یا متغیر محیطی SSH_PASSWORD استفاده کنید.")
         sys.exit(1)

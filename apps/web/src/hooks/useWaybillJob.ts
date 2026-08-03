@@ -1,25 +1,20 @@
 import { useEffect, useState, useRef, useCallback } from "react";
+import { z } from "zod";
 import type { WebSocketEvent } from "@/lib/types";
+import { buildWebSocketUrl } from "@/lib/ws";
+
+const webSocketEventSchema = z.object({
+  type: z.string(),
+  job_id: z.string().optional(),
+  status: z.string().optional(),
+  message: z.string().optional(),
+  data: z.record(z.unknown()).optional(),
+  timestamp: z.string().optional(),
+});
 
 function logError(...args: unknown[]) {
   if (process.env.NODE_ENV !== "production") {
     console.error(...args);
-  }
-}
-
-function getWebSocketUrl(): string {
-  try {
-    if (typeof window !== "undefined") {
-      if (window.location.port === "3000") {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        return `${protocol}//${window.location.hostname}:8000/ws/waybill`;
-      }
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      return `${protocol}//${window.location.host}/ws/waybill`;
-    }
-    return "ws://127.0.0.1:8000/ws/waybill";
-  } catch {
-    return "ws://127.0.0.1:8000/ws/waybill";
   }
 }
 
@@ -83,12 +78,13 @@ export function useWaybillJob(options: UseWaybillJobOptions = {}) {
     setStatus("connecting");
 
     try {
-      const url = new URL(getWebSocketUrl());
-      if (taskId) url.searchParams.append("task_id", taskId);
-      if (batchId) url.searchParams.append("batch_id", batchId);
-      if (correlationId) url.searchParams.append("correlation_id", correlationId);
+      const wsUrl = buildWebSocketUrl("/ws/waybill", {
+        task_id: taskId,
+        batch_id: batchId,
+        correlation_id: correlationId,
+      });
 
-      const ws = new WebSocket(url.toString());
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -98,14 +94,15 @@ export function useWaybillJob(options: UseWaybillJobOptions = {}) {
 
       ws.onmessage = (event) => {
         try {
-          const data: WebSocketEvent = JSON.parse(event.data);
+          const parsed = JSON.parse(event.data);
+          const data = webSocketEventSchema.parse(parsed);
           setLastEvent(data);
           setEvents((prev) => {
             const next = [...prev, data];
             return next.length > MAX_WS_EVENTS ? next.slice(-MAX_WS_EVENTS) : next;
           });
         } catch (e) {
-          logError("Failed to parse WebSocket message", e);
+          logError("Failed to parse or validate WebSocket message", e);
         }
       };
 

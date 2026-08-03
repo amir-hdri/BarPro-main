@@ -77,6 +77,7 @@ class EnhancedWaybillManager:
         self._active_pill = "bootstrap"
         self._selector_inventory: dict[str, dict[str, Any]] = {}
         self._last_dialog_message: str | None = None
+        self._dialog_tasks: set[asyncio.Task[Any]] = set()
         self._setup_dialog_listener()
 
     def _setup_dialog_listener(self) -> None:
@@ -88,11 +89,32 @@ class EnhancedWaybillManager:
                     "native_browser_dialog_intercepted",
                     extra={"extra_fields": {"message": dialog.message, "type": dialog.type}},
                 )
-                asyncio.create_task(dialog.accept())
+                # Playwright invokes this callback from its own event loop, so
+                # create_task() is safe here. Keep a strong reference: a bare
+                # create_task() can be garbage-collected mid-flight, and any
+                # failure to dismiss the dialog would be swallowed silently,
+                # leaving the page blocked on a modal until the job times out.
+                task = asyncio.create_task(dialog.accept())
+                self._dialog_tasks.add(task)
+                task.add_done_callback(self._dialog_tasks.discard)
+                task.add_done_callback(self._log_dialog_dismissal_failure)
 
             self.page.on("dialog", handle_dialog)
         except Exception:
             logger.warning("failed_to_register_dialog_listener", exc_info=True)
+
+    @staticmethod
+    def _log_dialog_dismissal_failure(task: "asyncio.Task[Any]") -> None:
+        """Surface dialog-dismissal errors instead of losing them on a stray task."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.warning(
+                "native_browser_dialog_dismissal_failed",
+                extra={"extra_fields": {"error": str(exc)}},
+                exc_info=exc,
+            )
 
     async def _check_and_dismiss_modal_alerts(self) -> str | None:
         """Check for visible SweetAlert, Toast, or Bootstrap modals, extract error text, and dismiss."""
@@ -3727,13 +3749,13 @@ class EnhancedWaybillManager:
             import time
 
             try:
-                screenshots_dir = "app/ui/assets/screenshots"
+                screenshots_dir = "runtime/screenshots/waybill"
                 os.makedirs(screenshots_dir, exist_ok=True)
                 screenshot_filename = f"{job_id or 'unknown_' + str(int(time.time()))}.png"
                 screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
 
                 await self.page.screenshot(path=screenshot_path, full_page=True)
-                waybill_screenshot = f"/assets/screenshots/{screenshot_filename}"
+                waybill_screenshot = f"/assets/screenshots/waybill/{screenshot_filename}"
                 logger.info(f"Successfully saved waybill screenshot to {screenshot_path}")
             except Exception as e:
                 logger.error(f"Failed to capture waybill screenshot: {e}", exc_info=True)

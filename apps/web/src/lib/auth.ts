@@ -1,8 +1,14 @@
 import { post } from './api';
 
-export const AUTH_TOKEN_KEY = 'utcms_auth_token';
 export const AUTH_CLIENT_KEY = 'utcms_auth_client';
 export const AUTH_SESSION_EVENT = 'utcms:session-change';
+
+const LEGACY_AUTH_TOKEN_KEYS = [
+  'utcms_auth_token',
+  'utcms_token',
+  'access_token',
+  'token',
+] as const;
 
 export type StoredRole = 'client' | 'master_admin';
 
@@ -14,14 +20,9 @@ export interface StoredClient {
   role: StoredRole;
 }
 
-export function getStoredToken(): string | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  try {
-    return window.localStorage.getItem(AUTH_TOKEN_KEY);
-  } catch {
-    return null;
+function clearLegacyAuthTokens(): void {
+  for (const key of LEGACY_AUTH_TOKEN_KEYS) {
+    window.localStorage.removeItem(key);
   }
 }
 
@@ -31,6 +32,7 @@ export function getStoredClient(): StoredClient | null {
   }
 
   try {
+    clearLegacyAuthTokens();
     const rawValue = window.localStorage.getItem(AUTH_CLIENT_KEY);
     if (!rawValue) {
       return null;
@@ -42,19 +44,26 @@ export function getStoredClient(): StoredClient | null {
   }
 }
 
-export function persistSession(token: string, client: StoredClient): void {
+export async function persistSession(client: StoredClient): Promise<void> {
   if (typeof window === 'undefined') {
     return;
   }
 
   try {
-    if (token) {
-      window.localStorage.setItem(AUTH_TOKEN_KEY, token);
-    }
+    clearLegacyAuthTokens();
     window.localStorage.setItem(AUTH_CLIENT_KEY, JSON.stringify(client));
-    window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
+    
+    // Dispatch event and wait for it to be processed
+    const event = new Event(AUTH_SESSION_EVENT);
+    window.dispatchEvent(event);
+    
+    // Use a small timeout to allow event listeners to process
+    // This is a workaround for the fact that dispatchEvent is synchronous
+    // but React event handlers might not have executed yet
+    await new Promise((resolve) => setTimeout(resolve, 0));
   } catch (e) {
     console.error('Failed to persist session:', e);
+    throw e;
   }
 }
 
@@ -63,11 +72,10 @@ export function clearSession(): void {
     return;
   }
 
-  // Clear cookie in backend
   post('/api/v1/auth/logout').catch(() => {});
 
   try {
-    window.localStorage.removeItem(AUTH_TOKEN_KEY);
+    clearLegacyAuthTokens();
     window.localStorage.removeItem(AUTH_CLIENT_KEY);
     window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
   } catch (e) {

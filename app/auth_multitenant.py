@@ -324,21 +324,22 @@ async def get_current_client(
 async def is_master_admin(username: str, password: str) -> bool:
     """Validate the singleton master admin account configured for the system.
 
-    Uses bcrypt for secure password comparison when the stored password is bcrypt-hashed.
-    Falls back to direct comparison for plain-text configured passwords.
+    Uses bcrypt for secure password comparison. Master admin password must be bcrypt-hashed.
     """
     if not secrets.compare_digest(username, utcms_config.MASTER_ADMIN_USERNAME):
         return False
 
     stored = utcms_config.MASTER_ADMIN_PASSWORD
-    # If stored password looks like a bcrypt hash, use bcrypt comparison
-    if stored.startswith(("$2a$", "$2b$", "$2y$")):
-        try:
-            return await asyncio.to_thread(bcrypt.checkpw, password.encode("utf-8"), stored.encode("utf-8"))
-        except Exception:
-            return False
-    # Direct constant-time comparison for plain-text configured passwords
-    return secrets.compare_digest(password, stored)
+    # Master admin password must be bcrypt-hashed (security requirement)
+    if not stored.startswith(("$2a$", "$2b$", "$2y$")):
+        raise ValueError(
+            "MASTER_ADMIN_PASSWORD must be bcrypt-hashed. "
+            "Plain-text passwords are not allowed for security reasons."
+        )
+    try:
+        return await asyncio.to_thread(bcrypt.checkpw, password.encode("utf-8"), stored.encode("utf-8"))
+    except Exception:
+        return False
 
 
 async def get_current_admin(

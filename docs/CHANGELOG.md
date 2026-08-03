@@ -1,8 +1,40 @@
- # Changelog
- 
- All notable changes to the UTCMS Automation System.
- 
- ## [2.3.0] - 2026-07-18
+# Changelog
+  
+  All notable changes to the UTCMS Automation System.
+  
+  ## [2.4.0] - 2026-08-02
+
+### Added
+- **Security Headers**: Added comprehensive security headers middleware to FastAPI backend including CSP (with frame-ancestors, base-uri, form-action), X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy, and Permissions-Policy
+- **Permissions-Policy Header**: Added to Nginx configuration to restrict geolocation, microphone, and camera access
+- **Enhanced CSP**: Content-Security-Policy now includes `frame-ancestors 'none'`, `base-uri 'self'`, and `form-action 'self'` for better security
+
+### Changed
+- **Redis Connection Pool**: Configured all Redis clients (redis.py, rate_limiter.py, circuit_breaker.py) with proper timeout and retry settings:
+  - `socket_connect_timeout: 5`
+  - `socket_timeout: 5`
+  - `retry_on_timeout: True`
+  - `health_check_interval: 30`
+  - `max_connections: 10-20`
+- **Nginx DNS Resolution**: Configured dynamic upstream resolution using Docker internal DNS (127.0.0.11) with 30s cache for container IP changes
+- **Phone Validation**: Improved error messages with examples for driver, sender, and receiver phone numbers in waybillSchema.ts
+- **Exception Handling**: Added logging to `_safe_json_payload` in _helpers.py to prevent silent exception swallowing
+
+### Removed
+- **Hardcoded Secrets**: Removed fallback hardcoded JWT_SECRET and DRIVER_ENCRYPTION_KEY from GitHub Actions ci-cd.yml workflow
+
+### Security
+- All backend API responses now include security headers for direct access scenarios
+- Nginx security headers enhanced with additional directives
+- Redis clients now have proper connection pool settings for better reliability
+
+### Documentation
+- Updated all documentation files (ISSUES.md, README.md, AGENTS.md, CRITICAL_RULES.md) with latest changes
+- Added Persian translations and examples where applicable
+
+---
+
+  ## [2.3.0] - 2026-07-18
 
  ### Added
  - **Driver submission lock**: concurrent waybill submissions for the same driver are now serialized (`rpa_runtime.submit_lock_key` + `RPA_LOCK_TTL_SECONDS`). A conflicting job is parked in `WAITING_RETRY` with `error_category=driver_submission_in_progress` instead of double-submitting.

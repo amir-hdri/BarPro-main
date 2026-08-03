@@ -9,8 +9,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Column, DateTime, Index, Integer, Text, UniqueConstraint
-from sqlalchemy import JSON as JSONB  # dialect-agnostic: works on SQLite (tests) and PostgreSQL (prod)
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, JSON, Text, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 # ==================== ENUMS ====================
@@ -114,7 +113,7 @@ class Client(SQLModel, table=True):
     max_daily_tasks: int = Field(default=100)
 
     # Metadata
-    metadata_json: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
+    metadata_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     notes: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
 
     # ORM relationships
@@ -177,11 +176,11 @@ class Driver(SQLModel, table=True):
     utcms_password_encrypted: str = Field(sa_column=Column(Text, nullable=False))
 
     # Default waybill information (stored as JSON)
-    default_payload_json: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
+    default_payload_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
 
     # Status & metadata
     status: str = Field(default=DriverStatus.ACTIVE.value, max_length=20, index=True)
-    metadata_json: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
+    metadata_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     runtime_status: str = Field(default=DriverStatus.ACTIVE.value, max_length=40, index=True)
     last_auth_at: datetime | None = Field(
         default=None,
@@ -265,7 +264,7 @@ class DriverSchedule(SQLModel, table=True):
     start_date: str | None = Field(default=None, max_length=10)
     end_date: str | None = Field(default=None, max_length=10)
     timezone: str = Field(default="Asia/Tehran", max_length=64)
-    payload_template_json: dict = Field(sa_column=Column(JSONB, nullable=False))
+    payload_template_json: dict = Field(sa_column=Column(JSON, nullable=False))
     is_active: bool = Field(default=True, sa_column=Column(Boolean, nullable=False, default=True))
     last_run_at: datetime | None = Field(
         default=None,
@@ -305,6 +304,10 @@ class WaybillJob(SQLModel, table=True):
         Index("idx_waybill_jobs_status", "status"),
         Index("idx_waybill_jobs_created_at", "created_at"),
         Index("idx_waybill_jobs_celery_task_id", "celery_task_id"),
+        # Composite index for queue ordering: status, priority DESC, created_at ASC
+        # Note: For PostgreSQL, create via migration with: 
+        # CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wj_status_priority_created 
+        # ON waybill_jobs (status, priority DESC, created_at ASC);
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -320,14 +323,14 @@ class WaybillJob(SQLModel, table=True):
     source: str = Field(default=TaskSource.MANUAL.value, max_length=20)
 
     # Waybill data (JSON payload)
-    payload_json: dict = Field(sa_column=Column(JSONB, nullable=False))
-    result_json: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
+    payload_json: dict = Field(sa_column=Column(JSON, nullable=False))
+    result_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     correlation_id: str | None = Field(default=None, max_length=128, index=True)
     business_date: str | None = Field(default=None, max_length=16, index=True)
     priority: int = Field(default=5, index=True)
     next_retry_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=True),
+        sa_column=Column(DateTime(timezone=False), nullable=True),
     )
     submit_after: datetime | None = Field(
         default=None,
@@ -393,7 +396,7 @@ class WaybillTaskLog(SQLModel, table=True):
     step: str = Field(max_length=100)  # e.g., "login", "captcha", "form_fill", "submit"
     status: str = Field(max_length=20)  # "success", "failed", "retry"
     message: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
-    details_json: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
+    details_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
 
     # ORM relationship
     client: Client | None = Relationship(back_populates="task_logs")
@@ -429,7 +432,7 @@ class UploadBatch(SQLModel, table=True):
 
     # Processing status
     status: str = Field(default="processing", max_length=20)
-    errors_json: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
+    errors_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
 
     # ORM relationship
     client: Client | None = Relationship(back_populates="upload_batches")
@@ -467,7 +470,7 @@ class FuelInquiry(SQLModel, table=True):
     error_category: str | None = Field(default=None, max_length=50, index=True)
 
     # Quota details (stored as a JSON string)
-    quota_data_json: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
+    quota_data_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
 
     # ORM relationships
     client: Client | None = Relationship(back_populates="fuel_inquiries")

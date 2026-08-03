@@ -16,6 +16,7 @@ import {
   InformationCircleIcon,
 } from "@heroicons/react/24/outline";
 import { CheckCircleIcon } from "@heroicons/react/24/solid";
+import { motion, AnimatePresence } from "framer-motion";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { AuthGuard } from "@/components/layout/AuthGuard";
@@ -24,6 +25,7 @@ import { ProvinceCitySelect } from "@/components/ProvinceCitySelect";
 import { SmartAddressInput } from "@/components/SmartAddressInput";
 import { LocationMapPicker } from "@/components/LocationMapPicker";
 import { FavoriteLocationPicker } from "@/components/FavoriteLocationPicker";
+import { ProgressBar } from "@/components/ProgressBar";
 import { api } from "@/lib/api";
 import { canonicalizePlate, normalizeDigits } from "@/lib/plate";
 import { toPersianDigits } from "@/lib/format";
@@ -162,6 +164,7 @@ export default function NewWaybillPage() {
   const [serverMessage, setServerMessage] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
+  const [direction, setDirection] = useState<'next' | 'back'>('next');
 
   // Map & Location states
   const [originCoords, setOriginCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -243,11 +246,13 @@ export default function NewWaybillPage() {
 
   const goNext = () => {
     if (!validateCurrentStep()) return;
+    setDirection('next');
     setCurrentStep((s) => Math.min(s + 1, STEPS.length));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const goPrev = () => {
+    setDirection('back');
     setCurrentStep((s) => Math.max(s - 1, 1));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -414,12 +419,13 @@ export default function NewWaybillPage() {
                 <span>مرحله {toPersianDigits(currentStep)} از {toPersianDigits(STEPS.length)}</span>
                 <span className="text-cyan-400 font-bold">{step?.label}</span>
               </div>
-              <div className="h-2 w-full rounded-full bg-white/5 overflow-hidden border border-white/5">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-blue-400 to-indigo-500 transition-all duration-700 ease-out shadow-[0_0_15px_rgba(34,211,238,0.4)]"
-                  style={{ width: `${(currentStep / STEPS.length) * 100}%` }}
-                />
-              </div>
+              <ProgressBar
+                value={currentStep}
+                max={STEPS.length}
+                segments={STEPS.length}
+                tone="indigo"
+                label="پیشرفت مراحل ثبت بارنامه"
+              />
             </div>
           </div>
 
@@ -442,8 +448,31 @@ export default function NewWaybillPage() {
             </div>
           </div>
 
-          <form onSubmit={isLastStep ? handleSubmit : (e) => { e.preventDefault(); goNext(); }}>
-            <div className="section-card space-y-5">
+          <form onSubmit={isLastStep ? handleSubmit : (e) => { e.preventDefault(); goNext(); }} className="pb-24 sm:pb-0">
+            <AnimatePresence mode="wait" custom={direction}>
+              <motion.div
+                key={currentStep}
+                custom={direction}
+                variants={{
+                  enter: (dir: 'next' | 'back') => ({
+                    x: dir === 'next' ? -20 : 20,
+                    opacity: 0,
+                  }),
+                  center: {
+                    x: 0,
+                    opacity: 1,
+                  },
+                  exit: (dir: 'next' | 'back') => ({
+                    x: dir === 'next' ? 20 : -20,
+                    opacity: 0,
+                  }),
+                }}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.2, ease: "easeInOut" }}
+                className="section-card space-y-5"
+              >
 
               {currentStep === 1 && (
                 <>
@@ -1031,16 +1060,18 @@ export default function NewWaybillPage() {
                   لطفاً فیلدهای اجباری این مرحله را کامل کنید.
                 </div>
               )}
-            </div>
+            </motion.div>
+          </AnimatePresence>
 
-            <div className="flex items-center justify-between mt-5 gap-3">
+          <div className="flex items-center justify-between mt-5 gap-3 sm:relative sm:bottom-auto sm:left-auto sm:right-auto sm:p-0 sm:border-t-0 sm:bg-transparent fixed bottom-0 left-0 right-0 z-40 bg-slate-950/80 backdrop-blur-md p-4 border-t border-white/10 safe-bottom">
               <button
                 type="button"
                 onClick={goPrev}
                 disabled={currentStep === 1}
-                className="flex items-center gap-1.5 rounded-2xl border border-white/10 bg-slate-950 px-4 py-3.5 sm:px-6 sm:py-3 text-xs sm:text-sm font-semibold text-slate-300 transition hover:bg-slate-900 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
+                className="flex items-center gap-1.5 rounded-2xl border border-white/10 bg-slate-950 px-4 py-3.5 sm:px-6 sm:py-3 text-xs sm:text-sm font-semibold text-slate-300 transition hover:bg-slate-900 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                aria-label="مرحله قبل"
               >
-                <ChevronRightIcon className="h-3.5 w-3.5" />
+                <ChevronRightIcon className="h-4 w-4" />
                 مرحله قبل
               </button>
 
@@ -1048,33 +1079,35 @@ export default function NewWaybillPage() {
                 <span className="text-[11px] sm:text-xs text-slate-400 font-medium whitespace-nowrap">
                   {toPersianDigits(currentStep)}/{toPersianDigits(STEPS.length)}
                 </span>
-                {isLastStep ? (
-                  <button
-                    type="submit"
-                    disabled={submitting || drivers.length === 0}
-                    className="flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-4 py-3 sm:px-8 sm:py-3.5 text-xs sm:text-sm font-black text-slate-950 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20 active:scale-[0.98] min-h-[44px]"
-                  >
-                    {submitting ? (
-                      <>
-                        <div className="h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                        در حال ارسال...
-                      </>
-                    ) : (
-                      <>
-                        <CheckIcon className="h-3.5 w-3.5" />
-                        {isScheduled ? "ایجاد زمان‌بندی" : "ثبت و ارسال"}
-                      </>
-                    )}
-                  </button>
-                ) : (
-                  <button
-                    type="submit"
-                    className="flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-4 py-3 sm:px-7 sm:py-3.5 text-xs sm:text-sm font-black text-slate-950 transition-all shadow-lg shadow-cyan-500/20 active:scale-[0.98]"
-                  >
-                    مرحله بعد
-                    <ChevronLeftIcon className="h-3.5 w-3.5" />
-                  </button>
-                )}
+                 {isLastStep ? (
+                   <button
+                     type="submit"
+                     disabled={submitting || drivers.length === 0}
+                     className="flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-4 py-3 sm:px-8 sm:py-3.5 text-xs sm:text-sm font-black text-slate-950 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20 active:scale-[0.98] min-h-[44px] touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                     aria-label={isScheduled ? "ایجاد زمان‌بندی" : "ثبت و ارسال"}
+                   >
+                     {submitting ? (
+                       <>
+                         <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                         در حال ارسال...
+                       </>
+                     ) : (
+                       <>
+                         <CheckIcon className="h-4 w-4" />
+                         {isScheduled ? "ایجاد زمان‌بندی" : "ثبت و ارسال"}
+                       </>
+                     )}
+                   </button>
+                 ) : (
+                   <button
+                     type="submit"
+                     className="flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-4 py-3 sm:px-7 sm:py-3.5 text-xs sm:text-sm font-black text-slate-950 transition-all shadow-lg shadow-cyan-500/20 active:scale-[0.98] touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                     aria-label="مرحله بعد"
+                   >
+                     مرحله بعد
+                     <ChevronLeftIcon className="h-4 w-4" />
+                   </button>
+                 )}
               </div>
             </div>
 

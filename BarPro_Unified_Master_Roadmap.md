@@ -458,7 +458,7 @@ def _heartbeat_loop(worker_id: str):
 **Acceptance Criteria فاز ۲:**
 - [ ] اگر یک Worker بمیرد، `lease_expires_at` آن در کمتر از ۹۰ ثانیه expire می‌شود
 - [ ] Orphan Detector در کمتر از ۶۰ ثانیه بعد، Reconciliation ایجاد می‌کند
-- [ ] `worker_heartbeat.py` کاملاً deprecated و حذف شده
+- [x] `worker_heartbeat.py` کاملاً deprecated و حذف شده
 - [ ] هیچ `asyncio.create_task` بدون event loop در حال اجرا در کدبیس وجود ندارد (بررسی با grep + تست integration)
 - [ ] Worker فقط یک‌بار در startup رجیستر می‌شود (نه به‌ازای هر Job) — قابل تأیید با شمارش ردیف‌های `worker_registry` نسبت به تعداد Job پردازش‌شده
 - [ ] `tests/test_dispatch_intents.py`, `tests/test_execution_lease.py`, `tests/test_fencing_token.py` نوشته و pass شده

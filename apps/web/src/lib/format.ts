@@ -155,3 +155,18 @@ export function trackingCodeFromResult(result?: unknown): string | null {
   }
   return null;
 }
+
+export function downloadCSV(filename: string, headers: string[], rows: (string | number)[][]): void {
+  const processRow = (row: (string | number)[]) =>
+    row.map((val) => `"${String(val ?? '').replace(/"/g, '""')}"`).join(',');
+
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(processRow)].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}

@@ -15,10 +15,14 @@ from app.monitoring.metrics import (
 
 @pytest.fixture(autouse=True)
 def setup_overrides():
+    from app.api.routes.system import _reset_readyz_cache
     from app.auth_multitenant import get_current_admin
 
     app.dependency_overrides[get_current_admin] = lambda: {"username": "admin", "role": "master_admin"}
+    _reset_readyz_cache()
     yield
+    app.dependency_overrides.pop(get_current_admin, None)
+    _reset_readyz_cache()
 
 
 client = TestClient(app)
@@ -180,6 +184,17 @@ def test_recover_stalled_workers_endpoint_empty():
     payload = response.json()
     assert payload["count"] == 0
     assert payload["recovered"] == {}
+
+
+def test_recover_stalled_workers_admin_alias():
+    with patch(
+        "app.api.routes.system.recovery_manager.recover_stalled_tasks",
+        new=AsyncMock(return_value={"task_456": {"last_heartbeat": 200}}),
+    ):
+        response = client.post("/api/v1/admin/workers/recover-stalled")
+    assert response.status_code == 200
+    assert response.json()["count"] == 1
+    assert "task_456" in response.json()["recovered"]
 
 
 def test_security_report_endpoint():

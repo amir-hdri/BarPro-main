@@ -89,8 +89,8 @@ services:
     <<: *backend-common
     container_name: barpro-backend
     shm_size: '256m'
-    mem_limit: 1g
-    mem_reservation: 512m
+    mem_limit: 256m
+    mem_reservation: 128m
     environment:
       <<: *backend-env
       PORT: 8000
@@ -130,9 +130,9 @@ services:
       WORKER_ID: "1"
       WORKER_IP_INDEX: 1
       RPA_PROXIES: http://172.20.0.1:3128
-      # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
+             # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
     healthcheck:
-      test: ['CMD-SHELL', 'python -c "import sys; sys.exit(0)"']
+      test: ['CMD-SHELL', 'python -c "import app; print(\"OK\")" || exit 1']
       interval: 60s
       timeout: 10s
       start_period: 30s
@@ -165,16 +165,16 @@ services:
       WORKER_ID: "2"
       WORKER_IP_INDEX: 2
       RPA_PROXIES: http://172.20.0.1:3129
-      # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
+             # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
     healthcheck:
-      test: ['CMD-SHELL', 'python -c "import sys; sys.exit(0)"']
+      test: ['CMD-SHELL', 'python -c "import app; print(\"OK\")" || exit 1']
       interval: 60s
       timeout: 10s
       start_period: 30s
       retries: 3
 
 
-  # ── ورکر IP سوم ──────────────────────────────────────────────
+  # ــ ورکر IP سوم ──────────────────────────────────────────────
   celery_worker_3:
     <<: *backend-common
     image: barpro_celery_worker_3:latest
@@ -202,7 +202,7 @@ services:
       RPA_PROXIES: http://172.20.0.1:3130
       # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
     healthcheck:
-      test: ['CMD-SHELL', 'python -c "import sys; sys.exit(0)"']
+      test: ['CMD-SHELL', 'python -c "import app; print(\"OK\")" || exit 1']
       interval: 60s
       timeout: 10s
       start_period: 30s
@@ -214,8 +214,8 @@ services:
     <<: *backend-common
     image: barpro_celery_beat:latest
     container_name: barpro-beat
-    mem_limit: 512m
-    mem_reservation: 256m
+    mem_limit: 128m
+    mem_reservation: 64m
     healthcheck:
       # pgrep is NOT available in the slim Python base image, so check for the
       # beat schedule file that Celery Beat writes at startup.
