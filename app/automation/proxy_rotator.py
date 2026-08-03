@@ -535,21 +535,14 @@ class ProxyRotator:
             import os
             import socket
             is_testing = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
-            if not is_testing:
-                # In local development mode, we bypass unreachable Docker proxies
-                # and route traffic directly to UTCMS.
-                env = os.getenv("ENVIRONMENT", "development").strip().lower()
-                if env == "development":
-                    logger.debug("Development mode: routing browser session directly (bypassing proxies)")
-                    return None
-
-                parsed = urlparse(chosen.url)
-                host = parsed.hostname
-                port = parsed.port
-                if host and port:
+            
+            parsed = urlparse(chosen.url)
+            host = parsed.hostname
+            port = parsed.port
+            if host and port:
                     try:
                         def check_socket():
-                            with socket.create_connection((host, port), timeout=0.3):
+                            with socket.create_connection((host, port), timeout=2.0):
                                 pass
                         await asyncio.to_thread(check_socket)
                     except (OSError, TimeoutError) as exc:
@@ -800,7 +793,7 @@ class ProxyRotator:
 # ============================================================================
 
 
-async def test_proxy(proxy_url: str, timeout: float = 10.0) -> bool:
+async def _test_proxy(proxy_url: str, timeout: float = 10.0) -> bool:
     """Quick proxy test."""
     try:
         proxy_str = (proxy_url or "").strip()
@@ -827,7 +820,7 @@ async def test_proxy(proxy_url: str, timeout: float = 10.0) -> bool:
         return False
 
 
-test_proxy.__test__ = False
+
 
 
 # ============================================================================

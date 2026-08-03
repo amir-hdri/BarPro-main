@@ -304,6 +304,10 @@ class WaybillJob(SQLModel, table=True):
         Index("idx_waybill_jobs_status", "status"),
         Index("idx_waybill_jobs_created_at", "created_at"),
         Index("idx_waybill_jobs_celery_task_id", "celery_task_id"),
+        # Composite index for queue ordering: status, priority DESC, created_at ASC
+        # Note: For PostgreSQL, create via migration with: 
+        # CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wj_status_priority_created 
+        # ON waybill_jobs (status, priority DESC, created_at ASC);
     )
 
     id: int | None = Field(default=None, primary_key=True)

@@ -22,9 +22,9 @@ export default function AuthPage() {
     setMounted(true);
   }, []);
 
-  const completeClientLogin = (payload: AuthLoginResponse) => {
+  const completeClientLogin = async (payload: AuthLoginResponse) => {
     const client = payload.client;
-    persistSession({
+    await persistSession({
       id: client.id,
       name: client.name,
       email: client.email,
@@ -35,8 +35,8 @@ export default function AuthPage() {
     router.refresh();
   };
 
-  const completeAdminLogin = (payload: AdminLoginResponse) => {
-    persistSession({
+  const completeAdminLogin = async (payload: AdminLoginResponse) => {
+    await persistSession({
       id: null,
       name: payload.admin.username,
       email: `${payload.admin.username}@local.admin`,
@@ -56,12 +56,12 @@ export default function AuthPage() {
     const response = await api.post<AuthLoginResponse>('/api/v1/auth/login', login);
     setLoading(false);
 
-    if (!response.success || !response.data) {
-      setError(response.error || 'ورود انجام نشد');
-      return;
-    }
+     if (!response.success || !response.data) {
+       setError(response.error || 'ورود انجام نشد');
+       return;
+     }
 
-    completeClientLogin(response.data);
+    await completeClientLogin(response.data);
   };
 
   const handleAdminLogin = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -73,12 +73,12 @@ export default function AuthPage() {
     const response = await api.post<AdminLoginResponse>('/api/v1/admin/login', adminLogin);
     setLoading(false);
 
-    if (!response.success || !response.data) {
-      setError(response.error || 'ورود ادمین انجام نشد');
-      return;
-    }
+     if (!response.success || !response.data) {
+       setError(response.error || 'ورود ادمین انجام نشد');
+       return;
+     }
 
-    completeAdminLogin(response.data);
+    await completeAdminLogin(response.data);
   };
 
   if (!mounted) return null;

@@ -54,8 +54,9 @@ from .proxy_rotator import (
     ProxyRotator,
     get_proxy_rotator,
     set_proxy_rotator,
-    test_proxy,
+    _test_proxy as test_proxy,
 )
+test_proxy.__test__ = False
 from .stealth import (
     apply_stealth_mode,
     get_random_user_agent,

@@ -266,10 +266,7 @@ async def rate_limit_dependency(
     rule: str = "public",
 ) -> RateLimitState:
     """FastAPI dependency for rate limiting."""
-    # SECURITY: Do NOT trust X-Forwarded-For from arbitrary clients — it is trivially spoofable.
-    # Nginx already sets the real peer address via proxy_set_header, which FastAPI exposes
-    # as request.client.host.  If TRUSTED_PROXIES must be supported in future, configure
-    # Uvicorn's --forwarded-allow-ips instead of reading the header here.
+    # SECURITY: Use request.client.host (set by Nginx) instead of X-Forwarded-For (spoofable).
     client_ip = request.client.host if request.client else "unknown"
     tenant_id = _get_tenant_id_from_request(request)
     

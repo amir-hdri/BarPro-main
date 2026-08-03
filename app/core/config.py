@@ -193,6 +193,7 @@ class UTCMSConfig:
         self.QUEUE_INLINE_FALLBACK = _to_bool(os.getenv("QUEUE_INLINE_FALLBACK", "False"), default=False)
         self.QUEUE_IDEMPOTENCY_HEADER = os.getenv("QUEUE_IDEMPOTENCY_HEADER", "X-Idempotency-Key").strip()
         self.QUEUE_READYZ_LIVE_CHECK = _to_bool(os.getenv("QUEUE_READYZ_LIVE_CHECK", "False"), default=False)
+        self.IDEMPOTENCY_KEY_MAX_LENGTH = int(os.getenv("IDEMPOTENCY_KEY_MAX_LENGTH", "200"))
 
         self.REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0").strip()
         self.REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "").strip()
@@ -245,6 +246,18 @@ class UTCMSConfig:
         # Multi-tenant settings
         self.MULTITENANT_ENABLED = _to_bool(os.getenv("MULTITENANT_ENABLED", "False"), default=False)
         self.DEPRECATE_OLD_EXECUTION_PATH = _to_bool(os.getenv("DEPRECATE_OLD_EXECUTION_PATH", "True"), default=True)
+        
+        # Job processing settings
+        self.STALE_JOB_THRESHOLD_MINUTES = int(os.getenv("STALE_JOB_THRESHOLD_MINUTES", "5"))
+        
+        # Celery queue names (configurable for testing)
+        self.CELERY_WAYBILL_SUBMIT_QUEUE = os.getenv("CELERY_WAYBILL_SUBMIT_QUEUE", "barpro.waybill.submit")
+        self.CELERY_WAYBILL_AUTH_QUEUE = os.getenv("CELERY_WAYBILL_AUTH_QUEUE", "barpro.waybill.auth")
+        self.CELERY_FUEL_INQUIRY_QUEUE = os.getenv("CELERY_FUEL_INQUIRY_QUEUE", "barpro.fuel.inquiry")
+        self.CELERY_RECOVERY_QUEUE = os.getenv("CELERY_RECOVERY_QUEUE", "barpro.recovery")
+        self.CELERY_RECONCILIATION_QUEUE = os.getenv("CELERY_RECONCILIATION_QUEUE", "barpro.reconciliation")
+        self.CELERY_WAYBILL_TASKS_QUEUE = os.getenv("CELERY_WAYBILL_TASKS_QUEUE", "waybill_tasks")
+        self.CELERY_RECONCILIATION_TASKS_QUEUE = os.getenv("CELERY_RECONCILIATION_TASKS_QUEUE", "reconciliation_tasks")
 
         # SECURITY: Validate critical secrets are set
         if self.ALERT_WEBHOOK_URL and not self.ALERT_WEBHOOK_SECRET:

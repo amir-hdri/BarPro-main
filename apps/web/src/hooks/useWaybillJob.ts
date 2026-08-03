@@ -1,6 +1,16 @@
 import { useEffect, useState, useRef, useCallback } from "react";
+import { z } from "zod";
 import type { WebSocketEvent } from "@/lib/types";
 import { buildWebSocketUrl } from "@/lib/ws";
+
+const webSocketEventSchema = z.object({
+  type: z.string(),
+  job_id: z.string().optional(),
+  status: z.string().optional(),
+  message: z.string().optional(),
+  data: z.record(z.unknown()).optional(),
+  timestamp: z.string().optional(),
+});
 
 function logError(...args: unknown[]) {
   if (process.env.NODE_ENV !== "production") {
@@ -84,14 +94,15 @@ export function useWaybillJob(options: UseWaybillJobOptions = {}) {
 
       ws.onmessage = (event) => {
         try {
-          const data: WebSocketEvent = JSON.parse(event.data);
+          const parsed = JSON.parse(event.data);
+          const data = webSocketEventSchema.parse(parsed);
           setLastEvent(data);
           setEvents((prev) => {
             const next = [...prev, data];
             return next.length > MAX_WS_EVENTS ? next.slice(-MAX_WS_EVENTS) : next;
           });
         } catch (e) {
-          logError("Failed to parse WebSocket message", e);
+          logError("Failed to parse or validate WebSocket message", e);
         }
       };
 

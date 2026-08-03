@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
-from app.automation.proxy_rotator import get_proxy_rotator, test_proxy
+from app.automation.proxy_rotator import get_proxy_rotator
+from app.automation import test_proxy
 from app.automation.worker_proxy import clear_proxy_cache, get_worker_proxy_url
 
 

@@ -197,9 +197,7 @@ class RPADistributedRuntime:
     async def list_driver_locks(self) -> list[dict]:
         """Return all active driver submit/auth locks with their remaining TTL.
 
-        Scans Redis for keys matching ``lock:submit:*`` and ``lock:auth:*``.
-        WARNING: This performs a full key scan which can be slow on large Redis instances.
-        Consider maintaining a separate Redis set of active lock keys for production.
+        Uses Redis SCAN for non-blocking key enumeration (patterns: ``lock:submit:*`` and ``lock:auth:*``).
         Falls back to the in-memory store when Redis is unavailable.
         Returns a list of dicts: {"key", "ttl_seconds", "type"}.
         """
@@ -208,24 +206,28 @@ class RPADistributedRuntime:
         if redis is not None:
             for pattern in ("lock:submit:*", "lock:auth:*"):
                 try:
-                    keys = await redis.keys(pattern)
-                    for key in keys:
-                        key_str = key if isinstance(key, str) else key.decode("utf-8", errors="replace")
-                        ttl = await redis.ttl(key)
-                        lock_type = "submit" if key_str.startswith("lock:submit:") else "auth"
-                        parts = key_str.split(":")
-                        # key format: lock:<type>:<client_id>:<driver_id>
-                        client_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
-                        driver_id = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else None
-                        results.append(
-                            {
-                                "key": key_str,
-                                "lock_type": lock_type,
-                                "client_id": client_id,
-                                "driver_id": driver_id,
-                                "ttl_seconds": ttl if ttl >= 0 else None,
-                            }
-                        )
+                    cursor = 0
+                    while True:
+                        cursor, keys = await redis.scan(cursor, match=pattern, count=100)
+                        for key in keys:
+                            key_str = key if isinstance(key, str) else key.decode("utf-8", errors="replace")
+                            ttl = await redis.ttl(key)
+                            lock_type = "submit" if key_str.startswith("lock:submit:") else "auth"
+                            parts = key_str.split(":")
+                            # key format: lock:<type>:<client_id>:<driver_id>
+                            client_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+                            driver_id = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else None
+                            results.append(
+                                {
+                                    "key": key_str,
+                                    "lock_type": lock_type,
+                                    "client_id": client_id,
+                                    "driver_id": driver_id,
+                                    "ttl_seconds": ttl if ttl >= 0 else None,
+                                }
+                            )
+                        if cursor == 0:
+                            break
                 except Exception:
                     logger.warning("rpa_lock_list_failed", exc_info=True)
         else:

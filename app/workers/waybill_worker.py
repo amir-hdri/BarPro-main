@@ -707,11 +707,11 @@ async def _execute_job(
             if not driver or driver.client_id != job.client_id:
                 raise ValueError(f"Driver {job.driver_id} not found")
 
-        username = driver.utcms_username
-        # ─── Decrypt BEFORE acquiring the driver lock ────────────────────────────
-        # Doing this first prevents a zombie lock when the key is mismatched:
-        # if decrypt fails we set NEEDS_REVIEW immediately and return without
-        # ever touching Redis, so subsequent jobs for the same driver are free.
+            username = driver.utcms_username
+            # ─── Decrypt BEFORE acquiring the driver lock ────────────────────────────
+            # Doing this first prevents a zombie lock when the key is mismatched:
+            # if decrypt fails we set NEEDS_REVIEW immediately and return without
+            # ever touching Redis, so subsequent jobs for the same driver are free.
             try:
                 password = decrypt_driver_password(driver.utcms_password_encrypted)
             except DriverPasswordDecryptError as exc:
@@ -732,89 +732,9 @@ async def _execute_job(
                 return {"status": TaskStatus.NEEDS_REVIEW.value, "error_category": "driver_key_mismatch"}
             # ────────────────────────────────────────────────────────────────────────
 
-                auth_lock_key = rpa_runtime.auth_lock_key(job.client_id, driver.id)
-                auth_lock_acquired = await rpa_runtime.acquire_lock(auth_lock_key, utcms_config.RPA_LOCK_TTL_SECONDS)
-                if not auth_lock_acquired:
-                    retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
-                    JobStateMachine.transition(
-                        session,
-                        job,
-                        TaskStatus.WAITING_RETRY.value,
-                        celery_task_id=None,
-                        retryable=True,
-                        next_retry_at=retry_at,
-                        submit_after=retry_at,
-                        last_error="Another authorization is already running for this driver",
-                        error_category="driver_submission_in_progress",
-                        updated_at=_utcnow_naive()
-                    )
-                    await session.commit()
-                    return {"status": TaskStatus.WAITING_RETRY.value, "next_retry_at": retry_at.isoformat()}
-
-                # Persist ownership of the auth lock in DB
-                runtime_state = await _get_or_create_runtime_state(session, cached_client_id, cached_driver_id)
-                runtime_state.auth_lock_owner = task.request.id or "worker"
-                runtime_state.auth_lock_acquired_at = _utcnow_naive()
-                runtime_state.auth_lock_ttl_seconds = utcms_config.RPA_LOCK_TTL_SECONDS
-                await session.commit()
-
-                driver_lock_key = rpa_runtime.submit_lock_key(job.client_id, driver.id)
-                driver_lock_acquired = await rpa_runtime.acquire_lock(driver_lock_key, utcms_config.RPA_LOCK_TTL_SECONDS)
-                if not driver_lock_acquired:
-                    # Release auth lock since submit lock failed
-                    await rpa_runtime.release_lock(auth_lock_key)
-                    auth_lock_acquired = False
-                    runtime_state.auth_lock_owner = None
-                    runtime_state.auth_lock_acquired_at = None
-                    runtime_state.auth_lock_ttl_seconds = None
-                    await session.commit()
-
-                    retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
-                    JobStateMachine.transition(
-                        session,
-                        job,
-                        TaskStatus.WAITING_RETRY.value,
-                        celery_task_id=None,
-                        retryable=True,
-                        next_retry_at=retry_at,
-                        submit_after=retry_at,
-                        last_error="Another waybill submission is already running for this driver",
-                        error_category="driver_submission_in_progress",
-                        updated_at=_utcnow_naive()
-                    )
-                    await session.commit()
-                    return {"status": TaskStatus.WAITING_RETRY.value, "next_retry_at": retry_at.isoformat()}
-                if isinstance(job.payload_json, dict):
-                    payload = job.payload_json
-                elif isinstance(job.payload_json, str):
-                    payload = json.loads(job.payload_json)
-                else:
-                    payload = {}
-
-                from app.services.session_vault import session_vault
-
-                auth_state_path = session_vault.auth_state_path_for_account(
-                    username=username,
-                    national_code=driver.driver_national_code,
-                    fallback=username,
-                    scope=f"client-{job.client_id}-driver-{driver.id}",
-                )
-
-        # Check session version mismatch (Session Versioning logic)
-        try:
-            expected_version = runtime_state.session_version
-            stored_version = await session_vault.async_get_session_version(auth_state_path)
-            if stored_version is not None and stored_version < expected_version:
-                logger.warning(
-                    f"Session version mismatch for driver {driver.id}: stored={stored_version}, expected={expected_version}"
-                )
-                await rpa_runtime.release_lock(auth_lock_key)
-                await rpa_runtime.release_lock(driver_lock_key)
-                runtime_state.auth_lock_owner = None
-                runtime_state.auth_lock_acquired_at = None
-                runtime_state.auth_lock_ttl_seconds = None
-                await session.commit()
-                
+            auth_lock_key = rpa_runtime.auth_lock_key(job.client_id, driver.id)
+            auth_lock_acquired = await rpa_runtime.acquire_lock(auth_lock_key, utcms_config.RPA_LOCK_TTL_SECONDS)
+            if not auth_lock_acquired:
                 retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
                 JobStateMachine.transition(
                     session,
@@ -824,174 +744,78 @@ async def _execute_job(
                     retryable=True,
                     next_retry_at=retry_at,
                     submit_after=retry_at,
-                    last_error=f"Session version mismatch (stored version {stored_version} is less than DB version {expected_version})",
-                    error_category="session_version_mismatch",
+                    last_error="Another authorization is already running for this driver",
+                    error_category="driver_submission_in_progress",
                     updated_at=_utcnow_naive()
                 )
                 await session.commit()
-                return {"status": TaskStatus.WAITING_RETRY.value, "error_category": "session_version_mismatch"}
-        except Exception as e:
-            logger.error(f"Fail-closed session vault check failed: {e}", exc_info=True)
-            await rpa_runtime.release_lock(auth_lock_key)
-            await rpa_runtime.release_lock(driver_lock_key)
-            runtime_state.auth_lock_owner = None
-            runtime_state.auth_lock_acquired_at = None
-            runtime_state.auth_lock_ttl_seconds = None
+                return {"status": TaskStatus.WAITING_RETRY.value, "next_retry_at": retry_at.isoformat()}
+
+            # Persist ownership of the auth lock in DB
+            runtime_state = await _get_or_create_runtime_state(session, cached_client_id, cached_driver_id)
+            runtime_state.auth_lock_owner = task.request.id or "worker"
+            runtime_state.auth_lock_acquired_at = _utcnow_naive()
+            runtime_state.auth_lock_ttl_seconds = utcms_config.RPA_LOCK_TTL_SECONDS
             await session.commit()
-            
-            retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
-            JobStateMachine.transition(
-                session,
-                job,
-                TaskStatus.WAITING_RETRY.value,
-                celery_task_id=None,
-                retryable=True,
-                next_retry_at=retry_at,
-                submit_after=retry_at,
-                last_error=f"Redis session vault check failed: {e}",
-                error_category="session_vault_error",
-                updated_at=_utcnow_naive()
+
+            driver_lock_key = rpa_runtime.submit_lock_key(job.client_id, driver.id)
+            driver_lock_acquired = await rpa_runtime.acquire_lock(driver_lock_key, utcms_config.RPA_LOCK_TTL_SECONDS)
+            if not driver_lock_acquired:
+                # Release auth lock since submit lock failed
+                await rpa_runtime.release_lock(auth_lock_key)
+                auth_lock_acquired = False
+                runtime_state.auth_lock_owner = None
+                runtime_state.auth_lock_acquired_at = None
+                runtime_state.auth_lock_ttl_seconds = None
+                await session.commit()
+
+                retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.WAITING_RETRY.value,
+                    celery_task_id=None,
+                    retryable=True,
+                    next_retry_at=retry_at,
+                    submit_after=retry_at,
+                    last_error="Another waybill submission is already running for this driver",
+                    error_category="driver_submission_in_progress",
+                    updated_at=_utcnow_naive()
+                )
+                await session.commit()
+                return {"status": TaskStatus.WAITING_RETRY.value, "next_retry_at": retry_at.isoformat()}
+            if isinstance(job.payload_json, dict):
+                payload = job.payload_json
+            elif isinstance(job.payload_json, str):
+                payload = json.loads(job.payload_json)
+            else:
+                payload = {}
+
+            from app.services.session_vault import session_vault
+
+            auth_state_path = session_vault.auth_state_path_for_account(
+                username=username,
+                national_code=driver.driver_national_code,
+                fallback=username,
+                scope=f"client-{job.client_id}-driver-{driver.id}",
             )
-            await session.commit()
-            return {"status": TaskStatus.WAITING_RETRY.value, "error_category": "session_vault_error"}
 
-        if stop_event and stop_event.is_set():
-            raise StateTransitionError(f"Execution {execution_id} was cancelled/invalidated during execution")
-        if execution_id and fencing_token is not None:
-            await _assert_still_valid(execution_id, fencing_token)
-
-        # Use simple worker proxy helper — bypasses proxy_rotator's cooldown/geo-check
-        # that could return None, leaving Chromium without proxy → navigation timeout.
-        proxy_dict = get_playwright_proxy()
-        async with managed_browser_session(auth_state_path=auth_state_path, proxy_dict=proxy_dict) as (
-            _session_id,
-            context,
-        ):
-            page = await browser_manager.new_page(context)
-
+            # Check session version mismatch (Session Versioning logic)
             try:
-                bot = WaybillAutomationBot(page, context)
-                job_timeout = getattr(utcms_config, "JOB_TIMEOUT_SECONDS", 240)
-                try:
-                    result = await asyncio.wait_for(
-                        bot.execute_waybill_job(
-                            username=username,
-                            password=password,
-                            payload=payload,
-                            job_id=job_id,
-                            client_id=job.client_id,
-                            auth_state_path=auth_state_path,
-                        ),
-                        timeout=float(job_timeout),
+                expected_version = runtime_state.session_version
+                stored_version = await session_vault.async_get_session_version(auth_state_path)
+                if stored_version is not None and stored_version < expected_version:
+                    logger.warning(
+                        f"Session version mismatch for driver {driver.id}: stored={stored_version}, expected={expected_version}"
                     )
-                except TimeoutError:
-                    logger.warning(f"Job {job_id} automation execution timed out after {job_timeout} seconds")
-                    result = {
-                        "status": "failed",
-                        "error": f"Execution timed out after {job_timeout}s",
-                        "error_category": "system_error",
-                    }
-
-                result_status = str(result.get("status", "")).strip().lower()
-                now = _utcnow_naive()
-
-                if result_status == "otp_backoff":
-                    retry_minutes = int(result.get("next_retry_at_minutes_add", 60))
-                    retry_at = now + timedelta(minutes=retry_minutes)
-                    JobStateMachine.transition(
-                        session,
-                        job,
-                        TaskStatus.OTP_BACKOFF.value,
-                        celery_task_id=None,
-                        next_retry_at=retry_at,
-                        submit_after=retry_at,
-                        last_error=result.get("message", "OTP challenge detected"),
-                        error_category="otp_required",
-                        finished_at=now
-                    )
-                    runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
-                    runtime_state.next_retry_at = retry_at
-                    runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    await rpa_runtime.release_lock(auth_lock_key)
+                    await rpa_runtime.release_lock(driver_lock_key)
+                    runtime_state.auth_lock_owner = None
+                    runtime_state.auth_lock_acquired_at = None
+                    runtime_state.auth_lock_ttl_seconds = None
                     await session.commit()
-
-                    await _add_job_log(
-                        session=session,
-                        job_id=job_id,
-                        client_id=job.client_id,
-                        step="otp_backoff",
-                        status="waiting_retry",
-                        message=f"OTP detected. Retrying in {retry_minutes} minutes.",
-                        details_json=result,
-                    )
-                    await _record_event(
-                        session=session,
-                        client_id=job.client_id,
-                        driver_id=job.driver_id,
-                        job_id=job.job_id,
-                        event_type=OTP_DETECTED,
-                        payload={"retry_at": retry_at.isoformat(), "message": job.last_error},
-                    )
-
-                    logger.info(f"Job {job_id} entered OTP_BACKOFF, retry at {job.next_retry_at}")
-                    return result
-
-                if result_status == TaskStatus.SUCCESS.value:
-                    result_payload = result.get("result")
-                    tracking_code = result_payload.get("tracking_code") if isinstance(result_payload, dict) else None
-                    if not tracking_code:
-                        result_status = TaskStatus.FAILED.value
-                        result["status"] = TaskStatus.FAILED.value
-                        result["error"] = "Portal success response did not include a tracking code"
-                        result["error_category"] = ErrorCategory.SUBMISSION_UNCONFIRMED.value
-                    else:
-                        JobStateMachine.transition(
-                            session,
-                            job,
-                            TaskStatus.SUCCESS.value,
-                            result_json=result_payload,
-                            finished_at=now,
-                            last_error=None,
-                            error_category=None,
-                            retryable=False,
-                            next_retry_at=None
-                        )
-                        runtime_state.state = DriverRuntimeStateValue.READY.value
-                        runtime_state.next_retry_at = None
-                        runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                        await session.commit()
-
-                        await _add_job_log(
-                            session=session,
-                            job_id=job_id,
-                            client_id=job.client_id,
-                            step="complete",
-                            status="success",
-                            message="Waybill registered successfully",
-                            details_json=result_payload,
-                        )
-                        await _record_event(
-                            session=session,
-                            client_id=job.client_id,
-                            driver_id=job.driver_id,
-                            job_id=job.job_id,
-                            event_type=JOB_EXECUTION_SUCCEEDED,
-                            payload={"attempt": job.attempt_count, "tracking_code": tracking_code},
-                        )
-
-                        logger.info(f"Job {job_id} completed successfully")
-                        await browser_manager.record_success_for_recycle()
-                        return result
-
-                job.last_error = result.get("error", "Unknown error")
-                job.error_category = classify_error_string(
-                    error_msg=job.last_error,
-                    error_category_hint=result.get("error_category"),
-                    status_hint=result.get("status"),
-                ).value
-
-                if job.attempt_count < job.max_retries and _is_retryable(result):
-                    retry_delay = get_retry_delay(result, job.attempt_count)
-                    retry_at = now + timedelta(seconds=retry_delay)
+                
+                    retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
                     JobStateMachine.transition(
                         session,
                         job,
@@ -1000,10 +824,239 @@ async def _execute_job(
                         retryable=True,
                         next_retry_at=retry_at,
                         submit_after=retry_at,
-                        finished_at=None
+                        last_error=f"Session version mismatch (stored version {stored_version} is less than DB version {expected_version})",
+                        error_category="session_version_mismatch",
+                        updated_at=_utcnow_naive()
                     )
-                    runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
-                    runtime_state.next_retry_at = retry_at
+                    await session.commit()
+                    return {"status": TaskStatus.WAITING_RETRY.value, "error_category": "session_version_mismatch"}
+            except Exception as e:
+                logger.error(f"Fail-closed session vault check failed: {e}", exc_info=True)
+                await rpa_runtime.release_lock(auth_lock_key)
+                await rpa_runtime.release_lock(driver_lock_key)
+                runtime_state.auth_lock_owner = None
+                runtime_state.auth_lock_acquired_at = None
+                runtime_state.auth_lock_ttl_seconds = None
+                await session.commit()
+            
+                retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.WAITING_RETRY.value,
+                    celery_task_id=None,
+                    retryable=True,
+                    next_retry_at=retry_at,
+                    submit_after=retry_at,
+                    last_error=f"Redis session vault check failed: {e}",
+                    error_category="session_vault_error",
+                    updated_at=_utcnow_naive()
+                )
+                await session.commit()
+                return {"status": TaskStatus.WAITING_RETRY.value, "error_category": "session_vault_error"}
+
+            if stop_event and stop_event.is_set():
+                raise StateTransitionError(f"Execution {execution_id} was cancelled/invalidated during execution")
+            if execution_id and fencing_token is not None:
+                await _assert_still_valid(execution_id, fencing_token)
+
+            # Use simple worker proxy helper — bypasses proxy_rotator's cooldown/geo-check
+            # that could return None, leaving Chromium without proxy → navigation timeout.
+            proxy_dict = get_playwright_proxy()
+            async with managed_browser_session(auth_state_path=auth_state_path, proxy_dict=proxy_dict) as (
+                _session_id,
+                context,
+            ):
+                page = await browser_manager.new_page(context)
+
+                try:
+                    bot = WaybillAutomationBot(page, context)
+                    job_timeout = getattr(utcms_config, "JOB_TIMEOUT_SECONDS", 240)
+                    try:
+                        result = await asyncio.wait_for(
+                            bot.execute_waybill_job(
+                                username=username,
+                                password=password,
+                                payload=payload,
+                                job_id=job_id,
+                                client_id=job.client_id,
+                                auth_state_path=auth_state_path,
+                            ),
+                            timeout=float(job_timeout),
+                        )
+                    except TimeoutError:
+                        logger.warning(f"Job {job_id} automation execution timed out after {job_timeout} seconds")
+                        result = {
+                            "status": "failed",
+                            "error": f"Execution timed out after {job_timeout}s",
+                            "error_category": "system_error",
+                        }
+
+                    result_status = str(result.get("status", "")).strip().lower()
+                    now = _utcnow_naive()
+
+                    if result_status == "otp_backoff":
+                        retry_minutes = int(result.get("next_retry_at_minutes_add", 60))
+                        retry_at = now + timedelta(minutes=retry_minutes)
+                        JobStateMachine.transition(
+                            session,
+                            job,
+                            TaskStatus.OTP_BACKOFF.value,
+                            celery_task_id=None,
+                            next_retry_at=retry_at,
+                            submit_after=retry_at,
+                            last_error=result.get("message", "OTP challenge detected"),
+                            error_category="otp_required",
+                            finished_at=now
+                        )
+                        runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
+                        runtime_state.next_retry_at = retry_at
+                        runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                        await session.commit()
+
+                        await _add_job_log(
+                            session=session,
+                            job_id=job_id,
+                            client_id=job.client_id,
+                            step="otp_backoff",
+                            status="waiting_retry",
+                            message=f"OTP detected. Retrying in {retry_minutes} minutes.",
+                            details_json=result,
+                        )
+                        await _record_event(
+                            session=session,
+                            client_id=job.client_id,
+                            driver_id=job.driver_id,
+                            job_id=job.job_id,
+                            event_type=OTP_DETECTED,
+                            payload={"retry_at": retry_at.isoformat(), "message": job.last_error},
+                        )
+
+                        logger.info(f"Job {job_id} entered OTP_BACKOFF, retry at {job.next_retry_at}")
+                        return result
+
+                    if result_status == TaskStatus.SUCCESS.value:
+                        result_payload = result.get("result")
+                        tracking_code = result_payload.get("tracking_code") if isinstance(result_payload, dict) else None
+                        if not tracking_code:
+                            result_status = TaskStatus.FAILED.value
+                            result["status"] = TaskStatus.FAILED.value
+                            result["error"] = "Portal success response did not include a tracking code"
+                            result["error_category"] = ErrorCategory.SUBMISSION_UNCONFIRMED.value
+                        else:
+                            JobStateMachine.transition(
+                                session,
+                                job,
+                                TaskStatus.SUCCESS.value,
+                                result_json=result_payload,
+                                finished_at=now,
+                                last_error=None,
+                                error_category=None,
+                                retryable=False,
+                                next_retry_at=None
+                            )
+                            runtime_state.state = DriverRuntimeStateValue.READY.value
+                            runtime_state.next_retry_at = None
+                            runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                            await session.commit()
+
+                            await _add_job_log(
+                                session=session,
+                                job_id=job_id,
+                                client_id=job.client_id,
+                                step="complete",
+                                status="success",
+                                message="Waybill registered successfully",
+                                details_json=result_payload,
+                            )
+                            await _record_event(
+                                session=session,
+                                client_id=job.client_id,
+                                driver_id=job.driver_id,
+                                job_id=job.job_id,
+                                event_type=JOB_EXECUTION_SUCCEEDED,
+                                payload={"attempt": job.attempt_count, "tracking_code": tracking_code},
+                            )
+
+                            logger.info(f"Job {job_id} completed successfully")
+                            await browser_manager.record_success_for_recycle()
+                            return result
+
+                    job.last_error = result.get("error", "Unknown error")
+                    job.error_category = classify_error_string(
+                        error_msg=job.last_error,
+                        error_category_hint=result.get("error_category"),
+                        status_hint=result.get("status"),
+                    ).value
+
+                    if job.attempt_count < job.max_retries and _is_retryable(result):
+                        retry_delay = get_retry_delay(result, job.attempt_count)
+                        retry_at = now + timedelta(seconds=retry_delay)
+                        JobStateMachine.transition(
+                            session,
+                            job,
+                            TaskStatus.WAITING_RETRY.value,
+                            celery_task_id=None,
+                            retryable=True,
+                            next_retry_at=retry_at,
+                            submit_after=retry_at,
+                            finished_at=None
+                        )
+                        runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
+                        runtime_state.next_retry_at = retry_at
+                        runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                        await session.commit()
+
+                        await _add_job_log(
+                            session=session,
+                            job_id=job_id,
+                            client_id=job.client_id,
+                            step="retry_scheduled",
+                            status="waiting_retry",
+                            message=f"Retry scheduled for {retry_at.isoformat()} (attempt {job.attempt_count}/{job.max_retries})",
+                            details_json=result,
+                        )
+                        await _record_event(
+                            session=session,
+                            client_id=job.client_id,
+                            driver_id=job.driver_id,
+                            job_id=job.job_id,
+                            event_type=JOB_RETRY_SCHEDULED,
+                            payload={
+                                "retry_at": retry_at.isoformat(),
+                                "attempt": job.attempt_count,
+                                "max_retries": job.max_retries,
+                                "error_category": job.error_category,
+                            },
+                        )
+
+                        logger.info(f"Job {job_id} moved to WAITING_RETRY until {retry_at.isoformat()}")
+                        return {
+                            **result,
+                            "status": TaskStatus.WAITING_RETRY.value,
+                            "next_retry_at": retry_at.isoformat(),
+                        }
+
+                    target_status = (
+                        TaskStatus.NEEDS_REVIEW.value
+                        if job.error_category in {
+                            ErrorCategory.AUTH_FAILURE.value,
+                            ErrorCategory.USER_DATA_ERROR.value,
+                            ErrorCategory.SELECTOR_CHANGED.value,
+                            ErrorCategory.BOT_DETECTED.value,
+                        }
+                        else TaskStatus.FAILED.value
+                    )
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        target_status,
+                        retryable=False,
+                        finished_at=now,
+                        next_retry_at=None
+                    )
+                    runtime_state.state = DriverRuntimeStateValue.READY.value
+                    runtime_state.next_retry_at = None
                     runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
                     await session.commit()
 
@@ -1011,154 +1064,101 @@ async def _execute_job(
                         session=session,
                         job_id=job_id,
                         client_id=job.client_id,
-                        step="retry_scheduled",
-                        status="waiting_retry",
-                        message=f"Retry scheduled for {retry_at.isoformat()} (attempt {job.attempt_count}/{job.max_retries})",
-                        details_json=result,
+                        step="failed",
+                        status="failed",
+                        message=result.get("error", "Failed"),
+                        details_json=result.get("steps", []),
                     )
                     await _record_event(
                         session=session,
                         client_id=job.client_id,
                         driver_id=job.driver_id,
                         job_id=job.job_id,
-                        event_type=JOB_RETRY_SCHEDULED,
-                        payload={
-                            "retry_at": retry_at.isoformat(),
-                            "attempt": job.attempt_count,
-                            "max_retries": job.max_retries,
-                            "error_category": job.error_category,
-                        },
+                        event_type=JOB_EXECUTION_FAILED,
+                        payload={"error": job.last_error, "error_category": job.error_category},
                     )
 
-                    logger.info(f"Job {job_id} moved to WAITING_RETRY until {retry_at.isoformat()}")
-                    return {
-                        **result,
-                        "status": TaskStatus.WAITING_RETRY.value,
-                        "next_retry_at": retry_at.isoformat(),
-                    }
+                    logger.warning(f"Job {job_id} failed permanently: {result.get('error')}")
+                    from app.core.circuit_breaker import check_and_report_failure
 
-                target_status = (
-                    TaskStatus.NEEDS_REVIEW.value
-                    if job.error_category in {
-                        ErrorCategory.AUTH_FAILURE.value,
-                        ErrorCategory.USER_DATA_ERROR.value,
-                        ErrorCategory.SELECTOR_CHANGED.value,
-                        ErrorCategory.BOT_DETECTED.value,
-                    }
-                    else TaskStatus.FAILED.value
-                )
-                JobStateMachine.transition(
-                    session,
-                    job,
-                    target_status,
-                    retryable=False,
-                    finished_at=now,
-                    next_retry_at=None
-                )
-                runtime_state.state = DriverRuntimeStateValue.READY.value
-                runtime_state.next_retry_at = None
-                runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                await session.commit()
+                    await check_and_report_failure(result.get("error", "Unknown error"))
+                    return result
+                finally:
+                    await _close_page_quickly(page)
 
-                await _add_job_log(
-                    session=session,
-                    job_id=job_id,
-                    client_id=job.client_id,
-                    step="failed",
-                    status="failed",
-                    message=result.get("error", "Failed"),
-                    details_json=result.get("steps", []),
-                )
-                await _record_event(
-                    session=session,
-                    client_id=job.client_id,
-                    driver_id=job.driver_id,
-                    job_id=job.job_id,
-                    event_type=JOB_EXECUTION_FAILED,
-                    payload={"error": job.last_error, "error_category": job.error_category},
-                )
-
-                logger.warning(f"Job {job_id} failed permanently: {result.get('error')}")
-                from app.core.circuit_breaker import check_and_report_failure
-
-                await check_and_report_failure(result.get("error", "Unknown error"))
-                return result
-            finally:
-                await _close_page_quickly(page)
-
-    except Exception as e:
-        logger.error(f"Job {job_id} execution error: {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Job {job_id} execution error: {e}", exc_info=True)
         
-        # Track worker failures for auto-heal draining
-        import socket
-        import os
-        w_id = os.environ.get("WORKER_ID", socket.gethostname())
-        from app.automation.worker_proxy import increment_worker_failures, transition_worker_to_draining, drain_worker_consumers
-        w_failures = await increment_worker_failures(w_id)
-        if w_failures > 3:
-            await transition_worker_to_draining(w_id)
-            drain_worker_consumers(task)
+            # Track worker failures for auto-heal draining
+            import socket
+            import os
+            w_id = os.environ.get("WORKER_ID", socket.gethostname())
+            from app.automation.worker_proxy import increment_worker_failures, transition_worker_to_draining, drain_worker_consumers
+            w_failures = await increment_worker_failures(w_id)
+            if w_failures > 3:
+                await transition_worker_to_draining(w_id)
+                drain_worker_consumers(task)
 
-        # Check if browser crash occurred and recycle browser
-        err_msg = str(e).lower()
-        if any(msg in err_msg for msg in ("target closed", "browser closed", "context closed", "page closed")):
-            logger.warning("Browser crash detected. Triggering browser recycle.")
-            try:
-                await browser_manager.recycle_browser()
-            except Exception as recycle_err:
-                logger.error(f"Failed to recycle browser after crash: {recycle_err}")
-
-        from app.core.circuit_breaker import check_and_report_failure
-
-        await check_and_report_failure(str(e))
-
-        try:
-            if job is not None:
-                await session.rollback()
-                runtime_state = await _get_or_create_runtime_state(session, cached_client_id, cached_driver_id)
-                JobStateMachine.transition(
-                    session,
-                    job,
-                    TaskStatus.NEEDS_REVIEW.value,
-                    last_error=str(e),
-                    error_category=classify_exception(e)[0].value,
-                    finished_at=_utcnow_naive()
-                )
-                runtime_state.state = DriverRuntimeStateValue.ERROR_REVIEW.value
-                runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                await session.commit()
-                await _record_event(
-                    session=session,
-                    client_id=job.client_id,
-                    driver_id=job.driver_id,
-                    job_id=job.job_id,
-                    event_type="worker.exception",
-                    payload={"error": str(e)},
-                )
-        except Exception as persist_err:
-            logger.warning("job_failed_state_persist_error", extra={"extra_fields": {"error": str(persist_err)}})
-
-        raise
-    finally:
-        if job is not None and cached_client_id is not None and cached_driver_id is not None:
-            if auth_lock_acquired:
+            # Check if browser crash occurred and recycle browser
+            err_msg = str(e).lower()
+            if any(msg in err_msg for msg in ("target closed", "browser closed", "context closed", "page closed")):
+                logger.warning("Browser crash detected. Triggering browser recycle.")
                 try:
-                    statement = select(DriverRuntimeState).where(DriverRuntimeState.driver_id == cached_driver_id)
-                    res = await session.exec(statement)
-                    state = res.first()
-                    if state is not None:
-                        state.auth_lock_owner = None
-                        state.auth_lock_acquired_at = None
-                        state.auth_lock_ttl_seconds = None
-                        await session.commit()
-                except Exception as db_err:
-                    logger.warning("failed_to_clear_auth_lock_columns_db", exc_info=True)
+                    await browser_manager.recycle_browser()
+                except Exception as recycle_err:
+                    logger.error(f"Failed to recycle browser after crash: {recycle_err}")
 
-            if driver_lock_acquired:
-                await rpa_runtime.release_lock(rpa_runtime.submit_lock_key(cached_client_id, cached_driver_id))
-            if auth_lock_acquired:
-                await rpa_runtime.release_lock(rpa_runtime.auth_lock_key(cached_client_id, cached_driver_id))
-        await session.close()
+            from app.core.circuit_breaker import check_and_report_failure
+
+            await check_and_report_failure(str(e))
+
+            try:
+                if job is not None:
+                    await session.rollback()
+                    runtime_state = await _get_or_create_runtime_state(session, cached_client_id, cached_driver_id)
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.NEEDS_REVIEW.value,
+                        last_error=str(e),
+                        error_category=classify_exception(e)[0].value,
+                        finished_at=_utcnow_naive()
+                    )
+                    runtime_state.state = DriverRuntimeStateValue.ERROR_REVIEW.value
+                    runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    await session.commit()
+                    await _record_event(
+                        session=session,
+                        client_id=job.client_id,
+                        driver_id=job.driver_id,
+                        job_id=job.job_id,
+                        event_type="worker.exception",
+                        payload={"error": str(e)},
+                    )
+            except Exception as persist_err:
+                logger.warning("job_failed_state_persist_error", extra={"extra_fields": {"error": str(persist_err)}})
+
+            raise
+        finally:
+            if job is not None and cached_client_id is not None and cached_driver_id is not None:
+                if auth_lock_acquired:
+                    try:
+                        statement = select(DriverRuntimeState).where(DriverRuntimeState.driver_id == cached_driver_id)
+                        res = await session.exec(statement)
+                        state = res.first()
+                        if state is not None:
+                            state.auth_lock_owner = None
+                            state.auth_lock_acquired_at = None
+                            state.auth_lock_ttl_seconds = None
+                            await session.commit()
+                    except Exception as db_err:
+                        logger.warning("failed_to_clear_auth_lock_columns_db", exc_info=True)
+
+                if driver_lock_acquired:
+                    await rpa_runtime.release_lock(rpa_runtime.submit_lock_key(cached_client_id, cached_driver_id))
+                if auth_lock_acquired:
+                    await rpa_runtime.release_lock(rpa_runtime.auth_lock_key(cached_client_id, cached_driver_id))
+            await session.close()
 
 
 def _is_retryable(result: dict[str, Any]) -> bool:

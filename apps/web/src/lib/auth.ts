@@ -44,7 +44,7 @@ export function getStoredClient(): StoredClient | null {
   }
 }
 
-export function persistSession(client: StoredClient): void {
+export async function persistSession(client: StoredClient): Promise<void> {
   if (typeof window === 'undefined') {
     return;
   }
@@ -52,9 +52,18 @@ export function persistSession(client: StoredClient): void {
   try {
     clearLegacyAuthTokens();
     window.localStorage.setItem(AUTH_CLIENT_KEY, JSON.stringify(client));
-    window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
+    
+    // Dispatch event and wait for it to be processed
+    const event = new Event(AUTH_SESSION_EVENT);
+    window.dispatchEvent(event);
+    
+    // Use a small timeout to allow event listeners to process
+    // This is a workaround for the fact that dispatchEvent is synchronous
+    // but React event handlers might not have executed yet
+    await new Promise((resolve) => setTimeout(resolve, 0));
   } catch (e) {
     console.error('Failed to persist session:', e);
+    throw e;
   }
 }
 

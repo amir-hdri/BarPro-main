@@ -130,9 +130,9 @@ services:
       WORKER_ID: "1"
       WORKER_IP_INDEX: 1
       RPA_PROXIES: http://172.20.0.1:3128
-      # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
+             # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
     healthcheck:
-      test: ['CMD-SHELL', 'python -c "import sys; sys.exit(0)"']
+      test: ['CMD-SHELL', 'python -c "import app; print(\"OK\")" || exit 1']
       interval: 60s
       timeout: 10s
       start_period: 30s
@@ -165,16 +165,16 @@ services:
       WORKER_ID: "2"
       WORKER_IP_INDEX: 2
       RPA_PROXIES: http://172.20.0.1:3129
-      # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
+             # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
     healthcheck:
-      test: ['CMD-SHELL', 'python -c "import sys; sys.exit(0)"']
+      test: ['CMD-SHELL', 'python -c "import app; print(\"OK\")" || exit 1']
       interval: 60s
       timeout: 10s
       start_period: 30s
       retries: 3
 
 
-  # ── ورکر IP سوم ──────────────────────────────────────────────
+  # ــ ورکر IP سوم ──────────────────────────────────────────────
   celery_worker_3:
     <<: *backend-common
     image: barpro_celery_worker_3:latest
@@ -202,7 +202,7 @@ services:
       RPA_PROXIES: http://172.20.0.1:3130
       # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
     healthcheck:
-      test: ['CMD-SHELL', 'python -c "import sys; sys.exit(0)"']
+      test: ['CMD-SHELL', 'python -c "import app; print(\"OK\")" || exit 1']
       interval: 60s
       timeout: 10s
       start_period: 30s

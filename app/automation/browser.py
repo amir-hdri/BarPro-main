@@ -129,6 +129,7 @@ class BrowserManager:
         self._pool: BrowserPool | None = None
         self._state_lock = None
         self._init_lock = None
+        self._recycle_lock = None
         self._loop = None
         self._resource_guard = BrowserResourceGuard(
             max_age_seconds=300,
@@ -178,7 +179,14 @@ class BrowserManager:
 
     @staticmethod
     def _cleanup_zombie_processes():
-        """Emergency process cleanup to kill orphan chromium processes and free RAM."""
+        """Emergency process cleanup to kill orphan chromium processes and free RAM.
+        
+        Unix-specific: uses pkill which is not available on Windows.
+        """
+        import sys
+        if sys.platform != "linux" and sys.platform != "darwin":
+            return
+        
         try:
             import subprocess
             subprocess.run(
@@ -194,12 +202,17 @@ class BrowserManager:
             )
 
     async def record_success_for_recycle(self):
-        """Increment success counter and recycle browser if it reaches 5."""
-        self._success_count_recycle += 1
-        logger.info(f"Incremented successful submission counter for recycle: {self._success_count_recycle}/20")
-        if self._success_count_recycle >= 20:
-            self._success_count_recycle = 0
-            await self.recycle_browser()
+        """Increment success counter and recycle browser if it reaches 20.
+        
+        Thread-safe: uses _recycle_lock to prevent race conditions.
+        """
+        await self._ensure_loop_resources()
+        async with self._recycle_lock:
+            self._success_count_recycle += 1
+            logger.info(f"Incremented successful submission counter for recycle: {self._success_count_recycle}/20")
+            if self._success_count_recycle >= 20:
+                self._success_count_recycle = 0
+                await self.recycle_browser()
 
     async def _ensure_loop_resources(self):
         current_loop = asyncio.get_running_loop()
@@ -225,6 +238,7 @@ class BrowserManager:
             self._loop = current_loop
             self._state_lock = asyncio.Lock()
             self._init_lock = asyncio.Lock()
+            self._recycle_lock = asyncio.Lock()
 
     async def initialize(self):
         """Initialize the browser instance"""

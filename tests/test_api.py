@@ -11,26 +11,30 @@ from app.main import app
 def setup_overrides():
     app.dependency_overrides[get_current_admin] = lambda: {"username": "admin", "role": "master_admin"}
     yield
+    app.dependency_overrides.pop(get_current_admin, None)
 
 
-client = TestClient(app)
+@pytest.fixture
+def client():
+    """Create a fresh TestClient for each test to prevent state leakage."""
+    with TestClient(app) as test_client:
+        yield test_client
 
 
-def test_read_root():
+def test_read_root(client):
     response = client.get("/")
     assert response.status_code == 200
     assert response.json() == {"message": "سیستم اتوماسیون UTCMS فعال است"}
 
 
-def test_traffic_status():
-    with patch("app.core.config.utcms_config.API_AUTH_MODE", "off"):
-        response = client.get("/waybill/traffic-status")
-        assert response.status_code == 200
-        body = response.json()
-        assert "active_requests" in body
-        assert "queued_requests" in body
-        assert "next_allowed_in_seconds" in body
-        assert "blocked_for_seconds" in body
+def test_traffic_status(client):
+    response = client.get("/waybill/traffic-status")
+    assert response.status_code == 200
+    body = response.json()
+    assert "active_requests" in body
+    assert "queued_requests" in body
+    assert "next_allowed_in_seconds" in body
+    assert "blocked_for_seconds" in body
 
 
 def _queue_payload():
@@ -51,7 +55,7 @@ def _queue_payload():
     }
 
 
-def test_enqueue_waybill_endpoint():
+def test_enqueue_waybill_endpoint(client):
     with (
         patch("app.core.config.utcms_config.API_AUTH_MODE", "off"),
         patch(
@@ -70,14 +74,14 @@ def test_enqueue_waybill_endpoint():
         ),
     ):
         response = client.post("/waybill/queue/create-with-map", json=_queue_payload())
-
+    
     assert response.status_code == 200
     assert response.json()["task_id"] == "task-1"
     assert response.json()["status"] == "queued"
     assert response.json()["correlation_id"] == "corr-1"
 
 
-def test_enqueue_waybill_blank_idempotency_header_uses_auto_key():
+def test_enqueue_waybill_blank_idempotency_header_uses_auto_key(client):
     with (
         patch("app.core.config.utcms_config.API_AUTH_MODE", "off"),
         patch(
@@ -100,13 +104,13 @@ def test_enqueue_waybill_blank_idempotency_header_uses_auto_key():
             json=_queue_payload(),
             headers={"X-Idempotency-Key": "   "},
         )
-
+    
     assert response.status_code == 200
     assert mocked_enqueue.await_count == 1
     assert mocked_enqueue.await_args.kwargs["idempotency_key"] is None
 
 
-def test_waybill_task_status_endpoint():
+def test_waybill_task_status_endpoint(client):
     with (
         patch("app.core.config.utcms_config.API_AUTH_MODE", "off"),
         patch(
@@ -134,13 +138,13 @@ def test_waybill_task_status_endpoint():
         ),
     ):
         response = client.get("/waybill/tasks/task-1")
-
+    
     assert response.status_code == 200
     assert response.json()["status"] == "succeeded"
     assert response.json()["correlation_id"] == "corr-1"
 
 
-def test_correlation_header_round_trip():
+def test_correlation_header_round_trip(client):
     with patch("app.core.config.utcms_config.API_AUTH_MODE", "off"):
         response = client.get("/", headers={"X-Correlation-ID": "corr-root"})
 
@@ -148,7 +152,7 @@ def test_correlation_header_round_trip():
     assert response.headers["X-Correlation-ID"] == "corr-root"
 
 
-def test_system_event_history_endpoint():
+def test_system_event_history_endpoint(client):
     with patch("app.realtime.events.event_hub.history", return_value=[{"task_id": "task-1", "status": "queued"}]):
         response = client.get("/events/history?task_id=task-1")
 
@@ -156,7 +160,7 @@ def test_system_event_history_endpoint():
     assert response.json()["events"][0]["task_id"] == "task-1"
 
 
-def test_worker_heartbeats_endpoint():
+def test_worker_heartbeats_endpoint(client):
     from app.core.database import get_session
     from app.models_rpa import WorkerRegistry
     from datetime import datetime, UTC
@@ -211,7 +215,7 @@ def test_lifespan(
     mock_close.assert_called()
 
 
-def test_management_summary_endpoint():
+def test_management_summary_endpoint(client):
     mock_summary_data = {
         "customers_count": 5,
         "routes_count": 10,

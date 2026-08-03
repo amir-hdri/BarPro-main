@@ -169,7 +169,7 @@ class ReconciliationService:
         browser_manager: BrowserManager | None = None,
     ) -> dict[str, int]:
         """Scan and reconcile all UNKNOWN / RECONCILING jobs."""
-        stmt = select(WaybillJob.id).where(WaybillJob.status.in_([JobStatus.UNKNOWN, JobStatus.RECONCILING]))
+        stmt = select(WaybillJob.id).where(WaybillJob.status.in_([JobStatus.UNKNOWN, JobStatus.RECONCILING])).with_for_update(skip_locked=True)
         job_ids = (await session.execute(stmt)).scalars().all()
 
         results = {"total": len(job_ids), "success": 0, "failed": 0, "needs_review": 0, "errors": 0}

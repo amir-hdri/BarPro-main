@@ -324,6 +324,8 @@ class FuelInquiryService:
                 proxy_url = proxy_dict.get("server")
                 logger.info("fuel_inquiry using proxy: %s", proxy_url)
                 if proxy_url and not await check_proxy_health(proxy_url):
+                    from app.automation.worker_proxy import clear_proxy_cache
+                    clear_proxy_cache()
                     raise WaybillError("پروکسی یا شبکه تونل ایران قطع می‌باشد (proxy/network check failed)")
             else:
                 logger.warning("fuel_inquiry: no proxy configured; Chromium may not reach utcms.ir")

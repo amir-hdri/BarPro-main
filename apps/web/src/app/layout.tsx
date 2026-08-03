@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import localFont from 'next/font/local';
 
 import './globals.css';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { QueryProvider } from '@/providers/QueryProvider';
 import { Toaster } from 'react-hot-toast';
 
@@ -32,7 +33,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="fa" dir="rtl" className={`${vazirmatn.variable} ${rubik.variable}`} suppressHydrationWarning>
       <body className="font-sans antialiased text-slate-200" suppressHydrationWarning>
         <QueryProvider>
-          {children}
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
           <Toaster position="bottom-center" />
         </QueryProvider>
       </body>

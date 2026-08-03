@@ -41,7 +41,7 @@ export function middleware(request: NextRequest) {
   if (!hasAuthCookie) {
     const url = request.nextUrl.clone();
     url.pathname = '/auth';
-    url.search = request.nextUrl.search;
+    url.search = `?from=${encodeURIComponent(request.nextUrl.pathname + request.nextUrl.search)}`;
     return NextResponse.redirect(url);
   }
 

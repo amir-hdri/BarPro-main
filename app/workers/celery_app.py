@@ -42,6 +42,8 @@ if worker_process_init is not None:
 def _build_beat_schedule() -> dict:
     schedule_dict = {}
     
+    # Note: DEPRECATE_OLD_EXECUTION_PATH defaults to True, meaning the old execution path is disabled by default.
+    # Set to False to enable legacy phase1 scheduler tasks (not recommended for production).
     if not utcms_config.DEPRECATE_OLD_EXECUTION_PATH:
         schedule_dict.update({
             "phase1-scheduler-plan": {
