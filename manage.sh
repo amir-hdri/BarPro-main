@@ -5,7 +5,9 @@ set -e
 
 # Load environment variables if present
 if [ -f .env ]; then
-    export $(grep -v '^#' .env | xargs)
+    set -a
+    source .env
+    set +a
 fi
 
 COMPOSE_FILES="-f compose/infra.yml -f compose/proxy.yml -f compose/backend.yml -f compose/web.yml -f compose/monitoring.yml"
