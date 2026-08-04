@@ -225,12 +225,10 @@ services:
     mem_limit: 256m      # ↑ از 128m — Beat واقعاً ~225MB RSS مصرف می‌کند (automation/captcha imports)
     mem_reservation: 128m  # ↑ از 64m
     healthcheck:
-      # pgrep is NOT available in the slim Python base image, so check for the
-      # beat schedule file that Celery Beat writes at startup.
-      test: ['CMD-SHELL', 'test -f /tmp/celerybeat-schedule || exit 1']
+      test: ["CMD-SHELL", "python -c \"import os, redis; redis.Redis.from_url(os.environ['REDIS_URL'], socket_connect_timeout=3, socket_timeout=3).ping()\" && grep -q celery /proc/1/comm || exit 1"]
       interval: 30s
-      timeout: 5s
-      start_period: 30s
+      timeout: 10s
+      start_period: 60s
       retries: 3
     command:
       - celery
@@ -238,4 +236,4 @@ services:
       - app.workers.celery_app:celery_app
       - beat
       - --loglevel=info
-      - --schedule=/tmp/celerybeat-schedule
+      - --schedule=/app/runtime/celerybeat-schedule

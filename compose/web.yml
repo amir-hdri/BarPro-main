@@ -74,7 +74,7 @@ services:
     mem_limit: 512m      # ↑ از 256m — buffer zone برای spikes ترافیک
     mem_reservation: 256m  # ↑ از 128m
     healthcheck:
-      test: ['CMD-SHELL', 'wget -q -O - http://127.0.0.1/healthz | grep -q "status" || exit 1']
+      test: ['CMD-SHELL', 'pgrep -f "nginx: master" >/dev/null || exit 1']
       interval: 30s
       timeout: 5s
       start_period: 10s
