@@ -53,13 +53,15 @@ services:
   worker:
     # Published by .github/workflows/cd-deploy.yml (tag "latest" on main).
     # Verify on the worker: docker pull ghcr.io/amir-hdri/barpro-main/barpro-backend:latest
-    image: ghcr.io/amir-hdri/barpro-main/barpro-backend:latest
+    image: barpro_backend:latest
     container_name: barpro-celery-worker
     restart: unless-stopped
     depends_on:
       - squid
     networks:
       - worker_local
+    env_file:
+      - ../.env
     command: >
       celery -A app.workers.celery_app worker
       --loglevel=info
@@ -87,6 +89,12 @@ services:
       # Queue feature flags
       QUEUE_ENABLED: "true"
       QUEUE_INLINE_FALLBACK: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os, redis; redis.Redis.from_url(os.environ['REDIS_URL'], socket_connect_timeout=3, socket_timeout=3).ping()\" && grep -q celery /proc/1/comm || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
     volumes:
       # Shared memory for Chromium
       - type: tmpfs

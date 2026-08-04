@@ -13,7 +13,7 @@ COMPOSE_FILES="-f compose/infra.yml -f compose/proxy.yml -f compose/backend.yml 
 # Ensure the shared docker network exists with the expected subnet.
 # Workers reach host Squid proxies via the bridge gateway 172.20.0.1.
 ensure_network() {
-    if ! docker network inspect barpro_platform >/dev/null 2>&1; then
+    if ! docker network inspect barpro_platform > /dev/null 2>&1; then
         echo "Creating docker network barpro_platform (172.20.0.0/16)..."
         docker network create --subnet=172.20.0.0/16 barpro_platform
     fi
@@ -127,22 +127,58 @@ case "$1" in
     migrate)
         echo "Running database migrations..."
         docker compose -f compose/backend.yml exec -T backend alembic upgrade head
+        echo "✅ Migrations complete."
+        ;;
+    beat-restart)
+        # ── ریاستارت فوری Celery Beat (برای رفع OOM یا هنگ) ──────────────
+        echo "Restarting Celery Beat..."
+        docker compose -f compose/backend.yml up -d --no-deps --force-recreate celery_beat
+        echo "Waiting 10s for Beat to come up..."
+        sleep 10
+        docker ps --filter name=barpro-beat --format "{{.Names}} | {{.Status}}"
+        echo "✅ Beat restarted."
+        ;;
+    logs)
+        # Usage: bash manage.sh logs [service]
+        SERVICE="${2:-backend}"
+        docker compose -f compose/infra.yml \
+                       -f compose/proxy.yml \
+                       -f compose/backend.yml \
+                       -f compose/web.yml \
+                       -f compose/monitoring.yml \
+                       logs -f --tail=100 "$SERVICE"
         ;;
     backup-db)
         echo "Backing up PostgreSQL database..."
         BACKUP_FILE="backup_$(date +%F_%H%M%S).sql"
-        docker compose -f compose/infra.yml exec -T postgres pg_dump -U postgres barpro > "$BACKUP_FILE"
-        echo "Backup written to $BACKUP_FILE"
+        DB_NAME="${POSTGRES_DB:-utcms_rpa}"
+        docker compose -f compose/infra.yml exec -T postgres \
+            pg_dump -U postgres "$DB_NAME" > "$BACKUP_FILE"
+        echo "✅ Backup written to $BACKUP_FILE"
         ;;
     deploy)
         echo "Deploying update from repository..."
         git pull origin main || true
-        docker compose -f compose/backend.yml build
-        docker compose -f compose/web.yml build
-        $0 start
+        
+        echo "Building backend image..."
+        docker compose -f compose/backend.yml build --no-cache backend
+        
+        echo "Building frontend image..."
+        docker compose -f compose/web.yml build --no-cache frontend
+        
+        echo "Restarting all services..."
+        docker compose -f compose/backend.yml up -d
+        docker compose -f compose/web.yml up -d
+        
+        echo "Running migrations after deploy..."
+        sleep 10  # backend startup grace
+        docker compose -f compose/backend.yml exec -T backend alembic upgrade head
+        
+        echo "✅ Deploy complete. Verifying health..."
+        $0 health
         ;;
     *)
-        echo "Usage: $0 {start|stop|restart|status|health|migrate|backup-db|deploy}"
+        echo "Usage: $0 {start|stop|restart|status|health|migrate|beat-restart|logs [service]|backup-db|deploy}"
         exit 1
         ;;
 esac

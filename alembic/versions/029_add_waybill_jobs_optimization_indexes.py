@@ -14,39 +14,40 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "029"
-down_revision = "028"
+down_revision = "028_submission_unconfirmed_category"
 branch_labels = None
 depends_on = None
 
 
 def upgrade():
     """Create optimization indexes for waybill_jobs table."""
+    # CREATE INDEX CONCURRENTLY cannot run inside a transaction block
+    # Use op.execute with autocommit to run outside transaction
+    op.execute("SET statement_timeout = '300s'")
+    op.execute("COMMIT")
+
     # Composite index for efficient job queue queries (status + priority + created_at)
-    op.create_index(
-        "idx_wj_status_priority_created",
-        "waybill_jobs",
-        [sa.column("status"), sa.column("priority").desc(), sa.column("created_at")],
-        unique=False,
-        postgresql_concurrently=True,
+    op.execute(
+        """
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wj_status_priority_created
+        ON waybill_jobs (status, priority DESC, created_at ASC)
+        """
     )
 
     # Index for retry scheduling
-    op.create_index(
-        "idx_wj_status_next_retry",
-        "waybill_jobs",
-        [sa.column("status"), sa.column("next_retry_at")],
-        unique=False,
-        postgresql_concurrently=True,
+    op.execute(
+        """
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wj_status_next_retry
+        ON waybill_jobs (status, next_retry_at)
+        """
     )
 
     # Covering index for status-only queries
-    op.create_index(
-        "idx_wj_status_covering",
-        "waybill_jobs",
-        [sa.column("status")],
-        unique=False,
-        postgresql_include=[sa.column("id")],
-        postgresql_concurrently=True,
+    op.execute(
+        """
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wj_status_covering
+        ON waybill_jobs (status) INCLUDE (id)
+        """
     )
 
 
