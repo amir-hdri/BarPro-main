@@ -89,8 +89,8 @@ services:
     <<: *backend-common
     container_name: barpro-backend
     shm_size: '256m'
-    mem_limit: 256m
-    mem_reservation: 128m
+    mem_limit: 512m      # ↑ از 256m — پاسخ‌دهی سریع‌تر API روی 16GB
+    mem_reservation: 256m  # ↑ از 128m
     environment:
       <<: *backend-env
       PORT: 8000
@@ -110,8 +110,8 @@ services:
     image: barpro_celery_worker_1:latest
     container_name: barpro-worker-1
     shm_size: '512m'
-    mem_limit: 2.5g
-    mem_reservation: 2g
+    mem_limit: 3g        # ↑ از 2.5g — فضای بیشتر برای Chromium + PyTorch روی 16GB
+    mem_reservation: 2.5g  # ↑ از 2g
     stop_grace_period: 10m
     command:
       - celery

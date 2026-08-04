@@ -298,22 +298,26 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wj_status_covering
 ON waybill_jobs (status) INCLUDE (id);
 ```
 
-## Memory Budget (12 GB RAM)
+## Memory Budget (16 GB RAM — Central Server)
 
-| Container | Limit | Reservation | shm_size |
-|-----------|-------|-------------|----------|
-| PostgreSQL | 1 GB | 512 MB | — |
-| Redis | 256 MB | 128 MB | — |
-| Backend API | 256 MB | 128 MB | 256 MB |
-| Celery Worker 1 | 2.5 GB | 2 GB | 512 MB |
-| Celery Worker 2 | 2.5 GB | 2 GB | 512 MB |
-| Celery Worker 3 | 2.5 GB | 2 GB | 512 MB |
-| Celery Beat | 128 MB | 64 MB | — |
-| Frontend (Next.js) | 512 MB | 256 MB | — |
-| Nginx | 256 MB | 128 MB | — |
-| Squid ×3 | 128 MB each | 64 MB each | — |
-| Prometheus | 256 MB | 128 MB | — |
-| **Total limits** | **~10.5 GB** ← fits in 12 GB with ~1.5 GB headroom | | |
+> **سرور مرکزی 16 GB RAM** — Workers 2/3 روی Remote Worker VPSها اجرا می‌شوند (Model B Scale-out)
+
+| Container | Limit | Reservation | shm_size | تغییر |
+|-----------|-------|-------------|----------|-------|
+| PostgreSQL | **1.5 GB** | 768 MB | — | ↑ از 1 GB |
+| Redis | **512 MB** | 256 MB | — | ↑ از 256 MB |
+| Backend API | **512 MB** | 256 MB | 256 MB | ↑ از 256 MB |
+| Celery Worker 1 | **3 GB** | 2.5 GB | 512 MB | ↑ از 2.5 GB |
+| Celery Beat | **256 MB** | 128 MB | — | ↑ از 128 MB (OOM fix) |
+| Frontend (Next.js) | **1 GB** | 512 MB | — | ↑ از 512 MB |
+| Nginx | **512 MB** | 256 MB | — | ↑ از 256 MB |
+| Squid ×3 | 128 MB each | 64 MB each | — | — |
+| Prometheus | 256 MB | 128 MB | — | — |
+| Alertmanager | 128 MB | 64 MB | — | — |
+| Grafana | 256 MB | 128 MB | — | — |
+| **Total limits** | **~8.9 GB** ← fits in 16 GB with ~7 GB headroom | | | |
+
+> Workers 2/3 (هر کدام 3 GB) روی Remote Worker VPS اجرا می‌شوند و در بودجه سرور مرکزی نیستند.
 
 ## Priority Fixes for Server Deployment (see ISSUES.md for full list)
 
@@ -553,4 +557,34 @@ ON waybill_jobs (status) INCLUDE (id);
 
 ---
 
-*Last updated: 2026-08-02 · Tests: 552 passed, 2 skipped · Deployment: single server, dual IP (4 vCPU, 12 GB RAM)*
+### Additional Fixes Applied (2026-08-04) — Server 16GB RAM Upgrade, Beat OOM Fix & Deployment Automation
+
+> **Context:** Production deployment on 3-server Model B topology:
+> Central (`87.107.5.238`, 16 GB), Worker 2 (`5.56.132.26`), Worker 3 (`87.107.5.219`).
+> All fixes were validated against a running 25-table PostgreSQL at Alembic head `029`.
+
+| Change | File(s) | Impact |
+|--------|---------|--------|
+| **Celery Beat OOMKilled fix**: `mem_limit` 128m → **256m**, `mem_reservation` 64m → **128m** (Beat imports `automation/captcha` modules on import — ~225MB RSS actual usage) | `compose/backend.yml:225` | Beat stops restarting with exit code 137 |
+| **SKIP_MIGRATIONS=false**: Migration now runs automatically at startup protected by Redis distributed lock (prevents parallel execution across workers) | `compose/backend.yml:44` | No manual `alembic upgrade head` needed on deploy |
+| **Alembic 027 column widening**: `ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(255)` — default is VARCHAR(32) but revision `027_add_fuel_inquiry_error_category` is 35 chars | `alembic/versions/027_add_fuel_inquiry_error_category.py` | Migrations no longer fail with `value too long for type character varying(32)` |
+| **Alembic 029 CONCURRENT index fix**: `op.execute("COMMIT")` before `CREATE INDEX CONCURRENTLY IF NOT EXISTS` (can't run inside Alembic transaction); fixed `down_revision = "028_submission_unconfirmed_category"` | `alembic/versions/029_add_waybill_jobs_optimization_indexes.py` | 3 optimization indexes created successfully |
+| **Playwright CDN fix**: `ENV PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright` (cdn.playwright.dev blocked from Iran) | `Dockerfile:83` | Chromium downloads during Docker build |
+| **Worker Node fixes**: local `image: barpro_backend:latest` (not GHCR), `env_file: [../.env]`, fast Redis+proc healthcheck (replaces slow `celery inspect ping` which timed out at 11–17s due to central Redis latency), `squid:host-gateway` extra_hosts | `compose/worker-node.yml` | Remote workers 2 & 3 start and stay healthy |
+| **RAM upgrade for 16GB server**: PostgreSQL 1g→**1.5g**, Redis 256m→**512m** (+`maxmemory 400mb`), Backend API 256m→**512m**, Worker 1 2.5g→**3g**, Frontend 512m→**1g**, Nginx 256m→**512m** | `compose/infra.yml`, `compose/backend.yml`, `compose/web.yml` | Smooth UI, faster API response, more Chrome/PyTorch headroom |
+| **manage.sh improvements**: +`beat-restart` (force-recreate Beat), +`logs [service]` (live log tail), fixed `backup-db` DB name from env, improved `deploy` (build+up+migrate+health) | `manage.sh` | Operational convenience |
+| **New deploy script** `scripts/quick_deploy_central.sh`: 10-step fully automated central server deploy (pull → build → beat restart → web → monitoring → migrate → verify) | `scripts/quick_deploy_central.sh` | One-command deploy |
+| **New setup script** `scripts/setup_worker.sh`: automated worker node setup from scratch (Docker install → config → build → up → verify registry) | `scripts/setup_worker.sh` | Reproducible worker deployment |
+| **.env.example completed**: Added `WORKER_ID`, `WORKER_IP_INDEX`, `WORKER_PROXY_PORT`, `CENTRAL_IP`, `GRAFANA_ADMIN_USER/PASSWORD`, `GRAFANA_ROOT_URL`, `AUTH_COOKIE_SECURE` | `.env.example` | Template covers all required variables |
+| **Volume permissions fix** (server action): `chown -R 10001:10001 /var/lib/docker/volumes/barpro_runtime_data/_data/` + mkdir auth/screenshots/output | Applied on central server | Backend starts without PermissionError |
+
+> **Deployment Status (2026-08-04):**
+> - PostgreSQL: `barpro_runtime_data` at Alembic head `029` (25 tables)
+> - Workers 2 & 3: healthy, registered in `worker_registry`
+> - Celery Beat: `mem_limit=256m` — OOM resolved
+> - Frontend + Nginx: mem_limit=1g+512m
+> - All services tested healthy via `manage.sh health`
+
+---
+
+*Last updated: 2026-08-04 · Tests: 552 passed, 2 skipped · Deployment: 3-server Model B (Central 16GB + 2× remote Worker VPS)*

@@ -37,8 +37,8 @@ services:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
     expose: ['3000']
     networks: [platform]
-    mem_limit: 512m
-    mem_reservation: 256m
+    mem_limit: 1g        # ↑ از 512m — برای روان‌بودن SSR و کش Next.js روی 16GB
+    mem_reservation: 512m  # ↑ از 256m
     healthcheck:
       test: ['CMD-SHELL', 'grep -q ":0BB8" /proc/net/tcp 2>/dev/null || exit 1']
       interval: 30s
@@ -71,8 +71,8 @@ services:
     # بعد از نصب گواهی HTTPS: خط زیر را uncomment کنید
     # - '443:443'
     networks: [platform]
-    mem_limit: 256m
-    mem_reservation: 128m
+    mem_limit: 512m      # ↑ از 256m — buffer zone برای spikes ترافیک
+    mem_reservation: 256m  # ↑ از 128m
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O - http://127.0.0.1/healthz | grep -q "status" || exit 1']
       interval: 30s
