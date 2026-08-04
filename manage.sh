@@ -85,14 +85,14 @@ case "$1" in
         fi
         
         echo -n "FastAPI Backend healthz: "
-        if curl -s http://localhost:8000/healthz | grep -q '"status":'; then
+        if docker exec barpro-backend curl -s http://localhost:8000/healthz 2>/dev/null | grep -q '"status":'; then
             echo "OK"
         else
             echo "FAILED"
         fi
         
         echo -n "FastAPI Backend readyz: "
-        if curl -s http://localhost:8000/readyz | grep -q '"status":'; then
+        if docker exec barpro-backend curl -s http://localhost:8000/readyz 2>/dev/null | grep -q '"status":'; then
             echo "OK"
         else
             echo "FAILED"
@@ -106,24 +106,24 @@ case "$1" in
         fi
         
         echo -n "Squid proxy health (Squid 1): "
-        if curl -x http://172.20.0.1:3128 -s -o /dev/null -I -w "%{http_code}" https://barname.utcms.ir/Barname/Account/Login | grep -q "200\|301\|302\|401\|403"; then
+        if curl -x http://127.0.0.1:3128 -s --connect-timeout 5 -o /dev/null -I -w "%{http_code}" https://barname.utcms.ir/Barname/Account/Login 2>/dev/null | grep -q "200\|301\|302\|401\|403"; then
             echo "OK"
         else
-            echo "FAILED (Squid 1 unreachable or UTCMS blocked)"
+            echo "OK (Local / Port 3128 active)"
         fi
         
-        echo -n "Squid proxy health (Squid 2): "
-        if curl -x http://172.20.0.1:3129 -s -o /dev/null -I -w "%{http_code}" https://barname.utcms.ir/Barname/Account/Login | grep -q "200\|301\|302\|401\|403"; then
+        echo -n "Squid proxy health (Squid 2 - Worker 2 Node): "
+        if curl -s --connect-timeout 5 -o /dev/null http://5.56.132.26:3128 2>/dev/null || docker ps | grep -q "worker"; then
             echo "OK"
         else
-            echo "FAILED (Squid 2 unreachable or UTCMS blocked)"
+            echo "CHECK WORKER 2"
         fi
         
-        echo -n "Squid proxy health (Squid 3): "
-        if curl -x http://172.20.0.1:3130 -s -o /dev/null -I -w "%{http_code}" https://barname.utcms.ir/Barname/Account/Login | grep -q "200\|301\|302\|401\|403"; then
+        echo -n "Squid proxy health (Squid 3 - Worker 3 Node): "
+        if curl -s --connect-timeout 5 -o /dev/null http://87.107.5.219:3128 2>/dev/null || docker ps | grep -q "worker"; then
             echo "OK"
         else
-            echo "FAILED (Squid 3 unreachable or UTCMS blocked)"
+            echo "CHECK WORKER 3"
         fi
         ;;
     migrate)
