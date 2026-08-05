@@ -640,7 +640,10 @@ export default function FuelInquiryPage() {
                         disabled={submitting || loading}
                         className="field"
                       >
-                        {Array.from({ length: 5 }, (_, i) => 1404 - i).map((y) => (
+                        {Array.from({ length: 10 }, (_, i) => {
+                          const baseYear = selectedYear && selectedYear > 1400 ? Math.max(selectedYear, 1405) : 1405;
+                          return baseYear - i;
+                        }).map((y) => (
                           <option key={y} value={y} className="bg-slate-900 text-white">{toPersianDigitsPreserveZero(y.toString())}</option>
                         ))}
                       </select>

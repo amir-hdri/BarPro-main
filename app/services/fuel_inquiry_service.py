@@ -65,19 +65,32 @@ class FuelInquiryService:
         inquiry_year = request.year or current_year
         inquiry_month = request.month or current_month
 
-        # Check for existing pending/processing inquiry for same driver/period to prevent duplicates
+        # Check for existing pending/processing/running inquiry for same driver/period to prevent duplicates
         existing_stmt = select(FuelInquiry).where(
             (FuelInquiry.driver_id == driver.id)
             & (FuelInquiry.year == inquiry_year)
             & (FuelInquiry.month == inquiry_month)
-            & (FuelInquiry.status.in_(["pending", "processing"]))
+            & (FuelInquiry.status.in_(["pending", "processing", "running"]))
         )
         existing_res = await session.exec(existing_stmt)
-        if existing_res.first():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="یک استعلام فعال برای این راننده و دوره در جریان است",
-            )
+        existing = existing_res.first()
+        if existing:
+            cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=30)
+            last_active = existing.updated_at or existing.created_at
+            if last_active and last_active < cutoff:
+                logger.warning(
+                    f"Auto-expiring stale fuel inquiry {existing.id} for driver {driver.id} (last active {last_active})"
+                )
+                set_fuel_inquiry_status(existing, "stale")
+                existing.error_message = "زمان اجرای استعلام قبلی به پایان رسید (منقضی شده)"
+                existing.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                session.add(existing)
+                await session.commit()
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="یک استعلام فعال برای این راننده و دوره در جریان است",
+                )
 
         # Create DB record
         inquiry = FuelInquiry(
@@ -404,7 +417,7 @@ class FuelInquiryService:
 
     @staticmethod
     async def cleanup_stale_inquiries() -> int:
-        """Fail abandoned inquiries so users can safely create a fresh request."""
+        """Mark abandoned inquiries as stale so users can safely create a fresh request."""
         from app.core.database import async_session_factory
 
         cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=30)
@@ -412,12 +425,12 @@ class FuelInquiryService:
             result = await session.execute(
                 update(FuelInquiry)
                 .where(
-                    FuelInquiry.status.in_(["pending", "processing"]),
+                    FuelInquiry.status.in_(["pending", "processing", "running"]),
                     FuelInquiry.updated_at < cutoff,
                 )
                 .values(
-                    status="failed",
-                    error_message=FUEL_INQUIRY_ERROR_CODE[ErrorCategory.TRANSIENT_INFRA_ERROR],
+                    status="stale",
+                    error_message="زمان اجرای استعلام به پایان رسید (منقضی شده)",
                     updated_at=datetime.now(UTC).replace(tzinfo=None),
                 )
             )

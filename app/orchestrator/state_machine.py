@@ -76,7 +76,7 @@ class JobStateMachine:
 # intentionally permissive — pending → running → success/failed — because the
 # FuelInquiry model is a separate aggregate from WaybillJob).
 FUEL_INQUIRY_STATUSES: frozenset[str] = frozenset(
-    {"pending", "running", "success", "failed", "stale", "cancelled"}
+    {"pending", "processing", "running", "success", "failed", "stale", "cancelled"}
 )
 
 

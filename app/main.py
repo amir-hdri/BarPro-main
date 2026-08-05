@@ -208,12 +208,29 @@ async def lifespan(app: FastAPI):
 
     reconcile_task = asyncio.create_task(_queue_depth_reconcile_loop())
 
+    # Periodically cleanup stale fuel inquiries (every 10 minutes)
+    async def _fuel_stale_cleanup_loop() -> None:
+        from app.services.fuel_inquiry_service import fuel_inquiry_service as _fis
+
+        while True:
+            await asyncio.sleep(600)
+            try:
+                await _fis.cleanup_stale_inquiries()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "fuel_stale_cleanup_loop_error",
+                    extra={"extra_fields": {"error": str(exc)}},
+                )
+
+    stale_fuel_task = asyncio.create_task(_fuel_stale_cleanup_loop())
+
     yield
 
     # Cleanup
     watchdog_task.cancel()
     reconcile_task.cancel()
-    await asyncio.gather(watchdog_task, reconcile_task, return_exceptions=True)
+    stale_fuel_task.cancel()
+    await asyncio.gather(watchdog_task, reconcile_task, stale_fuel_task, return_exceptions=True)
     await distributed_traffic_controller.close()
     await rate_limiter.close()
     await event_hub.stop_subscriber()

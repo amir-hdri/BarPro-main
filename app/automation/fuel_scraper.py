@@ -340,6 +340,33 @@ class FuelScraper:
             # Fill form fields once
             try:
                 await self.page.fill("#NationalCode", national_code)
+
+                # Validate available options in #Year dropdown
+                try:
+                    y_opts = await self.page.locator("#Year option").all()
+                    available_year_vals = []
+                    for y_opt in y_opts:
+                        val = await y_opt.get_attribute("value")
+                        txt = await y_opt.inner_text()
+                        if val:
+                            available_year_vals.append(val.strip())
+                        if txt:
+                            available_year_vals.append(txt.strip())
+
+                    target_y_str = str(j_year)
+                    if available_year_vals and target_y_str not in available_year_vals:
+                        logger.warning(
+                            f"Requested year {j_year} not found in UTCMS options: {available_year_vals}"
+                        )
+                        raise FuelInquiryScraperError(
+                            ErrorCategory.USER_INPUT_ERROR,
+                            f"سال {j_year} در گزینه‌های سامانه سوخت موجود نیست",
+                        )
+                except FuelInquiryScraperError:
+                    raise
+                except Exception as ex_opt:
+                    logger.debug(f"Could not pre-check #Year options: {ex_opt}")
+
                 await self.page.select_option("#Year", str(j_year))
                 await self.page.select_option("#Month", str(j_month))
 

@@ -25,7 +25,7 @@ from app.models_multitenant import Client
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/locations", tags=["locations"])
+router = APIRouter(prefix="/api/v1/locations", tags=["locations"])
 
 
 class ParseAddressRequest(BaseModel):
@@ -71,81 +71,10 @@ async def reverse_geocode_location(
     lng: float = Query(..., description="طول جغرافیایی"),
     user_context: dict[str, Any] = Depends(get_current_user_or_admin),
 ):
-    """تبدیل مختصات جغرافیایی به استان، شهر و آدرس (با پشتیبانی هوشمند مستقیم + فال‌بک آنلاین/آفلاین)"""
-    url = "https://nominatim.openstreetmap.org/reverse"
-    params = {
-        "lat": lat,
-        "lon": lng,
-        "format": "json",
-        "accept-language": "fa",
-        "zoom": 12,
-    }
-    headers = {"User-Agent": "BarPro-Automation/1.0"}
+    """تبدیل مختصات جغرافیایی به استان، شهر و آدرس با کَش درون‌حافظه‌ای و حد فاصله فال‌بک"""
+    from app.services.location_service import location_service
 
-    data = None
-
-    # ۱. تلاش مستقیم برای Nominatim با زمان انتظار کوتاه (۲ ثانیه)
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=2.0)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-    except Exception:
-        logger.debug("direct_nominatim_failed_or_timed_out")
-
-    # ۲. تلاش با پروکسی
-    if data is None:
-        try:
-            proxy_info = await get_proxy_rotator().get_next()
-            if proxy_info and proxy_info.protocol in ("http", "https"):
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(
-                        url,
-                        params=params,
-                        headers=headers,
-                        proxy=proxy_info.full_url,
-                        timeout=aiohttp.ClientTimeout(total=3.0),
-                    ) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-        except Exception:
-            logger.debug("proxy_nominatim_failed")
-
-    if data and isinstance(data, dict):
-        address = data.get("address", {})
-        prov = address.get("state") or address.get("province") or address.get("county") or ""
-        cit = address.get("city") or address.get("town") or address.get("village") or address.get("county") or ""
-        dist = address.get("suburb") or address.get("district") or address.get("neighbourhood") or ""
-        disp = data.get("display_name", "")
-        return {
-            "success": True,
-            "province": prov,
-            "city": cit,
-            "district": dist,
-            "address": disp,
-            "source": "online_geocode",
-        }
-
-    # ۳. فال‌بک آفلاین: پیدا کردن نزدیک‌ترین شهر بر اساس دیتابیس شهرهای ایران
-    offline_match = find_nearest_city_coords(lat, lng)
-    if offline_match:
-        return {
-            "success": True,
-            "province": offline_match["province"],
-            "city": offline_match["city"],
-            "district": "",
-            "address": f"محدوده {offline_match['city']}، {offline_match['province']}",
-            "source": "offline_dataset",
-        }
-
-    return {
-        "success": False,
-        "error": "مکان مورد نظر یافت نشد",
-        "province": "",
-        "city": "",
-        "district": "",
-        "address": "",
-    }
+    return await location_service.reverse_geocode(lat, lng)
 
 
 @router.get("/favorites")

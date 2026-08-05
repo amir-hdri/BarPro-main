@@ -774,6 +774,38 @@ async def list_fuel_inquiries(
     )
 
 
+@router.get("/fuel-inquiries/options")
+async def get_fuel_inquiry_options():
+    """
+    دریافت گزینه‌های معتبر سال و ماه برای فرم استعلام سوخت بر اساس تاریخ جاری.
+    """
+    from app.automation.fuel_scraper import get_current_jalali
+
+    current_year, current_month = get_current_jalali()
+    years = [current_year - i for i in range(10)]
+    months = [
+        {"value": 1, "name": "فروردین"},
+        {"value": 2, "name": "اردیبهشت"},
+        {"value": 3, "name": "خرداد"},
+        {"value": 4, "name": "تیر"},
+        {"value": 5, "name": "مرداد"},
+        {"value": 6, "name": "شهریور"},
+        {"value": 7, "name": "مهر"},
+        {"value": 8, "name": "آبان"},
+        {"value": 9, "name": "آذر"},
+        {"value": 10, "name": "دی"},
+        {"value": 11, "name": "بهمن"},
+        {"value": 12, "name": "اسفند"},
+    ]
+    return {
+        "success": True,
+        "current_year": current_year,
+        "current_month": current_month,
+        "years": years,
+        "months": months,
+    }
+
+
 @router.get("/fuel-inquiries/{inquiry_id}", response_model=FuelInquiryResponse)
 async def get_fuel_inquiry(
     inquiry_id: int,

@@ -141,74 +141,9 @@ async def calculate_route(origin: GeoCoordinateModel, destination: GeoCoordinate
 @router.get("/reverse-geocode", dependencies=[Depends(require_sensitive_auth)])
 async def reverse_geocode(lat: float, lng: float):
     """تبدیل مختصات به آدرس (استان، شهر، منطقه)."""
-    import aiohttp
+    from app.services.location_service import location_service
 
-    from app.automation.proxy_rotator import get_proxy_rotator
-
-    url = "https://nominatim.openstreetmap.org/reverse"
-    params = {
-        "lat": lat,
-        "lon": lng,
-        "format": "json",
-        "accept-language": "fa",
-        "zoom": 10,
-    }
-    headers = {"User-Agent": "UTCMS-Automation/1.0"}
-
-    data = None
-
-    # 1. تلاش مستقیم
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params, headers=headers, timeout=5) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-    except Exception:
-        logger.warning("reverse_geocode_direct_failed", exc_info=True)
-
-    # 2. تلاش با پروکسی چرخشی در صورت شکست مستقیم
-    if data is None:
-        try:
-            proxy_info = await get_proxy_rotator().get_next()
-            if proxy_info and proxy_info.protocol in ("http", "https"):
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(
-                        url, params=params, headers=headers, proxy=proxy_info.full_url, timeout=5
-                    ) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-        except Exception:
-            logger.warning("reverse_geocode_proxy_failed", exc_info=True)
-
-    if data:
-        address = data.get("address", {})
-        return {
-            "success": True,
-            "province": (address.get("state") or address.get("province") or address.get("county") or ""),
-            "city": (address.get("city") or address.get("town") or address.get("village") or ""),
-            "district": (address.get("suburb") or address.get("district") or address.get("neighbourhood") or ""),
-            "display_name": data.get("display_name", ""),
-        }
-
-    from app.core.iran_locations import find_nearest_city_coords
-
-    offline_match = find_nearest_city_coords(lat, lng)
-    if offline_match:
-        return {
-            "success": True,
-            "province": offline_match["province"],
-            "city": offline_match["city"],
-            "district": "",
-            "display_name": f"محدوده {offline_match['city']}، {offline_match['province']}",
-        }
-
-    return {
-        "success": False,
-        "error": "Failed to resolve geocode coordinates",
-        "province": "",
-        "city": "",
-        "district": "",
-    }
+    return await location_service.reverse_geocode(lat, lng)
 
 
 __all__ = [
