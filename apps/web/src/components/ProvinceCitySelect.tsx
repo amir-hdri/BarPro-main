@@ -127,7 +127,7 @@ export const ProvinceCitySelect = memo(function ProvinceCitySelect({
           <select
             value={provinceValue}
             onChange={handleProvinceSelect}
-            className={`field appearance-none pr-4 pl-10 ${provinceError || provinceFetchError ? "error" : ""}`}
+            className={`field appearance-none ps-4 pe-10 ${provinceError || provinceFetchError ? "error" : ""}`}
             disabled={loadingProvinces}
           >
             <option value="">
@@ -143,7 +143,7 @@ export const ProvinceCitySelect = memo(function ProvinceCitySelect({
               </option>
             ))}
           </select>
-          <ChevronDownIcon className="absolute left-3 top-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
+          <ChevronDownIcon className="absolute start-3 top-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
         </div>
         {provinceFetchError && (
           <span className="mt-1 text-xs text-rose-400 font-medium block">
@@ -174,7 +174,7 @@ export const ProvinceCitySelect = memo(function ProvinceCitySelect({
           <select
             value={cityValue}
             onChange={handleCitySelect}
-            className={`field appearance-none pr-4 pl-10 ${cityError || cityFetchError ? "error" : ""}`}
+            className={`field appearance-none ps-4 pe-10 ${cityError || cityFetchError ? "error" : ""}`}
             disabled={!provinceValue || loadingCities}
           >
             <option value="">
@@ -192,7 +192,7 @@ export const ProvinceCitySelect = memo(function ProvinceCitySelect({
               </option>
             ))}
           </select>
-          <ChevronDownIcon className="absolute left-3 top-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
+          <ChevronDownIcon className="absolute start-3 top-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
         </div>
         {cityFetchError && (
           <span className="mt-1 text-xs text-rose-400 font-medium block">

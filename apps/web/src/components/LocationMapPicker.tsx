@@ -188,7 +188,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
       {resolvedAddress && (
         <div className="p-3 rounded-xl bg-slate-950/80 border border-white/5 text-xs text-slate-300 flex items-center justify-between">
           <span className="truncate">{resolvedAddress}</span>
-          <span className="text-[10px] font-mono text-cyan-400 shrink-0 mr-2">
+          <span className="text-[10px] font-mono text-cyan-400 shrink-0 me-2">
             {selectedCoords.lat.toFixed(4)}, {selectedCoords.lng.toFixed(4)}
           </span>
         </div>

@@ -157,7 +157,7 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
               <span className="text-[10px] text-slate-400 font-normal">({fav.city})</span>
 
               {deletingId === fav.id ? (
-                <div className="flex items-center gap-1 mr-1" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-1 me-1" onClick={(e) => e.stopPropagation()}>
                   <button
                     type="button"
                     onClick={(e) => handleDelete(fav.id, e)}
