@@ -196,167 +196,296 @@ class UtcmsHttpLogin:
     # Public API
     # ------------------------------------------------------------------
 
-    async def authenticate(self, username: str, password: str) -> HttpLoginResult:
-        """Run the full HTTP login flow and return the auth cookies.
+    # Backoff (seconds) applied after the WAF answers HTTP 429 (rate limit).
+    # Stability probe showed 4-5 rapid logins trigger a short 429 window that
+    # clears after ~30s; we wait a little longer so the retry has a real chance.
+    RATE_LIMIT_BACKOFF_SECONDS = 25.0
 
-        Steps:
-          1. Open a curl_cffi session (Chrome TLS fingerprint).
-          2. GET the login page → extract antiforgery + captcha token.
-          3. GET the captcha image (same session) → solve with local CNN.
-          4. POST the login form with credentials + captcha answer.
-          5. Validate the response: redirect away from /Login = success.
+    async def authenticate(self, username: str, password: str) -> HttpLoginResult:
+        """Run the full HTTP login flow with transparent retries.
+
+        One attempt = GET login page → solve captcha → POST credentials.
+        Retries:
+          * wrong captcha (کد امنیتی/عبارت امنیتی) → fresh page render so a
+            brand new captcha + tokens are used (up to CAPTCHA_AUTO_MAX_ATTEMPTS).
+          * HTTP 429 (WAF rate limit) → sleep RATE_LIMIT_BACKOFF_SECONDS, then
+            retry with a brand new curl_cffi session (up to 3 times).
 
         Returns:
-            ``HttpLoginResult`` with ``success=True`` and the
-            session cookies when login succeeded.
+            HttpLoginResult with success=True and the auth cookies on success.
         """
         from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
 
         if not username or not password:
             return HttpLoginResult(success=False, error="نام کاربری یا رمز عبور خالی است")
 
-        self._session = self._build_session(cc_requests)
+        max_attempts = max(1, getattr(utcms_config, "CAPTCHA_AUTO_MAX_ATTEMPTS", 3))
+        last_result: HttpLoginResult | None = None
+        rate_limit_retries_left = 3
+
+        for attempt in range(1, max_attempts + 1):
+            self._session = self._build_session(cc_requests)
+            try:
+                result = await self._attempt_single_session(username, password)
+            finally:
+                try:
+                    if self._session is not None:
+                        await asyncio.to_thread(self._session.close)
+                except Exception:
+                    logger.debug("utcms_http_login_session_close_failed", exc_info=True)
+                self._session = None
+
+            last_result = result
+            if result.success:
+                return result
+
+            error = result.error or ""
+            if result.status_code == 429 and rate_limit_retries_left > 1:
+                rate_limit_retries_left -= 1
+                logger.warning(
+                    "utcms_http_login_rate_limited_backoff",
+                    extra={"extra_fields": {"backoff": self.RATE_LIMIT_BACKOFF_SECONDS}},
+                )
+                await asyncio.sleep(self.RATE_LIMIT_BACKOFF_SECONDS)
+                continue
+            if self._is_captcha_error(error):
+                logger.info(
+                    "utcms_http_login_captcha_retry",
+                    extra={"extra_fields": {"attempt": attempt, "error": error}},
+                )
+                continue
+            break
+
+        return last_result or HttpLoginResult(success=False, error="لاگین ناموفق؛ بدون نتیجه")
+
+    async def fetch_authenticated(
+        self,
+        url: str,
+        *,
+        username: str,
+        password: str,
+        max_attempts: int = 3,
+        backoff_seconds: float = 10.0,
+        allowed_statuses: tuple[int, ...] = (200,),
+    ) -> tuple[Any, list[dict[str, Any]]]:
+        """GET a UTCMS page using a persistent authenticated session.
+
+        The worker WAF frequently drops connections on specific pages
+        (``ERR_CONNECTION_CLOSED`` / HTTP 408 style reliability hints).
+        Instead of sharing a stale session, this method transparently
+        re-authenticates and rebuilds the curl_cffi session whenever the
+        current request fails at the transport level (connection reset),
+        the server returns an auth-required/rate-limit status, or the
+        page came back unauthenticated (redirected to ``/Login``).
+
+        Returns:
+            A tuple ``(response, cookies)`` on success. ``cookies`` are the
+            Playwright-ready cookie dicts from the successful login, so the
+            caller can also cold-boot a Playwright context from them.
+        """
+        from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
+
+        retry_statuses = (408, 429, 500, 502, 503, 504)
+        last_exc: Exception | None = None
+        last_status: int | None = None
+        authenticated_cookies: list[dict[str, Any]] = []
+
+        for attempt in range(1, max(1, max_attempts) + 1):
+            session = self._session
+            if session is None:
+                login_res = await self.authenticate(username, password)
+                if not login_res.success:
+                    raise RuntimeError(f"باز-لاگین UTCMS جهت بازیابی سشن ناموفق: {login_res.error}")
+                authenticated_cookies = login_res.cookies
+                session = self._build_session(cc_requests)
+                for cookie in authenticated_cookies:
+                    try:
+                        session.cookies.set(
+                            cookie["name"],
+                            cookie["value"],
+                            domain=cookie.get("domain") or "barname.utcms.ir",
+                            path=cookie.get("path") or "/",
+                        )
+                    except Exception:
+                        logger.debug("utcms_http_login_cookie_set_failed", exc_info=True)
+                self._session = session
+
+            try:
+                resp = await asyncio.to_thread(session.get, url, timeout=self._timeout)
+            except Exception as exc:
+                last_exc = exc
+                # Transport-level reset → the session is burned; drop it so the
+                # next iteration logs in with a brand new TLS handshake.
+                self._session = None
+                if attempt < max_attempts:
+                    await asyncio.sleep(min(2.0 * attempt, backoff_seconds))
+                    continue
+                break
+
+            last_status = resp.status_code
+            if resp.status_code in retry_statuses:
+                self._session = None
+                if attempt < max_attempts:
+                    await asyncio.sleep(backoff_seconds)
+                    continue
+                break
+
+            return resp, authenticated_cookies
+
+        if last_exc is not None:
+            raise RuntimeError(f"دریافت صفحه {url} ناموفق پس از {max_attempts} تلاش: {last_exc}") from last_exc
+        raise RuntimeError(
+            f"دریافت صفحه {url} ناموفق پس از {max_attempts} تلاش (آخرین وضعیت HTTP {last_status})"
+        )
+
+    @staticmethod
+    def _is_captcha_error(error: str | None) -> bool:
+        if not error:
+            return False
+        lowered = error.lower()
+        return any(
+            marker in lowered
+            for marker in ("کد امنیتی", "عبارت امنیتی", "captcha", "کد تصویر")
+        )
+
+    async def _attempt_single_session(
+        self, username: str, password: str
+    ) -> HttpLoginResult:
+        """One full GET → solve → POST round inside a single curl_cffi session."""
+        # 1) GET login page
+        logger.info(
+            "utcms_http_login_get_start",
+            extra={"extra_fields": {"login_url": self._login_url, "proxy": self._proxy_url}},
+        )
         try:
-            # 1) GET login page
-            logger.info(
-                "utcms_http_login_get_start",
-                extra={"extra_fields": {"login_url": self._login_url, "proxy": self._proxy_url}},
+            get_resp = await asyncio.to_thread(self._session.get, self._login_url, timeout=self._timeout)
+        except Exception as exc:
+            logger.warning(
+                "utcms_http_login_get_failed",
+                extra={"extra_fields": {"error": str(exc)[:200]}},
             )
-            try:
-                get_resp = await asyncio.to_thread(self._session.get, self._login_url, timeout=self._timeout)
-            except Exception as exc:
-                logger.warning(
-                    "utcms_http_login_get_failed",
-                    extra={"extra_fields": {"error": str(exc)[:200]}},
-                )
-                return HttpLoginResult(
-                    success=False,
-                    error=f"دریافت صفحه لاگین ناموفق: {exc}",
-                    status_code=None,
-                )
-
-            if get_resp.status_code != 200:
-                return HttpLoginResult(
-                    success=False,
-                    error=f"وضعیت HTTP نامعتبر برای صفحه لاگین: {get_resp.status_code}",
-                    status_code=get_resp.status_code,
-                    final_url=str(get_resp.url),
-                )
-
-            html = get_resp.text
-
-            # 2) Extract tokens
-            self._antiforgery = self._extract_antiforgery(html)
-            self._captcha_token = self._extract_dnt_captcha_token(html)
-            self._captcha_text = self._extract_dnt_captcha_text(html)
-            self._cap_type = self._extract_cap_type(html)
-            ajax_url = self._extract_form_ajax_url(html)
-            captcha_img_url = self._extract_captcha_image_url(html, base_url=str(get_resp.url))
-
-            if not self._antiforgery:
-                logger.warning(
-                    "utcms_http_login_no_antiforgery",
-                    extra={"extra_fields": {"html_len": len(html)}},
-                )
-                return HttpLoginResult(
-                    success=False,
-                    error="توکن ضد جعل (RequestVerificationToken) در صفحه یافت نشد. ساختار صفحه تغییر کرده؟",
-                    status_code=200,
-                    final_url=str(get_resp.url),
-                )
-            if not captcha_img_url:
-                logger.warning(
-                    "utcms_http_login_no_captcha_image",
-                    extra={"extra_fields": {"html_excerpt": html[:500]}},
-                )
-                return HttpLoginResult(
-                    success=False,
-                    error="تصویر کپچا در صفحه یافت نشد.",
-                    status_code=200,
-                    final_url=str(get_resp.url),
-                )
-
-            # 3) Download captcha image
-            try:
-                self._captcha_image_url = captcha_img_url
-                img_resp = await asyncio.to_thread(
-                    self._session.get, captcha_img_url, timeout=self._timeout
-                )
-                if img_resp.status_code != 200 or len(img_resp.content) < 16:
-                    return HttpLoginResult(
-                        success=False,
-                        error=f"دریافت تصویر کپچا ناموفق (HTTP {img_resp.status_code})",
-                    )
-                self._captcha_image_bytes = img_resp.content
-            except Exception as exc:
-                logger.warning(
-                    "utcms_http_login_captcha_download_failed",
-                    extra={"extra_fields": {"url": captcha_img_url, "error": str(exc)[:200]}},
-                )
-                return HttpLoginResult(
-                    success=False,
-                    error=f"دانلود تصویر کپچا ناموفق: {exc}",
-                )
-
-            # 4) Solve captcha via local ML provider
-            captcha_value = await self._solve_captcha()
-            if not captcha_value:
-                return HttpLoginResult(
-                    success=False,
-                    error="حل کپچا ناموفق بود. کیفیت تصویر یا مدل CNN را بررسی کنید.",
-                )
-
-            # 5) POST the login form. UTCMS's form uses jQuery Unobtrusive
-            # AJAX (data-ajax-url="/Barname/Account/OldLogin"), so we must
-            # post to that endpoint — NOT to the URL that served the GET.
-            post_url = self._resolve_post_url(str(get_resp.url), ajax_url)
-            payload = {
-                "NationalCode": username,
-                "Password": password,
-                "DNTCaptchaInputText": captcha_value,
-                "DNTCaptchaToken": self._captcha_token or "",
-                "DNTCaptchaText": self._captcha_text or "",
-                "CapType": self._cap_type or "1",
-                "RequestVerificationToken": self._antiforgery,
-                "ruleExcepted": "true",
-            }
-            logger.info(
-                "utcms_http_login_post_start",
-                extra={
-                    "extra_fields": {
-                        "post_url": post_url,
-                        "captcha_len": len(captcha_value),
-                        "has_antiforgery": bool(self._antiforgery),
-                    }
-                },
+            return HttpLoginResult(
+                success=False,
+                error=f"دریافت صفحه لاگین ناموفق: {exc}",
+                status_code=None,
             )
-            try:
-                post_resp = await asyncio.to_thread(
-                    self._session.post,
-                    post_url,
-                    data=payload,
-                    timeout=self._timeout,
-                    allow_redirects=False,  # we'll inspect the redirect manually
-                )
-            except Exception as exc:
-                logger.warning(
-                    "utcms_http_login_post_failed",
-                    extra={"extra_fields": {"error": str(exc)[:200]}},
-                )
+
+        if get_resp.status_code != 200:
+            return HttpLoginResult(
+                success=False,
+                error=f"وضعیت HTTP نامعتبر برای صفحه لاگین: {get_resp.status_code}",
+                status_code=get_resp.status_code,
+                final_url=str(get_resp.url),
+            )
+
+        html = get_resp.text
+
+        # 2) Extract tokens
+        self._antiforgery = self._extract_antiforgery(html)
+        self._captcha_token = self._extract_dnt_captcha_token(html)
+        self._captcha_text = self._extract_dnt_captcha_text(html)
+        self._cap_type = self._extract_cap_type(html)
+        ajax_url = self._extract_form_ajax_url(html)
+        captcha_img_url = self._extract_captcha_image_url(html, base_url=str(get_resp.url))
+
+        if not self._antiforgery:
+            logger.warning(
+                "utcms_http_login_no_antiforgery",
+                extra={"extra_fields": {"html_len": len(html)}},
+            )
+            return HttpLoginResult(
+                success=False,
+                error="توکن ضد جعل (RequestVerificationToken) در صفحه یافت نشد. ساختار صفحه تغییر کرده؟",
+                status_code=200,
+                final_url=str(get_resp.url),
+            )
+        if not captcha_img_url:
+            logger.warning(
+                "utcms_http_login_no_captcha_image",
+                extra={"extra_fields": {"html_excerpt": html[:500]}},
+            )
+            return HttpLoginResult(
+                success=False,
+                error="تصویر کپچا در صفحه یافت نشد.",
+                status_code=200,
+                final_url=str(get_resp.url),
+            )
+
+        # 3) Download captcha image
+        try:
+            self._captcha_image_url = captcha_img_url
+            img_resp = await asyncio.to_thread(
+                self._session.get, captcha_img_url, timeout=self._timeout
+            )
+            if img_resp.status_code != 200 or len(img_resp.content) < 16:
                 return HttpLoginResult(
                     success=False,
-                    error=f"ارسال فرم لاگین ناموفق: {exc}",
+                    error=f"دریافت تصویر کپچا ناموفق (HTTP {img_resp.status_code})",
                 )
+            self._captcha_image_bytes = img_resp.content
+        except Exception as exc:
+            logger.warning(
+                "utcms_http_login_captcha_download_failed",
+                extra={"extra_fields": {"url": captcha_img_url, "error": str(exc)[:200]}},
+            )
+            return HttpLoginResult(
+                success=False,
+                error=f"دانلود تصویر کپچا ناموفق: {exc}",
+            )
 
-            return self._evaluate_post_response(post_resp)
+        # 4) Solve captcha via local ML provider
+        captcha_value = await self._solve_captcha()
+        if not captcha_value:
+            return HttpLoginResult(
+                success=False,
+                error="حل کپچا ناموفق بود. کیفیت تصویر یا مدل CNN را بررسی کنید.",
+            )
 
-        finally:
-            try:
-                if self._session is not None:
-                    await asyncio.to_thread(self._session.close)
-            except Exception:
-                logger.debug("utcms_http_login_session_close_failed", exc_info=True)
-            self._session = None
+        # 5) POST the login form. UTCMS's form uses jQuery Unobtrusive
+        # AJAX (data-ajax-url="/Barname/Account/OldLogin"), so we must
+        # post to that endpoint — NOT to the URL that served the GET.
+        post_url = self._resolve_post_url(str(get_resp.url), ajax_url)
+        payload = {
+            "NationalCode": username,
+            "Password": password,
+            "DNTCaptchaInputText": captcha_value,
+            "DNTCaptchaToken": self._captcha_token or "",
+            "DNTCaptchaText": self._captcha_text or "",
+            "CapType": self._cap_type or "1",
+            "RequestVerificationToken": self._antiforgery,
+            "ruleExcepted": "true",
+        }
+        logger.info(
+            "utcms_http_login_post_start",
+            extra={
+                "extra_fields": {
+                    "post_url": post_url,
+                    "captcha_len": len(captcha_value),
+                    "has_antiforgery": bool(self._antiforgery),
+                }
+            },
+        )
+        try:
+            post_resp = await asyncio.to_thread(
+                self._session.post,
+                post_url,
+                data=payload,
+                timeout=self._timeout,
+                allow_redirects=False,  # we'll inspect the redirect manually
+            )
+        except Exception as exc:
+            logger.warning(
+                "utcms_http_login_post_failed",
+                extra={"extra_fields": {"error": str(exc)[:200]}},
+            )
+            return HttpLoginResult(
+                success=False,
+                error=f"ارسال فرم لاگین ناموفق: {exc}",
+            )
+
+        return self._evaluate_post_response(post_resp)
+
+
 
     async def inject_cookies_into_context_async(
         self, result: HttpLoginResult, context: Any

@@ -9,6 +9,8 @@ builder. The actual network round-trip is intentionally NOT exercised
 """
 
 
+import pytest
+
 from app.automation.utcms_http_login import UtcmsHttpLogin
 
 # ---------------------------------------------------------------------------
@@ -288,3 +290,160 @@ class TestSessionBuilder:
 
     def test_default_impersonate_profile(self):
         assert UtcmsHttpLogin.DEFAULT_IMPERSONATE == "chrome120"
+
+
+# ---------------------------------------------------------------------------
+# fetch_authenticated() — session recovery loop
+# ---------------------------------------------------------------------------
+
+
+def _ok_login_result():
+    return type(
+        "R",
+        (),
+        {
+            "success": True,
+            "cookies": [{"name": "Barname", "value": "v", "domain": "barname.utcms.ir", "path": "/"}],
+        },
+    )()
+
+
+async def _ok_authenticate(u, p):
+    return _ok_login_result()
+
+
+class _OkResp:
+    status_code = 200
+    text = "<html>ok</html>"
+
+
+class _Err408Resp:
+    status_code = 408
+
+
+class TestFetchAuthenticated:
+    def _build_fake_session(self, monkeypatch, login, behaviour, per_login_sessions=False):
+        """Monkeypatch _build_session to return a fake session. With
+        ``per_login_sessions=True`` a brand-new session object is returned
+        on every _build_session() call (like the real code)."""
+        class _FakeSession:
+            def __init__(self):
+                self.headers = {}
+                self.cookies = type("J", (), {"set": lambda *a, **k: None})()
+                self.calls = 0
+
+            def get(self, url, timeout=None):
+                self.calls += 1
+                return behaviour(self, url, timeout)
+
+        if per_login_sessions:
+            monkeypatch.setattr(login, "_build_session", lambda _cc: _FakeSession())
+            return None
+        fake = _FakeSession()
+        monkeypatch.setattr(login, "_build_session", lambda _cc: fake)
+        return fake
+
+    def test_transport_reset_triggers_relogin_and_success(self, monkeypatch):
+        import asyncio
+
+        login = _make_login()
+        login.authenticate = _ok_authenticate
+        login_calls = {"n": 0}
+        orig_auth = login.authenticate
+
+        async def counting_auth(u, p):
+            login_calls["n"] += 1
+            return await orig_auth(u, p)
+
+        login.authenticate = counting_auth
+
+        def behaviour(sess, url, timeout):
+            if sess.calls == 1:
+                raise ConnectionError("curl: (35) BoringSSL SSL_connect reset")
+            return _OkResp()
+
+        # A live session exists; the request is served from it. On transport
+        # reset the session is dropped and a fresh login builds a new one.
+        shared = self._build_fake_session(monkeypatch, login, behaviour)
+        # Seed the first session so no login happens before the reset.
+        login._session = login._build_session(object())
+        assert login._session is shared
+
+        async def run():
+            return await login.fetch_authenticated(
+                "https://barname.utcms.ir/barname/Document/HagigiHogugi",
+                username="u",
+                password="p",
+                max_attempts=3,
+                backoff_seconds=0.0,
+            )
+
+        resp, cookies = asyncio.run(run())
+        assert resp.status_code == 200
+        assert cookies[0]["name"] == "Barname"
+        # Exactly one re-login was required after the transport reset.
+        assert login_calls["n"] == 1
+
+    def test_408_retries_then_raises(self, monkeypatch):
+        import asyncio
+
+        login = _make_login()
+        login._session = None
+        login.authenticate = _ok_authenticate
+        self._build_fake_session(monkeypatch, login, lambda sess, url, timeout: _Err408Resp())
+
+        async def run():
+            with pytest.raises(RuntimeError):
+                await login.fetch_authenticated(
+                    "https://barname.utcms.ir/barname/Document/HagigiHogugi",
+                    username="u",
+                    password="p",
+                    max_attempts=2,
+                    backoff_seconds=0.0,
+                )
+
+        asyncio.run(run())
+
+    def test_success_returns_cookies(self, monkeypatch):
+        import asyncio
+
+        login = _make_login()
+        login._session = None
+        login.authenticate = _ok_authenticate
+        self._build_fake_session(monkeypatch, login, lambda sess, url, timeout: _OkResp())
+
+        async def run():
+            return await login.fetch_authenticated(
+                "https://barname.utcms.ir/barname/Document/HagigiHogugi",
+                username="u",
+                password="p",
+            )
+
+        resp, cookies = asyncio.run(run())
+        assert resp.status_code == 200
+        assert cookies[0]["name"] == "Barname"
+
+    def test_reuses_live_session_without_relogin(self, monkeypatch):
+        import asyncio
+
+        login = _make_login()
+        login._session = None
+        auth_calls = {"n": 0}
+        login.authenticate = _ok_authenticate
+        orig = login.authenticate
+
+        async def counting(u, p):
+            auth_calls["n"] += 1
+            return await orig(u, p)
+
+        login.authenticate = counting
+        self._build_fake_session(monkeypatch, login, lambda sess, url, timeout: _OkResp())
+
+        async def run():
+            first, _ = await login.fetch_authenticated("https://barname.utcms.ir/x", username="u", password="p")
+            second, _ = await login.fetch_authenticated("https://barname.utcms.ir/y", username="u", password="p")
+            return first, second
+
+        first, second = asyncio.run(run())
+        assert first.status_code == 200 and second.status_code == 200
+        assert auth_calls["n"] == 1  # second call reuses the live session
