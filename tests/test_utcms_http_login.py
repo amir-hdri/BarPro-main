@@ -206,7 +206,7 @@ class TestSessionBuilder:
         assert session.headers.get("User-Agent", "").startswith("Mozilla/5.0")
 
     def test_build_session_no_proxy(self):
-        login = _make_login(proxy_url=None)
+        login = _make_login(proxy_url="")
         session = login._build_session(_FakeRequests)
         assert session.kwargs.get("proxies") is None
 

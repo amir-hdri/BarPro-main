@@ -145,13 +145,15 @@ class UtcmsHttpLogin:
         user_agent: str | None = None,
     ) -> None:
         self._login_url = (login_url or utcms_config.LOGIN_URL).strip()
-        try:
-            from app.automation.worker_proxy import get_worker_proxy_url
+        if proxy_url is None:
+            # Use the worker's configured proxy by default.
+            try:
+                from app.automation.worker_proxy import get_worker_proxy_url
 
-            default_proxy = get_worker_proxy_url()
-        except Exception:
-            default_proxy = None
-        self._proxy_url = (proxy_url or default_proxy or "").strip() or None
+                proxy_url = get_worker_proxy_url()
+            except Exception:
+                proxy_url = ""
+        self._proxy_url = (proxy_url or "").strip() or None
         self._impersonate = impersonate
         self._timeout = timeout
         self._user_agent = user_agent or self._build_user_agent()
@@ -479,13 +481,14 @@ class UtcmsHttpLogin:
                     )
                 # Even without the obvious .AspNetCore.Cookies cookie, a
                 # redirect away from /Login is a strong success signal.
-                if cookies:
-                    return HttpLoginResult(
-                        success=True,
-                        cookies=cookies,
-                        final_url=final_url,
-                        status_code=status,
-                    )
+                # Session may be established via a cookie that curl_cffi
+                # stored internally, or WAF may strip the header we see.
+                return HttpLoginResult(
+                    success=True,
+                    cookies=cookies,
+                    final_url=final_url,
+                    status_code=status,
+                )
 
         body = post_resp.text if hasattr(post_resp, "text") else ""
 
@@ -665,8 +668,12 @@ class UtcmsHttpLogin:
 
     @staticmethod
     def _normalise_cookies_for_playwright(cookies: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Pass-through normaliser (placeholder for future scrubbing)."""
-        return [c for c in cookies if c.get("name") and c.get("value") is not None]
+        """Filter out cookies with empty names or values."""
+        return [
+            c
+            for c in cookies
+            if c.get("name") and c.get("value") not in (None, "")
+        ]
 
 
 def cookies_to_playwright(cookies: list[dict[str, Any]], final_url: str) -> list[dict[str, Any]]:
