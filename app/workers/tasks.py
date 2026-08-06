@@ -261,4 +261,9 @@ if celery_app is not None:
 
         return _run_async(_run())
 
+    @celery_app.task(name="fuel.cleanup_stale_inquiries")
+    def cleanup_stale_fuel_inquiries():
+        """Mark abandoned fuel inquiries as stale (every 10 min via beat)."""
+        from app.services.fuel_inquiry_service import fuel_inquiry_service
+        return _run_async(fuel_inquiry_service.cleanup_stale_inquiries())
 

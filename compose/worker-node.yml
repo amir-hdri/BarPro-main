@@ -67,6 +67,7 @@ services:
       --loglevel=info
       --concurrency=1
       --prefetch-multiplier=1
+      --pool=solo
       -Q waybill_tasks,waybill_tasks_${WORKER_IP_INDEX},rpa_auth_${WORKER_IP_INDEX},rpa_submit_${WORKER_IP_INDEX},reconciliation_tasks,reconciliation_tasks_${WORKER_IP_INDEX},rpa_scheduler,scheduled_tasks,scheduled_tasks_${WORKER_IP_INDEX}
       --max-tasks-per-child=50
     environment:
@@ -82,7 +83,7 @@ services:
       # get_worker_proxy_url() reads WORKER_{WORKER_ID}_PROXY or RPA_PROXIES.
       # "squid" resolves to the host via host-gateway (Docker 20.10+), so the
       # container reaches the host-network Squid through the bridge gateway.
-      RPA_PROXIES: http://squid:${WORKER_PROXY_PORT:-3128}
+      RPA_PROXIES: http://squid:3128
       # CAPTCHA & Browser
       CAPTCHA_PROVIDER: ${CAPTCHA_PROVIDER:-auto}
       HEADLESS: ${HEADLESS:-true}
@@ -96,6 +97,11 @@ services:
       start_period: 60s
       retries: 3
     volumes:
+      # Hot-fix mount: pin the worker-registry heartbeat to its fixed source.
+      # worker_lifecycle uses a sync psycopg2 engine to avoid the asyncpg
+      # "different event loop" crash; keep this until the next image rebuild
+      # (the fix is already in the repo source) makes it redundant.
+      - /opt/barpro/app/orchestrator/worker_lifecycle.py:/app/app/orchestrator/worker_lifecycle.py:ro
       # Shared memory for Chromium
       - type: tmpfs
         target: /dev/shm

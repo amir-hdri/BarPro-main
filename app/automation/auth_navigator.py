@@ -103,6 +103,12 @@ class AuthNavigator:
                         "auth_navigator_domcontentloaded_timeout",
                         extra={"extra_fields": {"error": str(exc)}},
                     )
+                # UTCMS/WAF sometimes closes the connection and Chromium lands on
+                # chrome-error://chromewebdata/ while reporting goto as "success".
+                # Treat that as a retryable failure instead of proceeding.
+                current = (await self.current_url()).strip().lower()
+                if current.startswith("chrome-error://") or current.startswith("about:blank"):
+                    raise Exception("navigation landed on error page: " + current)
                 return
             except Exception as exc:
                 last_error = exc
@@ -126,6 +132,15 @@ class AuthNavigator:
                     return selector
             except Exception:
                 continue
+        # Fallback: smart_locator can be overly strict (e.g. treats a briefly
+        # covered field as non-actionable). Do a direct presence check so we
+        # don't fail to locate fields that are clearly in the DOM.
+        for selector in selectors:
+            try:
+                if await self.page.locator(selector).first.count() > 0:
+                    return selector
+            except Exception:
+                continue
         return None
 
     # ------------------------------------------------------------------
@@ -133,17 +148,14 @@ class AuthNavigator:
     # ------------------------------------------------------------------
 
     def candidate_login_urls(self, override_login_url: str | None = None) -> list[str]:
-        base_url = utcms_config.BASE_URL.rstrip("/")
-        candidates: list[str] = []
+        # Only ever target the canonical UTCMS login URL. Historically the
+        # code walked a list of candidate paths (/Login, /Account/Login, ...)
+        # and on a flaky WAF connection the first failed attempt cascaded into
+        # the next wrong URL. We now retry the SAME correct URL (see
+        # goto_with_retry) instead of hopping to a different path.
         if override_login_url:
-            candidates.append(override_login_url.strip())
-        candidates.append(utcms_config.LOGIN_URL.strip())
-        candidates.extend(f"{base_url}{path}" for path in AuthSelectors.LOGIN_PATH_CANDIDATES)
-        unique: list[str] = []
-        for c in candidates:
-            if c and c not in unique:
-                unique.append(c)
-        return unique
+            return [override_login_url.strip()]
+        return [utcms_config.LOGIN_URL.strip()]
 
     async def looks_like_login_page(self) -> bool:
         if is_login_url(await self.current_url()):

@@ -306,6 +306,19 @@ class BrowserManager:
             "--disable-crashpad-for-testing",
             "--disable-crash-reporter",
             "--disable-dbus",  # Prevent FD/D-Bus errors in Docker containers
+            # --- TLS / WAF fingerprint evasion ---
+            # Force HTTP/1.1: Chromium's HTTP/2 TLS ClientHello has a distinct
+            # fingerprint that WAFs (like the one on barname.utcms.ir) detect
+            # and reject. Forcing HTTP/1.1 makes the TLS handshake look like
+            # a regular desktop browser / curl, which UTCMS accepts.
+            "--disable-http2",
+            # Remove the automation-controlled blink feature flag that WAFs
+            # check via navigator.webdriver or TLS extension ordering.
+            "--disable-blink-features=AutomationControlled",
+            # Disable site isolation features that alter process-per-site
+            # behavior and change the TLS connection pattern.
+            "--disable-features=IsolateOrigins,site-per-process",
+            "--disable-site-isolation-trials",
         ]
 
         # CRITICAL: Always set a writeable, local HOME directory in environment.
@@ -321,6 +334,9 @@ class BrowserManager:
             "headless": utcms_config.HEADLESS,
             "args": launch_args,
             "env": launch_env,
+            # Suppress Chromium's own --enable-automation flag which sets
+            # navigator.webdriver=true and adds "Automation" infobar.
+            "ignore_default_args": ["--enable-automation"],
         }
         env_executable = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")
         if env_executable:
@@ -352,6 +368,15 @@ class BrowserManager:
             "viewport": {"width": 1920, "height": 1080},
             "java_script_enabled": True,
             "accept_downloads": True,
+            # Extra HTTP headers that a real desktop Chrome would send.
+            # These help WAFs see a consistent browser fingerprint.
+            "extra_http_headers": {
+                "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Upgrade-Insecure-Requests": "1",
+            },
         }
 
         if proxy_dict:
@@ -380,10 +405,25 @@ class BrowserManager:
             context = await self.browser.new_context(
                 **(await self._build_context_args(auth_state_path=auth_state_path, proxy_dict=proxy_dict))
             )
-            # CRITICAL: Always inject navigator.webdriver override to context level.
-            # This masks Chromium's automation flag for WAF/anti-bot systems like UTCMS
-            # which block default headless clients with status 444.
-            await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            # Inject FULL stealth script at context level so every page in this
+            # context is stealth from the very first navigation.  The init script
+            # overrides navigator.webdriver, chrome runtime, WebGL, canvas,
+            # audio fingerprinting, plugins, and more.
+            from app.automation.stealth_common import build_core_stealth_script
+            import random
+            _webgl_configs = [
+                ("Google Inc. (Intel)", "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)"),
+                ("Google Inc. (NVIDIA)", "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11 vs_5_0 ps_5_0, D3D11)"),
+                ("Google Inc. (AMD)", "ANGLE (AMD, AMD Radeon RX 580 Direct3D11 vs_5_0 ps_5_0, D3D11)"),
+            ]
+            vendor, renderer = random.choice(_webgl_configs)
+            stealth_js = build_core_stealth_script(
+                webgl_vendor=vendor,
+                webgl_renderer=renderer,
+                hw_concurrency=random.choice([4, 8, 12, 16]),
+                device_memory=random.choice([4, 8, 16]),
+            )
+            await context.add_init_script(stealth_js)
 
         self._contexts[session_id] = context
 

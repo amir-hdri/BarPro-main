@@ -65,10 +65,19 @@ class UTCMSAuthenticator:
         self.last_error: str | None = None
         self.last_state: str = "failed"
         self.smart_locator = SmartLocator()
-        self.captcha_interceptor = CaptchaInterceptor(
-            solver_url=getattr(utcms_config, "CAPTCHA_SOLVER_URL", "") or "http://localhost:8099/solve",
-            smart_locator=self.smart_locator,
-        )
+        # Local-only mode: never contact an external captcha solver service.
+        # The bundled local ML models (via _handle_captcha / get_captcha_provider)
+        # handle all captcha types, so the external CaptchaInterceptor is skipped.
+        solver_url = getattr(utcms_config, "CAPTCHA_SOLVER_URL", "")
+        if getattr(utcms_config, "CAPTCHA_LOCAL_ONLY", True) or not solver_url:
+            solver_url = ""
+        if solver_url:
+            self.captcha_interceptor = CaptchaInterceptor(
+                solver_url=solver_url,
+                smart_locator=self.smart_locator,
+            )
+        else:
+            self.captcha_interceptor = None
         self.session = SessionManager(context, page)
         self.navigator = AuthNavigator(page, context, self.smart_locator)
 
@@ -474,20 +483,27 @@ class UTCMSAuthenticator:
         max_attempts = max(1, utcms_config.CAPTCHA_AUTO_MAX_ATTEMPTS)
         retry_delay = max(0.1, utcms_config.CAPTCHA_AUTO_RETRY_DELAY_SECONDS)
         mode = get_captcha_mode()
-        allow_provider = mode in ("provider_first", "provider_only")
-        allow_math_fallback = mode != "provider_only" or utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED
+        # In local_only mode: use BOTH math hint parsing AND local ML image
+        # providers (CNN, PyTorch CRNN, Keras OCR — all bundled in-project).
+        # get_captcha_provider() returns only local models when
+        # CAPTCHA_LOCAL_ONLY=True, so calling it is always safe.
+        is_local_only = mode == "local_only"
+        allow_provider = mode in ("provider_first", "provider_only") or is_local_only
+        allow_math_fallback = mode != "provider_only" or utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED or is_local_only
         for attempt in range(1, max_attempts + 1):
             if attempt > 1 and utcms_config.CAPTCHA_AUTO_REFRESH_ON_RETRY:
                 await self._refresh_captcha()
                 await asyncio.sleep(retry_delay)
+            # Try math hint parsing first (fast, high confidence for "2+3" style)
+            if allow_math_fallback:
+                solved = await self._solve_math_captcha(phase="login", attempt=attempt)
+                if solved and await self._set_captcha_value(captcha_selector, solved):
+                    return True
+            # Then try local ML image providers (CNN model on actual captcha image)
             if allow_provider:
                 solved = await self._solve_captcha_with_provider(
                     captcha_selector=captcha_selector, phase="login", attempt=attempt
                 )
-                if solved and await self._set_captcha_value(captcha_selector, solved):
-                    return True
-            if allow_math_fallback:
-                solved = await self._solve_math_captcha(phase="login", attempt=attempt)
                 if solved and await self._set_captcha_value(captcha_selector, solved):
                     return True
         self.last_error = "حل خودکار کپچا ناموفق بود. کیفیت تصویر کپچا یا مدل CNN را بررسی کنید."
@@ -685,6 +701,76 @@ class UTCMSAuthenticator:
     # Public API — main orchestration
     # ==================================================================
 
+    async def _accept_rules_modal_if_present(self, timeout: float = 8.0) -> bool:
+        """Accept the UTCMS 'rules acceptance' modal if it is currently shown.
+
+        The modal (checkbox ``#ruleExcepted`` + confirm button ``#submitRules``)
+        overlays the login form and prevents the username/password fields from
+        being located. Returns True if a modal was detected and accepted.
+        """
+        try:
+            checkbox = self.page.locator("#ruleExcepted").first
+            if await checkbox.count() == 0:
+                return False
+            # Only act if the modal is actually visible.
+            try:
+                if not await checkbox.is_visible(timeout=2000):
+                    return False
+            except Exception:
+                return False
+            await checkbox.check(timeout=timeout)
+            logger.info("rules_modal_checkbox_checked")
+            confirm = self.page.locator("#submitRules").first
+            if await confirm.count():
+                await confirm.click(timeout=timeout)
+                logger.info("rules_modal_confirmed")
+            # Wait for the modal to disappear and the form to settle.
+            await asyncio.sleep(1.5)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("rules_modal_accept_failed", extra={"extra_fields": {"error": str(exc)[:160]}})
+            return False
+
+    async def _clear_loading_overlays(self) -> None:
+        """Permanently suppress UTCMS's full-page '#loading' mask.
+
+        UTCMS renders a ``<div id="loading" class="loading">`` mask on top of the
+        whole page (including the login form and the submit button). It can
+        re-appear during the session, so we physically remove it from the DOM
+        and install a MutationObserver that deletes any future instance, plus a
+        CSS safety net. This guarantees no pointer interception and lets
+        field/button locators report as interactable.
+        """
+        try:
+            await self.page.evaluate(
+                """() => {
+                    const KILL = () => {
+                        document.querySelectorAll('#loading.loading, div.loading, .loading-overlay, .loading-mask')
+                            .forEach(el => el.remove());
+                    };
+                    KILL();
+                    // Re-kill if UTCMS re-injects the mask.
+                    if (!window.__barpro_overlay_observer) {
+                        const mo = new MutationObserver(KILL);
+                        mo.observe(document.documentElement, {childList: true, subtree: true});
+                        window.__barpro_overlay_observer = mo;
+                    }
+                    // CSS safety net in case removal races with re-injection.
+                    const root = document.head || document.body || document.documentElement;
+                    if (root) {
+                        let style = document.getElementById('__barpro_overlay_killer');
+                        if (!style) {
+                            style = document.createElement('style');
+                            style.id = '__barpro_overlay_killer';
+                            root.appendChild(style);
+                        }
+                        style.textContent = '#loading.loading, div.loading, .loading-overlay, .loading-mask { display:none !important; pointer-events:none !important; visibility:hidden !important; }';
+                    }
+                }"""
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("clear_loading_overlays_failed", extra={"extra_fields": {"error": str(exc)[:120]}})
+
     async def login(self, username: str, password: str, login_url: str | None = None) -> bool:
         self.last_error = None
         self.last_state = "failed"
@@ -704,6 +790,21 @@ class UTCMSAuthenticator:
                     await asyncio.sleep(0.3)
                 # Wait for any blocking overlays (e.g., initial page loader) to vanish
                 await self.navigator.wait_for_loading_overlays_to_disappear()
+
+                # UTCMS shows a "rules acceptance" modal on first load. It overlays
+                # the login form and blocks the username/password fields from being
+                # found. Accept it (check the box + click confirm) before proceeding.
+                await self._accept_rules_modal_if_present()
+
+                # Neutralise the full-page '#loading' mask (re-appears dynamically,
+                # so we inject a persistent CSS killer, not a one-off removal).
+                await self._clear_loading_overlays()
+
+                # Small grace period for the login form to become interactable.
+                await asyncio.sleep(0.5)
+
+                # Ensure the loading mask is gone before locating fields.
+                await self._clear_loading_overlays()
             except Exception as exc:
                 if is_retryable_network_error(exc):
                     navigation_errors.append((candidate_login_url, exc))
@@ -733,15 +834,17 @@ class UTCMSAuthenticator:
 
             captcha_selector = await self._find_selector(AuthSelectors.CAPTCHA_SELECTORS)
             if captcha_selector and captcha_selector != "cap-widget":
-                logger.info("Detected standard math/image captcha. Solving using OCR/CNN...")
-                interceptor_result = await self.captcha_interceptor.solve_and_fill(
-                    self.page,
-                    captcha_input_selectors=AuthSelectors.CAPTCHA_SELECTORS,
-                )
-                if interceptor_result.status == CaptchaSolveStatus.CIRCUIT_OPEN:
-                    self.last_error = interceptor_result.error or "سرویس حل کپچا در دسترس نیست (circuit open)"
-                    self.last_state = "captcha_failed"
-                    return False
+                logger.info("Detected standard math/image captcha. Solving using local OCR/CNN...")
+                interceptor = self.captcha_interceptor
+                if interceptor is not None:
+                    interceptor_result = await interceptor.solve_and_fill(
+                        self.page,
+                        captcha_input_selectors=AuthSelectors.CAPTCHA_SELECTORS,
+                    )
+                    if interceptor_result.status == CaptchaSolveStatus.CIRCUIT_OPEN:
+                        self.last_error = interceptor_result.error or "سرویس حل کپچا در دسترس نیست (circuit open)"
+                        self.last_state = "captcha_failed"
+                        return False
 
                 if not await self._handle_captcha(captcha_selector):
                     if is_captcha_related_error(self.last_error):

@@ -117,6 +117,14 @@ def _build_beat_schedule() -> dict:
                 "expires": 840,
             },
         },
+        "fuel-inquiry-cleanup-stale": {
+            "task": "fuel.cleanup_stale_inquiries",
+            "schedule": crontab(minute="*/10"),
+            "options": {
+                "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                "expires": 540,
+            },
+        },
     })
     
     return schedule_dict

@@ -56,7 +56,7 @@ class UTCMSConfig:
         self.UTCMS_ENABLE_MANUAL_CAPTCHA = _to_bool(os.getenv("UTCMS_ENABLE_MANUAL_CAPTCHA", "False"), default=False)
         self.UTCMS_MANUAL_CAPTCHA_TIMEOUT_SECONDS = int(os.getenv("UTCMS_MANUAL_CAPTCHA_TIMEOUT_SECONDS", "120"))
         self.UTCMS_MANUAL_CAPTCHA_POLL_SECONDS = float(os.getenv("UTCMS_MANUAL_CAPTCHA_POLL_SECONDS", "0.7"))
-        self.CAPTCHA_MODE = os.getenv("CAPTCHA_MODE", "provider_only").strip().lower()
+        self.CAPTCHA_MODE = os.getenv("CAPTCHA_MODE", "local_only").strip().lower()
         self.CAPTCHA_PROVIDER = os.getenv("CAPTCHA_PROVIDER", "auto").strip().lower()
         _valid_captcha_providers = {
             "auto",
@@ -82,6 +82,14 @@ class UTCMSConfig:
             os.getenv("CAPTCHA_LOCAL_FALLBACK_ENABLED", "True"),
             default=True,
         )
+        # When True the bot NEVER contacts an external captcha solver service.
+        # All captcha solving is performed by the bundled local ML models
+        # (CNN / PyTorch fuel / Keras OCR / enhanced OCR / local OCR for the
+        # fuel page, and the math-captcha engine for the login page).
+        self.CAPTCHA_LOCAL_ONLY = _to_bool(
+            os.getenv("CAPTCHA_LOCAL_ONLY", "True"),
+            default=True,
+        )
         self.CAPTCHA_MATH_MIN_CONFIDENCE = float(os.getenv("CAPTCHA_MATH_MIN_CONFIDENCE", "0.62"))
         self.CAPTCHA_AUTO_ONLY = _to_bool(os.getenv("CAPTCHA_AUTO_ONLY", "True"), default=True)
         self.CAPTCHA_AUTO_MAX_ATTEMPTS = int(os.getenv("CAPTCHA_AUTO_MAX_ATTEMPTS", "3"))
@@ -92,6 +100,9 @@ class UTCMSConfig:
         self.CAPTCHA_AUTO_RETRY_DELAY_SECONDS = float(os.getenv("CAPTCHA_AUTO_RETRY_DELAY_SECONDS", "0.7"))
         self.CAPTCHA_REFRESH_WAIT_SECONDS = float(os.getenv("CAPTCHA_REFRESH_WAIT_SECONDS", "0.8"))
         self.CAPTCHA_SUBMIT_RETRY_DELAY_SECONDS = float(os.getenv("CAPTCHA_SUBMIT_RETRY_DELAY_SECONDS", "0.8"))
+        # How long an inquiry may stay in pending/processing/running before it is
+        # considered abandoned and auto-expired (so the user can safely retry).
+        self.FUEL_INQUIRY_STALE_MINUTES = int(os.getenv("FUEL_INQUIRY_STALE_MINUTES", "10"))
         self.CAPTCHA_VALUE_MIN_LENGTH = int(os.getenv("CAPTCHA_VALUE_MIN_LENGTH", "1"))
         self.CAPTCHA_VALUE_MAX_LENGTH = int(os.getenv("CAPTCHA_VALUE_MAX_LENGTH", "6"))
         self.CAPTCHA_ADAPTIVE_ENABLED = _to_bool(os.getenv("CAPTCHA_ADAPTIVE_ENABLED", "True"), default=True)

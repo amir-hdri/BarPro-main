@@ -13,6 +13,7 @@ from app.automation.browser import browser_manager, managed_browser_session
 from app.automation.fuel_scraper import FuelScraper, get_current_jalali
 from app.core.error_taxonomy import FUEL_INQUIRY_ERROR_CODE, ErrorCategory, classify_fuel_inquiry_exception
 from app.core.exceptions import WaybillError
+from app.core.config import utcms_config
 from app.models_multitenant import Client, Driver, DriverPlate, FuelInquiry
 from app.orchestrator.state_machine import set_fuel_inquiry_status
 from app.schemas.multitenant import (
@@ -75,7 +76,7 @@ class FuelInquiryService:
         existing_res = await session.exec(existing_stmt)
         existing = existing_res.first()
         if existing:
-            cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=30)
+            cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=utcms_config.FUEL_INQUIRY_STALE_MINUTES)
             last_active = existing.updated_at or existing.created_at
             if last_active and last_active < cutoff:
                 logger.warning(
@@ -420,7 +421,7 @@ class FuelInquiryService:
         """Mark abandoned inquiries as stale so users can safely create a fresh request."""
         from app.core.database import async_session_factory
 
-        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=30)
+        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=utcms_config.FUEL_INQUIRY_STALE_MINUTES)
         async with async_session_factory() as session:
             result = await session.execute(
                 update(FuelInquiry)

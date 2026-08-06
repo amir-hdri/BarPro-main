@@ -162,9 +162,9 @@ def get_captcha_math_min_confidence() -> float:
 
 def get_captcha_mode() -> str:
     mode = (utcms_config.CAPTCHA_MODE or "").strip().lower()
-    if mode in ("provider_first", "manual_only", "provider_only"):
+    if mode in ("provider_first", "manual_only", "provider_only", "local_only"):
         return mode
-    return "provider_first"
+    return "local_only"
 
 
 def navigation_error_message(url: str, error: Exception) -> str:

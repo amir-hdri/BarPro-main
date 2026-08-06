@@ -4,23 +4,45 @@ import logging
 import json
 import threading
 from datetime import UTC, datetime
-from sqlmodel import select
-from app.core.database import async_session_factory
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+
+from app.core.config import utcms_config
 from app.models_rpa import WorkerRegistry
 
 logger = logging.getLogger(__name__)
 
 _heartbeat_stop = threading.Event()
 
+# Worker registry uses a dedicated *synchronous* (psycopg2) engine.
+#
+# The heartbeat runs in a background thread (see ``_heartbeat_loop``), and that
+# thread drives its own asyncio event loop. Opening connections from the shared
+# asyncpg engine inside that thread triggered "Future attached to a different
+# loop" / "unknown protocol state 3" because the pooled asyncpg connections are
+# bound to the engine's event loop, not the heartbeat thread's loop.
+#
+# A plain synchronous engine has no event loop at all, so it is safe to call from
+# any thread (heartbeat thread, worker_process_init, worker_process_shutdown).
+_SYNC_DB_URL = utcms_config.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+_worker_engine = create_engine(_SYNC_DB_URL, pool_size=2, max_overflow=1, pool_pre_ping=True)
+_WorkerSession = sessionmaker(_worker_engine, expire_on_commit=False)
 
-async def register_worker(worker_id: str, hostname: str, capabilities: list[str], capacity: int = 1) -> None:
-    async with async_session_factory() as session:
+
+def _now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def register_worker(worker_id: str, hostname: str, capabilities: list[str], capacity: int = 1) -> None:
+    with _WorkerSession() as session:
         try:
-            statement = select(WorkerRegistry).where(WorkerRegistry.worker_id == worker_id)
-            res = await session.exec(statement)
-            worker = res.first()
-            
-            now = datetime.now(UTC).replace(tzinfo=None)
+            worker = (
+                session.query(WorkerRegistry)
+                .filter(WorkerRegistry.worker_id == worker_id)
+                .first()
+            )
+            now = _now()
             if worker is None:
                 worker = WorkerRegistry(
                     worker_id=worker_id,
@@ -30,7 +52,7 @@ async def register_worker(worker_id: str, hostname: str, capabilities: list[str]
                     status="active",
                     last_heartbeat_at=now,
                     created_at=now,
-                    updated_at=now
+                    updated_at=now,
                 )
                 session.add(worker)
             else:
@@ -41,58 +63,59 @@ async def register_worker(worker_id: str, hostname: str, capabilities: list[str]
                 worker.last_heartbeat_at = now
                 worker.updated_at = now
                 session.add(worker)
-                
-            await session.commit()
+            session.commit()
             logger.info(f"Worker {worker_id} registered successfully.")
         except Exception as e:
             logger.error(f"Failed to register worker {worker_id}: {e}", exc_info=True)
-            await session.rollback()
+            session.rollback()
             raise
 
 
-async def deregister_worker(worker_id: str) -> None:
-    async with async_session_factory() as session:
+def deregister_worker(worker_id: str) -> None:
+    with _WorkerSession() as session:
         try:
-            statement = select(WorkerRegistry).where(WorkerRegistry.worker_id == worker_id)
-            res = await session.exec(statement)
-            worker = res.first()
+            worker = (
+                session.query(WorkerRegistry)
+                .filter(WorkerRegistry.worker_id == worker_id)
+                .first()
+            )
             if worker is not None:
                 worker.status = "offline"
-                worker.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                worker.updated_at = _now()
                 session.add(worker)
-                await session.commit()
+                session.commit()
                 logger.info(f"Worker {worker_id} de-registered successfully (status set to offline).")
         except Exception as e:
             logger.error(f"Failed to deregister worker {worker_id}: {e}", exc_info=True)
-            await session.rollback()
+            session.rollback()
             raise
 
 
-async def send_heartbeat(worker_id: str) -> None:
-    async with async_session_factory() as session:
-        try:
-            statement = select(WorkerRegistry).where(WorkerRegistry.worker_id == worker_id)
-            res = await session.exec(statement)
-            worker = res.first()
+def send_heartbeat(worker_id: str) -> None:
+    try:
+        with _WorkerSession() as session:
+            worker = (
+                session.query(WorkerRegistry)
+                .filter(WorkerRegistry.worker_id == worker_id)
+                .first()
+            )
             if worker is not None:
-                worker.last_heartbeat_at = datetime.now(UTC).replace(tzinfo=None)
-                worker.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                worker.last_heartbeat_at = _now()
+                worker.updated_at = _now()
                 session.add(worker)
-                await session.commit()
+                session.commit()
             else:
                 # Re-register if somehow missing
                 hostname = socket.gethostname()
-                await register_worker(worker_id, hostname, ["waybill"], capacity=1)
-        except Exception as e:
-            logger.warning(f"Failed to send heartbeat for worker {worker_id}: {e}")
-            await session.rollback()
+                register_worker(worker_id, hostname, ["waybill"], capacity=1)
+    except Exception as e:
+        logger.warning(f"Failed to send heartbeat for worker {worker_id}: {e}")
 
 
 def _heartbeat_loop(worker_id: str):
-    from app.core.utils import run_async as _run
     while not _heartbeat_stop.wait(timeout=30):
         try:
-            _run(send_heartbeat(worker_id))
+            send_heartbeat(worker_id)
         except Exception as e:
             logger.warning(f"Heartbeat loop error for worker {worker_id}: {e}")
 
@@ -104,18 +127,17 @@ except ImportError:
     worker_process_shutdown = None
 
 if worker_process_init is not None:
-    from app.core.utils import run_async as _run
 
     @worker_process_init.connect
     def on_worker_start(**kwargs):
         worker_id = os.environ.get("WORKER_ID", socket.gethostname())
         try:
-            _run(register_worker(
+            register_worker(
                 worker_id=worker_id,
                 hostname=socket.gethostname(),
                 capabilities=["waybill", "fuel"],
-                capacity=1
-            ))
+                capacity=1,
+            )
             # Start background heartbeat daemon thread
             threading.Thread(target=_heartbeat_loop, args=(worker_id,), daemon=True).start()
         except Exception as e:
@@ -126,6 +148,6 @@ if worker_process_init is not None:
         _heartbeat_stop.set()
         worker_id = os.environ.get("WORKER_ID", socket.gethostname())
         try:
-            _run(deregister_worker(worker_id))
+            deregister_worker(worker_id)
         except Exception as e:
             logger.error(f"Error deregistering worker process stop: {e}", exc_info=True)
