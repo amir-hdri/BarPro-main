@@ -8,10 +8,8 @@ builder. The actual network round-trip is intentionally NOT exercised
 (that is what the ``scripts/measure_curl_cffi_login.py`` diagnostic is for).
 """
 
-import pytest
 
-from app.automation.utcms_http_login import HttpLoginResult, UtcmsHttpLogin
-
+from app.automation.utcms_http_login import UtcmsHttpLogin
 
 # ---------------------------------------------------------------------------
 # HTML helpers
@@ -35,6 +33,35 @@ class TestExtraction:
 
     def test_extract_antiforgery_missing(self):
         assert UtcmsHttpLogin._extract_antiforgery("<html>no token</html>") is None
+
+    def test_extract_antiforgery_no_double_underscore(self):
+        html = '<input name="RequestVerificationToken" type="hidden" value="utcms-token" />'
+        assert UtcmsHttpLogin._extract_antiforgery(html) == "utcms-token"
+
+    def test_extract_form_ajax_url(self):
+        html = '<form id="loginForm" data-ajax="true" data-ajax-url="/Barname/Account/OldLogin">'
+        assert UtcmsHttpLogin._extract_form_ajax_url(html) == "/Barname/Account/OldLogin"
+
+    def test_extract_form_ajax_url_missing(self):
+        assert UtcmsHttpLogin._extract_form_ajax_url("<form id='x'></form>") is None
+
+    def test_resolve_post_url_uses_ajax_url(self):
+        url = UtcmsHttpLogin._resolve_post_url(
+            "https://barname.utcms.ir/Barname/Account/Login", "/Barname/Account/OldLogin"
+        )
+        assert url == "https://barname.utcms.ir/Barname/Account/OldLogin"
+
+    def test_resolve_post_url_falls_back_to_get_url(self):
+        url = UtcmsHttpLogin._resolve_post_url("https://barname.utcms.ir/Barname/Account/Login")
+        assert url == "https://barname.utcms.ir/Barname/Account/Login"
+
+    def test_extract_dnt_captcha_text(self):
+        html = '<input name="DNTCaptchaText" value="cap-text-1" />'
+        assert UtcmsHttpLogin._extract_dnt_captcha_text(html) == "cap-text-1"
+
+    def test_extract_cap_type(self):
+        html = '<input type="hidden" id="CapType" name="CapType" value="1" />'
+        assert UtcmsHttpLogin._extract_cap_type(html) == "1"
 
     def test_extract_dnt_captcha_token(self):
         html = '<input name="DNTCaptchaToken" value="cap-token-123" />'
@@ -176,6 +203,55 @@ class TestCookies:
         cookies = [{"name": "a", "value": ""}, {"name": "", "value": "b"}, {"name": "c", "value": "v"}]
         out = UtcmsHttpLogin._normalise_cookies_for_playwright(cookies)
         assert [c["name"] for c in out] == ["c"]
+
+    def test_parse_set_cookie_header_full_attrs(self):
+        out = UtcmsHttpLogin._parse_set_cookie_header(
+            "Barname=abc123; path=/; HttpOnly; Secure; SameSite=Lax"
+        )
+        assert out == {
+            "name": "Barname",
+            "value": "abc123",
+            "domain": None,
+            "path": "/",
+            "httpOnly": True,
+            "secure": True,
+            "sameSite": "Lax",
+        }
+
+    def test_parse_set_cookie_header_expires_and_domain(self):
+        out = UtcmsHttpLogin._parse_set_cookie_header(
+            "name=value; domain=barname.utcms.ir; expires=Thu, 01 Jan 2026 00:00:00 GMT"
+        )
+        assert out["domain"] == "barname.utcms.ir"
+        assert out["expires"] == 1767225600
+
+    def test_parse_set_cookie_header_empty_returns_none(self):
+        assert UtcmsHttpLogin._parse_set_cookie_header("") is None
+
+    def test_parse_set_cookie_header_no_name_returns_none(self):
+        assert UtcmsHttpLogin._parse_set_cookie_header("=x") is None
+
+    def test_collect_set_cookies_uses_raw_header(self):
+        class _H:
+            def get_list(self, key):
+                return ["Barname=abc; path=/; HttpOnly"]
+            def get(self, key):
+                return None
+
+        class _Resp:
+            headers = _H()
+            cookies = {}
+
+        out = UtcmsHttpLogin._collect_set_cookies(_Resp())
+        assert [c["name"] for c in out] == ["Barname"]
+        assert out[0]["httpOnly"] is True
+        assert out[0]["path"] == "/"
+
+    def test_collect_set_cookies_empty_returns_empty_list(self):
+        class _Resp:
+            headers = {}
+            cookies = {}
+        assert UtcmsHttpLogin._collect_set_cookies(_Resp()) == []
 
 
 # ---------------------------------------------------------------------------

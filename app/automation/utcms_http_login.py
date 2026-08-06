@@ -26,7 +26,9 @@ import asyncio
 import base64
 import logging
 import re
+import time
 from dataclasses import dataclass, field
+from datetime import UTC
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -67,15 +69,37 @@ class HttpLoginResult:
 # HTML helpers
 # ---------------------------------------------------------------------------
 
-# ASP.NET Core antiforgery token: <input name="__RequestVerificationToken" value="...">
+# ASP.NET Core antiforgery token. UTCMS renders it as:
+#   <input name="RequestVerificationToken" ...>   (no leading "__")
+# while the classic ASP.NET MVC convention uses "__RequestVerificationToken".
+# Accept both spellings (regexes are case-insensitive).
 _ANTIFORGERY_RE = re.compile(
-    r'<input[^>]+name=["\']__RequestVerificationToken["\'][^>]+value=["\']([^"\']+)["\']',
+    r'<input[^>]+name=["\']_*RequestVerificationToken["\'][^>]+value=["\']([^"\']+)["\']',
     re.IGNORECASE,
 )
 
-# DNT captcha: <input name="DNTCaptchaInputText" ...> + <input name="DNTCaptchaToken" value="...">
+# DNT captcha: <input name="DNTCaptchaToken" value="..."> (hidden server token)
 _DNT_CAPTCHA_TOKEN_RE = re.compile(
     r'<input[^>]+name=["\']DNTCaptchaToken["\'][^>]+value=["\']([^"\']+)["\']',
+    re.IGNORECASE,
+)
+
+# DNT captcha text: <input name="DNTCaptchaText" value="..."> (hidden per-image token)
+_DNT_CAPTCHA_TEXT_RE = re.compile(
+    r'<input[^>]+name=["\']DNTCaptchaText["\'][^>]+value=["\']([^"\']+)["\']',
+    re.IGNORECASE,
+)
+
+# CapType hidden field (1 = standard DNT math captcha on the login page).
+_CAP_TYPE_RE = re.compile(
+    r'<input[^>]+name=["\']CapType["\'][^>]+value=["\']([^"\']+)["\']',
+    re.IGNORECASE,
+)
+
+# The login <form> declares its AJAX endpoint:
+#   <form ... data-ajax="true" data-ajax-url="/Barname/Account/OldLogin" ...>
+_FORM_AJAX_URL_RE = re.compile(
+    r'<form[^>]+data-ajax-url=["\']([^"\']+)["\']',
     re.IGNORECASE,
 )
 
@@ -163,6 +187,8 @@ class UtcmsHttpLogin:
         self._session: Any = None  # curl_cffi.requests.Session
         self._antiforgery: str | None = None
         self._captcha_token: str | None = None
+        self._captcha_text: str | None = None
+        self._cap_type: str | None = None
         self._captcha_image_bytes: bytes | None = None
         self._captcha_image_url: str | None = None
 
@@ -222,6 +248,9 @@ class UtcmsHttpLogin:
             # 2) Extract tokens
             self._antiforgery = self._extract_antiforgery(html)
             self._captcha_token = self._extract_dnt_captcha_token(html)
+            self._captcha_text = self._extract_dnt_captcha_text(html)
+            self._cap_type = self._extract_cap_type(html)
+            ajax_url = self._extract_form_ajax_url(html)
             captcha_img_url = self._extract_captcha_image_url(html, base_url=str(get_resp.url))
 
             if not self._antiforgery:
@@ -277,14 +306,19 @@ class UtcmsHttpLogin:
                     error="حل کپچا ناموفق بود. کیفیت تصویر یا مدل CNN را بررسی کنید.",
                 )
 
-            # 5) POST the login form
-            post_url = self._resolve_post_url(get_resp.url)
+            # 5) POST the login form. UTCMS's form uses jQuery Unobtrusive
+            # AJAX (data-ajax-url="/Barname/Account/OldLogin"), so we must
+            # post to that endpoint — NOT to the URL that served the GET.
+            post_url = self._resolve_post_url(str(get_resp.url), ajax_url)
             payload = {
                 "NationalCode": username,
                 "Password": password,
                 "DNTCaptchaInputText": captcha_value,
                 "DNTCaptchaToken": self._captcha_token or "",
-                "__RequestVerificationToken": self._antiforgery,
+                "DNTCaptchaText": self._captcha_text or "",
+                "CapType": self._cap_type or "1",
+                "RequestVerificationToken": self._antiforgery,
+                "ruleExcepted": "true",
             }
             logger.info(
                 "utcms_http_login_post_start",
@@ -387,9 +421,9 @@ class UtcmsHttpLogin:
         m = _ANTIFORGERY_RE.search(html)
         if m:
             return m.group(1)
-        # Fallback: <input ... value="..." name="__RequestVerificationToken">
+        # Fallback: <input ... value="..." name="RequestVerificationToken">
         m2 = re.search(
-            r'<input[^>]+value=["\']([^"\']+)["\'][^>]+name=["\']__RequestVerificationToken["\']',
+            r'<input[^>]+value=["\']([^"\']+)["\'][^>]+name=["\']_*RequestVerificationToken["\']',
             html,
             re.IGNORECASE,
         )
@@ -398,6 +432,21 @@ class UtcmsHttpLogin:
     @staticmethod
     def _extract_dnt_captcha_token(html: str) -> str | None:
         m = _DNT_CAPTCHA_TOKEN_RE.search(html)
+        return m.group(1) if m else None
+
+    @staticmethod
+    def _extract_dnt_captcha_text(html: str) -> str | None:
+        m = _DNT_CAPTCHA_TEXT_RE.search(html)
+        return m.group(1) if m else None
+
+    @staticmethod
+    def _extract_cap_type(html: str) -> str | None:
+        m = _CAP_TYPE_RE.search(html)
+        return m.group(1) if m else None
+
+    @staticmethod
+    def _extract_form_ajax_url(html: str) -> str | None:
+        m = _FORM_AJAX_URL_RE.search(html)
         return m.group(1) if m else None
 
     @staticmethod
@@ -411,8 +460,20 @@ class UtcmsHttpLogin:
         return None
 
     @staticmethod
-    def _resolve_post_url(get_url: str) -> str:
-        """The form posts to the same URL that served the GET."""
+    def _resolve_post_url(get_url: str, ajax_url: str | None = None) -> str:
+        """Resolve the login form's post endpoint.
+
+        The GET (login page) reveals the form's AJAX target via
+        ``data-ajax-url`` (e.g. ``/Barname/Account/OldLogin``). We
+        rebase it onto the same origin. If no AJAX url is present, falls
+        back to posting to the page that served the GET (classic MVC).
+        """
+        if ajax_url:
+            if ajax_url.lower().startswith(("http://", "https://")):
+                return ajax_url
+            from urllib.parse import urljoin as _urljoin
+
+            return _urljoin(get_url, ajax_url)
         return get_url
 
     async def _solve_captcha(self) -> str | None:
@@ -599,22 +660,52 @@ class UtcmsHttpLogin:
     def _collect_set_cookies(post_resp: Any) -> list[dict[str, Any]]:
         """Extract Set-Cookie entries from a curl_cffi response.
 
-        ``curl_cffi`` exposes ``response.cookies`` (a ``RequestsCookieJar``).
-        We also walk ``response.headers`` for raw ``Set-Cookie`` strings
-        to preserve the ``domain``/``path`` attributes that Playwright
-        needs.
+        ``curl_cffi`` stores cookies in its own dict-like ``Cookies`` jar
+        (iteration yields name strings, NOT cookie objects) and the raw
+        ``Set-Cookie`` headers remain in ``response.headers``. We prefer
+        parsing the raw headers (full fidelity: domain/path/httpOnly/
+        sameSite attributes), then fall back to the cookie jar.
         """
-        jar_entries: list[dict[str, Any]] = []
+        entries: list[dict[str, Any]] = []
+
+        raw_headers: list[str] = []
+        try:
+            get_list = getattr(post_resp.headers, "get_list", None)
+            if get_list is not None:
+                raw_headers = list(get_list("set-cookie"))
+        except Exception:
+            raw_headers = []
+        if not raw_headers:
+            try:
+                raw = post_resp.headers.get("set-cookie")
+                if raw:
+                    raw_headers = [raw]
+            except Exception:
+                raw_headers = []
+
+        if raw_headers:
+            for raw in raw_headers:
+                parsed = UtcmsHttpLogin._parse_set_cookie_header(raw)
+                if parsed:
+                    entries.append(parsed)
+
+        if entries:
+            return entries
+
+        # Fallback: curl_cffi's dict-like jar (name → Cookie-ish value).
         jar = getattr(post_resp, "cookies", None)
         if jar is not None:
             try:
-                for cookie in jar:
-                    jar_entries.append(
+                for name, cookie in getattr(jar, "items", lambda: [])():
+                    if not name:
+                        continue
+                    value = cookie.value if hasattr(cookie, "value") else str(cookie)
+                    entries.append(
                         {
-                            "name": cookie.name,
-                            "value": cookie.value,
-                            "domain": cookie.domain,
-                            "path": cookie.path or "/",
+                            "name": name,
+                            "value": value,
+                            "domain": getattr(cookie, "domain", None) or None,
+                            "path": getattr(cookie, "path", None) or "/",
                             "expires": getattr(cookie, "expires", None),
                             "secure": bool(getattr(cookie, "secure", False)),
                             "httpOnly": bool(getattr(cookie, "_rest", {}).get("HttpOnly") or False),
@@ -622,7 +713,54 @@ class UtcmsHttpLogin:
                     )
             except Exception:
                 logger.debug("utcms_http_login_jar_walk_failed", exc_info=True)
-        return jar_entries
+        return entries
+
+    @staticmethod
+    def _parse_set_cookie_header(raw: str) -> dict[str, Any] | None:
+        """Parse a single raw ``Set-Cookie`` header string."""
+        try:
+            from http.cookies import SimpleCookie
+
+            sc = SimpleCookie()
+            sc.load(raw or "")
+        except Exception:
+            return None
+        if not sc:
+            return None
+        morsel = next(iter(sc.values()))
+        name, value = morsel.key, morsel.value
+        if not name or value is None:
+            return None
+        entry: dict[str, Any] = {
+            "name": name,
+            "value": value,
+            "domain": morsel.get("domain") or None,
+            "path": morsel.get("path") or "/",
+        }
+        try:
+            expires = morsel.get("expires")
+            if expires:
+                from email.utils import parsedate_to_datetime
+
+                dt = parsedate_to_datetime(expires)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=UTC)
+                entry["expires"] = int(dt.timestamp())
+        except Exception:
+            pass
+        if morsel.get("max-age"):
+            try:
+                entry["expires"] = int(time.time() + int(morsel["max-age"]))
+            except Exception:
+                pass
+        if morsel.get("httponly"):
+            entry["httpOnly"] = True
+        if morsel.get("secure"):
+            entry["secure"] = True
+        same_site = (morsel.get("samesite") or "").title()
+        if same_site in ("Strict", "Lax", "None"):
+            entry["sameSite"] = same_site
+        return entry
 
     @staticmethod
     def _cookies_to_playwright_dicts(
