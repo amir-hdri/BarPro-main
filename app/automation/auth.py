@@ -771,10 +771,103 @@ class UTCMSAuthenticator:
         except Exception as exc:  # noqa: BLE001
             logger.debug("clear_loading_overlays_failed", extra={"extra_fields": {"error": str(exc)[:120]}})
 
+    async def _try_http_login_first(self, username: str, password: str) -> bool:
+        """Attempt an HTTP-only login (curl_cffi) before launching Playwright.
+
+        The WAF in front of barname.utcms.ir aggressively flags Chromium's
+        TLS fingerprint (JA3/JA4). ``curl_cffi`` impersonates a real Chrome
+        120 ``ClientHello``, so the HTTP request is far more likely to
+        succeed. If it does, we inject the obtained auth cookies into the
+        Playwright context and the rest of the RPA flow continues with a
+        valid session.
+
+        Returns:
+            True if the HTTP login succeeded AND the cookies were
+            injected. The caller can then skip the Playwright login form
+            and go straight to the post-login flow.
+        """
+        # Feature-flag: opt-in via env var. Default = ON (faster + bypass
+        # WAF fingerprint). Set UTCMS_HTTP_LOGIN_ENABLED=false to fall
+        # back to the legacy Playwright-only flow.
+        if not getattr(utcms_config, "UTCMS_HTTP_LOGIN_ENABLED", True):
+            return False
+        # Skip if any required piece is missing.
+        if not username or not password:
+            return False
+        try:
+            from app.automation.utcms_http_login import UtcmsHttpLogin  # type: ignore[import-not-found]
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "auth_http_login_unavailable",
+                extra={"extra_fields": {"error": str(exc)[:160]}},
+            )
+            return False
+        try:
+            http_login = UtcmsHttpLogin()
+            result = await http_login.authenticate(username, password)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "auth_http_login_exception",
+                extra={"extra_fields": {"error": str(exc)[:200]}},
+            )
+            return False
+        if not result.success:
+            logger.info(
+                "auth_http_login_failed_falling_back",
+                extra={"extra_fields": {"error": result.error, "status": result.status_code}},
+            )
+            return False
+        # Inject cookies into the Playwright context.
+        injected = await http_login.inject_cookies_into_context_async(result, self.context)
+        if not injected:
+            logger.warning("auth_http_login_cookie_inject_failed")
+            return False
+        logger.info(
+            "auth_http_login_succeeded",
+            extra={
+                "extra_fields": {
+                    "status": result.status_code,
+                    "final_url": result.final_url,
+                    "cookie_count": len(result.cookies),
+                }
+            },
+        )
+        return True
+
     async def login(self, username: str, password: str, login_url: str | None = None) -> bool:
         self.last_error = None
         self.last_state = "failed"
         navigation_errors: list[tuple[str, Exception]] = []
+
+        # Hybrid: try the HTTP (curl_cffi) login first to bypass the WAF
+        # TLS-fingerprint filter. If it succeeds, the Playwright context
+        # already has a valid session — just navigate to the dashboard
+        # and let the post-login flow take over.
+        if await self._try_http_login_first(username, password):
+            try:
+                # Visit a known authenticated page to validate the session
+                # and trigger any post-login state changes.
+                if await self._is_logged_in(probe_login_url=True):
+                    self.last_state = "success"
+                    return True
+                # The HTTP login returned a cookie but the Playwright
+                # probe couldn't verify it. Try once more by reloading
+                # the login URL — the cookie should bounce us away.
+                await self.navigator.goto_with_retry(
+                    utcms_config.LOGIN_URL, wait_until="domcontentloaded"
+                )
+                if await self._is_logged_in(probe_login_url=False):
+                    self.last_state = "success"
+                    return True
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "auth_http_login_post_verify_failed",
+                    extra={"extra_fields": {"error": str(exc)[:200]}},
+                )
+            # If we reached here the HTTP cookie didn't make Playwright
+            # logged-in (likely the cookie name is unusual). Fall through
+            # to the Playwright login flow as a safety net.
+            logger.info("auth_http_login_falling_back_to_playwright")
 
         try:
             candidate_urls = self._candidate_login_urls(login_url)

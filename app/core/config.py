@@ -130,6 +130,17 @@ class UTCMSConfig:
         self.AUTH_STATE_PATH = os.getenv("AUTH_STATE_PATH", ".auth/utcms_state.json")
         self.USE_PERSISTENT_AUTH_STATE = _to_bool(os.getenv("USE_PERSISTENT_AUTH_STATE", "True"), default=True)
 
+        # Hybrid login: try an HTTP-only login via curl_cffi (with Chrome
+        # TLS impersonation) before launching Playwright. The WAF in
+        # front of barname.utcms.ir aggressively flags Chromium's
+        # fingerprint, so a clean HTTP session is much more likely to
+        # pass. If HTTP login succeeds, the obtained auth cookies are
+        # injected into the Playwright context and the rest of the RPA
+        # flow continues with a valid session. Disable for diagnosis.
+        self.UTCMS_HTTP_LOGIN_ENABLED = _to_bool(
+            os.getenv("UTCMS_HTTP_LOGIN_ENABLED", "True"), default=True
+        )
+
         self.API_AUTH_MODE = os.getenv("API_AUTH_MODE", "api_key_or_jwt").lower()
         self.API_KEY_HEADER = os.getenv("API_KEY_HEADER", "X-API-Key")
         self.API_KEY = os.getenv("API_KEY", "")
