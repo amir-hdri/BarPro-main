@@ -77,6 +77,21 @@ class DispatcherService:
                         logger.warning("Celery app not initialized, cannot dispatch task")
                         intent.status = "failed"
                         session.add(intent)
+                        # Recover: free driver slot and revert job so scheduler can retry later
+                        if job.driver_id:
+                            from app.models_rpa import DriverRuntimeState
+                            ds_stmt = select(DriverRuntimeState).where(DriverRuntimeState.driver_id == job.driver_id).with_for_update()
+                            ds_res = await session.exec(ds_stmt)
+                            ds = ds_res.first()
+                            if ds:
+                                ds.active_execution_id = None
+                                session.add(ds)
+                        JobStateMachine.transition(
+                            session, job, TaskStatus.WAITING_RETRY.value,
+                            next_retry_at=datetime.now(UTC).replace(tzinfo=None),
+                            last_error="Celery unavailable during dispatch",
+                            error_category="system_error",
+                        )
                         
                 await session.commit()
                 if dispatched_count > 0:

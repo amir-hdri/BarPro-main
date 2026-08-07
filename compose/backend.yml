@@ -118,7 +118,7 @@ services:
       - worker
       - --loglevel=info
       - -Q
-      - waybill_tasks,waybill_tasks_1,rpa_auth_1,rpa_submit_1,reconciliation_tasks,reconciliation_tasks_1,scheduled_tasks_1
+      - waybill_tasks,waybill_tasks_1,rpa_auth_1,rpa_submit_1,reconciliation_tasks,reconciliation_tasks_1,scheduled_tasks_1,rpa_scheduler
       - --concurrency=1
       - --prefetch-multiplier=1
       - --pool=solo

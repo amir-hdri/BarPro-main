@@ -29,7 +29,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "running":        {"success", "failed", "needs_review", "waiting_retry", "otp_backoff", "unknown", "daily_limit_reached"},
     "in_progress":    {"success", "failed", "needs_review", "waiting_retry", "otp_backoff", "unknown", "daily_limit_reached"},
     "needs_review":   {"pending", "daily_limit_reached"},
-    "failed":         {"dead_letter", "daily_limit_reached"},
+    "failed":         {"dead_letter", "daily_limit_reached", "pending"},
     "unknown":        {"reconciling"},
     "reconciling":    {"success", "failed", "needs_review"},
     "dead_letter":    set(),

@@ -46,6 +46,27 @@ class SessionVault:
         directory = self._base_path.parent
         return str(directory / f"{stem}_{account_key}{suffix}")
 
+    def auth_state_path_for_driver(
+        self,
+        client_id: int,
+        driver_id: int,
+        username: str | None = None,
+        national_code: str | None = None,
+        fallback: str | None = None,
+    ) -> str:
+        """Return the canonical auth-state path for a driver under a tenant.
+
+        This must match the path used by the worker in waybill_worker.py so that
+        reconciliation and other orchestrator tasks find the same session data.
+        """
+        scope = f"client-{client_id}-driver-{driver_id}"
+        return self.auth_state_path_for_account(
+            username=username,
+            national_code=national_code,
+            fallback=fallback,
+            scope=scope,
+        )
+
     def default_auth_state_path(self) -> str:
         return str(Path(utcms_config.AUTH_STATE_PATH))
 

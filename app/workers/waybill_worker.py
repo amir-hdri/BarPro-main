@@ -55,10 +55,12 @@ def _utcnow_naive() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-def _safe_json(raw: str | None) -> dict[str, Any]:
+def _safe_json(raw: str | dict | None) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
     try:
         parsed = json.loads(raw or "{}")
-    except json.JSONDecodeError:
+    except (TypeError, json.JSONDecodeError):
         parsed = {}
     return parsed
 

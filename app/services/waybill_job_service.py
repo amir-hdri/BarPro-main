@@ -227,7 +227,13 @@ class WaybillJobService:
                 detail="Job not found",
             )
 
-        if job.status in {TaskStatus.IN_PROGRESS.value, TaskStatus.QUEUED.value}:
+        if job.status in {
+            TaskStatus.IN_PROGRESS.value,
+            TaskStatus.QUEUED.value,
+            TaskStatus.CLAIMED.value,
+            TaskStatus.RUNNING.value,
+            TaskStatus.RECONCILING.value,
+        }:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Job is already being processed",
@@ -317,12 +323,9 @@ class WaybillJobService:
         )
         await session.commit()
 
-        if retry_request.dispatch_now:
-            dispatch_message = await rpa_dispatch_service.dispatch_waybill_job_now(session, job, now)
-            if dispatch_message:
-                logger.info(
-                    "manual_retry_dispatch", extra={"extra_fields": {"job_id": job.job_id, "message": dispatch_message}}
-                )
+        # Note: dispatch_now option removed. Manual retry resets job to PENDING;
+        # the orchestrator scheduler/dispatcher will pick it up on the next cycle.
+        # This prevents races between direct dispatch and scheduled dispatch.
 
         await session.refresh(job)
         return WaybillJobResponse.model_validate(job)
@@ -532,8 +535,6 @@ class WaybillJobService:
             update_data["priority"] = request.priority
         if request.max_retries is not None:
             update_data["max_retries"] = request.max_retries
-        if request.status is not None:
-            update_data["status"] = request.status
         if request.terminal_reason is not None:
             update_data["terminal_reason"] = request.terminal_reason
 

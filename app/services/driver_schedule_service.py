@@ -249,16 +249,16 @@ class DriverScheduleService:
             )
             job = await WaybillJobService.create_job(client, request, session, source=TaskSource.API)
             created_jobs.append(job.job_id)
-            schedule.last_run_at = now
+            schedule.last_run_at = utc_now
             schedule.last_run_signature = slot_signature
             if schedule.frequency == ScheduleFrequency.ONCE.value:
                 schedule.is_active = False
                 schedule.next_run_at = None
             else:
-                schedule.next_run_at = now + timedelta(
+                schedule.next_run_at = utc_now + timedelta(
                     days=1 if schedule.frequency == ScheduleFrequency.DAILY.value else 7
                 )
-            schedule.updated_at = now
+            schedule.updated_at = utc_now
             session.add(schedule)
         await session.commit()
         return {"created_jobs": created_jobs, "created_count": len(created_jobs), "skipped": skipped}

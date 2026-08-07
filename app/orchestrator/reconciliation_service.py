@@ -69,8 +69,13 @@ class ReconciliationService:
         from app.services.session_vault import session_vault
 
         auth_state_path = None
-        if utcms_username:
-            auth_state_path = session_vault.auth_state_path_for_account(username=utcms_username)
+        if utcms_username and job.client_id and job.driver_id:
+            auth_state_path = session_vault.auth_state_path_for_driver(
+                client_id=job.client_id,
+                driver_id=job.driver_id,
+                username=utcms_username,
+                fallback=utcms_username,
+            )
 
         proxy_dict = get_playwright_proxy()
 
@@ -107,18 +112,28 @@ class ReconciliationService:
         # Handle Reconciliation Results via JobStateMachine
         try:
             if outcome == ScraperOutcome.REGISTERED:
-                res_json = dict(job.result_json or {})
                 found_code = (res.tracking_code if hasattr(res, "tracking_code") else None) or details.get("tracking_code") or tracking_code
-                if found_code:
+                if not found_code:
+                    # Without a verifiable tracking code, success is unreliable — downgrade to ambiguous
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        JobStatus.NEEDS_REVIEW,
+                        error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                        last_error="Reconciliation scraper indicated REGISTERED but no tracking code found; requires manual review",
+                    )
+                    logger.warning("Job #%s reconciled to NEEDS_REVIEW (REGISTERED without tracking code)", job.id)
+                else:
+                    res_json = dict(job.result_json or {})
                     res_json["tracking_code"] = found_code
-                JobStateMachine.transition(
-                    session,
-                    job,
-                    JobStatus.SUCCESS,
-                    result_json=res_json,
-                    finished_at=datetime.now(UTC).replace(tzinfo=None),
-                )
-                logger.info("Job #%s reconciled to SUCCESS", job.id)
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        JobStatus.SUCCESS,
+                        result_json=res_json,
+                        finished_at=datetime.now(UTC).replace(tzinfo=None),
+                    )
+                    logger.info("Job #%s reconciled to SUCCESS", job.id)
 
             elif outcome == ScraperOutcome.NOT_FOUND:
                 JobStateMachine.transition(

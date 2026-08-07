@@ -24,8 +24,10 @@ class SchedulerService:
                 now = datetime.now(UTC).replace(tzinfo=None)
                 statement = (
                     select(WaybillJob)
-                    .join(DriverRuntimeState, WaybillJob.driver_id == DriverRuntimeState.driver_id)
-                    .where(DriverRuntimeState.active_execution_id == None)
+                    .join(DriverRuntimeState, WaybillJob.driver_id == DriverRuntimeState.driver_id, isouter=True)
+                    .where(
+                        (DriverRuntimeState.active_execution_id == None) | (DriverRuntimeState.id == None)
+                    )
                     .where(
                         WaybillJob.status.in_([
                             TaskStatus.PENDING.value,
@@ -35,6 +37,9 @@ class SchedulerService:
                     )
                     .where(
                         (WaybillJob.next_retry_at == None) | (WaybillJob.next_retry_at <= now)
+                    )
+                    .where(
+                        (WaybillJob.submit_after == None) | (WaybillJob.submit_after <= now)
                     )
                     .order_by(WaybillJob.priority.desc(), WaybillJob.created_at.sa_column.asc() if hasattr(WaybillJob.created_at, "sa_column") else WaybillJob.created_at.asc())
                     .with_for_update(skip_locked=True)

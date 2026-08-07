@@ -118,9 +118,12 @@ class RPADistributedRuntime:
         redis = await self._get_redis()
         if redis is not None:
             if token is None:
-                # Token missing from ContextVar (e.g. across async task boundary); delete key directly to avoid orphan lock
-                logger.warning(f"rpa_lock_release_token_missing_for_key_{key}, deleting lock key")
-                await redis.delete(key)
+                # Token missing from ContextVar (e.g. across async task boundary).
+                # NEVER delete a lock without ownership proof. Log and let TTL expire.
+                logger.warning(
+                    "rpa_lock_release_token_missing_for_key_%s — skipping delete; lock will expire via TTL",
+                    key,
+                )
                 return
             script = """
             if redis.call('get', KEYS[1]) == ARGV[1] then

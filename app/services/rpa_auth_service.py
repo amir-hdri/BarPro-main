@@ -367,7 +367,8 @@ class RPAAuthService:
         try:
             now = datetime.now(UTC).replace(tzinfo=None)
             skew = utcms_config.RPA_SESSION_REFRESH_SKEW_SECONDS
-            threshold = now + timedelta(seconds=utcms_config.RPA_SESSION_TTL_SECONDS - skew)
+            # Only sessions that actually need refreshing soon (within skew window)
+            threshold = now + timedelta(seconds=skew)
             stmt = (
                 select(DriverRuntimeState)
                 .where(DriverRuntimeState.session_expires_at.isnot(None))
