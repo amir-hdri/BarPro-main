@@ -44,7 +44,7 @@ class UTCMSReconciliationScraper:
         """
         Query waybill status using Playwright page.
         Pre-requisite: page context is authenticated via SessionVault.
-        
+
         reconciliation_fields: Optional dict with keys:
             - national_code
             - plate_number
@@ -135,14 +135,14 @@ class UTCMSReconciliationScraper:
                 base_match = (tracking_code and tracking_code in text) or any(
                     status_kw in text for status_kw in ("ثبت شده", "تایید شده", "صادر شده", "ثبت اولیه")
                 )
-                
+
                 # If we have fingerprint fields, require additional field matches for precision
                 if base_match:
                     # If we have reconciliation fields, do precise multi-field matching
                     if plate_number or origin_city or dest_city or cargo_weight:
                         field_matches = 0
                         total_fields = 0
-                        
+
                         if plate_number:
                             total_fields += 1
                             if plate_number in text:
@@ -159,7 +159,7 @@ class UTCMSReconciliationScraper:
                             total_fields += 1
                             if str(cargo_weight) in text:
                                 field_matches += 1
-                        
+
                         # Require at least 2 field matches (or all available) for confident match
                         min_required = min(2, total_fields) if total_fields > 0 else 0
                         if field_matches >= min_required:

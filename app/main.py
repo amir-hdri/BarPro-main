@@ -248,7 +248,7 @@ app = FastAPI(
 # NOTE: Screenshots are NOT served via public StaticFiles mount.
 # They are served through authenticated endpoints in the API routes:
 # - /api/v1/fuel-inquiries/{id}/screenshot (fuel inquiry screenshots)
-# - /api/v1/waybill-jobs/{id}/screenshot (waybill screenshots - TODO: implement)
+# - /api/v1/waybill-jobs/{id}/screenshot (waybill screenshots)
 # This prevents unauthorized access to sensitive UTCMS screenshots.
 
 cors_origins = _frontend_origins()

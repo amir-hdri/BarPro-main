@@ -61,34 +61,29 @@ def generate_submission_fingerprint(payload: dict[str, Any]) -> str:
 
     Uses the key fields that uniquely identify a waybill submission:
     - driver_national_code
-    - plate_number (vehicle.plate_number or vehicle.driver_plate)
+    - plate_number (vehicle.plate_number or vehicle.driver_plate or flat root)
     - origin (city + address)
     - destination (city + address)
     - cargo_weight
     - business_date
     - sender/receiver identifiers if available
 
-    Returns a SHA256 hash truncated to 32 chars for storage efficiency.
+    Both nested and flat payload layouts are supported (see
+    ``extract_reconciliation_identity``). Returns a SHA256 hash truncated to
+    32 chars for storage efficiency. The hash is an audit helper — the
+    authoritative verification is the multi-field matching done by the
+    reconciliation scraper against the UTCMS portal rows.
     """
     import hashlib
 
-    # Extract key fields from payload (supports both flat and nested structures)
-    vehicle = payload.get("vehicle", {}) if isinstance(payload.get("vehicle"), dict) else {}
-    origin = payload.get("origin", {}) if isinstance(payload.get("origin"), dict) else {}
-    destination = payload.get("destination", {}) if isinstance(payload.get("destination"), dict) else {}
-    cargo = payload.get("cargo", {}) if isinstance(payload.get("cargo"), dict) else {}
+    from app.core.submission_identity import extract_reconciliation_identity, identity_fields_for_fingerprint
+
+    identity = extract_reconciliation_identity(payload)
+
     sender = payload.get("sender", {}) if isinstance(payload.get("sender"), dict) else {}
     receiver = payload.get("receiver", {}) if isinstance(payload.get("receiver"), dict) else {}
 
-    fingerprint_parts = [
-        str(payload.get("driver_national_code", "") or "").strip(),
-        str(vehicle.get("plate_number", "") or vehicle.get("driver_plate", "") or "").strip(),
-        str(origin.get("city", "") or origin.get("city_name", "") or "").strip(),
-        str(origin.get("address", "") or "").strip(),
-        str(destination.get("city", "") or destination.get("city_name", "") or "").strip(),
-        str(destination.get("address", "") or "").strip(),
-        str(cargo.get("weight", "") or cargo.get("cargo_weight", "") or "").strip(),
-        str(payload.get("business_date", "") or "").strip(),
+    fingerprint_parts = identity_fields_for_fingerprint(identity) + [
         str(sender.get("national_code", "") or "").strip(),
         str(receiver.get("national_code", "") or "").strip(),
     ]
@@ -198,7 +193,7 @@ async def _claim_and_execute(task: Any, intent_id: str):
     import socket
     import os
     worker_id = os.environ.get("WORKER_ID", socket.gethostname())
-    
+
     from app.automation.worker_proxy import (
         get_worker_proxy_url,
         check_proxy_health,
@@ -207,17 +202,17 @@ async def _claim_and_execute(task: Any, intent_id: str):
         is_worker_draining,
         drain_worker_consumers,
     )
-    
+
     async with async_session_factory() as session:
         try:
             # Get and lock intent first
             statement = select(DispatchIntent).where(DispatchIntent.intent_id == intent_id).with_for_update()
             res = await session.exec(statement)
             intent = res.first()
-            
+
             if intent is None:
                 raise ValueError(f"Intent {intent_id} not found")
-                
+
             if intent.status != "claimed":
                 logger.warning(f"Intent {intent_id} has invalid status {intent.status}, skipping")
                 return {"status": "skipped", "reason": f"invalid_intent_status_{intent.status}"}
@@ -226,12 +221,12 @@ async def _claim_and_execute(task: Any, intent_id: str):
             if await is_worker_draining(worker_id):
                 logger.warning(f"Worker {worker_id} is draining, refusing to execute intent {intent_id}")
                 drain_worker_consumers(task)
-                
+
                 # Move job to waiting_retry and intent to failed
                 intent.status = "failed"
                 intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 session.add(intent)
-                
+
                 job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
                 job_res = await session.exec(job_statement)
                 job = job_res.first()
@@ -258,12 +253,12 @@ async def _claim_and_execute(task: Any, intent_id: str):
                     if failures > 3:
                         await transition_worker_to_draining(worker_id)
                         drain_worker_consumers(task)
-                        
+
                     # Move job to waiting_retry and intent to failed
                     intent.status = "failed"
                     intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
                     session.add(intent)
-                    
+
                     job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
                     job_res = await session.exec(job_statement)
                     job = job_res.first()
@@ -283,21 +278,21 @@ async def _claim_and_execute(task: Any, intent_id: str):
             intent.status = "running"
             intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
             session.add(intent)
-            
+
             # Get job
             job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
             job_res = await session.exec(job_statement)
             job = job_res.first()
             if not job:
                 raise ValueError(f"Job {intent.job_id} not found for intent {intent_id}")
-                
+
             # Create unique execution ID
             execution_id = str(uuid.uuid4())
-            
+
             # Create Execution lease slot
             lease_duration = getattr(utcms_config, "WORKER_STALL_TIMEOUT_SECONDS", 90)
             lease_expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=lease_duration)
-            
+
             execution = Execution(
                 execution_id=execution_id,
                 intent_id=intent_id,
@@ -310,7 +305,7 @@ async def _claim_and_execute(task: Any, intent_id: str):
                 status="running"
             )
             session.add(execution)
-            
+
             # Transition job status to running
             JobStateMachine.transition(
                 session,
@@ -321,12 +316,12 @@ async def _claim_and_execute(task: Any, intent_id: str):
                 worker_id=worker_id
             )
             await session.commit()
-            
+
         except Exception as e:
             logger.error(f"Error claiming intent {intent_id}: {e}", exc_info=True)
             await session.rollback()
             raise
-            
+
     # Lease renewal loop
     stop_event = threading.Event()
     renewal_thread = threading.Thread(
@@ -335,7 +330,7 @@ async def _claim_and_execute(task: Any, intent_id: str):
         daemon=True
     )
     renewal_thread.start()
-    
+
     try:
         # Run original execute job
         result = await _execute_job(
@@ -366,7 +361,7 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
     import socket
     import os
     worker_id = os.environ.get("WORKER_ID", socket.gethostname())
-    
+
     from app.automation.worker_proxy import (
         get_worker_proxy_url,
         check_proxy_health,
@@ -375,17 +370,17 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
         is_worker_draining,
         drain_worker_consumers,
     )
-    
+
     async with async_session_factory() as session:
         try:
             # Get and lock intent first
             statement = select(DispatchIntent).where(DispatchIntent.intent_id == intent_id).with_for_update()
             res = await session.exec(statement)
             intent = res.first()
-            
+
             if intent is None:
                 raise ValueError(f"Intent {intent_id} not found")
-                
+
             if intent.status != "claimed":
                 logger.warning(f"Intent {intent_id} has invalid status {intent.status}, skipping")
                 return {"status": "skipped", "reason": f"invalid_intent_status_{intent.status}"}
@@ -394,12 +389,12 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
             if await is_worker_draining(worker_id):
                 logger.warning(f"Worker {worker_id} is draining, refusing to reconcile intent {intent_id}")
                 drain_worker_consumers(task)
-                
+
                 # Move job to unknown and intent to failed
                 intent.status = "failed"
                 intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 session.add(intent)
-                
+
                 job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
                 job_res = await session.exec(job_statement)
                 job = job_res.first()
@@ -425,12 +420,12 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
                     if failures > 3:
                         await transition_worker_to_draining(worker_id)
                         drain_worker_consumers(task)
-                        
+
                     # Move job to unknown and intent to failed
                     intent.status = "failed"
                     intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
                     session.add(intent)
-                    
+
                     job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
                     job_res = await session.exec(job_statement)
                     job = job_res.first()
@@ -450,21 +445,21 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
             intent.status = "running"
             intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
             session.add(intent)
-            
+
             # Get job
             job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
             job_res = await session.exec(job_statement)
             job = job_res.first()
             if not job:
                 raise ValueError(f"Job {intent.job_id} not found for intent {intent_id}")
-                
+
             # Create unique execution ID
             execution_id = str(uuid.uuid4())
-            
+
             # Create Execution lease slot
             lease_duration = getattr(utcms_config, "WORKER_STALL_TIMEOUT_SECONDS", 90)
             lease_expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=lease_duration)
-            
+
             execution = Execution(
                 execution_id=execution_id,
                 intent_id=intent_id,
@@ -477,7 +472,7 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
                 status="running"
             )
             session.add(execution)
-            
+
             # Transition job status to RECONCILING
             from app.orchestrator.state_machine import JobStatus
             JobStateMachine.transition(
@@ -487,12 +482,12 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
                 worker_id=worker_id
             )
             await session.commit()
-            
+
         except Exception as e:
             logger.error(f"Error claiming reconciliation intent {intent_id}: {e}", exc_info=True)
             await session.rollback()
             raise
-            
+
     # Lease renewal loop
     stop_event = threading.Event()
     renewal_thread = threading.Thread(
@@ -501,7 +496,7 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
         daemon=True
     )
     renewal_thread.start()
-    
+
     try:
         # Run reconciliation service
         from app.orchestrator.reconciliation_service import reconciliation_service
@@ -518,7 +513,7 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
                 }
             else:
                 result = {"status": "unknown", "error": "Reconciliation returned None"}
-                
+
         await _assert_still_valid(execution_id, intent.fencing_token)
         status_str = "completed"
         await _finalize_execution(execution_id, intent_id, status_str, result)
@@ -549,7 +544,7 @@ async def _finalize_execution(execution_id: str, intent_id: str, status: str, re
                     f"status is '{exec_row.status if exec_row else 'not found'}' (expected 'running')."
                 )
                 return
-                
+
             exec_row.status = status
             try:
                 res_str = json.dumps(result, ensure_ascii=False)
@@ -570,7 +565,7 @@ async def _finalize_execution(execution_id: str, intent_id: str, status: str, re
                 if driver_state:
                     driver_state.active_execution_id = None
                     session.add(driver_state)
-                
+
             # Update intent
             intent_statement = select(DispatchIntent).where(DispatchIntent.intent_id == intent_id).with_for_update()
             intent_res = await session.exec(intent_statement)
@@ -579,7 +574,7 @@ async def _finalize_execution(execution_id: str, intent_id: str, status: str, re
                 intent_row.status = status
                 intent_row.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 session.add(intent_row)
-                
+
             await session.commit()
         except Exception as e:
             logger.error(f"Failed to finalize execution {execution_id}: {e}", exc_info=True)
@@ -589,7 +584,7 @@ async def _finalize_execution(execution_id: str, intent_id: str, status: str, re
 def _renew_lease_sync_loop(execution_id: str, fencing_token: int, stop_event: threading.Event):
     """Runs in a separate thread, updates lease_expires_at every 30 seconds using run_async."""
     lease_duration = getattr(utcms_config, "WORKER_STALL_TIMEOUT_SECONDS", 90)
-    
+
     while not stop_event.wait(timeout=30):
         try:
             async def _update():
@@ -868,7 +863,7 @@ async def _execute_job(
                     runtime_state.auth_lock_acquired_at = None
                     runtime_state.auth_lock_ttl_seconds = None
                     await session.commit()
-                
+
                     retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
                     JobStateMachine.transition(
                         session,
@@ -892,7 +887,7 @@ async def _execute_job(
                 runtime_state.auth_lock_acquired_at = None
                 runtime_state.auth_lock_ttl_seconds = None
                 await session.commit()
-            
+
                 retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.DRIVER_RETRY_DELAY_SECONDS)
                 JobStateMachine.transition(
                     session,
@@ -1142,7 +1137,7 @@ async def _execute_job(
 
         except Exception as e:
             logger.error(f"Job {job_id} execution error: {e}", exc_info=True)
-        
+
             # Track worker failures for auto-heal draining
             import socket
             import os

@@ -110,7 +110,7 @@ class AuthenticationTasks(TaskSet):
                 "/api/v1/auth/login", json={"username": user["username"], "password": user["password"]}
             )
             if response.status_code == 200:
-                self.user_data = {**user, "token": response.json().get("access_token", "")}
+                self.user_data = {**user, "token": ""}  # JWT is set via httpOnly cookie, not response body
             else:
                 self.user_data = user
         else:

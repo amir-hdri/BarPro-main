@@ -23,7 +23,7 @@ async def test_master_admin_login_and_token_resolution():
         payload = await ClientService.login_master_admin(
             AdminLoginRequest(username="master_bar", password="secure_test_password_123!")
         )
-        credentials = type("Creds", (), {"credentials": payload["access_token"]})()
+        credentials = type("Creds", (), {"credentials": payload.access_token})()
         admin = await get_current_admin(credentials=credentials)
         assert admin["username"] == "master_bar"
         assert admin["role"] == "master_admin"

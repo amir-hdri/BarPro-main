@@ -239,11 +239,19 @@ class WaybillJobService:
                 )
 
         if job.status in {
+            TaskStatus.UNKNOWN.value,
+            TaskStatus.RECONCILING.value,
+        }:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Unknown submission outcome requires reconciliation; retry is not allowed until the job is reconciled",
+            )
+
+        if job.status in {
             TaskStatus.IN_PROGRESS.value,
             TaskStatus.QUEUED.value,
             TaskStatus.CLAIMED.value,
             TaskStatus.RUNNING.value,
-            TaskStatus.RECONCILING.value,
         }:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -254,7 +262,7 @@ class WaybillJobService:
         now = datetime.now(UTC).replace(tzinfo=None)
         event_payload: dict[str, object] = {
             "requested_at": now.isoformat(),
-            "dispatch_now": retry_request.dispatch_now,
+            "force_auth_refresh": retry_request.force_auth_refresh,
         }
 
         payload = _safe_json_payload(job.payload_json) or {}
@@ -558,7 +566,18 @@ class WaybillJobService:
 
     @staticmethod
     async def delete_job(client: Client, job_id: str, session: AsyncSession) -> None:
-        """Soft-cancel a waybill job (safer than hard delete)."""
+        """Soft-cancel a waybill job (safer than hard delete).
+
+        Rules:
+        - Jobs with a live Execution (queued/running/claimed while a worker
+          owns an execution) are NOT cancelled: the cancel request would leave
+          the worker mid-submit while the driver slot is already freed,
+          enabling double submission. These return HTTP 409.
+        - Jobs that are merely queued (still waiting for a worker) are
+          transitioned to CANCELLED and their driver slot is released
+          immediately: nothing is executing, so releasing is safe.
+        - Draft/terminal jobs that never ran are hard-deleted for cleanup.
+        """
         statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
         result = await session.exec(statement)
         job = result.first()
@@ -569,18 +588,39 @@ class WaybillJobService:
                 detail="Job not found",
             )
 
-        # Only allow hard delete for draft/pending jobs without dispatch intent
-        active_statuses = {
+        from app.models_rpa import Execution, DriverRuntimeState
+
+        # Does a worker still own this job?
+        live_exec = None
+        if job.status in {
+            TaskStatus.CLAIMED.value,
+            TaskStatus.RUNNING.value,
+            TaskStatus.IN_PROGRESS.value,
+            TaskStatus.RECONCILING.value,
+        }:
+            live_exec = (
+                await session.exec(
+                    select(Execution).where(
+                        Execution.job_id == job.job_id,
+                        Execution.status.in_(["pending", "running"]),
+                    )
+                )
+            ).first()
+            if live_exec:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Job is currently being executed and cannot be cancelled; wait for it to finish or cancel after it settles.",
+                )
+
+        if job.status in (
             TaskStatus.QUEUED.value,
             TaskStatus.CLAIMED.value,
             TaskStatus.RUNNING.value,
             TaskStatus.IN_PROGRESS.value,
             TaskStatus.RECONCILING.value,
-        }
-        
-        if job.status in active_statuses:
-            # Soft cancel: transition to CANCELLED instead of deleting
-            from app.orchestrator.state_machine import JobStateMachine
+        ):
+            # Soft cancel: transition to CANCELLED instead of deleting.
+            # Only safe because we verified there is no live Execution above.
             JobStateMachine.transition(
                 session,
                 job,
@@ -589,9 +629,9 @@ class WaybillJobService:
                 finished_at=datetime.now(UTC).replace(tzinfo=None),
             )
             session.add(job)
-            # Clear driver slot if any
-            if job.driver_id:
-                from app.models_rpa import DriverRuntimeState
+            # Release the driver slot only when the worker is guaranteed to
+            # no longer be running this job (no live Execution).
+            if job.driver_id and not live_exec:
                 driver_stmt = select(DriverRuntimeState).where(
                     DriverRuntimeState.driver_id == job.driver_id
                 ).with_for_update()
@@ -600,8 +640,9 @@ class WaybillJobService:
                 if driver_state and driver_state.active_execution_id:
                     driver_state.active_execution_id = None
                     session.add(driver_state)
-        else:
-            # Safe to hard delete only for non-active jobs
-            await session.delete(job)
-        
+            await session.commit()
+            return
+
+        # Safe to hard delete only for non-active jobs
+        await session.delete(job)
         await session.commit()

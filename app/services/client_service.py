@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
@@ -33,6 +34,18 @@ from app.schemas.multitenant import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LoginResult:
+    """JWT token produced by login, kept out of the JSON response body.
+
+    The token belongs in the httpOnly cookie only — it must never be echoed
+    back in the API response. ``public_response`` is what the routes return.
+    """
+
+    access_token: str
+    public_response: dict = field(default_factory=dict)
 
 
 class ClientService:
@@ -128,8 +141,8 @@ class ClientService:
     async def login_client(
         request: ClientLoginRequest,
         session: AsyncSession,
-    ) -> dict:
-        """Authenticate a client and return JWT token."""
+    ) -> LoginResult:
+        """Authenticate a client and return the JWT token (cookie-only)."""
         # Find client by email
         statement = select(Client).where(Client.email == request.email)
         result = await session.exec(statement)
@@ -176,14 +189,17 @@ class ClientService:
             extra={"extra_fields": {"client_id": client.id, "client_code": client.client_code, "email": client.email}},
         )
 
-        return {
-            "token_type": "bearer",
-            "expires_in": 86400,  # 24 hours
-            "client": ClientResponse.model_validate(client),
-        }
+        return LoginResult(
+            access_token=token,
+            public_response={
+                "token_type": "bearer",
+                "expires_in": 86400,  # 24 hours
+                "client": ClientResponse.model_validate(client),
+            },
+        )
 
     @staticmethod
-    async def login_master_admin(request: AdminLoginRequest) -> dict:
+    async def login_master_admin(request: AdminLoginRequest) -> LoginResult:
         """Authenticate the singleton master admin user."""
         if not await is_master_admin(request.username, request.password):
             raise HTTPException(
@@ -197,14 +213,17 @@ class ClientService:
             email=f"{request.username}@local.admin",
             role="master_admin",
         )
-        return {
-            "token_type": "bearer",
-            "expires_in": 86400,
-            "admin": {
-                "username": request.username,
-                "role": "master_admin",
+        return LoginResult(
+            access_token=token,
+            public_response={
+                "token_type": "bearer",
+                "expires_in": 86400,
+                "admin": {
+                    "username": request.username,
+                    "role": "master_admin",
+                },
             },
-        }
+        )
 
     @staticmethod
     async def get_client_profile(

@@ -12,6 +12,9 @@ All endpoints enforce tenant isolation - clients can only access their own data.
 """
 
 import logging
+import os
+import re
+from pathlib import Path
 from fastapi import APIRouter, Body, Depends, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPBearer
@@ -70,6 +73,9 @@ alias_router = APIRouter(tags=["multi-tenant-compat"])
 security = HTTPBearer()
 AUTH_COOKIE_NAME = "utcms_auth_token"
 
+WAYBILL_SCREENSHOTS_DIR = Path(os.getenv("WAYBILL_SCREENSHOTS_DIR", "runtime/screenshots/waybill"))
+_SAFE_JOB_ID = re.compile(r"^[A-Za-z0-9_-]+$")
+
 
 def _auth_cookie_secure() -> bool:
     """Keep HTTP deployments working while allowing HTTPS hardening via env."""
@@ -109,7 +115,7 @@ async def login_client(
     jwt_ttl_seconds = utcms_config.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
-        value=result["access_token"],
+        value=result.access_token,
         httponly=True,
         max_age=jwt_ttl_seconds,
         expires=jwt_ttl_seconds,
@@ -117,7 +123,7 @@ async def login_client(
         secure=_auth_cookie_secure(),
         path="/",
     )
-    return result
+    return result.public_response
 
 
 @router.post("/admin/login")
@@ -130,7 +136,7 @@ async def login_master_admin(
     jwt_ttl_seconds = utcms_config.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
-        value=result["access_token"],
+        value=result.access_token,
         httponly=True,
         max_age=jwt_ttl_seconds,
         expires=jwt_ttl_seconds,
@@ -138,7 +144,7 @@ async def login_master_admin(
         secure=_auth_cookie_secure(),
         path="/",
     )
-    return result
+    return result.public_response
 
 
 @router.post("/auth/logout")
@@ -600,6 +606,36 @@ async def get_waybill_job_logs(
     Provides detailed step-by-step execution history for audit purposes.
     """
     return await WaybillJobService.get_job_logs(client, job_id, session, page=page, page_size=page_size)
+
+
+@router.get("/waybill-jobs/{job_id}/screenshot", response_class=FileResponse)
+async def get_waybill_job_screenshot(
+    job_id: str,
+    user_context: dict = Depends(get_current_user_or_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Return the waybill submission screenshot.
+
+    Tenant-scoped: clients may only fetch screenshots of their own jobs;
+    the master admin may fetch any. The old public mount
+    (``/assets/screenshots/waybill/*``) was removed for security reasons and
+    is replaced by this authenticated endpoint.
+    """
+    await WaybillJobService.get_job(user_context, job_id, session)
+
+    if not _SAFE_JOB_ID.match(job_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid job id")
+
+    screenshot_path = WAYBILL_SCREENSHOTS_DIR / f"{job_id}.png"
+    if not screenshot_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot not found")
+
+    logger.info(
+        "waybill_screenshot_served",
+        extra={"extra_fields": {"job_id": job_id, "role": user_context.get("role", "client")}},
+    )
+    return FileResponse(str(screenshot_path), media_type="image/png")
 
 
 @router.patch("/waybill-jobs/{job_id}", response_model=WaybillJobResponse)

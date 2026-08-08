@@ -3755,7 +3755,7 @@ class EnhancedWaybillManager:
                 screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
 
                 await self.page.screenshot(path=screenshot_path, full_page=True)
-                waybill_screenshot = f"/assets/screenshots/waybill/{screenshot_filename}"
+                waybill_screenshot = f"/api/v1/waybill-jobs/{job_id}/screenshot"
                 logger.info(f"Successfully saved waybill screenshot to {screenshot_path}")
             except Exception as e:
                 logger.error(f"Failed to capture waybill screenshot: {e}", exc_info=True)

@@ -154,10 +154,18 @@ NON_RETRYABLE_TERMINAL_CATEGORIES: frozenset[ErrorCategory] = frozenset({
 
 
 def is_retryable_terminal_category(category: str | ErrorCategory | None) -> bool:
-    """Check if a terminal error category allows direct retry to PENDING."""
+    """Check if a terminal error category allows direct retry to PENDING.
+
+    Unknown/legacy category strings (e.g. ``system_error``,
+    ``driver_submission_in_progress``) are treated conservatively: retry is
+    denied so the job flows to reconciliation/admin review instead of looping.
+    """
     if category is None:
         return False
-    cat = category.value if isinstance(category, ErrorCategory) else ErrorCategory(category)
+    try:
+        cat = category.value if isinstance(category, ErrorCategory) else ErrorCategory(category)
+    except ValueError:
+        return False
     return cat in RETRYABLE_TERMINAL_CATEGORIES
 
 

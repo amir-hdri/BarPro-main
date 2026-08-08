@@ -66,12 +66,39 @@ class ClaimReaper:
                     intent_res = await session.exec(intent_stmt)
                     active_intent = intent_res.first()
 
-                    if active_intent:
-                        # Job has a dispatch intent, skip
+                    if active_intent and active_intent.status == "pending":
+                        # Still waiting to be claimed by the dispatcher — skip;
+                        # a dispatcher cycle should deliver it shortly.
                         continue
 
-                    # No execution and no intent - this is a truly orphaned claimed job
-                    # Clear driver slot
+                    if active_intent and active_intent.status == "claimed":
+                        if active_intent.updated_at >= threshold:
+                            # Claimed recently — the intent may still be in
+                            # transit to the worker or the worker may be about
+                            # to create its Execution row. Give it time.
+                            continue
+                        # Stale claimed intent with no corresponding Execution:
+                        # the dispatcher sent the Celery task but the worker
+                        # never executed it (crash, broker loss, ...). Expire
+                        # the intent and fall through to recovery so the job
+                        # is re-queued instead of staying stuck forever.
+                        logger.warning(
+                            "claim_reaper_expiring_stale_intent",
+                            extra={
+                                "extra_fields": {
+                                    "job_id": job.job_id,
+                                    "intent_id": active_intent.intent_id,
+                                    "intent_updated_at": active_intent.updated_at.isoformat(),
+                                }
+                            },
+                        )
+                        active_intent.status = "failed"
+                        active_intent.updated_at = now
+                        session.add(active_intent)
+
+                    # No live execution and no deliverable intent — this is an
+                    # orphaned claimed job. Clear the driver slot and let the
+                    # scheduler re-dispatch it.
                     if job.driver_id:
                         driver_stmt = select(DriverRuntimeState).where(
                             DriverRuntimeState.driver_id == job.driver_id
@@ -90,7 +117,7 @@ class ClaimReaper:
                             TaskStatus.WAITING_RETRY.value,
                             expected_from={TaskStatus.CLAIMED.value},
                             next_retry_at=now,
-                            last_error="Claim reaper: job was in CLAIMED without execution or intent",
+                            last_error="Claim reaper: job was in CLAIMED without a live execution or deliverable intent",
                             error_category="system_error",
                         )
                     except StateTransitionError as transition_err:
