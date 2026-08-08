@@ -39,11 +39,38 @@ class UTCMSReconciliationScraper:
         tracking_code: str | None = None,
         national_code: str | None = None,
         job_id: int | None = None,
+        reconciliation_fields: dict | None = None,
     ) -> ReconciliationResult:
         """
         Query waybill status using Playwright page.
         Pre-requisite: page context is authenticated via SessionVault.
+        
+        reconciliation_fields: Optional dict with keys:
+            - national_code
+            - plate_number
+            - origin_city
+            - origin_address
+            - dest_city
+            - dest_address
+            - cargo_weight
+            - business_date
+            - submission_fingerprint
         """
+        # Use reconciliation_fields if provided, fallback to individual params
+        if reconciliation_fields:
+            tracking_code = tracking_code or reconciliation_fields.get("tracking_code")
+            national_code = national_code or reconciliation_fields.get("national_code")
+            plate_number = reconciliation_fields.get("plate_number")
+            origin_city = reconciliation_fields.get("origin_city")
+            dest_city = reconciliation_fields.get("dest_city")
+            cargo_weight = reconciliation_fields.get("cargo_weight")
+            business_date = reconciliation_fields.get("business_date")
+        else:
+            plate_number = None
+            origin_city = None
+            dest_city = None
+            cargo_weight = None
+            business_date = None
         try:
             # Navigate to search URL
             url = self.HISTORY_URL if tracking_code else self.SEARCH_URL
@@ -105,15 +132,54 @@ class UTCMSReconciliationScraper:
                 text = await row.inner_text()
 
                 # If tracking code matched or status contains registration indicators
-                if (tracking_code and tracking_code in text) or any(
+                base_match = (tracking_code and tracking_code in text) or any(
                     status_kw in text for status_kw in ("ثبت شده", "تایید شده", "صادر شده", "ثبت اولیه")
-                ):
-                    return ReconciliationResult(
-                        outcome=ScraperOutcome.REGISTERED,
-                        tracking_code=tracking_code,
-                        status_text=text[:100],
-                        details={"row_text": text[:200], "row_index": i},
-                    )
+                )
+                
+                # If we have fingerprint fields, require additional field matches for precision
+                if base_match:
+                    # If we have reconciliation fields, do precise multi-field matching
+                    if plate_number or origin_city or dest_city or cargo_weight:
+                        field_matches = 0
+                        total_fields = 0
+                        
+                        if plate_number:
+                            total_fields += 1
+                            if plate_number in text:
+                                field_matches += 1
+                        if origin_city:
+                            total_fields += 1
+                            if origin_city in text:
+                                field_matches += 1
+                        if dest_city:
+                            total_fields += 1
+                            if dest_city in text:
+                                field_matches += 1
+                        if cargo_weight:
+                            total_fields += 1
+                            if str(cargo_weight) in text:
+                                field_matches += 1
+                        
+                        # Require at least 2 field matches (or all available) for confident match
+                        min_required = min(2, total_fields) if total_fields > 0 else 0
+                        if field_matches >= min_required:
+                            return ReconciliationResult(
+                                outcome=ScraperOutcome.REGISTERED,
+                                tracking_code=tracking_code,
+                                status_text=text[:100],
+                                details={"row_text": text[:200], "row_index": i, "field_matches": field_matches},
+                            )
+                        else:
+                            # Fields don't match - this row is not our waybill
+                            continue
+                    else:
+                        # No fingerprint fields, fall back to original logic
+                        return ReconciliationResult(
+                            outcome=ScraperOutcome.REGISTERED,
+                            tracking_code=tracking_code,
+                            status_text=text[:100],
+                            details={"row_text": text[:200], "row_index": i},
+                        )
 
             # If rows exist but no positive match or ambiguous status
             return ReconciliationResult(

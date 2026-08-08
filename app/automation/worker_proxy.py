@@ -115,8 +115,9 @@ def get_worker_proxy_url() -> str | None:
     2. RPA_PROXIES               (first entry in comma-separated list)
     3. None                      (no proxy configured)
 
-    If the configured proxy is unreachable (e.g. during local development outside Docker),
-    falls back to None for a direct network connection.
+    In production, a missing/unreachable proxy returns None (direct connection).
+    This is intentional for development. In production, fail-closed should be enforced
+    by the caller (e.g. raising an error if proxy is required but unavailable).
     """
     global _cached_proxy_url, _cached_proxy_timestamp
 

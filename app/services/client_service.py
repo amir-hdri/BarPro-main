@@ -177,7 +177,6 @@ class ClientService:
         )
 
         return {
-            "access_token": token,
             "token_type": "bearer",
             "expires_in": 86400,  # 24 hours
             "client": ClientResponse.model_validate(client),
@@ -199,7 +198,6 @@ class ClientService:
             role="master_admin",
         )
         return {
-            "access_token": token,
             "token_type": "bearer",
             "expires_in": 86400,
             "admin": {

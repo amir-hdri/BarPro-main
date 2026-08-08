@@ -138,7 +138,7 @@ class RPADistributedRuntime:
             return
         with self._get_lock():
             current = self._memory.get(key)
-            if current is not None and (token is None or current[0] == token):
+            if current is not None and token is not None and current[0] == token:
                 self._memory.pop(key, None)
 
     async def force_release_lock(self, key: str, token: str | None = None) -> None:

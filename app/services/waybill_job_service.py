@@ -21,6 +21,7 @@ from app.models_multitenant import (
 )
 from app.models_rpa import DomainEvent, DriverRuntimeState, DriverRuntimeStateValue
 from app.orchestrator.state_machine import JobStateMachine
+from app.core.error_taxonomy import is_retryable_terminal_category
 from app.rpa.event_taxonomy import (
     JOB_RETRY_REQUESTED,
     timeline_phase_for,
@@ -227,6 +228,16 @@ class WaybillJobService:
                 detail="Job not found",
             )
 
+        # Check if job is in a terminal state that requires safe retry logic
+        terminal_statuses = {TaskStatus.FAILED.value, TaskStatus.NEEDS_REVIEW.value}
+        if job.status in terminal_statuses:
+            # Only allow retry if error_category is transient/retryable
+            if not is_retryable_terminal_category(job.error_category):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Job in '{job.status}' with error_category='{job.error_category}' cannot be retried directly. Use reconciliation or admin review.",
+                )
+
         if job.status in {
             TaskStatus.IN_PROGRESS.value,
             TaskStatus.QUEUED.value,
@@ -285,7 +296,6 @@ class WaybillJobService:
             session,
             job,
             TaskStatus.PENDING.value,
-            attempt_count=0,
             submit_after=now,
             next_retry_at=None,
             finished_at=None,
@@ -548,7 +558,7 @@ class WaybillJobService:
 
     @staticmethod
     async def delete_job(client: Client, job_id: str, session: AsyncSession) -> None:
-        """Delete a waybill job."""
+        """Soft-cancel a waybill job (safer than hard delete)."""
         statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
         result = await session.exec(statement)
         job = result.first()
@@ -559,5 +569,39 @@ class WaybillJobService:
                 detail="Job not found",
             )
 
-        await session.delete(job)
+        # Only allow hard delete for draft/pending jobs without dispatch intent
+        active_statuses = {
+            TaskStatus.QUEUED.value,
+            TaskStatus.CLAIMED.value,
+            TaskStatus.RUNNING.value,
+            TaskStatus.IN_PROGRESS.value,
+            TaskStatus.RECONCILING.value,
+        }
+        
+        if job.status in active_statuses:
+            # Soft cancel: transition to CANCELLED instead of deleting
+            from app.orchestrator.state_machine import JobStateMachine
+            JobStateMachine.transition(
+                session,
+                job,
+                TaskStatus.CANCELLED.value,
+                terminal_reason="Cancelled by client",
+                finished_at=datetime.now(UTC).replace(tzinfo=None),
+            )
+            session.add(job)
+            # Clear driver slot if any
+            if job.driver_id:
+                from app.models_rpa import DriverRuntimeState
+                driver_stmt = select(DriverRuntimeState).where(
+                    DriverRuntimeState.driver_id == job.driver_id
+                ).with_for_update()
+                driver_res = await session.exec(driver_stmt)
+                driver_state = driver_res.first()
+                if driver_state and driver_state.active_execution_id:
+                    driver_state.active_execution_id = None
+                    session.add(driver_state)
+        else:
+            # Safe to hard delete only for non-active jobs
+            await session.delete(job)
+        
         await session.commit()

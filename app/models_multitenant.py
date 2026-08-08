@@ -345,6 +345,7 @@ class WaybillJob(SQLModel, table=True):
     # Error tracking
     last_error: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     error_category: str | None = Field(default=None, max_length=50, index=True)
+    submission_fingerprint: str | None = Field(default=None, max_length=128, index=True)
 
     # Retry logic
     attempt_count: int = Field(default=0)

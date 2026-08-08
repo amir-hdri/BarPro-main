@@ -256,7 +256,8 @@ def _get_tenant_id_from_request(request: Request) -> str | None:
     
     try:
         payload = _decode_jwt(token)
-        return str(payload.get("client_id"))
+        # JWT uses "sub" for tenant ID (subject claim), not "client_id"
+        return str(payload.get("sub"))
     except Exception:
         return None
 

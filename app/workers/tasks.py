@@ -250,6 +250,11 @@ if celery_app is not None:
         from app.orchestrator.orphan_detector import orphan_detector
         return _run_async(orphan_detector.run())
 
+    @celery_app.task(name="orchestrator.claim_reaper.run")
+    def run_claim_reaper():
+        from app.orchestrator.claim_reaper import claim_reaper
+        return _run_async(claim_reaper.run())
+
     @celery_app.task(name="orchestrator.reconciliation.run")
     def run_reconciliation():
         from app.core.database import async_session_factory

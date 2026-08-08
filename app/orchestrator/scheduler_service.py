@@ -73,11 +73,21 @@ class SchedulerService:
                     session.add(intent)
                     
                     # Set the active execution slot on the driver runtime state
+                    # Create runtime state if it doesn't exist (ensures concurrency safety)
                     driver_state_stmt = select(DriverRuntimeState).where(DriverRuntimeState.driver_id == job.driver_id).with_for_update()
                     driver_state_res = await session.exec(driver_state_stmt)
                     driver_state = driver_state_res.first()
                     if driver_state:
                         driver_state.active_execution_id = intent_id
+                        session.add(driver_state)
+                    else:
+                        # Create DriverRuntimeState if missing (self-heal)
+                        driver_state = DriverRuntimeState(
+                            client_id=job.client_id,
+                            driver_id=job.driver_id,
+                            active_execution_id=intent_id,
+                            state="SUBMITTING",
+                        )
                         session.add(driver_state)
                     
                     # Transition job to queued status

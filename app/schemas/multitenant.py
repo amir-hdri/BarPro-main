@@ -457,7 +457,6 @@ class WaybillRetryRequest(BaseModel):
 
     force_auth_refresh: bool = False
     retry_with_overrides: dict[str, Any] | None = None
-    dispatch_now: bool = True
 
 
 class WaybillJobUpdateRequest(BaseModel):

@@ -28,6 +28,13 @@ async def waybill_events_socket(
     except Exception:
         await websocket.close(code=4401)
         return
+    
+    # Check if token has been revoked (logged out)
+    from app.core.token_blacklist import is_blacklisted
+    jti = payload.get("jti")
+    if jti and await is_blacklisted(jti):
+        await websocket.close(code=4401)
+        return
 
     role = payload.get("role", "client")
     tenant_id: int | None = None

@@ -109,6 +109,14 @@ def _build_beat_schedule() -> dict:
                 "expires": 25,
             },
         },
+        "orchestrator-claim-reaper": {
+            "task": "orchestrator.claim_reaper.run",
+            "schedule": schedule(60.0),
+            "options": {
+                "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                "expires": 50,
+            },
+        },
         "orchestrator-reconciliation": {
             "task": "orchestrator.reconciliation.run",
             "schedule": crontab(minute="*/15"),

@@ -55,6 +55,48 @@ def _utcnow_naive() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+def generate_submission_fingerprint(payload: dict[str, Any]) -> str:
+    """
+    Generate a deterministic fingerprint from the waybill payload for reconciliation.
+
+    Uses the key fields that uniquely identify a waybill submission:
+    - driver_national_code
+    - plate_number (vehicle.plate_number or vehicle.driver_plate)
+    - origin (city + address)
+    - destination (city + address)
+    - cargo_weight
+    - business_date
+    - sender/receiver identifiers if available
+
+    Returns a SHA256 hash truncated to 32 chars for storage efficiency.
+    """
+    import hashlib
+
+    # Extract key fields from payload (supports both flat and nested structures)
+    vehicle = payload.get("vehicle", {}) if isinstance(payload.get("vehicle"), dict) else {}
+    origin = payload.get("origin", {}) if isinstance(payload.get("origin"), dict) else {}
+    destination = payload.get("destination", {}) if isinstance(payload.get("destination"), dict) else {}
+    cargo = payload.get("cargo", {}) if isinstance(payload.get("cargo"), dict) else {}
+    sender = payload.get("sender", {}) if isinstance(payload.get("sender"), dict) else {}
+    receiver = payload.get("receiver", {}) if isinstance(payload.get("receiver"), dict) else {}
+
+    fingerprint_parts = [
+        str(payload.get("driver_national_code", "") or "").strip(),
+        str(vehicle.get("plate_number", "") or vehicle.get("driver_plate", "") or "").strip(),
+        str(origin.get("city", "") or origin.get("city_name", "") or "").strip(),
+        str(origin.get("address", "") or "").strip(),
+        str(destination.get("city", "") or destination.get("city_name", "") or "").strip(),
+        str(destination.get("address", "") or "").strip(),
+        str(cargo.get("weight", "") or cargo.get("cargo_weight", "") or "").strip(),
+        str(payload.get("business_date", "") or "").strip(),
+        str(sender.get("national_code", "") or "").strip(),
+        str(receiver.get("national_code", "") or "").strip(),
+    ]
+
+    fingerprint_string = "|".join(fingerprint_parts)
+    return hashlib.sha256(fingerprint_string.encode("utf-8")).hexdigest()[:32]
+
+
 def _safe_json(raw: str | dict | None) -> dict[str, Any]:
     if isinstance(raw, dict):
         return raw
@@ -683,6 +725,16 @@ async def _execute_job(
                     updated_at=_utcnow_naive(),
                     submit_after=None
                 )
+                # Generate and store submission fingerprint for reconciliation
+                if isinstance(job.payload_json, dict):
+                    payload = job.payload_json
+                elif isinstance(job.payload_json, str):
+                    payload = json.loads(job.payload_json)
+                else:
+                    payload = {}
+                if payload and not job.submission_fingerprint:
+                    job.submission_fingerprint = generate_submission_fingerprint(payload)
+                    session.add(job)
                 await session.commit()
             runtime_state.state = DriverRuntimeStateValue.SUBMITTING.value
             runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)

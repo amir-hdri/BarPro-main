@@ -245,10 +245,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-from pathlib import Path
-_screenshots_dir = Path("runtime/screenshots")
-_screenshots_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/assets/screenshots", StaticFiles(directory=str(_screenshots_dir)), name="screenshots")
+# NOTE: Screenshots are NOT served via public StaticFiles mount.
+# They are served through authenticated endpoints in the API routes:
+# - /api/v1/fuel-inquiries/{id}/screenshot (fuel inquiry screenshots)
+# - /api/v1/waybill-jobs/{id}/screenshot (waybill screenshots - TODO: implement)
+# This prevents unauthorized access to sensitive UTCMS screenshots.
 
 cors_origins = _frontend_origins()
 if not cors_origins:

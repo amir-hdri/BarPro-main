@@ -56,6 +56,35 @@ class ReconciliationService:
 
         outcome = ScraperOutcome.AMBIGUOUS
         tracking_code = (job.result_json or {}).get("tracking_code")
+        
+        # Extract fingerprint fields from payload for precise reconciliation
+        payload = job.payload_json
+        if isinstance(payload, str):
+            try:
+                import json
+                payload = json.loads(payload)
+            except Exception:
+                payload = {}
+        
+        # Extract key reconciliation fields
+        reconciliation_fields = {}
+        if isinstance(payload, dict):
+            vehicle = payload.get("vehicle", {}) if isinstance(payload.get("vehicle"), dict) else {}
+            origin = payload.get("origin", {}) if isinstance(payload.get("origin"), dict) else {}
+            destination = payload.get("destination", {}) if isinstance(payload.get("destination"), dict) else {}
+            cargo = payload.get("cargo", {}) if isinstance(payload.get("cargo"), dict) else {}
+            
+            reconciliation_fields = {
+                "national_code": payload.get("driver_national_code"),
+                "plate_number": vehicle.get("plate_number") or vehicle.get("driver_plate"),
+                "origin_city": origin.get("city") or origin.get("city_name"),
+                "origin_address": origin.get("address"),
+                "dest_city": destination.get("city") or destination.get("city_name"),
+                "dest_address": destination.get("address"),
+                "cargo_weight": cargo.get("weight") or cargo.get("cargo_weight"),
+                "business_date": payload.get("business_date"),
+                "submission_fingerprint": job.submission_fingerprint,
+            }
 
         utcms_username = None
         if job.driver_id:
@@ -90,6 +119,7 @@ class ReconciliationService:
                 page=page,
                 tracking_code=tracking_code,
                 job_id=job.id,
+                reconciliation_fields=reconciliation_fields,
             )
             outcome = res.outcome
             details = res.details
