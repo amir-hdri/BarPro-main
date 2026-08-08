@@ -1,8 +1,10 @@
 import logging
 from datetime import UTC, datetime
+
 from sqlmodel import select
+
 from app.core.database import async_session_factory
-from app.models_multitenant import WaybillJob, TaskStatus
+from app.models_multitenant import TaskStatus, WaybillJob
 from app.models_rpa import DispatchIntent
 from app.orchestrator.state_machine import JobStateMachine
 from app.workers.celery_app import celery_app
@@ -26,10 +28,10 @@ class DispatcherService:
                     .order_by(DispatchIntent.created_at.asc())
                     .with_for_update(skip_locked=True)
                 )
-                
+
                 result = await session.exec(statement)
                 pending_intents = result.all()
-                
+
                 if not pending_intents:
                     return 0
 
@@ -39,21 +41,34 @@ class DispatcherService:
                     job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
                     job_result = await session.exec(job_statement)
                     job = job_result.first()
-                    
+
                     if not job:
                         logger.error(f"Job {intent.job_id} not found for dispatch intent {intent.intent_id}")
                         intent.status = "failed"
                         session.add(intent)
                         continue
-                        
+
+                    # If the job was soft-cancelled after the intent was
+                    # created, expire the intent instead of claiming it — a
+                    # cancelled→claimed transition is invalid in the state
+                    # machine and would abort the whole dispatch batch.
+                    if job.status == TaskStatus.CANCELLED.value:
+                        logger.info(
+                            f"Intent {intent.intent_id} belongs to cancelled job {job.job_id}, marking intent cancelled"
+                        )
+                        intent.status = "cancelled"
+                        intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                        session.add(intent)
+                        continue
+
                     # Claim the intent
                     intent.status = "claimed"
                     intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
                     session.add(intent)
-                    
+
                     # Transition job to claimed
                     JobStateMachine.transition(session, job, TaskStatus.CLAIMED.value)
-                    
+
                     # Send Celery task
                     if celery_app is not None:
                         if intent.operation == "reconciliation":
@@ -92,12 +107,12 @@ class DispatcherService:
                             last_error="Celery unavailable during dispatch",
                             error_category="system_error",
                         )
-                        
+
                 await session.commit()
                 if dispatched_count > 0:
                     logger.info(f"Dispatched {dispatched_count} intents to Celery.")
                 return dispatched_count
-                
+
             except Exception as e:
                 logger.error(f"Dispatcher run failed: {e}", exc_info=True)
                 await session.rollback()

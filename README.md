@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://img.shields.io/badge/Status-Production%20Ready-success?style=for-the-badge" alt="Status" />
   <img src="https://img.shields.io/badge/Version-2.0.0-blue?style=for-the-badge" alt="Version" />
-  <img src="https://img.shields.io/badge/Tests-552%20Passed-brightgreen?style=for-the-badge" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-588%20Passed-brightgreen?style=for-the-badge" alt="Tests" />
   <img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge" alt="License" />
 </div>
 
@@ -148,7 +148,7 @@ cp .env.example .env
 
 ```bash
 .venv/bin/pytest tests/ -q --tb=short
-# Expected: ≥414 passed, 0 failed
+# Expected: ≥588 passed, 0 failed
 ```
 
 ### Start System
@@ -235,7 +235,7 @@ BarPro/
 ├── compose/                # Docker Compose layered files
 ├── infra/                  # Nginx, Squid, Prometheus configs
 ├── alembic/                # Database migrations
-├── tests/                  # Pytest test suite (414+ tests)
+├── tests/                  # Pytest test suite (588+ tests)
 ├── scripts/                # Utility and deploy scripts
 ├── CRITICAL_RULES.md       # ⚠️ خطوط قرمز و قوانین حیاتی
 ├── AGENTS.md               # AI agent guide
@@ -285,7 +285,7 @@ BarPro/
 - JWT در کوکی httpOnly — امنیت بالا در برابر XSS
 - Rate Limiter fail-closed — بسته شدن در صورت قطع Redis
 - بازیابی خودکار jobهای stuck
-- هدف: ≥414 تست پاس شده، 0 شکست
+- هدف: ≥588 تست پاس شده، 0 شکست
 
 ### راه‌اندازی سریع
 ```bash

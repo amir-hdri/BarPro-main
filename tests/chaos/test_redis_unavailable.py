@@ -1,13 +1,13 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from datetime import datetime, UTC, timedelta
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from unittest.mock import patch, AsyncMock
 
-from app.models_multitenant import WaybillJob, TaskStatus, Client, Driver
-from app.models_rpa import DriverRuntimeState, DispatchIntent
+from app.models_multitenant import Client, Driver, TaskStatus, WaybillJob
+from app.models_rpa import DispatchIntent, DriverRuntimeState
 from app.workers.waybill_worker import execute_dispatched_intent
 
 
@@ -36,7 +36,7 @@ async def test_redis_unavailable_fail_closed(async_session):
             full_name="Tenant 1 Admin"
         )
         session.add(client)
-        
+
         driver = Driver(
             id=1,
             client_id=1,
@@ -47,7 +47,7 @@ async def test_redis_unavailable_fail_closed(async_session):
             utcms_password_encrypted="pwd"
         )
         session.add(driver)
-        
+
         driver_state = DriverRuntimeState(
             client_id=1,
             driver_id=1,
@@ -55,7 +55,7 @@ async def test_redis_unavailable_fail_closed(async_session):
             active_execution_id="intent-1"
         )
         session.add(driver_state)
-        
+
         intent = DispatchIntent(
             intent_id="intent-1",
             client_id=1,
@@ -66,7 +66,7 @@ async def test_redis_unavailable_fail_closed(async_session):
             status="claimed"
         )
         session.add(intent)
-        
+
         job = WaybillJob(
             job_id="job-1",
             idempotency_key="id-1",
@@ -89,11 +89,12 @@ async def test_redis_unavailable_fail_closed(async_session):
          patch("app.core.redis.redis_manager.get", return_value=mock_redis), \
          patch("app.workers.waybill_worker.decrypt_driver_password", return_value="pwd"), \
          patch("app.workers.waybill_worker.rpa_runtime.acquire_lock", return_value=True), \
-         patch("app.workers.waybill_worker.rpa_runtime.release_lock") as mock_release_lock:
-        
+         patch("app.workers.waybill_worker.rpa_runtime.release_lock") as mock_release_lock, \
+         patch("app.automation.worker_proxy.get_worker_proxy_url", return_value="http://mock-proxy:3128"):
+
         # Execute the worker task
         result = execute_dispatched_intent.apply(args=("intent-1",)).get()
-        
+
         assert result["status"] == TaskStatus.WAITING_RETRY.value
         assert result["error_category"] == "session_vault_error"
 
@@ -106,7 +107,7 @@ async def test_redis_unavailable_fail_closed(async_session):
         assert j.status == TaskStatus.WAITING_RETRY.value
         assert "Redis session vault check failed" in j.last_error
         assert j.error_category == "session_vault_error"
-        
+
         d_state = (await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == 1))).first()
         print("DRIVER AUTH LOCK OWNER IN DB:", d_state.auth_lock_owner)
         # Verify db locks ownership were cleared on finalization

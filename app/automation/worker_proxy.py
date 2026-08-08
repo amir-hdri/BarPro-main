@@ -39,13 +39,36 @@ from urllib.parse import urlparse, urlunparse
 logger = logging.getLogger(__name__)
 
 _WORKER_ID_ENV = "WORKER_ID"
-
 # Docker bridge gateway that routes to the host where Squid listens
 # (network_mode: host). This MUST match the actual barpro_platform network
 # gateway. compose/backend.yml, proxy_rotator.py and system.py all use
 # 172.20.0.1 — keep them in sync. Override via DOCKER_BRIDGE_GATEWAY only if
 # the real Docker subnet on the host differs from the convention.
 _DOCKER_GATEWAY = os.environ.get("DOCKER_BRIDGE_GATEWAY", "172.20.0.1")
+
+
+class ProxyUnavailableError(RuntimeError):
+    """Raised when a required Squid proxy is unconfigured/unreachable.
+
+    In production the RPA worker MUST fail closed: a browser session without
+    the worker's dedicated proxy would either time out waiting UTCMS or leak
+    the central server egress IP — both are silent failures. Callers should
+    treat this as a transient infrastructure error and move the job to
+    WAITING_RETRY instead of proceeding direct.
+    """
+
+
+def _proxy_fail_closed() -> bool:
+    """Decide whether a missing/unreachable proxy must abort execution.
+
+    Fail-closed is the default when ENVIRONMENT=production and can be
+    forced with PROXY_FAIL_CLOSED=true. Development remains permissive
+    (proxy optional) so local bots and unit tests keep working.
+    """
+    env = (os.environ.get("ENVIRONMENT") or "").lower()
+    if env == "production":
+        return os.environ.get("PROXY_FAIL_CLOSED", "true").lower() == "true"
+    return os.environ.get("PROXY_FAIL_CLOSED", "false").lower() == "true"
 
 
 def _resolve_to_ip(url: str) -> str:
@@ -113,11 +136,12 @@ def get_worker_proxy_url() -> str | None:
     Priority order:
     1. WORKER_{WORKER_ID}_PROXY  (e.g. WORKER_1_PROXY=http://172.20.0.1:3128)
     2. RPA_PROXIES               (first entry in comma-separated list)
-    3. None                      (no proxy configured)
+    3. None                      (no proxy configured — development only)
 
-    In production, a missing/unreachable proxy returns None (direct connection).
-    This is intentional for development. In production, fail-closed should be enforced
-    by the caller (e.g. raising an error if proxy is required but unavailable).
+    Fail-closed: in production (see ``_proxy_fail_closed``) a missing or
+    unreachable proxy raises ``ProxyUnavailableError`` instead of falling back
+    to a direct connection. The caller is expected to classify it as a
+    transient infrastructure error and requeue the job.
     """
     global _cached_proxy_url, _cached_proxy_timestamp
 
@@ -131,6 +155,13 @@ def get_worker_proxy_url() -> str | None:
         os.environ.get("RPA_PROXIES", "").split(",")[0].strip() or None
     )
     if not url:
+        if _proxy_fail_closed():
+            _cached_proxy_url = None
+            _cached_proxy_timestamp = now
+            raise ProxyUnavailableError(
+                f"worker_proxy: no proxy URL configured for worker_id={worker_id}; "
+                "fail-closed — refusing to run without dedicated egress proxy"
+            )
         logger.warning("worker_proxy: no proxy URL configured — running direct connection")
         _cached_proxy_url = None
         _cached_proxy_timestamp = now
@@ -148,6 +179,13 @@ def get_worker_proxy_url() -> str | None:
                 _cached_proxy_timestamp = now
                 return resolved
         except (OSError, TimeoutError):
+            if _proxy_fail_closed():
+                _cached_proxy_url = None
+                _cached_proxy_timestamp = now
+                raise ProxyUnavailableError(
+                    f"worker_proxy: configured proxy {resolved} is unreachable; "
+                    "fail-closed (refusing to fall back to direct connection)"
+                ) from None
             logger.warning(
                 f"worker_proxy: configured proxy {resolved} is unreachable; falling back to direct connection"
             )
@@ -212,7 +250,9 @@ async def increment_worker_failures(worker_id: str) -> int:
 async def transition_worker_to_draining(worker_id: str) -> None:
     """Transition the worker registry status to 'draining' in the database."""
     from datetime import UTC, datetime
+
     from sqlmodel import select
+
     from app.core.database import async_session_factory
     from app.models_rpa import WorkerRegistry
 
@@ -235,6 +275,7 @@ async def transition_worker_to_draining(worker_id: str) -> None:
 async def is_worker_draining(worker_id: str) -> bool:
     """Check if the worker registry status is marked as 'draining'."""
     from sqlmodel import select
+
     from app.core.database import async_session_factory
     from app.models_rpa import WorkerRegistry
 
@@ -256,7 +297,7 @@ def drain_worker_consumers(task: Any) -> None:
     not later mark them as orphaned.
     """
     from app.core.config import utcms_config
-    
+
     worker_name = task.request.hostname
     logger.warning(f"Draining worker {worker_name} consumers...")
     queues = [

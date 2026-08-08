@@ -588,3 +588,19 @@ ON waybill_jobs (status) INCLUDE (id);
 ---
 
 *Last updated: 2026-08-04 · Tests: 552 passed, 2 skipped · Deployment: 3-server Model B (Central 16GB + 2× remote Worker VPS)*
+
+---
+
+### Additional Fixes Applied (2026-08-08) — Soft-Cancel Intent Sync, Proxy Fail-Closed, Scheduler Enforcement & CI Fixes
+
+| Change | File(s) | Impact |
+|--------|---------|--------|
+| **Soft-cancel sync**: `delete_job` now atomically cancels pending/claimed `DispatchIntent` rows when a job is soft-cancelled (CANCELLED status), preventing dispatcher from attempting invalid transitions. Dispatcher already had guard for CANCELLED jobs. | `app/services/waybill_job_service.py`, `app/orchestrator/dispatcher_service.py` | Eliminates race where cancelled jobs left stale intents that dispatcher would try to claim. |
+| **Proxy fail-closed (production)**: New `ProxyUnavailableError` + `_proxy_fail_closed()` in `worker_proxy`. In production, unreachable/unset proxy raises instead of falling back to direct connection. Dev mode remains fail-open. `_claim_and_execute` / `_claim_and_reconcile` catch and map to `TRANSIENT_INFRA_ERROR` → `WAITING_RETRY`. `classify_exception` maps proxy keywords to retryable. | `app/automation/worker_proxy.py`, `app/workers/waybill_worker.py`, `app/core/error_taxonomy.py` | Prevents silent direct-connection fallback that bypasses proxy rotation/anti-bot; failed proxy now schedules retry with correct error category. |
+| **Scheduler enforcement**: Per-job tenant/driver/quota checks before scheduling: client ACTIVE + subscription window, driver ACTIVE/READY, tenant in-flight < `max_concurrent_tasks`, tenant daily < `max_daily_tasks`. Caches client/driver lookups and counts per loop. | `app/orchestrator/scheduler_service.py` | Prevents scheduling jobs for suspended tenants, inactive drivers, or over-quota tenants. |
+| **CI fixes**: Created missing `requirements-dev.txt` (pytest, ruff, black, mypy, aiosqlite); fixed indentation in `ci-cd.yml` step "Run Unit Tests". | `requirements-dev.txt`, `.github/workflows/ci-cd.yml`, `.github/workflows/ci-test.yml` | CI pipeline no longer fails on missing deps / YAML syntax. |
+| **Frontend types**: Removed `access_token` from `AuthLoginResponse` / `AdminLoginResponse` — JWT now httpOnly cookie only. | `apps/web/src/lib/types.ts` | Aligns types with cookie-based auth; no token leakage to localStorage. |
+| **String import fix**: Added missing `from sqlalchemy import String` in `waybill_job_service` (pre-existing bug in plate-number search filter). | `app/services/waybill_job_service.py` | Fixes `NameError` at runtime when plate filter is used. |
+| **Test updates**: `test_redis_unavailable` mocks `get_worker_proxy_url`; `test_worker_proxy_and_rotator` tests both dev fail-open and prod fail-closed; `test_reconciliation_service` sets `ENVIRONMENT=development`. | `tests/chaos/test_redis_unavailable.py`, `tests/test_worker_proxy_and_rotator.py`, `tests/test_reconciliation_service.py` | Tests pass with new proxy fail-closed logic. |
+
+> **Verification:** `uvx ruff check` clean on touched files; `tsc --noEmit` + `eslint` clean on frontend; full pytest suite green (588 passed, 4 pre-existing UTCMS login failures, 2 skipped).

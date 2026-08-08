@@ -27,6 +27,7 @@ from app.automation.waybill_bot_multitenant import WaybillAutomationBot
 from app.automation.worker_proxy import get_playwright_proxy
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
+from app.core.error_taxonomy import ErrorCategory, classify_error_string, classify_exception
 from app.core.utils import run_async as _run
 from app.models_multitenant import (
     Driver,
@@ -34,7 +35,8 @@ from app.models_multitenant import (
     WaybillJob,
     WaybillTaskLog,
 )
-from app.models_rpa import DomainEvent, DriverRuntimeState, DriverRuntimeStateValue, DispatchIntent, Execution
+from app.models_rpa import DispatchIntent, DomainEvent, DriverRuntimeState, DriverRuntimeStateValue, Execution
+from app.orchestrator.state_machine import JobStateMachine, StateTransitionError
 from app.rpa.event_taxonomy import (
     JOB_EXECUTION_FAILED,
     JOB_EXECUTION_STARTED,
@@ -42,10 +44,8 @@ from app.rpa.event_taxonomy import (
     JOB_RETRY_SCHEDULED,
     OTP_DETECTED,
 )
-from app.core.error_taxonomy import ErrorCategory, classify_error_string, classify_exception
 from app.services.rpa_runtime_service import rpa_runtime
 from app.workers.celery_app import celery_app
-from app.orchestrator.state_machine import JobStateMachine, StateTransitionError
 
 logger = logging.getLogger(__name__)
 
@@ -190,17 +190,18 @@ async def _assert_still_valid(execution_id: str, fencing_token: int) -> None:
 
 
 async def _claim_and_execute(task: Any, intent_id: str):
-    import socket
     import os
+    import socket
     worker_id = os.environ.get("WORKER_ID", socket.gethostname())
 
     from app.automation.worker_proxy import (
-        get_worker_proxy_url,
+        ProxyUnavailableError,
         check_proxy_health,
-        increment_worker_failures,
-        transition_worker_to_draining,
-        is_worker_draining,
         drain_worker_consumers,
+        get_worker_proxy_url,
+        increment_worker_failures,
+        is_worker_draining,
+        transition_worker_to_draining,
     )
 
     async with async_session_factory() as session:
@@ -243,8 +244,31 @@ async def _claim_and_execute(task: Any, intent_id: str):
                 await session.commit()
                 raise ConnectionError(f"Worker {worker_id} is currently draining")
 
-            # Pre-flight proxy check
-            proxy_url = get_worker_proxy_url()
+            # Pre-flight proxy check (fail-closed: ProxyUnavailableError
+            # moves the job to WAITING_RETRY instead of running direct)
+            try:
+                proxy_url = get_worker_proxy_url()
+            except ProxyUnavailableError as proxy_exc:
+                logger.error(f"{proxy_exc} (worker_id={worker_id})")
+                intent.status = "failed"
+                intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                session.add(intent)
+
+                job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
+                job_res = await session.exec(job_statement)
+                job = job_res.first()
+                if job:
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.WAITING_RETRY.value,
+                        last_error=f"Proxy unavailable: {proxy_exc}",
+                        error_category=ErrorCategory.TRANSIENT_INFRA_ERROR.value,
+                        next_retry_at=datetime.now(UTC).replace(tzinfo=None),
+                        submit_after=datetime.now(UTC).replace(tzinfo=None)
+                    )
+                await session.commit()
+                raise ConnectionError(f"Proxy unavailable: {proxy_exc}") from proxy_exc
             if proxy_url:
                 is_healthy = await check_proxy_health(proxy_url)
                 if not is_healthy:
@@ -281,8 +305,8 @@ async def _claim_and_execute(task: Any, intent_id: str):
 
             # Get job
             job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
-            job_res = await session.exec(job_statement)
-            job = job_res.first()
+            job_result = await session.exec(job_statement)
+            job = job_result.first()
             if not job:
                 raise ValueError(f"Job {intent.job_id} not found for intent {intent_id}")
 
@@ -358,17 +382,18 @@ async def _claim_and_execute(task: Any, intent_id: str):
 
 
 async def _claim_and_reconcile(task: Any, intent_id: str):
-    import socket
     import os
+    import socket
     worker_id = os.environ.get("WORKER_ID", socket.gethostname())
 
     from app.automation.worker_proxy import (
-        get_worker_proxy_url,
+        ProxyUnavailableError,
         check_proxy_health,
-        increment_worker_failures,
-        transition_worker_to_draining,
-        is_worker_draining,
         drain_worker_consumers,
+        get_worker_proxy_url,
+        increment_worker_failures,
+        is_worker_draining,
+        transition_worker_to_draining,
     )
 
     async with async_session_factory() as session:
@@ -410,8 +435,30 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
                 await session.commit()
                 raise ConnectionError(f"Worker {worker_id} is currently draining")
 
-            # Pre-flight proxy check
-            proxy_url = get_worker_proxy_url()
+            # Pre-flight proxy check (fail-closed: ProxyUnavailableError
+            # moves the job to UNKNOWN for later reconciliation)
+            try:
+                proxy_url = get_worker_proxy_url()
+            except ProxyUnavailableError as proxy_exc:
+                logger.error(f"{proxy_exc} (worker_id={worker_id})")
+                intent.status = "failed"
+                intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                session.add(intent)
+
+                job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
+                job_res = await session.exec(job_statement)
+                job = job_res.first()
+                if job:
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.UNKNOWN.value,
+                        expected_from={TaskStatus.CLAIMED.value},
+                        last_error=f"Proxy unavailable during reconciliation: {proxy_exc}",
+                        error_category=ErrorCategory.TRANSIENT_INFRA_ERROR.value
+                    )
+                await session.commit()
+                raise ConnectionError(f"Proxy unavailable: {proxy_exc}") from proxy_exc
             if proxy_url:
                 is_healthy = await check_proxy_health(proxy_url)
                 if not is_healthy:
@@ -1139,10 +1186,14 @@ async def _execute_job(
             logger.error(f"Job {job_id} execution error: {e}", exc_info=True)
 
             # Track worker failures for auto-heal draining
-            import socket
             import os
+            import socket
             w_id = os.environ.get("WORKER_ID", socket.gethostname())
-            from app.automation.worker_proxy import increment_worker_failures, transition_worker_to_draining, drain_worker_consumers
+            from app.automation.worker_proxy import (
+                drain_worker_consumers,
+                increment_worker_failures,
+                transition_worker_to_draining,
+            )
             w_failures = await increment_worker_failures(w_id)
             if w_failures > 3:
                 await transition_worker_to_draining(w_id)
@@ -1200,7 +1251,7 @@ async def _execute_job(
                             state.auth_lock_acquired_at = None
                             state.auth_lock_ttl_seconds = None
                             await session.commit()
-                    except Exception as db_err:
+                    except Exception:
                         logger.warning("failed_to_clear_auth_lock_columns_db", exc_info=True)
 
                 if driver_lock_acquired:

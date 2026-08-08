@@ -1,13 +1,36 @@
 import logging
 import uuid
-from datetime import datetime, UTC
+from datetime import UTC, datetime
+
+from sqlalchemy import func
 from sqlmodel import select
+
 from app.core.database import async_session_factory
-from app.models_multitenant import WaybillJob, TaskStatus
+from app.models_multitenant import Client, ClientStatus, Driver, DriverStatus, TaskStatus, WaybillJob
 from app.models_rpa import DispatchIntent, DriverRuntimeState
 from app.orchestrator.state_machine import JobStateMachine
 
 logger = logging.getLogger(__name__)
+
+# Sentinel for cache lookups that may legitimately store None.
+_MISSING_CLIENT = object()
+_MISSING_DRIVER = object()
+
+# Statuses counting toward the tenant's concurrent-task quota.
+# PENDING, WAITING_RETRY, OTP_BACKOFF are pre-dispatch states;
+# only jobs that have been scheduled/dispatched count as in-flight.
+_IN_FLIGHT_STATUSES = [
+    TaskStatus.QUEUED.value,
+    TaskStatus.CLAIMED.value,
+    TaskStatus.RUNNING.value,
+    TaskStatus.IN_PROGRESS.value,
+]
+
+# Driver statuses that are allowed to receive new jobs.
+_DISPATCHABLE_DRIVER_STATUSES = [
+    DriverStatus.ACTIVE.value,
+    DriverStatus.READY.value,
+]
 
 
 class SchedulerService:
@@ -15,6 +38,7 @@ class SchedulerService:
         """
         Scan for pending, waiting_retry, and otp_backoff jobs that are ready to run,
         and whose driver does not have an active execution slot.
+        Enforce tenant/driver eligibility and per-tenant concurrency/daily quotas.
         Mark them as queued, lock their driver's slot, and insert corresponding dispatch intents.
         Returns the number of scheduled jobs.
         """
@@ -26,7 +50,7 @@ class SchedulerService:
                     select(WaybillJob)
                     .join(DriverRuntimeState, WaybillJob.driver_id == DriverRuntimeState.driver_id, isouter=True)
                     .where(
-                        (DriverRuntimeState.active_execution_id == None) | (DriverRuntimeState.id == None)
+                        (DriverRuntimeState.active_execution_id == None) | (DriverRuntimeState.id == None)  # noqa: E711
                     )
                     .where(
                         WaybillJob.status.in_([
@@ -36,31 +60,87 @@ class SchedulerService:
                         ])
                     )
                     .where(
-                        (WaybillJob.next_retry_at == None) | (WaybillJob.next_retry_at <= now)
+                        (WaybillJob.next_retry_at == None) | (WaybillJob.next_retry_at <= now)  # noqa: E711
                     )
                     .where(
-                        (WaybillJob.submit_after == None) | (WaybillJob.submit_after <= now)
+                        (WaybillJob.submit_after == None) | (WaybillJob.submit_after <= now)  # noqa: E711
                     )
-                    .order_by(WaybillJob.priority.desc(), WaybillJob.created_at.sa_column.asc() if hasattr(WaybillJob.created_at, "sa_column") else WaybillJob.created_at.asc())
+                    .order_by(WaybillJob.priority.desc(), WaybillJob.created_at.asc())
                     .with_for_update(skip_locked=True)
                 )
-                
+
                 result = await session.exec(statement)
                 due_jobs = result.all()
-                
+
                 if not due_jobs:
                     return 0
 
+                # Per-tenant filters (status/quota) checked with cache
+                # lookups to avoid N+1 round trips inside the loop.
+                client_cache: dict[int, Client | None] = {}
+                driver_cache: dict[int, Driver | None] = {}
+                in_flight_counts: dict[int, int] = {}
+                daily_counts: dict[int, int] = {}
+                today_start = datetime.combine(now.date(), datetime.min.time())
+                skipped = 0
                 scheduled_count = 0
                 scheduled_driver_ids = set()
                 for job in due_jobs:
                     if job.driver_id in scheduled_driver_ids:
                         continue
-                    
+
+                    # Tenant eligibility: account must be active.
+                    client = client_cache.get(job.client_id, _MISSING_CLIENT)
+                    if client is _MISSING_CLIENT:
+                        client = await session.get(Client, job.client_id)
+                        client_cache[job.client_id] = client
+                    if client is None or client.status != ClientStatus.ACTIVE.value:
+                        # Bad state (missing tenant, suspended, ...) — leave the
+                        # job untouched; statuses never change inside the scheduler.
+                        skipped += 1
+                        continue
+
+                    # Driver eligibility: status active/ready.
+                    driver = driver_cache.get(job.driver_id, _MISSING_DRIVER)
+                    if driver is _MISSING_DRIVER:
+                        driver = await session.get(Driver, job.driver_id) if job.driver_id else None
+                        driver_cache[job.driver_id] = driver
+                    if driver is None or driver.status not in _DISPATCHABLE_DRIVER_STATUSES:
+                        skipped += 1
+                        continue
+
+                    # Tenant concurrency quota: in-flight jobs per tenant.
+                    if job.client_id not in in_flight_counts:
+                        in_flight_stmt = (
+                            select(func.count(WaybillJob.id))
+                            .where(
+                                WaybillJob.client_id == job.client_id,
+                                WaybillJob.status.in_(_IN_FLIGHT_STATUSES),
+                            )
+                        )
+                        in_flight_counts[job.client_id] = (await session.exec(in_flight_stmt)).one()
+                    if in_flight_counts[job.client_id] >= client.max_concurrent_tasks:
+                        skipped += 1
+                        continue
+
+                    # Tenant daily quota: jobs created today per tenant.
+                    if job.client_id not in daily_counts:
+                        daily_stmt = (
+                            select(func.count(WaybillJob.id))
+                            .where(
+                                WaybillJob.client_id == job.client_id,
+                                WaybillJob.created_at >= today_start,
+                            )
+                        )
+                        daily_counts[job.client_id] = (await session.exec(daily_stmt)).one()
+                    if daily_counts[job.client_id] >= client.max_daily_tasks:
+                        skipped += 1
+                        continue
+
                     # Create dispatch intent
                     intent_id = str(uuid.uuid4())
                     attempt_no = job.attempt_count + 1
-                    
+
                     intent = DispatchIntent(
                         intent_id=intent_id,
                         client_id=job.client_id,
@@ -71,7 +151,7 @@ class SchedulerService:
                         status="pending"
                     )
                     session.add(intent)
-                    
+
                     # Set the active execution slot on the driver runtime state
                     # Create runtime state if it doesn't exist (ensures concurrency safety)
                     driver_state_stmt = select(DriverRuntimeState).where(DriverRuntimeState.driver_id == job.driver_id).with_for_update()
@@ -89,17 +169,19 @@ class SchedulerService:
                             state="SUBMITTING",
                         )
                         session.add(driver_state)
-                    
+
                     # Transition job to queued status
                     JobStateMachine.transition(session, job, TaskStatus.QUEUED.value)
                     scheduled_driver_ids.add(job.driver_id)
+                    in_flight_counts[job.client_id] += 1
+                    daily_counts[job.client_id] += 1
                     scheduled_count += 1
-                    
+
                 await session.commit()
                 if scheduled_count > 0:
-                    logger.info(f"Scheduled {scheduled_count} jobs as pending dispatch intents.")
+                    logger.info(f"Scheduled {scheduled_count} jobs as pending dispatch intents ({skipped} skipped by policy).")
                 return scheduled_count
-                
+
             except Exception as e:
                 logger.error(f"Scheduler run failed: {e}", exc_info=True)
                 await session.rollback()

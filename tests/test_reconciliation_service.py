@@ -2,6 +2,7 @@
 Unit tests for Reconciliation Service and Scraper.
 """
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -13,6 +14,13 @@ from app.models_multitenant import WaybillJob
 from app.orchestrator.reconciliation_service import ReconciliationService
 from app.orchestrator.state_machine import JobStatus
 from app.orchestrator.utcms_reconciliation_scraper import ReconciliationResult, ScraperOutcome
+
+
+@pytest.fixture(autouse=True)
+def dev_env():
+    """Ensure tests run in development mode (fail-open for proxy)."""
+    with patch.dict(os.environ, {"ENVIRONMENT": "development"}):
+        yield
 
 
 @pytest.fixture

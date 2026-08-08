@@ -3,18 +3,19 @@ from unittest.mock import patch
 
 import pytest
 
-from app.automation.proxy_rotator import get_proxy_rotator
 from app.automation import test_proxy
+from app.automation.proxy_rotator import get_proxy_rotator
 from app.automation.worker_proxy import clear_proxy_cache, get_worker_proxy_url
 
 
 def test_clear_proxy_cache_and_dynamic_lookup():
     """Verify clear_proxy_cache invalidates stale cache and re-evaluates reachability."""
+    # Force development mode for fail-open behavior (return None on unreachable)
     clear_proxy_cache()
-    with patch.dict(os.environ, {"WORKER_1_PROXY": "http://172.20.0.1:3128"}):
+    with patch.dict(os.environ, {"WORKER_1_PROXY": "http://172.20.0.1:3128", "ENVIRONMENT": "development"}):
         with patch("socket.create_connection") as mock_conn:
             mock_conn.side_effect = TimeoutError("Connection timed out")
-            # Unreachable -> returns None
+            # Unreachable -> returns None in dev mode (fail-open)
             assert get_worker_proxy_url() is None
 
             # Force clear cache and test reachable case
@@ -23,6 +24,17 @@ def test_clear_proxy_cache_and_dynamic_lookup():
             mock_conn.side_effect = None
             mock_conn.return_value = MagicMock()
             assert get_worker_proxy_url() == "http://172.20.0.1:3128"
+
+
+def test_get_worker_proxy_url_fail_closed_in_production():
+    """Verify fail-closed behavior in production when proxy is unreachable."""
+    from app.automation.worker_proxy import ProxyUnavailableError
+    clear_proxy_cache()
+    with patch.dict(os.environ, {"WORKER_1_PROXY": "http://172.20.0.1:3128", "ENVIRONMENT": "production", "PROXY_FAIL_CLOSED": "true"}):
+        with patch("socket.create_connection") as mock_conn:
+            mock_conn.side_effect = TimeoutError("Connection timed out")
+            with pytest.raises(ProxyUnavailableError):
+                get_worker_proxy_url()
 
 
 def test_get_proxy_rotator_thread_safety():

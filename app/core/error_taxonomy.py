@@ -56,6 +56,8 @@ def classify_exception(error: Exception) -> tuple[ErrorCategory, bool]:
 
     if "bot" in text or "automationcontrolled" in text or "suspicious" in text:
         return ErrorCategory.BOT_DETECTED, False
+    if "proxy" in text or "unreachable" in text or "squid" in text:
+        return ErrorCategory.TRANSIENT_INFRA_ERROR, True
     if "selector" in text or "query_selector" in text:
         return ErrorCategory.SELECTOR_CHANGED, False
     if "captcha" in text:

@@ -6,10 +6,11 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import String, func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.error_taxonomy import is_retryable_terminal_category
 from app.models_multitenant import (
     Client,
     Driver,
@@ -21,7 +22,6 @@ from app.models_multitenant import (
 )
 from app.models_rpa import DomainEvent, DriverRuntimeState, DriverRuntimeStateValue
 from app.orchestrator.state_machine import JobStateMachine
-from app.core.error_taxonomy import is_retryable_terminal_category
 from app.rpa.event_taxonomy import (
     JOB_RETRY_REQUESTED,
     timeline_phase_for,
@@ -45,7 +45,6 @@ from app.services._helpers import (
     _safe_json_payload,
     _timeline_matches_query,
 )
-from app.services.rpa_dispatch_service import rpa_dispatch_service
 from app.services.rpa_runtime_service import rpa_runtime
 from app.services.rpa_scheduler_service import rpa_scheduler_service
 
@@ -588,7 +587,7 @@ class WaybillJobService:
                 detail="Job not found",
             )
 
-        from app.models_rpa import Execution, DriverRuntimeState
+        from app.models_rpa import DispatchIntent, DriverRuntimeState, Execution
 
         # Does a worker still own this job?
         live_exec = None
@@ -629,6 +628,19 @@ class WaybillJobService:
                 finished_at=datetime.now(UTC).replace(tzinfo=None),
             )
             session.add(job)
+            # Cancel any pending/claimed dispatch intents for this job so the
+            # dispatcher never tries to claim a CANCELLED job (leaving fresh
+            # intents behind would let the dispatcher hit a state-machine error).
+            intents_stmt = select(DispatchIntent).where(
+                DispatchIntent.job_id == job.job_id,
+                DispatchIntent.status.in_(["pending", "claimed"]),
+            ).with_for_update(skip_locked=True)
+            intents = (await session.exec(intents_stmt)).all()
+            now = datetime.now(UTC).replace(tzinfo=None)
+            for intent in intents:
+                intent.status = "cancelled"
+                intent.updated_at = now
+                session.add(intent)
             # Release the driver slot only when the worker is guaranteed to
             # no longer be running this job (no live Execution).
             if job.driver_id and not live_exec:

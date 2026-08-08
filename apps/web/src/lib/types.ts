@@ -20,7 +20,6 @@ export interface ClientProfile {
 }
 
 export interface AuthLoginResponse {
-  access_token: string;
   token_type: string;
   expires_in: number;
   client: ClientProfile;
@@ -32,7 +31,6 @@ export interface AdminProfile {
 }
 
 export interface AdminLoginResponse {
-  access_token: string;
   token_type: string;
   expires_in: number;
   admin: AdminProfile;
