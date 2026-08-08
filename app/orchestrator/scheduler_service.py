@@ -3,6 +3,7 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
 from app.core.database import async_session_factory
@@ -53,18 +54,12 @@ class SchedulerService:
                         (DriverRuntimeState.active_execution_id == None) | (DriverRuntimeState.id == None)  # noqa: E711
                     )
                     .where(
-                        WaybillJob.status.in_([
-                            TaskStatus.PENDING.value,
-                            TaskStatus.WAITING_RETRY.value,
-                            TaskStatus.OTP_BACKOFF.value
-                        ])
+                        WaybillJob.status.in_(
+                            [TaskStatus.PENDING.value, TaskStatus.WAITING_RETRY.value, TaskStatus.OTP_BACKOFF.value]
+                        )
                     )
-                    .where(
-                        (WaybillJob.next_retry_at == None) | (WaybillJob.next_retry_at <= now)  # noqa: E711
-                    )
-                    .where(
-                        (WaybillJob.submit_after == None) | (WaybillJob.submit_after <= now)  # noqa: E711
-                    )
+                    .where((WaybillJob.next_retry_at == None) | (WaybillJob.next_retry_at <= now))  # noqa: E711
+                    .where((WaybillJob.submit_after == None) | (WaybillJob.submit_after <= now))  # noqa: E711
                     .order_by(WaybillJob.priority.desc(), WaybillJob.created_at.asc())
                     .with_for_update(skip_locked=True)
                 )
@@ -100,6 +95,15 @@ class SchedulerService:
                         skipped += 1
                         continue
 
+                    # Subscription window: the tenant must be within its active
+                    # subscription dates (None means no bound is enforced).
+                    if client.subscription_start_date and client.subscription_start_date > now:
+                        skipped += 1
+                        continue
+                    if client.subscription_end_date and client.subscription_end_date < now:
+                        skipped += 1
+                        continue
+
                     # Driver eligibility: status active/ready.
                     driver = driver_cache.get(job.driver_id, _MISSING_DRIVER)
                     if driver is _MISSING_DRIVER:
@@ -111,12 +115,9 @@ class SchedulerService:
 
                     # Tenant concurrency quota: in-flight jobs per tenant.
                     if job.client_id not in in_flight_counts:
-                        in_flight_stmt = (
-                            select(func.count(WaybillJob.id))
-                            .where(
-                                WaybillJob.client_id == job.client_id,
-                                WaybillJob.status.in_(_IN_FLIGHT_STATUSES),
-                            )
+                        in_flight_stmt = select(func.count(WaybillJob.id)).where(
+                            WaybillJob.client_id == job.client_id,
+                            WaybillJob.status.in_(_IN_FLIGHT_STATUSES),
                         )
                         in_flight_counts[job.client_id] = (await session.exec(in_flight_stmt)).one()
                     if in_flight_counts[job.client_id] >= client.max_concurrent_tasks:
@@ -125,12 +126,9 @@ class SchedulerService:
 
                     # Tenant daily quota: jobs created today per tenant.
                     if job.client_id not in daily_counts:
-                        daily_stmt = (
-                            select(func.count(WaybillJob.id))
-                            .where(
-                                WaybillJob.client_id == job.client_id,
-                                WaybillJob.created_at >= today_start,
-                            )
+                        daily_stmt = select(func.count(WaybillJob.id)).where(
+                            WaybillJob.client_id == job.client_id,
+                            WaybillJob.created_at >= today_start,
                         )
                         daily_counts[job.client_id] = (await session.exec(daily_stmt)).one()
                     if daily_counts[job.client_id] >= client.max_daily_tasks:
@@ -148,27 +146,45 @@ class SchedulerService:
                         attempt_no=attempt_no,
                         operation="submit",
                         fencing_token=attempt_no,
-                        status="pending"
+                        status="pending",
                     )
                     session.add(intent)
 
-                    # Set the active execution slot on the driver runtime state
-                    # Create runtime state if it doesn't exist (ensures concurrency safety)
-                    driver_state_stmt = select(DriverRuntimeState).where(DriverRuntimeState.driver_id == job.driver_id).with_for_update()
+                    # Set the active execution slot on the driver runtime state.
+                    # If the runtime state does not exist yet, create it
+                    # atomically: two concurrent schedulers racing for the same
+                    # driver (a unique constraint on driver_id) must not both
+                    # insert. Creation is wrapped in a nested transaction and
+                    # retried by re-fetching on IntegrityError.
+                    driver_state_stmt = (
+                        select(DriverRuntimeState)
+                        .where(DriverRuntimeState.driver_id == job.driver_id)
+                        .with_for_update()
+                    )
                     driver_state_res = await session.exec(driver_state_stmt)
                     driver_state = driver_state_res.first()
                     if driver_state:
                         driver_state.active_execution_id = intent_id
                         session.add(driver_state)
                     else:
-                        # Create DriverRuntimeState if missing (self-heal)
-                        driver_state = DriverRuntimeState(
-                            client_id=job.client_id,
-                            driver_id=job.driver_id,
-                            active_execution_id=intent_id,
-                            state="SUBMITTING",
-                        )
-                        session.add(driver_state)
+                        try:
+                            async with session.begin_nested():
+                                driver_state = DriverRuntimeState(
+                                    client_id=job.client_id,
+                                    driver_id=job.driver_id,
+                                    active_execution_id=intent_id,
+                                    state="SUBMITTING",
+                                )
+                                session.add(driver_state)
+                                await session.flush()
+                        except IntegrityError:
+                            # Lost the race — a concurrent scheduler created it.
+                            driver_state_res2 = await session.exec(driver_state_stmt)
+                            driver_state2 = driver_state_res2.first()
+                            if driver_state2 is None:
+                                raise
+                            driver_state2.active_execution_id = intent_id
+                            session.add(driver_state2)
 
                     # Transition job to queued status
                     JobStateMachine.transition(session, job, TaskStatus.QUEUED.value)
@@ -179,7 +195,9 @@ class SchedulerService:
 
                 await session.commit()
                 if scheduled_count > 0:
-                    logger.info(f"Scheduled {scheduled_count} jobs as pending dispatch intents ({skipped} skipped by policy).")
+                    logger.info(
+                        f"Scheduled {scheduled_count} jobs as pending dispatch intents ({skipped} skipped by policy)."
+                    )
                 return scheduled_count
 
             except Exception as e:

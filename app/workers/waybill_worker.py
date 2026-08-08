@@ -36,6 +36,7 @@ from app.models_multitenant import (
     WaybillTaskLog,
 )
 from app.models_rpa import DispatchIntent, DomainEvent, DriverRuntimeState, DriverRuntimeStateValue, Execution
+from app.orchestrator.driver_slot import release_driver_execution_slot
 from app.orchestrator.state_machine import JobStateMachine, StateTransitionError
 from app.rpa.event_taxonomy import (
     JOB_EXECUTION_FAILED,
@@ -192,6 +193,7 @@ async def _assert_still_valid(execution_id: str, fencing_token: int) -> None:
 async def _claim_and_execute(task: Any, intent_id: str):
     import os
     import socket
+
     worker_id = os.environ.get("WORKER_ID", socket.gethostname())
 
     from app.automation.worker_proxy import (
@@ -239,8 +241,13 @@ async def _claim_and_execute(task: Any, intent_id: str):
                         last_error=f"Worker {worker_id} is draining",
                         error_category=ErrorCategory.TRANSIENT_INFRA_ERROR.value,
                         next_retry_at=datetime.now(UTC).replace(tzinfo=None),
-                        submit_after=datetime.now(UTC).replace(tzinfo=None)
+                        submit_after=datetime.now(UTC).replace(tzinfo=None),
                     )
+                # Drain is a pre-execution failure: no Execution exists yet, so
+                # the driver slot must be released or the job stays stuck in
+                # WAITING_RETRY forever (the scheduler skips non-null slots).
+                if job and job.driver_id:
+                    await release_driver_execution_slot(session, driver_id=job.driver_id, expected_intent_id=intent_id)
                 await session.commit()
                 raise ConnectionError(f"Worker {worker_id} is currently draining")
 
@@ -265,8 +272,12 @@ async def _claim_and_execute(task: Any, intent_id: str):
                         last_error=f"Proxy unavailable: {proxy_exc}",
                         error_category=ErrorCategory.TRANSIENT_INFRA_ERROR.value,
                         next_retry_at=datetime.now(UTC).replace(tzinfo=None),
-                        submit_after=datetime.now(UTC).replace(tzinfo=None)
+                        submit_after=datetime.now(UTC).replace(tzinfo=None),
                     )
+                # Proxy failure is pre-execution: no Execution exists, release
+                # the driver slot so the scheduler can re-dispatch this job.
+                if job and job.driver_id:
+                    await release_driver_execution_slot(session, driver_id=job.driver_id, expected_intent_id=intent_id)
                 await session.commit()
                 raise ConnectionError(f"Proxy unavailable: {proxy_exc}") from proxy_exc
             if proxy_url:
@@ -294,7 +305,13 @@ async def _claim_and_execute(task: Any, intent_id: str):
                             last_error=f"Proxy {proxy_url} is unhealthy",
                             error_category=ErrorCategory.TRANSIENT_INFRA_ERROR.value,
                             next_retry_at=datetime.now(UTC).replace(tzinfo=None),
-                            submit_after=datetime.now(UTC).replace(tzinfo=None)
+                            submit_after=datetime.now(UTC).replace(tzinfo=None),
+                        )
+                    # Proxy unhealthy is a pre-execution failure: no Execution
+                    # exists, so release the driver slot to avoid a stuck job.
+                    if job and job.driver_id:
+                        await release_driver_execution_slot(
+                            session, driver_id=job.driver_id, expected_intent_id=intent_id
                         )
                     await session.commit()
                     raise ConnectionError(f"Proxy {proxy_url} is unhealthy")
@@ -326,7 +343,7 @@ async def _claim_and_execute(task: Any, intent_id: str):
                 worker_id=worker_id,
                 fencing_token=intent.fencing_token,
                 lease_expires_at=lease_expires_at,
-                status="running"
+                status="running",
             )
             session.add(execution)
 
@@ -337,7 +354,7 @@ async def _claim_and_execute(task: Any, intent_id: str):
                 TaskStatus.RUNNING.value,
                 started_at=datetime.now(UTC).replace(tzinfo=None),
                 attempt_count=job.attempt_count + 1,
-                worker_id=worker_id
+                worker_id=worker_id,
             )
             await session.commit()
 
@@ -349,9 +366,7 @@ async def _claim_and_execute(task: Any, intent_id: str):
     # Lease renewal loop
     stop_event = threading.Event()
     renewal_thread = threading.Thread(
-        target=_renew_lease_sync_loop,
-        args=(execution_id, intent.fencing_token, stop_event),
-        daemon=True
+        target=_renew_lease_sync_loop, args=(execution_id, intent.fencing_token, stop_event), daemon=True
     )
     renewal_thread.start()
 
@@ -384,6 +399,7 @@ async def _claim_and_execute(task: Any, intent_id: str):
 async def _claim_and_reconcile(task: Any, intent_id: str):
     import os
     import socket
+
     worker_id = os.environ.get("WORKER_ID", socket.gethostname())
 
     from app.automation.worker_proxy import (
@@ -430,8 +446,12 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
                         TaskStatus.UNKNOWN.value,
                         expected_from={TaskStatus.CLAIMED.value},
                         last_error=f"Worker {worker_id} is draining during reconciliation",
-                        error_category=ErrorCategory.TRANSIENT_INFRA_ERROR.value
+                        error_category=ErrorCategory.TRANSIENT_INFRA_ERROR.value,
                     )
+                # Pre-execution failure (no Execution yet): free the driver slot
+                # so reconciliation can be re-driven later via a fresh intent.
+                if job and job.driver_id:
+                    await release_driver_execution_slot(session, driver_id=job.driver_id, expected_intent_id=intent_id)
                 await session.commit()
                 raise ConnectionError(f"Worker {worker_id} is currently draining")
 
@@ -455,8 +475,11 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
                         TaskStatus.UNKNOWN.value,
                         expected_from={TaskStatus.CLAIMED.value},
                         last_error=f"Proxy unavailable during reconciliation: {proxy_exc}",
-                        error_category=ErrorCategory.TRANSIENT_INFRA_ERROR.value
+                        error_category=ErrorCategory.TRANSIENT_INFRA_ERROR.value,
                     )
+                # Pre-execution failure: free the driver slot for re-reconciliation.
+                if job and job.driver_id:
+                    await release_driver_execution_slot(session, driver_id=job.driver_id, expected_intent_id=intent_id)
                 await session.commit()
                 raise ConnectionError(f"Proxy unavailable: {proxy_exc}") from proxy_exc
             if proxy_url:
@@ -483,7 +506,12 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
                             TaskStatus.UNKNOWN.value,
                             expected_from={TaskStatus.CLAIMED.value},
                             last_error=f"Proxy {proxy_url} is unhealthy during reconciliation",
-                            error_category=ErrorCategory.TRANSIENT_INFRA_ERROR.value
+                            error_category=ErrorCategory.TRANSIENT_INFRA_ERROR.value,
+                        )
+                    # Pre-execution failure: free the driver slot for re-reconciliation.
+                    if job and job.driver_id:
+                        await release_driver_execution_slot(
+                            session, driver_id=job.driver_id, expected_intent_id=intent_id
                         )
                     await session.commit()
                     raise ConnectionError(f"Proxy {proxy_url} is unhealthy")
@@ -516,18 +544,14 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
                 worker_id=worker_id,
                 fencing_token=intent.fencing_token,
                 lease_expires_at=lease_expires_at,
-                status="running"
+                status="running",
             )
             session.add(execution)
 
             # Transition job status to RECONCILING
             from app.orchestrator.state_machine import JobStatus
-            JobStateMachine.transition(
-                session,
-                job,
-                JobStatus.RECONCILING.value,
-                worker_id=worker_id
-            )
+
+            JobStateMachine.transition(session, job, JobStatus.RECONCILING.value, worker_id=worker_id)
             await session.commit()
 
         except Exception as e:
@@ -538,15 +562,14 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
     # Lease renewal loop
     stop_event = threading.Event()
     renewal_thread = threading.Thread(
-        target=_renew_lease_sync_loop,
-        args=(execution_id, intent.fencing_token, stop_event),
-        daemon=True
+        target=_renew_lease_sync_loop, args=(execution_id, intent.fencing_token, stop_event), daemon=True
     )
     renewal_thread.start()
 
     try:
         # Run reconciliation service
         from app.orchestrator.reconciliation_service import reconciliation_service
+
         async with async_session_factory() as run_session:
             reconciled_job = await reconciliation_service.reconcile_job(
                 session=run_session,
@@ -601,17 +624,14 @@ async def _finalize_execution(execution_id: str, intent_id: str, status: str, re
             exec_row.updated_at = datetime.now(UTC).replace(tzinfo=None)
             session.add(exec_row)
 
-            # Clear active execution slot on completion
+            # Clear active execution slot on completion. The execution row was
+            # already moved to a terminal status above, so it is no longer a
+            # live execution and the slot may be safely released.
             job_stmt = select(WaybillJob).where(WaybillJob.job_id == exec_row.job_id)
             job_res = await session.exec(job_stmt)
             job = job_res.first()
-            if job:
-                driver_state_stmt = select(DriverRuntimeState).where(DriverRuntimeState.driver_id == job.driver_id).with_for_update()
-                driver_state_res = await session.exec(driver_state_stmt)
-                driver_state = driver_state_res.first()
-                if driver_state:
-                    driver_state.active_execution_id = None
-                    session.add(driver_state)
+            if job and job.driver_id:
+                await release_driver_execution_slot(session, driver_id=job.driver_id, expected_intent_id=intent_id)
 
             # Update intent
             intent_statement = select(DispatchIntent).where(DispatchIntent.intent_id == intent_id).with_for_update()
@@ -634,6 +654,7 @@ def _renew_lease_sync_loop(execution_id: str, fencing_token: int, stop_event: th
 
     while not stop_event.wait(timeout=30):
         try:
+
             async def _update():
                 async with async_session_factory() as session:
                     stmt = select(Execution).where(Execution.execution_id == execution_id).with_for_update()
@@ -647,11 +668,14 @@ def _renew_lease_sync_loop(execution_id: str, fencing_token: int, stop_event: th
                             )
                             stop_event.set()
                             return
-                        exec_row.lease_expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=lease_duration)
+                        exec_row.lease_expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(
+                            seconds=lease_duration
+                        )
                         exec_row.updated_at = datetime.now(UTC).replace(tzinfo=None)
                         session.add(exec_row)
                         await session.commit()
                         logger.debug(f"Lease renewed for execution {execution_id}")
+
             _run(_update())
         except Exception as e:
             logger.warning(f"Failed to renew lease for execution {execution_id}: {e}")
@@ -730,12 +754,12 @@ async def _execute_job(
                     TaskStatus.NEEDS_REVIEW.value,
                     error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
                     last_error="Success state has no UTCMS tracking code",
-                    updated_at=_utcnow_naive()
+                    updated_at=_utcnow_naive(),
                 )
                 await session.commit()
                 logger.warning("Waybill job %s has success status without tracking code", job_id)
                 return {"status": TaskStatus.NEEDS_REVIEW.value, "skipped": True}
-            is_running_path = (job.status == TaskStatus.RUNNING.value)
+            is_running_path = job.status == TaskStatus.RUNNING.value
 
             if not is_running_path:
                 allowed_statuses = {
@@ -748,8 +772,14 @@ async def _execute_job(
                 if job.status not in allowed_statuses:
                     # Allow reclaiming IN_PROGRESS jobs if stuck for > 5 minutes (worker lost/requeued)
                     stale_threshold = _utcnow_naive() - timedelta(minutes=5)
-                    if job.status == TaskStatus.IN_PROGRESS.value and job.updated_at and job.updated_at < stale_threshold:
-                        logger.warning(f"Reclaiming stuck IN_PROGRESS job {job_id} (last updated {job.updated_at.isoformat()})")
+                    if (
+                        job.status == TaskStatus.IN_PROGRESS.value
+                        and job.updated_at
+                        and job.updated_at < stale_threshold
+                    ):
+                        logger.warning(
+                            f"Reclaiming stuck IN_PROGRESS job {job_id} (last updated {job.updated_at.isoformat()})"
+                        )
                     else:
                         logger.info("Skipping waybill job %s in non-claimable status %s", job_id, job.status)
                         return {"status": job.status, "skipped": True}
@@ -765,7 +795,7 @@ async def _execute_job(
                     attempt_count=job.attempt_count + 1,
                     worker_id=task.request.hostname,
                     updated_at=_utcnow_naive(),
-                    submit_after=None
+                    submit_after=None,
                 )
                 # Generate and store submission fingerprint for reconciliation
                 if isinstance(job.payload_json, dict):
@@ -822,7 +852,7 @@ async def _execute_job(
                     last_error=str(exc),
                     error_category="driver_key_mismatch",
                     finished_at=_utcnow_naive(),
-                    updated_at=_utcnow_naive()
+                    updated_at=_utcnow_naive(),
                 )
                 await session.commit()
                 return {"status": TaskStatus.NEEDS_REVIEW.value, "error_category": "driver_key_mismatch"}
@@ -842,7 +872,7 @@ async def _execute_job(
                     submit_after=retry_at,
                     last_error="Another authorization is already running for this driver",
                     error_category="driver_submission_in_progress",
-                    updated_at=_utcnow_naive()
+                    updated_at=_utcnow_naive(),
                 )
                 await session.commit()
                 return {"status": TaskStatus.WAITING_RETRY.value, "next_retry_at": retry_at.isoformat()}
@@ -876,7 +906,7 @@ async def _execute_job(
                     submit_after=retry_at,
                     last_error="Another waybill submission is already running for this driver",
                     error_category="driver_submission_in_progress",
-                    updated_at=_utcnow_naive()
+                    updated_at=_utcnow_naive(),
                 )
                 await session.commit()
                 return {"status": TaskStatus.WAITING_RETRY.value, "next_retry_at": retry_at.isoformat()}
@@ -922,7 +952,7 @@ async def _execute_job(
                         submit_after=retry_at,
                         last_error=f"Session version mismatch (stored version {stored_version} is less than DB version {expected_version})",
                         error_category="session_version_mismatch",
-                        updated_at=_utcnow_naive()
+                        updated_at=_utcnow_naive(),
                     )
                     await session.commit()
                     return {"status": TaskStatus.WAITING_RETRY.value, "error_category": "session_version_mismatch"}
@@ -946,7 +976,7 @@ async def _execute_job(
                     submit_after=retry_at,
                     last_error=f"Redis session vault check failed: {e}",
                     error_category="session_vault_error",
-                    updated_at=_utcnow_naive()
+                    updated_at=_utcnow_naive(),
                 )
                 await session.commit()
                 return {"status": TaskStatus.WAITING_RETRY.value, "error_category": "session_vault_error"}
@@ -1003,7 +1033,7 @@ async def _execute_job(
                             submit_after=retry_at,
                             last_error=result.get("message", "OTP challenge detected"),
                             error_category="otp_required",
-                            finished_at=now
+                            finished_at=now,
                         )
                         runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
                         runtime_state.next_retry_at = retry_at
@@ -1033,7 +1063,9 @@ async def _execute_job(
 
                     if result_status == TaskStatus.SUCCESS.value:
                         result_payload = result.get("result")
-                        tracking_code = result_payload.get("tracking_code") if isinstance(result_payload, dict) else None
+                        tracking_code = (
+                            result_payload.get("tracking_code") if isinstance(result_payload, dict) else None
+                        )
                         if not tracking_code:
                             result_status = TaskStatus.FAILED.value
                             result["status"] = TaskStatus.FAILED.value
@@ -1049,7 +1081,7 @@ async def _execute_job(
                                 last_error=None,
                                 error_category=None,
                                 retryable=False,
-                                next_retry_at=None
+                                next_retry_at=None,
                             )
                             runtime_state.state = DriverRuntimeStateValue.READY.value
                             runtime_state.next_retry_at = None
@@ -1096,7 +1128,7 @@ async def _execute_job(
                             retryable=True,
                             next_retry_at=retry_at,
                             submit_after=retry_at,
-                            finished_at=None
+                            finished_at=None,
                         )
                         runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
                         runtime_state.next_retry_at = retry_at
@@ -1135,7 +1167,8 @@ async def _execute_job(
 
                     target_status = (
                         TaskStatus.NEEDS_REVIEW.value
-                        if job.error_category in {
+                        if job.error_category
+                        in {
                             ErrorCategory.AUTH_FAILURE.value,
                             ErrorCategory.USER_DATA_ERROR.value,
                             ErrorCategory.SELECTOR_CHANGED.value,
@@ -1144,12 +1177,7 @@ async def _execute_job(
                         else TaskStatus.FAILED.value
                     )
                     JobStateMachine.transition(
-                        session,
-                        job,
-                        target_status,
-                        retryable=False,
-                        finished_at=now,
-                        next_retry_at=None
+                        session, job, target_status, retryable=False, finished_at=now, next_retry_at=None
                     )
                     runtime_state.state = DriverRuntimeStateValue.READY.value
                     runtime_state.next_retry_at = None
@@ -1188,12 +1216,14 @@ async def _execute_job(
             # Track worker failures for auto-heal draining
             import os
             import socket
+
             w_id = os.environ.get("WORKER_ID", socket.gethostname())
             from app.automation.worker_proxy import (
                 drain_worker_consumers,
                 increment_worker_failures,
                 transition_worker_to_draining,
             )
+
             w_failures = await increment_worker_failures(w_id)
             if w_failures > 3:
                 await transition_worker_to_draining(w_id)
@@ -1222,7 +1252,7 @@ async def _execute_job(
                         TaskStatus.NEEDS_REVIEW.value,
                         last_error=str(e),
                         error_category=classify_exception(e)[0].value,
-                        finished_at=_utcnow_naive()
+                        finished_at=_utcnow_naive(),
                     )
                     runtime_state.state = DriverRuntimeStateValue.ERROR_REVIEW.value
                     runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
