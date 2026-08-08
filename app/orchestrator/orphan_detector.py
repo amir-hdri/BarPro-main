@@ -1,10 +1,13 @@
 import logging
 import uuid
 from datetime import UTC, datetime
+
 from sqlmodel import select
+
 from app.core.database import async_session_factory
-from app.models_multitenant import WaybillJob, TaskStatus
+from app.models_multitenant import TaskStatus, WaybillJob
 from app.models_rpa import DispatchIntent, Execution
+from app.orchestrator.driver_slot import release_driver_execution_slot
 from app.orchestrator.state_machine import JobStateMachine, StateTransitionError
 
 logger = logging.getLogger(__name__)
@@ -27,10 +30,10 @@ class OrphanDetector:
                     .where(Execution.lease_expires_at < now)
                     .with_for_update(skip_locked=True)
                 )
-                
+
                 result = await session.exec(statement)
                 stale_executions = result.all()
-                
+
                 if not stale_executions:
                     return 0
 
@@ -40,21 +43,22 @@ class OrphanDetector:
                     exec_row.status = "orphaned"
                     exec_row.updated_at = now
                     session.add(exec_row)
-                    
+
                     # Fetch waybill job
                     job_stmt = select(WaybillJob).where(WaybillJob.job_id == exec_row.job_id).with_for_update()
                     job_res = await session.exec(job_stmt)
                     job = job_res.first()
-                    
+
                     if job:
-                        # Clear active execution slot
-                        from app.models_rpa import DriverRuntimeState
-                        driver_stmt = select(DriverRuntimeState).where(DriverRuntimeState.driver_id == job.driver_id).with_for_update()
-                        driver_res = await session.exec(driver_stmt)
-                        driver_state = driver_res.first()
-                        if driver_state:
-                            driver_state.active_execution_id = None
-                            session.add(driver_state)
+                        # Clear active execution slot. The execution was already
+                        # moved to a terminal "orphaned" status above, so it is
+                        # no longer live and the slot may be released safely.
+                        if job.driver_id:
+                            await release_driver_execution_slot(
+                                session,
+                                driver_id=job.driver_id,
+                                expected_intent_id=exec_row.intent_id,
+                            )
 
                         # Move job status to unknown (meaning it needs reconciliation)
                         try:
@@ -66,8 +70,8 @@ class OrphanDetector:
                                     TaskStatus.RUNNING.value,
                                     TaskStatus.IN_PROGRESS.value,
                                     TaskStatus.CLAIMED.value,
-                                    TaskStatus.QUEUED.value
-                                }
+                                    TaskStatus.QUEUED.value,
+                                },
                             )
                         except StateTransitionError as transition_err:
                             # Job is in an unexpected state (manual intervention or
@@ -95,16 +99,16 @@ class OrphanDetector:
                             attempt_no=exec_row.attempt_no,
                             operation="reconciliation",
                             fencing_token=exec_row.fencing_token,
-                            status="pending"
+                            status="pending",
                         )
                         session.add(intent)
                         orphaned_count += 1
-                        
+
                 await session.commit()
                 if orphaned_count > 0:
                     logger.warning(f"OrphanDetector marked {orphaned_count} executions as orphaned.")
                 return orphaned_count
-                
+
             except Exception as e:
                 logger.error(f"Orphan detector failed: {e}", exc_info=True)
                 await session.rollback()

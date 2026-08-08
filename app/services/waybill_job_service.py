@@ -20,8 +20,9 @@ from app.models_multitenant import (
     WaybillJob,
     WaybillTaskLog,
 )
-from app.models_rpa import DomainEvent, DriverRuntimeState, DriverRuntimeStateValue
-from app.orchestrator.state_machine import JobStateMachine
+from app.models_rpa import DomainEvent, DriverRuntimeState, DriverRuntimeStateValue, WaybillAttempt
+from app.orchestrator.driver_slot import release_driver_execution_slot
+from app.orchestrator.state_machine import ALLOWED_TRANSITIONS, JobStateMachine
 from app.rpa.event_taxonomy import (
     JOB_RETRY_REQUESTED,
     timeline_phase_for,
@@ -575,7 +576,10 @@ class WaybillJobService:
         - Jobs that are merely queued (still waiting for a worker) are
           transitioned to CANCELLED and their driver slot is released
           immediately: nothing is executing, so releasing is safe.
-        - Draft/terminal jobs that never ran are hard-deleted for cleanup.
+        - Terminal jobs are soft-cancelled (archived) when they still carry
+          child records (DispatchIntent, Execution, WaybillTaskLog,
+          DomainEvent, WaybillAttempt) — destroying the audit trail would be
+          unsafe. Only a truly childless job is hard-deleted.
         """
         statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
         result = await session.exec(statement)
@@ -587,7 +591,7 @@ class WaybillJobService:
                 detail="Job not found",
             )
 
-        from app.models_rpa import DispatchIntent, DriverRuntimeState, Execution
+        from app.models_rpa import DispatchIntent, Execution
 
         # Does a worker still own this job?
         live_exec = None
@@ -631,10 +635,14 @@ class WaybillJobService:
             # Cancel any pending/claimed dispatch intents for this job so the
             # dispatcher never tries to claim a CANCELLED job (leaving fresh
             # intents behind would let the dispatcher hit a state-machine error).
-            intents_stmt = select(DispatchIntent).where(
-                DispatchIntent.job_id == job.job_id,
-                DispatchIntent.status.in_(["pending", "claimed"]),
-            ).with_for_update(skip_locked=True)
+            intents_stmt = (
+                select(DispatchIntent)
+                .where(
+                    DispatchIntent.job_id == job.job_id,
+                    DispatchIntent.status.in_(["pending", "claimed"]),
+                )
+                .with_for_update(skip_locked=True)
+            )
             intents = (await session.exec(intents_stmt)).all()
             now = datetime.now(UTC).replace(tzinfo=None)
             for intent in intents:
@@ -642,19 +650,56 @@ class WaybillJobService:
                 intent.updated_at = now
                 session.add(intent)
             # Release the driver slot only when the worker is guaranteed to
-            # no longer be running this job (no live Execution).
+            # no longer be running this job (no live Execution). The helper
+            # additionally guards against freeing a slot whose intent has a
+            # live Execution. No ownership pin is used here because several
+            # pending/claimed intents may share the job and the slot may hold
+            # any of them.
             if job.driver_id and not live_exec:
-                driver_stmt = select(DriverRuntimeState).where(
-                    DriverRuntimeState.driver_id == job.driver_id
-                ).with_for_update()
-                driver_res = await session.exec(driver_stmt)
-                driver_state = driver_res.first()
-                if driver_state and driver_state.active_execution_id:
-                    driver_state.active_execution_id = None
-                    session.add(driver_state)
+                await release_driver_execution_slot(session, driver_id=job.driver_id, expected_intent_id=None)
             await session.commit()
             return
 
-        # Safe to hard delete only for non-active jobs
+        # Terminal / inactive job. Hard delete is only allowed when the job is
+        # completely childless — otherwise we would destroy the audit trail
+        # (executions, attempts, task logs, domain events, intents). In that
+        # case the job is soft-cancelled (archived) instead.
+        from app.models_rpa import Execution
+
+        child_tables = [
+            select(DispatchIntent.id).where(DispatchIntent.job_id == job.job_id).limit(1),
+            select(Execution.id).where(Execution.job_id == job.job_id).limit(1),
+            select(WaybillTaskLog.id).where(WaybillTaskLog.job_id == job.job_id).limit(1),
+            select(DomainEvent.id).where(DomainEvent.job_id == job.job_id).limit(1),
+            select(WaybillAttempt.id).where(WaybillAttempt.job_id == job.job_id).limit(1),
+        ]
+        has_children = False
+        for child_stmt in child_tables:
+            if (await session.exec(child_stmt)).first() is not None:
+                has_children = True
+                break
+
+        if has_children:
+            # Prefer archiving (soft-cancel). Some terminal statuses (e.g.
+            # SUCCESS) deliberately do not allow a transition to CANCELLED in
+            # the state machine (the waybill was actually registered), so for
+            # those we refuse deletion rather than destroying the audit trail.
+            if TaskStatus.CANCELLED.value not in ALLOWED_TRANSITIONS.get(job.status, set()):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Job in '{job.status}' has child records and cannot be cancelled/deleted; its audit trail must be preserved.",
+                )
+            JobStateMachine.transition(
+                session,
+                job,
+                TaskStatus.CANCELLED.value,
+                terminal_reason="Archived by client (has child records; not hard-deleted)",
+                finished_at=datetime.now(UTC).replace(tzinfo=None),
+            )
+            session.add(job)
+            await session.commit()
+            return
+
+        # Truly childless terminal job — safe to hard delete.
         await session.delete(job)
         await session.commit()

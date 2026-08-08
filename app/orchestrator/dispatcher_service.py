@@ -6,6 +6,7 @@ from sqlmodel import select
 from app.core.database import async_session_factory
 from app.models_multitenant import TaskStatus, WaybillJob
 from app.models_rpa import DispatchIntent
+from app.orchestrator.driver_slot import release_driver_execution_slot
 from app.orchestrator.state_machine import JobStateMachine
 from app.workers.celery_app import celery_app
 
@@ -79,30 +80,28 @@ class DispatcherService:
                             base_queue = "waybill_tasks"
 
                         from app.core.circuit_breaker import get_routed_queue
+
                         routed_queue = get_routed_queue(base_queue)
 
                         celery_app.send_task(
-                            task_name,
-                            args=[intent.intent_id],
-                            queue=routed_queue,
-                            priority=job.priority or 5
+                            task_name, args=[intent.intent_id], queue=routed_queue, priority=job.priority or 5
                         )
                         dispatched_count += 1
                     else:
                         logger.warning("Celery app not initialized, cannot dispatch task")
                         intent.status = "failed"
                         session.add(intent)
-                        # Recover: free driver slot and revert job so scheduler can retry later
+                        # Recover: free driver slot and revert job so scheduler can retry later.
+                        # No Execution was created (dispatch never reached the worker), so the
+                        # slot can be released safely.
                         if job.driver_id:
-                            from app.models_rpa import DriverRuntimeState
-                            ds_stmt = select(DriverRuntimeState).where(DriverRuntimeState.driver_id == job.driver_id).with_for_update()
-                            ds_res = await session.exec(ds_stmt)
-                            ds = ds_res.first()
-                            if ds:
-                                ds.active_execution_id = None
-                                session.add(ds)
+                            await release_driver_execution_slot(
+                                session, driver_id=job.driver_id, expected_intent_id=intent.intent_id
+                            )
                         JobStateMachine.transition(
-                            session, job, TaskStatus.WAITING_RETRY.value,
+                            session,
+                            job,
+                            TaskStatus.WAITING_RETRY.value,
                             next_retry_at=datetime.now(UTC).replace(tzinfo=None),
                             last_error="Celery unavailable during dispatch",
                             error_category="system_error",

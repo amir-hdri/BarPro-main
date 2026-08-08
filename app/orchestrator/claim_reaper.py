@@ -5,10 +5,13 @@ Execution or Celery task running.
 
 import logging
 from datetime import UTC, datetime, timedelta
+
 from sqlmodel import select
+
 from app.core.database import async_session_factory
-from app.models_multitenant import WaybillJob, TaskStatus
-from app.models_rpa import DispatchIntent, Execution, DriverRuntimeState
+from app.models_multitenant import TaskStatus, WaybillJob
+from app.models_rpa import DispatchIntent, Execution
+from app.orchestrator.driver_slot import release_driver_execution_slot
 from app.orchestrator.state_machine import JobStateMachine, StateTransitionError
 
 logger = logging.getLogger(__name__)
@@ -48,8 +51,7 @@ class ClaimReaper:
                 for job in stale_claimed_jobs:
                     # Check if there's an active Execution for this job
                     exec_stmt = select(Execution).where(
-                        Execution.job_id == job.job_id,
-                        Execution.status.in_(["pending", "running"])
+                        Execution.job_id == job.job_id, Execution.status.in_(["pending", "running"])
                     )
                     exec_res = await session.exec(exec_stmt)
                     active_execution = exec_res.first()
@@ -60,8 +62,7 @@ class ClaimReaper:
 
                     # Check if there's a pending/claimed DispatchIntent for this job
                     intent_stmt = select(DispatchIntent).where(
-                        DispatchIntent.job_id == job.job_id,
-                        DispatchIntent.status.in_(["pending", "claimed"])
+                        DispatchIntent.job_id == job.job_id, DispatchIntent.status.in_(["pending", "claimed"])
                     )
                     intent_res = await session.exec(intent_stmt)
                     active_intent = intent_res.first()
@@ -98,16 +99,16 @@ class ClaimReaper:
 
                     # No live execution and no deliverable intent — this is an
                     # orphaned claimed job. Clear the driver slot and let the
-                    # scheduler re-dispatch it.
+                    # scheduler re-dispatch it. The reaper verified above there
+                    # is no live Execution, so releasing is safe. If a stale
+                    # claimed intent was expired above, pin the ownership guard
+                    # to that intent; otherwise release whatever slot remains.
                     if job.driver_id:
-                        driver_stmt = select(DriverRuntimeState).where(
-                            DriverRuntimeState.driver_id == job.driver_id
-                        ).with_for_update()
-                        driver_res = await session.exec(driver_stmt)
-                        driver_state = driver_res.first()
-                        if driver_state:
-                            driver_state.active_execution_id = None
-                            session.add(driver_state)
+                        await release_driver_execution_slot(
+                            session,
+                            driver_id=job.driver_id,
+                            expected_intent_id=active_intent.intent_id if active_intent else None,
+                        )
 
                     # Transition job to WAITING_RETRY so scheduler can pick it up
                     try:
