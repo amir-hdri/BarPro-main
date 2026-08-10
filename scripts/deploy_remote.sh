@@ -153,11 +153,10 @@ NEXT_PUBLIC_API_URL="/api"
 # Node 2) exist. AVAILABLE_IP_INDICES must be topology-specific, not a global
 # "1,2,3" (NEW-2). WORKER_1_PROXY uses the Docker bridge gateway 172.20.0.1
 # because "squid_1" (network_mode: host) has no DNS name inside the worker
-# container (X2). WORKER_2_PROXY points at Node 2's public Squid, which
-# _resolve_to_ip() now keeps untouched (X1).
+# container (X2). WORKER_2_PROXY points at Node 2's public Squid (port 3128).
 AVAILABLE_IP_INDICES="1,2"
 WORKER_1_PROXY="http://172.20.0.1:3128"
-WORKER_2_PROXY="http://${NODE2_IP}:3129"
+WORKER_2_PROXY="http://${NODE2_IP}:3128"
 EOF
 
     echo "📤 Transferring files to Node 1..."
