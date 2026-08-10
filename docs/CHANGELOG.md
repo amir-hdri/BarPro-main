@@ -2,6 +2,26 @@
   
   All notable changes to the UTCMS Automation System.
   
+  ## [2.5.0] - 2026-08-10
+  
+  ### Fixed
+  - **Proxy Health Check URL**: Changed target from `barname.utcms.ir` to `https://utcms.ir` — the previous URL redirected causing false health check failures
+  - **Scheduler FOR UPDATE Error**: Fixed PostgreSQL `FOR UPDATE SKIP LOCKED` on outer join by moving driver-slot check to a subquery; PostgreSQL rejects `FOR UPDATE` on the nullable side of an outer join
+  - **Test Assertions**: Updated proxy health test expectations to match new URL
+  
+  ### Files Changed
+  - `app/api/routes/system.py`
+  - `app/automation/proxy_rotator.py`
+  - `app/automation/worker_proxy.py`
+  - `app/orchestrator/scheduler_service.py`
+  - `scripts/verify_system_connections.py`
+  - `tests/test_worker_proxy_health.py`
+  
+  ### Documentation
+  - Updated AGENTS.md, ISSUES.md, README.md with latest changes
+  
+  ---
+  
   ## [2.4.0] - 2026-08-02
 
 ### Added

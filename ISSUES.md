@@ -1,5 +1,5 @@
 # BarPro — وضعیت مشکلات (Issues)
-**آخرین بروزرسانی: 2026-08-02**
+**آخرین بروزرسانی: 2026-08-10**
 
 > ✅ = برطرف شده | ⬜ = نیاز به اقدام کاربر روی سرور | ⚠️ = باید انجام شود
 > 
@@ -26,6 +26,7 @@
 | S13 | `/management/*` و `/reports/*` با هر JWT معتبر در دسترس بودند | ✅ | `require_sensitive_admin` جدید — فقط نقش `master_admin` یا API Key |
 | S14 | `NameError: 'Any'` در `_is_jwt_valid` | ✅ | `from typing import Any` اضافه شد |
 | S15 | حذف `WORKER_STALL_TIMEOUT_SECONDS` تکراری | ✅ | یک تعریف واحد (env-driven) باقی مانده |
+| S16 | Proxy health check URL redirect (barname.utcms.ir) | ✅ | تغییر به `https://utcms.ir` — redirect باعث false negative می‌شد |
 
 ---
 
@@ -47,6 +48,8 @@
 | P12 | Race در claim job توسط reconciler/worker | ✅ | `FOR UPDATE SKIP LOCKED` |
 | P13 | `/readyz` سنگین در هر request (browser + captcha warmup) | ✅ | TTL cache 30s (`READYZ_CACHE_TTL_SECONDS`) |
 | P14 | الگوی N+1 در admin job list | ✅ | Bulk fetch با `Client.id.in_(...)` |
+| P15 | Scheduler FOR UPDATE روی outer join | ✅ | Subquery برای driver-slot check |
+| P16 | Proxy health check false positives (redirect) | ✅ | URL تغییر به `utcms.ir` |
 
 ---
 
@@ -96,6 +99,16 @@
 
 ---
 
+## 🔵 اصلاحات جدید (2026-08-10)
+
+| # | اصلاح | فایل(ها) | وضعیت |
+|---|-------|----------|--------|
+| SF9 | Proxy health check URL از barname.utcms.ir به utcms.ir | `app/api/routes/system.py`, `app/automation/proxy_rotator.py`, `app/automation/worker_proxy.py`, `scripts/verify_system_connections.py` | ✅ |
+| SF10 | Scheduler FOR UPDATE SKIP LOCKED روی outer join fix (subquery) | `app/orchestrator/scheduler_service.py` | ✅ |
+| SF11 | Test assertions آپدیت برای URL جدید | `tests/test_worker_proxy_health.py` | ✅ |
+
+---
+
 ## ⬜ اقدامات باقیمانده روی سرور
 
 ```bash
@@ -123,5 +136,5 @@ echo "@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh" | crontab -
 
 ---
 
-*وضعیت نهایی: 552 تست pass، 2 skip — آماده production deployment*
-*آخرین بروزرسانی: 2026-08-02 — تمام مستندات به‌روز شده‌اند*
+*وضعیت نهایی: 588+ تست pass، 2 skip — آماده production deployment*
+*آخرین بروزرسانی: 2026-08-10 — تمام مستندات به‌روز شده‌اند*

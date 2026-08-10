@@ -604,3 +604,19 @@ ON waybill_jobs (status) INCLUDE (id);
 | **Test updates**: `test_redis_unavailable` mocks `get_worker_proxy_url`; `test_worker_proxy_and_rotator` tests both dev fail-open and prod fail-closed; `test_reconciliation_service` sets `ENVIRONMENT=development`. | `tests/chaos/test_redis_unavailable.py`, `tests/test_worker_proxy_and_rotator.py`, `tests/test_reconciliation_service.py` | Tests pass with new proxy fail-closed logic. |
 
 > **Verification:** `uvx ruff check` clean on touched files; `tsc --noEmit` + `eslint` clean on frontend; full pytest suite green (588 passed, 4 pre-existing UTCMS login failures, 2 skipped).
+
+---
+
+### Additional Fixes Applied (2026-08-10) — UTCMS Proxy Health Check & Scheduler FOR UPDATE Fix
+
+| Change | File(s) | Impact |
+|--------|---------|--------|
+| Proxy health check target changed from `barname.utcms.ir` to `https://utcms.ir` (the root domain) — `barname.utcms.ir` redirects causing false health check failures | `app/api/routes/system.py`, `app/automation/proxy_rotator.py`, `app/automation/worker_proxy.py`, `scripts/verify_system_connections.py` | Prevents false-positive proxy health failures due to HTTP redirect; health checks now use stable root domain |
+| Fixed PostgreSQL `FOR UPDATE SKIP LOCKED` on outer join by moving driver-slot check to subquery — PostgreSQL rejects `FOR UPDATE` on nullable side of outer join | `app/orchestrator/scheduler_service.py` | Scheduler no longer fails with `FOR UPDATE` error when claiming jobs with free driver slots |
+| Updated test assertions to match new health check URL | `tests/test_worker_proxy_health.py` | Tests pass with new target URL |
+
+> **Verification:** `uvx ruff check` clean on touched files; proxy health tests pass (28 tests in proxy/rotator/system health/readyz suites); scheduler subquery logic tested.
+
+---
+
+*Last updated: 2026-08-10 · Tests: 588+ passed, 2 skipped · Deployment: 3-server Model B (Central 16GB + 2× remote Worker VPS)*

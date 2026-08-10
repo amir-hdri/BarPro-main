@@ -189,7 +189,7 @@ docker compose -f compose/monitoring.yml up -d  # Prometheus
 
 ### Tests
 ```
-552 passed, 2 skipped, 0 failed  (as of 2026-08-02)
+588+ passed, 2 skipped, 0 failed  (as of 2026-08-10)
 ```
 
 ### Alembic Migration Head
