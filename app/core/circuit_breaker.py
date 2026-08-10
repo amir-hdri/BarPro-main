@@ -12,11 +12,15 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 import redis
+from sqlalchemy import select
 
 from app.core.config import utcms_config
+from app.core.database import async_session_factory
 from app.core.redis_client import redis_manager
+from app.models_rpa import WorkerRegistry
 
 
 class CircuitOpenError(Exception):
@@ -216,6 +220,150 @@ def get_available_ip_indices() -> list[int]:
         return [1, 2, 3]
 
 
+# ---------------------------------------------------------------------------
+# Worker-registry liveness filter (complement to the Redis circuit breaker)
+#
+# ``get_next_ip_index*`` historically only looked at Redis "blocked" keys
+# (``utcms:circuit_breaker:blocked:{i}``). A remotely crashed worker never
+# writes such a key, so its queue kept being selected forever, creating the
+# ClaimReaper WAITING_RETRY -> Scheduler -> same dead queue loop.
+#
+# The complementary filter below consults ``worker_registry``: any IP index
+# that is positively attributed (via ``ip_index``) to workers which are NOT
+# ``active`` or whose ``last_heartbeat_at`` is older than
+# ``WORKER_HEARTBEAT_STALE_SECONDS`` is removed from the routing pool.
+#
+# Fail-safe rules:
+#   * An index with NO registry rows (unclaimed) stays in the pool — we only
+#     exclude indices we can POSITIVELY attribute to dead workers, so a
+#     partially migrated fleet never shrinks the pool incorrectly.
+#   * Any DB/registry error => empty unavailable-set => previous behavior
+#     (Redis-only routing), the system never stops.
+# ---------------------------------------------------------------------------
+
+# Heartbeat loop in worker_lifecycle writes every ~30s; 90s = 3 missed beats.
+WORKER_HEARTBEAT_STALE_SECONDS = 90
+
+# Short TTL cache so the registry snapshot is not queried on every dispatch.
+# The overall IP selection is already cached for 5s; this bounds DB load
+# while keeping dead-worker detection latency well under the 5-minute
+# ClaimReaper cycle.
+_WORKER_REGISTRY_CACHE_TTL = 5.0
+
+# (unavailable_indices, expires_monotonic) — one cache per async/sync path.
+_worker_registry_snapshot: tuple[frozenset[int], float] | None = None
+_worker_registry_snapshot_sync: tuple[frozenset[int], float] | None = None
+
+# Lazily-created synchronous engine for the legacy sync routing path.
+_worker_sync_engine = None
+_WorkerSyncSession = None
+
+
+def _is_stale_heartbeat(last_heartbeat_at: datetime | None) -> bool:
+    """True when the heartbeat is missing or older than the stale threshold."""
+    if last_heartbeat_at is None:
+        return True
+    # worker_registry stores naive UTC datetimes (see worker_lifecycle._now)
+    now = datetime.now(UTC).replace(tzinfo=None)
+    return (now - last_heartbeat_at) > timedelta(seconds=WORKER_HEARTBEAT_STALE_SECONDS)
+
+
+def _index_unavailable_from_rows(rows) -> set[int]:
+    """Reduce (ip_index, status, last_heartbeat_at) rows to dead indices.
+
+    An index is unavailable ONLY when at least one worker claims it and NONE
+    of its claiming workers is active AND fresh. Unclaimed indices are kept.
+    """
+    claims: dict[int, list[bool]] = {}
+    for ip_index, status, last_heartbeat_at in rows:
+        if ip_index is None:
+            continue
+        healthy = status == "active" and not _is_stale_heartbeat(last_heartbeat_at)
+        claims.setdefault(int(ip_index), []).append(healthy)
+    return {idx for idx, flags in claims.items() if not any(flags)}
+
+
+def _get_worker_sync_session():
+    """Return a synchronous session factory for the registry (lazy, thread-safe enough)."""
+    global _worker_sync_engine, _WorkerSyncSession
+    if _WorkerSyncSession is None:
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        sync_url = utcms_config.DATABASE_URL
+        if sync_url.startswith("postgresql+asyncpg://"):
+            sync_url = sync_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+        elif sync_url.startswith("sqlite+aiosqlite://"):
+            # Local dev convenience — sync engine cannot use the async driver.
+            sync_url = sync_url.replace("sqlite+aiosqlite://", "sqlite://")
+        connect_args = {"connect_timeout": 2} if sync_url.startswith("postgresql") else {}
+        _worker_sync_engine = create_engine(
+            sync_url,
+            pool_size=2,
+            max_overflow=1,
+            pool_pre_ping=True,
+            connect_args=connect_args,
+        )
+        _WorkerSyncSession = sessionmaker(_worker_sync_engine, expire_on_commit=False)
+    return _WorkerSyncSession
+
+
+async def _get_unavailable_ip_indices() -> set[int]:
+    """Async registry lookup — indices attributed to dead/stale workers.
+
+    Fail-safe: returns an empty set on any error (routing falls back to the
+    previous Redis-only behavior).
+    """
+    global _worker_registry_snapshot
+    now = time.monotonic()
+    if _worker_registry_snapshot is not None and now < _worker_registry_snapshot[1]:
+        return set(_worker_registry_snapshot[0])
+
+    unavailable: set[int] = set()
+    try:
+        async with async_session_factory() as session:
+            stmt = select(
+                WorkerRegistry.ip_index,
+                WorkerRegistry.status,
+                WorkerRegistry.last_heartbeat_at,
+            ).where(WorkerRegistry.ip_index.is_not(None))
+            result = await session.exec(stmt)
+            unavailable = _index_unavailable_from_rows(result.all())
+    except Exception as exc:
+        # Fail-safe: registry is a complement, never a hard dependency.
+        logger.warning(f"Worker registry health check failed (async) — falling back to Redis-only routing: {exc}")
+        unavailable = set()
+
+    _worker_registry_snapshot = (frozenset(unavailable), now + _WORKER_REGISTRY_CACHE_TTL)
+    return unavailable
+
+
+def _get_unavailable_ip_indices_sync() -> set[int]:
+    """Sync registry lookup (legacy routing path) — same semantics as async."""
+    global _worker_registry_snapshot_sync
+    now = time.monotonic()
+    if _worker_registry_snapshot_sync is not None and now < _worker_registry_snapshot_sync[1]:
+        return set(_worker_registry_snapshot_sync[0])
+
+    unavailable: set[int] = set()
+    try:
+        session_factory = _get_worker_sync_session()
+        with session_factory() as session:
+            stmt = select(
+                WorkerRegistry.ip_index,
+                WorkerRegistry.status,
+                WorkerRegistry.last_heartbeat_at,
+            ).where(WorkerRegistry.ip_index.is_not(None))
+            rows = session.execute(stmt).all()
+            unavailable = _index_unavailable_from_rows(rows)
+    except Exception as exc:
+        logger.warning(f"Worker registry health check failed (sync) — falling back to Redis-only routing: {exc}")
+        unavailable = set()
+
+    _worker_registry_snapshot_sync = (frozenset(unavailable), now + _WORKER_REGISTRY_CACHE_TTL)
+    return unavailable
+
+
 async def get_next_ip_index() -> int:
     """Async IP index lookup with TTL caching — does NOT block the event loop.
 
@@ -235,10 +383,24 @@ async def get_next_ip_index() -> int:
         if r is None:
             return available_indices[0] if available_indices else 1
 
+        # Complementary filter: drop indices attributed to dead/stale workers.
+        # Fail-safe: on any registry error this returns an empty set and the
+        # pool degrades to the previous Redis-only behavior.
+        unavailable_from_registry = await _get_unavailable_ip_indices()
+
         healthy_ips: list[int] = []
         for i in available_indices:
+            if i in unavailable_from_registry:
+                continue
             if not await r.exists(f"utcms:circuit_breaker:blocked:{i}"):
                 healthy_ips.append(i)
+
+        if not healthy_ips:
+            # Registry filter emptied the pool (e.g. every worker died).
+            # Degrade gracefully: keep honoring Redis blocks, then fall back
+            # to all indices so the system never stops routing.
+            logger.warning("No healthy IP indices after worker-registry filter — falling back to Redis-only health")
+            healthy_ips = [i for i in available_indices if not await r.exists(f"utcms:circuit_breaker:blocked:{i}")]
 
         if not healthy_ips:
             logger.warning(f"All IP addresses are currently blocked! Falling back to all {available_indices}")
@@ -276,11 +438,25 @@ def get_next_ip_index_sync() -> int:
     try:
         r = _get_redis_sync()
 
-        # Check blocked keys in Redis
+        # Complementary filter: drop indices attributed to dead/stale workers.
+        # Fail-safe: on any registry error this returns an empty set and the
+        # pool degrades to the previous Redis-only behavior.
+        unavailable_from_registry = _get_unavailable_ip_indices_sync()
+
+        # Check blocked keys in Redis + worker-registry liveness
         healthy_ips = []
         for i in available_indices:
+            if i in unavailable_from_registry:
+                continue
             if not r.exists(f"utcms:circuit_breaker:blocked:{i}"):
                 healthy_ips.append(i)
+
+        if not healthy_ips:
+            # Registry filter emptied the pool (e.g. every worker died).
+            # Degrade gracefully: keep honoring Redis blocks, then fall back
+            # to all indices so the system never stops routing.
+            logger.warning("No healthy IP indices after worker-registry filter — falling back to Redis-only health")
+            healthy_ips = [i for i in available_indices if not r.exists(f"utcms:circuit_breaker:blocked:{i}")]
 
         if not healthy_ips:
             logger.warning(f"All IP addresses are currently blocked! Falling back to all {available_indices}")

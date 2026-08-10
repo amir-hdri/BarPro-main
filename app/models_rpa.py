@@ -221,6 +221,7 @@ class WorkerRegistry(SQLModel, table=True):
     __tablename__ = "worker_registry"
     __table_args__ = (
         UniqueConstraint("worker_id", name="uq_worker_registry_worker_id"),
+        Index("ix_worker_registry_ip_index", "ip_index"),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -229,6 +230,12 @@ class WorkerRegistry(SQLModel, table=True):
     capabilities_json: str = Field(default="[]", sa_column=Column(Text, nullable=False))
     capacity: int = Field(default=1)
     status: str = Field(default="active", max_length=32, index=True)
+    # Numeric IP index (1, 2, 3, ...) this worker consumes from — must match
+    # AVAILABLE_IP_INDICES on the central dispatcher. NULL means the index
+    # could not be resolved (fail-safe: the routing layer then cannot
+    # attribute this worker to any index, so it never removes an index from
+    # the pool on its behalf).
+    ip_index: int | None = Field(default=None)
     last_heartbeat_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
