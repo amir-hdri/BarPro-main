@@ -95,7 +95,10 @@ def register_worker(worker_id: str, hostname: str, capabilities: list[str], capa
                 worker.capabilities_json = json.dumps(capabilities)
                 worker.capacity = capacity
                 worker.status = "active"
-                worker.ip_index = ip_index
+                # Fail-safe: never overwrite an existing valid attribution
+                # with None when the index can't be resolved right now.
+                if ip_index is not None:
+                    worker.ip_index = ip_index
                 worker.last_heartbeat_at = now
                 worker.updated_at = now
                 session.add(worker)
@@ -139,7 +142,10 @@ def send_heartbeat(worker_id: str) -> None:
                 worker.last_heartbeat_at = _now()
                 # Refresh the index on every heartbeat too — covers workers
                 # that were registered before the env var was set correctly.
-                worker.ip_index = resolve_ip_index(worker_id, worker.hostname or socket.gethostname())
+                # Fail-safe: a None result never wipes an existing mapping.
+                ip_index = resolve_ip_index(worker_id, worker.hostname or socket.gethostname())
+                if ip_index is not None:
+                    worker.ip_index = ip_index
                 worker.updated_at = _now()
                 session.add(worker)
                 session.commit()
