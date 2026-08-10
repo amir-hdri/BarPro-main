@@ -7,7 +7,8 @@
 #   docker compose -f compose/worker-node.yml up -d
 #
 # Required environment variables on the Worker server:
-#   WORKER_ID          — registry identity, e.g. "worker_2" (must match IP index)
+#   WORKER_ID          — numeric registry identity, derived from WORKER_IP_INDEX (2 or 3)
+#                        so it is identical in format to backend.yml ("2", "3" — not "worker_2")
 #   WORKER_IP_INDEX    — numeric IP index: 2 or 3 (must be in AVAILABLE_IP_INDICES
 #                        on the Central server; used for queue suffixes + circuit breaker)
 #   WORKER_PROXY_PORT  — Squid listen port on this server, e.g. "3128"
@@ -71,8 +72,10 @@ services:
       -Q waybill_tasks,waybill_tasks_${WORKER_IP_INDEX},rpa_auth_${WORKER_IP_INDEX},rpa_submit_${WORKER_IP_INDEX},reconciliation_tasks,reconciliation_tasks_${WORKER_IP_INDEX},rpa_scheduler,scheduled_tasks,scheduled_tasks_${WORKER_IP_INDEX},barpro.fuel.inquiry
       --max-tasks-per-child=50
     environment:
-      # Identity
-      WORKER_ID: ${WORKER_ID:?WORKER_ID is required}
+      # Identity — WORKER_ID is derived from WORKER_IP_INDEX so it is always a
+      # numeric value ("2", "3") identical in format to backend.yml, keeping
+      # worker_registry keys and monitoring/dashboard labels consistent.
+      WORKER_ID: ${WORKER_IP_INDEX:?WORKER_IP_INDEX is required (2 or 3, must match AVAILABLE_IP_INDICES on Central)}
       WORKER_IP_INDEX: ${WORKER_IP_INDEX:?WORKER_IP_INDEX is required (2 or 3, must match AVAILABLE_IP_INDICES on Central)}
       # Database (points to Central server — must be reachable via Worker IP allowlist)
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
