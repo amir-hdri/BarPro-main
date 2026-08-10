@@ -140,9 +140,10 @@ class DriverScheduleService:
     @staticmethod
     async def run_due_schedules(client: Client, session: AsyncSession) -> dict:
         # Import here to avoid circular dependency at module level
+        from zoneinfo import ZoneInfo
+
         from app.services.waybill_job_service import WaybillJobService
 
-        from zoneinfo import ZoneInfo
         try:
             import jdatetime
         except ImportError:

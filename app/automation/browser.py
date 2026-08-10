@@ -180,15 +180,17 @@ class BrowserManager:
     @staticmethod
     def _cleanup_zombie_processes():
         """Emergency process cleanup to kill orphan chromium processes and free RAM.
-        
+
         Unix-specific: uses pkill which is not available on Windows.
         """
         import sys
+
         if sys.platform != "linux" and sys.platform != "darwin":
             return
-        
+
         try:
             import subprocess
+
             subprocess.run(
                 ["pkill", "-f", "chrome-headless-shell|chromium"],
                 stdout=subprocess.DEVNULL,
@@ -203,7 +205,7 @@ class BrowserManager:
 
     async def record_success_for_recycle(self):
         """Increment success counter and recycle browser if it reaches 20.
-        
+
         Thread-safe: uses _recycle_lock to prevent race conditions.
         """
         await self._ensure_loop_resources()
@@ -266,7 +268,7 @@ class BrowserManager:
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",  # macOS
             "/usr/bin/google-chrome",  # Linux
             "/usr/bin/google-chrome-stable",  # Linux
-            "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"  # Windows
+            "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",  # Windows
         ]
 
         system_chrome = next((path for path in system_chrome_paths if os.path.exists(path)), None)
@@ -385,6 +387,7 @@ class BrowserManager:
         if utcms_config.USE_PERSISTENT_AUTH_STATE:
             effective_auth_state_path = os.path.abspath(auth_state_path or utcms_config.AUTH_STATE_PATH)
             from app.services.session_vault import session_vault
+
             if await session_vault.async_auth_state_exists(effective_auth_state_path):
                 await session_vault.restore_auth_state_to_file(effective_auth_state_path)
                 context_args["storage_state"] = effective_auth_state_path
@@ -409,8 +412,10 @@ class BrowserManager:
             # context is stealth from the very first navigation.  The init script
             # overrides navigator.webdriver, chrome runtime, WebGL, canvas,
             # audio fingerprinting, plugins, and more.
-            from app.automation.stealth_common import build_core_stealth_script
             import random
+
+            from app.automation.stealth_common import build_core_stealth_script
+
             _webgl_configs = [
                 ("Google Inc. (Intel)", "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)"),
                 ("Google Inc. (NVIDIA)", "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11 vs_5_0 ps_5_0, D3D11)"),
@@ -432,7 +437,9 @@ class BrowserManager:
 
         return session_id, context
 
-    async def save_auth_state(self, context: BrowserContext, auth_state_path: str | None = None, session_version: int = 0):
+    async def save_auth_state(
+        self, context: BrowserContext, auth_state_path: str | None = None, session_version: int = 0
+    ):
         """Persist current authenticated state for future sessions."""
         if not utcms_config.USE_PERSISTENT_AUTH_STATE:
             return
@@ -447,7 +454,10 @@ class BrowserManager:
             try:
                 await context.storage_state(path=effective_auth_state_path)
                 from app.services.session_vault import session_vault
-                await session_vault.store_auth_state_from_file(effective_auth_state_path, session_version=session_version)
+
+                await session_vault.store_auth_state_from_file(
+                    effective_auth_state_path, session_version=session_version
+                )
             except Exception as exc:
                 logger.warning(
                     "save_auth_state_failed",
@@ -625,8 +635,7 @@ class BrowserManager:
 
         # Inject JavaScript fallback for jQuery DataTables to prevent crashes on slow networks
         try:
-            await page.add_init_script(
-                """
+            await page.add_init_script("""
                 (() => {
                     let jQueryInstance = null;
                     Object.defineProperty(window, 'jQuery', {
@@ -662,8 +671,7 @@ class BrowserManager:
                         configurable: true
                     });
                 })();
-            """
-            )
+            """)
         except Exception as init_exc:
             logger.warning(f"Failed to add DataTables fallback init script: {init_exc}")
 

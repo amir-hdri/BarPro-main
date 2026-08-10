@@ -2,17 +2,18 @@
 UTCMS Reconciliation Scraper for querying waybill status using verified selectors.
 """
 
-from dataclasses import dataclass, field
-from enum import Enum
 import logging
+from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
 
-from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import Page
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 logger = logging.getLogger(__name__)
 
 
-class ScraperOutcome(str, Enum):
+class ScraperOutcome(StrEnum):
     REGISTERED = "REGISTERED"
     NOT_FOUND = "NOT_FOUND"
     AMBIGUOUS = "AMBIGUOUS"
@@ -64,13 +65,12 @@ class UTCMSReconciliationScraper:
             origin_city = reconciliation_fields.get("origin_city")
             dest_city = reconciliation_fields.get("dest_city")
             cargo_weight = reconciliation_fields.get("cargo_weight")
-            business_date = reconciliation_fields.get("business_date")
+            reconciliation_fields.get("business_date")
         else:
             plate_number = None
             origin_city = None
             dest_city = None
             cargo_weight = None
-            business_date = None
         try:
             # Navigate to search URL
             url = self.HISTORY_URL if tracking_code else self.SEARCH_URL
@@ -123,7 +123,10 @@ class UTCMSReconciliationScraper:
                     )
                 return ReconciliationResult(
                     outcome=ScraperOutcome.AMBIGUOUS,
-                    details={"row_count": 0, "message": "No rows found and no 'not found' message matched, layout might have changed"},
+                    details={
+                        "row_count": 0,
+                        "message": "No rows found and no 'not found' message matched, layout might have changed",
+                    },
                 )
 
             # Parse matching rows

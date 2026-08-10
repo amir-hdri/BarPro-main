@@ -183,7 +183,6 @@ class TestMapClickIntegration:
         assert result["destination"]["lat"] == 35.7000
 
 
-
 class TestDataFlow:
     """تست‌های جریان داده"""
 

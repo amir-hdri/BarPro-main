@@ -68,12 +68,10 @@ class MapController:
         """
         for _ in range(5):
             # بررسی وجود Google Maps
-            has_google = await self.page.evaluate(
-                """
+            has_google = await self.page.evaluate("""
                 () => typeof google !== 'undefined' &&
                      typeof google.maps !== 'undefined'
-            """
-            )
+            """)
             has_google_container = await self.page.query_selector(".gm-style")
             if has_google or has_google_container:
                 self.map_selector = ".gm-style" if has_google_container else self.map_selector
@@ -81,12 +79,10 @@ class MapController:
                 return "google_maps"
 
             # بررسی وجود OpenLayers
-            has_ol = await self.page.evaluate(
-                """
+            has_ol = await self.page.evaluate("""
                 () => typeof ol !== 'undefined' &&
                      typeof ol.Map !== 'undefined'
-            """
-            )
+            """)
             has_ol_container = await self.page.query_selector(".ol-map, .ol-viewport")
             if has_ol or has_ol_container:
                 self.map_selector = ".ol-map" if has_ol_container else self.map_selector
@@ -94,12 +90,10 @@ class MapController:
                 return "openlayers"
 
             # بررسی وجود Leaflet
-            has_leaflet = await self.page.evaluate(
-                """
+            has_leaflet = await self.page.evaluate("""
                 () => typeof L !== 'undefined' &&
                      typeof L.Map !== 'undefined'
-            """
-            )
+            """)
             has_leaflet_container = await self.page.query_selector(".leaflet-container")
             if has_leaflet or has_leaflet_container:
                 self.map_selector = ".leaflet-container" if has_leaflet_container else self.map_selector
@@ -107,11 +101,9 @@ class MapController:
                 return "leaflet"
 
             # بررسی وجود Mapbox
-            has_mapbox = await self.page.evaluate(
-                """
+            has_mapbox = await self.page.evaluate("""
                 () => typeof mapboxgl !== 'undefined'
-            """
-            )
+            """)
             has_mapbox_container = await self.page.query_selector(".mapboxgl-map")
             if has_mapbox or has_mapbox_container:
                 self.map_selector = ".mapboxgl-map" if has_mapbox_container else self.map_selector
@@ -312,8 +304,7 @@ class MapController:
         """
         try:
             if self.map_type == "google_maps":
-                await self.page.evaluate(
-                    f"""
+                await self.page.evaluate(f"""
                     () => new Promise((resolve) => {{
                         const map = document.querySelector('[data-map]') ||
                                    document.querySelector('#map') ||
@@ -326,11 +317,9 @@ class MapController:
                         google.maps.event.addListenerOnce(mapsInstance, 'idle', resolve);
                         setTimeout(resolve, {timeout});
                     }})
-                """
-                )
+                """)
             elif self.map_type == "openlayers":
-                await self.page.evaluate(
-                    f"""
+                await self.page.evaluate(f"""
                     () => new Promise((resolve) => {{
                         const mapElement = document.querySelector('.ol-map, #map');
                         if (!mapElement) return resolve();
@@ -345,11 +334,9 @@ class MapController:
                         map.on('moveend', resolve);
                         setTimeout(resolve, {timeout});
                     }})
-                """
-                )
+                """)
             elif self.map_type == "leaflet":
-                await self.page.evaluate(
-                    f"""
+                await self.page.evaluate(f"""
                     () => new Promise((resolve) => {{
                         const mapElement = document.querySelector('.leaflet-container, #map');
                         if (!mapElement) return resolve();
@@ -361,11 +348,9 @@ class MapController:
                         map.on('zoomend', resolve);
                         setTimeout(resolve, {timeout});
                     }})
-                """
-                )
+                """)
             elif self.map_type == "mapbox":
-                await self.page.evaluate(
-                    f"""
+                await self.page.evaluate(f"""
                     () => new Promise((resolve) => {{
                         const map = window.map || mapboxgl.getMap();
                         if (!map) return resolve();
@@ -373,8 +358,7 @@ class MapController:
                         map.once('idle', resolve);
                         setTimeout(resolve, {timeout});
                     }})
-                """
-                )
+                """)
             else:
                 # اگر نوع نقشه مشخص نیست، یک تاخیر کوتاه
                 await asyncio.sleep(0.5)

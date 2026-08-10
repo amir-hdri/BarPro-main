@@ -1,80 +1,71 @@
-import pytest
 import os
-import socket
-from unittest.mock import AsyncMock, patch, MagicMock
-from sqlmodel import SQLModel, select
-from sqlalchemy.ext.asyncio import create_async_engine
+import threading
+from unittest.mock import patch
+
+import pytest
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.pool import StaticPool
+from sqlmodel import SQLModel
 
 from app.models_rpa import WorkerRegistry
-from app.orchestrator.worker_lifecycle import (
-    register_worker,
-    deregister_worker,
-    send_heartbeat,
-    on_worker_start,
-    on_worker_stop
-)
+from app.orchestrator.worker_lifecycle import _heartbeat_loop, on_worker_start, on_worker_stop, send_heartbeat
 
 
 @pytest.fixture
-async def async_db():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
+def worker_session_factory():
+    """Provide the synchronous session factory used by worker lifecycle code."""
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    factory = sessionmaker(engine, expire_on_commit=False)
+    yield factory
+    engine.dispose()
 
-    async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-    yield async_session
-    await engine.dispose()
 
-
-@pytest.mark.asyncio
-async def test_worker_lifecycle_flow(async_db):
-    """
-    Integration test: startup -> registration -> heartbeat -> shutdown.
-    Asserts worker registration is performed once.
-    """
+def test_worker_lifecycle_flow(worker_session_factory):
+    """Exercise startup, heartbeat, and shutdown against the current sync API."""
     worker_id = "test_lifecycle_worker"
     hostname = "test_lifecycle_host"
-    
-    with patch("app.orchestrator.worker_lifecycle.async_session_factory", new=async_db), \
-         patch.dict(os.environ, {"WORKER_ID": worker_id}), \
-         patch("socket.gethostname", return_value=hostname):
-         
-        # 1. Simulate Worker Startup (on_worker_start)
+    heartbeat_stop = threading.Event()
+
+    with (
+        patch("app.orchestrator.worker_lifecycle._WorkerSession", new=worker_session_factory),
+        patch("app.orchestrator.worker_lifecycle._heartbeat_stop", new=heartbeat_stop),
+        patch("app.orchestrator.worker_lifecycle.threading.Thread") as thread_cls,
+        patch.dict(os.environ, {"WORKER_ID": worker_id}),
+        patch("app.orchestrator.worker_lifecycle.socket.gethostname", return_value=hostname),
+    ):
         on_worker_start()
-        
-        # Verify registered as active in DB
-        async with async_db() as session:
-            stmt = select(WorkerRegistry).where(WorkerRegistry.worker_id == worker_id)
-            res = await session.exec(stmt)
-            worker = res.first()
-            assert worker is not None
+        thread_cls.assert_called_once_with(
+            target=_heartbeat_loop,
+            args=(worker_id,),
+            daemon=True,
+        )
+        thread_cls.return_value.start.assert_called_once_with()
+
+        with worker_session_factory() as session:
+            worker = session.query(WorkerRegistry).filter(WorkerRegistry.worker_id == worker_id).one()
             assert worker.status == "active"
             assert worker.hostname == hostname
-            
-            # Store initial registration timestamp
-            created_at_first = worker.created_at
-            
-        # 2. Simulate Heartbeat
-        await send_heartbeat(worker_id)
-        
-        # Verify last_heartbeat_at updated but created_at remains unchanged (signifying single registration)
-        async with async_db() as session:
-            stmt = select(WorkerRegistry).where(WorkerRegistry.worker_id == worker_id)
-            res = await session.exec(stmt)
-            worker = res.first()
-            assert worker is not None
+            created_at = worker.created_at
+            first_heartbeat = worker.last_heartbeat_at
+
+        send_heartbeat(worker_id)
+
+        with worker_session_factory() as session:
+            worker = session.query(WorkerRegistry).filter(WorkerRegistry.worker_id == worker_id).one()
             assert worker.status == "active"
-            assert worker.created_at == created_at_first
-            
-        # 3. Simulate Worker Shutdown (on_worker_stop)
+            assert worker.created_at == created_at
+            assert worker.last_heartbeat_at >= first_heartbeat
+
         on_worker_stop()
-        
-        # Verify status transitions to offline in DB
-        async with async_db() as session:
-            stmt = select(WorkerRegistry).where(WorkerRegistry.worker_id == worker_id)
-            res = await session.exec(stmt)
-            worker = res.first()
-            assert worker is not None
+
+        with worker_session_factory() as session:
+            worker = session.query(WorkerRegistry).filter(WorkerRegistry.worker_id == worker_id).one()
             assert worker.status == "offline"
+
+        assert heartbeat_stop.is_set()

@@ -57,6 +57,7 @@ ignore_errors = true
 module = "scripts.*"
 ignore_errors = true
 
+# Ruff owns linting/import sorting; Black is the repository's sole formatter.
 [tool.ruff]
 line-length = 120
 target-version = "py311"

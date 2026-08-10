@@ -28,6 +28,7 @@ from app.automation.worker_proxy import get_playwright_proxy
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.core.error_taxonomy import ErrorCategory, classify_error_string, classify_exception
+from app.core.utils import close_thread_event_loop
 from app.core.utils import run_async as _run
 from app.models_multitenant import (
     Driver,
@@ -686,6 +687,10 @@ def _renew_lease_sync_loop(execution_id: str, fencing_token: int, stop_event: th
             _run(_update())
         except Exception as e:
             logger.warning(f"Failed to renew lease for execution {execution_id}: {e}")
+
+    # The renewal thread owns a thread-local loop; release its selector sockets
+    # as soon as the lease is no longer active.
+    close_thread_event_loop()
 
 
 @celery_app.task(

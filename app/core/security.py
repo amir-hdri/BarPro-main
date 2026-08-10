@@ -80,7 +80,7 @@ def _ensure_auth_config(mode: str) -> None:
 
 async def require_sensitive_auth(request: Request) -> None:
     """Protect sensitive endpoints with API Key / JWT.
-    
+
     Validates that JWT has a valid role (client or master_admin) when JWT is used.
     """
     mode = utcms_config.API_AUTH_MODE.strip().lower()
@@ -114,7 +114,7 @@ async def require_sensitive_auth(request: Request) -> None:
             status_code=401,
             detail="دسترسی به endpoint حساس مجاز نیست (API Key/JWT نامتبر یا غایب)",
         )
-    
+
     # If JWT is used, validate it has a valid role
     if decoded_jwt:
         role = decoded_jwt.get("role") or decoded_jwt.get("type")

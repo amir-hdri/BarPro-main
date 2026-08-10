@@ -32,6 +32,7 @@ async def async_db():
     async_session = AsyncSession(engine, expire_on_commit=False)
 
     from app.models_multitenant import Client, Driver
+
     client = Client(
         id=1,
         client_code="test_client",
@@ -84,13 +85,13 @@ async def test_reconcile_job_registered(async_db: AsyncSession):
         tracking_code="UTC-2026-9999",
     )
 
-    with patch("app.orchestrator.reconciliation_service.reconciliation_scraper.query_waybill_status", new_callable=AsyncMock) as mock_query:
+    with patch(
+        "app.orchestrator.reconciliation_service.reconciliation_scraper.query_waybill_status", new_callable=AsyncMock
+    ) as mock_query:
         mock_query.return_value = mock_res
 
         rec_service = ReconciliationService()
-        reconciled_job = await rec_service.reconcile_job(
-            session=async_db, job_id=job.id, browser_manager=mock_bm
-        )
+        reconciled_job = await rec_service.reconcile_job(session=async_db, job_id=job.id, browser_manager=mock_bm)
 
         assert reconciled_job is not None
         assert reconciled_job.status == JobStatus.SUCCESS
@@ -121,13 +122,13 @@ async def test_reconcile_job_not_found(async_db: AsyncSession):
 
     mock_res = ReconciliationResult(outcome=ScraperOutcome.NOT_FOUND)
 
-    with patch("app.orchestrator.reconciliation_service.reconciliation_scraper.query_waybill_status", new_callable=AsyncMock) as mock_query:
+    with patch(
+        "app.orchestrator.reconciliation_service.reconciliation_scraper.query_waybill_status", new_callable=AsyncMock
+    ) as mock_query:
         mock_query.return_value = mock_res
 
         rec_service = ReconciliationService()
-        reconciled_job = await rec_service.reconcile_job(
-            session=async_db, job_id=job.id, browser_manager=mock_bm
-        )
+        reconciled_job = await rec_service.reconcile_job(session=async_db, job_id=job.id, browser_manager=mock_bm)
 
         assert reconciled_job is not None
         assert reconciled_job.status == JobStatus.FAILED
@@ -157,14 +158,20 @@ async def test_reconcile_job_ambiguous(async_db: AsyncSession):
 
     mock_res = ReconciliationResult(outcome=ScraperOutcome.AMBIGUOUS)
 
-    with patch("app.orchestrator.reconciliation_service.reconciliation_scraper.query_waybill_status", new_callable=AsyncMock) as mock_query, \
-         patch("app.orchestrator.reconciliation_service.admin_alert_service.check_repeated_unknown_submission", new_callable=AsyncMock) as mock_alert_check:
+    with (
+        patch(
+            "app.orchestrator.reconciliation_service.reconciliation_scraper.query_waybill_status",
+            new_callable=AsyncMock,
+        ) as mock_query,
+        patch(
+            "app.orchestrator.reconciliation_service.admin_alert_service.check_repeated_unknown_submission",
+            new_callable=AsyncMock,
+        ) as mock_alert_check,
+    ):
         mock_query.return_value = mock_res
 
         rec_service = ReconciliationService()
-        reconciled_job = await rec_service.reconcile_job(
-            session=async_db, job_id=job.id, browser_manager=mock_bm
-        )
+        reconciled_job = await rec_service.reconcile_job(session=async_db, job_id=job.id, browser_manager=mock_bm)
 
         assert reconciled_job is not None
         assert reconciled_job.status == JobStatus.NEEDS_REVIEW

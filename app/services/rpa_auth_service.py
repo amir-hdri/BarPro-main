@@ -116,7 +116,9 @@ class RPAAuthService:
                 session_version=runtime_state.session_version + 1,
                 proxy_key=runtime_state.proxy_key,
             )
-            await browser_manager.save_auth_state(context, auth_state_path=auth_state_path, session_version=bundle.session_version)
+            await browser_manager.save_auth_state(
+                context, auth_state_path=auth_state_path, session_version=bundle.session_version
+            )
             await rpa_runtime.store_session(client_id, driver_id, bundle)
 
             metadata = await self._get_or_create_session_metadata(session, client_id, driver_id)

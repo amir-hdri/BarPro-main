@@ -1,10 +1,7 @@
 import asyncio
 import logging
 
-from app.core.alerts import alert_manager
 from app.core.config import utcms_config
-from app.services.task_service import task_service
-from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +9,7 @@ logger = logging.getLogger(__name__)
 class RecoveryManager:
     async def recover_stalled_tasks(self) -> dict[str, dict[str, float | str]]:
         from app.orchestrator.orphan_detector import orphan_detector
+
         # Run the new database-lease based orphan detector
         try:
             await orphan_detector.run()

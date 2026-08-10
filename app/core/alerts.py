@@ -25,21 +25,17 @@ class AlertManager:
         try:
             payload_bytes = json.dumps(message).encode("utf-8")
             timestamp = str(int(time.time()))
-            
+
             headers = {
                 "Content-Type": "application/json",
                 "X-Barpro-Timestamp": timestamp,
             }
-            
+
             secret = getattr(utcms_config, "ALERT_WEBHOOK_SECRET", "").strip()
             if secret:
                 # Sign timestamp concatenated with payload
-                message_to_sign = f"{timestamp}.".encode("utf-8") + payload_bytes
-                signature = hmac.new(
-                    secret.encode("utf-8"),
-                    message_to_sign,
-                    hashlib.sha256
-                ).hexdigest()
+                message_to_sign = f"{timestamp}.".encode() + payload_bytes
+                signature = hmac.new(secret.encode("utf-8"), message_to_sign, hashlib.sha256).hexdigest()
                 headers["X-Barpro-Signature"] = signature
 
             req = urllib.request.Request(

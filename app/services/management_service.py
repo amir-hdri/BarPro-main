@@ -561,13 +561,15 @@ class ManagementService:
         summary = await self.summary()
         queue_snapshot = await task_service.queue_snapshot()
         recent_tasks = await task_service.list_tasks(limit=12)
-        
+
+        import json
+        from datetime import UTC, datetime
+
+        from sqlmodel import select
+
         from app.core.database import async_session_factory
         from app.models_rpa import WorkerRegistry
-        from sqlmodel import select
-        from datetime import datetime, UTC
-        import json
-        
+
         active_heartbeats = {}
         stalled = {}
         async with async_session_factory() as db_session:
@@ -590,7 +592,7 @@ class ManagementService:
                 active_heartbeats[w.worker_id] = info
                 if is_stalled:
                     stalled[w.worker_id] = info
-                    
+
         return {
             "summary": summary,
             "queue": queue_snapshot,

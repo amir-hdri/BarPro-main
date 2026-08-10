@@ -1,16 +1,16 @@
+from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
+
 import pytest
-from datetime import datetime, UTC, timedelta
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from unittest.mock import patch, MagicMock
 
-from app.models_multitenant import WaybillJob, TaskStatus, Client, Driver
-from app.models_rpa import DispatchIntent, Execution, DriverRuntimeState
-from app.orchestrator.scheduler_service import SchedulerService
-from app.orchestrator.dispatcher_service import DispatcherService
+from app.models_multitenant import Client, Driver, TaskStatus, WaybillJob
+from app.models_rpa import DispatchIntent, DriverRuntimeState, Execution
 from app.orchestrator.orphan_detector import OrphanDetector
+from app.orchestrator.scheduler_service import SchedulerService
 from app.workers.waybill_worker import _finalize_execution
 
 
@@ -36,10 +36,10 @@ async def test_driver_fifo_serialization(async_session):
             email="t1@example.com",
             hashed_password="hash",
             username="t1",
-            full_name="Tenant 1 Admin"
+            full_name="Tenant 1 Admin",
         )
         session.add(client)
-        
+
         driver = Driver(
             id=1,
             client_id=1,
@@ -47,19 +47,14 @@ async def test_driver_fifo_serialization(async_session):
             full_name="Driver FIFO",
             phone="09123456789",
             utcms_username="drv",
-            utcms_password_encrypted="pwd"
+            utcms_password_encrypted="pwd",
         )
         session.add(driver)
-        
+
         # Driver runtime state (initially idle)
-        driver_state = DriverRuntimeState(
-            client_id=1,
-            driver_id=1,
-            state="active",
-            active_execution_id=None
-        )
+        driver_state = DriverRuntimeState(client_id=1, driver_id=1, state="active", active_execution_id=None)
         session.add(driver_state)
-        
+
         # Enqueue 3 waybill jobs for the same driver
         job1 = WaybillJob(
             job_id="job-1",
@@ -70,7 +65,7 @@ async def test_driver_fifo_serialization(async_session):
             payload_json={},
             priority=5,
             attempt_count=0,
-            created_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=10)
+            created_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=10),
         )
         job2 = WaybillJob(
             job_id="job-2",
@@ -81,7 +76,7 @@ async def test_driver_fifo_serialization(async_session):
             payload_json={},
             priority=5,
             attempt_count=0,
-            created_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=5)
+            created_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=5),
         )
         job3 = WaybillJob(
             job_id="job-3",
@@ -92,7 +87,7 @@ async def test_driver_fifo_serialization(async_session):
             payload_json={},
             priority=5,
             attempt_count=0,
-            created_at=datetime.now(UTC).replace(tzinfo=None)
+            created_at=datetime.now(UTC).replace(tzinfo=None),
         )
         session.add(job1)
         session.add(job2)
@@ -111,16 +106,16 @@ async def test_driver_fifo_serialization(async_session):
         j1 = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-1"))).first()
         j2 = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-2"))).first()
         j3 = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-3"))).first()
-        
+
         assert j1.status == TaskStatus.QUEUED.value
         assert j2.status == TaskStatus.PENDING.value
         assert j3.status == TaskStatus.PENDING.value
-        
+
         # Check active execution id slot is set
         d_state = (await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == 1))).first()
         assert d_state.active_execution_id is not None
         intent_id1 = d_state.active_execution_id
-        
+
         # Dispatch intent check
         intent1 = (await session.exec(select(DispatchIntent).where(DispatchIntent.intent_id == intent_id1))).first()
         assert intent1 is not None
@@ -143,7 +138,7 @@ async def test_driver_fifo_serialization(async_session):
             worker_id="w1",
             fencing_token=1,
             lease_expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=90),
-            status="running"
+            status="running",
         )
         session.add(execution)
         await session.commit()
@@ -164,7 +159,7 @@ async def test_driver_fifo_serialization(async_session):
     async with async_session() as session:
         j2 = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-2"))).first()
         assert j2.status == TaskStatus.QUEUED.value
-        
+
         d_state = (await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == 1))).first()
         assert d_state.active_execution_id is not None
         intent_id2 = d_state.active_execution_id
@@ -182,7 +177,7 @@ async def test_driver_fifo_serialization(async_session):
             worker_id="w1",
             fencing_token=1,
             lease_expires_at=expired,
-            status="running"
+            status="running",
         )
         session.add(execution2)
         await session.commit()
@@ -196,7 +191,7 @@ async def test_driver_fifo_serialization(async_session):
     async with async_session() as session:
         d_state = (await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == 1))).first()
         assert d_state.active_execution_id is None
-        
+
         j2 = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-2"))).first()
         assert j2.status == TaskStatus.UNKNOWN.value
 

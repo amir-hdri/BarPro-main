@@ -355,7 +355,7 @@ class ClientService:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Client email already exists")
             client.email = request.email
 
-        for field in (
+        for field_name in (
             "name",
             "phone",
             "status",
@@ -365,9 +365,9 @@ class ClientService:
             "max_concurrent_tasks",
             "max_daily_tasks",
         ):
-            value = getattr(request, field)
+            value = getattr(request, field_name)
             if value is not None:
-                setattr(client, field, value)
+                setattr(client, field_name, value)
 
         if "subscription_start_date" in request.model_fields_set:
             client.subscription_start_date = request.subscription_start_date

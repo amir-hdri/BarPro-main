@@ -23,7 +23,7 @@ services:
 
   # ── فرانت‌اند Next.js ─────────────────────────────────────────
   frontend:
-    image: barpro-frontend:latest
+    image: ${FRONTEND_IMAGE:-barpro-frontend:latest}
     build:
       context: ../apps/web
       dockerfile: Dockerfile

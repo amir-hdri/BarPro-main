@@ -45,7 +45,9 @@ class WaybillQueueManager:
             task_id = task["task_id"] if isinstance(task, dict) else task.task_id
             idempotency_key = task["idempotency_key"] if isinstance(task, dict) else task.idempotency_key
             status_val = task["status"] if isinstance(task, dict) else task.status
-            celery_task_id = task.get("celery_task_id") if isinstance(task, dict) else getattr(task, "celery_task_id", None)
+            celery_task_id = (
+                task.get("celery_task_id") if isinstance(task, dict) else getattr(task, "celery_task_id", None)
+            )
             return EnqueueWaybillResponse(
                 task_id=task_id,
                 idempotency_key=idempotency_key,
@@ -59,6 +61,7 @@ class WaybillQueueManager:
 
         if utcms_config.QUEUE_ENABLED:
             from app.core.redis import redis_manager
+
             broker_down = False
             try:
                 redis_client = await redis_manager.get()
@@ -74,7 +77,7 @@ class WaybillQueueManager:
                     return await self._execute_inline(task["task_id"], task["idempotency_key"])
                 raise HTTPException(
                     status_code=503,
-                    detail="Database write succeeded but task cannot be dispatched because broker is down, and inline fallback is disabled."
+                    detail="Database write succeeded but task cannot be dispatched because broker is down, and inline fallback is disabled.",
                 )
 
             return EnqueueWaybillResponse(

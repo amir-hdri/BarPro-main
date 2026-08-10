@@ -21,7 +21,6 @@ from app.services.worker_dashboard_service import (
     get_active_worker_proxies,
 )
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # 1. Dynamic Squid hostname tests
 # ──────────────────────────────────────────────────────────────────────────────
@@ -47,9 +46,7 @@ class TestDynamicSquidHostname:
     )
     def test_squid_dynamic_hostname_accepted(self, hostname: str):
         url = f"http://{hostname}:3128"
-        assert ProxyRotator._is_safe_proxy_url(url) is True, (
-            f"Expected {url!r} to be accepted by _is_safe_proxy_url"
-        )
+        assert ProxyRotator._is_safe_proxy_url(url) is True, f"Expected {url!r} to be accepted by _is_safe_proxy_url"
 
     def test_bare_squid_accepted(self):
         """Remote worker nodes route via hostname "squid" (extra_hosts →
@@ -68,7 +65,7 @@ class TestDynamicSquidHostname:
     def test_squid_invalid_hostname_rejected(self, url: str):
         """Hostnames that look like squid but are not squid_N should be rejected
         (unless they happen to be a valid public IP, which none of these are)."""
-        result = ProxyRotator._is_safe_proxy_url(url)
+        ProxyRotator._is_safe_proxy_url(url)
         # These are DNS names that will fail resolution in a sandboxed test env.
         # The important thing is they are NOT whitelisted via the regex.
         # In pytest mode, failed DNS resolution returns True (see proxy_rotator.py),
@@ -76,9 +73,7 @@ class TestDynamicSquidHostname:
         import re
 
         host = url.split("://")[1].split(":")[0].lower()
-        assert not re.match(r"^squid([_-]?\d+)?$", host), (
-            f"Hostname {host!r} should NOT match the squid_N regex"
-        )
+        assert not re.match(r"^squid([_-]?\d+)?$", host), f"Hostname {host!r} should NOT match the squid_N regex"
 
     def test_legacy_squid_1_still_accepted(self):
         """Regression: squid_1/2/3 must remain accepted after refactor."""

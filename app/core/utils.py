@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 # One event-loop per OS thread (Celery prefork workers each have their own thread)
@@ -8,22 +9,39 @@ _THREAD_LOCAL = threading.local()
 
 # Persistent thread pool for offloading coroutines from an already-running event loop.
 # Created once and reused for the lifetime of the process to avoid thread churn.
-_SHARED_POOL: "concurrent.futures.ThreadPoolExecutor | None" = None
+_SHARED_POOL: ThreadPoolExecutor | None = None
 _SHARED_POOL_LOCK = threading.Lock()
 
 
-def _get_shared_pool() -> "concurrent.futures.ThreadPoolExecutor":
+def _get_shared_pool() -> ThreadPoolExecutor:
     global _SHARED_POOL
     if _SHARED_POOL is None or _SHARED_POOL._shutdown:
         with _SHARED_POOL_LOCK:
             if _SHARED_POOL is None or _SHARED_POOL._shutdown:
-                import concurrent.futures
-
-                _SHARED_POOL = concurrent.futures.ThreadPoolExecutor(
+                _SHARED_POOL = ThreadPoolExecutor(
                     max_workers=2,
                     thread_name_prefix="barpro-async-bridge",
                 )
     return _SHARED_POOL
+
+
+def close_thread_event_loop() -> None:
+    """Close the async bridge loop owned by the current OS thread."""
+    loop: asyncio.AbstractEventLoop | None = getattr(_THREAD_LOCAL, "loop", None)
+    if loop is not None and not loop.is_running() and not loop.is_closed():
+        loop.close()
+    if hasattr(_THREAD_LOCAL, "loop"):
+        delattr(_THREAD_LOCAL, "loop")
+
+
+def shutdown_async_bridge() -> None:
+    """Release the process-local pool and the current thread's bridge loop."""
+    global _SHARED_POOL
+    with _SHARED_POOL_LOCK:
+        pool, _SHARED_POOL = _SHARED_POOL, None
+    if pool is not None:
+        pool.shutdown(wait=True, cancel_futures=True)
+    close_thread_event_loop()
 
 
 def get_shared_event_loop() -> asyncio.AbstractEventLoop:

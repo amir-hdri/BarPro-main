@@ -11,9 +11,9 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.automation.browser import browser_manager, managed_browser_session
 from app.automation.fuel_scraper import FuelScraper, get_current_jalali
+from app.core.config import utcms_config
 from app.core.error_taxonomy import FUEL_INQUIRY_ERROR_CODE, ErrorCategory, classify_fuel_inquiry_exception
 from app.core.exceptions import WaybillError
-from app.core.config import utcms_config
 from app.models_multitenant import Client, Driver, DriverPlate, FuelInquiry
 from app.orchestrator.state_machine import set_fuel_inquiry_status
 from app.schemas.multitenant import (
@@ -339,6 +339,7 @@ class FuelInquiryService:
                 logger.info("fuel_inquiry using proxy: %s", proxy_url)
                 if proxy_url and not await check_proxy_health(proxy_url):
                     from app.automation.worker_proxy import clear_proxy_cache
+
                     clear_proxy_cache()
                     raise WaybillError("پروکسی یا شبکه تونل ایران قطع می‌باشد (proxy/network check failed)")
             else:

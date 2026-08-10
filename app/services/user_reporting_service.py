@@ -165,7 +165,9 @@ class UserReportingService:
         drivers_res = await session.exec(select(Driver).where(Driver.client_id == client.id).order_by(Driver.full_name))
         drivers = drivers_res.all()
 
-        plates_res = await session.exec(select(DriverPlate).where(DriverPlate.client_id == client.id).order_by(DriverPlate.plate_number))
+        plates_res = await session.exec(
+            select(DriverPlate).where(DriverPlate.client_id == client.id).order_by(DriverPlate.plate_number)
+        )
         plates = plates_res.all()
 
         return {

@@ -585,11 +585,19 @@ class RPAHttpSubmitService:
             outcome = SubmitOutcome.UNKNOWN_ERROR
             if category == ErrorCategory.AUTH_FAILURE:
                 outcome = SubmitOutcome.AUTH_EXPIRED
-            elif category in {ErrorCategory.USER_DATA_ERROR, ErrorCategory.SELECTOR_CHANGED, ErrorCategory.BOT_DETECTED}:
+            elif category in {
+                ErrorCategory.USER_DATA_ERROR,
+                ErrorCategory.SELECTOR_CHANGED,
+                ErrorCategory.BOT_DETECTED,
+            }:
                 outcome = SubmitOutcome.VALIDATION_ERROR
             elif category == ErrorCategory.TARGET_SITE_TIMEOUT:
                 outcome = SubmitOutcome.RATE_LIMITED
-            elif category in {ErrorCategory.TRANSIENT_INFRA_ERROR, ErrorCategory.CAPTCHA_EXHAUSTION, ErrorCategory.WORKER_RESOURCE_ERROR}:
+            elif category in {
+                ErrorCategory.TRANSIENT_INFRA_ERROR,
+                ErrorCategory.CAPTCHA_EXHAUSTION,
+                ErrorCategory.WORKER_RESOURCE_ERROR,
+            }:
                 outcome = SubmitOutcome.TRANSIENT_FAILURE
 
             return SubmitExecutionResult(
@@ -613,11 +621,19 @@ class RPAHttpSubmitService:
             outcome = SubmitOutcome.UNKNOWN_ERROR
             if category == ErrorCategory.AUTH_FAILURE:
                 outcome = SubmitOutcome.AUTH_EXPIRED
-            elif category in {ErrorCategory.USER_DATA_ERROR, ErrorCategory.SELECTOR_CHANGED, ErrorCategory.BOT_DETECTED}:
+            elif category in {
+                ErrorCategory.USER_DATA_ERROR,
+                ErrorCategory.SELECTOR_CHANGED,
+                ErrorCategory.BOT_DETECTED,
+            }:
                 outcome = SubmitOutcome.VALIDATION_ERROR
             elif category == ErrorCategory.TARGET_SITE_TIMEOUT:
                 outcome = SubmitOutcome.RATE_LIMITED
-            elif category in {ErrorCategory.TRANSIENT_INFRA_ERROR, ErrorCategory.CAPTCHA_EXHAUSTION, ErrorCategory.WORKER_RESOURCE_ERROR}:
+            elif category in {
+                ErrorCategory.TRANSIENT_INFRA_ERROR,
+                ErrorCategory.CAPTCHA_EXHAUSTION,
+                ErrorCategory.WORKER_RESOURCE_ERROR,
+            }:
                 outcome = SubmitOutcome.TRANSIENT_FAILURE
 
             return SubmitExecutionResult(

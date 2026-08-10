@@ -42,14 +42,20 @@ class TestBrowserManager(unittest.IsolatedAsyncioTestCase):
         self.mock_start = AsyncMock(return_value=self.mock_playwright)
 
         # Mock session_vault methods to avoid calling real Redis
-        self.patcher_vault_exists = patch("app.services.session_vault.SessionVault.async_auth_state_exists", new_callable=AsyncMock)
+        self.patcher_vault_exists = patch(
+            "app.services.session_vault.SessionVault.async_auth_state_exists", new_callable=AsyncMock
+        )
         self.mock_vault_exists = self.patcher_vault_exists.start()
         self.mock_vault_exists.return_value = False
 
-        self.patcher_vault_store = patch("app.services.session_vault.SessionVault.store_auth_state_from_file", new_callable=AsyncMock)
+        self.patcher_vault_store = patch(
+            "app.services.session_vault.SessionVault.store_auth_state_from_file", new_callable=AsyncMock
+        )
         self.mock_vault_store = self.patcher_vault_store.start()
 
-        self.patcher_vault_restore = patch("app.services.session_vault.SessionVault.restore_auth_state_to_file", new_callable=AsyncMock)
+        self.patcher_vault_restore = patch(
+            "app.services.session_vault.SessionVault.restore_auth_state_to_file", new_callable=AsyncMock
+        )
         self.mock_vault_restore = self.patcher_vault_restore.start()
 
     async def asyncTearDown(self):

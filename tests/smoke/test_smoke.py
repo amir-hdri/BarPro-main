@@ -1,9 +1,9 @@
 import pytest
 from fastapi.testclient import TestClient
-from app.main import app
+
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
-from app.core.redis import redis_manager
+from app.main import app
 
 
 def test_fastapi_app_boot():
@@ -16,7 +16,7 @@ def test_fastapi_app_boot():
 
 def test_config_loaded():
     """Verify config variables are correctly initialized."""
-    assert utcms_config.ENVIRONMENT in ("development", "production", "testing")
+    assert utcms_config.ENVIRONMENT in ("development", "production", "test", "testing")
     assert utcms_config.CAPTCHA_PROVIDER is not None
 
 

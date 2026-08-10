@@ -5,9 +5,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.iran_locations import IRAN_PROVINCES_DATA
 from app.main import app
-from app.orchestrator.state_machine import set_fuel_inquiry_status
 from app.services.location_service import (
     clean_location_name,
     haversine_distance_km,

@@ -241,19 +241,18 @@ rate_limiter.register_rule(
 def _get_tenant_id_from_request(request: Request) -> str | None:
     """Extract tenant_id from JWT token in request headers or cookies."""
     from app.auth_multitenant import _decode_jwt
-    from app.core.exceptions import ErrorCode, UTCMSException
-    
+
     token = None
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
-    
+
     if not token:
         token = request.cookies.get("utcms_auth_token")
-    
+
     if not token:
         return None
-    
+
     try:
         payload = _decode_jwt(token)
         # JWT uses "sub" for tenant ID (subject claim), not "client_id"
@@ -270,7 +269,7 @@ async def rate_limit_dependency(
     # SECURITY: Use request.client.host (set by Nginx) instead of X-Forwarded-For (spoofable).
     client_ip = request.client.host if request.client else "unknown"
     tenant_id = _get_tenant_id_from_request(request)
-    
+
     # Use tenant-specific key if available, otherwise fall back to IP-only
     rate_limit_key = f"{client_ip}:{tenant_id}" if tenant_id else client_ip
 

@@ -575,10 +575,9 @@ def parse_smart_address(address_raw: str) -> dict[str, Any]:
             break
 
     # ۲. جستجوی نام شهر (ابتدا جستجو در شهرهای استان شناسایی‌شده)
-    search_provinces = (
-        [p for p in IRAN_PROVINCES_DATA if p["name"] == detected_province] +
-        [p for p in IRAN_PROVINCES_DATA if p["name"] != detected_province]
-    )
+    search_provinces = [p for p in IRAN_PROVINCES_DATA if p["name"] == detected_province] + [
+        p for p in IRAN_PROVINCES_DATA if p["name"] != detected_province
+    ]
 
     words_in_text = set(re.findall(r"[\w\u200c]+", norm_text))
 

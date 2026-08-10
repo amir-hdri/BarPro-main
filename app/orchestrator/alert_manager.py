@@ -2,19 +2,26 @@
 Alert Manager for creating, deduplicating, broadcasting, and managing admin alerts.
 """
 
-from datetime import UTC, datetime
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from app.core.alerts import alert_manager as webhook_alert_manager
 from app.models.admin import AdminAlert
 from app.realtime.events import event_hub
 
 logger = logging.getLogger(__name__)
+
+
+async def _one_or_none(session: AsyncSession, statement):
+    """Execute a scalar select with either SQLModel or SQLAlchemy sessions."""
+    if hasattr(session, "exec"):
+        return (await session.exec(statement)).one_or_none()
+    return (await session.execute(statement)).scalars().one_or_none()
 
 
 class AlertManagerService:
@@ -35,7 +42,7 @@ class AlertManagerService:
         Returns the created alert object, or None if deduplicated.
         """
         stmt = select(AdminAlert).where(AdminAlert.dedupe_key == dedupe_key)
-        existing = (await session.execute(stmt)).scalar_one_or_none()
+        existing = await _one_or_none(session, stmt)
         if existing:
             logger.info("Admin alert deduplicated", extra={"dedupe_key": dedupe_key})
             return existing
@@ -58,7 +65,7 @@ class AlertManagerService:
             await session.refresh(alert)
         except IntegrityError:
             await session.rollback()
-            existing = (await session.execute(stmt)).scalar_one_or_none()
+            existing = await _one_or_none(session, stmt)
             return existing
         except Exception as exc:
             await session.rollback()
@@ -110,7 +117,7 @@ class AlertManagerService:
     ) -> AdminAlert | None:
         """Mark an admin alert as acknowledged."""
         stmt = select(AdminAlert).where(AdminAlert.id == alert_id)
-        alert = (await session.execute(stmt)).scalar_one_or_none()
+        alert = await _one_or_none(session, stmt)
         if not alert:
             return None
 

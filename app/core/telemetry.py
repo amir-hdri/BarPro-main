@@ -264,8 +264,7 @@ class EvidenceCollector:
             file_path = self.base_dir / "metadata" / filename
 
             # Evaluate to get recent console errors
-            console_logs = await page.evaluate(
-                """
+            console_logs = await page.evaluate("""
                 () => {
                     // This captures any stored console messages
                     // In production, you'd set up a listener earlier
@@ -275,8 +274,7 @@ class EvidenceCollector:
                         note: "Console capture requires prior listener setup"
                     };
                 }
-            """
-            )
+            """)
 
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(console_logs, f, indent=2, ensure_ascii=False)
@@ -319,18 +317,15 @@ class EvidenceCollector:
                 "error_code": error_code,
                 "error_message": error_message,
                 "user_agent": await page.evaluate("navigator.userAgent"),
-                "viewport": await page.evaluate(
-                    """
+                "viewport": await page.evaluate("""
                     () => ({
                         width: window.innerWidth,
                         height: window.innerHeight,
                         devicePixelRatio: window.devicePixelRatio
                     })
-                """
-                ),
+                """),
                 "cookies_count": len(await page.context.cookies()),
-                "local_storage_size": await page.evaluate(
-                    """
+                "local_storage_size": await page.evaluate("""
                     () => {
                         let total = 0;
                         for (let key in localStorage) {
@@ -340,8 +335,7 @@ class EvidenceCollector:
                         }
                         return total;
                     }
-                """
-                ),
+                """),
             }
 
             with open(file_path, "w", encoding="utf-8") as f:

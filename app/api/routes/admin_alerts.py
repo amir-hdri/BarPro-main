@@ -13,7 +13,7 @@ from app.auth_multitenant import get_current_admin
 from app.core.database import get_session
 from app.models.admin import AdminAlert
 from app.models_multitenant import WaybillJob
-from app.models_rpa import DispatchIntent, Execution
+from app.models_rpa import Execution
 from app.orchestrator.alert_manager import admin_alert_service
 from app.orchestrator.reconciliation_service import reconciliation_service
 from app.orchestrator.state_machine import JobStateMachine, JobStatus
@@ -174,7 +174,13 @@ async def retry_job_manually(
         )
 
     # Allow retry from FAILED, NEEDS_REVIEW, UNKNOWN, WAITING_RETRY, CANCELLED
-    valid_retry_statuses = {JobStatus.FAILED, JobStatus.NEEDS_REVIEW, JobStatus.UNKNOWN, JobStatus.WAITING_RETRY, JobStatus.CANCELLED}
+    valid_retry_statuses = {
+        JobStatus.FAILED,
+        JobStatus.NEEDS_REVIEW,
+        JobStatus.UNKNOWN,
+        JobStatus.WAITING_RETRY,
+        JobStatus.CANCELLED,
+    }
     if job.status not in valid_retry_statuses:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -205,7 +211,7 @@ async def retry_job_manually(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to transition job status for retry: {exc}",
-        )
+        ) from exc
 
     return {
         "status": "success",
@@ -223,61 +229,58 @@ async def alertmanager_webhook(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    import hmac
     import hashlib
+    import hmac
     import time
+
     from app.core.config import utcms_config
     from app.models.admin import AdminAlert
-    
+
     # 1. Signature validation
     secret = utcms_config.ALERT_WEBHOOK_SECRET
     if secret:
         timestamp = request.headers.get("X-Barpro-Timestamp")
         signature = request.headers.get("X-Barpro-Signature")
-        
+
         if not timestamp or not signature:
             raise HTTPException(status_code=403, detail="Missing signature headers")
-            
+
         # Check timestamp age (max 5 minutes)
         try:
             ts = float(timestamp)
             if abs(time.time() - ts) > 300:
                 raise HTTPException(status_code=403, detail="Signature timestamp expired")
-        except ValueError:
-            raise HTTPException(status_code=403, detail="Invalid signature timestamp")
-            
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail="Invalid signature timestamp") from exc
+
         raw_body = await request.body()
-        message_to_sign = f"{timestamp}.".encode("utf-8") + raw_body
-        expected_sig = hmac.new(
-            secret.encode("utf-8"),
-            message_to_sign,
-            hashlib.sha256
-        ).hexdigest()
-        
+        message_to_sign = f"{timestamp}.".encode() + raw_body
+        expected_sig = hmac.new(secret.encode("utf-8"), message_to_sign, hashlib.sha256).hexdigest()
+
         if not hmac.compare_digest(expected_sig, signature):
             raise HTTPException(status_code=403, detail="Invalid signature")
-            
+
     # 2. Process alerts
     try:
         body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
-        
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
+
     alerts = body.get("alerts", [])
     processed = 0
-    
+
     for alert_data in alerts:
         status = alert_data.get("status")  # firing / resolved
         labels = alert_data.get("labels", {})
         annotations = alert_data.get("annotations", {})
-        
+
         alertname = labels.get("alertname", "UnknownAlert")
         severity = labels.get("severity", "warning")
         worker_id = labels.get("worker_id")
-        
+
         message = annotations.get("description") or annotations.get("summary") or f"Alert {alertname} ({status})"
         dedupe_key = f"alertmanager_{alertname}_{worker_id or 'global'}"
-        
+
         if status == "firing":
             await admin_alert_service.create_alert(
                 session=session,
@@ -293,8 +296,9 @@ async def alertmanager_webhook(
             existing_alert_stmt = select(AdminAlert).where(AdminAlert.dedupe_key == dedupe_key)
             existing_alert = (await session.execute(existing_alert_stmt)).scalar_one_or_none()
             if existing_alert and not existing_alert.is_acknowledged:
-                await admin_alert_service.acknowledge_alert(session, alert_id=existing_alert.id, admin_id=0)  # 0 represents system
+                await admin_alert_service.acknowledge_alert(
+                    session, alert_id=existing_alert.id, admin_id=0
+                )  # 0 represents system
                 processed += 1
-                
-    return {"status": "success", "processed_alerts": processed}
 
+    return {"status": "success", "processed_alerts": processed}

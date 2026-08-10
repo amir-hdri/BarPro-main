@@ -697,7 +697,6 @@ class FuelInquiryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
-
 class FuelInquiryListResponse(BaseModel):
     """Paginated list of fuel inquiries."""
 

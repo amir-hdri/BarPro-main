@@ -1,21 +1,22 @@
-import pytest
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, UTC
-from sqlmodel import SQLModel, select
+
+import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
+from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.automation.worker_proxy import (
-    increment_worker_failures,
-    transition_worker_to_draining,
-    is_worker_draining,
     drain_worker_consumers,
+    increment_worker_failures,
+    is_worker_draining,
+    transition_worker_to_draining,
 )
-from app.workers.waybill_worker import get_retry_delay, _claim_and_execute, _claim_and_reconcile
-from app.models_rpa import WorkerRegistry, DispatchIntent
-from app.models_multitenant import WaybillJob, TaskStatus
 from app.core.config import utcms_config
+from app.models_multitenant import WaybillJob
+from app.models_rpa import DispatchIntent, WorkerRegistry
+from app.workers.waybill_worker import _claim_and_execute, _claim_and_reconcile, get_retry_delay
 
 
 @pytest.fixture
@@ -59,7 +60,7 @@ async def test_transition_worker_to_draining(async_db):
     with patch("app.core.database.async_session_factory", new=async_db):
         # Trigger transition
         await transition_worker_to_draining("test_worker_drain")
-        
+
     # Verify status updated
     async with async_db() as session:
         stmt = select(WorkerRegistry).where(WorkerRegistry.worker_id == "test_worker_drain")
@@ -89,9 +90,9 @@ async def test_is_worker_draining(async_db):
 def test_drain_worker_consumers():
     mock_task = MagicMock()
     mock_task.request.hostname = "test_worker_host"
-    
+
     drain_worker_consumers(mock_task)
-    
+
     # Verify cancel_consumer was attempted for at least one waybill/reconcile queue
     mock_task.app.control.cancel_consumer.assert_any_call("waybill_tasks", destination=["test_worker_host"])
 
@@ -134,19 +135,21 @@ async def test_claim_and_execute_draining(async_db):
             attempt_no=1,
             operation="execute",
             fencing_token=100,
-            status="claimed"
+            status="claimed",
         )
         session.add(job)
         session.add(intent)
         await session.commit()
 
-    with patch("app.workers.waybill_worker.async_session_factory", new=async_db), \
-         patch("app.automation.worker_proxy.is_worker_draining", return_value=True), \
-         patch("app.automation.worker_proxy.drain_worker_consumers") as mock_drain:
-         
+    with (
+        patch("app.workers.waybill_worker.async_session_factory", new=async_db),
+        patch("app.automation.worker_proxy.is_worker_draining", return_value=True),
+        patch("app.automation.worker_proxy.drain_worker_consumers") as mock_drain,
+    ):
+
         with pytest.raises(ConnectionError) as exc_info:
             await _claim_and_execute(mock_task, "intent-1")
-            
+
         assert "currently draining" in str(exc_info.value)
         mock_drain.assert_called_once_with(mock_task)
 
@@ -183,23 +186,25 @@ async def test_claim_and_execute_unhealthy_proxy(async_db):
             attempt_no=1,
             operation="execute",
             fencing_token=200,
-            status="claimed"
+            status="claimed",
         )
         session.add(job)
         session.add(intent)
         await session.commit()
 
-    with patch("app.workers.waybill_worker.async_session_factory", new=async_db), \
-         patch("app.automation.worker_proxy.is_worker_draining", return_value=False), \
-         patch("app.automation.worker_proxy.get_worker_proxy_url", return_value="http://1.2.3.4:3128"), \
-         patch("app.automation.worker_proxy.check_proxy_health", return_value=False), \
-         patch("app.automation.worker_proxy.increment_worker_failures", return_value=4) as mock_incr, \
-         patch("app.automation.worker_proxy.transition_worker_to_draining") as mock_drain_db, \
-         patch("app.automation.worker_proxy.drain_worker_consumers") as mock_drain_consumers:
-        
+    with (
+        patch("app.workers.waybill_worker.async_session_factory", new=async_db),
+        patch("app.automation.worker_proxy.is_worker_draining", return_value=False),
+        patch("app.automation.worker_proxy.get_worker_proxy_url", return_value="http://1.2.3.4:3128"),
+        patch("app.automation.worker_proxy.check_proxy_health", return_value=False),
+        patch("app.automation.worker_proxy.increment_worker_failures", return_value=4) as mock_incr,
+        patch("app.automation.worker_proxy.transition_worker_to_draining") as mock_drain_db,
+        patch("app.automation.worker_proxy.drain_worker_consumers") as mock_drain_consumers,
+    ):
+
         with pytest.raises(ConnectionError) as exc_info:
             await _claim_and_execute(mock_task, "intent-2")
-            
+
         assert "unhealthy" in str(exc_info.value)
         mock_incr.assert_called_once()
         mock_drain_db.assert_called_once()
@@ -238,19 +243,21 @@ async def test_claim_and_reconcile_draining(async_db):
             attempt_no=1,
             operation="reconciliation",
             fencing_token=300,
-            status="claimed"
+            status="claimed",
         )
         session.add(job)
         session.add(intent)
         await session.commit()
 
-    with patch("app.workers.waybill_worker.async_session_factory", new=async_db), \
-         patch("app.automation.worker_proxy.is_worker_draining", return_value=True), \
-         patch("app.automation.worker_proxy.drain_worker_consumers") as mock_drain:
-         
+    with (
+        patch("app.workers.waybill_worker.async_session_factory", new=async_db),
+        patch("app.automation.worker_proxy.is_worker_draining", return_value=True),
+        patch("app.automation.worker_proxy.drain_worker_consumers") as mock_drain,
+    ):
+
         with pytest.raises(ConnectionError) as exc_info:
             await _claim_and_reconcile(mock_task, "intent-3")
-            
+
         assert "currently draining" in str(exc_info.value)
         mock_drain.assert_called_once_with(mock_task)
 

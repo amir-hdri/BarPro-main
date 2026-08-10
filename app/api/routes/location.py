@@ -5,23 +5,19 @@
 import logging
 from typing import Any
 
-import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth_multitenant import get_current_user_or_admin
-from app.automation.proxy_rotator import get_proxy_rotator
 from app.core.database import get_session
 from app.core.iran_locations import (
-    find_nearest_city_coords,
     get_all_provinces,
     get_cities_by_province,
     parse_smart_address,
 )
 from app.models.location_favorite import LocationFavorite
-from app.models_multitenant import Client
 
 logger = logging.getLogger(__name__)
 

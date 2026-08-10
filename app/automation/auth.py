@@ -742,8 +742,7 @@ class UTCMSAuthenticator:
         field/button locators report as interactable.
         """
         try:
-            await self.page.evaluate(
-                """() => {
+            await self.page.evaluate("""() => {
                     const KILL = () => {
                         document.querySelectorAll('#loading.loading, div.loading, .loading-overlay, .loading-mask')
                             .forEach(el => el.remove());
@@ -766,8 +765,7 @@ class UTCMSAuthenticator:
                         }
                         style.textContent = '#loading.loading, div.loading, .loading-overlay, .loading-mask { display:none !important; pointer-events:none !important; visibility:hidden !important; }';
                     }
-                }"""
-            )
+                }""")
         except Exception as exc:  # noqa: BLE001
             logger.debug("clear_loading_overlays_failed", extra={"extra_fields": {"error": str(exc)[:120]}})
 
@@ -853,9 +851,7 @@ class UTCMSAuthenticator:
                 # The HTTP login returned a cookie but the Playwright
                 # probe couldn't verify it. Try once more by reloading
                 # the login URL — the cookie should bounce us away.
-                await self.navigator.goto_with_retry(
-                    utcms_config.LOGIN_URL, wait_until="domcontentloaded"
-                )
+                await self.navigator.goto_with_retry(utcms_config.LOGIN_URL, wait_until="domcontentloaded")
                 if await self._is_logged_in(probe_login_url=False):
                     self.last_state = "success"
                     return True

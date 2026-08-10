@@ -83,6 +83,7 @@ class EnhancedWaybillManager:
     def _setup_dialog_listener(self) -> None:
         """Register automated handler for native browser alert/confirm popups."""
         try:
+
             def handle_dialog(dialog):
                 self._last_dialog_message = dialog.message
                 logger.warning(
@@ -128,10 +129,7 @@ class EnhancedWaybillManager:
         for sel in modal_selectors:
             try:
                 if await self.page.is_visible(sel, timeout=300):
-                    text = await self.page.eval_on_selector(
-                        sel,
-                        "el => (el.innerText || el.textContent || '').trim()"
-                    )
+                    text = await self.page.eval_on_selector(sel, "el => (el.innerText || el.textContent || '').trim()")
                     logger.warning("modal_popup_detected_and_dismissing", extra={"extra_fields": {"text": text}})
                     for btn_sel in AuthSelectors.MODAL_CONFIRM_BUTTONS:
                         if await self.page.is_visible(btn_sel, timeout=200):
@@ -182,12 +180,10 @@ class EnhancedWaybillManager:
 
     async def _detect_active_pane(self) -> str:
         try:
-            pane_id = await self.page.evaluate(
-                """() => {
+            pane_id = await self.page.evaluate("""() => {
                     const pane = document.querySelector('.tab-pane.active.show, .tab-pane.active');
                     return pane ? String(pane.id || '') : '';
-                }"""
-            )
+                }""")
             return str(pane_id or "")
         except Exception:
             return ""
@@ -565,13 +561,11 @@ class EnhancedWaybillManager:
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
         try:
-            value = await locator.evaluate(
-                """el => {
+            value = await locator.evaluate("""el => {
                     if (!el) return '';
                     if ('value' in el) return String(el.value || '');
                     return String((el.innerText || el.textContent || '').trim());
-                }"""
-            )
+                }""")
             return str(value or "")
         except Exception:
             return ""
@@ -614,8 +608,7 @@ class EnhancedWaybillManager:
                 await locator.fill(str(value))
 
             try:
-                await locator.evaluate(
-                    """el => {
+                await locator.evaluate("""el => {
                         el.dispatchEvent(new Event('keydown', { bubbles: true }));
                         el.dispatchEvent(new Event('keypress', { bubbles: true }));
                         el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -624,8 +617,7 @@ class EnhancedWaybillManager:
                         if (window.jQuery) {
                             window.jQuery(el).trigger('keydown').trigger('keypress').trigger('input').trigger('keyup').trigger('change');
                         }
-                    }"""
-                )
+                    }""")
             except Exception:
                 logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
@@ -2497,16 +2489,14 @@ class EnhancedWaybillManager:
 
         # Force form validation update in case some events didn't propagate
         try:
-            await self.page.evaluate(
-                """() => {
+            await self.page.evaluate("""() => {
                 if (window.jQuery) {
                     const $form = window.jQuery('#frmcommodityInsert');
                     if ($form.length && $form.data('formValidation')) {
                         $form.data('formValidation').validate();
                     }
                 }
-            }"""
-            )
+            }""")
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
@@ -3832,8 +3822,7 @@ class EnhancedWaybillManager:
     async def _close_blocking_overlays(self) -> None:
         """Attempt to close blocking overlays (modals, popups, backdrops)."""
         try:
-            await self.page.evaluate(
-                """() => {
+            await self.page.evaluate("""() => {
                 // Close modal backdrops
                 const backdrops = document.querySelectorAll('div.modal-backdrop, .modal-backdrop, .overlay, .popup-overlay');
                 backdrops.forEach(el => el.remove());
@@ -3846,8 +3835,7 @@ class EnhancedWaybillManager:
                 // Click any close/back buttons
                 const closeBtns = document.querySelectorAll('.modal .close, .modal-close, button.close, [data-dismiss="modal"]');
                 closeBtns.forEach(btn => btn.click());
-            }"""
-            )
+            }""")
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
 

@@ -2,19 +2,19 @@
 Integration tests for Phase 6-10 components.
 Tests interaction between Reconciliation, Alerts, Auto-Heal, Beat HA, and Monitoring.
 """
+
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from datetime import datetime, UTC, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
-from sqlmodel import SQLModel, select
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.models.admin import AdminAlert
 from app.models_multitenant import WaybillJob
-from app.models_rpa import WorkerRegistry, DispatchIntent, Execution
+from app.models_rpa import WorkerRegistry
 from app.orchestrator.alert_manager import AlertManagerService
 from app.orchestrator.state_machine import JobStatus
-from app.orchestrator.reconciliation_service import ReconciliationService
 
 
 @pytest.fixture
@@ -50,8 +50,10 @@ async def test_reconciliation_creates_alert_on_repeated_unknown(async_db):
         jobs.append(job)
     await async_db.commit()
 
-    with patch("app.orchestrator.alert_manager.webhook_alert_manager.emit"), \
-         patch("app.orchestrator.alert_manager.event_hub.publish", new_callable=AsyncMock) as mock_pub:
+    with (
+        patch("app.orchestrator.alert_manager.webhook_alert_manager.emit"),
+        patch("app.orchestrator.alert_manager.event_hub.publish", new_callable=AsyncMock) as mock_pub,
+    ):
 
         alert = await service.check_repeated_unknown_submission(
             session=async_db, job_id=jobs[0].id, consecutive_count=3, tenant_id=1
@@ -79,15 +81,17 @@ async def test_worker_draining_alert_flow(async_db):
     async_db.add(worker)
     await async_db.commit()
 
-    with patch("app.orchestrator.alert_manager.webhook_alert_manager.emit"), \
-         patch("app.orchestrator.alert_manager.event_hub.publish", new_callable=AsyncMock):
+    with (
+        patch("app.orchestrator.alert_manager.webhook_alert_manager.emit"),
+        patch("app.orchestrator.alert_manager.event_hub.publish", new_callable=AsyncMock),
+    ):
 
         alert = await service.create_alert(
             session=async_db,
             severity="critical",
             category="worker_draining",
             message="Worker worker-test-01 transitioned to draining after 5 failures",
-            dedupe_key=f"draining_worker_test-01",
+            dedupe_key="draining_worker_test-01",
             details={"worker_id": "worker-test-01", "failures": 5},
         )
 
@@ -102,8 +106,10 @@ async def test_alert_webhook_auto_ack_resolved(async_db):
     service = AlertManagerService()
 
     # Create a firing alert
-    with patch("app.orchestrator.alert_manager.webhook_alert_manager.emit"), \
-         patch("app.orchestrator.alert_manager.event_hub.publish", new_callable=AsyncMock):
+    with (
+        patch("app.orchestrator.alert_manager.webhook_alert_manager.emit"),
+        patch("app.orchestrator.alert_manager.event_hub.publish", new_callable=AsyncMock),
+    ):
         fired_alert = await service.create_alert(
             session=async_db,
             severity="critical",
@@ -115,9 +121,7 @@ async def test_alert_webhook_auto_ack_resolved(async_db):
     assert fired_alert.is_acknowledged is False
 
     # Simulate resolved webhook
-    acked = await service.acknowledge_alert(
-        session=async_db, alert_id=fired_alert.id, admin_id=0
-    )
+    acked = await service.acknowledge_alert(session=async_db, alert_id=fired_alert.id, admin_id=0)
 
     assert acked is not None
     assert acked.is_acknowledged is True
@@ -175,8 +179,8 @@ async def test_metrics_populated_from_worker_registry(async_db):
 @pytest.mark.asyncio
 async def test_beat_ha_scheduler_config():
     """Phase 9: Verify celery-redbeat is configured."""
-    from app.workers.celery_app import celery_app
     from app.core.config import utcms_config
+    from app.workers.celery_app import celery_app
 
     assert celery_app is not None
     assert celery_app.conf.beat_scheduler == "redbeat.RedBeatScheduler"
@@ -189,11 +193,11 @@ async def test_beat_ha_scheduler_config():
 async def test_captcha_failure_rate_metric_updates():
     """Phase 10: Captcha failure rate should be tracked in runtime snapshot."""
     from app.monitoring.metrics import (
+        get_captcha_runtime_snapshot,
+        reset_captcha_runtime_snapshot,
         track_captcha_attempt,
         track_captcha_failure,
         track_captcha_success,
-        get_captcha_runtime_snapshot,
-        reset_captcha_runtime_snapshot,
     )
 
     reset_captcha_runtime_snapshot()

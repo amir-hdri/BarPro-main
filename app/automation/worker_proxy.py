@@ -52,11 +52,7 @@ _DOCKER_GATEWAY = os.environ.get("DOCKER_BRIDGE_GATEWAY", "172.20.0.1")
 # architecture silently collapses (X1) and every worker would egress via the
 # central server. Populate from LOCAL_PUBLIC_IPS (comma-separated) or CENTRAL_IP.
 _LOCAL_PUBLIC_IPS: set[str] = {
-    x.strip()
-    for x in os.environ.get(
-        "LOCAL_PUBLIC_IPS", os.environ.get("CENTRAL_IP", "")
-    ).split(",")
-    if x.strip()
+    x.strip() for x in os.environ.get("LOCAL_PUBLIC_IPS", os.environ.get("CENTRAL_IP", "")).split(",") if x.strip()
 }
 
 
@@ -110,17 +106,14 @@ def _resolve_to_ip(url: str) -> str:
         # If the proxy resolves to a non-local address, force it through the gateway.
         try:
             import ipaddress
+
             parsed_ip = ipaddress.ip_address(ip)
             # Only rewrite THIS server's own public IP to the bridge gateway
             # (so a hardcoded egress IP pointing back at us routes through
             # Squid on the host instead of leaking direct). Any public IP that
             # is NOT ours — e.g. a remote worker node's Squid — is preserved so
             # the one-IP-per-worker architecture keeps working (X1).
-            if (
-                not parsed_ip.is_private
-                and not parsed_ip.is_loopback
-                and ip in _LOCAL_PUBLIC_IPS
-            ):
+            if not parsed_ip.is_private and not parsed_ip.is_loopback and ip in _LOCAL_PUBLIC_IPS:
                 ip = _DOCKER_GATEWAY
                 logger.info(f"worker_proxy: routed own public IP {hostname} through gateway {ip}")
         except ValueError:
@@ -141,7 +134,7 @@ def _resolve_to_ip(url: str) -> str:
 _cached_proxy_url: str | None = None
 _cached_proxy_timestamp: float = 0.0
 _PROXY_CACHE_TTL_SUCCESS: float = 60.0  # Cache valid proxy for 60s
-_PROXY_CACHE_TTL_FAILURE: float = 5.0   # Retry failed proxy lookup after 5s
+_PROXY_CACHE_TTL_FAILURE: float = 5.0  # Retry failed proxy lookup after 5s
 
 
 def clear_proxy_cache() -> None:
@@ -234,9 +227,7 @@ def get_playwright_proxy() -> dict | None:
     return {"server": url} if url else None
 
 
-async def check_proxy_health(
-    proxy_url: str, target_url: str = "https://utcms.ir"
-) -> bool:
+async def check_proxy_health(proxy_url: str, target_url: str = "https://utcms.ir") -> bool:
     """
     Verify that Squid can make a real request to the UTCMS login page.
     """
@@ -257,6 +248,7 @@ async def check_proxy_health(
 async def increment_worker_failures(worker_id: str) -> int:
     """Increment the sequential failure counter for this worker in Redis (1 minute window)."""
     from app.core.redis import redis_manager
+
     try:
         client = await redis_manager.get()
         if client:

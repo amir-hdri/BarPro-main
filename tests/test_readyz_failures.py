@@ -10,11 +10,13 @@ from app.main import app
 
 @pytest.fixture(autouse=True)
 def reset_readyz_cache():
+    """Isolate readiness scenarios from the unrelated external queue check."""
     from app.api.routes.system import _reset_readyz_cache
 
-    _reset_readyz_cache()
-    yield
-    _reset_readyz_cache()
+    with patch("app.core.config.utcms_config.QUEUE_ENABLED", False):
+        _reset_readyz_cache()
+        yield
+        _reset_readyz_cache()
 
 
 @pytest.mark.asyncio

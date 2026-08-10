@@ -48,6 +48,7 @@ if celery_app is not None:
                 "Redirecting execution to waybill.process_job."
             )
             from app.workers.waybill_worker import process_waybill_job
+
             return process_waybill_job.apply_async(
                 args=[task_id],
                 queue="waybill_tasks",
@@ -123,19 +124,27 @@ if celery_app is not None:
         from app.services.fuel_inquiry_service import fuel_inquiry_service
 
         async def _run():
-            import socket
             import os
+            import socket
+
             w_id = os.environ.get("WORKER_ID", socket.gethostname())
-            from app.automation.worker_proxy import is_worker_draining, drain_worker_consumers, increment_worker_failures, transition_worker_to_draining
-            
+            from app.automation.worker_proxy import (
+                drain_worker_consumers,
+                increment_worker_failures,
+                is_worker_draining,
+                transition_worker_to_draining,
+            )
+
             # Check if draining before execution
             if await is_worker_draining(w_id):
                 logger.warning(f"Worker {w_id} is draining, refusing fuel inquiry {inquiry_id}")
                 drain_worker_consumers(self)
-                from app.models_multitenant import FuelInquiry
-                from app.core.error_taxonomy import ErrorCategory
-                from app.orchestrator.state_machine import set_fuel_inquiry_status
                 from datetime import UTC, datetime
+
+                from app.core.error_taxonomy import ErrorCategory
+                from app.models_multitenant import FuelInquiry
+                from app.orchestrator.state_machine import set_fuel_inquiry_status
+
                 async with async_session_factory() as session:
                     inquiry = await session.get(FuelInquiry, inquiry_id)
                     if inquiry:
@@ -155,6 +164,7 @@ if celery_app is not None:
             idx = os.environ.get("WORKER_IP_INDEX", "").strip()
             if idx.isdigit():
                 from app.core.redis import redis_manager
+
                 r = await redis_manager.get()
                 if r is not None:
                     block_key = f"utcms:circuit_breaker:blocked:{idx}"
@@ -164,14 +174,12 @@ if celery_app is not None:
                             _get_unavailable_ip_indices,
                             get_available_ip_indices,
                         )
+
                         available = get_available_ip_indices()
                         unavailable = await _get_unavailable_ip_indices()
                         known = await _get_known_ip_indices()
                         healthy = [
-                            i for i in available
-                            if i != int(idx)
-                            and i not in unavailable
-                            and (not known or i in known)
+                            i for i in available if i != int(idx) and i not in unavailable and (not known or i in known)
                         ]
                         if healthy:
                             req_key = f"utcms:circuit_breaker:fuel_requeue:{inquiry_id}:{idx}"
@@ -198,10 +206,18 @@ if celery_app is not None:
                 except Exception as e:
                     await session.rollback()
                     logger.error(f"Failed in process_fuel_inquiry_task: {e}")
-                    
+
                     # Track failures for auto-heal draining on infrastructure errors
                     err_msg = str(e).lower()
-                    if "proxy" in err_msg or "network" in err_msg or "timeout" in err_msg or any(msg in err_msg for msg in ("target closed", "browser closed", "context closed", "page closed")):
+                    if (
+                        "proxy" in err_msg
+                        or "network" in err_msg
+                        or "timeout" in err_msg
+                        or any(
+                            msg in err_msg
+                            for msg in ("target closed", "browser closed", "context closed", "page closed")
+                        )
+                    ):
                         failures = await increment_worker_failures(w_id)
                         if failures > 3:
                             await transition_worker_to_draining(w_id)
@@ -276,24 +292,29 @@ def dispatch_fuel_inquiry_task(inquiry_id: int):
 
 
 if celery_app is not None:
+
     @celery_app.task(name="orchestrator.scheduler.run")
     def run_scheduler():
         from app.orchestrator.scheduler_service import scheduler_service
+
         return _run_async(scheduler_service.run())
 
     @celery_app.task(name="orchestrator.dispatcher.run")
     def run_dispatcher():
         from app.orchestrator.dispatcher_service import dispatcher_service
+
         return _run_async(dispatcher_service.run())
 
     @celery_app.task(name="orchestrator.orphan_detector.run")
     def run_orphan_detector():
         from app.orchestrator.orphan_detector import orphan_detector
+
         return _run_async(orphan_detector.run())
 
     @celery_app.task(name="orchestrator.claim_reaper.run")
     def run_claim_reaper():
         from app.orchestrator.claim_reaper import claim_reaper
+
         return _run_async(claim_reaper.run())
 
     @celery_app.task(name="orchestrator.reconciliation.run")
@@ -311,5 +332,5 @@ if celery_app is not None:
     def cleanup_stale_fuel_inquiries():
         """Mark abandoned fuel inquiries as stale (every 10 min via beat)."""
         from app.services.fuel_inquiry_service import fuel_inquiry_service
-        return _run_async(fuel_inquiry_service.cleanup_stale_inquiries())
 
+        return _run_async(fuel_inquiry_service.cleanup_stale_inquiries())

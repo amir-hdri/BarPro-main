@@ -136,7 +136,14 @@ class RPADispatchService:
                         "dispatch_phase1_single_decision_failed",
                         extra={"extra_fields": {"job_id": decision.job_id, "error": str(exc)}},
                     )
-                    dispatched.append({"job_id": decision.job_id, "queue_name": decision.queue_name, "status": "failed", "error": str(exc)})
+                    dispatched.append(
+                        {
+                            "job_id": decision.job_id,
+                            "queue_name": decision.queue_name,
+                            "status": "failed",
+                            "error": str(exc),
+                        }
+                    )
             return dispatched
 
     async def dispatch_phase1_submit_now(

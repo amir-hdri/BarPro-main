@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { ChevronDownIcon } from "@heroicons/react/24/outline";
 
@@ -43,7 +43,7 @@ export const ProvinceCitySelect = memo(function ProvinceCitySelect({
   const [cityFetchError, setCityFetchError] = useState(false);
 
   // لود اولیه استان‌ها
-  const fetchProvinces = async () => {
+  const fetchProvinces = useCallback(async () => {
     setLoadingProvinces(true);
     setProvinceFetchError(false);
     try {
@@ -58,14 +58,14 @@ export const ProvinceCitySelect = memo(function ProvinceCitySelect({
     } finally {
       setLoadingProvinces(false);
     }
-  };
-
-  useEffect(() => {
-    fetchProvinces();
   }, []);
 
+  useEffect(() => {
+    void fetchProvinces();
+  }, [fetchProvinces]);
+
   // لود شهرهای استان انتخاب شده
-  const fetchCities = async () => {
+  const fetchCities = useCallback(async () => {
     if (!provinceValue) {
       setCities([]);
       setCityFetchError(false);
@@ -85,11 +85,11 @@ export const ProvinceCitySelect = memo(function ProvinceCitySelect({
     } finally {
       setLoadingCities(false);
     }
-  };
+  }, [provinceValue]);
 
   useEffect(() => {
-    fetchCities();
-  }, [provinceValue]);
+    void fetchCities();
+  }, [fetchCities]);
 
   const handleProvinceSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;

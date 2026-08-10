@@ -12,7 +12,7 @@ from playwright.async_api import BrowserContext, Page
 
 from app.automation.auth import UTCMSAuthenticator
 from app.automation.captcha import get_captcha_provider
-from app.core.exceptions import WaybillError
+from app.core.exceptions import ErrorCode, WaybillError
 from app.monitoring import (
     track_captcha_attempt,
     track_captcha_failure,
@@ -242,8 +242,7 @@ class FuelScraper:
         """Forces captcha refresh and waits for the image load event to complete."""
         try:
             # 1. Register a load listener in the page context
-            await self.page.evaluate(
-                """() => {
+            await self.page.evaluate("""() => {
                 const img = document.querySelector("#imgCapchaEdit1");
                 if (img) {
                     window.captchaLoaded = false;
@@ -259,8 +258,7 @@ class FuelScraper:
                     // Force refresh by appending random query parameter to bypass cache
                     img.src = "../../Cap.aspx?id=LoginShowFuelQuota&rand=" + Math.random();
                 }
-            }"""
-            )
+            }""")
             logger.info("Forced captcha refresh with random parameter via JS.")
 
             # 2. Wait for the load event to fire
@@ -355,14 +353,12 @@ class FuelScraper:
 
                     target_y_str = str(j_year)
                     if available_year_vals and target_y_str not in available_year_vals:
-                        logger.warning(
-                            f"Requested year {j_year} not found in UTCMS options: {available_year_vals}"
-                        )
-                        raise FuelInquiryScraperError(
-                            ErrorCategory.USER_INPUT_ERROR,
+                        logger.warning(f"Requested year {j_year} not found in UTCMS options: {available_year_vals}")
+                        raise WaybillError(
                             f"سال {j_year} در گزینه‌های سامانه سوخت موجود نیست",
+                            error_code=ErrorCode.WB_VALIDATION_FAILED,
                         )
-                except FuelInquiryScraperError:
+                except WaybillError:
                     raise
                 except Exception as ex_opt:
                     logger.debug(f"Could not pre-check #Year options: {ex_opt}")
@@ -372,23 +368,21 @@ class FuelScraper:
 
                 # Select plate type (mili = value 1)
                 await self.page.click("input[name='pelakSelected'][value='1']")
-                await self.page.evaluate(
-                    """() => {
+                await self.page.evaluate("""() => {
                     FreeZoneId = 2;
                     $("input[name='pelakSelected'][value='1']").prop('checked', true);
                     $("#PAddi").show();
                     $("#PAzadType").hide();
                     $("#PAzad").hide();
-                }"""
-                )
+                }""")
                 logger.info("Plate type selected and forced FreeZoneId = 2 via JS")
 
                 # Log the options for debugging
                 try:
-                    options = await self.page.locator('#pelakComboLogin option').all()
+                    options = await self.page.locator("#pelakComboLogin option").all()
                     opts_text = []
                     for opt in options:
-                        val = await opt.get_attribute('value')
+                        val = await opt.get_attribute("value")
                         text = await opt.inner_text()
                         opts_text.append(f"{text.strip()}:{val}")
                     logger.info("pelakComboLogin OPTIONS: " + " | ".join(opts_text))
@@ -400,6 +394,8 @@ class FuelScraper:
                 await self.page.select_option("#pelakComboLogin", plate_info["char_val"])
                 await self.page.fill("#pelakCenterLogin", plate_info["center"])
                 await self.page.fill("#pelakIrNumLogin", plate_info["ir"])
+            except WaybillError:
+                raise
             except Exception as e:
                 logger.error(f"Error filling form: {e}")
                 raise WaybillError(f"خطا در پر کردن فرم استعلام سوخت: {e}") from e

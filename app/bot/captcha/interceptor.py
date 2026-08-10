@@ -115,8 +115,7 @@ class CaptchaInterceptor:
         overall_started_at = time.perf_counter()
         try:
             capture_started_at = time.perf_counter()
-            raw_base64 = await captcha_locator.evaluate(
-                """async el => {
+            raw_base64 = await captcha_locator.evaluate("""async el => {
                     if (!el) return null;
                     const tag = (el.tagName || '').toLowerCase();
 
@@ -153,8 +152,7 @@ class CaptchaInterceptor:
                     }
 
                     return null;
-                }"""
-            )
+                }""")
             elapsed_ms = round((time.perf_counter() - capture_started_at) * 1000, 2)
             if isinstance(raw_base64, dict):
                 source = str(raw_base64.get("source") or "unknown")

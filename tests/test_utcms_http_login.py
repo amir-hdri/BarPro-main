@@ -8,7 +8,6 @@ builder. The actual network round-trip is intentionally NOT exercised
 (that is what the ``scripts/measure_curl_cffi_login.py`` diagnostic is for).
 """
 
-
 import pytest
 
 from app.automation.utcms_http_login import UtcmsHttpLogin
@@ -20,17 +19,11 @@ from app.automation.utcms_http_login import UtcmsHttpLogin
 
 class TestExtraction:
     def test_extract_antiforgery(self):
-        html = (
-            '<form><input name="__RequestVerificationToken" '
-            'type="hidden" value="abc123def" /></form>'
-        )
+        html = '<form><input name="__RequestVerificationToken" ' 'type="hidden" value="abc123def" /></form>'
         assert UtcmsHttpLogin._extract_antiforgery(html) == "abc123def"
 
     def test_extract_antiforgery_reversed_order(self):
-        html = (
-            '<form><input value="xyz789" name="__RequestVerificationToken" '
-            'type="hidden" /></form>'
-        )
+        html = '<form><input value="xyz789" name="__RequestVerificationToken" ' 'type="hidden" /></form>'
         assert UtcmsHttpLogin._extract_antiforgery(html) == "xyz789"
 
     def test_extract_antiforgery_missing(self):
@@ -94,7 +87,9 @@ class TestExtraction:
 class _Fake:
     """Minimal stand-in for a curl_cffi Response for unit tests."""
 
-    def __init__(self, status_code=200, headers=None, text="", url="https://barname.utcms.ir/Barname/login", cookies=None):
+    def __init__(
+        self, status_code=200, headers=None, text="", url="https://barname.utcms.ir/Barname/login", cookies=None
+    ):
         self.status_code = status_code
         self.headers = headers or {}
         self.text = text
@@ -207,9 +202,7 @@ class TestCookies:
         assert [c["name"] for c in out] == ["c"]
 
     def test_parse_set_cookie_header_full_attrs(self):
-        out = UtcmsHttpLogin._parse_set_cookie_header(
-            "Barname=abc123; path=/; HttpOnly; Secure; SameSite=Lax"
-        )
+        out = UtcmsHttpLogin._parse_set_cookie_header("Barname=abc123; path=/; HttpOnly; Secure; SameSite=Lax")
         assert out == {
             "name": "Barname",
             "value": "abc123",
@@ -237,6 +230,7 @@ class TestCookies:
         class _H:
             def get_list(self, key):
                 return ["Barname=abc; path=/; HttpOnly"]
+
             def get(self, key):
                 return None
 
@@ -253,6 +247,7 @@ class TestCookies:
         class _Resp:
             headers = {}
             cookies = {}
+
         assert UtcmsHttpLogin._collect_set_cookies(_Resp()) == []
 
 
@@ -326,6 +321,7 @@ class TestFetchAuthenticated:
         """Monkeypatch _build_session to return a fake session. With
         ``per_login_sessions=True`` a brand-new session object is returned
         on every _build_session() call (like the real code)."""
+
         class _FakeSession:
             def __init__(self):
                 self.headers = {}

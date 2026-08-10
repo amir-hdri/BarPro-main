@@ -10,7 +10,7 @@ These tests focus on:
 import os
 import sys
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 sys.path.append(os.getcwd())
 
@@ -24,6 +24,7 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         """Minimal setup for pure logic tests."""
         self.mock_page = AsyncMock()
+        self.mock_page.on = Mock()
         self.mock_context = AsyncMock()
 
         # Patch only what's needed
