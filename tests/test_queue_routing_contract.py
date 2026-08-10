@@ -17,14 +17,20 @@ in some worker's ``-Q`` list.
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
-
 from unittest.mock import patch
 
 from app.core.circuit_breaker import get_routed_queue
 
-COMPOSE_BACKEND = Path(__file__).resolve().parent.parent / "compose" / "backend.yml"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+COMPOSE_BACKEND = PROJECT_ROOT / "compose" / "backend.yml"
+LOCAL_START_SYSTEM = PROJECT_ROOT / "scripts" / "start_system.sh"
+LOCAL_STOP_SYSTEM = PROJECT_ROOT / "scripts" / "stop_system.sh"
 
 # Base queues that go through get_routed_queue() somewhere in the codebase.
 # rpa_scheduler is intentionally excluded — it is in EXEMPT_QUEUES and is never
@@ -40,25 +46,136 @@ ROUTED_BASE_QUEUES = [
 IP_INDICES = (1, 2, 3)
 
 
-def _consumed_queues() -> set[str]:
-    """Parse every queue named in a ``-Q`` argument in compose/backend.yml."""
-    text = COMPOSE_BACKEND.read_text(encoding="utf-8")
-    consumed: set[str] = set()
+def _queues_by_worker() -> dict[str, set[str]]:
+    """Parse the ``-Q`` queues for each named Celery worker in backend compose."""
+    queues_by_worker: dict[str, set[str]] = {}
+    current_worker: str | None = None
+    lines = COMPOSE_BACKEND.read_text(encoding="utf-8").splitlines()
 
-    lines = text.splitlines()
-    for i, line in enumerate(lines):
-        if line.strip() != "- -Q":
+    for index, line in enumerate(lines):
+        service_match = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if service_match:
+            service_name = service_match.group(1)
+            current_worker = service_name if re.fullmatch(r"celery_worker_\d+", service_name) else None
+            if current_worker is not None:
+                queues_by_worker[current_worker] = set()
             continue
-        # The queue list is the next non-empty list item.
-        for candidate in lines[i + 1 :]:
+
+        if current_worker is None or line.strip() != "- -Q":
+            continue
+
+        # The queue CSV is the next non-empty list item after ``- -Q``.
+        for candidate in lines[index + 1 :]:
             stripped = candidate.strip()
             if not stripped:
                 continue
             queue_csv = stripped.removeprefix("- ").strip()
-            consumed.update(q.strip() for q in queue_csv.split(",") if q.strip())
+            queues_by_worker[current_worker].update(q.strip() for q in queue_csv.split(",") if q.strip())
             break
 
-    return consumed
+    return queues_by_worker
+
+
+def _consumed_queues() -> set[str]:
+    """Return the union of queues consumed by all backend Celery workers."""
+    return set().union(*_queues_by_worker().values())
+
+
+def _worker_node_queues(worker_ip_index: int, tmp_path: Path) -> set[str]:
+    """Execute the worker-node command with a fake Celery binary and read ``-Q``.
+
+    Compose converts ``$$`` in command blocks to a literal ``$``.  Rendering
+    that escape here lets this test validate the same Worker 2/3 branching that
+    the container executes, rather than merely matching a comment or snippet.
+    """
+    template = COMPOSE_BACKEND.parent / "worker-node.yml"
+    text = template.read_text(encoding="utf-8")
+    match = re.search(
+        r"^    command:\n      - /bin/sh\n      - -ec\n      - \|\n(?P<script>(?:^        .*\n?)*)",
+        text,
+        flags=re.MULTILINE,
+    )
+    assert match, "worker-node.yml must use an explicit shell command to build its queue list"
+
+    command = textwrap.dedent(match.group("script")).replace("$$", "$")
+    fake_celery = tmp_path / "celery"
+    captured_args = tmp_path / f"celery-args-{worker_ip_index}.txt"
+    fake_celery.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$CAPTURE_FILE"\n', encoding="utf-8")
+    fake_celery.chmod(0o755)
+
+    env = {
+        **os.environ,
+        "WORKER_IP_INDEX": str(worker_ip_index),
+        "PATH": f"{tmp_path}:{os.environ.get('PATH', '')}",
+        "CAPTURE_FILE": str(captured_args),
+    }
+    subprocess.run(["/bin/sh", "-ec", command], check=True, env=env, capture_output=True, text=True)
+
+    args = captured_args.read_text(encoding="utf-8").splitlines()
+    queue_arg_index = args.index("-Q")
+    return {queue.strip() for queue in args[queue_arg_index + 1].split(",") if queue.strip()}
+
+
+def _shell_variable(text: str, name: str) -> str:
+    """Read a simple double-quoted shell variable assignment from a script."""
+    match = re.search(rf'^{re.escape(name)}="(?P<value>[^"]*)"$', text, flags=re.MULTILINE)
+    assert match, f"{name} is not defined as a double-quoted shell variable"
+    return match.group("value")
+
+
+def _shell_function_body(text: str, name: str) -> str:
+    """Return a Bash function body for static launch-contract assertions."""
+    match = re.search(rf"^{re.escape(name)}\(\) \{{\n(?P<body>.*?)^\}}", text, flags=re.MULTILINE | re.DOTALL)
+    assert match, f"{name} function is missing"
+    return match.group("body")
+
+
+def _local_celery_launcher_source() -> str:
+    """Extract the Python launcher embedded in ``start_system.sh``."""
+    text = LOCAL_START_SYSTEM.read_text(encoding="utf-8")
+    match = re.search(
+        r'LOCAL_CELERY_QUEUE_LIST="\$queues".*?<<\'PY\'\n(?P<script>.*?)\nPY\n    \)',
+        text,
+        flags=re.DOTALL,
+    )
+    assert match, "embedded local Celery launcher is missing"
+    return match.group("script")
+
+
+def _launch_local_celery_for_test(
+    queue_list: str,
+    node_name: str,
+    include_beat: bool,
+    worker_id: str,
+    worker_ip_index: str,
+    tmp_path: Path,
+    monkeypatch,
+) -> tuple[list[str], dict[str, object]]:
+    """Run the embedded launcher with a fake Popen and capture its child env."""
+    captured: dict[str, object] = {}
+
+    class FakePopen:
+        def __init__(self, command: list[str], **kwargs: object) -> None:
+            captured["command"] = command
+            captured["kwargs"] = kwargs
+            self.pid = 42
+
+    monkeypatch.setenv("LOCAL_CELERY_QUEUE_LIST", queue_list)
+    monkeypatch.setenv("LOCAL_CELERY_NODE_NAME", node_name)
+    monkeypatch.setenv("LOCAL_CELERY_INCLUDE_BEAT", str(include_beat).lower())
+    monkeypatch.setenv("LOCAL_CELERY_LOG_FILE", str(tmp_path / f"{worker_id}.log"))
+    monkeypatch.setenv("LOCAL_CELERY_WORKER_ID", worker_id)
+    monkeypatch.setenv("LOCAL_CELERY_WORKER_IP_INDEX", worker_ip_index)
+    # Simulate a remote-node .env leaking into the parent process. The launcher
+    # must replace it for Worker 3 and remove it for the generic local worker.
+    monkeypatch.setenv("WORKER_ID", "2")
+    monkeypatch.setenv("WORKER_IP_INDEX", "2")
+
+    with patch("subprocess.Popen", FakePopen):
+        exec(_local_celery_launcher_source(), {"__name__": "__launcher_test__"})
+
+    assert "command" in captured and "kwargs" in captured
+    return captured["command"], captured["kwargs"]
 
 
 def _routed_targets(base_queue: str) -> set[str]:
@@ -112,25 +229,128 @@ def test_exempt_queue_is_not_suffixed():
     assert "rpa_scheduler" in _consumed_queues()
 
 
-def test_worker_node_template_consumes_its_own_partitions():
-    """The remote worker template must consume its ${WORKER_IP_INDEX} partitions.
+def test_rpa_scheduler_is_reserved_for_worker_3():
+    """The central Compose topology must not let another worker drain scheduler work."""
+    consumers = {worker_name for worker_name, queues in _queues_by_worker().items() if "rpa_scheduler" in queues}
+    assert consumers == {"celery_worker_3"}, (
+        "rpa_scheduler is a singleton control queue and must be consumed only "
+        f"by celery_worker_3, not {sorted(consumers)}."
+    )
 
-    The partition suffix must be the numeric IP index (WORKER_IP_INDEX), NOT the
-    registry identity (WORKER_ID). get_routed_queue() suffixes with the numeric
-    IP index from AVAILABLE_IP_INDICES (waybill_tasks_2, ...), so a template
-    consuming waybill_tasks_${WORKER_ID} with WORKER_ID="worker_4" would create
-    waybill_tasks_worker_4 — which nobody dispatches to.
+
+def test_worker_node_template_consumes_its_own_partitions(tmp_path: Path):
+    """Remote workers must consume partitions for their numeric IP index.
+
+    The suffix comes from WORKER_IP_INDEX, not WORKER_ID.  The latter can be a
+    registry label, while the dispatcher routes to numeric queue names such as
+    ``waybill_tasks_2``.
     """
-    template = COMPOSE_BACKEND.parent / "worker-node.yml"
-    text = template.read_text(encoding="utf-8")
+    for worker_ip_index in (2, 3):
+        queues = _worker_node_queues(worker_ip_index, tmp_path)
+        for base in ROUTED_BASE_QUEUES:
+            expected = f"{base}_{worker_ip_index}"
+            assert expected in queues, (
+                f"worker-node.yml does not consume {expected}; a remote worker "
+                f"would never receive routed {base} tasks."
+            )
 
-    q_match = re.search(r"-Q\s+(\S+)", text)
-    assert q_match, "no -Q argument found in compose/worker-node.yml"
-    queues = {q.strip() for q in q_match.group(1).split(",")}
 
-    for base in ROUTED_BASE_QUEUES:
-        expected = f"{base}_${{WORKER_IP_INDEX}}"
-        assert expected in queues, (
-            f"worker-node.yml does not consume {expected}; a remote worker "
-            f"would never receive routed {base} tasks."
-        )
+def test_worker_node_template_reserves_rpa_scheduler_for_worker_3(tmp_path: Path):
+    """The shared remote template must add the control queue only on Worker 3."""
+    assert "rpa_scheduler" not in _worker_node_queues(2, tmp_path)
+    assert "rpa_scheduler" in _worker_node_queues(3, tmp_path)
+
+
+def test_local_start_script_reserves_scheduler_for_explicit_worker_3():
+    """The all-in-one local stack must not reintroduce a generic scheduler consumer."""
+    start_script = LOCAL_START_SYSTEM.read_text(encoding="utf-8")
+    stop_script = LOCAL_STOP_SYSTEM.read_text(encoding="utf-8")
+    assert LOCAL_STOP_SYSTEM.read_bytes().startswith(b"#!/bin/bash\n")
+
+    generic_queues = _shell_variable(start_script, "LOCAL_WORKER_QUEUES").split(",")
+    scheduler_queues = _shell_variable(start_script, "LOCAL_SCHEDULER_QUEUES").split(",")
+    scheduler_nodename = _shell_variable(start_script, "LOCAL_SCHEDULER_NODENAME")
+    scheduler_worker_id = _shell_variable(start_script, "LOCAL_SCHEDULER_WORKER_ID")
+    scheduler_ip_index = _shell_variable(start_script, "LOCAL_SCHEDULER_IP_INDEX")
+
+    assert "rpa_scheduler" not in generic_queues
+    assert scheduler_queues == ["rpa_scheduler"]
+    assert scheduler_nodename == "worker_3@%h"
+    assert scheduler_worker_id == scheduler_ip_index == "3"
+
+    launcher = _shell_function_body(start_script, "start_local_celery_worker")
+    assert 'LOCAL_CELERY_QUEUE_LIST="$queues"' in launcher
+    assert 'LOCAL_CELERY_WORKER_ID="$worker_id"' in launcher
+    assert 'LOCAL_CELERY_WORKER_IP_INDEX="$worker_ip_index"' in launcher
+    assert 'env["WORKER_ID"] = worker_id' in launcher
+    assert 'env["WORKER_IP_INDEX"] = worker_ip_index' in launcher
+    assert 'env.pop("WORKER_IP_INDEX", None)' in launcher
+    assert '"-Q",' in launcher
+    assert "queue_list," in launcher
+    assert '"-n",' in launcher
+    assert "node_name," in launcher
+
+    scheduler_wrapper = _shell_function_body(start_script, "start_local_scheduler_worker")
+    assert '"$LOCAL_SCHEDULER_QUEUES"' in scheduler_wrapper
+    assert '"$LOCAL_SCHEDULER_NODENAME"' in scheduler_wrapper
+    assert '"$LOCAL_SCHEDULER_WORKER_ID"' in scheduler_wrapper
+    assert '"$LOCAL_SCHEDULER_IP_INDEX"' in scheduler_wrapper
+    assert '"false"' in scheduler_wrapper  # Beat remains on the generic local worker.
+
+    generic_wrapper = _shell_function_body(start_script, "start_local_worker")
+    assert '"$LOCAL_WORKER_QUEUES"' in generic_wrapper
+    assert '"$LOCAL_GENERIC_WORKER_ID"' in generic_wrapper
+    assert '"true"' in generic_wrapper
+    assert start_script.index("if ! start_local_scheduler_worker;") < start_script.index("if ! start_local_worker;")
+    local_stop = _shell_function_body(start_script, "stop_local_worker")
+    assert '"$SCHEDULER_WORKER_PID_FILE"' in local_stop
+    assert "output/scheduler_worker.pid" in stop_script
+
+
+def test_local_launcher_assigns_worker_3_identity_without_env_leakage(tmp_path: Path, monkeypatch):
+    """Worker 3 must not inherit a remote Worker 2 identity from ``.env``."""
+    scheduler_command, scheduler_kwargs = _launch_local_celery_for_test(
+        queue_list="rpa_scheduler",
+        node_name="worker_3@%h",
+        include_beat=False,
+        worker_id="3",
+        worker_ip_index="3",
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    scheduler_env = scheduler_kwargs["env"]
+    assert isinstance(scheduler_env, dict)
+    assert scheduler_env["WORKER_ID"] == "3"
+    assert scheduler_env["WORKER_IP_INDEX"] == "3"
+    assert "LOCAL_CELERY_WORKER_ID" not in scheduler_env
+    assert scheduler_command == [
+        sys.executable,
+        "-m",
+        "celery",
+        "-A",
+        "app.workers.phase1_tasks:celery_app",
+        "worker",
+        "-Q",
+        "rpa_scheduler",
+        "-n",
+        "worker_3@%h",
+        "-l",
+        "info",
+        "--pool",
+        "solo",
+    ]
+
+    generic_command, generic_kwargs = _launch_local_celery_for_test(
+        queue_list="waybill_tasks",
+        node_name="local_worker@%h",
+        include_beat=True,
+        worker_id="local_worker",
+        worker_ip_index="",
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    generic_env = generic_kwargs["env"]
+    assert isinstance(generic_env, dict)
+    assert generic_env["WORKER_ID"] == "local_worker"
+    assert "WORKER_IP_INDEX" not in generic_env
+    assert generic_command[-3:] == ["-B", "--pool", "solo"]

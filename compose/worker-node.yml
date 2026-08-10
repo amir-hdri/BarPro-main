@@ -63,14 +63,25 @@ services:
       - worker_local
     env_file:
       - ../.env
-    command: >
-      celery -A app.workers.celery_app worker
-      --loglevel=info
-      --concurrency=1
-      --prefetch-multiplier=1
-      --pool=solo
-      -Q waybill_tasks,waybill_tasks_${WORKER_IP_INDEX},rpa_auth_${WORKER_IP_INDEX},rpa_submit_${WORKER_IP_INDEX},reconciliation_tasks,reconciliation_tasks_${WORKER_IP_INDEX},rpa_scheduler,scheduled_tasks,scheduled_tasks_${WORKER_IP_INDEX},barpro.fuel.inquiry
-      --max-tasks-per-child=50
+    # rpa_scheduler is a singleton control queue. This shared template runs on
+    # Worker 2 and Worker 3, so only the node with index 3 may consume it.
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        : "$${WORKER_IP_INDEX:?WORKER_IP_INDEX is required}"
+        queues="waybill_tasks,waybill_tasks_$${WORKER_IP_INDEX},rpa_auth_$${WORKER_IP_INDEX},rpa_submit_$${WORKER_IP_INDEX},reconciliation_tasks,reconciliation_tasks_$${WORKER_IP_INDEX}"
+        if [ "$${WORKER_IP_INDEX}" = "3" ]; then
+          queues="$${queues},rpa_scheduler"
+        fi
+        queues="$${queues},scheduled_tasks,scheduled_tasks_$${WORKER_IP_INDEX},barpro.fuel.inquiry"
+        exec celery -A app.workers.celery_app worker \
+          --loglevel=info \
+          --concurrency=1 \
+          --prefetch-multiplier=1 \
+          --pool=solo \
+          -Q "$${queues}" \
+          --max-tasks-per-child=50
     environment:
       # Identity — WORKER_ID is derived from WORKER_IP_INDEX so it is always a
       # numeric value ("2", "3") identical in format to backend.yml, keeping
