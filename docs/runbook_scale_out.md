@@ -29,7 +29,7 @@ git clone https://github.com/amir-hdri/BarPro-main.git /opt/barpro
 cd /opt/barpro
 
 cat > .env << 'EOF'
-WORKER_ID=worker_5 # Unique worker identifier
+WORKER_IP_INDEX=5 # Numeric IP index (WORKER_ID is derived from it)
 CENTRAL_IP=<YOUR_CENTRAL_SERVER_IP>
 DATABASE_URL=postgresql+asyncpg://barpro_worker:<WORKER_DB_PASSWORD>@<YOUR_CENTRAL_SERVER_IP>:5432/barpro
 REDIS_URL=redis://:<REDIS_PASSWORD>@<YOUR_CENTRAL_SERVER_IP>:6379/0
