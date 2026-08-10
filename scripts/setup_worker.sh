@@ -136,7 +136,9 @@ log_ok "تصویر build شد"
 
 # ── مرحله ۶: راه‌اندازی سرویس‌ها ─────────────────────────────────────────
 log_section "🚀 مرحله ۶: راه‌اندازی Squid + Celery Worker"
-docker compose -f compose/worker-node.yml up -d
+# --env-file .env: ensures compose interpolation reads /opt/barpro/.env
+# regardless of the project directory (compose/), not ./compose/.env (X5/FIX-L).
+docker compose --env-file .env -f compose/worker-node.yml up -d
 log_ok "سرویس‌ها راه‌اندازی شدند"
 
 # ── مرحله ۷: بررسی ثبت‌نام در registry ────────────────────────────────────
