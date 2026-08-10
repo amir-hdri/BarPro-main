@@ -457,7 +457,7 @@ DATABASE_URL="postgresql+asyncpg://postgres:{pg_pass}@postgres:5432/{DB_NAME}"
 REDIS_URL="redis://:{redis_pw}@redis:6379/0"
 
 # مسیریابی Multi-IP
-AVAILABLE_IP_INDICES="1,2"
+AVAILABLE_IP_INDICES="1,2,3"
 WORKER_1_PROXY="http://squid_1:3128"
 WORKER_2_PROXY="http://squid_2:3128"
 WORKER_3_PROXY="http://squid_3:3128"
