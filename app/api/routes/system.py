@@ -664,26 +664,22 @@ async def proxies_health():
             proxies_to_check.append((w.display_name, w.proxy_url))
             seen_urls.add(w.proxy_url)
 
-    # 2. Fallback for single-server / local dev: WORKER_{N}_PROXY env vars
-    #    (still useful when workers haven't registered yet, e.g. on first boot)
-    if not active_workers:
-        for i in range(1, 10):
-            env_val = os.getenv(f"WORKER_{i}_PROXY")
-            if env_val:
-                if env_val not in seen_urls:
-                    proxies_to_check.append((f"Squid {i} (env)", env_val))
-                    seen_urls.add(env_val)
-            else:
-                # Only auto-generate defaults for workers 1-3 (known local deployment)
-                if i <= 3:
-                    port = 3127 + i  # 3128, 3129, 3130
-                    url = f"http://172.20.0.1:{port}"
-                    if url not in seen_urls:
-                        proxies_to_check.append((f"Squid {i} (default)", url))
-                        seen_urls.add(url)
-                else:
-                    # Stop scanning env vars once we hit a gap above worker 3
-                    break
+    # 2. Configured WORKER_{N}_PROXY env vars (always check explicit env vars,
+    #    ensuring remote node proxies defined in .env are checked even if the worker
+    #    process hasn't registered yet or is offline — X11)
+    for i in range(1, 10):
+        env_val = os.getenv(f"WORKER_{i}_PROXY")
+        if env_val:
+            if env_val not in seen_urls:
+                proxies_to_check.append((f"Worker {i} Proxy (env)", env_val))
+                seen_urls.add(env_val)
+        elif not active_workers and i <= 3:
+            # Fallback defaults for single-server / local dev when no workers are registered
+            port = 3127 + i  # 3128, 3129, 3130
+            url = f"http://172.20.0.1:{port}"
+            if url not in seen_urls:
+                proxies_to_check.append((f"Squid {i} (default)", url))
+                seen_urls.add(url)
 
     # 3. Extra proxies from RPA_PROXIES (validated against SSRF allowlist)
     rpa_proxies_raw = os.getenv("RPA_PROXIES", "")

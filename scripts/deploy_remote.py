@@ -272,7 +272,7 @@ NEXT_PUBLIC_API_URL="/api"
 # (network_mode: host) has no DNS name inside the worker container (X2).
 AVAILABLE_IP_INDICES="1,2"
 WORKER_1_PROXY="http://172.20.0.1:3128"
-WORKER_2_PROXY="http://{NODE2_IP}:3129"
+WORKER_2_PROXY="http://{NODE2_IP}:3128"
 """
 
             # Create remote directory
