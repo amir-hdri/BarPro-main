@@ -51,6 +51,18 @@ services:
       - no-new-privileges:true
     mem_limit: 128m
     mem_reservation: 64m
+    # Monitoring aid: if the template was NOT rendered (squid_worker.runtime.conf
+    # still carries __CENTRAL_IP__ / __WORKER_EGRESS_IP__), squid -k check fails
+    # to parse the ACL and the container is reported unhealthy. NOTE: if the bad
+    # config makes squid exit, Docker still restarts the container (restart:
+    # unless-stopped) — the healthcheck cannot prevent that, it only makes the
+    # misconfiguration visible to `docker ps` / monitors.
+    healthcheck:
+      test: ["CMD-SHELL", "squid -k check 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
 
   # ─────────────────────────────────────────────
   # Celery Worker — RPA executor

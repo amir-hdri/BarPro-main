@@ -104,13 +104,19 @@ CAPTCHA_PROVIDER=auto
 HEADLESS=true
 ENVEOF
 
-${CYAN}# 4. Substitute Squid placeholders before first run${NC}
+${CYAN}# 4. Render the Squid template before first run${NC}
+# Never sed -i the git template (infra/squid/squid_worker.conf) — it would
+# corrupt the tracked file for every future git pull. compose/worker-node.yml
+# mounts the rendered copy infra/squid/squid_worker.runtime.conf instead (X4).
 cd /opt/barpro
-sed -i "s/__WORKER_EGRESS_IP__/${WORKER_IP}/g" infra/squid/squid_worker.conf
-sed -i "s/__CENTRAL_IP__/${CENTRAL_IP}/g" infra/squid/squid_worker.conf
+sed -e "s/__WORKER_EGRESS_IP__/${WORKER_IP}/g" \
+    -e "s/__CENTRAL_IP__/${CENTRAL_IP}/g" \
+    infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf
 
 ${CYAN}# 5. Start the Worker${NC}
-docker compose -f compose/worker-node.yml up -d
+# --env-file .env: compose interpolation must read /opt/barpro/.env, not
+# ./compose/.env — otherwise WORKER_IP_INDEX/CENTRAL_IP placeholders break (X5).
+docker compose --env-file .env -f compose/worker-node.yml up -d
 
 ${CYAN}# 6. Verify registration (run on Central server)${NC}
 # The worker should appear in worker_registry within 30 seconds of startup.

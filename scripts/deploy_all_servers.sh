@@ -123,8 +123,13 @@ docker build --network=host -t barpro_backend:latest -f Dockerfile . 2>&1 | tail
 
 echo '2.3 رندر squid_worker.runtime.conf (جایگزینی placeholderها)...'
 set -a; source .env; set +a
-sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" \
-    -e "s/__CENTRAL_IP__/${CENTRAL_IP:-127.0.0.1}/g" \
+# R2: \${...} must stay escaped through the LOCAL double-quoted expansion so
+# the placeholders expand on the WORKER NODE with ITS OWN .env values. Without
+# the backslash, ${WORKER_EGRESS_IP} expands on the launcher machine: a missing
+# local value kills the deploy with :? before SSH even runs, and a present one
+# stamps the SAME egress IP on every worker.
+sed -e "s/__WORKER_EGRESS_IP__/\${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" \
+    -e "s/__CENTRAL_IP__/\${CENTRAL_IP:-127.0.0.1}/g" \
     infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf
 
 echo '2.4 ری‌استارت worker node...'
@@ -156,8 +161,9 @@ docker build --network=host -t barpro_backend:latest -f Dockerfile . 2>&1 | tail
 
 echo '3.3 رندر squid_worker.runtime.conf (جایگزینی placeholderها)...'
 set -a; source .env; set +a
-sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" \
-    -e "s/__CENTRAL_IP__/${CENTRAL_IP:-127.0.0.1}/g" \
+# R2: see worker 2 — \${...} expands on THIS worker node, not on the launcher.
+sed -e "s/__WORKER_EGRESS_IP__/\${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" \
+    -e "s/__CENTRAL_IP__/\${CENTRAL_IP:-127.0.0.1}/g" \
     infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf
 
 echo '3.4 ری‌استارت worker node...'
