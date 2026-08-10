@@ -11,8 +11,18 @@ nothing errors. Commit 872e940 introduced exactly that regression by dropping
 ``scheduled_tasks_1/2/3`` from the worker ``-Q`` lists while the dispatcher
 kept routing to them.
 
-These tests pin the contract: every queue the code can dispatch to must appear
-in some worker's ``-Q`` list.
+These tests pin the contract in BOTH directions:
+
+* **Dispatch → consume**: every queue the code can dispatch to must appear in
+  some worker's ``-Q`` list (tasks must never land in an unlistened queue).
+* **Fleet ↔ configuration**: every ``WORKER_IP_INDEX`` declared by a worker
+  service in the Docker Compose files must exist in the real
+  ``get_available_ip_indices()`` output (no worker may consume queues the
+  dispatcher never sends to — the P0-1 "idle Worker 3" bug).
+
+The routing index set is read at runtime from ``get_available_ip_indices()``
+instead of a hardcoded tuple, so a drift between ``AVAILABLE_IP_INDICES`` and
+the compose-declared fleet fails CI instead of passing vacuously.
 """
 
 from __future__ import annotations
@@ -25,12 +35,25 @@ import textwrap
 from pathlib import Path
 from unittest.mock import patch
 
-from app.core.circuit_breaker import get_routed_queue
+from app.core.circuit_breaker import get_available_ip_indices, get_routed_queue
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-COMPOSE_BACKEND = PROJECT_ROOT / "compose" / "backend.yml"
+COMPOSE_DIR = PROJECT_ROOT / "compose"
+COMPOSE_BACKEND = COMPOSE_DIR / "backend.yml"
+COMPOSE_WORKER_NODE = COMPOSE_DIR / "worker-node.yml"
 LOCAL_START_SYSTEM = PROJECT_ROOT / "scripts" / "start_system.sh"
 LOCAL_STOP_SYSTEM = PROJECT_ROOT / "scripts" / "stop_system.sh"
+
+# Every compose file that can declare a concrete ``WORKER_IP_INDEX: <n>``.
+# ``compose/worker-node.yml`` only uses the ``${WORKER_IP_INDEX}`` placeholder,
+# so it contributes no concrete index itself — its template contract is pinned
+# separately by ``test_worker_node_template_consumes_its_own_partitions``.
+COMPOSE_FILES = sorted(
+    [
+        *COMPOSE_DIR.glob("*.yml"),
+        PROJECT_ROOT / "docker-compose.yml",
+    ]
+)
 
 # Base queues that go through get_routed_queue() somewhere in the codebase.
 # rpa_scheduler is intentionally excluded — it is in EXEMPT_QUEUES and is never
@@ -42,8 +65,6 @@ ROUTED_BASE_QUEUES = [
     "rpa_submit",
     "scheduled_tasks",
 ]
-
-IP_INDICES = (1, 2, 3)
 
 
 def _queues_by_worker() -> dict[str, set[str]]:
@@ -81,15 +102,39 @@ def _consumed_queues() -> set[str]:
     return set().union(*_queues_by_worker().values())
 
 
+def _routed_ip_indices() -> list[int]:
+    """Return the live routing pool and reject an empty configuration."""
+    indices = get_available_ip_indices()
+    assert indices, (
+        "AVAILABLE_IP_INDICES resolved to an empty index pool — the dispatcher "
+        "cannot route to any worker queue. Check the AVAILABLE_IP_INDICES "
+        "environment variable (e.g. AVAILABLE_IP_INDICES='1,2,3')."
+    )
+    return indices
+
+
+def _worker_ip_indices_by_file() -> dict[int, list[str]]:
+    """Map concrete ``WORKER_IP_INDEX: <n>`` declarations to their compose files."""
+    declared: dict[int, list[str]] = {}
+    pattern = re.compile(
+        r"^\s*WORKER_IP_INDEX\s*:\s*[\"']?(\d+)[\"']?\s*(?:#.*)?$",
+        re.MULTILINE,
+    )
+    for yml in COMPOSE_FILES:
+        text = yml.read_text(encoding="utf-8")
+        for match in pattern.finditer(text):
+            declared.setdefault(int(match.group(1)), []).append(yml.name)
+    return declared
+
+
 def _worker_node_queues(worker_ip_index: int, tmp_path: Path) -> set[str]:
     """Execute the worker-node command with a fake Celery binary and read ``-Q``.
 
-    Compose converts ``$$`` in command blocks to a literal ``$``.  Rendering
-    that escape here lets this test validate the same Worker 2/3 branching that
-    the container executes, rather than merely matching a comment or snippet.
+    Compose converts ``$$`` in command blocks to a literal ``$``. Rendering
+    that escape here validates the same Worker 2/3 branching the container
+    executes, rather than merely matching a source snippet.
     """
-    template = COMPOSE_BACKEND.parent / "worker-node.yml"
-    text = template.read_text(encoding="utf-8")
+    text = COMPOSE_WORKER_NODE.read_text(encoding="utf-8")
     match = re.search(
         r"^    command:\n      - /bin/sh\n      - -ec\n      - \|\n(?P<script>(?:^        .*\n?)*)",
         text,
@@ -179,9 +224,9 @@ def _launch_local_celery_for_test(
 
 
 def _routed_targets(base_queue: str) -> set[str]:
-    """All queue names get_routed_queue() can produce for a base queue."""
+    """All queue names get_routed_queue() can produce for the live routing pool."""
     targets: set[str] = set()
-    for idx in IP_INDICES:
+    for idx in _routed_ip_indices():
         with patch("app.core.circuit_breaker.get_next_ip_index_sync", return_value=idx):
             targets.add(get_routed_queue(base_queue))
     return targets
@@ -192,6 +237,11 @@ def test_compose_defines_worker_queues():
     consumed = _consumed_queues()
     assert consumed, "no -Q queues parsed from compose/backend.yml"
     assert "waybill_tasks" in consumed
+
+
+def test_available_ip_indices_resolve_to_non_empty_pool():
+    """A broken fleet setting must not let routing tests pass vacuously."""
+    assert get_available_ip_indices(), "get_available_ip_indices() returned an empty pool"
 
 
 def test_every_routed_queue_has_a_consumer():
@@ -212,9 +262,9 @@ def test_every_routed_queue_has_a_consumer():
 
 
 def test_scheduled_tasks_partitions_are_consumed():
-    """Explicit guard for the exact queue family that regressed."""
+    """Every partition in the active routing pool must have a consumer."""
     consumed = _consumed_queues()
-    for idx in IP_INDICES:
+    for idx in _routed_ip_indices():
         queue = f"scheduled_tasks_{idx}"
         assert queue in consumed, (
             f"{queue} has no consumer — scheduled waybill jobs routed there "
@@ -229,6 +279,20 @@ def test_exempt_queue_is_not_suffixed():
     assert "rpa_scheduler" in _consumed_queues()
 
 
+def test_every_worker_ip_index_is_available():
+    """Every concrete Compose worker must be part of the dispatcher routing pool."""
+    available = set(get_available_ip_indices())
+    declared = _worker_ip_indices_by_file()
+
+    assert declared, "no concrete WORKER_IP_INDEX values parsed from compose files"
+    orphaned = {idx: files for idx, files in declared.items() if idx not in available}
+    assert not orphaned, (
+        "Worker fleet ↔ AVAILABLE_IP_INDICES drift (P0-1): these WORKER_IP_INDEX "
+        f"values are declared in Docker Compose {orphaned} but are missing from "
+        f"the real AVAILABLE_IP_INDICES output ({sorted(available)})."
+    )
+
+
 def test_rpa_scheduler_is_reserved_for_worker_3():
     """The central Compose topology must not let another worker drain scheduler work."""
     consumers = {worker_name for worker_name, queues in _queues_by_worker().items() if "rpa_scheduler" in queues}
@@ -239,12 +303,7 @@ def test_rpa_scheduler_is_reserved_for_worker_3():
 
 
 def test_worker_node_template_consumes_its_own_partitions(tmp_path: Path):
-    """Remote workers must consume partitions for their numeric IP index.
-
-    The suffix comes from WORKER_IP_INDEX, not WORKER_ID.  The latter can be a
-    registry label, while the dispatcher routes to numeric queue names such as
-    ``waybill_tasks_2``.
-    """
+    """Remote workers must consume partitions for their numeric IP index."""
     for worker_ip_index in (2, 3):
         queues = _worker_node_queues(worker_ip_index, tmp_path)
         for base in ROUTED_BASE_QUEUES:
@@ -262,7 +321,7 @@ def test_worker_node_template_reserves_rpa_scheduler_for_worker_3(tmp_path: Path
 
 
 def test_local_start_script_reserves_scheduler_for_explicit_worker_3():
-    """The all-in-one local stack must not reintroduce a generic scheduler consumer."""
+    """The local all-in-one stack must not reintroduce a generic consumer."""
     start_script = LOCAL_START_SYSTEM.read_text(encoding="utf-8")
     stop_script = LOCAL_STOP_SYSTEM.read_text(encoding="utf-8")
     assert LOCAL_STOP_SYSTEM.read_bytes().startswith(b"#!/bin/bash\n")
