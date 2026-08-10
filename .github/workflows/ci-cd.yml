@@ -157,7 +157,7 @@ jobs:
 
       - name: Build Backend Image
         id: build-backend
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
@@ -168,7 +168,7 @@ jobs:
 
       - name: Build Frontend Image
         id: build-frontend
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./apps/web
           file: ./apps/web/Dockerfile
