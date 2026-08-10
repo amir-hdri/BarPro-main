@@ -7,6 +7,20 @@
 
 ---
 
+## 🆕 2026-08-11 — بازبینی جامع (senior review)
+
+| # | مشکل | وضعیت | یادداشت |
+|---|------|--------|---------|
+| X12 | `cd-deploy.yml` با `docker-compose` V1 روی فایلِ دارای `include:` | ✅ | مهاجرت کامل به `docker compose` V2 + `exec -T` + رندر squid قبل از deploy |
+| X4C | `deploy_single_vm.py` / `deploy_remote.*` / `server_deploy.py` با `sed -i` قالب‌های گیت `squid_1/2/3.conf` را روی سرور مرکزی ویرایش می‌کردند → `git pull` بعدی می‌شکست | ✅ | اسکریپت `render_squid_configs.sh` جدید → رندر به `squid_*.runtime.conf` (mount در `compose/proxy.yml`) |
+| R1 | مقادیر هاردکد پروکسی ورکرها، مقادیر `.env` deploy را خنثی می‌کردند | ✅ | همه به `\${WORKER_N_PROXY:-<fallback>}` تبدیل شدند |
+| R2 | بسط متغیرهای رندر روی ماشین launcher (نه نود ورکر) | ✅ | escape با `\${...}` + تست دو-فاز رفتاری |
+| R3 | رانبوک‌ها `CELERY_BROKER_URL` را روی Redis DB 1/2 و DB نام `barpro` می‌نوشتند؛ `WORKER_EGRESS_IP` تعریف‌نشده در قالب `.env` | ✅ | DB 0 + `utcms_rpa` + `WORKER_EGRESS_IP` + گارد `:?` در رندر |
+| IMG | `backend.yml` برای هر سرویس image جداگانه داشت؛ `quick_deploy_central.sh` فقط anchor را build می‌کرد → سرور مرکزی تازه ورکرها را بالا نمی‌آورد | ✅ | یک image یکتا؛ `worker-node.yml` به image منتشرشدهٔ GHCR اشاره می‌کند |
+| CD-IMG | `pull` در CD، نام imageهای محلی را از Docker Hub می‌گرفت (ناموجود) | ✅ | `deploy/registry-images.yml` (override GHCR) به همهٔ فراخوانی‌های compose در CD اعمال شد |
+
+---
+
 ## 🔴 امنیت
 
 | # | مشکل | وضعیت | یادداشت |

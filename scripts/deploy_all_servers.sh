@@ -71,10 +71,8 @@ git pull origin main 2>&1 | tail -3
 echo '1.2 build backend image (ممکن است ۱۰-۲۰ دقیقه طول بکشد)...'
 docker build --network=host -t barpro_backend:latest -f Dockerfile . 2>&1 | tail -5
 
-echo '1.3 tag images برای ورکرها...'
-docker tag barpro_backend:latest barpro_celery_worker_1:latest
-docker tag barpro_backend:latest barpro_celery_beat:latest
-docker tag barpro_backend:latest barpro_celery_scheduler:latest
+# 1.3 — همه سرویس‌های backend.yml از یک image (barpro_backend:latest) استفاده
+# می‌کنند — دیگر tag جداگانه لازم نیست (backend.yml بدون image override).
 
 echo '1.4 ری‌استارت infra (Postgres + Redis) با mem_limit جدید...'
 docker compose --env-file .env -f compose/infra.yml up -d --force-recreate 2>&1 | tail -5
@@ -119,7 +117,7 @@ echo '2.1 git pull...'
 git pull origin main 2>&1 | tail -3
 
 echo '2.2 build worker image (ممکن است ۱۰-۲۰ دقیقه)...'
-docker build --network=host -t barpro_backend:latest -f Dockerfile . 2>&1 | tail -5
+docker build --network=host -t ghcr.io/amir-hdri/barpro-main/barpro-backend:latest -f Dockerfile . 2>&1 | tail -5
 
 echo '2.3 رندر squid_worker.runtime.conf (جایگزینی placeholderها)...'
 set -a; source .env; set +a
@@ -157,7 +155,7 @@ echo '3.1 git pull...'
 git pull origin main 2>&1 | tail -3
 
 echo '3.2 build worker image (ممکن است ۱۰-۲۰ دقیقه)...'
-docker build --network=host -t barpro_backend:latest -f Dockerfile . 2>&1 | tail -5
+docker build --network=host -t ghcr.io/amir-hdri/barpro-main/barpro-backend:latest -f Dockerfile . 2>&1 | tail -5
 
 echo '3.3 رندر squid_worker.runtime.conf (جایگزینی placeholderها)...'
 set -a; source .env; set +a

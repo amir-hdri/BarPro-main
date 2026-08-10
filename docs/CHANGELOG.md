@@ -2,6 +2,65 @@
   
   All notable changes to the UTCMS Automation System.
   
+  ## [2.6.0] - 2026-08-11
+  
+  ### Fixed
+  - **R1 — Proxy interpolation in compose/backend.yml**: per-worker proxy values
+    (`WORKER_1_PROXY`/`RPA_PROXIES`, `WORKER_2_PROXY`, `WORKER_3_PROXY`) are now
+    `${WORKER_N_PROXY:-<fallback>}` instead of hardcoded, so deploy-time `.env`
+    values (two-node topology) are no longer neutralized by the `environment:`
+    block
+  - **R2 — Remote render escaping in deploy_all_servers.sh**: `\${WORKER_EGRESS_IP}`
+    / `\${CENTRAL_IP}` now expand on the WORKER NODE (its own `.env`), not on the
+    launcher machine
+  - **R3 — Operator runbooks**: `add_worker_firewall.sh` + all worker docs render
+    `squid_worker.conf -> squid_worker.runtime.conf` (no `sed -i` on git
+    templates) and pass `--env-file .env`; runbooks no longer point
+    `CELERY_BROKER_URL` at Redis DB 1 / result backend DB 2 (central publishes
+    on DB 0) and use the correct `utcms_rpa` database name
+  - **Central squid configs (X4 central)**: new `scripts/render_squid_configs.sh`
+    renders `squid_1/2/3.conf -> squid_*.runtime.conf` (mounted by
+    compose/proxy.yml); deploy scripts no longer `sed -i` the tracked templates,
+    so `git pull` on the central server no longer breaks
+  - **X12 — CD pipeline**: `.github/workflows/cd-deploy.yml` migrated from
+    `docker-compose` V1 (cannot parse the root `include:`) to `docker compose`
+    V2 with `exec -T`, renders squid configs before deploy, and applies
+    `deploy/registry-images.yml` so `pull`/`up` use the CD-published GHCR
+    images instead of non-existent Docker Hub names
+  - **Single backend image**: removed per-service image names from
+    compose/backend.yml (fresh central servers could not start workers because
+    only the anchor image was built); worker-node.yml now references the
+    CD-published `ghcr.io/amir-hdri/barpro-main/barpro-backend:latest` and all
+    worker build scripts tag the same name
+  - **Worker env**: `WORKER_EGRESS_IP` / `SECONDARY_EGRESS_IP` added to
+    `.env.example`; runbooks define `WORKER_EGRESS_IP` and guard the squid
+    render with `:?` so a missing value fails loudly instead of rendering an
+    empty `tcp_outgoing_address`
+  - **celery_scheduler**: explicit `WORKER_IP_INDEX: ""` (no `.env` leakage);
+    worker-node squid gets a `squid -k check` healthcheck (unrendered config
+    shows `unhealthy` instead of silently restart-looping)
+  
+  ### Tests
+  - `tests/test_queue_routing_contract.py` extended to **26 tests** covering:
+    beat-queue profile-less consumers (both execution-path branches), solo
+    control-queue consumer, proxy interpolation, `--env-file`, worker template
+    rendering, runbook DB/egress contracts, central squid render-not-edit,
+    compose-up render ordering, CD Compose V2 + registry images, and single
+    backend image — all validated with mutation testing (18/18 mutants caught)
+  
+  ### Files Changed
+  - `compose/backend.yml`, `compose/proxy.yml`, `compose/worker-node.yml`
+  - `scripts/deploy_all_servers.sh`, `scripts/add_worker_firewall.sh`,
+    `scripts/setup_worker.sh`, `scripts/render_squid_configs.sh` (new),
+    `scripts/deploy_single_vm.py`, `scripts/deploy_remote.sh`,
+    `scripts/deploy_remote.py`, `scripts/server_deploy.py`,
+    `scripts/quick_deploy_central.sh`, `scripts/fix_stuck_jobs.sh`, `manage.sh`
+  - `deploy/registry-images.yml` (new), `.github/workflows/cd-deploy.yml`
+  - `docs/adding_new_worker.md`, `docs/runbook_worker_registration.md`,
+    `docs/runbook_scale_out.md`, `.env.example`, `.gitignore`
+  - `tests/test_queue_routing_contract.py`
+  
+  ---
   ## [2.5.0] - 2026-08-10
   
   ### Fixed

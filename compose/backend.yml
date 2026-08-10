@@ -106,7 +106,6 @@ services:
   # ── ورکر IP اول ──────────────────────────────────────────────
   celery_worker_1:
     <<: *backend-common
-    image: barpro_celery_worker_1:latest
     container_name: barpro-worker-1
     shm_size: '512m'
     mem_limit: 3g        # ↑ از 2.5g — فضای بیشتر برای Chromium + PyTorch روی 16GB
@@ -152,7 +151,6 @@ services:
   # ── ورکر IP دوم ──────────────────────────────────────────────
   celery_worker_2:
     <<: *backend-common
-    image: barpro_celery_worker_2:latest
     container_name: barpro-worker-2
     # Model B (scale-out): worker 2/3 run on REMOTE worker nodes.
     # On the central server they are optional — enable with:
@@ -192,7 +190,6 @@ services:
   # ــ ورکر IP سوم ──────────────────────────────────────────────
   celery_worker_3:
     <<: *backend-common
-    image: barpro_celery_worker_3:latest
     container_name: barpro-worker-3
     # Model B (scale-out): worker 2/3 run on REMOTE worker nodes.
     # On the central server they are optional — enable with:
@@ -232,7 +229,6 @@ services:
   # ── زمان‌بند وظایف دوره‌ای ───────────────────────────────────
   celery_beat:
     <<: *backend-common
-    image: barpro_celery_beat:latest
     container_name: barpro-beat
     mem_limit: 256m      # ↑ از 128m — Beat واقعاً ~225MB RSS مصرف می‌کند (automation/captcha imports)
     mem_reservation: 128m  # ↑ از 64m
@@ -259,7 +255,6 @@ services:
   # dedicated service never shares its process with 360s waybill jobs.
   celery_scheduler:
     <<: *backend-common
-    image: barpro_celery_scheduler:latest
     container_name: barpro-scheduler
     hostname: barpro-scheduler   # non-numeric hostname -> resolve_ip_index() -> None
     shm_size: '128m'

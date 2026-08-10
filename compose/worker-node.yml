@@ -70,7 +70,7 @@ services:
   worker:
     # Published by .github/workflows/cd-deploy.yml (tag "latest" on main).
     # Verify on the worker: docker pull ghcr.io/amir-hdri/barpro-main/barpro-backend:latest
-    image: barpro_backend:latest
+    image: ghcr.io/amir-hdri/barpro-main/barpro-backend:latest
     container_name: barpro-celery-worker
     restart: unless-stopped
     depends_on:
