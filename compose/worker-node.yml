@@ -68,7 +68,7 @@ services:
       --concurrency=1
       --prefetch-multiplier=1
       --pool=solo
-      -Q waybill_tasks,waybill_tasks_${WORKER_IP_INDEX},rpa_auth_${WORKER_IP_INDEX},rpa_submit_${WORKER_IP_INDEX},reconciliation_tasks,reconciliation_tasks_${WORKER_IP_INDEX},rpa_scheduler,scheduled_tasks,scheduled_tasks_${WORKER_IP_INDEX}
+      -Q waybill_tasks,waybill_tasks_${WORKER_IP_INDEX},rpa_auth_${WORKER_IP_INDEX},rpa_submit_${WORKER_IP_INDEX},reconciliation_tasks,reconciliation_tasks_${WORKER_IP_INDEX},rpa_scheduler,scheduled_tasks,scheduled_tasks_${WORKER_IP_INDEX},barpro.fuel.inquiry
       --max-tasks-per-child=50
     environment:
       # Identity

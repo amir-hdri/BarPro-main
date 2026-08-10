@@ -118,7 +118,7 @@ services:
       - worker
       - --loglevel=info
       - -Q
-      - waybill_tasks,waybill_tasks_1,rpa_auth_1,rpa_submit_1,reconciliation_tasks,reconciliation_tasks_1,scheduled_tasks_1,rpa_scheduler
+      - waybill_tasks,waybill_tasks_1,rpa_auth_1,rpa_submit_1,reconciliation_tasks,reconciliation_tasks_1,scheduled_tasks_1,rpa_scheduler,barpro.fuel.inquiry
       - --concurrency=1
       - --prefetch-multiplier=1
       - --pool=solo
@@ -158,7 +158,7 @@ services:
       - worker
       - --loglevel=info
       - -Q
-      - waybill_tasks,waybill_tasks_2,rpa_auth_2,rpa_submit_2,reconciliation_tasks,reconciliation_tasks_2,scheduled_tasks_2
+      - waybill_tasks,waybill_tasks_2,rpa_auth_2,rpa_submit_2,reconciliation_tasks,reconciliation_tasks_2,scheduled_tasks_2,barpro.fuel.inquiry
       - --concurrency=1
       - --prefetch-multiplier=1
       - --pool=solo
@@ -198,7 +198,7 @@ services:
       - worker
       - --loglevel=info
       - -Q
-      - waybill_tasks,waybill_tasks_3,rpa_auth_3,rpa_submit_3,reconciliation_tasks,reconciliation_tasks_3,rpa_scheduler,scheduled_tasks,scheduled_tasks_3
+      - waybill_tasks,waybill_tasks_3,rpa_auth_3,rpa_submit_3,reconciliation_tasks,reconciliation_tasks_3,rpa_scheduler,scheduled_tasks,scheduled_tasks_3,barpro.fuel.inquiry
       - --concurrency=1
       - --prefetch-multiplier=1
       - --pool=solo
