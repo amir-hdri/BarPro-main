@@ -147,6 +147,50 @@ if celery_app is not None:
                         await session.commit()
                 raise ConnectionError(f"Worker {w_id} is currently draining")
 
+            # Circuit-breaker guard (X6 + NEW-7): fuel inquiries share one queue,
+            # so a worker whose egress IP was just blocked by UTCMS would otherwise
+            # greedily claim them (fast failure = faster re-claim = anti-affinity).
+            # When this worker's index is blocked AND another healthy index exists,
+            # requeue (bounded, max 3 times) so a healthy worker handles it.
+            idx = os.environ.get("WORKER_IP_INDEX", "").strip()
+            if idx.isdigit():
+                from app.core.redis import redis_manager
+                r = await redis_manager.get()
+                if r is not None:
+                    block_key = f"utcms:circuit_breaker:blocked:{idx}"
+                    if await r.exists(block_key):
+                        from app.core.circuit_breaker import (
+                            get_available_ip_indices,
+                            _get_known_ip_indices,
+                            _get_unavailable_ip_indices,
+                        )
+                        available = get_available_ip_indices()
+                        unavailable = await _get_unavailable_ip_indices()
+                        known = await _get_known_ip_indices()
+                        healthy = [
+                            i for i in available
+                            if i != int(idx)
+                            and i not in unavailable
+                            and (not known or i in known)
+                        ]
+                        if healthy:
+                            req_key = f"utcms:circuit_breaker:fuel_requeue:{inquiry_id}:{idx}"
+                            attempts = await r.incr(req_key)
+                            await r.expire(req_key, 600)
+                            if attempts <= 3:
+                                logger.warning(
+                                    f"Worker IP index {idx} is blocked by the UTCMS circuit "
+                                    f"breaker; requeueing fuel inquiry {inquiry_id} "
+                                    f"(attempt {attempts}) so another healthy IP handles it"
+                                )
+                                process_fuel_inquiry_task.apply_async(
+                                    args=[inquiry_id],
+                                    queue=utcms_config.CELERY_FUEL_INQUIRY_QUEUE,
+                                    countdown=15,
+                                )
+                                return
+                            await r.delete(req_key)
+
             async with async_session_factory() as session:
                 try:
                     await fuel_inquiry_service.run_automation(inquiry_id, session)

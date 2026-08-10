@@ -649,10 +649,17 @@ async def _finalize_execution(execution_id: str, intent_id: str, status: str, re
 
 
 def _renew_lease_sync_loop(execution_id: str, fencing_token: int, stop_event: threading.Event):
-    """Runs in a separate thread, updates lease_expires_at every 30 seconds using run_async."""
-    lease_duration = getattr(utcms_config, "WORKER_STALL_TIMEOUT_SECONDS", 90)
+    """Runs in a separate thread, updates lease_expires_at using run_async.
 
-    while not stop_event.wait(timeout=30):
+    Renew every WORKER_STALL_TIMEOUT_SECONDS/3 (min 10s) so a single missed
+    renewal never exceeds the stall window and orphans an in-flight job
+    (X10). Previously hardcoded at 30s vs a 45s stall timeout left only a 15s
+    margin.
+    """
+    lease_duration = getattr(utcms_config, "WORKER_STALL_TIMEOUT_SECONDS", 90)
+    renew_interval = max(10.0, lease_duration / 3.0)
+
+    while not stop_event.wait(timeout=renew_interval):
         try:
 
             async def _update():

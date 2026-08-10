@@ -80,10 +80,18 @@ def _build_beat_schedule() -> dict:
         })
     
     schedule_dict.update({
+        # rpa-session-keepalive does heavyweight browser re-auth for drivers. It
+        # must NOT run on the singleton rpa_scheduler control queue (whose
+        # dispatcher fires every 5s and must never sit behind a minutes-long
+        # browser task). It is routed to the ordinary waybill worker queue and
+        # expires (never accumulates in Redis when no consumer is up — X8).
         "rpa-session-keepalive": {
             "task": "rpa.session.keepalive",
             "schedule": crontab(minute="*/30"),
-            "options": {"queue": utcms_config.RPA_SCHEDULER_QUEUE},
+            "options": {
+                "queue": utcms_config.CELERY_WAYBILL_TASKS_QUEUE,
+                "expires": 1500,
+            },
         },
         "orchestrator-scheduler": {
             "task": "orchestrator.scheduler.run",
@@ -117,11 +125,14 @@ def _build_beat_schedule() -> dict:
                 "expires": 50,
             },
         },
+        # Reconciliation opens Playwright + proxies (heavy browser work) — same
+        # reasoning as rpa-session-keepalive: keep it off the 5s control queue so
+        # the dispatcher is never starved. expires prevents unbounded backlog.
         "orchestrator-reconciliation": {
             "task": "orchestrator.reconciliation.run",
             "schedule": crontab(minute="*/15"),
             "options": {
-                "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                "queue": utcms_config.CELERY_RECONCILIATION_TASKS_QUEUE,
                 "expires": 840,
             },
         },

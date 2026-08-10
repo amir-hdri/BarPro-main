@@ -20,7 +20,10 @@ SCHEDULER_WORKER_PID_FILE="output/scheduler_worker.pid"
 SCHEDULER_WORKER_LOG_FILE="output/scheduler_worker.log"
 # The local development stack splits generic work from the singleton scheduler
 # queue so only the explicit Worker 3 process can consume rpa_scheduler.
-LOCAL_WORKER_QUEUES="waybill_tasks,waybill_tasks_1,waybill_tasks_2,waybill_tasks_3,rpa_auth,rpa_auth_1,rpa_auth_2,rpa_auth_3,rpa_submit,rpa_submit_1,rpa_submit_2,rpa_submit_3,scheduled_tasks"
+# Local stack must consume EVERY queue the dispatcher/beat can target, else
+# tasks sit in unlistened queues (NEW-4): reconciliation_tasks[_1..3],
+# scheduled_tasks_1..3 and the direct barpro.fuel.inquiry queue were missing.
+LOCAL_WORKER_QUEUES="waybill_tasks,waybill_tasks_1,waybill_tasks_2,waybill_tasks_3,rpa_auth,rpa_auth_1,rpa_auth_2,rpa_auth_3,rpa_submit,rpa_submit_1,rpa_submit_2,rpa_submit_3,reconciliation_tasks,reconciliation_tasks_1,reconciliation_tasks_2,reconciliation_tasks_3,scheduled_tasks,scheduled_tasks_1,scheduled_tasks_2,scheduled_tasks_3,barpro.fuel.inquiry"
 LOCAL_SCHEDULER_QUEUES="rpa_scheduler"
 LOCAL_SCHEDULER_NODENAME="worker_3@%h"
 LOCAL_SCHEDULER_WORKER_ID="3"

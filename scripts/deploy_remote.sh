@@ -149,8 +149,14 @@ ENVIRONMENT="production"
 FRONTEND_URL="http://$NODE1_IP"
 FRONTEND_URLS="http://${NODE2_IP}"
 NEXT_PUBLIC_API_URL="/api"
-AVAILABLE_IP_INDICES="1,2,3"
-WORKER_1_PROXY="http://squid_1:3128"
+# Dual-node topology: only indices 1 (local squid_1) and 2 (remote squid on
+# Node 2) exist. AVAILABLE_IP_INDICES must be topology-specific, not a global
+# "1,2,3" (NEW-2). WORKER_1_PROXY uses the Docker bridge gateway 172.20.0.1
+# because "squid_1" (network_mode: host) has no DNS name inside the worker
+# container (X2). WORKER_2_PROXY points at Node 2's public Squid, which
+# _resolve_to_ip() now keeps untouched (X1).
+AVAILABLE_IP_INDICES="1,2"
+WORKER_1_PROXY="http://172.20.0.1:3128"
 WORKER_2_PROXY="http://${NODE2_IP}:3128"
 EOF
 
