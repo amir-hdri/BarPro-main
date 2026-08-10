@@ -155,10 +155,11 @@ def _heartbeat_loop(worker_id: str):
 
 
 try:
-    from celery.signals import worker_process_init, worker_process_shutdown
+    from celery.signals import worker_process_init, worker_process_shutdown, worker_shutdown
 except ImportError:
     worker_process_init = None
     worker_process_shutdown = None
+    worker_shutdown = None
 
 if worker_process_init is not None:
 
@@ -177,7 +178,6 @@ if worker_process_init is not None:
         except Exception as e:
             logger.error(f"Error registering worker process start: {e}", exc_info=True)
 
-    @worker_process_shutdown.connect
     def on_worker_stop(**kwargs):
         _heartbeat_stop.set()
         worker_id = os.environ.get("WORKER_ID", socket.gethostname())
@@ -185,3 +185,8 @@ if worker_process_init is not None:
             deregister_worker(worker_id)
         except Exception as e:
             logger.error(f"Error deregistering worker process stop: {e}", exc_info=True)
+
+    if worker_process_shutdown is not None:
+        worker_process_shutdown.connect(on_worker_stop)
+    if worker_shutdown is not None:
+        worker_shutdown.connect(on_worker_stop)

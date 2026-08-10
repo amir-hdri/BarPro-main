@@ -265,6 +265,8 @@ class UTCMSConfig:
         self.ALERT_WEBHOOK_SECRET = os.getenv("ALERT_WEBHOOK_SECRET", "").strip()
         self.WS_EVENT_HISTORY_LIMIT = int(os.getenv("WS_EVENT_HISTORY_LIMIT", "500"))
         self.WORKER_HEARTBEAT_INTERVAL_SECONDS = float(os.getenv("WORKER_HEARTBEAT_INTERVAL_SECONDS", "5"))
+        # Alias WATCHDOG_LOOP_INTERVAL_SECONDS to prevent ambiguity with worker registry heartbeats
+        self.WATCHDOG_LOOP_INTERVAL_SECONDS = self.WORKER_HEARTBEAT_INTERVAL_SECONDS
         self.CELERY_DEFAULT_PRIORITY = int(os.getenv("CELERY_DEFAULT_PRIORITY", "5"))
         self.CELERY_MIN_PRIORITY = int(os.getenv("CELERY_MIN_PRIORITY", "0"))
         self.CELERY_MAX_PRIORITY = int(os.getenv("CELERY_MAX_PRIORITY", "9"))
