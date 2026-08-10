@@ -7,7 +7,6 @@ import pytest
 from app.core.circuit_breaker import (
     WORKER_HEARTBEAT_STALE_SECONDS,
     _index_unavailable_from_rows,
-    _registry_index_state,
     check_and_report_failure,
     get_next_ip_index_sync,
     get_routed_queue,

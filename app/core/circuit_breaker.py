@@ -243,9 +243,7 @@ def get_available_ip_indices() -> list[int]:
 
 # Heartbeat loop in worker_lifecycle writes every
 # WORKER_REGISTRY_HEARTBEAT_SECONDS (default 30s); stale = 3 missed beats.
-WORKER_HEARTBEAT_STALE_SECONDS = int(
-    3 * getattr(utcms_config, "WORKER_REGISTRY_HEARTBEAT_SECONDS", 30.0)
-)
+WORKER_HEARTBEAT_STALE_SECONDS = int(3 * getattr(utcms_config, "WORKER_REGISTRY_HEARTBEAT_SECONDS", 30.0))
 
 # Short TTL cache so the registry snapshot is not queried on every dispatch.
 # The overall IP selection is already cached for 5s; this bounds DB load

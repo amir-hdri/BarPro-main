@@ -160,9 +160,9 @@ if celery_app is not None:
                     block_key = f"utcms:circuit_breaker:blocked:{idx}"
                     if await r.exists(block_key):
                         from app.core.circuit_breaker import (
-                            get_available_ip_indices,
                             _get_known_ip_indices,
                             _get_unavailable_ip_indices,
+                            get_available_ip_indices,
                         )
                         available = get_available_ip_indices()
                         unavailable = await _get_unavailable_ip_indices()

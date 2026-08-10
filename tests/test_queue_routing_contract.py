@@ -323,12 +323,10 @@ def test_direct_dispatch_queues_have_consumers_everywhere():
 
     missing_compose = DIRECT_DISPATCH_QUEUES - consumed
     missing_local = DIRECT_DISPATCH_QUEUES - local_queues
-    assert not missing_compose, (
-        f"Directly-dispatched queues with no compose consumer: {sorted(missing_compose)}"
-    )
-    assert not missing_local, (
-        f"Directly-dispatched queues missing from start_system.sh LOCAL_WORKER_QUEUES: {sorted(missing_local)}"
-    )
+    assert not missing_compose, f"Directly-dispatched queues with no compose consumer: {sorted(missing_compose)}"
+    assert (
+        not missing_local
+    ), f"Directly-dispatched queues missing from start_system.sh LOCAL_WORKER_QUEUES: {sorted(missing_local)}"
 
 
 def test_env_templates_use_reachable_proxy():
@@ -347,9 +345,7 @@ def test_env_templates_use_reachable_proxy():
         text = f.read_text(encoding="utf-8")
         if re.search(r"WORKER_\d_PROXY\s*=\s*\"?http://squid_[123]:", text):
             offenders.append(f.name)
-    assert not offenders, (
-        f"deploy templates still emit unresolvable squid_N proxy URLs (X2): {offenders}"
-    )
+    assert not offenders, f"deploy templates still emit unresolvable squid_N proxy URLs (X2): {offenders}"
 
 
 def test_every_worker_ip_index_is_available():
@@ -395,9 +391,9 @@ def test_control_queue_is_not_doubly_consumed_by_worker_node(tmp_path: Path):
     minutes. Only the central celery_scheduler consumes it.
     """
     for worker_ip_index in (2, 3):
-        assert "rpa_scheduler" not in _worker_node_queues(worker_ip_index, tmp_path), (
-            f"worker-node.yml must not consume rpa_scheduler (index {worker_ip_index})."
-        )
+        assert "rpa_scheduler" not in _worker_node_queues(
+            worker_ip_index, tmp_path
+        ), f"worker-node.yml must not consume rpa_scheduler (index {worker_ip_index})."
 
 
 def test_worker_node_template_consumes_its_own_partitions(tmp_path: Path):
