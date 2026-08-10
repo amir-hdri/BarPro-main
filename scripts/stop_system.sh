@@ -1,4 +1,4 @@
- #!/bin/bash
+#!/bin/bash
  # Stop all system components gracefully
  
  set -e
@@ -74,7 +74,25 @@ else
 fi
 stop_port_processes 3000 "frontend"
 
-# Stop local worker
+# Stop the dedicated local scheduler worker (Worker 3) before the generic worker.
+if [ -f "output/scheduler_worker.pid" ]; then
+    PID=$(cat output/scheduler_worker.pid)
+    if kill -0 "$PID" 2>/dev/null; then
+        echo "🛑 Stopping scheduler worker 3 (PID: $PID)..."
+        kill "$PID" 2>/dev/null || true
+        sleep 2
+        if kill -0 "$PID" 2>/dev/null; then
+            echo "⚠️  Force killing scheduler worker 3..."
+            kill -9 "$PID" 2>/dev/null || true
+        fi
+        echo -e "${GREEN}✅ Scheduler worker 3 stopped${NC}"
+    fi
+    rm -f output/scheduler_worker.pid
+else
+    echo "ℹ️  Scheduler worker 3 PID file not found"
+fi
+
+# Stop local generic worker
 if [ -f "output/worker.pid" ]; then
     PID=$(cat output/worker.pid)
     if kill -0 "$PID" 2>/dev/null; then

@@ -140,7 +140,7 @@ def test_graceful_cleanup_readyz():
     # Start using scripts/start_system.sh
     print("Starting system via scripts/start_system.sh...")
     # Clean output files
-    for f in ["backend.pid", "frontend.pid", "worker.pid"]:
+    for f in ["backend.pid", "frontend.pid", "scheduler_worker.pid", "worker.pid"]:
         path = f"output/{f}"
         if os.path.exists(path):
             os.remove(path)

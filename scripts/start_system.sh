@@ -16,6 +16,16 @@ FRONTEND_PID_FILE="output/frontend.pid"
 FRONTEND_LOG_FILE="output/frontend.log"
 WORKER_PID_FILE="output/worker.pid"
 WORKER_LOG_FILE="output/worker.log"
+SCHEDULER_WORKER_PID_FILE="output/scheduler_worker.pid"
+SCHEDULER_WORKER_LOG_FILE="output/scheduler_worker.log"
+# The local development stack splits generic work from the singleton scheduler
+# queue so only the explicit Worker 3 process can consume rpa_scheduler.
+LOCAL_WORKER_QUEUES="waybill_tasks,waybill_tasks_1,waybill_tasks_2,waybill_tasks_3,rpa_auth,rpa_auth_1,rpa_auth_2,rpa_auth_3,rpa_submit,rpa_submit_1,rpa_submit_2,rpa_submit_3,scheduled_tasks"
+LOCAL_SCHEDULER_QUEUES="rpa_scheduler"
+LOCAL_SCHEDULER_NODENAME="worker_3@%h"
+LOCAL_SCHEDULER_WORKER_ID="3"
+LOCAL_SCHEDULER_IP_INDEX="3"
+LOCAL_GENERIC_WORKER_ID="local_worker"
 PYTHON_BIN="${PYTHON_BIN:-$(which python3)}"
 NODE_BIN="${NODE_BIN:-}"
 NPM_BIN="${NPM_BIN:-}"
@@ -161,6 +171,7 @@ stop_local_frontend() {
 }
 
 stop_local_worker() {
+    stop_pid_file "$SCHEDULER_WORKER_PID_FILE" "worker زمان‌بند محلی (Worker 3)"
     stop_pid_file "$WORKER_PID_FILE" "worker محلی"
 }
 
@@ -353,44 +364,123 @@ PY
     return 0
 }
 
-start_local_worker() {
-    mkdir -p output
-    : >"$WORKER_LOG_FILE"
-
-    echo "🚀 اجرای worker به صورت محلی..."
-    ensure_python_ready || return 1
-
+configure_local_celery_environment() {
     export REDIS_URL="redis://:${REDIS_PASSWORD}@127.0.0.1:6379/0"
     export CELERY_BROKER_URL="$REDIS_URL"
     export CELERY_RESULT_BACKEND="$REDIS_URL"
     export HEADLESS="${HEADLESS:-true}"
+}
+
+wait_for_local_celery_worker() {
+    local pid="$1"
+    local log_file="$2"
+    local label="$3"
+
+    echo "⏳ منتظر آماده‌سازی ${label} (حداکثر 20 ثانیه)..."
+    for i in {1..20}; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            echo -e "${RED}❌ فرآیند ${label} متوقف شد${NC}"
+            echo "لاگ ${label}: $log_file"
+            tail -80 "$log_file"
+            return 1
+        fi
+
+        # Check this process's own log instead of a cluster-wide inspect ping;
+        # a second local worker may already answer ping while this one failed.
+        if grep -qi "ready\." "$log_file"; then
+            echo -e "${GREEN}✅ ${label} با موفقیت آماده شد${NC}"
+            return 0
+        fi
+
+        sleep 1
+    done
+
+    if kill -0 "$pid" 2>/dev/null; then
+        echo -e "${YELLOW}⚠️  ${label} هنوز پیام ready ثبت نکرده، اما فرآیند در حال اجراست${NC}"
+        return 0
+    fi
+
+    echo -e "${RED}❌ ${label} آماده پاسخ‌گویی نشد${NC}"
+    echo "لاگ ${label}: $log_file"
+    tail -80 "$log_file"
+    return 1
+}
+
+start_local_celery_worker() {
+    local label="$1"
+    local queues="$2"
+    local node_name="$3"
+    local include_beat="$4"
+    local pid_file="$5"
+    local log_file="$6"
+    local worker_id="$7"
+    local worker_ip_index="$8"
+
+    mkdir -p output
+    : >"$log_file"
+
+    echo "🚀 اجرای ${label} به صورت محلی..."
+    ensure_python_ready || return 1
+    configure_local_celery_environment
 
     local worker_pid
-    worker_pid=$(
-        "$PYTHON_BIN" - <<PY
+    worker_pid=$( \
+        LOCAL_CELERY_QUEUE_LIST="$queues" \
+        LOCAL_CELERY_NODE_NAME="$node_name" \
+        LOCAL_CELERY_INCLUDE_BEAT="$include_beat" \
+        LOCAL_CELERY_LOG_FILE="$log_file" \
+        LOCAL_CELERY_WORKER_ID="$worker_id" \
+        LOCAL_CELERY_WORKER_IP_INDEX="$worker_ip_index" \
+        "$PYTHON_BIN" - <<'PY'
 import os
 import subprocess
+import sys
 
-log_path = os.path.abspath("$WORKER_LOG_FILE")
+log_path = os.path.abspath(os.environ["LOCAL_CELERY_LOG_FILE"])
+queue_list = os.environ["LOCAL_CELERY_QUEUE_LIST"]
+node_name = os.environ["LOCAL_CELERY_NODE_NAME"]
+include_beat = os.environ["LOCAL_CELERY_INCLUDE_BEAT"] == "true"
+worker_id = os.environ["LOCAL_CELERY_WORKER_ID"]
+worker_ip_index = os.environ["LOCAL_CELERY_WORKER_IP_INDEX"].strip()
 env = dict(os.environ)
+# Do not inherit a remote node's identity from .env: scheduler work must be
+# registered and routed as Worker 3, while the generic local worker has none.
+env["WORKER_ID"] = worker_id
+if worker_ip_index:
+    env["WORKER_IP_INDEX"] = worker_ip_index
+else:
+    env.pop("WORKER_IP_INDEX", None)
+for key in (
+    "LOCAL_CELERY_QUEUE_LIST",
+    "LOCAL_CELERY_NODE_NAME",
+    "LOCAL_CELERY_INCLUDE_BEAT",
+    "LOCAL_CELERY_LOG_FILE",
+    "LOCAL_CELERY_WORKER_ID",
+    "LOCAL_CELERY_WORKER_IP_INDEX",
+):
+    env.pop(key, None)
+
+command = [
+    sys.executable,
+    "-m",
+    "celery",
+    "-A",
+    "app.workers.phase1_tasks:celery_app",
+    "worker",
+    "-Q",
+    queue_list,
+    "-n",
+    node_name,
+    "-l",
+    "info",
+]
+if include_beat:
+    command.append("-B")
+command.extend(["--pool", "solo"])
 
 with open(log_path, "ab", buffering=0) as log_file:
     process = subprocess.Popen(
-        [
-            "$PYTHON_BIN",
-            "-m",
-            "celery",
-            "-A",
-            "app.workers.phase1_tasks:celery_app",
-            "worker",
-            "-Q",
-            "waybill_tasks,waybill_tasks_1,waybill_tasks_2,waybill_tasks_3,rpa_auth,rpa_auth_1,rpa_auth_2,rpa_auth_3,rpa_submit,rpa_submit_1,rpa_submit_2,rpa_submit_3,rpa_scheduler,scheduled_tasks",
-            "-l",
-            "info",
-            "-B",
-            "--pool",
-            "solo",
-        ],
+        command,
         cwd=os.path.abspath("."),
         stdout=log_file,
         stderr=subprocess.STDOUT,
@@ -401,57 +491,46 @@ with open(log_path, "ab", buffering=0) as log_file:
     print(process.pid)
 PY
     )
-    echo "$worker_pid" >"$WORKER_PID_FILE"
+    echo "$worker_pid" >"$pid_file"
 
     local pid
-    pid=$(cat "$WORKER_PID_FILE" 2>/dev/null)
+    pid=$(cat "$pid_file" 2>/dev/null)
     if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
-        echo -e "${RED}❌ اجرای worker محلی ناموفق بود${NC}"
-        echo "لاگ worker: $WORKER_LOG_FILE"
-        tail -50 "$WORKER_LOG_FILE"
+        echo -e "${RED}❌ اجرای ${label} ناموفق بود${NC}"
+        echo "لاگ ${label}: $log_file"
+        tail -50 "$log_file"
         return 1
     fi
 
-    echo "⏳ منتظر آماده‌سازی Worker (حداکثر 20 ثانیه)..."
-    local worker_ready=0
-    for i in {1..20}; do
-        # Check if process is still alive
-        if ! kill -0 "$pid" 2>/dev/null; then
-            echo -e "${RED}❌ فرآیند Worker متوقف شد${NC}"
-            break
-        fi
+    wait_for_local_celery_worker "$pid" "$log_file" "$label"
+}
 
-        # Try inspect ping (might fail if solo worker is busy)
-        if "$PYTHON_BIN" -m celery -A app.workers.phase1_tasks:celery_app inspect ping >/dev/null 2>&1; then
-            worker_ready=1
-            break
-        fi
+start_local_scheduler_worker() {
+    # Keep the singleton control queue on an explicit Worker 3 process even in
+    # the all-in-one development stack.
+    start_local_celery_worker \
+        "worker زمان‌بند محلی (Worker 3)" \
+        "$LOCAL_SCHEDULER_QUEUES" \
+        "$LOCAL_SCHEDULER_NODENAME" \
+        "false" \
+        "$SCHEDULER_WORKER_PID_FILE" \
+        "$SCHEDULER_WORKER_LOG_FILE" \
+        "$LOCAL_SCHEDULER_WORKER_ID" \
+        "$LOCAL_SCHEDULER_IP_INDEX"
+}
 
-        # Fallback: check log for "ready" message
-        if grep -qi "ready." "$WORKER_LOG_FILE"; then
-            worker_ready=1
-            break
-        fi
-
-        sleep 1
-    done
-
-    if [ "$worker_ready" -eq 0 ]; then
-        echo -e "${YELLOW}⚠️  Worker به پیام ping پاسخ نداد، اما احتمالا در حال اجراست (ممکن است مشغول باشد)${NC}"
-        echo "بررسی وضعیت فرآیند..."
-        if kill -0 "$pid" 2>/dev/null; then
-            echo -e "${GREEN}✅ فرآیند با PID $pid در حال اجراست. ادامه می‌دهیم...${NC}"
-        else
-            echo -e "${RED}❌ Worker محلی آماده پاسخ‌گویی نشد${NC}"
-            echo "لاگ worker: $WORKER_LOG_FILE"
-            tail -80 "$WORKER_LOG_FILE"
-            return 1
-        fi
-    else
-        echo -e "${GREEN}✅ Worker محلی با موفقیت آماده شد${NC}"
-    fi
-
-    return 0
+start_local_worker() {
+    # Beat publishes scheduler work, while this generic worker deliberately
+    # does not consume rpa_scheduler.
+    start_local_celery_worker \
+        "worker محلی" \
+        "$LOCAL_WORKER_QUEUES" \
+        "local_worker@%h" \
+        "true" \
+        "$WORKER_PID_FILE" \
+        "$WORKER_LOG_FILE" \
+        "$LOCAL_GENERIC_WORKER_ID" \
+        ""
 }
 
 check_final_health() {
@@ -560,7 +639,12 @@ if ! start_local_backend; then
     exit 1
 fi
 
+if ! start_local_scheduler_worker; then
+    exit 1
+fi
+
 if ! start_local_worker; then
+    stop_local_worker
     exit 1
 fi
 
@@ -592,8 +676,9 @@ echo ""
 echo "📋 دستورات مفید:"
 echo "   - مشاهده لاگ‌ها:           docker compose logs -f"
 echo "   - مشاهده لاگ backend محلی: tail -f $BACKEND_LOG_FILE"
+echo "   - مشاهده لاگ worker زمان‌بند: tail -f $SCHEDULER_WORKER_LOG_FILE"
 echo "   - مشاهده لاگ worker محلی:  tail -f $WORKER_LOG_FILE"
 echo "   - مشاهده لاگ frontend محلی: tail -f $FRONTEND_LOG_FILE"
-echo "   - توقف سیستم:             docker compose down && pkill -F $BACKEND_PID_FILE && pkill -F $WORKER_PID_FILE && pkill -F $FRONTEND_PID_FILE"
+echo "   - توقف سیستم:             docker compose down && pkill -F $BACKEND_PID_FILE && pkill -F $SCHEDULER_WORKER_PID_FILE && pkill -F $WORKER_PID_FILE && pkill -F $FRONTEND_PID_FILE"
 echo ""
 echo "============================================================"
