@@ -1,12 +1,12 @@
+import json
+import logging
 import os
 import re
 import socket
-import logging
-import json
 import threading
 from datetime import UTC, datetime
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import utcms_config

@@ -15,10 +15,12 @@ precedence as worker_lifecycle.resolve_ip_index:
 Rows that cannot be resolved stay NULL — the router treats them as
 unattributed and never removes an index from the pool on their behalf.
 """
-from collections.abc import Sequence
+
 import re
+from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.

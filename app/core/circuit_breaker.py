@@ -322,21 +322,16 @@ async def _get_unavailable_ip_indices() -> set[int]:
     unavailable: set[int] = set()
     try:
         async with async_session_factory() as session:
-            stmt = (
-                select(
-                    WorkerRegistry.ip_index,
-                    WorkerRegistry.status,
-                    WorkerRegistry.last_heartbeat_at,
-                )
-                .where(WorkerRegistry.ip_index.is_not(None))
-            )
+            stmt = select(
+                WorkerRegistry.ip_index,
+                WorkerRegistry.status,
+                WorkerRegistry.last_heartbeat_at,
+            ).where(WorkerRegistry.ip_index.is_not(None))
             result = await session.exec(stmt)
             unavailable = _index_unavailable_from_rows(result.all())
     except Exception as exc:
         # Fail-safe: registry is a complement, never a hard dependency.
-        logger.warning(
-            f"Worker registry health check failed (async) — falling back to Redis-only routing: {exc}"
-        )
+        logger.warning(f"Worker registry health check failed (async) — falling back to Redis-only routing: {exc}")
         unavailable = set()
 
     _worker_registry_snapshot = (frozenset(unavailable), now + _WORKER_REGISTRY_CACHE_TTL)
@@ -354,20 +349,15 @@ def _get_unavailable_ip_indices_sync() -> set[int]:
     try:
         session_factory = _get_worker_sync_session()
         with session_factory() as session:
-            stmt = (
-                select(
-                    WorkerRegistry.ip_index,
-                    WorkerRegistry.status,
-                    WorkerRegistry.last_heartbeat_at,
-                )
-                .where(WorkerRegistry.ip_index.is_not(None))
-            )
+            stmt = select(
+                WorkerRegistry.ip_index,
+                WorkerRegistry.status,
+                WorkerRegistry.last_heartbeat_at,
+            ).where(WorkerRegistry.ip_index.is_not(None))
             rows = session.execute(stmt).all()
             unavailable = _index_unavailable_from_rows(rows)
     except Exception as exc:
-        logger.warning(
-            f"Worker registry health check failed (sync) — falling back to Redis-only routing: {exc}"
-        )
+        logger.warning(f"Worker registry health check failed (sync) — falling back to Redis-only routing: {exc}")
         unavailable = set()
 
     _worker_registry_snapshot_sync = (frozenset(unavailable), now + _WORKER_REGISTRY_CACHE_TTL)
@@ -409,13 +399,8 @@ async def get_next_ip_index() -> int:
             # Registry filter emptied the pool (e.g. every worker died).
             # Degrade gracefully: keep honoring Redis blocks, then fall back
             # to all indices so the system never stops routing.
-            logger.warning(
-                f"No healthy IP indices after worker-registry filter — falling back to Redis-only health"
-            )
-            healthy_ips = [
-                i for i in available_indices
-                if not await r.exists(f"utcms:circuit_breaker:blocked:{i}")
-            ]
+            logger.warning("No healthy IP indices after worker-registry filter — falling back to Redis-only health")
+            healthy_ips = [i for i in available_indices if not await r.exists(f"utcms:circuit_breaker:blocked:{i}")]
 
         if not healthy_ips:
             logger.warning(f"All IP addresses are currently blocked! Falling back to all {available_indices}")
@@ -470,13 +455,8 @@ def get_next_ip_index_sync() -> int:
             # Registry filter emptied the pool (e.g. every worker died).
             # Degrade gracefully: keep honoring Redis blocks, then fall back
             # to all indices so the system never stops routing.
-            logger.warning(
-                f"No healthy IP indices after worker-registry filter — falling back to Redis-only health"
-            )
-            healthy_ips = [
-                i for i in available_indices
-                if not r.exists(f"utcms:circuit_breaker:blocked:{i}")
-            ]
+            logger.warning("No healthy IP indices after worker-registry filter — falling back to Redis-only health")
+            healthy_ips = [i for i in available_indices if not r.exists(f"utcms:circuit_breaker:blocked:{i}")]
 
         if not healthy_ips:
             logger.warning(f"All IP addresses are currently blocked! Falling back to all {available_indices}")

@@ -6,8 +6,6 @@ import pytest
 
 from app.core.circuit_breaker import (
     WORKER_HEARTBEAT_STALE_SECONDS,
-    _get_unavailable_ip_indices,
-    _get_unavailable_ip_indices_sync,
     _index_unavailable_from_rows,
     check_and_report_failure,
     get_next_ip_index_sync,
@@ -265,9 +263,9 @@ def _hb(seconds_ago: int) -> datetime:
 
 def test_index_unavailable_from_rows_stale_and_offline():
     rows = [
-        (1, "active", _hb(120)),   # stale heartbeat (older than 90s)
-        (2, "offline", _hb(10)),   # offline
-        (3, "active", _hb(10)),    # healthy
+        (1, "active", _hb(120)),  # stale heartbeat (older than 90s)
+        (2, "offline", _hb(10)),  # offline
+        (3, "active", _hb(10)),  # healthy
         (None, "active", _hb(10)),  # unattributed -> ignored
     ]
     assert _index_unavailable_from_rows(rows) == {1, 2}
@@ -277,7 +275,7 @@ def test_index_unavailable_from_rows_any_alive_keeps_index():
     """If ANY worker claiming an index is alive, the index stays in the pool."""
     rows = [
         (2, "offline", _hb(120)),
-        (2, "active", _hb(5)),   # second worker on same index is alive
+        (2, "active", _hb(5)),  # second worker on same index is alive
         (3, "active", _hb(300)),
     ]
     assert _index_unavailable_from_rows(rows) == {3}
