@@ -205,15 +205,19 @@ if celery_app is not None:
                                 f"Worker IP index {idx} is blocked and no healthy worker IP indices "
                                 f"are available for fuel inquiry {inquiry_id}. Failing with transient error."
                             )
-                            from app.models_multitenant import FuelInquiry
-                            from app.core.error_taxonomy import ErrorCategory
-                            from app.orchestrator.state_machine import set_fuel_inquiry_status
                             from datetime import UTC, datetime
+
+                            from app.core.error_taxonomy import ErrorCategory
+                            from app.models_multitenant import FuelInquiry
+                            from app.orchestrator.state_machine import set_fuel_inquiry_status
+
                             async with async_session_factory() as session:
                                 inquiry = await session.get(FuelInquiry, inquiry_id)
                                 if inquiry and inquiry.status in ("pending", "processing"):
                                     set_fuel_inquiry_status(inquiry, "failed")
-                                    inquiry.error_message = "تمامی آدرس‌های IP سرویس‌دهنده به طور موقت مسدود می‌باشند (Circuit Breaker)"
+                                    inquiry.error_message = (
+                                        "تمامی آدرس‌های IP سرویس‌دهنده به طور موقت مسدود می‌باشند (Circuit Breaker)"
+                                    )
                                     inquiry.error_category = ErrorCategory.TRANSIENT_INFRA_ERROR.value
                                     inquiry.updated_at = datetime.now(UTC).replace(tzinfo=None)
                                     session.add(inquiry)
