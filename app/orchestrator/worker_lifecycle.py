@@ -1,4 +1,5 @@
 import os
+import re
 import socket
 import logging
 import json
@@ -34,6 +35,38 @@ def _now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+# Matches a standalone or trailing-separated integer: "2", "worker_3", "node-4"
+_IP_INDEX_RE = re.compile(r"(?:^|[-_])(\d+)$")
+
+
+def resolve_ip_index(worker_id: str, hostname: str) -> int | None:
+    """Map this worker to its numeric IP index.
+
+    Precedence:
+    1. ``WORKER_IP_INDEX`` env var (explicit — set in compose files and on
+       remote worker nodes; must match ``AVAILABLE_IP_INDICES`` on central).
+    2. Numeric ``WORKER_ID`` / ``worker_id`` (the docs convention sets it to
+       the IP index, e.g. ``WORKER_ID=2``).
+    3. Trailing numeric suffix of the hostname (e.g. ``worker-node-2``).
+
+    Returns ``None`` when the index cannot be determined safely — the worker
+    is then registered without an index and the router simply cannot
+    attribute any IP index to it (fail-safe: it never removes an index from
+    the routing pool on this worker's behalf).
+    """
+    raw = os.environ.get("WORKER_IP_INDEX", "").strip()
+    for candidate in (raw, worker_id, hostname):
+        if not candidate:
+            continue
+        match = _IP_INDEX_RE.search(str(candidate).strip())
+        if match:
+            value = int(match.group(1))
+            # Sanity bound — avoids nonsense values (e.g. a year in a hostname)
+            if 1 <= value <= 999:
+                return value
+    return None
+
+
 def register_worker(worker_id: str, hostname: str, capabilities: list[str], capacity: int = 1) -> None:
     with _WorkerSession() as session:
         try:
@@ -43,6 +76,7 @@ def register_worker(worker_id: str, hostname: str, capabilities: list[str], capa
                 .first()
             )
             now = _now()
+            ip_index = resolve_ip_index(worker_id, hostname)
             if worker is None:
                 worker = WorkerRegistry(
                     worker_id=worker_id,
@@ -50,6 +84,7 @@ def register_worker(worker_id: str, hostname: str, capabilities: list[str], capa
                     capabilities_json=json.dumps(capabilities),
                     capacity=capacity,
                     status="active",
+                    ip_index=ip_index,
                     last_heartbeat_at=now,
                     created_at=now,
                     updated_at=now,
@@ -60,6 +95,7 @@ def register_worker(worker_id: str, hostname: str, capabilities: list[str], capa
                 worker.capabilities_json = json.dumps(capabilities)
                 worker.capacity = capacity
                 worker.status = "active"
+                worker.ip_index = ip_index
                 worker.last_heartbeat_at = now
                 worker.updated_at = now
                 session.add(worker)
@@ -101,6 +137,9 @@ def send_heartbeat(worker_id: str) -> None:
             )
             if worker is not None:
                 worker.last_heartbeat_at = _now()
+                # Refresh the index on every heartbeat too — covers workers
+                # that were registered before the env var was set correctly.
+                worker.ip_index = resolve_ip_index(worker_id, worker.hostname or socket.gethostname())
                 worker.updated_at = _now()
                 session.add(worker)
                 session.commit()
