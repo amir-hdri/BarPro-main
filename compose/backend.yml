@@ -171,7 +171,7 @@ services:
       <<: *backend-env
       WORKER_ID: "2"
       WORKER_IP_INDEX: 2
-      RPA_PROXIES: http://172.20.0.1:3129
+      WORKER_2_PROXY: http://172.20.0.1:3129
              # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
     healthcheck:
       test: ['CMD-SHELL', 'python -c "from app.automation.worker_proxy import get_worker_proxy_url as g; g() or exit(1)" || exit 1']
@@ -211,7 +211,7 @@ services:
       <<: *backend-env
       WORKER_ID: "3"
       WORKER_IP_INDEX: 3
-      RPA_PROXIES: http://172.20.0.1:3130
+      WORKER_3_PROXY: http://172.20.0.1:3130
       # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
     healthcheck:
       test: ['CMD-SHELL', 'python -c "from app.automation.worker_proxy import get_worker_proxy_url as g; g() or exit(1)" || exit 1']
