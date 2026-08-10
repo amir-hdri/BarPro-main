@@ -13,29 +13,35 @@ Client Browser → Nginx (port 80/443) → FastAPI Backend (port 8000)
                                                     ├── PostgreSQL 16 (SQLModel/AsyncPG)
                                                     ├── Redis 7 (cache/queue/pub-sub)
                                                     ├── Celery Workers ×3 (via Squid proxies)
+                                                    │   ├── Worker 1 (central, always-on)
+                                                    │   ├── Worker 2 (remote node, profile scale-out)
+                                                    │   └── Worker 3 (remote node, profile scale-out)
+                                                    ├── Celery Scheduler (profile-less, rpa_scheduler queue)
                                                     └── Prometheus (monitoring)
 Frontend: Next.js 15 (TypeScript, Tailwind, React 19)
 ```
 
-- **Single-server deployment**: All 13 Docker containers run on one server with 2 public IPs
-- **13 Docker containers** managed via docker-compose layered files (`compose/`)
+- **Single-server deployment (Model A)**: All containers run on one server with 2 public IPs + 3 local Squid proxies
+- **Multi-server deployment (Model B — current production)**: Central server runs API + Worker 1 + Scheduler + Beat + Squid 1; Workers 2/3 run on remote VPS nodes
+- **13+ Docker containers** managed via docker-compose layered files (`compose/`)
+- **Root `docker-compose.yml`** uses `include:` (Compose >= 2.20) to assemble all layers — CI/CD and deploy scripts MUST use `docker compose` V2 (not `docker-compose` V1)
 - **Nginx**: Configured with security headers (CSP, X-Frame-Options, X-Content-Type-Options, Permissions-Policy)
 
 ## Server Specifications
 
 | Role | vCPU | RAM |
 |------|------|-----|
-| Central Server — UFW Firewall + Nginx (port 80), Backend, Frontend, Squid 1 egress | 4 | 12 GB |
-| Worker Nodes — Remote VPS with static Iranian IP + local Squid proxy | — | — |
+| Central Server — UFW Firewall + Nginx (port 80), Backend, Frontend, Squid 1 egress | 4 | 16 GB |
+| Worker Nodes — Remote VPS with static Iranian IP + local Squid proxy | — | ~6 GB each |
 
-All containers run on the **central server** (single host, dual networking for egress IPs).
+All containers run on the **central server** (single host, dual networking for egress IPs). Workers 2/3 run on remote VPS nodes in Model B.
 
 ### Resource Constraints & Implications
-- **12 GB RAM** must be shared across 13 containers — tight budget
-- Celery Workers are already limited to 3 GB memory each → 9 GB for 3 workers
-- Remaining: ~3 GB for PostgreSQL, Redis, Nginx, Frontend, Prometheus, Beat
-- **4 vCPUs** means CPU contention under load — 3 workers + DB can saturate all cores
-- Disk: ensure <90% utilization (Milestone 1 requirement)
+- **16 GB RAM** on central server — Workers 2/3 are on remote nodes (Model B), not counted in central budget
+- Celery Worker 1 limited to 3 GB; celery_scheduler 768 MB; Beat 256 MB
+- Remaining: ~5 GB for PostgreSQL (1.5G), Redis (512M), Backend API (512M), Frontend (1G), Nginx (512M), Prometheus (256M)
+- **4 vCPUs** means CPU contention under load — Worker 1 + DB can saturate cores
+- Disk: ensure <90% utilization
 
 ## Tech Stack
 
@@ -90,13 +96,14 @@ All containers run on the **central server** (single host, dual networking for e
 > they are disabled by default (compose profile `scale-out`).
 
 ```
-Central Server (single IP: <CENTRAL_IP> = 87.107.5.238)
+Central Server (single IP: <CENTRAL_IP> = 87.107.5.238, 16 GB RAM)
 ├── PostgreSQL (port 5432, bind 0.0.0.0, UFW: workers only)
 ├── Redis (port 6379, bind 0.0.0.0, UFW: workers only)
 ├── Squid 1 (port 3128, egress via <CENTRAL_IP>)    ← Worker 1 (local)
 ├── FastAPI Backend (port 8000, internal)
-├── Celery Worker 1 → Squid 1 → UTCMS
-├── Celery Beat (scheduler)
+├── Celery Worker 1 → Squid 1 → UTCMS               ← -Q waybill_tasks_1,...
+├── Celery Beat (periodics scheduler)
+├── Celery Scheduler → rpa_scheduler                 ← profile-less, always-on control queue consumer
 ├── Next.js Frontend (port 3000, internal)
 ├── Nginx (port 80, public) → reverse proxy
 └── Prometheus (port 9090, exposed internally)
@@ -108,11 +115,14 @@ Remote Worker Nodes (each: 2 vCPU / ~6 GB / own static Iranian IP)
 ```
 
 ### Squid Proxy Ports
-| Proxy | Port | Egress IP | Used By |
-|-------|------|-----------|---------|
-| Squid 1 | 3128 | <CENTRAL_IP>    | Worker 1 |
-| Squid 2 | 3129 | <SECONDARY_IP>  | Worker 2 |
-| Squid 3 | 3130 | <SECONDARY_IP>  | Worker 3 |
+| Proxy | Port | Egress IP | Used By | Topology |
+|-------|------|-----------|---------|----------|
+| Squid 1 | 3128 | <CENTRAL_IP> | Worker 1 | Both Model A & B |
+| Squid 2 | 3129 | <CENTRAL_IP> (Model A) / N/A (Model B) | Worker 2 | Model A only (central) |
+| Squid 3 | 3130 | <CENTRAL_IP> (Model A) / N/A (Model B) | Worker 3 | Model A only (central) |
+| Remote Worker Squid | 3128 | Worker's own IP | Worker 2/3 | Model B only (remote nodes) |
+
+> **Note:** In Model B (current production), Squid 2 and 3 do NOT exist — Workers 2/3 run on remote VPSes with their own local Squid on port 3128. The `squid_2` and `squid_3` services in `compose/proxy.yml` are only used in Model A (single-VM, 3-squid) deployments.
 
 ### Network Flow
 - **Public entry**: port 80 (HTTP) and 443 (HTTPS - ready for Let's Encrypt)
@@ -139,6 +149,8 @@ Remote Worker Nodes (each: 2 vCPU / ~6 GB / own static Iranian IP)
 | Hardcoded secrets in workflows | CI/CD workflows had fallback hardcoded credentials | ✅ Fixed |
 | Missing security headers | Backend responses lacked security headers | ✅ Fixed |
 | Missing Redis connection pool settings | No timeout/retry configuration | ✅ Fixed |
+| Docker Compose V1 (`docker-compose`) usage | CI/CD and deploy scripts must use `docker compose` V2 — root `docker-compose.yml` uses `include:` (Compose >= 2.20) which V1 does not support | ✅ Fixed (.github/workflows/cd-deploy.yml) |
+| Multi-IP proxy routing — topology mismatch | `AVAILABLE_IP_INDICES` is topology-specific — `"1,2,3"` for single-VM Model A, `"1,2"` for dual-node Model B. Wrong value causes phantom queue dispatch (circuit_breaker `_get_known_ip_indices` filters unregistered indices at runtime). | ✅ Fixed — deploy scripts set topology-specific values |
 
 ## Testing
 
@@ -178,9 +190,10 @@ BarPro/
 │       ├── lib/            # Utilities (api, auth, plate)
 │       └── schemas/        # Zod validation schemas
 ├── compose/                # Docker Compose layered files
+│   ├── docker-compose.yml  # Root file using `include:` (requires Compose >= 2.20 / docker compose V2)
 │   ├── infra.yml           # PostgreSQL, Redis
-│   ├── proxy.yml           # Squid ×3
-│   ├── backend.yml         # FastAPI + Celery workers + Beat
+│   ├── proxy.yml           # Squid ×3 (Model A only)
+│   ├── backend.yml         # FastAPI + Celery workers + celery_scheduler + Beat
 │   ├── web.yml             # Nginx + Frontend
 │   └── monitoring.yml      # Prometheus
 ├── infra/                  # Config files
@@ -277,7 +290,7 @@ The following optimizations have been implemented in this codebase:
 | Timeouts added to all browser close operations | `automation/browser.py:139-176` | No hang on context/browser close |
 | `except: pass` replaced with logging in recycle_browser | `automation/browser.py:139-176` | Errors visible in logs |
 | Container resource limits tuned for 12 GB | `compose/*.yml` | Total 10.5 GB limits, 1.5 GB headroom |
-| Queue routing: scheduler moved to Worker 3 | `compose/backend.yml:107,173` | Worker 1 not blocked by scheduler |
+| Dedicated celery_scheduler service for rpa_scheduler queue | `compose/backend.yml:246-277` | Profile-less, always-on consumer — no starvation on central/dual-node deployments |
 
 ### Database
 | Change | File | Impact |
@@ -308,6 +321,7 @@ ON waybill_jobs (status) INCLUDE (id);
 | Redis | **512 MB** | 256 MB | — | ↑ از 256 MB |
 | Backend API | **512 MB** | 256 MB | 256 MB | ↑ از 256 MB |
 | Celery Worker 1 | **3 GB** | 2.5 GB | 512 MB | ↑ از 2.5 GB |
+| Celery Scheduler | **768 MB** | 384 MB | 128 MB | Dedicated rpa_scheduler consumer (FIX-A1) |
 | Celery Beat | **256 MB** | 128 MB | — | ↑ از 128 MB (OOM fix) |
 | Frontend (Next.js) | **1 GB** | 512 MB | — | ↑ از 512 MB |
 | Nginx | **512 MB** | 256 MB | — | ↑ از 256 MB |
@@ -315,9 +329,9 @@ ON waybill_jobs (status) INCLUDE (id);
 | Prometheus | 256 MB | 128 MB | — | — |
 | Alertmanager | 128 MB | 64 MB | — | — |
 | Grafana | 256 MB | 128 MB | — | — |
-| **Total limits** | **~8.9 GB** ← fits in 16 GB with ~7 GB headroom | | | |
+| **Total limits** | **~10.5 GB** ← fits in 16 GB with ~5.5 GB headroom | | | |
 
-> Workers 2/3 (هر کدام 3 GB) روی Remote Worker VPS اجرا می‌شوند و در بودجه سرور مرکزی نیستند.
+> Workers 2/3 (هر کدام 3 GB) روی Remote Worker VPS اجرا می‌شوند و در بودجه سرور مرکزی نیستند. Squid 2/3 فقط در استقرار تک‌سروره (Model A) وجود دارند.
 
 ## Priority Fixes for Server Deployment (see ISSUES.md for full list)
 
@@ -619,4 +633,4 @@ ON waybill_jobs (status) INCLUDE (id);
 
 ---
 
-*Last updated: 2026-08-10 · Tests: 588+ passed, 2 skipped · Deployment: 3-server Model B (Central 16GB + 2× remote Worker VPS)*
+*Last updated: 2026-08-10 · Tests: 588+ passed, 2 skipped · Deployment: 3-server Model B (Central 16GB + 2× remote Worker VPS) · celery_scheduler service added*

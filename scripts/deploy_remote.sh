@@ -157,7 +157,7 @@ NEXT_PUBLIC_API_URL="/api"
 # _resolve_to_ip() now keeps untouched (X1).
 AVAILABLE_IP_INDICES="1,2"
 WORKER_1_PROXY="http://172.20.0.1:3128"
-WORKER_2_PROXY="http://${NODE2_IP}:3128"
+WORKER_2_PROXY="http://${NODE2_IP}:3129"
 EOF
 
     echo "📤 Transferring files to Node 1..."
