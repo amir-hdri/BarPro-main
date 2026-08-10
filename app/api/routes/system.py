@@ -703,7 +703,7 @@ async def proxies_health():
         start_time = time.time()
         try:
             async with httpx.AsyncClient(proxy=url, timeout=3.0) as client:
-                resp = await client.get("http://barname.utcms.ir/", follow_redirects=False)
+                resp = await client.get("https://utcms.ir/", follow_redirects=False)
                 latency = (time.time() - start_time) * 1000
                 return {
                     "name": name,

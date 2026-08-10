@@ -14,7 +14,7 @@ async def test_check_proxy_health_success():
     with patch("httpx.AsyncClient.get", return_value=mock_response) as mock_get:
         result = await check_proxy_health("http://127.0.0.1:3128")
         assert result is True
-        mock_get.assert_called_once_with("https://barname.utcms.ir/Barname/Account/Login")
+        mock_get.assert_called_once_with("https://utcms.ir")
 
 
 @pytest.mark.asyncio

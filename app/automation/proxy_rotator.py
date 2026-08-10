@@ -228,7 +228,7 @@ class ProxyRotator:
         cooldown: float = 5.0,
         health_check_interval: float = 300.0,  # 5 minutes
         max_health_check_attempts: int = 3,
-        test_url: str = "https://barname.utcms.ir",
+        test_url: str = "https://utcms.ir",
         timeout: float = 10.0,
         min_success_rate: float = 70.0,
         max_fail_count: int = 3,
@@ -808,7 +808,7 @@ async def _test_proxy(proxy_url: str, timeout: float = 10.0) -> bool:
 
         async with ClientSession(timeout=ClientTimeout(total=timeout)) as session:
             # Try UTCMS first, then fallback
-            for target_url in ("https://barname.utcms.ir", "https://httpbin.org/ip"):
+            for target_url in ("https://utcms.ir", "https://httpbin.org/ip"):
                 try:
                     async with session.get(
                         target_url,

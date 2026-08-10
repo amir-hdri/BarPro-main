@@ -45,10 +45,12 @@ class SchedulerService:
         """
         async with async_session_factory() as session:
             try:
-                # Query due jobs with skip_locked, joining with DriverRuntimeState to verify slot is free
+                # Query due jobs with skip_locked. The driver-slot check (outer
+                # join on DriverRuntimeState) must live in a subquery: PostgreSQL
+                # rejects `FOR UPDATE` on the nullable side of an outer join.
                 now = datetime.now(UTC).replace(tzinfo=None)
-                statement = (
-                    select(WaybillJob)
+                slot_free_job_ids = (
+                    select(WaybillJob.id)
                     .join(DriverRuntimeState, WaybillJob.driver_id == DriverRuntimeState.driver_id, isouter=True)
                     .where(
                         (DriverRuntimeState.active_execution_id == None) | (DriverRuntimeState.id == None)  # noqa: E711
@@ -60,6 +62,10 @@ class SchedulerService:
                     )
                     .where((WaybillJob.next_retry_at == None) | (WaybillJob.next_retry_at <= now))  # noqa: E711
                     .where((WaybillJob.submit_after == None) | (WaybillJob.submit_after <= now))  # noqa: E711
+                )
+                statement = (
+                    select(WaybillJob)
+                    .where(WaybillJob.id.in_(slot_free_job_ids))
                     .order_by(WaybillJob.priority.desc(), WaybillJob.created_at.asc())
                     .with_for_update(skip_locked=True)
                 )

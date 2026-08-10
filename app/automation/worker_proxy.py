@@ -212,7 +212,7 @@ def get_playwright_proxy() -> dict | None:
 
 
 async def check_proxy_health(
-    proxy_url: str, target_url: str = "https://barname.utcms.ir/Barname/Account/Login"
+    proxy_url: str, target_url: str = "https://utcms.ir"
 ) -> bool:
     """
     Verify that Squid can make a real request to the UTCMS login page.
