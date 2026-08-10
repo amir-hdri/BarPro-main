@@ -222,14 +222,11 @@ def dispatch_fuel_inquiry_task(inquiry_id: int):
 
     import random
 
-    from app.core.circuit_breaker import get_routed_queue
-
     jitter_countdown = random.randint(1, 3)
-    routed_queue = get_routed_queue(utcms_config.CELERY_TASK_QUEUE)
 
     return process_fuel_inquiry_task.apply_async(
         args=[inquiry_id],
-        queue=routed_queue,
+        queue=utcms_config.CELERY_FUEL_INQUIRY_QUEUE,
         countdown=jitter_countdown,
     )
 
