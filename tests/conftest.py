@@ -1,12 +1,26 @@
+import os
+import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.auth_multitenant import create_access_token
-from app.core.rate_limiter import InMemoryRateLimiter, rate_limiter
-from app.core.utils import shutdown_async_bridge
-from app.main import app
+# The full unit suite is intentionally hermetic. CI may provision PostgreSQL
+# and Redis for the dedicated integration job, but forcing those shared
+# services into `pytest tests/` makes unrelated unit tests order-dependent.
+# Apply these values before importing the application/config singletons.
+_running_external_integration_suite = any(
+    "tests/test_integration" in argument.replace("\\", "/") for argument in sys.argv
+)
+if not _running_external_integration_suite:
+    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
+    os.environ["REDIS_URL"] = "redis://localhost:6379/0"
+    os.environ["ENVIRONMENT"] = "test"
+
+from app.auth_multitenant import create_access_token  # noqa: E402
+from app.core.rate_limiter import InMemoryRateLimiter, rate_limiter  # noqa: E402
+from app.core.utils import shutdown_async_bridge  # noqa: E402
+from app.main import app  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
