@@ -158,7 +158,8 @@ def send_heartbeat(worker_id: str) -> None:
 
 
 def _heartbeat_loop(worker_id: str):
-    while not _heartbeat_stop.wait(timeout=30):
+    interval = max(5.0, getattr(utcms_config, "WORKER_REGISTRY_HEARTBEAT_SECONDS", 30.0))
+    while not _heartbeat_stop.wait(timeout=interval):
         try:
             send_heartbeat(worker_id)
         except Exception as e:

@@ -235,7 +235,7 @@ docker compose -f compose/monitoring.yml up  # Prometheus only
 | `KERAS_PYTHON_PATH` | Python 3.12 path for Keras OCR (e.g. /opt/barpro/venv/bin/python) |
 | `KERAS_MODEL_PATH` | Keras .keras model file for fuel inquiry captchas |
 | `CAPTCHA_LOCAL_FALLBACK_ENABLED` | Enable Tesseract/local OCR fallback |
-| `AVAILABLE_IP_INDICES` | Comma-separated IP indices for proxy routing (e.g., "1,2") |
+| `AVAILABLE_IP_INDICES` | Comma-separated IP indices for proxy routing — **topology-specific, NOT a global constant** (e.g. single-VM Model A = `"1,2,3"`; dual-node deploy_remote = `"1,2"`). An index with no registered worker is filtered out of the routing pool at runtime (circuit_breaker `_get_known_ip_indices`), so an over-wide value is safe but should still match the deployed fleet. |
 | `RPA_PROXIES` | Comma-separated proxy URLs for workers (SSRF risk — see ISSUES.md) |
 
 ## Two Captcha Models

@@ -40,7 +40,11 @@ services:
     # when connecting to UTCMS — this is the "one IP per Worker" design.
     network_mode: host
     volumes:
-      - ./infra/squid/squid_worker.conf:/etc/squid/squid.conf:ro
+      # Render infra/squid/squid_worker.conf -> infra/squid/squid_worker.runtime.conf
+      # (substituting __WORKER_EGRESS_IP__ / __CENTRAL_IP__) on each worker node —
+      # see setup_worker.sh / deploy_all_servers.sh. Mounting the rendered copy
+      # keeps the git template intact and always exists after a git pull.
+      - ../infra/squid/squid_worker.runtime.conf:/etc/squid/squid.conf:ro
     cap_add:
       - NET_ADMIN
     security_opt:
@@ -63,17 +67,16 @@ services:
       - worker_local
     env_file:
       - ../.env
-    # rpa_scheduler is a singleton control queue. This shared template runs on
-    # Worker 2 and Worker 3, so only the node with index 3 may consume it.
+    # rpa_scheduler is a singleton control queue consumed by the dedicated
+    # profile-less celery_scheduler service on the CENTRAL server (compose/
+    # backend.yml). Remote worker nodes must NOT consume it — if they did, the
+    # dispatcher (every 5s) could sit behind a 360s browser task and starve.
     command:
       - /bin/sh
       - -ec
       - |
         : "$${WORKER_IP_INDEX:?WORKER_IP_INDEX is required}"
         queues="waybill_tasks,waybill_tasks_$${WORKER_IP_INDEX},rpa_auth_$${WORKER_IP_INDEX},rpa_submit_$${WORKER_IP_INDEX},reconciliation_tasks,reconciliation_tasks_$${WORKER_IP_INDEX}"
-        if [ "$${WORKER_IP_INDEX}" = "3" ]; then
-          queues="$${queues},rpa_scheduler"
-        fi
         queues="$${queues},scheduled_tasks,scheduled_tasks_$${WORKER_IP_INDEX},barpro.fuel.inquiry"
         exec celery -A app.workers.celery_app worker \
           --loglevel=info \
@@ -97,7 +100,13 @@ services:
       # get_worker_proxy_url() reads WORKER_{WORKER_ID}_PROXY or RPA_PROXIES.
       # "squid" resolves to the host via host-gateway (Docker 20.10+), so the
       # container reaches the host-network Squid through the bridge gateway.
-      RPA_PROXIES: http://squid:3128
+      # WORKER_2_PROXY / WORKER_3_PROXY are forced here (FIX-C) so that a
+      # stale WORKER_2_PROXY leaked from a central .env (via env_file) can never
+      # hijack a remote worker onto the wrong Squid. Only the key matching the
+      # worker's WORKER_ID is read at runtime, so setting both is harmless.
+      RPA_PROXIES: http://squid:${WORKER_PROXY_PORT:-3128}
+      WORKER_2_PROXY: http://squid:${WORKER_PROXY_PORT:-3128}
+      WORKER_3_PROXY: http://squid:${WORKER_PROXY_PORT:-3128}
       # CAPTCHA & Browser
       CAPTCHA_PROVIDER: ${CAPTCHA_PROVIDER:-auto}
       HEADLESS: ${HEADLESS:-true}
@@ -111,11 +120,6 @@ services:
       start_period: 60s
       retries: 3
     volumes:
-      # Hot-fix mount: pin the worker-registry heartbeat to its fixed source.
-      # worker_lifecycle uses a sync psycopg2 engine to avoid the asyncpg
-      # "different event loop" crash; keep this until the next image rebuild
-      # (the fix is already in the repo source) makes it redundant.
-      - /opt/barpro/app/orchestrator/worker_lifecycle.py:/app/app/orchestrator/worker_lifecycle.py:ro
       # Shared memory for Chromium
       - type: tmpfs
         target: /dev/shm

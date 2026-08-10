@@ -66,6 +66,17 @@ ROUTED_BASE_QUEUES = [
     "scheduled_tasks",
 ]
 
+# Queues dispatched DIRECTLY (no suffix) — e.g. barpro.fuel.inquiry in
+# dispatch_fuel_inquiry_task and the raw base queues. Every one must have a
+# consumer in compose AND in the local all-in-one stack, or tasks are dropped
+# silently (NEW-4 / X7).
+DIRECT_DISPATCH_QUEUES = {
+    "barpro.fuel.inquiry",
+    "waybill_tasks",
+    "reconciliation_tasks",
+    "scheduled_tasks",
+}
+
 
 def _queues_by_worker() -> dict[str, set[str]]:
     """Parse the ``-Q`` queues for each named Celery worker in backend compose."""
@@ -77,7 +88,10 @@ def _queues_by_worker() -> dict[str, set[str]]:
         service_match = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
         if service_match:
             service_name = service_match.group(1)
-            current_worker = service_name if re.fullmatch(r"celery_worker_\d+", service_name) else None
+            is_celery_service = bool(
+                re.fullmatch(r"celery_worker_\d+", service_name) or service_name == "celery_scheduler"
+            )
+            current_worker = service_name if is_celery_service else None
             if current_worker is not None:
                 queues_by_worker[current_worker] = set()
             continue
@@ -100,6 +114,28 @@ def _queues_by_worker() -> dict[str, set[str]]:
 def _consumed_queues() -> set[str]:
     """Return the union of queues consumed by all backend Celery workers."""
     return set().union(*_queues_by_worker().values())
+
+
+def _services_with_profiles() -> set[str]:
+    """Return the set of backend compose services that declare a ``profiles:`` key.
+
+    A service behind a profile is NOT started by a plain
+    ``docker compose up`` — so anything critical (e.g. the control-queue
+    consumer) must live on a profile-less service or it silently vanishes on a
+    central/dual-node deployment (NEW-1).
+    """
+    text = COMPOSE_BACKEND.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    profiled: set[str] = set()
+    current: str | None = None
+    for line in lines:
+        service_match = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if service_match:
+            current = service_match.group(1)
+            continue
+        if current is not None and re.match(r"^\s+profiles:\s*\[", line):
+            profiled.add(current)
+    return profiled
 
 
 def _routed_ip_indices() -> list[int]:
@@ -279,6 +315,39 @@ def test_exempt_queue_is_not_suffixed():
     assert "rpa_scheduler" in _consumed_queues()
 
 
+def test_direct_dispatch_queues_have_consumers_everywhere():
+    """Every directly-dispatched queue needs a consumer in compose AND the local stack."""
+    consumed = _consumed_queues()
+    start_script = LOCAL_START_SYSTEM.read_text(encoding="utf-8")
+    local_queues = set(_shell_variable(start_script, "LOCAL_WORKER_QUEUES").split(","))
+
+    missing_compose = DIRECT_DISPATCH_QUEUES - consumed
+    missing_local = DIRECT_DISPATCH_QUEUES - local_queues
+    assert not missing_compose, f"Directly-dispatched queues with no compose consumer: {sorted(missing_compose)}"
+    assert (
+        not missing_local
+    ), f"Directly-dispatched queues missing from start_system.sh LOCAL_WORKER_QUEUES: {sorted(missing_local)}"
+
+
+def test_env_templates_use_reachable_proxy():
+    """Deploy-generated proxy templates must not reference unresolvable squid_N hostnames (X2).
+
+    Squid runs with network_mode: host, so it has no DNS name inside the worker
+    container; a proxy URL like http://squid_1:3128 fails closed on every job.
+    Templates must use the Docker bridge gateway (172.20.0.1) or a real public IP.
+    """
+    offenders = []
+    for f in [
+        PROJECT_ROOT / "scripts" / "deploy_single_vm.py",
+        PROJECT_ROOT / "scripts" / "deploy_remote.sh",
+        PROJECT_ROOT / "scripts" / "deploy_remote.py",
+    ]:
+        text = f.read_text(encoding="utf-8")
+        if re.search(r"WORKER_\d_PROXY\s*=\s*\"?http://squid_[123]:", text):
+            offenders.append(f.name)
+    assert not offenders, f"deploy templates still emit unresolvable squid_N proxy URLs (X2): {offenders}"
+
+
 def test_every_worker_ip_index_is_available():
     """Every concrete Compose worker must be part of the dispatcher routing pool."""
     available = set(get_available_ip_indices())
@@ -293,13 +362,38 @@ def test_every_worker_ip_index_is_available():
     )
 
 
-def test_rpa_scheduler_is_reserved_for_worker_3():
-    """The central Compose topology must not let another worker drain scheduler work."""
+def test_rpa_scheduler_has_single_profileless_consumer():
+    """rpa_scheduler must be consumed by exactly ONE profile-less service.
+
+    Previously it lived on worker 3 behind the "scale-out" profile (and on
+    remote worker nodes), so a central/dual-node deployment had NO consumer
+    (NEW-1). The dedicated celery_scheduler service must be the only consumer
+    and must not be profile-gated.
+    """
     consumers = {worker_name for worker_name, queues in _queues_by_worker().items() if "rpa_scheduler" in queues}
-    assert consumers == {"celery_worker_3"}, (
-        "rpa_scheduler is a singleton control queue and must be consumed only "
-        f"by celery_worker_3, not {sorted(consumers)}."
+    assert consumers == {"celery_scheduler"}, (
+        "rpa_scheduler is a singleton control queue (dispatcher fires every 5s) "
+        "and must be consumed only by the dedicated profile-less celery_scheduler, "
+        f"not {sorted(consumers)}."
     )
+    profiled = _services_with_profiles()
+    assert "celery_scheduler" not in profiled, (
+        "celery_scheduler (rpa_scheduler consumer) must NOT be behind a compose "
+        "profile, or it vanishes on a central/dual-node deployment."
+    )
+
+
+def test_control_queue_is_not_doubly_consumed_by_worker_node(tmp_path: Path):
+    """Remote worker nodes must NOT consume the singleton control queue.
+
+    The dispatcher publishes to rpa_scheduler every 5s; if a remote worker (with
+    its 360s browser tasks) consumed it, the control loop would starve for up to
+    minutes. Only the central celery_scheduler consumes it.
+    """
+    for worker_ip_index in (2, 3):
+        assert "rpa_scheduler" not in _worker_node_queues(
+            worker_ip_index, tmp_path
+        ), f"worker-node.yml must not consume rpa_scheduler (index {worker_ip_index})."
 
 
 def test_worker_node_template_consumes_its_own_partitions(tmp_path: Path):
@@ -314,10 +408,15 @@ def test_worker_node_template_consumes_its_own_partitions(tmp_path: Path):
             )
 
 
-def test_worker_node_template_reserves_rpa_scheduler_for_worker_3(tmp_path: Path):
-    """The shared remote template must add the control queue only on Worker 3."""
-    assert "rpa_scheduler" not in _worker_node_queues(2, tmp_path)
-    assert "rpa_scheduler" in _worker_node_queues(3, tmp_path)
+def test_worker_node_template_never_consumes_rpa_scheduler(tmp_path: Path):
+    """The shared remote template must never consume the singleton control queue.
+
+    The control queue is owned exclusively by celery_scheduler on the central
+    server; remote Worker 2/3 must stay off it so the 5s dispatcher is never
+    starved by their long browser tasks (NEW-1 / FIX-A).
+    """
+    for worker_ip_index in (2, 3):
+        assert "rpa_scheduler" not in _worker_node_queues(worker_ip_index, tmp_path)
 
 
 def test_local_start_script_reserves_scheduler_for_explicit_worker_3():

@@ -456,11 +456,13 @@ NEXT_PUBLIC_API_URL="/api"
 DATABASE_URL="postgresql+asyncpg://postgres:{pg_pass}@postgres:5432/{DB_NAME}"
 REDIS_URL="redis://:{redis_pw}@redis:6379/0"
 
-# مسیریابی Multi-IP
+# مسیریابی Multi-IP (تک‌سروره Model A: هر سه squid روی همین سرور با
+# network_mode: host اجرا می‌شوند ⇒ از طریق گیت‌وی 172.20.0.1 قابل دسترس‌اند.
+# نام‌های "squid_N" داخل کانتینر ورکر DNS ندارند — X2)
 AVAILABLE_IP_INDICES="1,2,3"
-WORKER_1_PROXY="http://squid_1:3128"
-WORKER_2_PROXY="http://squid_2:3128"
-WORKER_3_PROXY="http://squid_3:3128"
+WORKER_1_PROXY="http://172.20.0.1:3128"
+WORKER_2_PROXY="http://172.20.0.1:3129"
+WORKER_3_PROXY="http://172.20.0.1:3130"
 
 # مسیر مدل OCR در کانتینر
 KERAS_PYTHON_PATH="python3"
@@ -587,10 +589,12 @@ def step_deploy(ssh: paramiko.SSHClient) -> bool:
         # شبکه داکر مشترک (با subnet مشخص — ورکرها از گیت‌وی 172.20.0.1 استفاده می‌کنند)
         "docker network inspect barpro_platform >/dev/null 2>&1 || "
         "docker network create --subnet=172.20.0.0/16 barpro_platform",
-        # جایگزینی placeholder های IP در کانفیگ Squid
-        f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_1/{PRIMARY_IP}/g'   infra/squid/squid_1.conf",
-        f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_2/{SECONDARY_IP}/g' infra/squid/squid_2.conf",
-        f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_3/{SECONDARY_IP}/g' infra/squid/squid_3.conf",
+        # جایگزینی placeholder های IP در کانفیگ Squid — خط tcp_outgoing_address
+        # را uncomment و __EGRESS_IP__ را با IP واقعی این سرور جایگزین می‌کند
+        # (قبلاً sed روی IP_ADDRESS_1 بی‌اثر بود چون داخل کامنت بود — X3/FIX-F)
+        f"cd {REMOTE_DIR} && sed -i -E 's|#\\s*tcp_outgoing_address __EGRESS_IP__|tcp_outgoing_address {PRIMARY_IP}|' infra/squid/squid_1.conf",
+        f"cd {REMOTE_DIR} && sed -i -E 's|#\\s*tcp_outgoing_address __EGRESS_IP__|tcp_outgoing_address {SECONDARY_IP}|' infra/squid/squid_2.conf",
+        f"cd {REMOTE_DIR} && sed -i -E 's|#\\s*tcp_outgoing_address __EGRESS_IP__|tcp_outgoing_address {SECONDARY_IP}|' infra/squid/squid_3.conf",
         # تصحیح Prometheus — از backend:8000 به جای host.docker.internal استفاده می‌کنیم
         f"cd {REMOTE_DIR} && sed -i "
         f"'s/host.docker.internal:8000/backend:8000/g' "

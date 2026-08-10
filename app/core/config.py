@@ -230,6 +230,12 @@ class UTCMSConfig:
         self.CELERY_RETRY_JITTER_SECONDS = float(os.getenv("CELERY_RETRY_JITTER_SECONDS", "1.5"))
         self.CELERY_WORKER_PREFETCH_MULTIPLIER = int(os.getenv("CELERY_WORKER_PREFETCH_MULTIPLIER", "1"))
         self.WORKER_STALL_TIMEOUT_SECONDS = int(os.getenv("WORKER_STALL_TIMEOUT_SECONDS", "90"))
+        # Interval (seconds) at which every Celery worker re-writes its
+        # worker_registry heartbeat. This is the *registry* heartbeat — NOT the
+        # API-side watchdog loop interval (WORKER_HEARTBEAT_INTERVAL_SECONDS,
+        # which drives recovery_manager.watchdog_loop). The circuit breaker
+        # treats a worker as stale after 3x this interval.
+        self.WORKER_REGISTRY_HEARTBEAT_SECONDS = float(os.getenv("WORKER_REGISTRY_HEARTBEAT_SECONDS", "30"))
 
         self.BROWSER_POOL_ENABLED = _to_bool(os.getenv("BROWSER_POOL_ENABLED", "False"), default=False)
         self.BROWSER_POOL_SIZE = int(os.getenv("BROWSER_POOL_SIZE", "8"))

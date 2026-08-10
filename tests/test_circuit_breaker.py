@@ -46,11 +46,14 @@ def clean_registry_caches():
 
 @pytest.fixture(autouse=True)
 def mock_registry_healthy():
-    """By default the worker registry filter reports NO dead workers, so the
-    existing tests keep exercising the pure Redis logic."""
+    """By default the worker registry filter reports NO dead workers and NO
+    claimed indices (empty known set), so the existing tests keep exercising
+    the pure Redis logic (empty known => keep the whole available pool)."""
     with (
         patch("app.core.circuit_breaker._get_unavailable_ip_indices_sync", return_value=set()),
         patch("app.core.circuit_breaker._get_unavailable_ip_indices", new_callable=AsyncMock, return_value=set()),
+        patch("app.core.circuit_breaker._get_known_ip_indices_sync", return_value=set()),
+        patch("app.core.circuit_breaker._get_known_ip_indices", new_callable=AsyncMock, return_value=set()),
     ):
         yield
 
@@ -283,6 +286,62 @@ def test_index_unavailable_from_rows_any_alive_keeps_index():
 
 def test_index_unavailable_from_rows_no_rows():
     assert _index_unavailable_from_rows([]) == set()
+
+
+def test_registry_index_state_known_vs_unavailable():
+    """_registry_index_state returns (known, unavailable) separately.
+
+    An index that no worker has EVER claimed (e.g. index 4 in a two-node
+    topology) is NOT part of ``known`` — the router must not dispatch to it even
+    though it is also not ``unavailable`` (NEW-2 / GAP 2)."""
+    from app.core.circuit_breaker import _registry_index_state
+
+    rows = [
+        (1, "active", _hb(5)),  # healthy claimed
+        (2, "offline", _hb(10)),  # claimed, dead
+        (None, "active", _hb(5)),  # unattributed -> ignored
+    ]
+    known, unavailable = _registry_index_state(rows)
+    assert known == {1, 2}
+    assert unavailable == {2}
+
+
+def test_get_next_ip_index_sync_excludes_unclaimed_index(mock_redis):
+    """An index in AVAILABLE_IP_INDICES that no worker has ever claimed must be
+    dropped from the pool (NEW-2)."""
+    os.environ["AVAILABLE_IP_INDICES"] = "1,2,3"
+    mock_redis.exists.return_value = False
+    mock_redis.incr.return_value = 0
+
+    try:
+        with patch("app.core.circuit_breaker._get_known_ip_indices_sync", return_value={1, 2}):
+            # healthy = [1, 2] (3 was never claimed) -> counter 0 % 2 = 0 -> ip 1
+            ip = get_next_ip_index_sync()
+        assert ip == 1
+        # index 3 must never even be consulted as a candidate
+        for call in mock_redis.exists.call_args_list:
+            assert call.args[0] != "utcms:circuit_breaker:blocked:3"
+    finally:
+        os.environ.pop("AVAILABLE_IP_INDICES", None)
+
+
+def test_get_next_ip_index_sync_unclaimed_plus_redis_block(mock_redis):
+    """Known-index filtering composes with Redis blocks."""
+    os.environ["AVAILABLE_IP_INDICES"] = "1,2,3"
+    mock_redis.incr.return_value = 0
+
+    def exists_side_effect(key):
+        return key == "utcms:circuit_breaker:blocked:2"
+
+    mock_redis.exists.side_effect = exists_side_effect
+
+    try:
+        with patch("app.core.circuit_breaker._get_known_ip_indices_sync", return_value={1, 2, 3}):
+            # known = {1,2,3}, redis blocks 2 -> healthy = [1, 3] -> ip 1
+            ip = get_next_ip_index_sync()
+        assert ip == 1
+    finally:
+        os.environ.pop("AVAILABLE_IP_INDICES", None)
 
 
 def test_stale_threshold_boundary():

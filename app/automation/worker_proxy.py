@@ -46,6 +46,19 @@ _WORKER_ID_ENV = "WORKER_ID"
 # the real Docker subnet on the host differs from the convention.
 _DOCKER_GATEWAY = os.environ.get("DOCKER_BRIDGE_GATEWAY", "172.20.0.1")
 
+# Public IPs that belong to THIS server. Only these are rewritten to the Docker
+# bridge gateway in ``_resolve_to_ip``. Any other public IP (e.g. a remote
+# worker node's Squid) is kept untouched — otherwise the "one IP per worker"
+# architecture silently collapses (X1) and every worker would egress via the
+# central server. Populate from LOCAL_PUBLIC_IPS (comma-separated) or CENTRAL_IP.
+_LOCAL_PUBLIC_IPS: set[str] = {
+    x.strip()
+    for x in os.environ.get(
+        "LOCAL_PUBLIC_IPS", os.environ.get("CENTRAL_IP", "")
+    ).split(",")
+    if x.strip()
+}
+
 
 class ProxyUnavailableError(RuntimeError):
     """Raised when a required Squid proxy is unconfigured/unreachable.
@@ -98,8 +111,18 @@ def _resolve_to_ip(url: str) -> str:
         try:
             import ipaddress
             parsed_ip = ipaddress.ip_address(ip)
-            if not parsed_ip.is_private and not parsed_ip.is_loopback:
+            # Only rewrite THIS server's own public IP to the bridge gateway
+            # (so a hardcoded egress IP pointing back at us routes through
+            # Squid on the host instead of leaking direct). Any public IP that
+            # is NOT ours — e.g. a remote worker node's Squid — is preserved so
+            # the one-IP-per-worker architecture keeps working (X1).
+            if (
+                not parsed_ip.is_private
+                and not parsed_ip.is_loopback
+                and ip in _LOCAL_PUBLIC_IPS
+            ):
                 ip = _DOCKER_GATEWAY
+                logger.info(f"worker_proxy: routed own public IP {hostname} through gateway {ip}")
         except ValueError:
             pass
 
@@ -300,15 +323,25 @@ def drain_worker_consumers(task: Any) -> None:
 
     worker_name = task.request.hostname
     logger.warning(f"Draining worker {worker_name} consumers...")
-    queues = [
-        utcms_config.CELERY_WAYBILL_SUBMIT_QUEUE,
-        utcms_config.CELERY_WAYBILL_AUTH_QUEUE,
-        utcms_config.CELERY_FUEL_INQUIRY_QUEUE,
-        utcms_config.CELERY_RECOVERY_QUEUE,
-        utcms_config.CELERY_RECONCILIATION_QUEUE,
+
+    # Cancel both the base and this worker's suffixed partition for every routed
+    # queue family (a worker drains ITS OWN partitions, so the exact set depends
+    # on WORKER_IP_INDEX). cancel_consumer on a queue this worker does not
+    # consume is harmless. NOTE: cancel_consumer is a broadcast handled in the
+    # main worker process — with --pool=solo it only runs after the current task
+    # finishes, so this is best-effort; the real guard is is_worker_draining() at
+    # the top of each task.
+    idx = os.environ.get("WORKER_IP_INDEX", "").strip()
+    bases = [
         utcms_config.CELERY_WAYBILL_TASKS_QUEUE,
         utcms_config.CELERY_RECONCILIATION_TASKS_QUEUE,
+        utcms_config.RPA_AUTH_QUEUE,
+        utcms_config.RPA_SUBMIT_QUEUE,
+        "scheduled_tasks",
     ]
+    queues: set[str] = {utcms_config.CELERY_FUEL_INQUIRY_QUEUE, *bases}
+    if idx.isdigit():
+        queues.update(f"{b}_{idx}" for b in bases)
     for q in queues:
         try:
             task.app.control.cancel_consumer(q, destination=[worker_name])

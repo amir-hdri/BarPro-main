@@ -30,7 +30,10 @@ case "$1" in
         echo "Starting Squid Proxies..."
         docker compose -f compose/proxy.yml up -d
         
-        echo "Starting Backend & Workers..."
+        echo "Starting Backend, Workers & Control-Queue Scheduler (celery_scheduler)..."
+        # `up -d` starts every service in backend.yml including the dedicated,
+        # profile-less celery_scheduler that consumes the rpa_scheduler control
+        # queue (NEW-1/FIX-A).
         docker compose -f compose/backend.yml up -d
         
         echo "Running Alembic migrations..."

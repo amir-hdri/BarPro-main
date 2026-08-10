@@ -241,8 +241,9 @@ def get_available_ip_indices() -> list[int]:
 #     (Redis-only routing), the system never stops.
 # ---------------------------------------------------------------------------
 
-# Heartbeat loop in worker_lifecycle writes every ~30s; 90s = 3 missed beats.
-WORKER_HEARTBEAT_STALE_SECONDS = 90
+# Heartbeat loop in worker_lifecycle writes every
+# WORKER_REGISTRY_HEARTBEAT_SECONDS (default 30s); stale = 3 missed beats.
+WORKER_HEARTBEAT_STALE_SECONDS = int(3 * getattr(utcms_config, "WORKER_REGISTRY_HEARTBEAT_SECONDS", 30.0))
 
 # Short TTL cache so the registry snapshot is not queried on every dispatch.
 # The overall IP selection is already cached for 5s; this bounds DB load
@@ -250,9 +251,11 @@ WORKER_HEARTBEAT_STALE_SECONDS = 90
 # ClaimReaper cycle.
 _WORKER_REGISTRY_CACHE_TTL = 5.0
 
-# (unavailable_indices, expires_monotonic) — one cache per async/sync path.
-_worker_registry_snapshot: tuple[frozenset[int], float] | None = None
-_worker_registry_snapshot_sync: tuple[frozenset[int], float] | None = None
+# (known_indices, unavailable_indices, expires_monotonic) — one cache per
+# async/sync path. ``known`` = indices positively claimed by >= 1 registry row,
+# ``unavailable`` = indices claimed only by dead/stale workers.
+_worker_registry_snapshot: tuple[frozenset[int], frozenset[int], float] | None = None
+_worker_registry_snapshot_sync: tuple[frozenset[int], frozenset[int], float] | None = None
 
 # Lazily-created synchronous engine for the legacy sync routing path.
 _worker_sync_engine = None
@@ -268,11 +271,15 @@ def _is_stale_heartbeat(last_heartbeat_at: datetime | None) -> bool:
     return (now - last_heartbeat_at) > timedelta(seconds=WORKER_HEARTBEAT_STALE_SECONDS)
 
 
-def _index_unavailable_from_rows(rows) -> set[int]:
-    """Reduce (ip_index, status, last_heartbeat_at) rows to dead indices.
+def _registry_index_state(rows) -> tuple[set[int], set[int]]:
+    """Reduce (ip_index, status, last_heartbeat_at) rows to (known, unavailable).
 
-    An index is unavailable ONLY when at least one worker claims it and NONE
-    of its claiming workers is active AND fresh. Unclaimed indices are kept.
+    * ``known`` — every IP index positively claimed by at least one registry
+      row. An index that has NEVER been seen is deliberately excluded from
+      this set so a misconfigured ``AVAILABLE_IP_INDICES`` can never steer
+      dispatch to a phantom queue (NEW-2 / GAP 2).
+    * ``unavailable`` — indices where at least one worker claims the index and
+      NONE of its claiming workers is active AND fresh.
     """
     claims: dict[int, list[bool]] = {}
     for ip_index, status, last_heartbeat_at in rows:
@@ -280,7 +287,25 @@ def _index_unavailable_from_rows(rows) -> set[int]:
             continue
         healthy = status == "active" and not _is_stale_heartbeat(last_heartbeat_at)
         claims.setdefault(int(ip_index), []).append(healthy)
-    return {idx for idx, flags in claims.items() if not any(flags)}
+    return (
+        set(claims),
+        {idx for idx, flags in claims.items() if not any(flags)},
+    )
+
+
+def _index_unavailable_from_rows(rows) -> set[int]:
+    """Reduce (ip_index, status, last_heartbeat_at) rows to dead indices.
+
+    An index is unavailable ONLY when at least one worker claims it and NONE
+    of its claiming workers is active AND fresh. Unclaimed indices are kept
+    (kept — never shrinks the pool on partial migration).
+    """
+    return _registry_index_state(rows)[1]
+
+
+def _known_indices_from_rows(rows) -> set[int]:
+    """Indices positively claimed by >= 1 registry row (see _registry_index_state)."""
+    return _registry_index_state(rows)[0]
 
 
 def _get_worker_sync_session():
@@ -308,17 +333,18 @@ def _get_worker_sync_session():
     return _WorkerSyncSession
 
 
-async def _get_unavailable_ip_indices() -> set[int]:
-    """Async registry lookup — indices attributed to dead/stale workers.
+async def _get_registry_state() -> tuple[set[int], set[int]]:
+    """Async registry lookup — (known, unavailable) IP-index sets.
 
-    Fail-safe: returns an empty set on any error (routing falls back to the
-    previous Redis-only behavior).
+    Fail-safe: returns (empty, empty) on any error (routing falls back to the
+    previous Redis-only behavior and never shrinks the pool incorrectly).
     """
     global _worker_registry_snapshot
     now = time.monotonic()
-    if _worker_registry_snapshot is not None and now < _worker_registry_snapshot[1]:
-        return set(_worker_registry_snapshot[0])
+    if _worker_registry_snapshot is not None and now < _worker_registry_snapshot[2]:
+        return set(_worker_registry_snapshot[0]), set(_worker_registry_snapshot[1])
 
+    known: set[int] = set()
     unavailable: set[int] = set()
     try:
         async with async_session_factory() as session:
@@ -328,23 +354,24 @@ async def _get_unavailable_ip_indices() -> set[int]:
                 WorkerRegistry.last_heartbeat_at,
             ).where(WorkerRegistry.ip_index.is_not(None))
             result = await session.exec(stmt)
-            unavailable = _index_unavailable_from_rows(result.all())
+            known, unavailable = _registry_index_state(result.all())
     except Exception as exc:
         # Fail-safe: registry is a complement, never a hard dependency.
         logger.warning(f"Worker registry health check failed (async) — falling back to Redis-only routing: {exc}")
-        unavailable = set()
+        known, unavailable = set(), set()
 
-    _worker_registry_snapshot = (frozenset(unavailable), now + _WORKER_REGISTRY_CACHE_TTL)
-    return unavailable
+    _worker_registry_snapshot = (frozenset(known), frozenset(unavailable), now + _WORKER_REGISTRY_CACHE_TTL)
+    return known, unavailable
 
 
-def _get_unavailable_ip_indices_sync() -> set[int]:
+def _get_registry_state_sync() -> tuple[set[int], set[int]]:
     """Sync registry lookup (legacy routing path) — same semantics as async."""
     global _worker_registry_snapshot_sync
     now = time.monotonic()
-    if _worker_registry_snapshot_sync is not None and now < _worker_registry_snapshot_sync[1]:
-        return set(_worker_registry_snapshot_sync[0])
+    if _worker_registry_snapshot_sync is not None and now < _worker_registry_snapshot_sync[2]:
+        return set(_worker_registry_snapshot_sync[0]), set(_worker_registry_snapshot_sync[1])
 
+    known: set[int] = set()
     unavailable: set[int] = set()
     try:
         session_factory = _get_worker_sync_session()
@@ -355,13 +382,33 @@ def _get_unavailable_ip_indices_sync() -> set[int]:
                 WorkerRegistry.last_heartbeat_at,
             ).where(WorkerRegistry.ip_index.is_not(None))
             rows = session.execute(stmt).all()
-            unavailable = _index_unavailable_from_rows(rows)
+            known, unavailable = _registry_index_state(rows)
     except Exception as exc:
         logger.warning(f"Worker registry health check failed (sync) — falling back to Redis-only routing: {exc}")
-        unavailable = set()
+        known, unavailable = set(), set()
 
-    _worker_registry_snapshot_sync = (frozenset(unavailable), now + _WORKER_REGISTRY_CACHE_TTL)
-    return unavailable
+    _worker_registry_snapshot_sync = (frozenset(known), frozenset(unavailable), now + _WORKER_REGISTRY_CACHE_TTL)
+    return known, unavailable
+
+
+async def _get_unavailable_ip_indices() -> set[int]:
+    """Async registry lookup — indices attributed to dead/stale workers."""
+    return (await _get_registry_state())[1]
+
+
+def _get_unavailable_ip_indices_sync() -> set[int]:
+    """Sync registry lookup — indices attributed to dead/stale workers."""
+    return _get_registry_state_sync()[1]
+
+
+async def _get_known_ip_indices() -> set[int]:
+    """Async registry lookup — indices positively claimed by >= 1 worker."""
+    return (await _get_registry_state())[0]
+
+
+def _get_known_ip_indices_sync() -> set[int]:
+    """Sync registry lookup — indices positively claimed by >= 1 worker."""
+    return _get_registry_state_sync()[0]
 
 
 async def get_next_ip_index() -> int:
@@ -383,14 +430,19 @@ async def get_next_ip_index() -> int:
         if r is None:
             return available_indices[0] if available_indices else 1
 
-        # Complementary filter: drop indices attributed to dead/stale workers.
-        # Fail-safe: on any registry error this returns an empty set and the
-        # pool degrades to the previous Redis-only behavior.
+        # Complementary filter: drop indices attributed to dead/stale workers,
+        # and — when the registry knows anything at all — drop indices that no
+        # worker has EVER claimed (misconfigured AVAILABLE_IP_INDICES -> no
+        # phantom queue dispatch). Fail-safe: on any registry error both sets
+        # are empty and the pool degrades to the previous Redis-only behavior.
         unavailable_from_registry = await _get_unavailable_ip_indices()
+        known_from_registry = await _get_known_ip_indices()
 
         healthy_ips: list[int] = []
         for i in available_indices:
             if i in unavailable_from_registry:
+                continue
+            if known_from_registry and i not in known_from_registry:
                 continue
             if not await r.exists(f"utcms:circuit_breaker:blocked:{i}"):
                 healthy_ips.append(i)
@@ -438,15 +490,20 @@ def get_next_ip_index_sync() -> int:
     try:
         r = _get_redis_sync()
 
-        # Complementary filter: drop indices attributed to dead/stale workers.
-        # Fail-safe: on any registry error this returns an empty set and the
-        # pool degrades to the previous Redis-only behavior.
+        # Complementary filter: drop indices attributed to dead/stale workers,
+        # and — when the registry knows anything at all — drop indices that no
+        # worker has EVER claimed (misconfigured AVAILABLE_IP_INDICES -> no
+        # phantom queue dispatch). Fail-safe: on any registry error both sets
+        # are empty and the pool degrades to the previous Redis-only behavior.
         unavailable_from_registry = _get_unavailable_ip_indices_sync()
+        known_from_registry = _get_known_ip_indices_sync()
 
         # Check blocked keys in Redis + worker-registry liveness
         healthy_ips = []
         for i in available_indices:
             if i in unavailable_from_registry:
+                continue
+            if known_from_registry and i not in known_from_registry:
                 continue
             if not r.exists(f"utcms:circuit_breaker:blocked:{i}"):
                 healthy_ips.append(i)

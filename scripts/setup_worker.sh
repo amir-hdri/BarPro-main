@@ -44,9 +44,10 @@ else
     log_error "فایل .env یافت نشد! ابتدا .env را با مقادیر ورکر تنظیم کنید."
     echo ""
     echo "مقادیر الزامی:"
-    echo "  WORKER_ID=worker_2"
+    echo "  WORKER_ID=2  (عددی — همنهشت با WORKER_IP_INDEX)"
     echo "  WORKER_IP_INDEX=2"
     echo "  WORKER_PROXY_PORT=3128"
+    echo "  WORKER_EGRESS_IP=<IP عمومی این VPS>"
     echo "  DATABASE_URL=postgresql+asyncpg://postgres:PASS@CENTRAL_IP:5432/utcms_rpa"
     echo "  REDIS_URL=redis://:PASS@CENTRAL_IP:6379/0"
     echo "  CELERY_BROKER_URL=redis://:PASS@CENTRAL_IP:6379/0"
@@ -91,19 +92,24 @@ fi
 
 # ── مرحله ۳: ایجاد ساختار پوشه‌ها ──────────────────────────────────────────
 log_section "📁 مرحله ۳: ایجاد ساختار پوشه‌ها"
-mkdir -p compose/infra/squid
+mkdir -p infra/squid
 log_ok "ساختار پوشه‌ها ایجاد شد"
 
-# ── مرحله ۴: کپی squid config ────────────────────────────────────────────
-log_section "⚙️ مرحله ۴: تنظیم Squid Worker"
-SQUID_CONF="compose/infra/squid/squid_worker.conf"
-if [ ! -f "$SQUID_CONF" ]; then
-    if [ -f "infra/squid/squid_worker.conf" ]; then
-        cp "infra/squid/squid_worker.conf" "$SQUID_CONF"
-        log_ok "squid_worker.conf از infra/squid/ کپی شد"
-    else
-        log_warn "فایل squid_worker.conf یافت نشد — یک کانفیگ پایه ایجاد می‌شود"
-        cat > "$SQUID_CONF" << 'SQUIDEOF'
+# ── مرحله ۴: رندر squid config (runtime) ─────────────────────────────────
+# compose/worker-node.yml روی ../infra/squid/squid_worker.runtime.conf mount
+# می‌کند؛ این فایل را از قالب git (squid_worker.conf) با جایگزینی دو
+# placeholder می‌سازیم — در غیر این صورت squid با __CENTRAL_IP__ /
+# __WORKER_EGRESS_IP__ بالا نمی‌آید و restart-loop می‌شود (X4/FIX-G).
+log_section "⚙️ مرحله ۴: رندر Squid Worker"
+if [ -f "infra/squid/squid_worker.conf" ]; then
+    WORKER_EGRESS_IP="${WORKER_EGRESS_IP:?WORKER_EGRESS_IP is required (IP عمومی این VPS)}"
+    sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP}/g" \
+        -e "s/__CENTRAL_IP__/${CENTRAL_IP}/g" \
+        "infra/squid/squid_worker.conf" > "infra/squid/squid_worker.runtime.conf"
+    log_ok "squid_worker.runtime.conf از قالب + جایگزینی placeholder ساخته شد"
+else
+    log_warn "فایل squid_worker.conf یافت نشد — یک کانفیگ پایه runtime ایجاد می‌شود"
+    cat > "infra/squid/squid_worker.runtime.conf" << 'SQUIDEOF'
 # Squid Worker Node Configuration
 http_port 3128
 # Allow all connections (worker is behind UFW firewall)
@@ -115,10 +121,7 @@ cache deny all
 access_log stdio:/dev/stdout
 cache_log stdio:/dev/stderr
 SQUIDEOF
-        log_ok "کانفیگ پایه Squid ایجاد شد"
-    fi
-else
-    log_ok "squid config موجود است"
+    log_ok "کانفیگ پایه Squid ایجاد شد"
 fi
 
 # ── مرحله ۵: build image ──────────────────────────────────────────────────
@@ -133,7 +136,9 @@ log_ok "تصویر build شد"
 
 # ── مرحله ۶: راه‌اندازی سرویس‌ها ─────────────────────────────────────────
 log_section "🚀 مرحله ۶: راه‌اندازی Squid + Celery Worker"
-docker compose -f compose/worker-node.yml up -d
+# --env-file .env: ensures compose interpolation reads /opt/barpro/.env
+# regardless of the project directory (compose/), not ./compose/.env (X5/FIX-L).
+docker compose --env-file .env -f compose/worker-node.yml up -d
 log_ok "سرویس‌ها راه‌اندازی شدند"
 
 # ── مرحله ۷: بررسی ثبت‌نام در registry ────────────────────────────────────

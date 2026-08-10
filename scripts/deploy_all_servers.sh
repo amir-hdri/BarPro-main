@@ -74,21 +74,25 @@ docker build --network=host -t barpro_backend:latest -f Dockerfile . 2>&1 | tail
 echo '1.3 tag images برای ورکرها...'
 docker tag barpro_backend:latest barpro_celery_worker_1:latest
 docker tag barpro_backend:latest barpro_celery_beat:latest
+docker tag barpro_backend:latest barpro_celery_scheduler:latest
 
 echo '1.4 ری‌استارت infra (Postgres + Redis) با mem_limit جدید...'
-docker compose -f compose/infra.yml up -d --force-recreate 2>&1 | tail -5
+docker compose --env-file .env -f compose/infra.yml up -d --force-recreate 2>&1 | tail -5
 
 echo '1.5 ری‌استارت proxy (Squid)...'
-docker compose -f compose/proxy.yml up -d --force-recreate 2>&1 | tail -3
+docker compose --env-file .env -f compose/proxy.yml up -d --force-recreate 2>&1 | tail -3
 
-echo '1.6 ری‌استارت backend + worker_1 + beat...'
-docker compose -f compose/backend.yml up -d --force-recreate backend celery_worker_1 celery_beat 2>&1 | tail -5
+echo '1.6 ری‌استارت backend + worker_1 + scheduler + beat...'
+# --env-file .env: interpolation در compose باید /opt/barpro/.env را بخواند نه
+# ./compose/.env (X5/FIX-L). celery_scheduler مصرف‌کننده‌ی همیشه‌روشن صف
+# کنترلی است (NEW-1/FIX-A).
+docker compose --env-file .env -f compose/backend.yml up -d --force-recreate backend celery_worker_1 celery_scheduler celery_beat 2>&1 | tail -5
 
 echo '1.7 ری‌استارت frontend (mem 1g) + nginx (mem 512m)...'
-docker compose -f compose/web.yml up -d --force-recreate 2>&1 | tail -5
+docker compose --env-file .env -f compose/web.yml up -d --force-recreate 2>&1 | tail -5
 
 echo '1.8 ری‌استارت monitoring...'
-docker compose -f compose/monitoring.yml up -d 2>&1 | tail -3
+docker compose --env-file .env -f compose/monitoring.yml up -d 2>&1 | tail -3
 
 echo '1.9 انتظار ۳۰ ثانیه برای آماده شدن...'
 sleep 30
@@ -117,13 +121,19 @@ git pull origin main 2>&1 | tail -3
 echo '2.2 build worker image (ممکن است ۱۰-۲۰ دقیقه)...'
 docker build --network=host -t barpro_backend:latest -f Dockerfile . 2>&1 | tail -5
 
-echo '2.3 ری‌استارت worker node...'
-docker compose -f compose/worker-node.yml up -d --force-recreate 2>&1 | tail -5
+echo '2.3 رندر squid_worker.runtime.conf (جایگزینی placeholderها)...'
+set -a; source .env; set +a
+sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" \
+    -e "s/__CENTRAL_IP__/${CENTRAL_IP:-127.0.0.1}/g" \
+    infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf
 
-echo '2.4 انتظار ۳۰ ثانیه...'
+echo '2.4 ری‌استارت worker node...'
+docker compose --env-file .env -f compose/worker-node.yml up -d --force-recreate 2>&1 | tail -5
+
+echo '2.5 انتظار ۳۰ ثانیه...'
 sleep 30
 
-echo '2.5 وضعیت:'
+echo '2.6 وضعیت:'
 docker ps --format 'table {{.Names}}\t{{.Status}}'
 " "در حال deploy Worker 2..."
 
@@ -144,13 +154,19 @@ git pull origin main 2>&1 | tail -3
 echo '3.2 build worker image (ممکن است ۱۰-۲۰ دقیقه)...'
 docker build --network=host -t barpro_backend:latest -f Dockerfile . 2>&1 | tail -5
 
-echo '3.3 ری‌استارت worker node...'
-docker compose -f compose/worker-node.yml up -d --force-recreate 2>&1 | tail -5
+echo '3.3 رندر squid_worker.runtime.conf (جایگزینی placeholderها)...'
+set -a; source .env; set +a
+sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" \
+    -e "s/__CENTRAL_IP__/${CENTRAL_IP:-127.0.0.1}/g" \
+    infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf
 
-echo '3.4 انتظار ۳۰ ثانیه...'
+echo '3.4 ری‌استارت worker node...'
+docker compose --env-file .env -f compose/worker-node.yml up -d --force-recreate 2>&1 | tail -5
+
+echo '3.5 انتظار ۳۰ ثانیه...'
 sleep 30
 
-echo '3.5 وضعیت:'
+echo '3.6 وضعیت:'
 docker ps --format 'table {{.Names}}\t{{.Status}}'
 " "در حال deploy Worker 3..."
 

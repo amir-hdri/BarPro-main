@@ -113,13 +113,16 @@ QUEUE_INLINE_FALLBACK=false
 EOF
 ```
 
-قبل از اولین اجرا، placeholder های کانفیگ Squid را جایگزین کنید (IP اگریس این VPS و IP سرور مرکزی برای health check):
+قبل از اولین اجرا، placeholder های کانفیگ Squid را جایگزین کرده و به `squid_worker.runtime.conf` رندر کنید (IP اگریس این VPS و IP سرور مرکزی برای health check). `compose/worker-node.yml` همین فایل `runtime` را mount می‌کند — رندر روی خودِ قالب، قالب git را خراب می‌کند:
 
 ```bash
 cd /opt/barpro
-sed -i "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:-<IP این VPS>}/g" infra/squid/squid_worker.conf
-sed -i "s/__CENTRAL_IP__/${CENTRAL_IP:-<IP سرور مرکزی>}/g" infra/squid/squid_worker.conf
+sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:-<IP این VPS>}/g" \
+    -e "s/__CENTRAL_IP__/${CENTRAL_IP:-<IP سرور مرکزی>}/g" \
+    infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf
 ```
+
+> صف کنترلی `rpa_scheduler` را نودهای ریموت مصرف **نمی‌کنند** — فقط سرویس اختصاصی `celery_scheduler` روی سرور مرکزی (در `compose/backend.yml`). بنابراین `WORKER_IP_INDEX` این ورکر باید فقط در `AVAILABLE_IP_INDICES` مرکزی باشد و صف‌های سافیکس‌دار آن (`waybill_tasks_<n>` و ...) را مصرف می‌کند.
 
 ---
 
