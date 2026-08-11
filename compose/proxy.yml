@@ -7,7 +7,8 @@
 #    squid_2 → IP دوم (<SECONDARY_EGRESS_IP>)  — ورکر ۲ (از سرور ۲)
 #    squid_3 → IP سوم               — ورکر ۳
 #
-#  دیباگ مستقل:
+#  دیباگ مستقل (ابتدا رندر کانفیگ‌ها — قالب‌های گیت را هرگز sed -i نکنید):
+#    bash scripts/render_squid_configs.sh --dev   # یا با IPهای واقعی
 #    docker compose -f compose/proxy.yml up
 #    docker compose -f compose/proxy.yml logs -f squid_1
 #    docker compose -f compose/proxy.yml exec squid_1 squidclient -h localhost mgr:info
@@ -22,7 +23,7 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      - ../infra/squid/squid_1.conf:/etc/squid/squid.conf:ro
+      - ../infra/squid/squid_1.runtime.conf:/etc/squid/squid.conf:ro
     mem_limit: 128m
     mem_reservation: 64m
     healthcheck:
@@ -44,7 +45,7 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      - ../infra/squid/squid_2.conf:/etc/squid/squid.conf:ro
+      - ../infra/squid/squid_2.runtime.conf:/etc/squid/squid.conf:ro
     mem_limit: 128m
     mem_reservation: 64m
     healthcheck:
@@ -66,7 +67,7 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      - ../infra/squid/squid_3.conf:/etc/squid/squid.conf:ro
+      - ../infra/squid/squid_3.runtime.conf:/etc/squid/squid.conf:ro
     mem_limit: 128m
     mem_reservation: 64m
     healthcheck:

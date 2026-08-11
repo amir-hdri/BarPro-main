@@ -299,7 +299,7 @@ WORKER_2_PROXY="http://{NODE2_IP}:3128"
             "cd /opt/barpro && tar -xzf code.tar.gz && rm code.tar.gz",
             # Configure squid_1 egress IP locally (bind egress to Node 1's public
             # IP — one-IP-per-worker, FIX-F)
-            f"cd /opt/barpro && sed -i -E 's|#\\s*tcp_outgoing_address __EGRESS_IP__|tcp_outgoing_address {NODE1_IP}|' infra/squid/squid_1.conf",
+            f"cd /opt/barpro && bash scripts/render_squid_configs.sh {NODE1_IP}",
             # Start containers
             f"cd /opt/barpro && {compose_cmd} --profile docker-backend up -d --build postgres redis squid_1 backend celery_worker_1 celery_worker_2 celery_scheduler celery_beat frontend nginx prometheus",
             "chmod +x /opt/barpro/scripts/db_backup.sh",

@@ -138,7 +138,7 @@ echo "     - مایگریشن جدید برای اطمینان از وجود س�
 echo ""
 echo -e "${YELLOW}دستورات بعدی:${NC}"
 echo "  برای ری‌استارت سرویس‌ها:"
-echo "    docker-compose restart backend celery worker"
+echo "    docker compose restart backend celery worker"
 echo "  یا:"
 echo "    ./scripts/start_system.sh"
 echo ""

@@ -1,0 +1,32 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+#  registry-images.yml — Docker Compose override for CD-published images
+# ═══════════════════════════════════════════════════════════════════════════════
+#  .github/workflows/cd-deploy.yml builds and pushes the application images to
+#  GHCR (ghcr.io/amir-hdri/barpro-main/barpro-backend|frontend). The layered
+#  compose files keep local-friendly names (barpro_backend:latest, built on the
+#  server), so the CD deploy step applies THIS override to make `pull`/`up`
+#  fetch exactly the images the pipeline published.
+#
+#  Usage (on the server, from /opt/barpro):
+#    docker compose -f docker-compose.yml -f deploy/registry-images.yml pull
+#    docker compose -f docker-compose.yml -f deploy/registry-images.yml up -d
+#
+#  All backend services share the same code image (same Dockerfile) — they
+#  differ only in command/environment, so one tag serves all of them.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+  backend:
+    image: ghcr.io/amir-hdri/barpro-main/barpro-backend:latest
+  celery_worker_1:
+    image: ghcr.io/amir-hdri/barpro-main/barpro-backend:latest
+  celery_worker_2:
+    image: ghcr.io/amir-hdri/barpro-main/barpro-backend:latest
+  celery_worker_3:
+    image: ghcr.io/amir-hdri/barpro-main/barpro-backend:latest
+  celery_beat:
+    image: ghcr.io/amir-hdri/barpro-main/barpro-backend:latest
+  celery_scheduler:
+    image: ghcr.io/amir-hdri/barpro-main/barpro-backend:latest
+  frontend:
+    image: ghcr.io/amir-hdri/barpro-main/barpro-frontend:latest

@@ -106,7 +106,6 @@ services:
   # ── ورکر IP اول ──────────────────────────────────────────────
   celery_worker_1:
     <<: *backend-common
-    image: barpro_celery_worker_1:latest
     container_name: barpro-worker-1
     shm_size: '512m'
     mem_limit: 3g        # ↑ از 2.5g — فضای بیشتر برای Chromium + PyTorch روی 16GB
@@ -129,7 +128,15 @@ services:
       <<: *backend-env
       WORKER_ID: "1"
       WORKER_IP_INDEX: 1
-      RPA_PROXIES: http://172.20.0.1:3128
+      # R1: `environment:` always overrides `env_file:`, so per-worker proxy
+      # values MUST be interpolated from the deploy-time .env with a fallback —
+      # never hardcoded. Deploy scripts (manage.sh / quick_deploy_central.sh,
+      # deploy_all_servers.sh, deploy_remote.sh, deploy_single_vm.py) write
+      # WORKER_N_PROXY into .env; a hardcoded value here silently neutralizes
+      # them (e.g. two-node topology would proxy worker 2 through the central
+      # server instead of http://<NODE2_IP>:3128).
+      WORKER_1_PROXY: ${WORKER_1_PROXY:-http://172.20.0.1:3128}
+      RPA_PROXIES: ${WORKER_1_PROXY:-http://172.20.0.1:3128}
              # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
     # Real proxy healthcheck: surface a misconfigured/unreachable proxy as an
     # "unhealthy" container instead of silently failing every job (FIX-E/X2).
@@ -144,7 +151,6 @@ services:
   # ── ورکر IP دوم ──────────────────────────────────────────────
   celery_worker_2:
     <<: *backend-common
-    image: barpro_celery_worker_2:latest
     container_name: barpro-worker-2
     # Model B (scale-out): worker 2/3 run on REMOTE worker nodes.
     # On the central server they are optional — enable with:
@@ -171,7 +177,7 @@ services:
       <<: *backend-env
       WORKER_ID: "2"
       WORKER_IP_INDEX: 2
-      WORKER_2_PROXY: http://172.20.0.1:3129
+      WORKER_2_PROXY: ${WORKER_2_PROXY:-http://172.20.0.1:3129}
              # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
     healthcheck:
       test: ['CMD-SHELL', 'python -c "from app.automation.worker_proxy import get_worker_proxy_url as g; g() or exit(1)" || exit 1']
@@ -184,7 +190,6 @@ services:
   # ــ ورکر IP سوم ──────────────────────────────────────────────
   celery_worker_3:
     <<: *backend-common
-    image: barpro_celery_worker_3:latest
     container_name: barpro-worker-3
     # Model B (scale-out): worker 2/3 run on REMOTE worker nodes.
     # On the central server they are optional — enable with:
@@ -211,7 +216,7 @@ services:
       <<: *backend-env
       WORKER_ID: "3"
       WORKER_IP_INDEX: 3
-      WORKER_3_PROXY: http://172.20.0.1:3130
+      WORKER_3_PROXY: ${WORKER_3_PROXY:-http://172.20.0.1:3130}
       # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium  # غیرفعال شده
     healthcheck:
       test: ['CMD-SHELL', 'python -c "from app.automation.worker_proxy import get_worker_proxy_url as g; g() or exit(1)" || exit 1']
@@ -224,7 +229,6 @@ services:
   # ── زمان‌بند وظایف دوره‌ای ───────────────────────────────────
   celery_beat:
     <<: *backend-common
-    image: barpro_celery_beat:latest
     container_name: barpro-beat
     mem_limit: 256m      # ↑ از 128m — Beat واقعاً ~225MB RSS مصرف می‌کند (automation/captcha imports)
     mem_reservation: 128m  # ↑ از 64m
@@ -251,7 +255,6 @@ services:
   # dedicated service never shares its process with 360s waybill jobs.
   celery_scheduler:
     <<: *backend-common
-    image: barpro_celery_scheduler:latest
     container_name: barpro-scheduler
     hostname: barpro-scheduler   # non-numeric hostname -> resolve_ip_index() -> None
     shm_size: '128m'
@@ -276,6 +279,12 @@ services:
       # Non-numeric WORKER_ID -> ip_index = NULL -> the circuit breaker never
       # attributes an IP index to this control worker (zero routing impact).
       WORKER_ID: "scheduler"
+      # Explicitly empty WORKER_IP_INDEX: `env_file: [../.env]` could leak a
+      # numeric WORKER_IP_INDEX from the central .env into this container;
+      # `environment:` overrides env_file, so an empty string guarantees this
+      # control worker can never be attributed an egress index or drain
+      # per-partition queues it does not consume.
+      WORKER_IP_INDEX: ""
     healthcheck:
       test: ['CMD-SHELL', 'python -c "import app; print(\"OK\")" || exit 1']
       interval: 60s

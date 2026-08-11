@@ -170,10 +170,10 @@ EOF
         tar -xzf code.tar.gz
         rm code.tar.gz
         
-        # Configure squid_1 egress IP locally (bind egress to Node 1's public IP —
-        # one-IP-per-worker, FIX-F). Single quotes keep the pattern literal while
-        # $NODE1_IP expands from the enclosing double-quoted ssh command.
-        sed -i -E 's|#\s*tcp_outgoing_address __EGRESS_IP__|tcp_outgoing_address $NODE1_IP|' infra/squid/squid_1.conf
+        # Render squid_1 egress IP locally (bind egress to Node 1's public IP —
+        # one-IP-per-worker, FIX-F). Render (not sed -i) keeps the git template
+        # pristine so the next git pull on the server never conflicts (X4).
+        bash scripts/render_squid_configs.sh "$NODE1_IP"
         
         # Start containers (excluding Worker 3 / Squid 3 / Squid 2)
         docker compose --profile docker-backend up -d --build postgres redis squid_1 backend celery_worker_1 celery_worker_2 celery_scheduler celery_beat frontend nginx prometheus

@@ -96,6 +96,15 @@ rpa_inspector.log
 # Runtime state directories
 runtime/
 
+# Rendered worker-node artifacts (generated from infra/squid/squid_worker.conf
+# by setup_worker.sh / deploy_all_servers.sh / operator runbooks — never
+# tracked, or the template placeholders leak into git status on worker nodes)
+infra/squid/squid_worker.runtime.conf
+
+# Rendered central Squid configs (generated from infra/squid/squid_1/2/3.conf
+# by scripts/render_squid_configs.sh — see compose/proxy.yml mounts)
+infra/squid/squid_[123].runtime.conf
+
 # Large binary/model files tracked separately
 # (persian_number_ocr.keras kept via negation above)
 gym-app-final.tar.gz

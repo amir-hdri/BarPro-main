@@ -53,6 +53,15 @@ log_section "📥 مرحله ۱: دریافت آخرین کد از git"
 git pull origin main || log_warn "git pull failed (ممکن است local changes داشته باشید)"
 log_ok "کد به‌روز شد"
 
+# ── مرحله ۱.۵: رندر کانفیگ‌های Squid ─────────────────────────────────────
+# قالب‌های گیت (squid_1/2/3.conf) هرگز نباید sed -i شوند — این اسکریپت آن‌ها را
+# به squid_<N>.runtime.conf رندر می‌کند که compose/proxy.yml mount می‌کند.
+# بدون این مرحله، بعد از git pull فایل‌های runtime قدیمی می‌مانند و pullهای بعدی
+# با درخت کثیف شکست می‌خورند (X4 — سمت مرکزی).
+log_section "🦑 مرحله ۱.۵: رندر کانفیگ‌های Squid"
+bash scripts/render_squid_configs.sh
+log_ok "کانفیگ‌های Squid رندر شدند (egress از .env)"
+
 # ── مرحله ۲: اطمینان از وجود شبکه ──────────────────────────────────────────
 log_section "🌐 مرحله ۲: بررسی Docker network"
 if ! docker network inspect barpro_platform > /dev/null 2>&1; then

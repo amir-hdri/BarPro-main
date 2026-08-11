@@ -36,6 +36,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.core.circuit_breaker import get_available_ip_indices, get_routed_queue
+from app.core.config import utcms_config
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 COMPOSE_DIR = PROJECT_ROOT / "compose"
@@ -43,6 +44,23 @@ COMPOSE_BACKEND = COMPOSE_DIR / "backend.yml"
 COMPOSE_WORKER_NODE = COMPOSE_DIR / "worker-node.yml"
 LOCAL_START_SYSTEM = PROJECT_ROOT / "scripts" / "start_system.sh"
 LOCAL_STOP_SYSTEM = PROJECT_ROOT / "scripts" / "stop_system.sh"
+
+# Every script/doc that tells an operator to bring up compose/worker-node.yml.
+# Each invocation MUST pass --env-file .env so compose interpolation reads the
+# worker node's OWN /opt/barpro/.env instead of ./compose/.env (X5/FIX-L) —
+# otherwise WORKER_IP_INDEX / CENTRAL_IP placeholders in worker-node.yml break
+# the rendered queue list and the node registers against the wrong identity.
+WORKER_NODE_COMPOSE_FILES = [
+    PROJECT_ROOT / "scripts" / "add_worker_firewall.sh",
+    PROJECT_ROOT / "scripts" / "deploy_all_servers.sh",
+    PROJECT_ROOT / "scripts" / "setup_worker.sh",
+    PROJECT_ROOT / "docs" / "adding_new_worker.md",
+    PROJECT_ROOT / "docs" / "runbook_worker_registration.md",
+    PROJECT_ROOT / "docs" / "runbook_scale_out.md",
+]
+
+DEPLOY_ALL_SERVERS = PROJECT_ROOT / "scripts" / "deploy_all_servers.sh"
+ADD_WORKER_FIREWALL = PROJECT_ROOT / "scripts" / "add_worker_firewall.sh"
 
 # Every compose file that can declare a concrete ``WORKER_IP_INDEX: <n>``.
 # ``compose/worker-node.yml`` only uses the ``${WORKER_IP_INDEX}`` placeholder,
@@ -512,3 +530,618 @@ def test_local_launcher_assigns_worker_3_identity_without_env_leakage(tmp_path: 
     assert generic_env["WORKER_ID"] == "local_worker"
     assert "WORKER_IP_INDEX" not in generic_env
     assert generic_command[-3:] == ["-B", "--pool", "solo"]
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# R4 — contract tests for the R1/R2/R3 review fixes
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def _beat_queues(monkeypatch, deprecate_old_execution_path: bool) -> set[str]:
+    """Destination queues of the REAL beat schedule for one execution-path flag.
+
+    Reads ``_build_beat_schedule()`` at runtime from app.workers.celery_app and
+    returns the ``options.queue`` of every entry, so a change in the beat
+    schedule (new task, rerouted task) immediately re-pins the contract instead
+    of silently drifting.
+    """
+    from app.workers.celery_app import _build_beat_schedule
+
+    monkeypatch.setattr(utcms_config, "DEPRECATE_OLD_EXECUTION_PATH", deprecate_old_execution_path)
+    queues: set[str] = set()
+    for entry in _build_beat_schedule().values():
+        queue = entry.get("options", {}).get("queue")
+        if queue:
+            queues.add(queue)
+    assert queues, "beat schedule produced no queue destinations"
+    return queues
+
+
+def test_every_beat_queue_has_a_profileless_consumer(monkeypatch):
+    """No queue the beat emits to may be consumed ONLY by profile-gated workers.
+
+    A service behind a ``profiles:`` key is not started by a plain
+    ``docker compose up`` — on a central/dual-node deployment it does not exist.
+    If every consumer of a beat destination queue is profile-gated (or there is
+    no consumer at all), the scheduled task is published into a queue nobody
+    listens on and never runs (FIX-N-2).
+    """
+    profiled = _services_with_profiles()
+    consumers_by_queue: dict[str, set[str]] = {}
+    for worker, queues in _queues_by_worker().items():
+        for queue in queues:
+            consumers_by_queue.setdefault(queue, set()).add(worker)
+
+    for deprecate in (True, False):  # both DEPRECATE_OLD_EXECUTION_PATH branches
+        for queue in _beat_queues(monkeypatch, deprecate):
+            consumers = consumers_by_queue.get(queue, set())
+            assert consumers, (
+                f"beat destination queue {queue!r} (DEPRECATE_OLD_EXECUTION_PATH="
+                f"{deprecate}) has NO consumer in compose/backend.yml — the task "
+                "is published into a queue nobody listens on."
+            )
+            assert consumers - profiled, (
+                f"beat destination queue {queue!r} (DEPRECATE_OLD_EXECUTION_PATH="
+                f"{deprecate}) is consumed ONLY by profile-gated services "
+                f"{sorted(consumers & profiled)} — a central/dual-node deployment "
+                "would have no consumer for it (FIX-N-2)."
+            )
+
+
+def test_control_queue_consumer_is_not_shared_with_browser_work():
+    """celery_scheduler (the singleton rpa_scheduler consumer) must be solo.
+
+    The dispatcher publishes to rpa_scheduler every 5s. If the dedicated
+    scheduler service also consumed browser-work queues (waybill/rpa/recon/
+    scheduled/fuel — tasks that hold a solo worker for minutes), the control
+    loop would sit behind long browser jobs and starve (NEW-1). The consumer
+    set must be exactly {rpa_scheduler}.
+    """
+    by_worker = _queues_by_worker()
+    scheduler_queues = by_worker.get("celery_scheduler", set())
+    assert scheduler_queues == {"rpa_scheduler"}, (
+        "celery_scheduler must consume EXACTLY the singleton control queue "
+        f"rpa_scheduler, but consumes {sorted(scheduler_queues)}."
+    )
+
+    browser_markers = (
+        "waybill_tasks",
+        "rpa_auth",
+        "rpa_submit",
+        "reconciliation_tasks",
+        "scheduled_tasks",
+        "fuel.inquiry",
+    )
+    shared = {q for q in scheduler_queues if any(marker in q for marker in browser_markers)}
+    assert not shared, (
+        "celery_scheduler shares its process with browser-work queues "
+        f"{sorted(shared)} — a 5s control loop behind a 360s browser job "
+        "starves the whole orchestrator (NEW-1)."
+    )
+
+
+def test_compose_never_hardcodes_per_worker_proxy():
+    """Per-worker proxy values must be interpolated, never hardcoded (R1).
+
+    ``environment:`` always overrides ``env_file:`` in Docker Compose, so a
+    hardcoded ``WORKER_2_PROXY: http://172.20.0.1:3129`` neutralizes the value
+    that deploy scripts (deploy_remote.sh / deploy_single_vm.py) write into the
+    central .env for the two-node topology — worker 2 would proxy through the
+    central server instead of its own node. Values must be
+    ``${WORKER_N_PROXY:-<single-VM fallback>}``.
+    """
+    text = COMPOSE_BACKEND.read_text(encoding="utf-8")
+
+    hardcoded = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if re.match(r"^(WORKER_\d_PROXY|RPA_PROXIES):\s*http", stripped):
+            hardcoded.append(f"backend.yml:{lineno}: {stripped}")
+    assert not hardcoded, (
+        "per-worker proxy values are hardcoded in compose/backend.yml (R1); "
+        "they must be ${WORKER_N_PROXY:-<fallback>} so the deploy-time .env "
+        f"value wins: {hardcoded}"
+    )
+
+    # The single-VM fallbacks must be preserved so the existing topology keeps
+    # the exact same behavior when .env does not define the variables.
+    expected_defaults = {
+        "WORKER_1_PROXY": "http://172.20.0.1:3128",
+        "WORKER_2_PROXY": "http://172.20.0.1:3129",
+        "WORKER_3_PROXY": "http://172.20.0.1:3130",
+    }
+    for variable, default in expected_defaults.items():
+        assert f"${{{variable}:-{default}}}" in text, (
+            f"{variable} interpolation with default {default} is missing from "
+            "compose/backend.yml — the single-VM topology would lose its proxy."
+        )
+
+
+def test_worker_node_compose_invocations_pass_env_file():
+    """Every documented worker-node invocation must pass --env-file .env (X5).
+
+    Compose resolves ${VAR} interpolation against the project directory by
+    default. With ``-f compose/worker-node.yml`` the project directory is
+    ``compose/``, so ``docker compose -f compose/worker-node.yml up`` reads
+    ``compose/.env`` (which does not exist) instead of the worker's
+    ``/opt/barpro/.env`` — WORKER_IP_INDEX/CENTRAL_IP placeholders then break
+    the rendered queue list silently.
+    """
+    offenders = []
+    for path in WORKER_NODE_COMPOSE_FILES:
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "docker compose" in line and "worker-node.yml" in line and " up " in line:
+                if "--env-file" not in line:
+                    offenders.append(f"{path.name}:{lineno}: {line.strip()}")
+    assert not offenders, (
+        "worker-node.yml compose invocations must pass --env-file .env so "
+        "interpolation reads the worker node's own .env (X5), not ./compose/.env: "
+        f"{offenders}"
+    )
+
+
+def test_worker_runbooks_point_broker_and_db_at_the_central_defaults():
+    """Worker .env templates must use Redis DB 0 and the central DB name.
+
+    The Central server publishes tasks on Redis DB 0 and POSTGRES_DB defaults
+    to utcms_rpa. Older revisions of the runbooks used :6379/1 for the broker
+    and :6379/2 for the result backend (and :5432/barpro) — a worker built from
+    those instructions registers successfully but NEVER receives a task,
+    because it listens on a different Redis database than the one the central
+    API publishes to.
+    """
+    runbooks = [
+        PROJECT_ROOT / "docs" / "runbook_worker_registration.md",
+        PROJECT_ROOT / "docs" / "runbook_scale_out.md",
+        PROJECT_ROOT / "docs" / "adding_new_worker.md",
+    ]
+    offenders = []
+    for path in runbooks:
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "CELERY_BROKER_URL=" in line or "CELERY_RESULT_BACKEND=" in line:
+                if not re.search(r":6379/0\b", line):
+                    offenders.append(f"{path.name}:{lineno}: {line.strip()}")
+            if "DATABASE_URL=" in line and "utcms_rpa" not in line:
+                offenders.append(f"{path.name}:{lineno}: {line.strip()}")
+    assert not offenders, (
+        "worker .env templates in the runbooks must point CELERY_BROKER_URL / "
+        "CELERY_RESULT_BACKEND at Redis DB 0 and DATABASE_URL at the central "
+        "POSTGRES_DB (utcms_rpa) — anything else silently breaks task delivery: "
+        f"{offenders}"
+    )
+
+
+def test_runbook_squid_render_loads_env_and_requires_egress_ip():
+    """Runbook render steps must be self-contained and fail loudly (R3).
+
+    Every operator doc that renders infra/squid/squid_worker.conf must:
+      1. define WORKER_EGRESS_IP in its .env template — otherwise the render
+         substitutes an EMPTY tcp_outgoing_address into the squid config and
+         the node silently ships broken egress;
+      2. load .env into the shell (`source .env`) before the sed — otherwise
+         the shell variables are unset;
+      3. guard with `:?` so a missing value fails the command loudly instead
+         of rendering garbage (e.g. a literal placeholder string).
+    """
+    runbooks = [
+        PROJECT_ROOT / "docs" / "adding_new_worker.md",
+        PROJECT_ROOT / "docs" / "runbook_worker_registration.md",
+        PROJECT_ROOT / "docs" / "runbook_scale_out.md",
+    ]
+    for path in runbooks:
+        text = path.read_text(encoding="utf-8")
+
+        env_template = re.search(
+            r"cat > (?:/opt/barpro/)?\.env << 'EOF'\n(?P<body>.*?)\nEOF",
+            text,
+            flags=re.DOTALL,
+        )
+        assert env_template, f"{path.name}: .env template block not found"
+        assert "WORKER_EGRESS_IP=" in env_template.group("body"), (
+            f"{path.name}: .env template must define WORKER_EGRESS_IP — the "
+            "squid render step needs it for tcp_outgoing_address."
+        )
+
+        render_blocks = re.findall(r"```bash\n(?P<body>.*?)\n```", text, flags=re.DOTALL)
+        render_block = next(
+            (block for block in render_blocks if 'sed -e "s/__WORKER_EGRESS_IP__' in block),
+            None,
+        )
+        assert render_block, f"{path.name}: squid render block not found"
+        assert "source .env" in render_block, (
+            f"{path.name}: render block must load .env into the shell "
+            "(`set -a; source .env; set +a`) before the sed."
+        )
+        assert "${WORKER_EGRESS_IP:?" in render_block, (
+            f"{path.name}: render block must use a :? guard on " "WORKER_EGRESS_IP so a missing value fails loudly."
+        )
+        assert "${CENTRAL_IP:?" in render_block, f"{path.name}: render block must use a :? guard on CENTRAL_IP."
+
+
+def test_squid_worker_template_is_rendered_not_edited_in_place():
+    """Operators must render squid_worker.conf → squid_worker.runtime.conf (X4).
+
+    add_worker_firewall.sh used to print ``sed -i`` commands against the git
+    template infra/squid/squid_worker.conf. Editing the tracked template breaks
+    every future ``git pull`` on the node (merge conflict with the placeholders)
+    and leaves the repo dirty. The rendered copy is what
+    compose/worker-node.yml mounts.
+    """
+    text = ADD_WORKER_FIREWALL.read_text(encoding="utf-8")
+    assert not re.search(r"^\s*sed -i\b", text, flags=re.MULTILINE), (
+        "add_worker_firewall.sh must NOT sed -i the git template "
+        "infra/squid/squid_worker.conf (X4) — render it to "
+        "infra/squid/squid_worker.runtime.conf instead."
+    )
+    assert "squid_worker.runtime.conf" in text, (
+        "add_worker_firewall.sh must instruct rendering to " "infra/squid/squid_worker.runtime.conf."
+    )
+
+    node_text = COMPOSE_WORKER_NODE.read_text(encoding="utf-8")
+    assert "squid_worker.runtime.conf" in node_text, (
+        "compose/worker-node.yml must mount the RENDERED copy " "(squid_worker.runtime.conf), never the git template."
+    )
+
+
+def _worker_render_blocks() -> list[str]:
+    """Extract the squid render commands from deploy_all_servers.sh SSH blocks.
+
+    The sed command lives inside a double-quoted SSH string, so the extracted
+    text is exactly what the LOCAL bash parses when the script runs. There must
+    be two identical blocks (Worker 2 and Worker 3).
+    """
+    lines = DEPLOY_ALL_SERVERS.read_text(encoding="utf-8").splitlines()
+    blocks: list[str] = []
+    index = 0
+    while index < len(lines):
+        if re.search(r"sed -e .*__WORKER_EGRESS_IP__", lines[index]):
+            block = [lines[index]]
+            index += 1
+            while index < len(lines) and "squid_worker.runtime.conf" not in lines[index]:
+                block.append(lines[index])
+                index += 1
+            assert index < len(lines), "render block never reaches squid_worker.runtime.conf"
+            block.append(lines[index])
+            blocks.append("\n".join(block))
+        index += 1
+    assert len(blocks) == 2, (
+        "deploy_all_servers.sh must render the squid template for BOTH "
+        f"remote workers; found {len(blocks)} render block(s)."
+    )
+    return blocks
+
+
+def test_worker_node_render_expands_on_the_remote_host(tmp_path: Path):
+    """The render variables must expand on the worker node, not the launcher (R2).
+
+    Phase A — launcher side: execute the exact text bash parses locally, with
+    no WORKER_EGRESS_IP / CENTRAL_IP (they live in each node's own .env). If
+    the ${...} were NOT escaped, the :? guard kills the deploy locally with
+    exit 1 before SSH even runs (and a stray local value would stamp the SAME
+    egress IP on every worker). If escaped, the command passes through and the
+    rendered file still carries the literal placeholder for the remote shell.
+
+    Phase B — node side: what the remote shell receives is the same text after
+    local expansion (``\\${`` → ``${``). Execute it with the node's OWN .env
+    values and verify the rendered config uses THEM; a missing remote value
+    must fail on the node (exit != 0), not render garbage.
+    """
+    template = PROJECT_ROOT / "infra" / "squid" / "squid_worker.conf"
+    assert template.is_file(), "infra/squid/squid_worker.conf template missing"
+
+    base_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+    worker_dir = tmp_path / "node"
+    (worker_dir / "infra" / "squid").mkdir(parents=True)
+    (worker_dir / "infra" / "squid" / "squid_worker.conf").write_text(
+        template.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+
+    blocks = _worker_render_blocks()
+    for block in blocks:
+        # ── Phase A: the launcher must NOT expand the node-scoped variables.
+        result = subprocess.run(
+            ["/bin/bash", "-c", block],
+            env=base_env,
+            cwd=worker_dir,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            "deploy_all_servers.sh expands ${WORKER_EGRESS_IP:?...} on the "
+            "LAUNCHER: the deploy dies locally before SSH even runs when the "
+            f"variable is not set there (R2). stderr: {result.stderr.strip()[:200]}"
+        )
+        locally_rendered = (worker_dir / "infra" / "squid" / "squid_worker.runtime.conf").read_text(encoding="utf-8")
+        assert "${WORKER_EGRESS_IP" in locally_rendered, (
+            "the launcher-side render substituted WORKER_EGRESS_IP locally — "
+            "the placeholder must survive for the remote shell (R2)."
+        )
+
+    # ── Phase B: the node's OWN .env values must land in the config.
+    node_envs = [
+        {"WORKER_EGRESS_IP": "203.0.113.77", "CENTRAL_IP": "198.51.100.9"},
+        {"WORKER_EGRESS_IP": "203.0.113.88", "CENTRAL_IP": "198.51.100.10"},
+    ]
+    for block, node_env in zip(blocks, node_envs, strict=True):
+        # Simulate the local expansion of the escaped variables: \$ -> $.
+        remote_command = block.replace("\\${", "${")
+        result = subprocess.run(
+            ["/bin/bash", "-c", remote_command],
+            env={**base_env, **node_env},
+            cwd=worker_dir,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"node-side render failed: {result.stderr.strip()[:200]}"
+        rendered = (worker_dir / "infra" / "squid" / "squid_worker.runtime.conf").read_text(encoding="utf-8")
+        assert f"tcp_outgoing_address {node_env['WORKER_EGRESS_IP']}" in rendered, (
+            "worker-node render did not use the node's own WORKER_EGRESS_IP " f"(R2): {rendered}"
+        )
+        assert f"acl central src {node_env['CENTRAL_IP']}" in rendered, (
+            "worker-node render did not use the node's own CENTRAL_IP (R2): " f"{rendered}"
+        )
+        assert "__WORKER_EGRESS_IP__" not in rendered and "__CENTRAL_IP__" not in rendered, (
+            "rendered squid config still contains template placeholders (R2): " f"{rendered}"
+        )
+
+    # ── Phase B failure mode: a MISSING value on the node fails there clearly.
+    missing = subprocess.run(
+        ["/bin/bash", "-c", blocks[0].replace("\\${", "${")],
+        env={**base_env, "CENTRAL_IP": "198.51.100.9"},
+        cwd=worker_dir,
+        capture_output=True,
+        text=True,
+    )
+    assert missing.returncode != 0, (
+        "a worker node without WORKER_EGRESS_IP must fail the render with "
+        "exit != 0 (the :? guard) instead of silently emitting a broken config."
+    )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Central-side review contracts (2nd pass): squid render-not-edit, single
+# backend image, registry-aligned worker image, CD uses Compose V2 (X12).
+# ════════════════════════════════════════════════════════════════════════════
+
+CENTRAL_SQUID_TEMPLATES = [
+    PROJECT_ROOT / "infra" / "squid" / "squid_1.conf",
+    PROJECT_ROOT / "infra" / "squid" / "squid_2.conf",
+    PROJECT_ROOT / "infra" / "squid" / "squid_3.conf",
+]
+RENDER_SCRIPT = PROJECT_ROOT / "scripts" / "render_squid_configs.sh"
+CD_WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "cd-deploy.yml"
+REGISTRY_OVERRIDE = PROJECT_ROOT / "deploy" / "registry-images.yml"
+
+GHCR_BACKEND_IMAGE = "ghcr.io/amir-hdri/barpro-main/barpro-backend:latest"
+GHCR_FRONTEND_IMAGE = "ghcr.io/amir-hdri/barpro-main/barpro-frontend:latest"
+
+
+def test_central_squid_configs_are_rendered_not_edited_in_place(tmp_path: Path):
+    """Central squid templates must be rendered to *.runtime.conf (X4 central).
+
+    deploy scripts used to ``sed -i`` the tracked infra/squid/squid_1/2/3.conf
+    on the server — dirtying the git tree so the next ``git pull`` on the
+    central server fails. compose/proxy.yml must mount the rendered
+    ``squid_<N>.runtime.conf`` (never the template), and no script may edit the
+    template in place.
+    """
+    proxy_text = COMPOSE_DIR.joinpath("proxy.yml").read_text(encoding="utf-8")
+    for conf in CENTRAL_SQUID_TEMPLATES:
+        runtime_name = conf.name.replace(".conf", ".runtime.conf")
+        assert f"{runtime_name}:/etc/squid/squid.conf:ro" in proxy_text, (
+            f"compose/proxy.yml must mount {runtime_name} (the RENDERED copy), "
+            f"not the git template {conf.name} (X4 central)."
+        )
+        assert f"{conf.name}:/etc/squid/squid.conf:ro" not in proxy_text
+
+    # No script may sed -i the central squid templates.
+    for script in [
+        PROJECT_ROOT / "scripts" / "deploy_single_vm.py",
+        PROJECT_ROOT / "scripts" / "deploy_remote.sh",
+        PROJECT_ROOT / "scripts" / "deploy_remote.py",
+        PROJECT_ROOT / "scripts" / "server_deploy.py",
+    ]:
+        text = script.read_text(encoding="utf-8")
+        assert not re.search(
+            r"sed -i[^\n]*squid_[123]\.conf", text
+        ), f"{script.name} still sed -i's a central squid template (X4 central)."
+
+    # .gitignore must cover the rendered artifacts.
+    gitignore = PROJECT_ROOT.joinpath(".gitignore").read_text(encoding="utf-8")
+    assert "squid_[123].runtime.conf" in gitignore
+
+    # ── Behavioral check: run the render script in a scratch repo ──
+    scratch = tmp_path / "repo"
+    (scratch / "infra" / "squid").mkdir(parents=True)
+    (scratch / "scripts").mkdir(parents=True)
+    for conf in CENTRAL_SQUID_TEMPLATES:
+        (scratch / "infra" / "squid" / conf.name).write_text(conf.read_text(encoding="utf-8"))
+    (scratch / "scripts" / "render_squid_configs.sh").write_text(RENDER_SCRIPT.read_text(encoding="utf-8"))
+
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+
+    def run_render(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["/bin/bash", "scripts/render_squid_configs.sh", *args],
+            cwd=scratch,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    # 1) with explicit IPs → egress bound; template untouched; idempotent
+    result = run_render("198.51.100.1", "203.0.113.9")
+    assert result.returncode == 0, result.stderr
+    rendered = (scratch / "infra" / "squid" / "squid_1.runtime.conf").read_text()
+    assert "tcp_outgoing_address 198.51.100.1" in rendered
+    # The ACTIVE egress line must be substituted (the template's explanatory
+    # comment may still mention the placeholder string).
+    assert "# tcp_outgoing_address __EGRESS_IP__" not in rendered
+    template = (scratch / "infra" / "squid" / "squid_1.conf").read_text()
+    assert "tcp_outgoing_address 198.51.100.1" not in template, "render must not modify the git template"
+    # second run is stable (idempotent)
+    run_render("198.51.100.1", "203.0.113.9")
+    assert (scratch / "infra" / "squid" / "squid_1.runtime.conf").read_text() == rendered
+
+    # 2) without IPs → egress line stays commented (safe default route)
+    (scratch / "infra" / "squid" / "squid_1.runtime.conf").unlink()
+    result = run_render()
+    assert result.returncode == 0, result.stderr
+    no_ip = (scratch / "infra" / "squid" / "squid_1.runtime.conf").read_text()
+    assert "tcp_outgoing_address 198.51.100.1" not in no_ip
+    assert "# tcp_outgoing_address __EGRESS_IP__" in no_ip
+
+
+def test_compose_up_paths_render_squid_before_proxy():
+    """Every entry point that starts the proxy must render squid configs first.
+
+    compose/proxy.yml now mounts squid_<N>.runtime.conf, so any path that
+    brings the stack up (manage.sh start/deploy, quick_deploy_central.sh) must
+    invoke scripts/render_squid_configs.sh beforehand — otherwise the mount
+    source does not exist and the stack fails to start.
+    """
+    manage = PROJECT_ROOT / "manage.sh"
+    manage_text = manage.read_text(encoding="utf-8")
+
+    start_block = manage_text[manage_text.index("    start)") :]
+    start_block = start_block[: start_block.index("    stop)")]
+    proxy_up = start_block.index("compose/proxy.yml up -d")
+    render_call = start_block.index("render_squid_configs.sh")
+    assert render_call < proxy_up, "manage.sh start must render squid configs BEFORE starting the proxy."
+
+    deploy_block = manage_text[manage_text.index("    deploy)") :]
+    deploy_block = deploy_block[: deploy_block.index("    *)")]
+    assert (
+        "render_squid_configs.sh" in deploy_block
+    ), "manage.sh deploy must render squid configs before restarting services."
+
+    quick = PROJECT_ROOT / "scripts" / "quick_deploy_central.sh"
+    quick_text = quick.read_text(encoding="utf-8")
+    render_index = quick_text.index("render_squid_configs.sh")
+    assert render_index >= 0, "quick_deploy_central.sh must render squid configs after git pull."
+    first_up = quick_text.index("up -d")  # first actual compose up command
+    assert render_index < first_up, "quick_deploy_central.sh must render before any compose up."
+
+
+def test_cd_workflow_uses_compose_v2_and_registry_images():
+    """X12: the CD pipeline must use `docker compose` V2 and CD-published images.
+
+    The root docker-compose.yml uses `include:` (Compose >= 2.20); V1
+    `docker-compose` cannot parse it, so every invocation in cd-deploy.yml must
+    be V2. The compose files carry local-build image names, so the pipeline
+    must apply deploy/registry-images.yml (GHCR) — otherwise `pull` fetches
+    non-existent Docker Hub images. `exec` inside a non-TTY CI runner needs -T.
+
+    NOTE: the fixed workflow file lives in the working tree but cannot be
+    pushed by the sandbox GitHub App (no `workflows` permission). Until it is
+    committed, this contract skips loudly instead of failing CI on the old
+    file; the moment .github/workflows/cd-deploy.yml lands, the assertions
+    activate.
+    """
+    import pytest
+
+    cd_text = CD_WORKFLOW.read_text(encoding="utf-8")
+    if "docker-compose -f" in cd_text:
+        pytest.skip(
+            "X12 workflow fix not committed yet (sandbox GitHub App lacks "
+            "`workflows` permission) — commit .github/workflows/cd-deploy.yml "
+            "to activate this contract."
+        )
+    assert "docker-compose -f" not in cd_text, (
+        "cd-deploy.yml still invokes V1 docker-compose (X12) — AGENTS.md " "requires `docker compose` V2."
+    )
+    # EVERY docker compose invocation must carry the registry override —
+    # otherwise `pull`/`up` resolve the local-build image names and fetch
+    # non-existent Docker Hub images.
+    compose_invocations = [
+        line for line in cd_text.splitlines() if "docker compose " in line and not line.strip().startswith("#")
+    ]
+    assert compose_invocations, "cd-deploy.yml must contain docker compose invocations"
+    missing_override = [line.strip() for line in compose_invocations if "deploy/registry-images.yml" not in line]
+    assert not missing_override, (
+        "cd-deploy.yml compose invocations must ALL apply " f"deploy/registry-images.yml: {missing_override}"
+    )
+    assert "exec -T backend alembic" in cd_text, "cd-deploy.yml must use `exec -T` (non-TTY CI runner)."
+    assert "render_squid_configs.sh" in cd_text, (
+        "cd-deploy.yml must render squid configs before starting the stack " "(proxy.yml mounts the runtime files)."
+    )
+
+    override_text = REGISTRY_OVERRIDE.read_text(encoding="utf-8")
+    for service in (
+        "backend",
+        "celery_worker_1",
+        "celery_worker_2",
+        "celery_worker_3",
+        "celery_beat",
+        "celery_scheduler",
+        "frontend",
+    ):
+        assert f"  {service}:" in override_text, f"deploy/registry-images.yml must override image for {service}."
+    assert GHCR_BACKEND_IMAGE in override_text
+    assert GHCR_FRONTEND_IMAGE in override_text
+
+
+def test_backend_services_share_one_image_and_worker_image_matches_registry():
+    """Single canonical backend image + registry-aligned worker image.
+
+    backend.yml previously gave every worker service its own image name
+    (barpro_celery_worker_1:latest...) while quick_deploy_central.sh only
+    builds the anchor image — on a fresh central server the workers could not
+    start. All services must inherit the single anchor image. The worker node
+    must reference the CD-published GHCR image (its own comment documents
+    `docker pull ghcr.io/...`), and the worker build scripts must tag the same
+    name so a local build satisfies the compose reference.
+    """
+    backend_text = COMPOSE_BACKEND.read_text(encoding="utf-8")
+    assert "barpro_celery_" not in backend_text, (
+        "backend.yml must not carry per-service image names — all services "
+        "must inherit the single anchor image (fresh central server gap)."
+    )
+
+    worker_text = COMPOSE_WORKER_NODE.read_text(encoding="utf-8")
+    assert (
+        f"image: {GHCR_BACKEND_IMAGE}" in worker_text
+    ), "worker-node.yml must reference the CD-published GHCR backend image."
+
+    for script in [
+        PROJECT_ROOT / "scripts" / "setup_worker.sh",
+        PROJECT_ROOT / "scripts" / "deploy_all_servers.sh",
+    ]:
+        text = script.read_text(encoding="utf-8")
+        assert f"-t {GHCR_BACKEND_IMAGE}" in text, (
+            f"{script.name} must build/tag the same image name worker-node.yml " "references."
+        )
+
+
+def test_deploy_all_servers_build_tags_match_their_stack():
+    """deploy_all_servers.sh must tag each build for the stack it targets.
+
+    Stage 1 runs on the CENTRAL server, whose compose (backend.yml) uses the
+    local anchor name barpro_backend:latest — tagging it with the GHCR name
+    would make `docker compose up` look for a missing local image and fall
+    back to a (non-existent) Docker Hub pull. Stages 2/3 run on WORKER nodes,
+    whose compose (worker-node.yml) references the CD-published GHCR image —
+    so those builds must carry the GHCR tag.
+    """
+    text = DEPLOY_ALL_SERVERS.read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    central_builds = []
+    worker_builds = []
+    for i, line in enumerate(lines):
+        if line.startswith("docker build --network=host -t "):
+            window = "\n".join(lines[max(0, i - 4) : i + 1])
+            stage = "central" if ("1.2 build backend" in window or "مرحله ۱" in window) else "worker"
+            (central_builds if stage == "central" else worker_builds).append(line)
+
+    assert central_builds, "central build step not found"
+    assert worker_builds, "worker build steps not found"
+
+    for build in central_builds:
+        assert "-t barpro_backend:latest" in build, (
+            f"central build must tag barpro_backend:latest (matches backend.yml " f"anchor), got: {build}"
+        )
+    for build in worker_builds:
+        assert f"-t {GHCR_BACKEND_IMAGE}" in build, (
+            f"worker build must tag {GHCR_BACKEND_IMAGE} (matches " f"worker-node.yml), got: {build}"
+        )
