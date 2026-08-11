@@ -2,7 +2,9 @@ groups:
   - name: barpro-alerts
     rules:
       - alert: JobSuccessRateLow
-        expr: (sum(rate(waybill_success_total[1h])) or vector(0)) / (sum(rate(waybill_requests_total[1h])) or vector(1)) * 100 < 80
+        # فقط وقتی درخواستی بوده هش بده: با ترافیک صفر، or vector(1) قبلی
+        # مخرج را ۱ می‌کرد و 0/1*100=0 همیشه زیر ۸۰ بود → هش کاذب.
+        expr: (sum(rate(waybill_success_total[1h])) / (sum(rate(waybill_requests_total[1h])) or vector(1)) * 100 < 80) and (sum(rate(waybill_requests_total[1h])) or vector(0)) > 0
         for: 5m
         labels:
           severity: high
