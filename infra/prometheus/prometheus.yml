@@ -21,6 +21,25 @@ scrape_configs:
     static_configs:
       - targets: ['barpro-alertmanager:9093']
 
+  # ── Exporters (محلی) ─────────────────────────────────────────
+  - job_name: 'node'
+    static_configs:
+      - targets: ['172.20.0.1:9100']   # node-exporter روی host-network مرکزی
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  - job_name: 'nginx'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['nginx-exporter:9113']
+
+
   # nginx مستقیماً قابل اسکرپ توسط Prometheus نیست (stub_status فرمت Prometheus ندارد)
   # برای مانیتورینگ nginx از لاگ‌های Nginx استفاده کنید یا nginx-prometheus-exporter اضافه کنید
   # - job_name: 'nginx'
