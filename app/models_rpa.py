@@ -60,7 +60,9 @@ class DriverRuntimeState(SQLModel, table=True):
     last_error_code: str | None = Field(default=None, max_length=64, index=True)
     last_error_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
     auth_lock_owner: str | None = Field(default=None, max_length=128, index=True)
-    auth_lock_acquired_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    auth_lock_acquired_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=False), nullable=True)
+    )
     auth_lock_ttl_seconds: int | None = Field(default=None)
     active_execution_id: str | None = Field(default=None, max_length=64, index=True)
     created_at: datetime = Field(

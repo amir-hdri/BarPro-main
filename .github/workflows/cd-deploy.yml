@@ -25,6 +25,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Required for GITHUB_TOKEN to publish backend/frontend images to GHCR.
+permissions:
+  contents: read
+  packages: write
+
 env:
   PYTHON_VERSION: "3.11"
   NODE_VERSION: "20"
@@ -32,6 +37,35 @@ env:
   IMAGE_NAME: "barpro"
 
 jobs:
+  # Deploy targets are optional. Without this gate, `deploy-staging` ran on every
+  # push to main and — when STAGING_HOST is not configured — appleboy/ssh-action
+  # failed with an empty host, so every push to main produced a red deploy job.
+  # `secrets` cannot be read from a job-level `if:`, hence this tiny probe job.
+  preflight:
+    name: Check Configured Deploy Targets
+    runs-on: ubuntu-latest
+    outputs:
+      has_staging: ${{ steps.check.outputs.has_staging }}
+      has_production: ${{ steps.check.outputs.has_production }}
+    steps:
+      - id: check
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
+        run: |
+          if [ -n "$STAGING_HOST" ]; then
+            echo "has_staging=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_staging=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::STAGING_HOST is not set — skipping staging deploy."
+          fi
+          if [ -n "$PRODUCTION_HOST" ]; then
+            echo "has_production=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_production=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PRODUCTION_HOST is not set — skipping production deploy."
+          fi
+
   build-backend:
     name: Build Backend Docker Image
     runs-on: ubuntu-latest
@@ -42,13 +76,13 @@ jobs:
     
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -56,19 +90,24 @@ jobs:
 
       - name: Extract Metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ env.IMAGE_NAME }}-backend
+          # `latest` is guarded by is_default_branch: without it a
+          # workflow_dispatch from any branch overwrote `latest`, which is the
+          # exact tag the deploy jobs pull. The raw github.sha tag gives the
+          # deploy step an immutable reference to the image built in this run.
           tags: |
             type=ref,event=branch
             type=ref,event=tag
             type=ref,event=pr
             type=sha,prefix={{branch}}-,priority=100
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ github.sha }}
 
       - name: Build and Push Backend Image
         id: build
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
@@ -88,10 +127,10 @@ jobs:
     
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -108,10 +147,10 @@ jobs:
           NEXT_PUBLIC_API_URL="/api" npm run build
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -119,19 +158,24 @@ jobs:
 
       - name: Extract Metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ env.IMAGE_NAME }}-frontend
+          # `latest` is guarded by is_default_branch: without it a
+          # workflow_dispatch from any branch overwrote `latest`, which is the
+          # exact tag the deploy jobs pull. The raw github.sha tag gives the
+          # deploy step an immutable reference to the image built in this run.
           tags: |
             type=ref,event=branch
             type=ref,event=tag
             type=ref,event=pr
             type=sha,prefix={{branch}}-,priority=100
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ github.sha }}
 
       - name: Build and Push Frontend Image
         id: build
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./apps/web
           file: ./apps/web/Dockerfile
@@ -144,8 +188,11 @@ jobs:
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    needs: [build-backend, build-frontend]
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
+    needs: [build-backend, build-frontend, preflight]
+    if: |
+      needs.preflight.outputs.has_staging == 'true' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging'))
     
     environment:
       name: staging
@@ -153,7 +200,7 @@ jobs:
     
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Deploy to Staging Server
         uses: appleboy/ssh-action@v1
@@ -163,28 +210,65 @@ jobs:
           key: ${{ secrets.STAGING_SSH_KEY }}
           port: ${{ secrets.STAGING_PORT || 22 }}
           script: |
-            # Pull latest images
-            docker-compose -f /opt/barpro/docker-compose.yml pull
-            
-            # Stop services
-            docker-compose -f /opt/barpro/docker-compose.yml down
-            
-            # Start with new images
-            docker-compose -f /opt/barpro/docker-compose.yml up -d
-            
-            # Run database migrations
-            docker-compose -f /opt/barpro/docker-compose.yml exec backend alembic upgrade head
-            
-            # Health check
+            set -e
+            cd /opt/barpro
+            # The server is a deployment target, not a workspace. An earlier
+            # revision of this script ran `git add . && git commit` here as a
+            # "pre-deploy backup", which leaves local commits on the server; once
+            # that happened `git pull --ff-only` aborted and, under `set -e`, the
+            # deploy stopped before deploying anything. Reset to the remote state
+            # instead. reset --hard never touches untracked/ignored files, so
+            # /opt/barpro/.env survives.
+            git fetch origin --tags --prune
+            if ! git diff --quiet HEAD 2>/dev/null; then
+              echo "NOTE: discarding local modifications to tracked files:"
+              git status --porcelain
+            fi
+            git checkout -f -B main origin/main
+            # Pin to the images built in this run rather than to `latest`.
+            export BACKEND_IMAGE="ghcr.io/amir-hdri/barpro-main/barpro-backend:${{ github.sha }}"
+            export FRONTEND_IMAGE="ghcr.io/amir-hdri/barpro-main/barpro-frontend:${{ github.sha }}"
+            echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+            docker compose pull
+
+            # Bring up data services first, then migrate, then switch the app.
+            # Previously this ran `up -d` and only afterwards `exec backend alembic
+            # upgrade head`, so new code served traffic against the old schema for
+            # several seconds. `run --rm --no-deps` applies migrations using the
+            # freshly pulled image without disturbing the running stack.
+            docker compose up -d postgres redis
+            for _ in $(seq 1 45); do
+              if docker compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+                break
+              fi
+              sleep 2
+            done
+            docker compose run --rm --no-deps backend alembic upgrade head
+
+            # Recreate only the services whose image or config changed. The old
+            # `docker compose down` took the entire platform offline — including
+            # Postgres and Redis — on every deploy, and killed in-flight RPA jobs.
+            docker compose up -d --remove-orphans
+
             sleep 10
-            docker-compose -f /opt/barpro/docker-compose.yml ps
-            curl -f http://localhost:8000/healthz || true
+            docker compose ps
+            # Probe through nginx (published on :80), NOT the backend port.
+            # compose/backend.yml uses `expose: ['8000']`, so port 8000 is
+            # reachable only inside the docker network — curling localhost:8000
+            # from the host is always "connection refused" and, under `set -e`,
+            # failed this job on every run.
+            curl -f http://localhost/healthz
+            docker logout ghcr.io || true
 
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: [build-backend, build-frontend]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.environment == 'production')
+    needs: [build-backend, build-frontend, preflight]
+    if: |
+      needs.preflight.outputs.has_production == 'true' &&
+      ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+       (github.event_name == 'workflow_dispatch' && inputs.environment == 'production'))
     
     environment:
       name: production
@@ -192,7 +276,7 @@ jobs:
     
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Wait for Manual Approval
         if: github.event_name != 'workflow_dispatch'
@@ -206,33 +290,60 @@ jobs:
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_PORT || 22 }}
           script: |
-            # Backup current deployment
+            set -e
             cd /opt/barpro
-            git add .
-            git commit -m "Pre-deploy backup $(date)" || true
-            
-            # Pull latest images
-            docker-compose -f docker-compose.yml pull
-            
-            # Stop services gracefully
-            docker-compose -f docker-compose.yml down
-            
-            # Start with new images
-            docker-compose -f docker-compose.yml up -d
-            
-            # Run database migrations
-            docker-compose -f docker-compose.yml exec backend alembic upgrade head
-            
-            # Clear caches
-            # docker-compose -f docker-compose.yml exec redis redis-cli FLUSHALL || true
-            # FLUSHALL disabled: clearing all Redis data during deployment destroys active sessions and task state.
-            
-            # Health check
+            # The server is a deployment target, not a workspace. An earlier
+            # revision of this script ran `git add . && git commit` here as a
+            # "pre-deploy backup", which leaves local commits on the server; once
+            # that happened `git pull --ff-only` aborted and, under `set -e`, the
+            # deploy stopped before deploying anything. Reset to the remote state
+            # instead. reset --hard never touches untracked/ignored files, so
+            # /opt/barpro/.env survives.
+            git fetch origin --tags --prune
+            if ! git diff --quiet HEAD 2>/dev/null; then
+              echo "NOTE: discarding local modifications to tracked files:"
+              git status --porcelain
+            fi
+            git checkout -f --detach "${{ github.sha }}"
+            # Pin to the images built in this run rather than to `latest`.
+            export BACKEND_IMAGE="ghcr.io/amir-hdri/barpro-main/barpro-backend:${{ github.sha }}"
+            export FRONTEND_IMAGE="ghcr.io/amir-hdri/barpro-main/barpro-frontend:${{ github.sha }}"
+            echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+            docker compose pull
+
+            # Bring up data services first, then migrate, then switch the app.
+            # Previously this ran `up -d` and only afterwards `exec backend alembic
+            # upgrade head`, so new code served traffic against the old schema for
+            # several seconds. `run --rm --no-deps` applies migrations using the
+            # freshly pulled image without disturbing the running stack.
+            docker compose up -d postgres redis
+            for _ in $(seq 1 45); do
+              if docker compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+                break
+              fi
+              sleep 2
+            done
+            docker compose run --rm --no-deps backend alembic upgrade head
+
+            # Recreate only the services whose image or config changed. The old
+            # `docker compose down` took the entire platform offline — including
+            # Postgres and Redis — on every deploy, and killed in-flight RPA jobs.
+            docker compose up -d --remove-orphans
+
+            # FLUSHALL intentionally disabled: it would destroy active sessions
+            # and task state during deployment.
             sleep 15
-            docker-compose -f docker-compose.yml ps
-            curl -f https://barpro.com/healthz || true
-            
-            # Notify success
+            docker compose ps
+            # Probe the deployment locally through nginx. The previous target
+            # (https://barpro.com/healthz) is a placeholder that appears nowhere
+            # in the real configuration: nginx serves `server_name _` on port 80
+            # and the 443 block is still commented out (ISSUES.md S11). Under
+            # `set -e` that curl failed the production deploy on every run.
+            # Re-add an external probe here once HTTPS and the real domain are in
+            # place.
+            curl -f http://localhost/healthz
+            docker logout ghcr.io || true
             echo "Production deployment completed successfully"
 
   notify:

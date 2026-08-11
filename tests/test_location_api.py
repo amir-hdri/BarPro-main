@@ -2,8 +2,12 @@
 تست‌های خودکار APIهای سرویس مکان، پارسر هوشمند آدرس و استان‌ها/شهرها
 """
 
-import pytest
-from app.core.iran_locations import get_all_provinces, get_cities_by_province, parse_smart_address, find_nearest_city_coords
+from app.core.iran_locations import (
+    find_nearest_city_coords,
+    get_all_provinces,
+    get_cities_by_province,
+    parse_smart_address,
+)
 
 
 def test_iran_locations_dataset():

@@ -111,11 +111,11 @@ class ReconciliationService:
         finally:
             if session_id:
                 try:
-                    success_outcome = (outcome in (ScraperOutcome.REGISTERED, ScraperOutcome.NOT_FOUND))
+                    success_outcome = outcome in (ScraperOutcome.REGISTERED, ScraperOutcome.NOT_FOUND)
                     await bm.close_context(
                         session_id=session_id,
                         success=success_outcome,
-                        error="" if success_outcome else str(details.get("error", "Ambiguous reconciliation outcome"))
+                        error="" if success_outcome else str(details.get("error", "Ambiguous reconciliation outcome")),
                     )
                 except Exception as close_exc:
                     logger.warning("Failed closing context in reconciliation of job #%s: %s", job_id, close_exc)
@@ -123,7 +123,11 @@ class ReconciliationService:
         # Handle Reconciliation Results via JobStateMachine
         try:
             if outcome == ScraperOutcome.REGISTERED:
-                found_code = (res.tracking_code if hasattr(res, "tracking_code") else None) or details.get("tracking_code") or tracking_code
+                found_code = (
+                    (res.tracking_code if hasattr(res, "tracking_code") else None)
+                    or details.get("tracking_code")
+                    or tracking_code
+                )
                 if not found_code:
                     # Without a verifiable tracking code, success is unreliable — downgrade to ambiguous
                     JobStateMachine.transition(
@@ -195,7 +199,11 @@ class ReconciliationService:
         browser_manager: BrowserManager | None = None,
     ) -> dict[str, int]:
         """Scan and reconcile all UNKNOWN / RECONCILING jobs."""
-        stmt = select(WaybillJob.id).where(WaybillJob.status.in_([JobStatus.UNKNOWN, JobStatus.RECONCILING])).with_for_update(skip_locked=True)
+        stmt = (
+            select(WaybillJob.id)
+            .where(WaybillJob.status.in_([JobStatus.UNKNOWN, JobStatus.RECONCILING]))
+            .with_for_update(skip_locked=True)
+        )
         job_ids = (await session.execute(stmt)).scalars().all()
 
         results = {"total": len(job_ids), "success": 0, "failed": 0, "needs_review": 0, "errors": 0}

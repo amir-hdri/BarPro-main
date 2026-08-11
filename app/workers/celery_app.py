@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 
@@ -41,111 +42,115 @@ if worker_process_init is not None:
 
 def _build_beat_schedule() -> dict:
     schedule_dict = {}
-    
+
     # Note: DEPRECATE_OLD_EXECUTION_PATH defaults to True, meaning the old execution path is disabled by default.
     # Set to False to enable legacy phase1 scheduler tasks (not recommended for production).
     if not utcms_config.DEPRECATE_OLD_EXECUTION_PATH:
-        schedule_dict.update({
-            "phase1-scheduler-plan": {
-                "task": "phase1.scheduler.plan",
+        schedule_dict.update(
+            {
+                "phase1-scheduler-plan": {
+                    "task": "phase1.scheduler.plan",
+                    "schedule": schedule(utcms_config.RPA_SCHEDULER_INTERVAL_SECONDS),
+                    "options": {
+                        "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                        "expires": max(10, utcms_config.RPA_SCHEDULER_INTERVAL_SECONDS - 5),
+                    },
+                },
+                "phase1-scheduler-cleanup": {
+                    "task": "phase1.scheduler.cleanup",
+                    "schedule": crontab(minute="*/5"),
+                    "options": {
+                        "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                        "expires": 240,
+                    },
+                },
+                "scheduled-waybill-evaluate": {
+                    "task": "scheduled.waybill.evaluate_and_run",
+                    "schedule": crontab(minute="*/10"),
+                    "options": {"queue": "scheduled_tasks"},
+                },
+                "scheduled-waybill-retry": {
+                    "task": "scheduled.waybill.retry_failed",
+                    "schedule": crontab(minute="*/15"),
+                    "options": {"queue": "scheduled_tasks"},
+                },
+                "scheduled-waybill-clear-expired": {
+                    "task": "scheduled.waybill.clear_expired",
+                    "schedule": crontab(hour="0", minute="0"),
+                    "options": {"queue": "scheduled_tasks"},
+                },
+            }
+        )
+
+    schedule_dict.update(
+        {
+            # rpa-session-keepalive does heavyweight browser re-auth for drivers. It
+            # must NOT run on the singleton rpa_scheduler control queue (whose
+            # dispatcher fires every 5s and must never sit behind a minutes-long
+            # browser task). It is routed to the ordinary waybill worker queue and
+            # expires (never accumulates in Redis when no consumer is up — X8).
+            "rpa-session-keepalive": {
+                "task": "rpa.session.keepalive",
+                "schedule": crontab(minute="*/30"),
+                "options": {
+                    "queue": utcms_config.CELERY_WAYBILL_TASKS_QUEUE,
+                    "expires": 1500,
+                },
+            },
+            "orchestrator-scheduler": {
+                "task": "orchestrator.scheduler.run",
                 "schedule": schedule(utcms_config.RPA_SCHEDULER_INTERVAL_SECONDS),
                 "options": {
                     "queue": utcms_config.RPA_SCHEDULER_QUEUE,
                     "expires": max(10, utcms_config.RPA_SCHEDULER_INTERVAL_SECONDS - 5),
                 },
             },
-            "phase1-scheduler-cleanup": {
-                "task": "phase1.scheduler.cleanup",
-                "schedule": crontab(minute="*/5"),
+            "orchestrator-dispatcher": {
+                "task": "orchestrator.dispatcher.run",
+                "schedule": schedule(5.0),
                 "options": {
                     "queue": utcms_config.RPA_SCHEDULER_QUEUE,
-                    "expires": 240,
+                    "expires": 4,
                 },
             },
-            "scheduled-waybill-evaluate": {
-                "task": "scheduled.waybill.evaluate_and_run",
-                "schedule": crontab(minute="*/10"),
-                "options": {"queue": "scheduled_tasks"},
+            "orchestrator-orphan-detector": {
+                "task": "orchestrator.orphan_detector.run",
+                "schedule": schedule(30.0),
+                "options": {
+                    "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                    "expires": 25,
+                },
             },
-            "scheduled-waybill-retry": {
-                "task": "scheduled.waybill.retry_failed",
+            "orchestrator-claim-reaper": {
+                "task": "orchestrator.claim_reaper.run",
+                "schedule": schedule(60.0),
+                "options": {
+                    "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                    "expires": 50,
+                },
+            },
+            # Reconciliation opens Playwright + proxies (heavy browser work) — same
+            # reasoning as rpa-session-keepalive: keep it off the 5s control queue so
+            # the dispatcher is never starved. expires prevents unbounded backlog.
+            "orchestrator-reconciliation": {
+                "task": "orchestrator.reconciliation.run",
                 "schedule": crontab(minute="*/15"),
-                "options": {"queue": "scheduled_tasks"},
+                "options": {
+                    "queue": utcms_config.CELERY_RECONCILIATION_TASKS_QUEUE,
+                    "expires": 840,
+                },
             },
-            "scheduled-waybill-clear-expired": {
-                "task": "scheduled.waybill.clear_expired",
-                "schedule": crontab(hour="0", minute="0"),
-                "options": {"queue": "scheduled_tasks"},
+            "fuel-inquiry-cleanup-stale": {
+                "task": "fuel.cleanup_stale_inquiries",
+                "schedule": crontab(minute="*/10"),
+                "options": {
+                    "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                    "expires": 540,
+                },
             },
-        })
-    
-    schedule_dict.update({
-        # rpa-session-keepalive does heavyweight browser re-auth for drivers. It
-        # must NOT run on the singleton rpa_scheduler control queue (whose
-        # dispatcher fires every 5s and must never sit behind a minutes-long
-        # browser task). It is routed to the ordinary waybill worker queue and
-        # expires (never accumulates in Redis when no consumer is up — X8).
-        "rpa-session-keepalive": {
-            "task": "rpa.session.keepalive",
-            "schedule": crontab(minute="*/30"),
-            "options": {
-                "queue": utcms_config.CELERY_WAYBILL_TASKS_QUEUE,
-                "expires": 1500,
-            },
-        },
-        "orchestrator-scheduler": {
-            "task": "orchestrator.scheduler.run",
-            "schedule": schedule(utcms_config.RPA_SCHEDULER_INTERVAL_SECONDS),
-            "options": {
-                "queue": utcms_config.RPA_SCHEDULER_QUEUE,
-                "expires": max(10, utcms_config.RPA_SCHEDULER_INTERVAL_SECONDS - 5),
-            },
-        },
-        "orchestrator-dispatcher": {
-            "task": "orchestrator.dispatcher.run",
-            "schedule": schedule(5.0),
-            "options": {
-                "queue": utcms_config.RPA_SCHEDULER_QUEUE,
-                "expires": 4,
-            },
-        },
-        "orchestrator-orphan-detector": {
-            "task": "orchestrator.orphan_detector.run",
-            "schedule": schedule(30.0),
-            "options": {
-                "queue": utcms_config.RPA_SCHEDULER_QUEUE,
-                "expires": 25,
-            },
-        },
-        "orchestrator-claim-reaper": {
-            "task": "orchestrator.claim_reaper.run",
-            "schedule": schedule(60.0),
-            "options": {
-                "queue": utcms_config.RPA_SCHEDULER_QUEUE,
-                "expires": 50,
-            },
-        },
-        # Reconciliation opens Playwright + proxies (heavy browser work) — same
-        # reasoning as rpa-session-keepalive: keep it off the 5s control queue so
-        # the dispatcher is never starved. expires prevents unbounded backlog.
-        "orchestrator-reconciliation": {
-            "task": "orchestrator.reconciliation.run",
-            "schedule": crontab(minute="*/15"),
-            "options": {
-                "queue": utcms_config.CELERY_RECONCILIATION_TASKS_QUEUE,
-                "expires": 840,
-            },
-        },
-        "fuel-inquiry-cleanup-stale": {
-            "task": "fuel.cleanup_stale_inquiries",
-            "schedule": crontab(minute="*/10"),
-            "options": {
-                "queue": utcms_config.RPA_SCHEDULER_QUEUE,
-                "expires": 540,
-            },
-        },
-    })
-    
+        }
+    )
+
     return schedule_dict
 
 
@@ -180,7 +185,8 @@ def _build_celery() -> Celery | None:
 celery_app = _build_celery()
 
 if celery_app is not None:
-    import app.orchestrator.worker_lifecycle
+    # Import for Celery signal-registration side effects.
+    importlib.import_module("app.orchestrator.worker_lifecycle")
 
 
 def is_celery_available() -> bool:

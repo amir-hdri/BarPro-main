@@ -504,8 +504,7 @@ class AuthNavigator:
             logger.warning(f"error_handling_hcaptcha: {e}")
 
         try:
-            js_info = await self.page.evaluate(
-                """() => {
+            js_info = await self.page.evaluate("""() => {
                 const robotTexts = ["من ربات نیستم", "ربات نیستم", "من ربات‌نیستم", "ربات‌نیستم"];
                 const elements = Array.from(document.querySelectorAll('label, span, div, p, a, button, input'));
                 let target = null;
@@ -541,8 +540,7 @@ class AuthNavigator:
                     return { selector: `#${CSS.escape(target.id)}`, clickText: false };
                 }
                 return { selector: null, clickText: target.innerText || target.textContent || '' };
-            }"""
-            )
+            }""")
             if js_info:
                 logger.info(f"detected_custom_robot_checkbox: {js_info}")
                 if js_info.get("selector"):
@@ -805,18 +803,15 @@ class AuthNavigator:
             except Exception as e:
                 logger.warning(f"Could not click cap-widget: {e}")
 
-            await self.page.evaluate(
-                """() => {
+            await self.page.evaluate("""() => {
                     const widget = document.querySelector('cap-widget');
                     if (widget && typeof widget.solve === 'function') {
                         widget.solve().catch(err => console.error("CapJS solve call error:", err));
                     }
-                }"""
-            )
+                }""")
 
             for _attempt in range(300):
-                token = await self.page.evaluate(
-                    """() => {
+                token = await self.page.evaluate("""() => {
                         const widget = document.querySelector('cap-widget');
                         if (!widget) return null;
                         const token = widget.token || (widget.querySelector('input[type="hidden"]') ? widget.querySelector('input[type="hidden"]').value : null);
@@ -830,8 +825,7 @@ class AuthNavigator:
                             return token;
                         }
                         return null;
-                    }"""
-                )
+                    }""")
                 if token:
                     logger.info("کپچای CapJS با موفقیت در مرورگر حل شد و توکن در فرم ثبت گردید.")
                     return True

@@ -3,23 +3,23 @@ Unit tests for prometheus metrics export.
 """
 
 from app.monitoring.metrics import (
-    set_queue_depth,
-    set_active_worker_count,
-    set_worker_liveness,
-    set_db_pool_utilization,
-    set_reconciliation_backlog,
-    set_healthy_proxy_count,
     export_metrics,
-    track_waybill_request,
-    track_waybill_success,
-    track_waybill_failure,
-    track_task_status,
-    track_task_latency,
     get_captcha_runtime_snapshot,
     reset_captcha_runtime_snapshot,
+    set_active_worker_count,
+    set_db_pool_utilization,
+    set_healthy_proxy_count,
+    set_queue_depth,
+    set_reconciliation_backlog,
+    set_worker_liveness,
     track_captcha_attempt,
-    track_captcha_success,
     track_captcha_failure,
+    track_captcha_success,
+    track_task_latency,
+    track_task_status,
+    track_waybill_failure,
+    track_waybill_request,
+    track_waybill_success,
 )
 
 
@@ -141,9 +141,7 @@ def test_metrics_endpoint_resolves_all_names():
     undefined = sorted(
         node.id
         for node in ast.walk(func)
-        if isinstance(node, ast.Name)
-        and isinstance(node.ctx, ast.Load)
-        and node.id not in available
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id not in available
     )
 
     assert not undefined, (
@@ -151,5 +149,3 @@ def test_metrics_endpoint_resolves_all_names():
         "These raise NameError inside the route's try/except blocks, silently "
         "leaving the Prometheus SLO gauges at zero."
     )
-
-

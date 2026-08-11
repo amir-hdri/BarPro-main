@@ -6,12 +6,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.alerts import alert_manager
 from app.core.config import utcms_config
-from app.core.database import async_session_factory, engine
+from app.core.database import async_session_factory
 from app.core.execution_context import generate_correlation_id
 from app.core.redis_client import redis_manager
 from app.models_legacy import WaybillTask
@@ -215,15 +215,15 @@ class WaybillTaskService:
         async with async_session_factory() as session:
             if task_id.startswith("job_"):
                 statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
-                result = await session.execute(statement)
-                job = result.scalars().first()
+                result = await session.exec(statement)
+                job = result.first()
                 if not job:
                     return None
                 return self._to_public_dict(job)
 
             statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
-            result = await session.execute(statement)
-            task = result.scalars().first()
+            result = await session.exec(statement)
+            task = result.first()
             if not task:
                 return None
             return self._to_public_dict(task)
@@ -232,22 +232,22 @@ class WaybillTaskService:
         async with async_session_factory() as session:
             if task_id.startswith("job_"):
                 statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
-                result = await session.execute(statement)
-                job = result.scalars().first()
+                result = await session.exec(statement)
+                job = result.first()
                 if not job:
                     return None
                 return self._safe_json_load(job.payload_json)
 
             statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
-            result = await session.execute(statement)
-            task = result.scalars().first()
+            result = await session.exec(statement)
+            task = result.first()
             if not task:
                 return None
             return self._safe_json_load(task.payload_json)
 
     async def queue_snapshot(self) -> dict[str, int]:
         async with async_session_factory() as session:
-            all_tasks = (await session.execute(select(WaybillJob.status))).all()
+            task_statuses = (await session.exec(select(WaybillJob.status))).all()
             counters = {
                 TaskStatus.QUEUED.value: 0,
                 TaskStatus.PROCESSING.value: 0,
@@ -257,8 +257,7 @@ class WaybillTaskService:
                 TaskStatus.FAILED.value: 0,
                 TaskStatus.DEAD_LETTER.value: 0,
             }
-            for status_tuple in all_tasks:
-                status = status_tuple[0]
+            for status in task_statuses:
                 if status in counters:
                     counters[status] += 1
             return {
@@ -274,14 +273,14 @@ class WaybillTaskService:
     async def list_tasks(self, limit: int = 50) -> list[dict[str, Any]]:
         async with async_session_factory() as session:
             statement = select(WaybillJob).order_by(WaybillJob.updated_at.desc()).limit(max(1, min(500, int(limit))))
-            result = await session.execute(statement)
-            tasks = result.scalars().all()
+            result = await session.exec(statement)
+            tasks = result.all()
             return [self._to_public_dict(task) for task in tasks]
 
     async def _find_by_idempotency_key(self, session: AsyncSession, key: str) -> WaybillJob | None:
         statement = select(WaybillJob).where(WaybillJob.idempotency_key == key)
-        result = await session.execute(statement)
-        return result.scalars().first()
+        result = await session.exec(statement)
+        return result.first()
 
     async def _update_task(self, task_id: str, updater, metric_status: str | None = None) -> None:
         if task_id.startswith("job_"):
@@ -289,8 +288,8 @@ class WaybillTaskService:
         async with async_session_factory() as session:
             if task_id.startswith("job_"):
                 statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
-                result = await session.execute(statement)
-                job = result.scalars().first()
+                result = await session.exec(statement)
+                job = result.first()
                 if not job:
                     return
                 old_status = job.status
@@ -301,8 +300,8 @@ class WaybillTaskService:
                 await self._adjust_queue_depth(old_status, new_status)
             else:
                 statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
-                result = await session.execute(statement)
-                task = result.scalars().first()
+                result = await session.exec(statement)
+                task = result.first()
                 if not task:
                     return
                 updater(task)
@@ -441,21 +440,19 @@ class WaybillTaskService:
             priority = utcms_config.CELERY_DEFAULT_PRIORITY
         return max(utcms_config.CELERY_MIN_PRIORITY, min(utcms_config.CELERY_MAX_PRIORITY, priority))
 
-    async def _get_task_status_and_payload(
-        self, task_id: str
-    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    async def _get_task_status_and_payload(self, task_id: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         async with async_session_factory() as session:
             if task_id.startswith("job_"):
                 statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
-                result = await session.execute(statement)
-                row = result.scalars().first()
+                result = await session.exec(statement)
+                row = result.first()
                 if not row:
                     return None, None
                 return self._to_public_dict(row), self._safe_json_load(row.payload_json)
 
             statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
-            result = await session.execute(statement)
-            row = result.scalars().first()
+            result = await session.exec(statement)
+            row = result.first()
             if not row:
                 return None, None
             return self._to_public_dict(row), self._safe_json_load(row.payload_json)

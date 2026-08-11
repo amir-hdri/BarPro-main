@@ -2,17 +2,15 @@
 Unit tests for Admin Alert System, AlertManagerService, and Alert API endpoints.
 """
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
-import pytest
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlmodel import SQLModel
 
 from app.models.admin import AdminAlert
-from app.models_multitenant import WaybillJob
-from app.orchestrator.alert_manager import AlertManagerService, admin_alert_service
-from app.orchestrator.state_machine import JobStatus
+from app.orchestrator.alert_manager import AlertManagerService
 
 
 @pytest.fixture
@@ -31,8 +29,10 @@ async def async_db():
 async def test_create_alert_idempotency(async_db: AsyncSession):
     service = AlertManagerService()
 
-    with patch("app.orchestrator.alert_manager.webhook_alert_manager.emit") as mock_emit, \
-         patch("app.orchestrator.alert_manager.event_hub.publish", new_callable=AsyncMock) as mock_pub:
+    with (
+        patch("app.orchestrator.alert_manager.webhook_alert_manager.emit") as mock_emit,
+        patch("app.orchestrator.alert_manager.event_hub.publish", new_callable=AsyncMock) as mock_pub,
+    ):
 
         alert1 = await service.create_alert(
             session=async_db,
@@ -95,8 +95,10 @@ async def test_acknowledge_alert(async_db: AsyncSession):
 async def test_check_repeated_unknown_submission(async_db: AsyncSession):
     service = AlertManagerService()
 
-    with patch("app.orchestrator.alert_manager.webhook_alert_manager.emit"), \
-         patch("app.orchestrator.alert_manager.event_hub.publish", new_callable=AsyncMock):
+    with (
+        patch("app.orchestrator.alert_manager.webhook_alert_manager.emit"),
+        patch("app.orchestrator.alert_manager.event_hub.publish", new_callable=AsyncMock),
+    ):
 
         # Threshold < 3 should not create alert
         alert_none = await service.check_repeated_unknown_submission(
@@ -129,10 +131,11 @@ class MockRequest:
 
 @pytest.mark.asyncio
 async def test_webhook_missing_signature(async_db: AsyncSession):
-    from app.api.routes.admin_alerts import alertmanager_webhook
     from fastapi import HTTPException
+
+    from app.api.routes.admin_alerts import alertmanager_webhook
     from app.core.config import utcms_config
-    
+
     # Enable signature validation in test config
     with patch.object(utcms_config, "ALERT_WEBHOOK_SECRET", "super_secret"):
         req = MockRequest(headers={}, body=b"{}", json_data={})
@@ -144,62 +147,52 @@ async def test_webhook_missing_signature(async_db: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_webhook_valid_signature_firing(async_db: AsyncSession):
+    import hashlib
+    import hmac
+    import json
+    import time
+
+    from sqlmodel import select
+
     from app.api.routes.admin_alerts import alertmanager_webhook
     from app.core.config import utcms_config
-    from sqlmodel import select
-    import hmac
-    import hashlib
-    import time
-    import json
-    
+
     payload = {
         "alerts": [
             {
                 "status": "firing",
-                "labels": {
-                    "alertname": "HealthyProxiesLow",
-                    "severity": "critical",
-                    "worker_id": "worker-abc"
-                },
-                "annotations": {
-                    "summary": "Proxy count low",
-                    "description": "Only 1 healthy proxy left"
-                },
-                "startsAt": "2026-08-01T10:00:00Z"
+                "labels": {"alertname": "HealthyProxiesLow", "severity": "critical", "worker_id": "worker-abc"},
+                "annotations": {"summary": "Proxy count low", "description": "Only 1 healthy proxy left"},
+                "startsAt": "2026-08-01T10:00:00Z",
             }
         ]
     }
-    
+
     payload_bytes = json.dumps(payload).encode("utf-8")
     timestamp = str(int(time.time()))
     secret = "test_webhook_secret"
-    
-    message_to_sign = f"{timestamp}.".encode("utf-8") + payload_bytes
-    signature = hmac.new(
-        secret.encode("utf-8"),
-        message_to_sign,
-        hashlib.sha256
-    ).hexdigest()
-    
-    headers = {
-        "X-Barpro-Timestamp": timestamp,
-        "X-Barpro-Signature": signature
-    }
-    
+
+    message_to_sign = f"{timestamp}.".encode() + payload_bytes
+    signature = hmac.new(secret.encode("utf-8"), message_to_sign, hashlib.sha256).hexdigest()
+
+    headers = {"X-Barpro-Timestamp": timestamp, "X-Barpro-Signature": signature}
+
     req = MockRequest(headers=headers, body=payload_bytes, json_data=payload)
-    
-    with patch.object(utcms_config, "ALERT_WEBHOOK_SECRET", secret), \
-         patch("app.orchestrator.alert_manager.webhook_alert_manager.emit") as mock_emit, \
-         patch("app.orchestrator.alert_manager.event_hub.publish", new_callable=AsyncMock) as mock_pub:
-         
+
+    with (
+        patch.object(utcms_config, "ALERT_WEBHOOK_SECRET", secret),
+        patch("app.orchestrator.alert_manager.webhook_alert_manager.emit"),
+        patch("app.orchestrator.alert_manager.event_hub.publish", new_callable=AsyncMock),
+    ):
+
         res = await alertmanager_webhook(req, session=async_db)
         assert res["status"] == "success"
         assert res["processed_alerts"] == 1
-        
+
         # Verify alert created in DB with correct severity routing
         stmt = select(AdminAlert).where(AdminAlert.dedupe_key == "alertmanager_HealthyProxiesLow_worker-abc")
         db_alert = (await async_db.execute(stmt)).scalar_one_or_none()
-        
+
         assert db_alert is not None
         assert db_alert.severity == "critical"
         assert db_alert.category == "HealthyProxiesLow"
@@ -209,14 +202,16 @@ async def test_webhook_valid_signature_firing(async_db: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_webhook_valid_signature_resolved(async_db: AsyncSession):
+    import hashlib
+    import hmac
+    import json
+    import time
+
+    from sqlmodel import select
+
     from app.api.routes.admin_alerts import alertmanager_webhook
     from app.core.config import utcms_config
-    from sqlmodel import select
-    import hmac
-    import hashlib
-    import time
-    import json
-    
+
     # 1. Create a firing alert first
     fired_alert = AdminAlert(
         severity="critical",
@@ -224,59 +219,46 @@ async def test_webhook_valid_signature_resolved(async_db: AsyncSession):
         message="Only 1 healthy proxy left",
         dedupe_key="alertmanager_HealthyProxiesLow_worker-abc",
         is_acknowledged=False,
-        created_at=datetime.now(UTC).replace(tzinfo=None)
+        created_at=datetime.now(UTC).replace(tzinfo=None),
     )
     async_db.add(fired_alert)
     await async_db.commit()
-    
+
     payload = {
         "alerts": [
             {
                 "status": "resolved",
-                "labels": {
-                    "alertname": "HealthyProxiesLow",
-                    "severity": "critical",
-                    "worker_id": "worker-abc"
-                },
-                "annotations": {
-                    "summary": "Proxy count low",
-                    "description": "Only 1 healthy proxy left"
-                },
-                "startsAt": "2026-08-01T10:00:00Z"
+                "labels": {"alertname": "HealthyProxiesLow", "severity": "critical", "worker_id": "worker-abc"},
+                "annotations": {"summary": "Proxy count low", "description": "Only 1 healthy proxy left"},
+                "startsAt": "2026-08-01T10:00:00Z",
             }
         ]
     }
-    
+
     payload_bytes = json.dumps(payload).encode("utf-8")
     timestamp = str(int(time.time()))
     secret = "test_webhook_secret"
-    
-    message_to_sign = f"{timestamp}.".encode("utf-8") + payload_bytes
-    signature = hmac.new(
-        secret.encode("utf-8"),
-        message_to_sign,
-        hashlib.sha256
-    ).hexdigest()
-    
-    headers = {
-        "X-Barpro-Timestamp": timestamp,
-        "X-Barpro-Signature": signature
-    }
-    
+
+    message_to_sign = f"{timestamp}.".encode() + payload_bytes
+    signature = hmac.new(secret.encode("utf-8"), message_to_sign, hashlib.sha256).hexdigest()
+
+    headers = {"X-Barpro-Timestamp": timestamp, "X-Barpro-Signature": signature}
+
     req = MockRequest(headers=headers, body=payload_bytes, json_data=payload)
-    
-    with patch.object(utcms_config, "ALERT_WEBHOOK_SECRET", secret), \
-         patch("app.orchestrator.alert_manager.event_hub.publish", new_callable=AsyncMock) as mock_pub:
-         
+
+    with (
+        patch.object(utcms_config, "ALERT_WEBHOOK_SECRET", secret),
+        patch("app.orchestrator.alert_manager.event_hub.publish", new_callable=AsyncMock),
+    ):
+
         res = await alertmanager_webhook(req, session=async_db)
         assert res["status"] == "success"
         assert res["processed_alerts"] == 1
-        
+
         # Verify alert is now acknowledged automatically in DB
         stmt = select(AdminAlert).where(AdminAlert.dedupe_key == "alertmanager_HealthyProxiesLow_worker-abc")
         db_alert = (await async_db.execute(stmt)).scalar_one_or_none()
-        
+
         assert db_alert is not None
         assert db_alert.is_acknowledged is True
         assert db_alert.acknowledged_by == 0  # 0 indicates system resolved
-

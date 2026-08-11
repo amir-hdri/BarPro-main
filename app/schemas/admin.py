@@ -254,7 +254,6 @@ class DriverReportFilter(BaseModel):
     page_size: int = Field(default=50, ge=1, le=200)
 
 
-
 class SystemAnalytics(BaseModel):
     """System-wide analytics"""
 

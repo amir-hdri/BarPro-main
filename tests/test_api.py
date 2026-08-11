@@ -75,7 +75,7 @@ def test_enqueue_waybill_endpoint(client):
         ),
     ):
         response = client.post("/waybill/queue/create-with-map", json=_queue_payload())
-    
+
     assert response.status_code == 200
     assert response.json()["task_id"] == "task-1"
     assert response.json()["status"] == "queued"
@@ -105,7 +105,7 @@ def test_enqueue_waybill_blank_idempotency_header_uses_auto_key(client):
             json=_queue_payload(),
             headers={"X-Idempotency-Key": "   "},
         )
-    
+
     assert response.status_code == 200
     assert mocked_enqueue.await_count == 1
     assert mocked_enqueue.await_args.kwargs["idempotency_key"] is None
@@ -139,7 +139,7 @@ def test_waybill_task_status_endpoint(client):
         ),
     ):
         response = client.get("/waybill/tasks/task-1")
-    
+
     assert response.status_code == 200
     assert response.json()["status"] == "succeeded"
     assert response.json()["correlation_id"] == "corr-1"
@@ -162,11 +162,11 @@ def test_system_event_history_endpoint(client):
 
 
 def test_worker_heartbeats_endpoint(client):
-    from app.core.database import get_session
-    from app.models_rpa import WorkerRegistry
-    from datetime import datetime, UTC
-    from unittest.mock import MagicMock
     import json
+    from datetime import UTC, datetime
+    from unittest.mock import MagicMock
+
+    from app.core.database import get_session
 
     mock_worker = MagicMock()
     mock_worker.worker_id = "task-1"

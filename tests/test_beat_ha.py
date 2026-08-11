@@ -1,5 +1,5 @@
-from app.workers.celery_app import celery_app
 from app.core.config import utcms_config
+from app.workers.celery_app import celery_app
 
 
 def test_celery_redbeat_configuration():

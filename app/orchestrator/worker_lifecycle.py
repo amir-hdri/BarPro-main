@@ -70,11 +70,7 @@ def resolve_ip_index(worker_id: str, hostname: str) -> int | None:
 def register_worker(worker_id: str, hostname: str, capabilities: list[str], capacity: int = 1) -> None:
     with _WorkerSession() as session:
         try:
-            worker = (
-                session.query(WorkerRegistry)
-                .filter(WorkerRegistry.worker_id == worker_id)
-                .first()
-            )
+            worker = session.query(WorkerRegistry).filter(WorkerRegistry.worker_id == worker_id).first()
             now = _now()
             ip_index = resolve_ip_index(worker_id, hostname)
             if worker is None:
@@ -113,11 +109,7 @@ def register_worker(worker_id: str, hostname: str, capabilities: list[str], capa
 def deregister_worker(worker_id: str) -> None:
     with _WorkerSession() as session:
         try:
-            worker = (
-                session.query(WorkerRegistry)
-                .filter(WorkerRegistry.worker_id == worker_id)
-                .first()
-            )
+            worker = session.query(WorkerRegistry).filter(WorkerRegistry.worker_id == worker_id).first()
             if worker is not None:
                 worker.status = "offline"
                 worker.updated_at = _now()
@@ -133,11 +125,7 @@ def deregister_worker(worker_id: str) -> None:
 def send_heartbeat(worker_id: str) -> None:
     try:
         with _WorkerSession() as session:
-            worker = (
-                session.query(WorkerRegistry)
-                .filter(WorkerRegistry.worker_id == worker_id)
-                .first()
-            )
+            worker = session.query(WorkerRegistry).filter(WorkerRegistry.worker_id == worker_id).first()
             if worker is not None:
                 worker.last_heartbeat_at = _now()
                 # Refresh the index on every heartbeat too — covers workers

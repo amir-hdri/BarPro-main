@@ -130,4 +130,3 @@ class AdminAlert(SQLModel, table=True):
     acknowledged_by: int | None = None
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None))
-

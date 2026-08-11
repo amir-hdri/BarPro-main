@@ -195,7 +195,9 @@ class AdminReportingService:
             if filters.driver_national_code or filters.driver_name:
                 d_stmt = select(Driver.id)
                 if filters.driver_national_code:
-                    d_stmt = d_stmt.where(col(Driver.driver_national_code).contains(filters.driver_national_code.strip()))
+                    d_stmt = d_stmt.where(
+                        col(Driver.driver_national_code).contains(filters.driver_national_code.strip())
+                    )
                 if filters.driver_name:
                     d_stmt = d_stmt.where(col(Driver.full_name).contains(filters.driver_name.strip()))
                 driver_subquery = d_stmt
@@ -356,7 +358,9 @@ class AdminReportingService:
             if plate_number:
                 from app.models_multitenant import DriverPlate
 
-                p_stmt = select(DriverPlate.driver_id).where(col(DriverPlate.plate_number).contains(plate_number.strip()))
+                p_stmt = select(DriverPlate.driver_id).where(
+                    col(DriverPlate.plate_number).contains(plate_number.strip())
+                )
                 stmt = stmt.where(col(WaybillJob.driver_id).in_(p_stmt))
             if date_from:
                 dt = datetime.fromisoformat(date_from)
@@ -430,10 +434,7 @@ class AdminReportingService:
             from app.models_multitenant import DriverPlate
 
             clients_res = await session.exec(select(Client).order_by(Client.name))
-            clients = [
-                {"id": c.id, "name": c.name, "client_code": c.client_code}
-                for c in clients_res.all()
-            ]
+            clients = [{"id": c.id, "name": c.name, "client_code": c.client_code} for c in clients_res.all()]
 
             drivers_res = await session.exec(select(Driver).order_by(Driver.full_name))
             drivers = [
@@ -515,9 +516,9 @@ class AdminReportingService:
                     "entity_id": j.id,
                     "description": " — ".join(desc_parts),
                     "ip_address": j.worker_id or "system",
-                    "created_at": (j.updated_at or j.created_at).isoformat()
-                    if (j.updated_at or j.created_at)
-                    else None,
+                    "created_at": (
+                        (j.updated_at or j.created_at).isoformat() if (j.updated_at or j.created_at) else None
+                    ),
                 }
             )
 

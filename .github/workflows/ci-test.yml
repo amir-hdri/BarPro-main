@@ -16,11 +16,41 @@ env:
   DATABASE_URL: "sqlite+aiosqlite:///./test.db"
   ENVIRONMENT: "test"
   HEADLESS: "true"
-  MASTER_ADMIN_PASSWORD: ${{ secrets.MASTER_ADMIN_PASSWORD }}
-  JWT_SECRET: ${{ secrets.JWT_SECRET }}
-  DRIVER_ENCRYPTION_KEY: ${{ secrets.DRIVER_ENCRYPTION_KEY }}
+  # Deterministic, non-production credentials used only by CI processes.
+  MASTER_ADMIN_PASSWORD: '$2b$12$a3tOM8qQ30A0ecM/cF4HvObV/UTRknpu6VqcfDzEEhHGfKeBiaFEu'
+  JWT_SECRET: "ci-only-jwt-secret-not-for-production-32-chars"
+  DRIVER_ENCRYPTION_KEY: "CQVgdhGECQA3DfLOcuHbmFI-IzFspWiCkVfiz3NkUS4="
 
 jobs:
+  backend-quality:
+    name: Backend Quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: 'requirements-dev.txt'
+
+      - name: Install Quality Tools
+        run: |
+          python -m pip install --upgrade pip==26.2.1
+          pip install -r requirements-dev.txt
+
+      - name: Run Ruff
+        run: ruff check app/ tests/
+
+      - name: Check Black Formatting
+        run: black --check app/ tests/
+
+      - name: Run Mypy
+        run: mypy app/ --ignore-missing-imports
+
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
@@ -51,10 +81,10 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
@@ -62,7 +92,7 @@ jobs:
 
       - name: Install Python Dependencies
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip==26.2.1
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
@@ -71,15 +101,9 @@ jobs:
           pip install playwright
           playwright install chromium --with-deps
 
-      - name: Run Backend Linting
-        run: |
-          ruff check app/ tests/
-          black --check app/ tests/
-          mypy app/ --ignore-missing-imports
-
       - name: Run Backend Unit Tests
         run: |
-          pytest tests/ -v --tb=short --cov=app --cov-report=term-missing --cov-report=xml
+          pytest tests/ -v --tb=short -W error --cov=app --cov-report=term-missing --cov-report=xml --cov-report=html
           coverage xml -o coverage.xml
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/utcms_rpa_test
@@ -89,7 +113,7 @@ jobs:
 
       - name: Upload Coverage Report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-coverage
           path: |
@@ -103,10 +127,10 @@ jobs:
     
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -119,8 +143,11 @@ jobs:
 
       - name: Run Frontend Linting
         working-directory: apps/web
-        run: |
-          npm run lint
+        run: npm run lint
+
+      - name: Audit Frontend Dependencies
+        working-directory: apps/web
+        run: npm audit --audit-level=moderate
 
       - name: Run Frontend Type Checking
         working-directory: apps/web
@@ -153,22 +180,23 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
       - name: Install Dependencies
         run: |
+          python -m pip install --upgrade pip==26.2.1
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
       - name: Run Integration Tests
         run: |
-          pytest tests/test_integration/ -v --tb=short
+          pytest tests/test_integration/ -v --tb=short -W error
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/utcms_rpa_test
           REDIS_URL: redis://localhost:6379/0
@@ -182,27 +210,25 @@ jobs:
     
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install Security Tools
         run: |
-          pip install bandit safety pip-audit
+          python -m pip install --upgrade pip==26.2.1
+          pip install bandit==1.9.4 safety==3.8.1 pip-audit==2.10.1
 
       - name: Run Bandit Security Linter
         run: |
           bandit -r app/ -ll -ii
 
       - name: Run Safety Check
-        run: |
-          safety check --full-report
-          continue-on-error: true
+        continue-on-error: true
+        run: safety check --full-report -r requirements.txt
 
-      - name: Audit Dependencies
-        run: |
-          pip-audit --desc --strict
-          continue-on-error: true
+      - name: Audit Runtime Dependencies
+        run: pip-audit -r requirements.txt --desc --strict

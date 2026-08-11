@@ -8,8 +8,8 @@ from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.queue.queue_manager import WaybillQueueManager
-from app.schemas.waybill import WaybillMapRequest
 from app.schemas.task import TaskStatus
+from app.schemas.waybill import WaybillMapRequest
 
 
 def _request_payload():
@@ -36,7 +36,6 @@ async def test_enqueue_inline_and_reuse_idempotency():
 
     test_session_factory = sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     with (
-        patch("app.services.task_service.engine", test_engine),
         patch("app.services.task_service.async_session_factory", test_session_factory),
         patch("app.core.config.utcms_config.QUEUE_ENABLED", False),
         patch("app.services.task_service.task_service._emit_task_event", new=AsyncMock()),
@@ -80,7 +79,6 @@ async def test_enqueue_succeeds_when_queue_enabled_and_broker_up():
 
     test_session_factory = sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     with (
-        patch("app.services.task_service.engine", test_engine),
         patch("app.services.task_service.async_session_factory", test_session_factory),
         patch("app.core.config.utcms_config.QUEUE_ENABLED", True),
         patch("app.core.config.utcms_config.QUEUE_INLINE_FALLBACK", False),
@@ -107,7 +105,6 @@ async def test_enqueue_fails_when_queue_unavailable_and_no_inline_fallback():
 
     test_session_factory = sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     with (
-        patch("app.services.task_service.engine", test_engine),
         patch("app.services.task_service.async_session_factory", test_session_factory),
         patch("app.core.config.utcms_config.QUEUE_ENABLED", True),
         patch("app.core.config.utcms_config.QUEUE_INLINE_FALLBACK", False),

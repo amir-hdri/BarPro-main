@@ -23,6 +23,15 @@ from app.models_rpa import DispatchIntent, DriverRuntimeState, Execution
 from app.orchestrator.driver_slot import release_driver_execution_slot
 from app.workers.waybill_worker import _claim_and_execute
 
+_created_engines = []
+
+
+@pytest.fixture(autouse=True)
+async def _dispose_created_engines():
+    yield
+    while _created_engines:
+        await _created_engines.pop().dispose()
+
 
 def _utcnow_naive():
     return datetime.now(UTC).replace(tzinfo=None)
@@ -30,6 +39,7 @@ def _utcnow_naive():
 
 async def _make_engine():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
+    _created_engines.append(engine)
     session_factory = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)

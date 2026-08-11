@@ -10,7 +10,6 @@ After the field_validator fix:
 """
 
 from datetime import datetime
-import pytest
 
 from app.schemas.multitenant import (
     ClientResponse,
@@ -21,7 +20,6 @@ from app.schemas.multitenant import (
     _coerce_json_field,
 )
 from app.schemas.panel import WaybillResponse
-
 
 # ==================== Helper function tests ====================
 

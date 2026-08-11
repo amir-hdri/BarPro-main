@@ -169,9 +169,7 @@ async def _execute_single_job(
     # Use pre-decrypted password when available; fall back to decrypting here
     # (this path is taken on recursive retry calls which pass the password through).
     password = (
-        driver_password
-        if driver_password is not None
-        else decrypt_driver_password(driver.utcms_password_encrypted)
+        driver_password if driver_password is not None else decrypt_driver_password(driver.utcms_password_encrypted)
     )
     job_id = job.job_id
 
@@ -584,7 +582,7 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
     """Evaluate a single schedule and create/execute jobs for due timeslots."""
     from zoneinfo import ZoneInfo
 
-    utc_now = _utcnow()
+    _utcnow()
     tz_name = schedule.timezone or "Asia/Tehran"
     try:
         local_tz = ZoneInfo(tz_name)
@@ -807,9 +805,7 @@ async def retry_failed_scheduled_jobs() -> dict[str, Any]:
 
                 if client and driver:
                     # Update status to Pending to trigger processing on worker
-                    JobStateMachine.transition(
-                        session, job, TaskStatus.PENDING.value
-                    )
+                    JobStateMachine.transition(session, job, TaskStatus.PENDING.value)
                     await session.commit()
 
                     # Dispatch to Celery worker asynchronously

@@ -129,7 +129,11 @@ class RPASchedulerService:
                 if tenant_counts[job.client_id] >= tenant_limit:
                     continue
                 if job.celery_task_id:
-                    if job.status in {TaskStatus.PENDING.value, TaskStatus.WAITING_RETRY.value, TaskStatus.OTP_BACKOFF.value}:
+                    if job.status in {
+                        TaskStatus.PENDING.value,
+                        TaskStatus.WAITING_RETRY.value,
+                        TaskStatus.OTP_BACKOFF.value,
+                    }:
                         job.celery_task_id = None
                     else:
                         continue
@@ -150,7 +154,12 @@ class RPASchedulerService:
                     counter = await rpa_runtime.counter_snapshot(job.client_id, driver.id)
                     if persist:
                         await self._upsert_counter_row(
-                            session, job.client_id, driver.id, counter.business_date, counter.attempts, counter.successes
+                            session,
+                            job.client_id,
+                            driver.id,
+                            counter.business_date,
+                            counter.attempts,
+                            counter.successes,
                         )
                     if counter.successes >= utcms_config.DRIVER_DAILY_SUCCESS_CAP:
                         if persist:
@@ -200,9 +209,7 @@ class RPASchedulerService:
                         if persist:
                             driver.runtime_status = DriverStatus.READY.value
                             runtime_state.state = DriverRuntimeStateValue.READY.value
-                            JobStateMachine.transition(
-                                session, job, TaskStatus.QUEUED.value
-                            )
+                            JobStateMachine.transition(session, job, TaskStatus.QUEUED.value)
                             session.add(driver)
                             session.add(runtime_state)
                             await self._record_event(

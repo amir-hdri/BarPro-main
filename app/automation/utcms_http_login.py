@@ -334,23 +334,16 @@ class UtcmsHttpLogin:
 
         if last_exc is not None:
             raise RuntimeError(f"دریافت صفحه {url} ناموفق پس از {max_attempts} تلاش: {last_exc}") from last_exc
-        raise RuntimeError(
-            f"دریافت صفحه {url} ناموفق پس از {max_attempts} تلاش (آخرین وضعیت HTTP {last_status})"
-        )
+        raise RuntimeError(f"دریافت صفحه {url} ناموفق پس از {max_attempts} تلاش (آخرین وضعیت HTTP {last_status})")
 
     @staticmethod
     def _is_captcha_error(error: str | None) -> bool:
         if not error:
             return False
         lowered = error.lower()
-        return any(
-            marker in lowered
-            for marker in ("کد امنیتی", "عبارت امنیتی", "captcha", "کد تصویر")
-        )
+        return any(marker in lowered for marker in ("کد امنیتی", "عبارت امنیتی", "captcha", "کد تصویر"))
 
-    async def _attempt_single_session(
-        self, username: str, password: str
-    ) -> HttpLoginResult:
+    async def _attempt_single_session(self, username: str, password: str) -> HttpLoginResult:
         """One full GET → solve → POST round inside a single curl_cffi session."""
         # 1) GET login page
         logger.info(
@@ -414,9 +407,7 @@ class UtcmsHttpLogin:
         # 3) Download captcha image
         try:
             self._captcha_image_url = captcha_img_url
-            img_resp = await asyncio.to_thread(
-                self._session.get, captcha_img_url, timeout=self._timeout
-            )
+            img_resp = await asyncio.to_thread(self._session.get, captcha_img_url, timeout=self._timeout)
             if img_resp.status_code != 200 or len(img_resp.content) < 16:
                 return HttpLoginResult(
                     success=False,
@@ -485,11 +476,7 @@ class UtcmsHttpLogin:
 
         return self._evaluate_post_response(post_resp)
 
-
-
-    async def inject_cookies_into_context_async(
-        self, result: HttpLoginResult, context: Any
-    ) -> bool:
+    async def inject_cookies_into_context_async(self, result: HttpLoginResult, context: Any) -> bool:
         """Async helper to inject auth cookies into a Playwright context."""
         if not result.success or not result.cookies:
             return False
@@ -743,10 +730,7 @@ class UtcmsHttpLogin:
                 status_code=status,
             )
         message = str(
-            payload.get("message")
-            or payload.get("detail")
-            or payload.get("resultMessage")
-            or "لاگین ناموفق بود"
+            payload.get("message") or payload.get("detail") or payload.get("resultMessage") or "لاگین ناموفق بود"
         )
         return HttpLoginResult(success=False, error=message, status_code=status, final_url=final_url)
 
@@ -761,9 +745,7 @@ class UtcmsHttpLogin:
         lowered = (body or "").lower()
         if any(marker in lowered for marker in ("خروج", "logout", "به سامانه باربران خوش آمدید")):
             return True
-        return "logindevice" not in lowered and (
-            "href=\"/barname\"" in lowered or "href=\"/waybill\"" in lowered
-        )
+        return "logindevice" not in lowered and ('href="/barname"' in lowered or 'href="/waybill"' in lowered)
 
     @staticmethod
     def _classify_html_response(body: str, final_url: str, status: int) -> str | None:
@@ -892,9 +874,7 @@ class UtcmsHttpLogin:
         return entry
 
     @staticmethod
-    def _cookies_to_playwright_dicts(
-        cookies: list[dict[str, Any]], final_url: str
-    ) -> list[dict[str, Any]]:
+    def _cookies_to_playwright_dicts(cookies: list[dict[str, Any]], final_url: str) -> list[dict[str, Any]]:
         """Convert internal cookie dicts to Playwright's expected format.
 
         Playwright's ``BrowserContext.add_cookies`` accepts:
@@ -936,11 +916,7 @@ class UtcmsHttpLogin:
     @staticmethod
     def _normalise_cookies_for_playwright(cookies: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Filter out cookies with empty names or values."""
-        return [
-            c
-            for c in cookies
-            if c.get("name") and c.get("value") not in (None, "")
-        ]
+        return [c for c in cookies if c.get("name") and c.get("value") not in (None, "")]
 
 
 def cookies_to_playwright(cookies: list[dict[str, Any]], final_url: str) -> list[dict[str, Any]]:

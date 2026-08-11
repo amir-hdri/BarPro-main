@@ -137,9 +137,7 @@ class UTCMSConfig:
         # pass. If HTTP login succeeds, the obtained auth cookies are
         # injected into the Playwright context and the rest of the RPA
         # flow continues with a valid session. Disable for diagnosis.
-        self.UTCMS_HTTP_LOGIN_ENABLED = _to_bool(
-            os.getenv("UTCMS_HTTP_LOGIN_ENABLED", "True"), default=True
-        )
+        self.UTCMS_HTTP_LOGIN_ENABLED = _to_bool(os.getenv("UTCMS_HTTP_LOGIN_ENABLED", "True"), default=True)
 
         self.API_AUTH_MODE = os.getenv("API_AUTH_MODE", "api_key_or_jwt").lower()
         self.API_KEY_HEADER = os.getenv("API_KEY_HEADER", "X-API-Key")
@@ -276,10 +274,10 @@ class UTCMSConfig:
         # Multi-tenant settings
         self.MULTITENANT_ENABLED = _to_bool(os.getenv("MULTITENANT_ENABLED", "False"), default=False)
         self.DEPRECATE_OLD_EXECUTION_PATH = _to_bool(os.getenv("DEPRECATE_OLD_EXECUTION_PATH", "True"), default=True)
-        
+
         # Job processing settings
         self.STALE_JOB_THRESHOLD_MINUTES = int(os.getenv("STALE_JOB_THRESHOLD_MINUTES", "5"))
-        
+
         # Celery queue names (configurable for testing)
         self.CELERY_WAYBILL_SUBMIT_QUEUE = os.getenv("CELERY_WAYBILL_SUBMIT_QUEUE", "barpro.waybill.submit")
         self.CELERY_WAYBILL_AUTH_QUEUE = os.getenv("CELERY_WAYBILL_AUTH_QUEUE", "barpro.waybill.auth")

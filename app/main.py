@@ -10,7 +10,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError, ResponseValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import (
     admin_alerts,
@@ -143,19 +142,17 @@ async def lifespan(app: FastAPI):
 
     # Test Redis connectivity for fail-closed Session Vault
     import sys
+
     if "pytest" not in sys.modules:
         from app.core.redis import redis_manager
+
         redis_client = await redis_manager.get()
         if redis_client:
             try:
                 await redis_client.ping()
                 logger.info("Redis connectivity verified for session vault")
             except Exception as exc:
-                logger.critical(
-                    "redis_connection_failed",
-                    extra={"extra_fields": {"error": str(exc)}},
-                    exc_info=True
-                )
+                logger.critical("redis_connection_failed", extra={"extra_fields": {"error": str(exc)}}, exc_info=True)
                 raise RuntimeError("Redis connection failed during startup (fail-closed)") from exc
         else:
             logger.critical("Redis client is not available during startup (fail-closed)")
@@ -284,7 +281,9 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    )
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
     return response
 
@@ -305,7 +304,10 @@ async def request_context_middleware(request: Request, call_next):
 
     rate_rule = "public"
     # Order matters: first match wins
-    if any(path.startswith(p) for p in ("/api/v1/admin/login", "/admin/login", "/api/v1/auth/login", "/api/v1/auth/register")):
+    if any(
+        path.startswith(p)
+        for p in ("/api/v1/admin/login", "/admin/login", "/api/v1/auth/login", "/api/v1/auth/register")
+    ):
         rate_rule = "auth"
     elif any(path.startswith(p) for p in ("/api/v1/admin", "/admin", "/management")):
         rate_rule = "admin"
@@ -489,7 +491,6 @@ async def response_validation_exception_handler(request: Request, exc: ResponseV
     if not is_production:
         response_body["details"] = exc.errors()
     return JSONResponse(status_code=500, content=response_body)
-
 
 
 @app.get("/", tags=["وضعیت سیستم"])

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 
 import { api } from '@/lib/api';
@@ -112,7 +113,14 @@ export default function AuthPage() {
             {/* Main logo circle */}
             <div className="relative flex h-36 w-36 items-center justify-center rounded-full bg-slate-950 border border-white/10 shadow-[inset_0_2px_20px_rgba(255,255,255,0.1)] overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/20 to-transparent"></div>
-              <img src="/logo_white.svg" alt="BarPro Logo" className="w-28 h-auto object-contain z-10 transform transition-transform duration-500 group-hover:scale-110" />
+              <Image
+                src="/logo_white.svg"
+                alt="BarPro Logo"
+                width={112}
+                height={112}
+                priority
+                className="w-28 h-auto object-contain z-10 transform transition-transform duration-500 group-hover:scale-110"
+              />
             </div>
           </div>
         </div>

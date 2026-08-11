@@ -6,14 +6,14 @@ and intelligent rotation for maximum anonymity and reliability.
 """
 
 import asyncio
-import re
 import contextlib
 import ipaddress
-import os
-import socket
 import json
 import logging
+import os
 import random
+import re
+import socket
 import threading
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -535,27 +535,26 @@ class ProxyRotator:
 
             # Skip this check during unit tests to prevent mock/dummy proxies from being excluded.
             import sys
-            import os
-            import socket
+
             is_testing = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
-            
+
             parsed = urlparse(chosen.url)
             host = parsed.hostname
             port = parsed.port
             if host and port and not is_testing:
-                    try:
-                        def check_socket():
-                            with socket.create_connection((host, port), timeout=2.0):
-                                pass
-                        await asyncio.to_thread(check_socket)
-                    except (OSError, TimeoutError) as exc:
-                        logger.warning(
-                            f"Proxy {chosen.url} is TCP unreachable: {exc}. Excluding from rotation."
-                        )
-                        chosen.fail_count = max(chosen.fail_count, 3)  # Ensure is_healthy returns False immediately
-                        chosen.record_failure(f"TCP unreachable: {exc}")
-                        chosen.last_used = time.time()
-                        continue
+                try:
+
+                    def check_socket(target_host: str = host, target_port: int = port) -> None:
+                        with socket.create_connection((target_host, target_port), timeout=2.0):
+                            pass
+
+                    await asyncio.to_thread(check_socket)
+                except (OSError, TimeoutError) as exc:
+                    logger.warning(f"Proxy {chosen.url} is TCP unreachable: {exc}. Excluding from rotation.")
+                    chosen.fail_count = max(chosen.fail_count, 3)  # Ensure is_healthy returns False immediately
+                    chosen.record_failure(f"TCP unreachable: {exc}")
+                    chosen.last_used = time.time()
+                    continue
 
             # If require_iran_ip is true and proxy's country is not verified, check on-the-fly
             if require_iran_ip and chosen.country is None:
@@ -821,9 +820,6 @@ async def _test_proxy(proxy_url: str, timeout: float = 10.0) -> bool:
             return False
     except Exception:
         return False
-
-
-
 
 
 # ============================================================================

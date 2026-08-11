@@ -31,7 +31,7 @@ volumes:
 
 # ── متغیرهای مشترک بین تمام سرویس‌های بک‌اند ─────────────────
 x-backend-common: &backend-common
-  image: barpro_backend:latest
+  image: ${BACKEND_IMAGE:-barpro_backend:latest}
   build:
     context: ..
     dockerfile: Dockerfile
@@ -106,6 +106,7 @@ services:
   # ── ورکر IP اول ──────────────────────────────────────────────
   celery_worker_1:
     <<: *backend-common
+    image: ${BACKEND_IMAGE:-barpro_backend:latest}
     container_name: barpro-worker-1
     shm_size: '512m'
     mem_limit: 3g        # ↑ از 2.5g — فضای بیشتر برای Chromium + PyTorch روی 16GB
@@ -151,6 +152,7 @@ services:
   # ── ورکر IP دوم ──────────────────────────────────────────────
   celery_worker_2:
     <<: *backend-common
+    image: ${BACKEND_IMAGE:-barpro_backend:latest}
     container_name: barpro-worker-2
     # Model B (scale-out): worker 2/3 run on REMOTE worker nodes.
     # On the central server they are optional — enable with:
@@ -190,6 +192,7 @@ services:
   # ــ ورکر IP سوم ──────────────────────────────────────────────
   celery_worker_3:
     <<: *backend-common
+    image: ${BACKEND_IMAGE:-barpro_backend:latest}
     container_name: barpro-worker-3
     # Model B (scale-out): worker 2/3 run on REMOTE worker nodes.
     # On the central server they are optional — enable with:
@@ -229,6 +232,7 @@ services:
   # ── زمان‌بند وظایف دوره‌ای ───────────────────────────────────
   celery_beat:
     <<: *backend-common
+    image: ${BACKEND_IMAGE:-barpro_backend:latest}
     container_name: barpro-beat
     mem_limit: 256m      # ↑ از 128m — Beat واقعاً ~225MB RSS مصرف می‌کند (automation/captcha imports)
     mem_reservation: 128m  # ↑ از 64m
@@ -255,6 +259,7 @@ services:
   # dedicated service never shares its process with 360s waybill jobs.
   celery_scheduler:
     <<: *backend-common
+    image: ${BACKEND_IMAGE:-barpro_backend:latest}
     container_name: barpro-scheduler
     hostname: barpro-scheduler   # non-numeric hostname -> resolve_ip_index() -> None
     shm_size: '128m'

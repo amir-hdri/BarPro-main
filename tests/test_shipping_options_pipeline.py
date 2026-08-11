@@ -5,7 +5,7 @@ _check_checkbox_with_fallback, and _check_account_eligibility.
 
 import os
 import sys
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -201,6 +201,7 @@ class TestCategorizeException:
 class TestCheckAccountEligibility:
     def _make_manager(self):
         page = AsyncMock()
+        page.on = Mock()
         ctx = AsyncMock()
         with (
             patch("app.automation.waybill_enhanced.PageInteractor"),
@@ -264,6 +265,7 @@ class TestCheckAccountEligibility:
 class TestCheckboxWithFallback:
     def _make_manager(self):
         page = AsyncMock()
+        page.on = Mock()
         ctx = AsyncMock()
         with (
             patch("app.automation.waybill_enhanced.PageInteractor"),
@@ -350,6 +352,7 @@ class TestDryRunValidationSummary:
         from unittest.mock import Mock
 
         page = page or AsyncMock()
+        page.on = Mock()
         page.locator = Mock()
         page.evaluate.return_value = False
         ctx = ctx or AsyncMock()

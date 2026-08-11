@@ -2,16 +2,18 @@
 Authentication tests for UTCMSAuthenticator.
 Converted from unittest to pytest (M-021).
 """
+
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, Mock
 
 from app.automation.auth import UTCMSAuthenticator
 from app.automation.auth_utils import normalize_captcha_solution
-from app.automation.selectors import AuthSelectors
 
 
 class _NoopAsyncContext:
     """Async context manager that does nothing."""
+
     async def __aenter__(self):
         return None
 
@@ -33,6 +35,7 @@ def mock_auth():
 # ============================================================================
 # CAPTCHA Normalization Tests
 # ============================================================================
+
 
 @pytest.mark.asyncio
 async def test_normalize_captcha_solution_with_persian_digits():
@@ -79,6 +82,7 @@ async def test_normalize_captcha_solution_with_equals():
 # ============================================================================
 # Login URL Tests
 # ============================================================================
+
 
 @pytest.mark.asyncio
 async def test_candidate_login_urls_returns_list():

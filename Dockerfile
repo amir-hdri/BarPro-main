@@ -16,6 +16,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /build
 
+RUN python -m pip install --no-cache-dir --upgrade "pip==26.2.1"
 
 COPY requirements.txt ./
 
@@ -117,5 +118,5 @@ CMD ["uvicorn", "app.main:app", \
      "--host", "0.0.0.0", \
      "--port", "8000", \
      "--workers", "2", \
-     "--loop", "uvloop", \
+     "--loop", "auto", \
      "--timeout-keep-alive", "30"]

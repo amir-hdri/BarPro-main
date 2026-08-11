@@ -54,9 +54,10 @@ from .proxy_rotator import (
     ProxyRotator,
     get_proxy_rotator,
     set_proxy_rotator,
+)
+from .proxy_rotator import (
     _test_proxy as test_proxy,
 )
-test_proxy.__test__ = False
 from .stealth import (
     apply_stealth_mode,
     get_random_user_agent,
@@ -83,6 +84,9 @@ from .stealth_advanced import (
 from .stealth_advanced import (
     get_random_user_agent as get_advanced_ua,
 )
+
+# Prevent pytest from collecting the exported helper as a test function.
+test_proxy.__test__ = False
 
 # Export all main classes for easy import
 __all__ = [

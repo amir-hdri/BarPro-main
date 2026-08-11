@@ -206,7 +206,6 @@ class LocationSelector:
             "‌": "",
             "\u200f": "",
             "\u200e": "",
-            "\u200c": "",
             "ۀ": "ه",
             "ة": "ه",
             "أ": "ا",
@@ -1299,15 +1298,13 @@ class LocationSelector:
                             if tag_name in ["input", "textarea"]:
                                 value = await element.input_value()
                             else:
-                                value = await element.evaluate(
-                                    """el => {
+                                value = await element.evaluate("""el => {
                                     if (el.selectedIndex >= 0) {
                                         const option = el.options[el.selectedIndex];
                                         return option.value ? option.text : '';
                                     }
                                     return '';
-                                }"""
-                                )
+                                }""")
 
                             if value and value.strip():
                                 state[field_name] = value.strip()
@@ -1834,7 +1831,7 @@ class LocationSelector:
         def clean_prefix(text: str) -> str:
             for prefix in ("استان", "شهرستان", "شهر", "بخش", "دهستان", "منطقه"):
                 if text.startswith(prefix):
-                    text = text[len(prefix):]
+                    text = text[len(prefix) :]
             return text
 
         target_clean = clean_prefix(normalized_target)
@@ -1873,11 +1870,7 @@ class LocationSelector:
             if norm_text == "undefined" or norm_val == "undefined":
                 continue
 
-            if (
-                target_clean in norm_text
-                or target_clean in norm_val
-                or norm_text in target_clean
-            ):
+            if target_clean in norm_text or target_clean in norm_val or norm_text in target_clean:
                 best_value = option_value or option_text
 
         return best_value

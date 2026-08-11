@@ -3,6 +3,7 @@ import logging
 import os
 import re
 from pathlib import Path
+
 from app.core.config import utcms_config
 from app.core.redis import redis_manager
 from app.core.utils import run_async
@@ -82,22 +83,22 @@ class SessionVault:
         redis_client = await redis_manager.get()
         if not redis_client:
             raise RuntimeError("Redis is not available (fail-closed)")
-        
+
         key = self._redis_key_from_path(path)
         try:
             exists = await redis_client.exists(key)
             if not exists:
                 return False
-            
+
             raw = await redis_client.get(key)
             if not raw:
                 return False
-            
+
             data = json.loads(raw)
             playwright_state = data.get("playwright_state")
             if not playwright_state:
                 return False
-            
+
             return True
         except Exception as e:
             logger.error(f"Redis session vault check failed: {e}", exc_info=True)
@@ -114,18 +115,18 @@ class SessionVault:
         redis_client = await redis_manager.get()
         if not redis_client:
             raise RuntimeError("Redis is not available (fail-closed)")
-        
+
         key = self._redis_key_from_path(path)
         try:
             raw = await redis_client.get(key)
             if not raw:
                 return False
-            
+
             data = json.loads(raw)
             playwright_state = data.get("playwright_state")
             if not playwright_state:
                 return False
-            
+
             self.ensure_parent_dir(path)
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(playwright_state, f, ensure_ascii=False)
@@ -149,14 +150,14 @@ class SessionVault:
         redis_client = await redis_manager.get()
         if not redis_client:
             raise RuntimeError("Redis is not available (fail-closed)")
-        
+
         key = self._redis_key_from_path(path)
         try:
             await redis_client.delete(key)
         except Exception as e:
             logger.error(f"Redis session vault delete failed: {e}", exc_info=True)
             raise RuntimeError(f"Session vault delete error (fail-closed): {e}") from e
-        
+
         try:
             Path(path).unlink(missing_ok=True)
         except Exception as exc:
@@ -173,26 +174,23 @@ class SessionVault:
     async def store_auth_state_from_file(self, path: str, session_version: int = 0, ttl: int | None = None) -> None:
         if not os.path.exists(path):
             return
-        
+
         redis_client = await redis_manager.get()
         if not redis_client:
             raise RuntimeError("Redis is not available (fail-closed)")
-        
+
         key = self._redis_key_from_path(path)
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             content = f.read()
-            
+
         try:
             playwright_state = json.loads(content)
         except Exception as e:
             logger.error(f"Invalid auth state JSON content: {e}")
             return
-            
-        wrapper = {
-            "session_version": session_version,
-            "playwright_state": playwright_state
-        }
-        
+
+        wrapper = {"session_version": session_version, "playwright_state": playwright_state}
+
         ttl = ttl or utcms_config.RPA_SESSION_TTL_SECONDS
         try:
             await redis_client.set(key, json.dumps(wrapper, ensure_ascii=False), ex=ttl)
@@ -206,7 +204,7 @@ class SessionVault:
         redis_client = await redis_manager.get()
         if not redis_client:
             raise RuntimeError("Redis is not available (fail-closed)")
-        
+
         key = self._redis_key_from_path(path)
         try:
             raw = await redis_client.get(key)

@@ -145,4 +145,3 @@ def test_get_filter_options_success():
             assert response.json() == mock_filter_data
         finally:
             app_for_test.dependency_overrides.clear()
-

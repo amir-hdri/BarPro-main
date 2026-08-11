@@ -333,8 +333,7 @@ async def is_master_admin(username: str, password: str) -> bool:
     # Master admin password must be bcrypt-hashed (security requirement)
     if not stored.startswith(("$2a$", "$2b$", "$2y$")):
         raise ValueError(
-            "MASTER_ADMIN_PASSWORD must be bcrypt-hashed. "
-            "Plain-text passwords are not allowed for security reasons."
+            "MASTER_ADMIN_PASSWORD must be bcrypt-hashed. " "Plain-text passwords are not allowed for security reasons."
         )
     try:
         return await asyncio.to_thread(bcrypt.checkpw, password.encode("utf-8"), stored.encode("utf-8"))

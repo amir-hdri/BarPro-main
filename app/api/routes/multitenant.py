@@ -14,8 +14,10 @@ All endpoints enforce tenant isolation - clients can only access their own data.
 import logging
 import os
 import re
+from datetime import datetime
 from pathlib import Path
-from fastapi import APIRouter, Body, Depends, Query, Request, UploadFile, status
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel, Field
@@ -57,11 +59,11 @@ from app.schemas.multitenant import (
     WaybillJobUpdateRequest,
     WaybillRetryRequest,
 )
-from app.services.excel_upload_service import ExcelUploadService
-from app.services.fuel_inquiry_service import fuel_inquiry_service
 from app.services.client_service import ClientService
 from app.services.driver_schedule_service import DriverScheduleService
 from app.services.driver_service import DriverService
+from app.services.excel_upload_service import ExcelUploadService
+from app.services.fuel_inquiry_service import fuel_inquiry_service
 from app.services.plate_service import PlateService
 from app.services.user_reporting_service import user_reporting_service
 from app.services.waybill_job_service import WaybillJobService
@@ -151,9 +153,10 @@ async def login_master_admin(
 async def logout_client(request: Request, response: Response):
     """Log out the current user/admin and blacklist the JWT token server-side."""
     # Extract token from Authorization header or cookie for blacklisting
+    from jwt.exceptions import PyJWTError as JWTError
+
     from app.auth_multitenant import _decode_jwt
     from app.core.token_blacklist import blacklist_token
-    from jwt.exceptions import PyJWTError as JWTError
 
     token = None
     auth_header = request.headers.get("Authorization")

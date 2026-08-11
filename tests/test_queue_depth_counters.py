@@ -141,7 +141,7 @@ async def test_seed_then_adjust_updates_counters(fake_redis):
     # Seed with one queued task
     await fake_redis.hset(
         svc.QUEUE_DEPTH_KEY,
-        mapping={k: "0" for k in svc._queue_depth_status_values()},
+        mapping=dict.fromkeys(svc._queue_depth_status_values(), "0"),
     )
     fake_redis._hash[svc.QUEUE_DEPTH_KEY]["queued"] = "1"
     await fake_redis.set(svc.QUEUE_DEPTH_SEEDED, "1")
@@ -163,25 +163,14 @@ async def test_reconcile_overwrites_stale_cache_from_db(fake_redis, monkeypatch)
     # Seed a WRONG cache: says 5 queued, but DB (fake) has 2 queued + 1 failed
     await fake_redis.hset(
         svc.QUEUE_DEPTH_KEY,
-        mapping={k: "0" for k in svc._queue_depth_status_values()},
+        mapping=dict.fromkeys(svc._queue_depth_status_values(), "0"),
     )
     fake_redis._hash[svc.QUEUE_DEPTH_KEY]["queued"] = "5"
     await fake_redis.set(svc.QUEUE_DEPTH_SEEDED, "1")
 
-    class _Row:
-        def __init__(self, status):
-            self.status = status
-
-        def __getitem__(self, idx):
-            # reconcile_queue_depth reads row[0]
-            return self.status
-
     class _Result:
-        def __init__(self, rows):
-            self._rows = rows
-
         def all(self):
-            return self._rows
+            return ["queued", "queued", "failed"]
 
     class _FakeSession:
         def __init__(self, *a, **k):
@@ -193,8 +182,8 @@ async def test_reconcile_overwrites_stale_cache_from_db(fake_redis, monkeypatch)
         async def __aexit__(self, *a):
             return False
 
-        async def execute(self, *a, **k):
-            return _Result([_Row("queued"), _Row("queued"), _Row("failed")])
+        async def exec(self, *a, **k):
+            return _Result()
 
     monkeypatch.setattr(svc, "_ensure_queue_depth_seeded", lambda *a, **k: __import__("asyncio").sleep(0))
     ts = importlib.import_module("app.services.task_service")
@@ -216,7 +205,7 @@ async def test_adjust_is_noop_when_status_unchanged(fake_redis):
     svc = WaybillTaskService()
     await fake_redis.hset(
         svc.QUEUE_DEPTH_KEY,
-        mapping={k: "0" for k in svc._queue_depth_status_values()},
+        mapping=dict.fromkeys(svc._queue_depth_status_values(), "0"),
     )
     fake_redis._hash[svc.QUEUE_DEPTH_KEY]["processing"] = "3"
     await fake_redis.set(svc.QUEUE_DEPTH_SEEDED, "1")

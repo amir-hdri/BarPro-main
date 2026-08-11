@@ -10,8 +10,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.auth_multitenant import get_current_admin
 from app.automation.browser import browser_manager
 from app.automation.captcha import barname_ml_solver, captcha_engine
@@ -348,7 +346,9 @@ async def metrics():
     # Update reconciliation backlog gauge
     try:
         async with async_session_factory() as session:
-            backlog_res = await session.exec(select(func.count(WaybillJob.job_id)).where(WaybillJob.status == "unknown"))
+            backlog_res = await session.exec(
+                select(func.count(WaybillJob.job_id)).where(WaybillJob.status == "unknown")
+            )
             set_reconciliation_backlog(backlog_res.one())
     except Exception as exc:
         logger.error(f"Failed to populate reconciliation backlog metric: {exc}")

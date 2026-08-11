@@ -7,9 +7,8 @@ Each client has isolated access to their own drivers and waybill tasks.
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Column, DateTime, Index, Integer, JSON, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Column, DateTime, Index, Integer, Text, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 # ==================== ENUMS ====================

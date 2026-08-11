@@ -6,6 +6,7 @@ disallowed transitions across every job state defined in the roadmap
 needs_review, waiting_auth, waiting_retry, otp_backoff, dead_letter,
 cancelled, unknown, reconciling, daily_limit_reached).
 """
+
 from unittest.mock import MagicMock
 
 import pytest

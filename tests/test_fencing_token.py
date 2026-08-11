@@ -1,14 +1,15 @@
-import pytest
-import time
 import threading
-from datetime import datetime, UTC, timedelta
+import time
+from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
+
+import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from unittest.mock import patch
 
-from app.models_multitenant import WaybillJob, TaskStatus, Client
+from app.models_multitenant import Client, TaskStatus, WaybillJob
 from app.models_rpa import Execution
 from app.workers.waybill_worker import _renew_lease_sync_loop
 
@@ -27,11 +28,21 @@ async def async_session(tmp_path):
 @pytest.mark.asyncio
 async def test_fencing_token_mismatch_stops_renewal(async_session):
     async with async_session() as session:
-        client = Client(id=1, client_code="c1", name="C1", email="c1@example.com", hashed_password="h", username="c1", full_name="C1")
+        client = Client(
+            id=1,
+            client_code="c1",
+            name="C1",
+            email="c1@example.com",
+            hashed_password="h",
+            username="c1",
+            full_name="C1",
+        )
         session.add(client)
-        job = WaybillJob(job_id="job-1", idempotency_key="id-1", client_id=1, status=TaskStatus.RUNNING.value, payload_json={})
+        job = WaybillJob(
+            job_id="job-1", idempotency_key="id-1", client_id=1, status=TaskStatus.RUNNING.value, payload_json={}
+        )
         session.add(job)
-        
+
         # Fencing token is 1 in database
         execution = Execution(
             execution_id="exec-123",
@@ -42,7 +53,7 @@ async def test_fencing_token_mismatch_stops_renewal(async_session):
             worker_id="w1",
             fencing_token=1,
             lease_expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=10),
-            status="running"
+            status="running",
         )
         session.add(execution)
         await session.commit()
@@ -50,35 +61,42 @@ async def test_fencing_token_mismatch_stops_renewal(async_session):
     # Start renewal with fencing_token = 2 (mismatch!)
     stop_event = threading.Event()
     with patch("app.workers.waybill_worker.async_session_factory", new=async_session):
+
         def mock_wait(timeout=None):
             time.sleep(0.1)
             return stop_event.is_set()
-            
+
         with patch.object(stop_event, "wait", side_effect=mock_wait):
             # Run in a separate thread so it doesn't block the test
-            t = threading.Thread(
-                target=_renew_lease_sync_loop,
-                args=("exec-123", 2, stop_event),
-                daemon=True
-            )
+            t = threading.Thread(target=_renew_lease_sync_loop, args=("exec-123", 2, stop_event), daemon=True)
             t.start()
             t.join(timeout=2)
-            
+
     # Verify the thread stopped and set stop_event
     assert stop_event.is_set()
 
 
 @pytest.mark.asyncio
 async def test_fencing_token_blocks_parallel_finalize(async_session):
-    from app.workers.waybill_worker import _finalize_execution, _assert_still_valid
     from app.orchestrator.state_machine import StateTransitionError
+    from app.workers.waybill_worker import _assert_still_valid, _finalize_execution
 
     async with async_session() as session:
-        client = Client(id=1, client_code="c1", name="C1", email="c1@example.com", hashed_password="h", username="c1", full_name="C1")
+        client = Client(
+            id=1,
+            client_code="c1",
+            name="C1",
+            email="c1@example.com",
+            hashed_password="h",
+            username="c1",
+            full_name="C1",
+        )
         session.add(client)
-        job = WaybillJob(job_id="job-1", idempotency_key="id-1", client_id=1, status=TaskStatus.RUNNING.value, payload_json={})
+        job = WaybillJob(
+            job_id="job-1", idempotency_key="id-1", client_id=1, status=TaskStatus.RUNNING.value, payload_json={}
+        )
         session.add(job)
-        
+
         # Fencing token is 1 in database
         execution = Execution(
             execution_id="exec-123",
@@ -89,7 +107,7 @@ async def test_fencing_token_blocks_parallel_finalize(async_session):
             worker_id="w1",
             fencing_token=1,
             lease_expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=10),
-            status="running"
+            status="running",
         )
         session.add(execution)
         await session.commit()

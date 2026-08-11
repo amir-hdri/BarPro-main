@@ -62,8 +62,7 @@ class MapClickSelector:
         """
         try:
             # تزریق JavaScript برای گوش دادن به کلیک‌ها
-            await self.page.evaluate(
-                """
+            await self.page.evaluate("""
                 () => {
                     // ایجاد namespace برای ذخیره نقاط
                     if (!window.__utcms_map_clicks) {
@@ -159,8 +158,7 @@ class MapClickSelector:
 
                     return true;
                 }
-            """
-            )
+            """)
 
             self._map_initialized = True
             logger.info("map_click_mode_initialized")
@@ -178,8 +176,7 @@ class MapClickSelector:
             Dict با کلیدهای north, south, east, west
         """
         try:
-            bounds = await self.page.evaluate(
-                """
+            bounds = await self.page.evaluate("""
                 () => {
                     // Google Maps
                     if (typeof google !== 'undefined' && google.maps) {
@@ -225,8 +222,7 @@ class MapClickSelector:
 
                     return null;
                 }
-            """
-            )
+            """)
 
             return bounds
 
@@ -323,11 +319,9 @@ class MapClickSelector:
             )
 
             # انتظار برای نتیجه
-            result = await self.page.evaluate(
-                """
+            result = await self.page.evaluate("""
                 () => window.__utcms_pending_click_promise || null
-            """
-            )
+            """)
 
             if result:
                 return ClickLocation(
@@ -382,15 +376,13 @@ class MapClickSelector:
     async def clear_markers(self) -> bool:
         """پاک کردن تمام مارکرهای روی نقشه"""
         try:
-            await self.page.evaluate(
-                """
+            await self.page.evaluate("""
                 () => {
                     if (window.__utcms_clear_markers) {
                         window.__utcms_clear_markers();
                     }
                 }
-            """
-            )
+            """)
 
             self.selection = ClickSelection()
             logger.info("markers_cleared")
@@ -413,8 +405,7 @@ class MapClickSelector:
         logger.info("waiting_for_user_to_select_origin")
 
         # نمایش پیام به کاربر
-        await self.page.evaluate(
-            """
+        await self.page.evaluate("""
             () => {
                 const notification = document.createElement('div');
                 notification.id = 'utcms-notification';
@@ -441,8 +432,7 @@ class MapClickSelector:
                     if (el) el.remove();
                 }, 5000);
             }
-        """
-        )
+        """)
 
         location = await self.wait_for_user_click(timeout_ms)
 
@@ -453,8 +443,7 @@ class MapClickSelector:
             logger.info(f"origin_selected: ({location.latitude}, {location.longitude})")
 
             # نمایش پیام موفقیت
-            await self.page.evaluate(
-                """
+            await self.page.evaluate("""
                 () => {
                     const notification = document.createElement('div');
                     notification.style.cssText = `
@@ -477,8 +466,7 @@ class MapClickSelector:
 
                     setTimeout(() => notification.remove(), 3000);
                 }
-            """
-            )
+            """)
 
         return location
 
@@ -495,8 +483,7 @@ class MapClickSelector:
         logger.info("waiting_for_user_to_select_destination")
 
         # نمایش پیام به کاربر
-        await self.page.evaluate(
-            """
+        await self.page.evaluate("""
             () => {
                 const notification = document.createElement('div');
                 notification.id = 'utcms-notification';
@@ -523,8 +510,7 @@ class MapClickSelector:
                     if (el) el.remove();
                 }, 5000);
             }
-        """
-        )
+        """)
 
         location = await self.wait_for_user_click(timeout_ms)
 
@@ -535,8 +521,7 @@ class MapClickSelector:
             logger.info(f"destination_selected: ({location.latitude}, {location.longitude})")
 
             # نمایش پیام موفقیت
-            await self.page.evaluate(
-                """
+            await self.page.evaluate("""
                 () => {
                     const notification = document.createElement('div');
                     notification.style.cssText = `
@@ -559,8 +544,7 @@ class MapClickSelector:
 
                     setTimeout(() => notification.remove(), 3000);
                 }
-            """
-            )
+            """)
 
         return location
 

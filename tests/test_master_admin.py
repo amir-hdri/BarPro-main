@@ -15,7 +15,10 @@ from app.services.client_service import ClientService
 async def test_master_admin_login_and_token_resolution():
     with (
         patch("app.auth_multitenant.utcms_config.MASTER_ADMIN_USERNAME", "master_bar"),
-        patch("app.auth_multitenant.utcms_config.MASTER_ADMIN_PASSWORD", "$2b$12$tjcC11nC991.oGuoix.4dOFkwGwPW7vkXN.yZkyYBbph/nLnrMLTS"),
+        patch(
+            "app.auth_multitenant.utcms_config.MASTER_ADMIN_PASSWORD",
+            "$2b$12$tjcC11nC991.oGuoix.4dOFkwGwPW7vkXN.yZkyYBbph/nLnrMLTS",
+        ),
         patch("app.auth_multitenant.utcms_config.JWT_SECRET", "test-secret-key-32bytes-padding00"),
         patch("app.auth_multitenant.utcms_config.JWT_ALGORITHM", "HS256"),
         patch("app.auth_multitenant.is_blacklisted", new=AsyncMock(return_value=False)),

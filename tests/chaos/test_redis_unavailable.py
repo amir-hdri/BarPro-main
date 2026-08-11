@@ -33,7 +33,7 @@ async def test_redis_unavailable_fail_closed(async_session):
             email="t1@example.com",
             hashed_password="hash",
             username="t1",
-            full_name="Tenant 1 Admin"
+            full_name="Tenant 1 Admin",
         )
         session.add(client)
 
@@ -44,16 +44,11 @@ async def test_redis_unavailable_fail_closed(async_session):
             full_name="Chaos Driver",
             phone="09123456789",
             utcms_username="drv",
-            utcms_password_encrypted="pwd"
+            utcms_password_encrypted="pwd",
         )
         session.add(driver)
 
-        driver_state = DriverRuntimeState(
-            client_id=1,
-            driver_id=1,
-            state="active",
-            active_execution_id="intent-1"
-        )
+        driver_state = DriverRuntimeState(client_id=1, driver_id=1, state="active", active_execution_id="intent-1")
         session.add(driver_state)
 
         intent = DispatchIntent(
@@ -63,7 +58,7 @@ async def test_redis_unavailable_fail_closed(async_session):
             attempt_no=1,
             operation="submit",
             fencing_token=1,
-            status="claimed"
+            status="claimed",
         )
         session.add(intent)
 
@@ -75,7 +70,7 @@ async def test_redis_unavailable_fail_closed(async_session):
             status=TaskStatus.CLAIMED.value,
             payload_json={},
             priority=5,
-            attempt_count=0
+            attempt_count=0,
         )
         session.add(job)
         await session.commit()
@@ -85,12 +80,14 @@ async def test_redis_unavailable_fail_closed(async_session):
     mock_redis.incr.return_value = 0
     mock_redis.get.side_effect = Exception("Redis connection refused")
 
-    with patch("app.workers.waybill_worker.async_session_factory", new=async_session), \
-         patch("app.core.redis.redis_manager.get", return_value=mock_redis), \
-         patch("app.workers.waybill_worker.decrypt_driver_password", return_value="pwd"), \
-         patch("app.workers.waybill_worker.rpa_runtime.acquire_lock", return_value=True), \
-         patch("app.workers.waybill_worker.rpa_runtime.release_lock") as mock_release_lock, \
-         patch("app.automation.worker_proxy.get_worker_proxy_url", return_value="http://mock-proxy:3128"):
+    with (
+        patch("app.workers.waybill_worker.async_session_factory", new=async_session),
+        patch("app.core.redis.redis_manager.get", return_value=mock_redis),
+        patch("app.workers.waybill_worker.decrypt_driver_password", return_value="pwd"),
+        patch("app.workers.waybill_worker.rpa_runtime.acquire_lock", return_value=True),
+        patch("app.workers.waybill_worker.rpa_runtime.release_lock"),
+        patch("app.automation.worker_proxy.get_worker_proxy_url", return_value="http://mock-proxy:3128"),
+    ):
 
         # Execute the worker task
         result = execute_dispatched_intent.apply(args=("intent-1",)).get()

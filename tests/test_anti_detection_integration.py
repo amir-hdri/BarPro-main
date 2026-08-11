@@ -513,11 +513,12 @@ class TestIntegration:
         assert proxy is not None
         assert proxy.url == "http://test-proxy.com:8080"
 
-    def test_config_file_persistence(self, tmp_path):
-        """Test that config can be saved and loaded"""
+    def test_config_file_persistence(self, tmp_path, monkeypatch):
+        """Test that config can be saved and loaded without touching tracked files."""
+        from app.automation import config as automation_config
         from app.automation.config import load_profiles, save_profiles
 
-        tmp_path / "config"
+        monkeypatch.setattr(automation_config, "CONFIG_DIR", str(tmp_path / "config"))
 
         # Save profiles
         filepath = save_profiles([{"name": "test", "user_agent": "Test"}], filename="test_profiles.json")

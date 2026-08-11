@@ -1,9 +1,12 @@
-# Development & CI tooling — separate from runtime requirements.txt.
-# Used by .github/workflows/ci-*.yml quality gates.
-pytest>=8.3.0
-pytest-asyncio>=0.24.0
-pytest-cov>=5.0.0
-ruff>=0.8.0
-black>=24.10.0
-mypy>=1.13.0
-aiosqlite>=0.20.0
+# Development and CI tooling.
+# Exact pins keep local and GitHub Actions quality gates reproducible.
+pip==26.2.1
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-cov==7.1.0
+pytest-github-actions-annotate-failures==0.4.2
+ruff==0.16.2
+black==26.5.1
+mypy==2.3.0
+aiosqlite==0.22.1
+httpx2==2.10.0
