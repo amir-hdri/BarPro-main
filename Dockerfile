@@ -60,8 +60,10 @@ RUN pip install --no-cache-dir \
 # ── مرحله ۲: image تولید ──────────────────────────────────────
 FROM python:3.11-slim AS production
 
-RUN sed -i 's/deb.debian.org/mirror.iranserver.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
-    sed -i 's/deb.debian.org/mirror.iranserver.com/g' /etc/apt/sources.list 2>/dev/null || true
+RUN python3 -c "import socket; socket.create_connection(('mirror.iranserver.com', 80), timeout=2)" 2>/dev/null && ( \
+    sed -i 's/deb.debian.org/mirror.iranserver.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's/deb.debian.org/mirror.iranserver.com/g' /etc/apt/sources.list 2>/dev/null || true \
+    ) || echo "Mirror mirror.iranserver.com unreachable, keeping default deb.debian.org"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

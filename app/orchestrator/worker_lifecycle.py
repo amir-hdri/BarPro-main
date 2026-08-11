@@ -181,8 +181,7 @@ if worker_process_init is not None:
             )
         except Exception as e:
             logger.error(
-                f"Error registering worker at startup — heartbeat loop will keep "
-                f"retrying: {e}",
+                f"Error registering worker at startup — heartbeat loop will keep " f"retrying: {e}",
                 exc_info=True,
             )
 

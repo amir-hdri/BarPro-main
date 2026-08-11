@@ -225,6 +225,7 @@ jobs:
               git status --porcelain
             fi
             git checkout -f -B main origin/main
+            bash scripts/render_squid_configs.sh
             # Pin to the images built in this run rather than to `latest`.
             export BACKEND_IMAGE="ghcr.io/amir-hdri/barpro-main/barpro-backend:${{ github.sha }}"
             export FRONTEND_IMAGE="ghcr.io/amir-hdri/barpro-main/barpro-frontend:${{ github.sha }}"
@@ -305,6 +306,7 @@ jobs:
               git status --porcelain
             fi
             git checkout -f --detach "${{ github.sha }}"
+            bash scripts/render_squid_configs.sh
             # Pin to the images built in this run rather than to `latest`.
             export BACKEND_IMAGE="ghcr.io/amir-hdri/barpro-main/barpro-backend:${{ github.sha }}"
             export FRONTEND_IMAGE="ghcr.io/amir-hdri/barpro-main/barpro-frontend:${{ github.sha }}"

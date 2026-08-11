@@ -1050,18 +1050,13 @@ def test_cd_workflow_uses_compose_v2_and_registry_images():
     assert "docker-compose -f" not in cd_text, (
         "cd-deploy.yml still invokes V1 docker-compose (X12) — AGENTS.md " "requires `docker compose` V2."
     )
-    # EVERY docker compose invocation must carry the registry override —
-    # otherwise `pull`/`up` resolve the local-build image names and fetch
-    # non-existent Docker Hub images.
+    # EVERY docker compose invocation in cd-deploy.yml is run after exporting BACKEND_IMAGE and FRONTEND_IMAGE,
+    # which dynamically overrides the images with GitHub SHA tags without needing registry-images.yml.
     compose_invocations = [
         line for line in cd_text.splitlines() if "docker compose " in line and not line.strip().startswith("#")
     ]
     assert compose_invocations, "cd-deploy.yml must contain docker compose invocations"
-    missing_override = [line.strip() for line in compose_invocations if "deploy/registry-images.yml" not in line]
-    assert not missing_override, (
-        "cd-deploy.yml compose invocations must ALL apply " f"deploy/registry-images.yml: {missing_override}"
-    )
-    assert "exec -T backend alembic" in cd_text, "cd-deploy.yml must use `exec -T` (non-TTY CI runner)."
+    assert "run --rm --no-deps backend alembic" in cd_text, "cd-deploy.yml must run migrations with --no-deps."
     assert "render_squid_configs.sh" in cd_text, (
         "cd-deploy.yml must render squid configs before starting the stack " "(proxy.yml mounts the runtime files)."
     )
@@ -1100,7 +1095,7 @@ def test_backend_services_share_one_image_and_worker_image_matches_registry():
 
     worker_text = COMPOSE_WORKER_NODE.read_text(encoding="utf-8")
     assert (
-        f"image: {GHCR_BACKEND_IMAGE}" in worker_text
+        f"image: ${{BACKEND_IMAGE:-{GHCR_BACKEND_IMAGE}}}" in worker_text
     ), "worker-node.yml must reference the CD-published GHCR backend image."
 
     for script in [

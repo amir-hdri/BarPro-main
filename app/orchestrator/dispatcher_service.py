@@ -158,9 +158,7 @@ class DispatcherService:
 
             routed_queue = get_routed_queue(base_queue)
 
-            celery_app.send_task(
-                task_name, args=[intent.intent_id], queue=routed_queue, priority=job.priority or 5
-            )
+            celery_app.send_task(task_name, args=[intent.intent_id], queue=routed_queue, priority=job.priority or 5)
             return 1
         else:
             logger.warning("Celery app not initialized, cannot dispatch task")

@@ -63,7 +63,7 @@ render() {
     if [ -n "$egress" ]; then
         # Uncomment the egress line and bind it to the server's public IP.
         # Rendered from the pristine template, so re-running is idempotent.
-        sed -E "s|^#\s*tcp_outgoing_address __EGRESS_IP__|tcp_outgoing_address ${egress}|" "$src" > "$dst"
+        sed -E "s|^#[[:space:]]*tcp_outgoing_address __EGRESS_IP__|tcp_outgoing_address ${egress}|" "$src" > "$dst"
     else
         # Safe default: keep the line commented (egress via default route).
         cp "$src" "$dst"
