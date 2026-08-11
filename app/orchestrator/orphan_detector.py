@@ -49,48 +49,37 @@ class OrphanDetector:
                     job_res = await session.exec(job_stmt)
                     job = job_res.first()
 
-                    if job:
-                        # Clear active execution slot. The execution was already
-                        # moved to a terminal "orphaned" status above, so it is
-                        # no longer live and the slot may be released safely.
-                        if job.driver_id:
-                            await release_driver_execution_slot(
-                                session,
-                                driver_id=job.driver_id,
-                                expected_intent_id=exec_row.intent_id,
-                            )
+                    if not job:
+                        orphaned_count += 1
+                        continue
 
-                        # Move job status to unknown (meaning it needs reconciliation)
-                        try:
-                            JobStateMachine.transition(
-                                session,
-                                job,
-                                TaskStatus.UNKNOWN.value,
-                                expected_from={
-                                    TaskStatus.RUNNING.value,
-                                    TaskStatus.IN_PROGRESS.value,
-                                    TaskStatus.CLAIMED.value,
-                                    TaskStatus.QUEUED.value,
-                                },
-                            )
-                        except StateTransitionError as transition_err:
-                            # Job is in an unexpected state (manual intervention or
-                            # legacy data). Mark as unknown so reconciliation can take
-                            # over. Logged loudly because this is never expected in
-                            # steady-state operation.
-                            logger.warning(
-                                "orphan_unexpected_state_force_unknown",
-                                extra={
-                                    "extra_fields": {
-                                        "job_id": job.job_id,
-                                        "current_status": job.status,
-                                        "error": str(transition_err),
-                                    }
-                                },
-                            )
-                            session.add(job)
+                    # Clear active execution slot. The execution was already
+                    # moved to a terminal "orphaned" status above, so it is
+                    # no longer live and the slot may be released safely.
+                    if job.driver_id:
+                        await release_driver_execution_slot(
+                            session,
+                            driver_id=job.driver_id,
+                            expected_intent_id=exec_row.intent_id,
+                        )
 
-                        # Create reconciliation intent
+                    # Move job status to unknown (meaning it needs reconciliation)
+                    try:
+                        JobStateMachine.transition(
+                            session,
+                            job,
+                            TaskStatus.UNKNOWN.value,
+                            expected_from={
+                                TaskStatus.RUNNING.value,
+                                TaskStatus.IN_PROGRESS.value,
+                                TaskStatus.CLAIMED.value,
+                                TaskStatus.QUEUED.value,
+                            },
+                        )
+                        # Job is now unambiguously stuck in UNKNOWN. Only then a
+                        # reconciliation intent makes sense: the dispatcher can
+                        # claim it (unknown is claimable) and the reconcile
+                        # worker will drive unknown -> reconciling -> outcome.
                         intent_id = str(uuid.uuid4())
                         intent = DispatchIntent(
                             intent_id=intent_id,
@@ -103,6 +92,27 @@ class OrphanDetector:
                         )
                         session.add(intent)
                         orphaned_count += 1
+                    except StateTransitionError as transition_err:
+                        # The job was already moved out of the runnable set by
+                        # some other path (waiting_retry / needs_review /
+                        # cancelled / dead_letter / ...). Do NOT create a
+                        # reconciliation intent here: it would reference a job
+                        # the state machine cannot claim, and the dispatcher
+                        # would fail on it forever. The job's real owner is
+                        # whoever moved it (the scheduler re-dispatches
+                        # waiting_retry/otp_backoff/pending when they become
+                        # due; review/manual flow owns the rest).
+                        logger.warning(
+                            "orphan_intent_skipped",
+                            extra={
+                                "extra_fields": {
+                                    "job_id": job.job_id,
+                                    "current_status": job.status,
+                                    "execution_id": exec_row.id,
+                                    "error": str(transition_err),
+                                }
+                            },
+                        )
 
                 await session.commit()
                 if orphaned_count > 0:

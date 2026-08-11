@@ -364,11 +364,14 @@ async def check_utcms_connectivity() -> tuple[bool, VerificationReport]:
     country_code = "UNKNOWN"
     ip_address = "UNKNOWN"
     try:
-        req = urllib.request.Request("https://freeipapi.com/api/json/", headers={"User-Agent": "Mozilla/5.0"})
+        req = urllib.request.Request(
+            "http://ip-api.com/json/?fields=status,countryCode,query", headers={"User-Agent": "Mozilla/5.0"}
+        )
         with urllib.request.urlopen(req, context=ctx, timeout=5) as response:
             data = json.loads(response.read().decode())
-            country_code = data.get("countryCode", "UNKNOWN")
-            ip_address = data.get("ipAddress", "UNKNOWN")
+            if data.get("status") == "success":
+                country_code = data.get("countryCode", "UNKNOWN")
+                ip_address = data.get("query", "UNKNOWN")
     except Exception:
         pass
 

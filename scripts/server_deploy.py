@@ -295,20 +295,12 @@ def main():
         if 3 in step_list:
             hdr("🐳  مرحله ۳ — راه‌اندازی و بیلد داکر کانتینرها")
 
-            # تصحیح دستی متغیرهای پراکسی و تنظیمات
+            # رندر کانفیگ‌های Squid: squid_1 → DEFAULT_IP، squid_2/3 → secondary IP
+            # (یک فراخوانی؛ هیچ sed -i روی قالب‌های گیت — X4).
             run_cmd(
                 ssh,
-                f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_1/{DEFAULT_IP}/g' infra/squid/squid_1.conf 2>/dev/null || true",
-                check=False,
-            )
-            run_cmd(
-                ssh,
-                f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_2/{os.environ.get('SECONDARY_IP', '<SECONDARY_EGRESS_IP>')}/g' infra/squid/squid_2.conf 2>/dev/null || true",
-                check=False,
-            )
-            run_cmd(
-                ssh,
-                f"cd {REMOTE_DIR} && sed -i 's/IP_ADDRESS_3/{os.environ.get('SECONDARY_IP', '<SECONDARY_EGRESS_IP>')}/g' infra/squid/squid_3.conf 2>/dev/null || true",
+                f"cd {REMOTE_DIR} && bash scripts/render_squid_configs.sh {DEFAULT_IP} "
+                f"{os.environ.get('SECONDARY_IP', '')}",
                 check=False,
             )
 

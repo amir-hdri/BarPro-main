@@ -589,16 +589,12 @@ def step_deploy(ssh: paramiko.SSHClient) -> bool:
         # شبکه داکر مشترک (با subnet مشخص — ورکرها از گیت‌وی 172.20.0.1 استفاده می‌کنند)
         "docker network inspect barpro_platform >/dev/null 2>&1 || "
         "docker network create --subnet=172.20.0.0/16 barpro_platform",
-        # جایگزینی placeholder های IP در کانفیگ Squid — خط tcp_outgoing_address
-        # را uncomment و __EGRESS_IP__ را با IP واقعی این سرور جایگزین می‌کند
-        # (قبلاً sed روی IP_ADDRESS_1 بی‌اثر بود چون داخل کامنت بود — X3/FIX-F)
-        f"cd {REMOTE_DIR} && sed -i -E 's|#\\s*tcp_outgoing_address __EGRESS_IP__|tcp_outgoing_address {PRIMARY_IP}|' infra/squid/squid_1.conf",
-        f"cd {REMOTE_DIR} && sed -i -E 's|#\\s*tcp_outgoing_address __EGRESS_IP__|tcp_outgoing_address {SECONDARY_IP}|' infra/squid/squid_2.conf",
-        f"cd {REMOTE_DIR} && sed -i -E 's|#\\s*tcp_outgoing_address __EGRESS_IP__|tcp_outgoing_address {SECONDARY_IP}|' infra/squid/squid_3.conf",
-        # تصحیح Prometheus — از backend:8000 به جای host.docker.internal استفاده می‌کنیم
-        f"cd {REMOTE_DIR} && sed -i "
-        f"'s/host.docker.internal:8000/backend:8000/g' "
-        f"infra/prometheus/prometheus.yml",
+        # رندر کانفیگ‌های Squid — خط tcp_outgoing_address را uncomment و با
+        # IP واقعی این سرور جایگزین می‌کند. هرگز sed -i روی قالب‌های گیت
+        # (squid_1/2/3.conf) نمی‌زنیم — render_squid_configs.sh آن‌ها را به
+        # squid_<N>.runtime.conf رندر می‌کند که compose/proxy.yml mount می‌کند
+        # (X4 سمت مرکزی — sed -i درخت git سرور را کثیف و git pull بعدی را می‌شکند).
+        f"cd {REMOTE_DIR} && bash scripts/render_squid_configs.sh {PRIMARY_IP} {SECONDARY_IP}",
         # نصب پکیج‌های Node و بیلد فرانت‌اند روی سرور (npm از طریق apt نصب شده)
         f"cd {REMOTE_DIR}/apps/web && npm install --prefer-offline 2>&1 | tail -5 || npm install 2>&1 | tail -5",
         f"cd {REMOTE_DIR}/apps/web && NODE_ENV=production NEXT_PUBLIC_API_URL=/api npm run build 2>&1 | tail -20",

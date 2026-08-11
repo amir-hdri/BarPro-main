@@ -129,7 +129,7 @@ log_section "🔨 مرحله ۵: build تصویر Docker Worker"
 log_info "در حال build (ممکن است ۱۰-۲۰ دقیقه طول بکشد)..."
 docker build \
     --network=host \
-    -t barpro_backend:latest \
+    -t ghcr.io/amir-hdri/barpro-main/barpro-backend:latest \
     -f Dockerfile \
     . 2>&1 | tail -10
 log_ok "تصویر build شد"

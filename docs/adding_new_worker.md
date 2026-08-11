@@ -113,12 +113,13 @@ QUEUE_INLINE_FALLBACK=false
 EOF
 ```
 
-قبل از اولین اجرا، placeholder های کانفیگ Squid را جایگزین کرده و به `squid_worker.runtime.conf` رندر کنید (IP اگریس این VPS و IP سرور مرکزی برای health check). `compose/worker-node.yml` همین فایل `runtime` را mount می‌کند — رندر روی خودِ قالب، قالب git را خراب می‌کند:
+قبل از اولین اجرا، placeholder های کانفیگ Squid را جایگزین کرده و به `squid_worker.runtime.conf` رندر کنید (IP اگریس این VPS و IP سرور مرکزی برای health check). `compose/worker-node.yml` همین فایل `runtime` را mount می‌کند — رندر روی خودِ قالب، قالب git را خراب می‌کند. ابتدا مقدارهای واقعی را جای `.env` بگذارید و آن را در شل load کنید (گارد `:?` اگر متغیری نباشد، خطا می‌دهد به‌جای اینکه کانفیگ خراب بسازد):
 
 ```bash
 cd /opt/barpro
-sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:-<IP این VPS>}/g" \
-    -e "s/__CENTRAL_IP__/${CENTRAL_IP:-<IP سرور مرکزی>}/g" \
+set -a; source .env; set +a
+sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:?WORKER_EGRESS_IP is required in .env}/g" \
+    -e "s/__CENTRAL_IP__/${CENTRAL_IP:?CENTRAL_IP is required in .env}/g" \
     infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf
 ```
 
@@ -130,13 +131,16 @@ sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:-<IP این VPS>}/g" \
 
 ```bash
 cd /opt/barpro
-docker compose -f compose/worker-node.yml up -d
+# --env-file .env: compose interpolation باید از /opt/barpro/.env بخواند، نه
+# ./compose/.env — وگرنه WORKER_IP_INDEX/CENTRAL_IP در قالب worker-node.yml
+# مقدار placeholder می‌گیرند و ورکر به صف‌های اشتباه وصل می‌شود (X5).
+docker compose --env-file .env -f compose/worker-node.yml up -d
 ```
 
 بررسی وضعیت:
 ```bash
-docker compose -f compose/worker-node.yml ps
-docker compose -f compose/worker-node.yml logs -f worker
+docker compose --env-file .env -f compose/worker-node.yml ps
+docker compose --env-file .env -f compose/worker-node.yml logs -f worker
 ```
 
 ---

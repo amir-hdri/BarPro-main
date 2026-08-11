@@ -71,6 +71,9 @@ wait_for_backend_container() {
 case "$1" in
     start)
         ensure_network
+        echo "Rendering Squid configs (infra/squid/squid_*.runtime.conf)..."
+        bash scripts/render_squid_configs.sh
+        
         echo "Starting BarPro Infrastructure (Postgres, Redis)..."
         docker compose -f compose/infra.yml up -d
         
@@ -258,6 +261,9 @@ asyncio.run(main())
         
         echo "Building frontend image..."
         docker compose -f compose/web.yml build --no-cache frontend
+        
+        echo "Rendering Squid configs before restart (git template stays clean)..."
+        bash scripts/render_squid_configs.sh
         
         echo "Restarting all services..."
         docker compose -f compose/backend.yml up -d

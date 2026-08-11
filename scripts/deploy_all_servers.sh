@@ -71,10 +71,8 @@ git pull origin main 2>&1 | tail -3
 echo '1.2 build backend image (ممکن است ۱۰-۲۰ دقیقه طول بکشد)...'
 docker build --network=host -t barpro_backend:latest -f Dockerfile . 2>&1 | tail -5
 
-echo '1.3 tag images برای ورکرها...'
-docker tag barpro_backend:latest barpro_celery_worker_1:latest
-docker tag barpro_backend:latest barpro_celery_beat:latest
-docker tag barpro_backend:latest barpro_celery_scheduler:latest
+# 1.3 — همه سرویس‌های backend.yml از یک image (barpro_backend:latest) استفاده
+# می‌کنند — دیگر tag جداگانه لازم نیست (backend.yml بدون image override).
 
 echo '1.4 ری‌استارت infra (Postgres + Redis) با mem_limit جدید...'
 docker compose --env-file .env -f compose/infra.yml up -d --force-recreate 2>&1 | tail -5
@@ -119,12 +117,18 @@ echo '2.1 git pull...'
 git pull origin main 2>&1 | tail -3
 
 echo '2.2 build worker image (ممکن است ۱۰-۲۰ دقیقه)...'
-docker build --network=host -t barpro_backend:latest -f Dockerfile . 2>&1 | tail -5
+docker build --network=host -t ghcr.io/amir-hdri/barpro-main/barpro-backend:latest -f Dockerfile . 2>&1 | tail -5
 
 echo '2.3 رندر squid_worker.runtime.conf (جایگزینی placeholderها)...'
-set -a; source .env; set +a
-sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" \
-    -e "s/__CENTRAL_IP__/${CENTRAL_IP:-127.0.0.1}/g" \
+# Never `source .env` raw: a bcrypt MASTER_ADMIN_PASSWORD ($2b$12$...) aborts
+# under set -u with "unbound variable". Lines containing '$' are filtered out
+# first — only WORKER_EGRESS_IP / CENTRAL_IP are needed here. The \${...}
+# placeholders must stay escaped so they expand on the WORKER NODE (R2).
+set -a
+source <(grep -vF '$' .env)
+set +a
+sed -e "s/__WORKER_EGRESS_IP__/\${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" \
+    -e "s/__CENTRAL_IP__/\${CENTRAL_IP:-127.0.0.1}/g" \
     infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf
 
 echo '2.4 ری‌استارت worker node...'
@@ -152,12 +156,18 @@ echo '3.1 git pull...'
 git pull origin main 2>&1 | tail -3
 
 echo '3.2 build worker image (ممکن است ۱۰-۲۰ دقیقه)...'
-docker build --network=host -t barpro_backend:latest -f Dockerfile . 2>&1 | tail -5
+docker build --network=host -t ghcr.io/amir-hdri/barpro-main/barpro-backend:latest -f Dockerfile . 2>&1 | tail -5
 
 echo '3.3 رندر squid_worker.runtime.conf (جایگزینی placeholderها)...'
-set -a; source .env; set +a
-sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" \
-    -e "s/__CENTRAL_IP__/${CENTRAL_IP:-127.0.0.1}/g" \
+# Never `source .env` raw: a bcrypt MASTER_ADMIN_PASSWORD ($2b$12$...) aborts
+# under set -u with "unbound variable". Lines containing '$' are filtered out
+# first — only WORKER_EGRESS_IP / CENTRAL_IP are needed here. The \${...}
+# placeholders must stay escaped so they expand on the WORKER NODE (R2).
+set -a
+source <(grep -vF '$' .env)
+set +a
+sed -e "s/__WORKER_EGRESS_IP__/\${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" \
+    -e "s/__CENTRAL_IP__/\${CENTRAL_IP:-127.0.0.1}/g" \
     infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf
 
 echo '3.4 ری‌استارت worker node...'
