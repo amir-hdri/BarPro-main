@@ -49,6 +49,19 @@ module = [
 ]
 ignore_missing_imports = true
 
+# ⚠️ WARNING — the backend is currently NOT type-checked.
+# This override suppresses every error in app/*, so the CI step
+# `mypy app/ --ignore-missing-imports` always passes regardless of the strict
+# settings above. A green "Backend Type Checking" job means nothing today.
+#
+# To re-enable incrementally (do this once, then keep the list shrinking):
+#   1. mypy app/ --ignore-missing-imports > /tmp/mypy.txt   # measure the surface
+#   2. delete this override
+#   3. re-add it per-package for the modules that still fail, e.g.
+#        [[tool.mypy.overrides]]
+#        module = ["app.automation.*", "app.workers.*"]
+#        ignore_errors = true
+#      so newly written modules are checked from day one.
 [[tool.mypy.overrides]]
 module = "app.*"
 ignore_errors = true
@@ -81,25 +94,11 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = [
-    "--strict-markers",
-    "--tb=short",
-    "--cov=app",
-    "--cov-report=term-missing",
-    "--cov-report=html",
-    "--cov-report=xml",
-]
-markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "integration: marks tests as integration tests",
-    "unit: marks tests as unit tests",
-]
+# NOTE: pytest configuration lives in pytest.ini, which takes precedence over
+# [tool.pytest.ini_options] here. Keeping both meant this block was silently
+# ignored (including asyncio_mode and the --cov flags), so it was removed.
+# Edit pytest.ini instead. Coverage settings below are read by coverage.py
+# directly and remain in effect.
 
 [tool.coverage.run]
 source = ["app"]

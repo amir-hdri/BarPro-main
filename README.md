@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://img.shields.io/badge/Status-Production%20Ready-success?style=for-the-badge" alt="Status" />
   <img src="https://img.shields.io/badge/Version-2.0.0-blue?style=for-the-badge" alt="Version" />
-  <img src="https://img.shields.io/badge/Tests-588%20Passed-brightgreen?style=for-the-badge" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-646-brightgreen?style=for-the-badge" alt="Tests" />
   <img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge" alt="License" />
 </div>
 
@@ -148,7 +148,7 @@ cp .env.example .env
 
 ```bash
 .venv/bin/pytest tests/ -q --tb=short
-# Expected: ≥588 passed, 0 failed
+# Expected: 0 failed (646 tests collected)
 ```
 
 ### Start System
@@ -189,7 +189,7 @@ docker compose -f compose/monitoring.yml up -d  # Prometheus
 
 ### Tests
 ```
-588+ passed, 2 skipped, 0 failed  (as of 2026-08-10)
+646 collected, 0 failed (as of 2026-08-11); a few skip without Postgres/Redis/keras
 ```
 
 ### Alembic Migration Head
@@ -235,7 +235,7 @@ BarPro/
 ├── compose/                # Docker Compose layered files
 ├── infra/                  # Nginx, Squid, Prometheus configs
 ├── alembic/                # Database migrations
-├── tests/                  # Pytest test suite (588+ tests)
+├── tests/                  # Pytest test suite (646 tests)
 ├── scripts/                # Utility and deploy scripts
 ├── CRITICAL_RULES.md       # ⚠️ خطوط قرمز و قوانین حیاتی
 ├── AGENTS.md               # AI agent guide
@@ -285,7 +285,7 @@ BarPro/
 - JWT در کوکی httpOnly — امنیت بالا در برابر XSS
 - Rate Limiter fail-closed — بسته شدن در صورت قطع Redis
 - بازیابی خودکار jobهای stuck
-- هدف: ≥588 تست پاس شده، 0 شکست
+- هدف: 0 شکست (646 تست collect می‌شود)
 
 ### راه‌اندازی سریع
 ```bash

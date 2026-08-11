@@ -1,4 +1,5 @@
 import base64
+import os
 from pathlib import Path
 
 import pytest
@@ -26,18 +27,24 @@ async def test_keras_ocr_solver():
 
     provider = KerasOcrCaptchaProvider()
 
-    # Path to sample image in dataset
-    sample_image_path = Path("/Users/amirheidari/Documents/captcha_OCR/dataset/test/images/000000.png")
-
-    if not sample_image_path.exists():
-        pytest.skip("Sample image 000000.png does not exist at the expected path (OCR dataset missing). Skipping.")
+    # Sample image lives outside the repo (the OCR dataset is not vendored). Point
+    # KERAS_OCR_SAMPLE_IMAGE at a copy of dataset/test/images/000000.png to run this
+    # test; without it the test skips rather than depending on one machine's layout.
+    sample_override = os.getenv("KERAS_OCR_SAMPLE_IMAGE")
+    if not sample_override:
+        pytest.skip("KERAS_OCR_SAMPLE_IMAGE is not set (OCR dataset not available). Skipping.")
+    sample_image_path = Path(sample_override)
 
     model_path = utcms_config.KERAS_MODEL_PATH
     if not model_path or not Path(model_path).exists():
         pytest.skip(f"Keras model not found at {model_path}. Skipping.")
 
-    # Read the image and base64-encode it
-    image_bytes = sample_image_path.read_bytes()
+    # Read the image and base64-encode it. A missing/unreadable sample is an
+    # environment gap, not a solver regression — skip instead of failing.
+    try:
+        image_bytes = sample_image_path.read_bytes()
+    except OSError as exc:
+        pytest.skip(f"Sample image at {sample_image_path} is not readable ({exc}). Skipping.")
     image_base64 = base64.b64encode(image_bytes).decode("utf-8")
 
     # Call the solver

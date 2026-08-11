@@ -76,6 +76,7 @@ app/automation/captcha/_model_cache/
 
 # Scratch notes
 frontend_apis.txt
+pytest_out.txt
 PERSIAN_OCR_USAGE.md
 
 # Deprecated/legacy frontend (use apps/web instead)

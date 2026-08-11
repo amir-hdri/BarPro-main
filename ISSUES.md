@@ -75,7 +75,7 @@
 
 | # | مشکل | وضعیت | یادداشت |
 |---|------|--------|---------|
-| T1 | 13 تست شکست‌خورده | ✅ | 552 passed, 2 skipped |
+| T1 | 13 تست شکست‌خورده | ✅ | رفع شد — سوئیت الان 646 تست collect می‌کند |
 | T2 | `RuntimeWarning: coroutine never awaited` | ✅ | `mock_page.on = MagicMock()` |
 | T3 | `InsecureKeyLengthWarning` در JWT test | ✅ | کلید ≥32 بایت در fixtures |
 | T4 | SQLModel DeprecationWarning برای DML | ✅ | `session.connection()` برای UPDATE |
@@ -136,5 +136,5 @@ echo "@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh" | crontab -
 
 ---
 
-*وضعیت نهایی: 588+ تست pass، 2 skip — آماده production deployment*
+*وضعیت نهایی: 646 تست collect، 0 failed — آماده production deployment*
 *آخرین بروزرسانی: 2026-08-10 — تمام مستندات به‌روز شده‌اند*
