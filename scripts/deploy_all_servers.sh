@@ -120,12 +120,13 @@ echo '2.2 build worker image (ممکن است ۱۰-۲۰ دقیقه)...'
 docker build --network=host -t ghcr.io/amir-hdri/barpro-main/barpro-backend:latest -f Dockerfile . 2>&1 | tail -5
 
 echo '2.3 رندر squid_worker.runtime.conf (جایگزینی placeholderها)...'
-set -a; source .env; set +a
-# R2: \${...} must stay escaped through the LOCAL double-quoted expansion so
-# the placeholders expand on the WORKER NODE with ITS OWN .env values. Without
-# the backslash, ${WORKER_EGRESS_IP} expands on the launcher machine: a missing
-# local value kills the deploy with :? before SSH even runs, and a present one
-# stamps the SAME egress IP on every worker.
+# Never `source .env` raw: a bcrypt MASTER_ADMIN_PASSWORD ($2b$12$...) aborts
+# under set -u with "unbound variable". Lines containing '$' are filtered out
+# first — only WORKER_EGRESS_IP / CENTRAL_IP are needed here. The \${...}
+# placeholders must stay escaped so they expand on the WORKER NODE (R2).
+set -a
+source <(grep -vF '$' .env)
+set +a
 sed -e "s/__WORKER_EGRESS_IP__/\${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" \
     -e "s/__CENTRAL_IP__/\${CENTRAL_IP:-127.0.0.1}/g" \
     infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf
@@ -158,8 +159,13 @@ echo '3.2 build worker image (ممکن است ۱۰-۲۰ دقیقه)...'
 docker build --network=host -t ghcr.io/amir-hdri/barpro-main/barpro-backend:latest -f Dockerfile . 2>&1 | tail -5
 
 echo '3.3 رندر squid_worker.runtime.conf (جایگزینی placeholderها)...'
-set -a; source .env; set +a
-# R2: see worker 2 — \${...} expands on THIS worker node, not on the launcher.
+# Never `source .env` raw: a bcrypt MASTER_ADMIN_PASSWORD ($2b$12$...) aborts
+# under set -u with "unbound variable". Lines containing '$' are filtered out
+# first — only WORKER_EGRESS_IP / CENTRAL_IP are needed here. The \${...}
+# placeholders must stay escaped so they expand on the WORKER NODE (R2).
+set -a
+source <(grep -vF '$' .env)
+set +a
 sed -e "s/__WORKER_EGRESS_IP__/\${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" \
     -e "s/__CENTRAL_IP__/\${CENTRAL_IP:-127.0.0.1}/g" \
     infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf

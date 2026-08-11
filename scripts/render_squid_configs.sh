@@ -36,13 +36,18 @@ if [ "$PRIMARY_IP" = "--dev" ]; then
     SECONDARY_IP=""
 elif [ -z "$PRIMARY_IP" ]; then
     # No CLI args — load the deploy-time values from .env (if present).
+    # NOTE: never `source .env` here — bcrypt MASTER_ADMIN_PASSWORD ($2b$12$…)
+    # expands under bash and aborts with "unbound variable" under set -u.
+    # Only CENTRAL_IP / SECONDARY_EGRESS_IP are read, via plain grep.
     if [ -f .env ]; then
-        set -a
-        source .env
-        set +a
+        while IFS='=' read -r k v; do
+            v="${v%\"}"; v="${v#\"}"
+            case "$k" in
+                CENTRAL_IP) PRIMARY_IP="$v" ;;
+                SECONDARY_EGRESS_IP) SECONDARY_IP="$v" ;;
+            esac
+        done < <(grep -E '^(CENTRAL_IP|SECONDARY_EGRESS_IP)=' .env)
     fi
-    PRIMARY_IP="${CENTRAL_IP:-}"
-    SECONDARY_IP="${SECONDARY_EGRESS_IP:-}"
 fi
 
 render() {
