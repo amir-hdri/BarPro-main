@@ -132,6 +132,11 @@ services:
       start_period: 60s
       retries: 3
     volumes:
+      # Render infra/squid/squid_worker.conf -> runtime conf happens on each
+      # worker node via setup_worker.sh — mounted as squid.conf here.
+      # The heartbeat lifecycle fix is sourced from the repo, not the image,
+      # so code-level fixes propagate to the worker without an image rebuild.
+      - ../app/orchestrator/worker_lifecycle.py:/app/app/orchestrator/worker_lifecycle.py:ro
       # Shared memory for Chromium
       - type: tmpfs
         target: /dev/shm

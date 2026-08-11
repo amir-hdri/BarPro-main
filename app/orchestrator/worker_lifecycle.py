@@ -178,6 +178,12 @@ if worker_process_init is not None:
     @worker_process_init.connect
     def on_worker_start(**kwargs):
         worker_id = os.environ.get("WORKER_ID", socket.gethostname())
+        # Start the heartbeat loop FIRST so a failed initial registration can
+        # never kill it: send_heartbeat() re-registers a missing row, so the
+        # worker heals itself in the registry without a container restart
+        # (e.g. a cold-start race with the DB migration).
+        threading.Thread(target=_heartbeat_loop, args=(worker_id,), daemon=True).start()
+        logger.info(f"Heartbeat thread started for worker {worker_id} (self-healing).")
         try:
             register_worker(
                 worker_id=worker_id,
@@ -185,10 +191,12 @@ if worker_process_init is not None:
                 capabilities=["waybill", "fuel"],
                 capacity=1,
             )
-            # Start background heartbeat daemon thread
-            threading.Thread(target=_heartbeat_loop, args=(worker_id,), daemon=True).start()
         except Exception as e:
-            logger.error(f"Error registering worker process start: {e}", exc_info=True)
+            logger.error(
+                f"Error registering worker at startup — heartbeat loop will keep "
+                f"retrying: {e}",
+                exc_info=True,
+            )
 
     def on_worker_stop(**kwargs):
         _heartbeat_stop.set()
