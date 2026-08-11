@@ -91,9 +91,9 @@ services:
     image: prom/node-exporter:v1.8.2
     container_name: barpro-node-exporter
     restart: unless-stopped
-    # network_mode: host تا متریک خود ماشین را ببیند؛ Prometheus از طریق
-    # gateway پل (172.20.0.1:9100) به آن می‌رسد — همان الگوی squid_1.
-    network_mode: host
+    # متریک HOST را از طریق mount /proc,/sys,rootfs می‌بیند ولی خودش داخل
+    # شبکه barpro_platform است (نه host-network) — بنابراین پورت 9100 هرگز
+    # عمومی نمی‌شود و Prometheus فقط از داخل شبکه به آن می‌رسد.
     command:
       - --path.procfs=/host/proc
       - --path.sysfs=/host/sys
@@ -103,6 +103,10 @@ services:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/host/root:ro
+      - /etc/hostname:/etc/hostname:ro
+    expose:
+      - "9100"
+    networks: [platform]
     mem_limit: 64m
     mem_reservation: 32m
 

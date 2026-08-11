@@ -24,7 +24,7 @@ scrape_configs:
   # ── Exporters (محلی) ─────────────────────────────────────────
   - job_name: 'node'
     static_configs:
-      - targets: ['172.20.0.1:9100']   # node-exporter روی host-network مرکزی
+      - targets: ['node-exporter:9100']   # node-exporter داخل شبکه barpro_platform (پورت عمومی ندارد)
 
   - job_name: 'redis'
     static_configs:
@@ -46,3 +46,4 @@ scrape_configs:
   #   metrics_path: /stub_status
   #   static_configs:
   #     - targets: ['nginx:80']
+# 1786446333
