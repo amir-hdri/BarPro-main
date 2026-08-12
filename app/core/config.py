@@ -41,6 +41,14 @@ def _to_bool(value: str | None, default: bool = False, required: bool = False) -
 
 class UTCMSConfig:
     def __init__(self) -> None:
+        # NOTE: the three URLs below address the EXTERNAL UTCMS government
+        # portal that the RPA drives — they are not BarPro's own address.
+        # BarPro serves itself over plain http behind nginx, which has caused
+        # repeated "https/http mismatch" reports against these defaults; there
+        # is no mismatch, and downgrading them to http would put the portal
+        # credentials on the wire in cleartext. BarPro's own public address is
+        # configured via NEXT_PUBLIC_API_URL, which is relative ("/api") and so
+        # is scheme-agnostic by design.
         self.WAYBILL_URL = os.getenv(
             "WAYBILL_URL",
             "https://barname.utcms.ir/barname/Document/HagigiHogugi",
@@ -160,6 +168,7 @@ class UTCMSConfig:
             )
 
         self.ALLOW_LIVE_SUBMIT = _to_bool(os.getenv("ALLOW_LIVE_SUBMIT", "False"), default=False)
+        self.JOB_TIMEOUT_SECONDS = int(os.getenv("JOB_TIMEOUT_SECONDS", "480"))
         self.ITMBOL_SERVICE_URL = os.getenv("ITMBOL_SERVICE_URL", "https://services2.sipaad.ir/ITMBOL.asmx")
         self.ITMBOL_COMPANY_CODE = os.getenv("ITMBOL_COMPANY_CODE", "").strip()
         self.ITMBOL_SERVICE_PASSWORD = os.getenv("ITMBOL_SERVICE_PASSWORD", "").strip()

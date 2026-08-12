@@ -363,7 +363,7 @@ class BrowserManager:
         dynamic_ua = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{browser_version} Safari/537.36"
 
         context_args = {
-            "ignore_https_errors": False,
+            "ignore_https_errors": True,
             "user_agent": dynamic_ua,
             "locale": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
             "timezone_id": "Asia/Tehran",

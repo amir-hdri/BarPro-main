@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 import aiohttp
-from playwright.async_api import Locator, Page
+from playwright.async_api import FloatRect, Locator, Page
 
 from app.automation.selectors import AuthSelectors
 from app.bot.core.smart_locator import SmartLocator, SmartLocatorError
@@ -268,7 +268,7 @@ class CaptchaInterceptor:
         if bbox is None:
             return None
 
-        clip = {
+        clip: FloatRect = {
             "x": max(0, float(bbox["x"])),
             "y": max(0, float(bbox["y"])),
             "width": max(1.0, float(bbox["width"])),
@@ -292,8 +292,10 @@ class CaptchaInterceptor:
                 success=isinstance(image_bytes, bytes | bytearray),
             ),
         )
+        # Playwright's stubs promise bytes, but this guard also covers the
+        # AsyncMock screenshots used in the captcha tests, so it stays.
         if not isinstance(image_bytes, bytes | bytearray):
-            return None
+            return None  # type: ignore[unreachable]
         return base64.b64encode(bytes(image_bytes)).decode("utf-8")
 
     async def solve_captcha(self, page: Page) -> CaptchaSolveResult:

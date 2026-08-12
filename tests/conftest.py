@@ -19,6 +19,7 @@ if not _running_external_integration_suite:
 
 from app.auth_multitenant import create_access_token  # noqa: E402
 from app.core.rate_limiter import InMemoryRateLimiter, rate_limiter  # noqa: E402
+from app.core.redis import redis_manager  # noqa: E402
 from app.core.utils import shutdown_async_bridge  # noqa: E402
 from app.main import app  # noqa: E402
 
@@ -49,6 +50,16 @@ def mock_external_services():
             yield
     finally:
         shutdown_async_bridge()
+        # pytest-asyncio gives each test its own event loop, and the shared
+        # Redis client owns asyncio transports tied to the loop that opened
+        # them. Left cached, its sockets outlive that loop and surface as
+        # `ResourceWarning: unclosed socket` at an unrelated later test — which,
+        # under `filterwarnings = error`, fails whichever test happens to be
+        # running when the garbage collector gets to them. Two CI failures were
+        # attributed to the wrong tests this way. This must be a *sync* close:
+        # the owning loop is already gone by teardown, so nothing can be
+        # awaited on it.
+        redis_manager.close_sync()
         rate_limiter._backend = previous_rate_limit_backend
 
 

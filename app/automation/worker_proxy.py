@@ -234,7 +234,7 @@ async def check_proxy_health(proxy_url: str, target_url: str = "https://utcms.ir
     import httpx
 
     try:
-        async with httpx.AsyncClient(proxy=proxy_url, timeout=5.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(proxy=proxy_url, timeout=15.0, verify=False, follow_redirects=True) as client:
             response = await client.get(target_url)
         return 200 <= response.status_code < 500
     except Exception as exc:
@@ -243,6 +243,7 @@ async def check_proxy_health(proxy_url: str, target_url: str = "https://utcms.ir
             extra={"extra_fields": {"proxy": proxy_url, "target": target_url, "error": str(exc)}},
         )
         return False
+
 
 
 async def increment_worker_failures(worker_id: str) -> int:

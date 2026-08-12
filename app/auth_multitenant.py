@@ -239,7 +239,10 @@ def decode_access_token(token: str) -> dict:
 
 
 async def get_current_client(
-    request: Request = None,
+    # `Request` must stay un-unioned for FastAPI to inject it (a `Request | None`
+    # annotation raises FastAPIError), while the None default is what lets the
+    # auth tests call this helper directly without a request object.
+    request: Request = None,  # type: ignore[assignment]
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     session: AsyncSession = Depends(get_session),
 ) -> Client:
@@ -342,7 +345,10 @@ async def is_master_admin(username: str, password: str) -> bool:
 
 
 async def get_current_admin(
-    request: Request = None,
+    # `Request` must stay un-unioned for FastAPI to inject it (a `Request | None`
+    # annotation raises FastAPIError), while the None default is what lets the
+    # auth tests call this helper directly without a request object.
+    request: Request = None,  # type: ignore[assignment]
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ):
     """Validate and return the current master admin identity from JWT token (header or cookie)."""
@@ -411,7 +417,10 @@ def verify_tenant_ownership(
 
 
 async def get_current_user_or_admin(
-    request: Request = None,
+    # `Request` must stay un-unioned for FastAPI to inject it (a `Request | None`
+    # annotation raises FastAPIError), while the None default is what lets the
+    # auth tests call this helper directly without a request object.
+    request: Request = None,  # type: ignore[assignment]
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     session: AsyncSession = Depends(get_session),
 ) -> dict:

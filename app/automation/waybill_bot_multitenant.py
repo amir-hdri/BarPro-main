@@ -69,7 +69,8 @@ class WaybillAutomationBot:
 
         try:
             # Check if we are already logged in via active session cookies
-            is_logged_in = await self.authenticator._is_logged_in()
+            # Pass probe_login_url=False to avoid slow page navigations on startup!
+            is_logged_in = await self.authenticator._is_logged_in(probe_login_url=False)
             login_success = True
 
             if not is_logged_in:
@@ -78,7 +79,6 @@ class WaybillAutomationBot:
                     await browser_manager.save_auth_state(self.context, auth_state_path=auth_state_path)
             else:
                 logger.info(f"Reusing active authenticated session for driver: {username}")
-                await browser_manager.save_auth_state(self.context, auth_state_path=auth_state_path)
 
             if not login_success:
                 self.last_error = self.authenticator.last_error or "login_failed"
@@ -108,6 +108,23 @@ class WaybillAutomationBot:
             manager_result = await self.manager.create_waybill_with_map(
                 normalized_payload, dry_run=False, job_id=job_id
             )
+
+            # Self-healing: if session was reused but creation failed, check if we got redirected to login page
+            if is_logged_in and not manager_result.get("success", False):
+                # ``Page.url`` is a property (str), not a coroutine — awaiting a
+                # call on it raises TypeError and would be swallowed by the
+                # broad handler below, masking the real submission error.
+                current_url = (self.page.url or "").strip().lower()
+                if "login" in current_url or "account/login" in current_url:
+                    logger.warning("Reused session expired/logged out during execution. Retrying with fresh login...")
+                    # Try a fresh login
+                    login_success = await self.authenticator.login(username, password)
+                    if login_success:
+                        await browser_manager.save_auth_state(self.context, auth_state_path=auth_state_path)
+                        # Try creation again
+                        manager_result = await self.manager.create_waybill_with_map(
+                            normalized_payload, dry_run=False, job_id=job_id
+                        )
 
             result["steps"].append(
                 {

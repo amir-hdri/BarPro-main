@@ -365,9 +365,10 @@ async def _claim_and_execute(task: Any, intent_id: str):
             raise
 
     # Lease renewal loop
+    main_loop = asyncio.get_running_loop()
     stop_event = threading.Event()
     renewal_thread = threading.Thread(
-        target=_renew_lease_sync_loop, args=(execution_id, intent.fencing_token, stop_event), daemon=True
+        target=_renew_lease_sync_loop, args=(execution_id, intent.fencing_token, stop_event, main_loop), daemon=True
     )
     renewal_thread.start()
 
@@ -561,9 +562,10 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
             raise
 
     # Lease renewal loop
+    main_loop = asyncio.get_running_loop()
     stop_event = threading.Event()
     renewal_thread = threading.Thread(
-        target=_renew_lease_sync_loop, args=(execution_id, intent.fencing_token, stop_event), daemon=True
+        target=_renew_lease_sync_loop, args=(execution_id, intent.fencing_token, stop_event, main_loop), daemon=True
     )
     renewal_thread.start()
 
@@ -649,13 +651,14 @@ async def _finalize_execution(execution_id: str, intent_id: str, status: str, re
             await session.rollback()
 
 
-def _renew_lease_sync_loop(execution_id: str, fencing_token: int, stop_event: threading.Event):
-    """Runs in a separate thread, updates lease_expires_at using run_async.
+def _renew_lease_sync_loop(
+    execution_id: str, fencing_token: int, stop_event: threading.Event, main_loop: asyncio.AbstractEventLoop | None = None
+):
+    """Runs in a separate thread, updates lease_expires_at using asyncio.run_coroutine_threadsafe on main_loop.
 
     Renew every WORKER_STALL_TIMEOUT_SECONDS/3 (min 10s) so a single missed
     renewal never exceeds the stall window and orphans an in-flight job
-    (X10). Previously hardcoded at 30s vs a 45s stall timeout left only a 15s
-    margin.
+    (X10).
     """
     lease_duration = getattr(utcms_config, "WORKER_STALL_TIMEOUT_SECONDS", 90)
     renew_interval = max(10.0, lease_duration / 3.0)
@@ -684,7 +687,11 @@ def _renew_lease_sync_loop(execution_id: str, fencing_token: int, stop_event: th
                         await session.commit()
                         logger.debug(f"Lease renewed for execution {execution_id}")
 
-            _run(_update())
+            if main_loop is not None and main_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(_update(), main_loop)
+                future.result(timeout=10.0)
+            else:
+                _run(_update())
         except Exception as e:
             logger.warning(f"Failed to renew lease for execution {execution_id}: {e}")
 
@@ -1009,7 +1016,7 @@ async def _execute_job(
 
                 try:
                     bot = WaybillAutomationBot(page, context)
-                    job_timeout = getattr(utcms_config, "JOB_TIMEOUT_SECONDS", 240)
+                    job_timeout = getattr(utcms_config, "JOB_TIMEOUT_SECONDS", 480)
                     try:
                         result = await asyncio.wait_for(
                             bot.execute_waybill_job(

@@ -3781,6 +3781,9 @@ class EnhancedWaybillManager:
                 } catch (e) {}
             }
             try {
+                if (!document.body || (!document.body.innerText.includes('لطفا صبر کنید') && !document.body.innerText.includes('در حال بارگذاری'))) {
+                    return false;
+                }
                 const xpathResult = document.evaluate(
                     "//div[contains(., 'لطفا صبر کنید') or contains(., 'در حال بارگذاری')]",
                     document,
@@ -3811,7 +3814,7 @@ class EnhancedWaybillManager:
             if not found_any:
                 return
 
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.25)
 
         # Overlay still present after timeout — log and continue (don't block the flow)
         logger.warning(

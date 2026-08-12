@@ -162,7 +162,7 @@ class DistributedTrafficController:
             try:
                 if self._redis is not None:
                     try:
-                        await self._redis.close()
+                        await self._redis.aclose()
                     except Exception:
                         logger.warning("distributed_redis_close_failed", exc_info=True)
                     self._redis = None
@@ -290,7 +290,9 @@ class DistributedTrafficController:
     async def close(self):
         """Close Redis connection."""
         if self._redis:
-            await self._redis.close()
+            # `aclose()`, not the deprecated `close()` alias (redis-py >= 5.0.1),
+            # whose DeprecationWarning is an error under the suite's policy.
+            await self._redis.aclose()
             self._redis = None
             self._semaphore = None
             self._loop = None

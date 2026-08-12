@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import wraps
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from playwright.async_api import (
     Error as PlaywrightError,
@@ -158,7 +158,7 @@ class SmartLocator:
         # 3. Smart Recovery: Fuzzy matching for text-based selectors
         text_selectors = [s for s in selectors if "text=" in s.lower() or ":" in s]
         if text_selectors:
-            self._logger.info("smart_locator_attempting_fuzzy_recovery")
+            self._logger.info(f"smart_locator_attempting_fuzzy_recovery for selectors={selectors} (failures={failures})")
             for ts in text_selectors:
                 try:
                     # Look for elements containing the text regardless of casing/exact match
@@ -273,10 +273,12 @@ class SmartLocator:
         raw_locator = page.locator(selector)
         locator = await self._resolve_maybe_awaitable(raw_locator)
         first_candidate = getattr(locator, "first", locator)
-        return await self._resolve_maybe_awaitable(first_candidate)
+        return cast("Locator", await self._resolve_maybe_awaitable(first_candidate))
 
     @staticmethod
-    def _boxes_close(before: dict[str, float], after: dict[str, float], tolerance: float = 0.5) -> bool:
+    # Mapping[str, Any] rather than Mapping[str, float] because callers pass
+    # Playwright's FloatRect TypedDict, which only widens to Mapping[str, object].
+    def _boxes_close(before: Mapping[str, Any], after: Mapping[str, Any], tolerance: float = 0.5) -> bool:
         """Allow tiny layout jitter while rejecting meaningful movement/resizing."""
         keys = ("x", "y", "width", "height")
         return all(abs(float(before[key]) - float(after[key])) <= tolerance for key in keys)

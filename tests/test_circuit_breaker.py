@@ -374,3 +374,85 @@ def test_resolve_ip_index_precedence():
     with patch.dict(os.environ, {"WORKER_IP_INDEX": "", "WORKER_ID": "node-a"}, clear=False):
         # 4. unresolvable -> None (fail-safe)
         assert resolve_ip_index("node-a", "worker-node-2026") is None
+
+
+# ---------------------------------------------------------------------------
+# Egress-failure -> breaker wiring.
+#
+# Measured before EGRESS_FAILURE_MARKERS was wired into the breaker: five of
+# these six real egress errors were retried forever while the broken IP index
+# stayed in the routing pool, because IP_BLOCK_PATTERNS only held 13 generic
+# phrases and none of them matched a Chrome net:: error or a TLS handshake EOF.
+# Each row below is one of those measured failures.
+# ---------------------------------------------------------------------------
+EGRESS_ERRORS_THAT_MUST_TRIP = [
+    "net::ERR_CONNECTION_CLOSED",
+    "TLS handshake: EOF",
+    "SSL: UNEXPECTED_EOF_WHILE_READING",
+    "408 Request Timeout",
+    "net::ERR_CONNECTION_RESET",
+    "ERR_CONNECTION_CLOSED",
+]
+
+# Worker-local faults. These are retryable but say nothing about the egress
+# path, so blocking the IP index would evict a healthy route from rotation.
+WORKER_LOCAL_ERRORS_THAT_MUST_NOT_TRIP = [
+    "Target page, context or browser has been closed",
+    "Browser has been closed",
+    "Execution context was destroyed",
+    "Page crashed",
+    "Invalid driver national code",
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_msg", EGRESS_ERRORS_THAT_MUST_TRIP)
+async def test_egress_failures_trip_the_breaker(mock_redis_manager, error_msg):
+    with patch.dict(os.environ, {"WORKER_IP_INDEX": "2"}, clear=False):
+        await check_and_report_failure(error_msg)
+
+    mock_redis_manager.set.assert_called_once_with("utcms:circuit_breaker:blocked:2", "1", ex=1800)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_msg", WORKER_LOCAL_ERRORS_THAT_MUST_NOT_TRIP)
+async def test_worker_local_failures_do_not_trip_the_breaker(mock_redis_manager, error_msg):
+    with patch.dict(os.environ, {"WORKER_IP_INDEX": "2"}, clear=False):
+        await check_and_report_failure(error_msg)
+
+    mock_redis_manager.set.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_breaker_needs_worker_ip_index_to_block(mock_redis_manager):
+    """Without WORKER_IP_INDEX there is no index to block — must not guess."""
+    with patch.dict(os.environ, {"WORKER_IP_INDEX": ""}, clear=False):
+        await check_and_report_failure("net::ERR_CONNECTION_CLOSED")
+
+    mock_redis_manager.set.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_breaker_survives_redis_outage(mock_redis_manager):
+    """A Redis failure must not propagate into the RPA error path."""
+    mock_redis_manager.set.side_effect = RuntimeError("redis down")
+
+    with patch.dict(os.environ, {"WORKER_IP_INDEX": "1"}, clear=False):
+        await check_and_report_failure("net::ERR_CONNECTION_CLOSED")
+
+
+def test_breaker_pattern_table_covers_both_halves():
+    """BLOCK_OR_EGRESS_PATTERNS must stay the union of both source tables."""
+    from app.core.circuit_breaker import BLOCK_OR_EGRESS_PATTERNS, IP_BLOCK_PATTERNS
+    from app.core.network import EGRESS_FAILURE_MARKERS
+
+    assert set(IP_BLOCK_PATTERNS) <= set(BLOCK_OR_EGRESS_PATTERNS)
+    assert set(EGRESS_FAILURE_MARKERS) <= set(BLOCK_OR_EGRESS_PATTERNS)
+
+
+def test_breaker_does_not_key_on_browser_lifecycle_markers():
+    """Regression guard: wiring the FULL retry table in would evict healthy IPs."""
+    from app.core.circuit_breaker import BLOCK_OR_EGRESS_PATTERNS
+    from app.core.network import BROWSER_LIFECYCLE_MARKERS
+
+    assert not (set(BROWSER_LIFECYCLE_MARKERS) & set(BLOCK_OR_EGRESS_PATTERNS))

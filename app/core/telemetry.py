@@ -200,7 +200,7 @@ class EvidenceCollector:
                 file_path=str(file_path),
                 file_size_bytes=file_size,
                 metadata={
-                    "url": await page.url(),
+                    "url": page.url,
                     "title": await page.title(),
                     "error_code": error_code,
                 },
@@ -239,7 +239,7 @@ class EvidenceCollector:
                 file_path=str(file_path),
                 file_size_bytes=file_size,
                 metadata={
-                    "url": await page.url(),
+                    "url": page.url,
                     "title": await page.title(),
                     "error_code": error_code,
                     "html_length": len(html_content),
@@ -309,7 +309,7 @@ class EvidenceCollector:
             file_path = self.base_dir / "metadata" / filename
 
             metadata = {
-                "url": await page.url(),
+                "url": page.url,
                 "title": await page.title(),
                 "timestamp": timestamp,
                 "workflow_id": workflow_id,

@@ -453,7 +453,7 @@ def create_telemetry_event(
     """Helper to create a validated telemetry event dict."""
     import uuid
 
-    event = {
+    event: dict[str, Any] = {
         "event_id": str(uuid.uuid4()),
         "event_type": event_type,
         "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat(),
@@ -484,7 +484,7 @@ def create_workflow_state(
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Helper to create a validated workflow state dict."""
-    state = {
+    state: dict[str, Any] = {
         "workflow_id": workflow_id,
         "workflow_name": workflow_name,
         "status": status,

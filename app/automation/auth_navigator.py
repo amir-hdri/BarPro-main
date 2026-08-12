@@ -233,6 +233,9 @@ class AuthNavigator:
                 } catch (e) {}
             }
             try {
+                if (!document.body || (!document.body.innerText.includes('لطفا صبر کنید') && !document.body.innerText.includes('در حال بارگذاری'))) {
+                    return false;
+                }
                 const xpathResult = document.evaluate(
                     "//div[contains(., 'لطفا صبر کنید') or contains(., 'در حال بارگذاری')]",
                     document,
@@ -304,7 +307,7 @@ class AuthNavigator:
                     )
                 removal_attempted = True
 
-            await asyncio.sleep(0.08)
+            await asyncio.sleep(0.25)
 
         logger.warning(
             "auth_loading_overlay_timeout",

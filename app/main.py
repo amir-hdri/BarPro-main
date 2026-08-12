@@ -4,6 +4,7 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
+from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
@@ -35,6 +36,7 @@ from app.core.exceptions import UTCMSException
 from app.core.execution_context import bind_execution_context, reset_execution_context
 from app.core.logging import configure_logging, reset_request_id, set_request_id
 from app.core.rate_limiter import add_rate_limit_headers, rate_limiter
+from app.core.redis import redis_manager
 from app.core.tracing import setup_tracing, shutdown_tracing, trace_span
 
 # Configure logging with optional file-based logging
@@ -117,10 +119,12 @@ async def lifespan(app: FastAPI):
     # 1. Secrets initialization: initialize_secrets
     # Initialize Proxy Rotator from environment or file if configured
     proxy_rotator = get_proxy_rotator()
-    if os.getenv("RPA_PROXY_LIST_FILE"):
-        proxy_rotator.load_from_file(os.getenv("RPA_PROXY_LIST_FILE"))
-    elif os.getenv("RPA_PROXIES"):
-        proxy_urls = [p.strip() for p in os.getenv("RPA_PROXIES").split(",") if p.strip()]
+    proxy_list_file = os.getenv("RPA_PROXY_LIST_FILE")
+    proxy_list_inline = os.getenv("RPA_PROXIES")
+    if proxy_list_file:
+        proxy_rotator.load_from_file(proxy_list_file)
+    elif proxy_list_inline:
+        proxy_urls = [p.strip() for p in proxy_list_inline.split(",") if p.strip()]
         proxy_rotator.load_from_list(proxy_urls)
 
     if proxy_rotator.proxies:
@@ -144,8 +148,6 @@ async def lifespan(app: FastAPI):
     import sys
 
     if "pytest" not in sys.modules:
-        from app.core.redis import redis_manager
-
         redis_client = await redis_manager.get()
         if redis_client:
             try:
@@ -233,6 +235,11 @@ async def lifespan(app: FastAPI):
     await event_hub.stop_subscriber()
     shutdown_tracing()
     await browser_manager.close()
+    # Closed last: the subscriber and the traffic controller above may still
+    # touch the shared client while shutting down. Without this the pooled
+    # connections were left to the garbage collector, so every reload leaked
+    # one set of Redis sockets for the container's lifetime.
+    await redis_manager.close()
 
 
 app = FastAPI(
@@ -321,7 +328,11 @@ async def request_context_middleware(request: Request, call_next):
     try:
         rate_limit_state = await rate_limit_dependency(request, rule=rate_rule)
     except HTTPException as exc:
-        content = exc.detail if isinstance(exc.detail, dict) else {"detail": exc.detail}
+        # FastAPI's stubs narrow `detail` to str, but a dict detail is valid at
+        # runtime (and is what the rate limiter raises), so widen it explicitly
+        # rather than letting mypy prune the isinstance branch as unreachable.
+        detail: Any = exc.detail
+        content = detail if isinstance(detail, dict) else {"detail": detail}
         response = JSONResponse(status_code=exc.status_code, content=content)
         for header_name, header_value in (exc.headers or {}).items():
             response.headers[header_name] = header_value

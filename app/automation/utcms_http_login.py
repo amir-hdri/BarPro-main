@@ -201,6 +201,15 @@ class UtcmsHttpLogin:
     # clears after ~30s; we wait a little longer so the retry has a real chance.
     RATE_LIMIT_BACKOFF_SECONDS = 25.0
 
+    # Upstream/proxy hiccups that say nothing about our credentials. Observed in
+    # production: a single HTTP 503 on the POST to /Barname/Account/OldLogin
+    # aborted the whole HTTP path and pushed the flow onto the WAF-blocked
+    # Playwright fallback, which burns ~3 minutes per attempt and blows the
+    # Celery task budget. Retrying with a fresh session is far cheaper.
+    TRANSIENT_STATUS_CODES = (408, 500, 502, 503, 504)
+    TRANSIENT_BACKOFF_SECONDS = 6.0
+    TRANSIENT_MAX_RETRIES = 3
+
     async def authenticate(self, username: str, password: str) -> HttpLoginResult:
         """Run the full HTTP login flow with transparent retries.
 
@@ -210,6 +219,12 @@ class UtcmsHttpLogin:
             brand new captcha + tokens are used (up to CAPTCHA_AUTO_MAX_ATTEMPTS).
           * HTTP 429 (WAF rate limit) → sleep RATE_LIMIT_BACKOFF_SECONDS, then
             retry with a brand new curl_cffi session (up to 3 times).
+          * HTTP 408/5xx (upstream or proxy hiccup) → sleep
+            TRANSIENT_BACKOFF_SECONDS, then retry with a brand new session
+            (up to TRANSIENT_MAX_RETRIES times).
+
+        Each retry class keeps its own budget, so a transient 503 never eats
+        into the (paid) captcha-solve allowance and vice versa.
 
         Returns:
             HttpLoginResult with success=True and the auth cookies on success.
@@ -219,11 +234,15 @@ class UtcmsHttpLogin:
         if not username or not password:
             return HttpLoginResult(success=False, error="نام کاربری یا رمز عبور خالی است")
 
-        max_attempts = max(1, getattr(utcms_config, "CAPTCHA_AUTO_MAX_ATTEMPTS", 3))
+        captcha_attempts_left = max(1, getattr(utcms_config, "CAPTCHA_AUTO_MAX_ATTEMPTS", 3))
         last_result: HttpLoginResult | None = None
         rate_limit_retries_left = 3
+        transient_retries_left = self.TRANSIENT_MAX_RETRIES
+        attempt = 0
 
-        for attempt in range(1, max_attempts + 1):
+        while captcha_attempts_left > 0:
+            attempt += 1
+            captcha_attempts_left -= 1
             self._session = self._build_session(cc_requests)
             try:
                 result = await self._attempt_single_session(username, password)
@@ -240,13 +259,31 @@ class UtcmsHttpLogin:
                 return result
 
             error = result.error or ""
-            if result.status_code == 429 and rate_limit_retries_left > 1:
+            if result.status_code == 429 and rate_limit_retries_left > 0:
                 rate_limit_retries_left -= 1
+                captcha_attempts_left += 1  # a rate limit is not a captcha miss
                 logger.warning(
                     "utcms_http_login_rate_limited_backoff",
                     extra={"extra_fields": {"backoff": self.RATE_LIMIT_BACKOFF_SECONDS}},
                 )
                 await asyncio.sleep(self.RATE_LIMIT_BACKOFF_SECONDS)
+                continue
+            if result.status_code in self.TRANSIENT_STATUS_CODES and transient_retries_left > 0:
+                transient_retries_left -= 1
+                captcha_attempts_left += 1  # an upstream 5xx is not a captcha miss
+                logger.warning(
+                    "utcms_http_login_transient_status_retry",
+                    extra={
+                        "extra_fields": {
+                            "status": result.status_code,
+                            "attempt": attempt,
+                            "backoff": self.TRANSIENT_BACKOFF_SECONDS,
+                            "retries_left": transient_retries_left,
+                            "error": error[:160],
+                        }
+                    },
+                )
+                await asyncio.sleep(self.TRANSIENT_BACKOFF_SECONDS)
                 continue
             if self._is_captcha_error(error):
                 logger.info(
@@ -285,9 +322,10 @@ class UtcmsHttpLogin:
         """
         from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
 
-        retry_statuses = (408, 429, 500, 502, 503, 504)
+        retry_statuses = (429, *self.TRANSIENT_STATUS_CODES)
         last_exc: Exception | None = None
         last_status: int | None = None
+        last_unauthenticated = False
         authenticated_cookies: list[dict[str, Any]] = []
 
         for attempt in range(1, max(1, max_attempts) + 1):
@@ -330,11 +368,59 @@ class UtcmsHttpLogin:
                     continue
                 break
 
+            # The session can expire silently: UTCMS then answers with a
+            # redirect to (or a 200 render of) /Account/Login instead of the
+            # requested page. ``allowed_statuses`` used to be accepted and then
+            # ignored, so those responses were handed back to the caller as if
+            # the fetch had succeeded. Treat them as a burned session and retry.
+            last_unauthenticated = self._looks_unauthenticated(resp)
+            if resp.status_code not in allowed_statuses or last_unauthenticated:
+                logger.warning(
+                    "utcms_http_login_fetch_unauthenticated",
+                    extra={
+                        "extra_fields": {
+                            "url": url,
+                            "attempt": attempt,
+                            "unauthenticated": last_unauthenticated,
+                            **self._response_diagnostics(resp),
+                        }
+                    },
+                )
+                self._session = None
+                if attempt < max_attempts:
+                    await asyncio.sleep(backoff_seconds)
+                    continue
+                break
+
             return resp, authenticated_cookies
 
         if last_exc is not None:
             raise RuntimeError(f"دریافت صفحه {url} ناموفق پس از {max_attempts} تلاش: {last_exc}") from last_exc
+        if last_unauthenticated:
+            raise RuntimeError(
+                f"دریافت صفحه {url} ناموفق پس از {max_attempts} تلاش (پاسخ سامانه صفحه ورود بود؛ سشن معتبر نشد)"
+            )
         raise RuntimeError(f"دریافت صفحه {url} ناموفق پس از {max_attempts} تلاش (آخرین وضعیت HTTP {last_status})")
+
+    @staticmethod
+    def _looks_unauthenticated(resp: Any) -> bool:
+        """True when a response is really the UTCMS login page in disguise.
+
+        Checks both the ``Location`` header (302 → /Account/Login) and the
+        response's final URL, so an expired cookie is detected whether the
+        portal redirects or renders the login form directly.
+        """
+        location = ""
+        try:
+            headers = resp.headers
+            location = headers.get("Location") or headers.get("location") or ""
+        except Exception:
+            location = ""
+        for candidate in (str(location or ""), str(getattr(resp, "url", "") or "")):
+            lowered = candidate.lower()
+            if "/account/login" in lowered or lowered.rstrip("/").endswith("/login"):
+                return True
+        return False
 
     @staticmethod
     def _is_captcha_error(error: str | None) -> bool:
@@ -364,6 +450,10 @@ class UtcmsHttpLogin:
             )
 
         if get_resp.status_code != 200:
+            logger.warning(
+                "utcms_http_login_get_bad_status",
+                extra={"extra_fields": self._response_diagnostics(get_resp)},
+            )
             return HttpLoginResult(
                 success=False,
                 error=f"وضعیت HTTP نامعتبر برای صفحه لاگین: {get_resp.status_code}",
@@ -689,6 +779,13 @@ class UtcmsHttpLogin:
         error_msg = self._extract_login_error(body)
         if not error_msg:
             error_msg = self._classify_html_response(body, final_url, status)
+        if status not in (200, 301, 302, 303, 307, 308):
+            # Unexpected status (e.g. 503 from Squid vs. from UTCMS) — record who
+            # answered so the failure can be attributed without a live re-run.
+            logger.warning(
+                "utcms_http_login_post_bad_status",
+                extra={"extra_fields": {**self._response_diagnostics(post_resp), "post_url": final_url}},
+            )
         return HttpLoginResult(
             success=False,
             error=error_msg or f"لاگین ناموفق (HTTP {status})",
@@ -746,6 +843,32 @@ class UtcmsHttpLogin:
         if any(marker in lowered for marker in ("خروج", "logout", "به سامانه باربران خوش آمدید")):
             return True
         return "logindevice" not in lowered and ('href="/barname"' in lowered or 'href="/waybill"' in lowered)
+
+    @staticmethod
+    def _response_diagnostics(resp: Any) -> dict[str, Any]:
+        """Pull the headers that reveal *who* produced an error response.
+
+        A 503 from the worker's Squid egress proxy carries ``X-Squid-Error``
+        and a ``Via``/``Server: squid`` header, while a 503 from UTCMS/its WAF
+        does not. Without these fields a proxy outage and a genuine upstream
+        outage look identical in the logs.
+        """
+        diag: dict[str, Any] = {"status": getattr(resp, "status_code", None)}
+        try:
+            headers = resp.headers
+            for key in ("Server", "Via", "X-Squid-Error", "X-Cache", "Content-Type", "Retry-After"):
+                value = headers.get(key) or headers.get(key.lower())
+                if value:
+                    diag[key.lower().replace("-", "_")] = str(value)[:120]
+        except Exception:
+            pass
+        try:
+            body = resp.text or ""
+            diag["body_len"] = len(body)
+            diag["body_snippet"] = re.sub(r"\s+", " ", body[:400]).strip()
+        except Exception:
+            pass
+        return diag
 
     @staticmethod
     def _classify_html_response(body: str, final_url: str, status: int) -> str | None:

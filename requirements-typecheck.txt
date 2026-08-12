@@ -1,0 +1,50 @@
+# Runtime libraries the type checker needs in order to see real types.
+#
+# Why this file exists: the quality jobs used to install only
+# requirements-dev.txt, so mypy ran with no fastapi/pydantic/sqlmodel/playwright
+# present. With --ignore-missing-imports every third-party symbol degraded to
+# `Any`, which had two effects:
+#   * real type errors were invisible (an `Any` argument matches any parameter);
+#   * the errors that did surface were environment artifacts, e.g. sqlmodel's
+#     `class X(SQLModel, table=True)` reported as "unexpected keyword argument
+#     table" and `# type: ignore` comments reported as unused because the thing
+#     they silence only exists when the library is installed.
+# Measured: 330 errors without these libraries vs 462 with them, and the
+# overlap is partial — 6 whole modules (app/models_*.py, app/auth_multitenant.py)
+# reported errors that do not exist and app/api reported 5 instead of 17.
+#
+# Every line below must appear verbatim in requirements.txt — the constraint is
+# enforced by tests/test_typecheck_requirements.py, since requirements.txt cannot
+# be used as a pip constraint file (`PyJWT[crypto]` has an extra, and pip rejects
+# extras in constraints).
+#
+# Deliberately NOT included: numpy, Pillow, opencv-python-headless, keras,
+# tensorflow, torch. They are large native wheels, and numpy's bundled stubs use
+# `type` statements that require python_version >= 3.12 while mypy is configured
+# for 3.11 — installing numpy makes mypy crash rather than report. The modules
+# that import them (app/automation/captcha/*) are inside the ignore_errors list
+# in pyproject.toml, so nothing is lost today. Also excluded: the database
+# drivers (asyncpg, psycopg2-binary) and the OTLP gRPC exporter, which are
+# referenced through connection strings/config rather than typed call sites.
+
+playwright>=1.49.0
+fastapi>=0.115.6
+uvicorn>=0.34.0
+pydantic>=2.10.3
+aiohttp>=3.11.10
+httpx>=0.28.1
+curl-cffi>=0.7.1
+sqlmodel>=0.0.38
+celery>=5.4.0
+redis>=5.2.0
+prometheus-client>=0.21.1
+alembic>=1.14.0
+opentelemetry-api>=1.29.0
+opentelemetry-sdk>=1.29.0
+openpyxl>=3.1.5
+python-multipart>=0.0.19
+cryptography>=44.0.0
+bcrypt>=4.2.1
+PyJWT[crypto]>=2.10.1
+jdatetime>=5.0.0
+celery-redbeat>=2.2.0

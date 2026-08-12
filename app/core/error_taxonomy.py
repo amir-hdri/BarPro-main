@@ -3,7 +3,7 @@ from enum import StrEnum
 from fastapi import HTTPException
 
 from app.core.exceptions import UTCMSException, WaybillError
-from app.core.network import is_retryable_network_error
+from app.core.network import BROWSER_LIFECYCLE_MARKERS, is_egress_failure, is_retryable_network_error
 
 
 class ErrorCategory(StrEnum):
@@ -62,7 +62,19 @@ def classify_exception(error: Exception) -> tuple[ErrorCategory, bool]:
         return ErrorCategory.SELECTOR_CHANGED, False
     if "captcha" in text:
         return ErrorCategory.CAPTCHA_EXHAUSTION, False
-    if "memory" in text or "browser" in text or "context" in text or "playwright" in text:
+    # Transport evidence outranks the keyword heuristic below: a Playwright
+    # message such as "playwright: net::ERR_CONNECTION_RESET" mentions the
+    # browser but describes a broken route, and blaming the worker for it sends
+    # the job down the wrong recovery path.
+    if is_egress_failure(error):
+        return ErrorCategory.TARGET_SITE_TIMEOUT, True
+    if (
+        "memory" in text
+        or "browser" in text
+        or "context" in text
+        or "playwright" in text
+        or any(marker in text for marker in BROWSER_LIFECYCLE_MARKERS)
+    ):
         return ErrorCategory.WORKER_RESOURCE_ERROR, is_retryable_network_error(error)
     if "timeout" in text or is_retryable_network_error(error):
         return ErrorCategory.TARGET_SITE_TIMEOUT, True
@@ -109,6 +121,15 @@ def classify_error_string(
         return ErrorCategory.USER_DATA_ERROR
 
     # TIMEOUT / TARGET SITE / NETWORK
+    #
+    # ``is_egress_failure`` is consulted here because the hint-based substring
+    # checks below it only ever matched the literal words "network"/"timeout".
+    # Every Chrome net:: error, TLS handshake abort and connection reset was
+    # therefore classified UNKNOWN_AUTOMATION_ERROR by this function while
+    # ``classify_exception`` classified the same text as TARGET_SITE_TIMEOUT —
+    # and because the Fuel Inquiry code table has no entry for the categories
+    # that UNKNOWN collapses into, real transport failures surfaced to users as
+    # the opaque code "100".
     if (
         "network" in cat_hint
         or "timeout" in cat_hint
@@ -120,6 +141,7 @@ def classify_error_string(
         or "destination_error" in cat_hint
         or "service" in cat_hint
         or "api" in cat_hint
+        or is_egress_failure(text)
     ):
         return ErrorCategory.TARGET_SITE_TIMEOUT
 
@@ -130,6 +152,17 @@ def classify_error_string(
     # BOT DETECTED
     if "bot" in text or "automationcontrolled" in text or "suspicious" in text or "bot_detected" in cat_hint:
         return ErrorCategory.BOT_DETECTED
+
+    # WORKER RESOURCE — the renderer or browser died on this worker. Kept below
+    # the egress check so a broken route is never blamed on the worker, and
+    # mirrors the WORKER_RESOURCE_ERROR branch in ``classify_exception``.
+    if any(marker in text for marker in BROWSER_LIFECYCLE_MARKERS) or "memory" in text:
+        return ErrorCategory.WORKER_RESOURCE_ERROR
+
+    # Remaining transient network evidence that is not egress-specific
+    # (e.g. a bare "408 Request Timeout" from the target).
+    if is_retryable_network_error(text):
+        return ErrorCategory.TARGET_SITE_TIMEOUT
 
     return ErrorCategory.UNKNOWN_AUTOMATION_ERROR
 
@@ -177,16 +210,27 @@ def is_retryable_terminal_category(category: str | ErrorCategory | None) -> bool
 
 # User-facing error codes used by the Fuel Inquiry feature.
 #
-# These are **frozen strings** — the React frontend
-# (`apps/web/src/app/fuel/page.tsx:178`) maps each code to a Persian
-# localisation. Adding new codes requires updating the frontend mapping.
-# Keep this table in sync with `getFriendlyErrorMessage` in the frontend.
+# ``fuel_inquiry_service`` stores the code itself in ``inquiry.error_message``,
+# so whatever appears here is what the operator ends up reading.
+#
+# This table MUST stay total over ErrorCategory. It previously listed only five
+# of the ten categories and the lookup fell back to "100", so a correctly
+# detected bot block, an auth failure, a dead browser and an unconfirmed
+# submission were all reported as the same "unknown error 100" — which is why
+# code 100 dominated the failure logs while nothing was actually unknown.
+# ``test_error_taxonomy.py`` asserts totality so the fallback can never again
+# absorb a category silently.
 FUEL_INQUIRY_ERROR_CODE = {
     ErrorCategory.UNKNOWN_AUTOMATION_ERROR: "100",
     ErrorCategory.CAPTCHA_EXHAUSTION: "101",
     ErrorCategory.TARGET_SITE_TIMEOUT: "102",
     ErrorCategory.TRANSIENT_INFRA_ERROR: "103",
     ErrorCategory.USER_DATA_ERROR: "104",
+    ErrorCategory.AUTH_FAILURE: "105",
+    ErrorCategory.SELECTOR_CHANGED: "106",
+    ErrorCategory.BOT_DETECTED: "107",
+    ErrorCategory.WORKER_RESOURCE_ERROR: "108",
+    ErrorCategory.SUBMISSION_UNCONFIRMED: "109",
 }
 
 

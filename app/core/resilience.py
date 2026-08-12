@@ -457,7 +457,7 @@ class ExplicitWaits:
         timeout_seconds = timeout / 1000
 
         while time.time() - start_time < timeout_seconds:
-            new_url = await page.url()
+            new_url = page.url
             if new_url != current_url:
                 return new_url
             await asyncio.sleep(0.1)
@@ -749,7 +749,7 @@ class ResilientWorkflow:
                 "step_name": step_name,
                 "error_code": error_code,
                 "timestamp": timestamp,
-                "url": await self.page.url(),
+                "url": self.page.url,
                 "title": await self.page.title(),
             }
 

@@ -35,12 +35,16 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
-          cache-dependency-path: 'requirements-dev.txt'
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements-typecheck.txt
 
       - name: Install Quality Tools
         run: |
           python -m pip install --upgrade pip==26.2.1
           pip install -r requirements-dev.txt
+          # Runtime libs mypy needs to see real types instead of Any.
+          pip install -r requirements-typecheck.txt
 
       - name: Run Ruff
         run: ruff check app/ tests/
@@ -103,7 +107,9 @@ jobs:
 
       - name: Run Backend Unit Tests
         run: |
-          pytest tests/ -v --tb=short -W error --cov=app --cov-report=term-missing --cov-report=xml --cov-report=html
+          # Warning policy lives in pytest.ini (filterwarnings = error + scoped
+          # ignores). A -W flag here would silently outrank it.
+          pytest tests/ -v --tb=short --cov=app --cov-report=term-missing --cov-report=xml --cov-report=html
           coverage xml -o coverage.xml
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/utcms_rpa_test
@@ -196,6 +202,8 @@ jobs:
 
       - name: Run Integration Tests
         run: |
+          # Warning policy lives in pytest.ini (filterwarnings = error + scoped
+          # ignores). A -W flag here would silently outrank it.
           pytest tests/test_integration/ -v --tb=short -W error
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/utcms_rpa_test

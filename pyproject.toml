@@ -49,21 +49,45 @@ module = [
 ]
 ignore_missing_imports = true
 
-# ⚠️ WARNING — the backend is currently NOT type-checked.
-# This override suppresses every error in app/*, so the CI step
-# `mypy app/ --ignore-missing-imports` always passes regardless of the strict
-# settings above. A green "Backend Type Checking" job means nothing today.
+# Type-checking debt, per package.
 #
-# To re-enable incrementally (do this once, then keep the list shrinking):
-#   1. mypy app/ --ignore-missing-imports > /tmp/mypy.txt   # measure the surface
-#   2. delete this override
-#   3. re-add it per-package for the modules that still fail, e.g.
-#        [[tool.mypy.overrides]]
-#        module = ["app.automation.*", "app.workers.*"]
-#        ignore_errors = true
-#      so newly written modules are checked from day one.
+# This list replaces a blanket `module = "app.*"` override that suppressed every
+# error under app/, which made the CI step `mypy app/ --ignore-missing-imports`
+# pass unconditionally — a green "Backend Type Checking" job proved nothing.
+#
+# Everything NOT listed here is type-checked for real as of this change:
+# app/main.py, app/auth_multitenant.py, app/models_*.py, app.bot, app.models,
+# app.monitoring, app.realtime, app.rpa, app.schemas, app.queue, app.config.
+# They pass with zero errors, so new code in them is checked from day one.
+#
+# Error counts measured with mypy 2.3.0, python_version 3.11, and
+# requirements-typecheck.txt installed (see that file — without those libraries
+# the numbers are both smaller and wrong):
+#
+#     app.services      201 errors in 21 files
+#     app.automation    137 errors in 25 files
+#     app.core           56 errors in 12 files
+#     app.orchestrator   32 errors in  7 files
+#     app.workers        19 errors in  3 files
+#     app.api            17 errors in  3 files
+#     ------------------------------------------
+#     total             462 errors in 71 files
+#
+# The list is meant to shrink. To pay a package down:
+#   1. mypy app/ --ignore-missing-imports --config-file <copy without that entry>
+#   2. fix the errors, delete the entry, update the table above.
+# Prefer removing a whole package at a time; a package with an entry here is
+# invisible to the gate, so a partially-fixed package buys nothing until the
+# entry goes away.
 [[tool.mypy.overrides]]
-module = "app.*"
+module = [
+    "app.services.*",
+    "app.automation.*",
+    "app.core.*",
+    "app.orchestrator.*",
+    "app.workers.*",
+    "app.api.*",
+]
 ignore_errors = true
 
 [[tool.mypy.overrides]]

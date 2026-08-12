@@ -19,6 +19,7 @@ from sqlalchemy import select
 
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
+from app.core.network import EGRESS_FAILURE_MARKERS
 from app.core.redis_client import redis_manager
 from app.models_rpa import WorkerRegistry
 
@@ -165,7 +166,10 @@ _ip_index_cache_expires: float = 0.0
 _IP_INDEX_CACHE_TTL = 5.0  # seconds
 
 
-# Typical block or network/timeout indicators from UTCMS
+# Typical block or network/timeout indicators from UTCMS.
+#
+# These are target-side signals: the response we got proves the remote side is
+# refusing or throttling THIS IP, so the index must leave the pool.
 IP_BLOCK_PATTERNS = [
     "blocked",
     "timeout",
@@ -182,6 +186,17 @@ IP_BLOCK_PATTERNS = [
     "gateway",
 ]
 
+# The patterns above only cover 13 generic phrases, so real transport failures
+# (net::ERR_CONNECTION_CLOSED, TLS handshake EOF, SSL UNEXPECTED_EOF, connection
+# reset) never tripped the breaker and a worker with a dead egress path kept
+# receiving work forever. EGRESS_FAILURE_MARKERS is the transport-layer half of
+# the same decision, so the breaker consults both.
+#
+# Deliberately NOT the full RETRYABLE_NETWORK_MARKERS table: that one also
+# covers browser-lifecycle crashes ("browser has been closed", "page crashed"),
+# which are worker-local and would evict a healthy IP index from rotation.
+BLOCK_OR_EGRESS_PATTERNS: tuple[str, ...] = (*IP_BLOCK_PATTERNS, *EGRESS_FAILURE_MARKERS)
+
 
 async def check_and_report_failure(error_msg: str) -> None:
     """
@@ -192,7 +207,7 @@ async def check_and_report_failure(error_msg: str) -> None:
         return
 
     error_msg_lower = error_msg.lower()
-    if any(pattern in error_msg_lower for pattern in IP_BLOCK_PATTERNS):
+    if any(pattern in error_msg_lower for pattern in BLOCK_OR_EGRESS_PATTERNS):
         ip_index = os.getenv("WORKER_IP_INDEX")
         if ip_index:
             try:

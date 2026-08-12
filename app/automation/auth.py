@@ -144,6 +144,13 @@ class UTCMSAuthenticator:
 
     async def _is_logged_in(self, probe_login_url: bool = True) -> bool:
         self.last_error = None
+        # Fast path: if there are no cookies in the browser context, we cannot be logged in
+        try:
+            cookies = await self.context.cookies()
+            if not cookies:
+                return False
+        except Exception:
+            pass
         current_url = await self.navigator.current_url()
         if current_url and not is_login_url(current_url):
             if await self._find_selector(AuthSelectors.LOGOUT_SELECTORS, visible=True, timeout=1200):
@@ -830,6 +837,20 @@ class UTCMSAuthenticator:
                 }
             },
         )
+        # Navigate to the waybill entry point — Playwright is still on about:blank
+        # after cookie injection. We need a real page load to activate the session.
+        try:
+            await self.page.goto(
+                utcms_config.WAYBILL_URL,
+                wait_until="domcontentloaded",
+                timeout=20000,
+            )
+        except Exception as nav_exc:
+            logger.warning(
+                "auth_http_login_post_nav_failed",
+                extra={"extra_fields": {"error": str(nav_exc)[:200]}},
+            )
+            # Still return True — cookies are in the context even if goto failed
         return True
 
     async def login(self, username: str, password: str, login_url: str | None = None) -> bool:
@@ -845,13 +866,6 @@ class UTCMSAuthenticator:
             try:
                 # Visit a known authenticated page to validate the session
                 # and trigger any post-login state changes.
-                if await self._is_logged_in(probe_login_url=True):
-                    self.last_state = "success"
-                    return True
-                # The HTTP login returned a cookie but the Playwright
-                # probe couldn't verify it. Try once more by reloading
-                # the login URL — the cookie should bounce us away.
-                await self.navigator.goto_with_retry(utcms_config.LOGIN_URL, wait_until="domcontentloaded")
                 if await self._is_logged_in(probe_login_url=False):
                     self.last_state = "success"
                     return True
@@ -899,11 +913,39 @@ class UTCMSAuthenticator:
                     navigation_errors.append((candidate_login_url, exc))
                 continue
 
+            # WAF block detection: UTCMS WAF returns HTTP 444 or a page
+            # saying "درخواست مجاز نمی‌باشد" for headless Chromium. Detect
+            # this early and fail fast — do not waste 3 minutes trying to fill
+            # an invisible login form that will never appear.
+            try:
+                pw_url = self.page.url
+                page_text = await self.page.evaluate(
+                    "() => document.body ? document.body.innerText.substring(0, 400) : ''"
+                )
+                if "درخواست مجاز نمی‌باشد" in page_text or "request not authorized" in page_text.lower():
+                    self.last_error = (
+                        "سامانه دسترسی از مرورگر headless را مسدود کرده است (WAF). "
+                        "لاگین HTTP نیز شکست خورده — سرویس UTCMS در حال حاضر در دسترس نیست."
+                    )
+                    logger.warning(
+                        "auth_playwright_waf_blocked",
+                        extra={"extra_fields": {"url": pw_url, "snippet": page_text[:200]}},
+                    )
+                    return False
+            except Exception:
+                pass
+
             username_selector = await self._find_selector(AuthSelectors.USERNAME_SELECTORS, visible=True, timeout=8000)
             password_selector = await self._find_selector(AuthSelectors.PASSWORD_SELECTORS, visible=True, timeout=8000)
+
             submit_selector = await self._find_selector(AuthSelectors.SUBMIT_SELECTORS, visible=True, timeout=8000)
 
             if not (username_selector and password_selector and submit_selector):
+                logger.warning(
+                    f"auth_login_fields_not_found: username_selector={username_selector}, "
+                    f"password_selector={password_selector}, submit_selector={submit_selector}"
+                )
+                await self._save_login_debug_snapshot("fields_not_found")
                 continue
 
             if not await self._fill_credentials(username_selector, password_selector, username, password):

@@ -55,7 +55,16 @@ class ReconciliationService:
                 return job
 
         outcome = ScraperOutcome.AMBIGUOUS
-        tracking_code = (job.result_json or {}).get("tracking_code")
+        res_json = job.result_json
+        if isinstance(res_json, str):
+            import json
+            try:
+                res_json = json.loads(res_json)
+            except Exception:
+                res_json = {}
+        else:
+            res_json = res_json or {}
+        tracking_code = res_json.get("tracking_code")
 
         utcms_username = None
         driver_obj = None
@@ -139,13 +148,25 @@ class ReconciliationService:
                     )
                     logger.warning("Job #%s reconciled to NEEDS_REVIEW (REGISTERED without tracking code)", job.id)
                 else:
-                    res_json = dict(job.result_json or {})
+                    res_json = job.result_json
+                    if isinstance(res_json, str):
+                        import json
+                        try:
+                            res_json = json.loads(res_json)
+                        except Exception:
+                            res_json = {}
+                    else:
+                        res_json = dict(res_json or {})
                     res_json["tracking_code"] = found_code
+                    if isinstance(job.result_json, str):
+                        result_json_val = json.dumps(res_json, ensure_ascii=False)
+                    else:
+                        result_json_val = res_json
                     JobStateMachine.transition(
                         session,
                         job,
                         JobStatus.SUCCESS,
-                        result_json=res_json,
+                        result_json=result_json_val,
                         finished_at=datetime.now(UTC).replace(tzinfo=None),
                     )
                     logger.info("Job #%s reconciled to SUCCESS", job.id)
@@ -170,10 +191,21 @@ class ReconciliationService:
                     last_error="Reconciliation result ambiguous; marked for manual review",
                 )
                 # Increment consecutive unknown counter in payload_json metadata
-                payload_meta = dict(job.payload_json or {})
+                payload_meta = job.payload_json
+                if isinstance(payload_meta, str):
+                    import json
+                    try:
+                        payload_meta = json.loads(payload_meta)
+                    except Exception:
+                        payload_meta = {}
+                else:
+                    payload_meta = dict(payload_meta or {})
                 consecutive_unknowns = payload_meta.get("consecutive_unknowns", 0) + 1
                 payload_meta["consecutive_unknowns"] = consecutive_unknowns
-                job.payload_json = payload_meta
+                if isinstance(job.payload_json, str):
+                    job.payload_json = json.dumps(payload_meta, ensure_ascii=False)
+                else:
+                    job.payload_json = payload_meta
 
                 # Check if high severity alert should be raised (>= 3 attempts)
                 await admin_alert_service.check_repeated_unknown_submission(

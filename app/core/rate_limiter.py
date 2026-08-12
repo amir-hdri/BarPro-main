@@ -156,7 +156,10 @@ class RedisRateLimiter:
     async def close(self):
         """Close Redis connection."""
         if self._redis:
-            await self._redis.close()
+            # `aclose()`, not the `close()` alias: the latter is deprecated in
+            # redis-py >= 5.0.1 and its DeprecationWarning is an error under the
+            # suite's `filterwarnings` policy.
+            await self._redis.aclose()
             self._redis = None
 
 
