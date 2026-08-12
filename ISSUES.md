@@ -1,5 +1,5 @@
 # BarPro — وضعیت مشکلات (Issues)
-**آخرین بروزرسانی: 2026-08-10**
+**آخرین بروزرسانی: 2026-08-13**
 
 > ✅ = برطرف شده | ⬜ = نیاز به اقدام کاربر روی سرور | ⚠️ = باید انجام شود
 > 
@@ -123,6 +123,21 @@
 
 ---
 
+## 🔵 اصلاحات جدید (2026-08-13) — ورژن 2.7.0
+
+| # | اصلاح | فایل(ها) | وضعیت |
+|---|-------|----------|--------|
+| L1 | WAF fast-fail در Playwright fallback: بعد از شکست HTTP login، Playwright روی صفحه «درخواست مجاز نمی‌باشد» (HTTP 444) ۳ دقیقه گیر می‌کرد | `app/automation/auth.py` | ✅ |
+| L2 | بعد از inject کوکی HTTP، Playwright روی `about:blank` می‌ماند — اولین navigation همیشه cold-start بود | `app/automation/auth.py` | ✅ |
+| L3 | HTTP 503 → فوری fallback به Playwright WAF-blocked بجای retry | `app/automation/utcms_http_login.py` | ✅ |
+| L4 | Session منقضی‌شده بدون 401 (redirect به Login) تشخیص داده نمی‌شد | `app/automation/utcms_http_login.py` | ✅ |
+| L5 | HTTP 429 و 5xx بودجه captcha-retry را مصرف می‌کردند | `app/automation/utcms_http_login.py` | ✅ |
+| N1 | `RETRYABLE_NETWORK_MARKERS` vs `IP_BLOCK_PATTERNS` drift: ۵ از ۶ egress failure بدون evict IP retry می‌شدند | `app/core/network.py` | ✅ |
+| N2 | `RedisConnectionManager` per-thread (نه per-loop) → `RuntimeError: Event loop is closed` در Celery | `app/core/redis.py` | ✅ |
+| N3 | `unclosed socket`/`unclosed transport` ResourceWarning در test suite | `app/core/redis.py` | ✅ |
+
+---
+
 ## ⬜ اقدامات باقیمانده روی سرور
 
 ```bash
@@ -150,5 +165,5 @@ echo "@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh" | crontab -
 
 ---
 
-*وضعیت نهایی: 646 تست collect، 0 failed — آماده production deployment*
-*آخرین بروزرسانی: 2026-08-10 — تمام مستندات به‌روز شده‌اند*
+*وضعیت نهایی: 646+ تست collect، 0 failed — آماده production deployment*
+*آخرین بروزرسانی: 2026-08-13 — ورژن 2.7.0 deploy شد*

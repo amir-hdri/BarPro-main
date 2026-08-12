@@ -261,11 +261,25 @@ docker compose -f compose/monitoring.yml up  # Prometheus only
 
 Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhanced → Local in sequence.
 
-## Optimization Applied (2026-06-30)
+## Optimization Applied (2026-06-30 → 2026-08-13)
 
-The following optimizations have been implemented in this codebase:
+### 2026-08-13 — v2.7.0 Authentication & Network Layer
+| Change | File | Impact |
+|--------|------|--------|
+| WAF fast-fail in Playwright fallback | `automation/auth.py` | 3-minute wait on HTTP 444 → 500ms fast-fail |
+| Post-HTTP-login Playwright navigation to WAYBILL_URL | `automation/auth.py` | Session warm before form-fill; eliminates cold-start navigation |
+| Transient 5xx retry (503/502/504/500/408, 3×, 6s) | `automation/utcms_http_login.py` | Single 503 no longer aborts HTTP login and forces WAF-blocked Playwright |
+| `_looks_unauthenticated()` silent session expiry detection | `automation/utcms_http_login.py` | Expired session detected via Location header + final URL (not just HTTP status) |
+| Rate-limit / transient counter not decrementing captcha budget | `automation/utcms_http_login.py` | 503 or 429 no longer wastes a captcha-solve attempt |
+| `_response_diagnostics()` (Server/Via/X-Squid-Error) | `automation/utcms_http_login.py` | Squid 503 vs UTCMS 503 distinguishable without re-run |
+| `network.py` composable marker tables (EGRESS+BROWSER+GENERIC) | `core/network.py` | EGRESS⊆RETRYABLE invariant enforced by tests; 5/6 egress failures previously not evicting IP |
+| `RedisConnectionManager` per-thread×loop cache | `core/redis.py` | `RuntimeError: Event loop is closed` in Celery eliminated |
+| `_force_close_sockets()` + `_detach_transport()` | `core/redis.py` | `ResourceWarning: unclosed socket/transport` eliminated |
+| 82 new `test_circuit_breaker.py` tests | `tests/` | EGRESS vs BROWSER routing, IP-index eviction |
+| 272 new `test_event_loop_affinity.py` tests | `tests/` | Redis per-loop cache and socket-close across loop boundaries |
+| 114 extended `test_error_taxonomy.py` tests | `tests/` | containment invariant EGRESS⊆RETRYABLE |
 
-### Performance
+### 2026-06-30 — Performance
 | Change | File | Impact |
 |--------|------|--------|
 | Removed `engine.dispose()` per Celery task | `workers/waybill_worker.py:91`, `phase1_tasks.py:23` | +500ms saved per task, connection storm eliminated |

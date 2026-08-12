@@ -2,6 +2,106 @@
   
   All notable changes to the UTCMS Automation System.
   
+  ## [2.7.0] - 2026-08-13
+  
+  ### Fixed — Authentication / Login Flow
+  - **WAF fast-fail in Playwright fallback** (`app/automation/auth.py`): After an HTTP login
+    failure, the Playwright path previously navigated to `/Account/Login` and waited
+    ~3 minutes for login-form fields that never appeared (UTCMS WAF returns HTTP 444
+    and the text «درخواست مجاز نمی‌باشد» for headless Chromium). Now detected within
+    500 ms → `return False` immediately → job enters `waiting_retry` and retries the
+    faster HTTP path on the next cycle.
+  - **Post-HTTP-login Playwright navigation** (`app/automation/auth.py`): After a successful
+    HTTP login the auth cookies were injected into the Playwright context but the browser
+    remained on `about:blank`. The first waybill navigation therefore always started from
+    a cold, unauthenticated state. Fixed: `_try_http_login_first` now calls
+    `page.goto(WAYBILL_URL, wait_until="domcontentloaded")` immediately after cookie
+    injection so the session is warm before the form-filling phase begins.
+  - **HTTP 503/502/504 transient retry** (`app/automation/utcms_http_login.py`): A single
+    upstream 503 from the Squid egress proxy used to abort the entire HTTP login attempt
+    and fall back to the WAF-blocked Playwright path. Now `TRANSIENT_STATUS_CODES =
+    (408, 500, 502, 503, 504)` are retried up to `TRANSIENT_MAX_RETRIES = 3` times with
+    `TRANSIENT_BACKOFF_SECONDS = 6.0` delay each using a fresh `curl_cffi` session.
+    The captcha-attempt counter is not decremented for transient errors so a 503 does
+    not consume a captcha solve budget.
+  - **Silent session expiry detection** (`app/automation/utcms_http_login.py`): UTCMS
+    sometimes redirects to `/Account/Login` (or renders it inline) on authenticated
+    page fetches without returning a 401. `_looks_unauthenticated()` now checks both
+    the `Location` header and the final URL so expired sessions are caught and the
+    fetch is retried with a fresh login rather than handing a login-page HTML back
+    to the waybill form parser.
+  - **Rate-limit counter fix** (`app/automation/utcms_http_login.py`): HTTP 429 and
+    transient 5xx responses no longer decrement the captcha-attempt counter
+    (`captcha_attempts_left += 1` to compensate). This prevents a network hiccup
+    from exhausting the captcha retry budget.
+
+  ### Added
+  - **`_response_diagnostics()` helper** (`app/automation/utcms_http_login.py`): Extracts
+    `Server`, `Via`, `X-Squid-Error`, `X-Cache`, `Content-Type`, and `Retry-After`
+    from every error response. Squid-originated 503s carry `X-Squid-Error` and
+    `Server: squid`; UTCMS/WAF 503s do not — enabling attribution without a live
+    re-run.
+  - **`auth_playwright_waf_blocked` log event** (`app/automation/auth.py`): Emitted
+    whenever the WAF-block page is detected, including the current URL and a 200-char
+    snippet of page text for forensics.
+  - **`auth_http_login_post_nav_failed` log event** (`app/automation/auth.py`): Emitted
+    (warning, non-fatal) if `page.goto(WAYBILL_URL)` throws after cookie injection.
+  - **`utcms_http_login_transient_status_retry` log event** (`app/automation/utcms_http_login.py`):
+    Emitted before each transient-error backoff sleep; includes HTTP status, attempt
+    number, backoff seconds, retries remaining, and a 160-char error snippet.
+  - **`utcms_http_login_fetch_unauthenticated` log event** (`app/automation/utcms_http_login.py`):
+    Emitted when a fetch returns a login-page response instead of the requested page.
+  - **`utcms_http_login_get_bad_status` / `utcms_http_login_post_bad_status` log events**:
+    Emitted when GET (login page fetch) or POST (credential submission) returns an
+    unexpected HTTP status so proxy vs. upstream failures are distinguishable.
+
+  ### Refactored
+  - **`app/core/network.py`** — completely rewritten around three composable marker
+    tables: `EGRESS_FAILURE_MARKERS` (transport is broken → remove IP from pool),
+    `BROWSER_LIFECYCLE_MARKERS` (process-local crash → do not evict IP), and
+    `GENERIC_NETWORK_MARKERS`. `RETRYABLE_NETWORK_MARKERS` is now the union, enforced
+    by `tests/test_error_taxonomy.py` so EGRESS⊆RETRYABLE can never silently drift.
+    Previously five of six real egress failure patterns were retried forever without
+    ever removing the broken IP index from the routing pool.
+  - **`app/core/redis.py`** — `RedisConnectionManager` now caches one client per
+    *(thread × event-loop)* pair instead of per-thread alone. A single thread can
+    legitimately run multiple loops over its lifetime (Celery worker lifecycle); the
+    previous per-thread cache returned a client whose transports belonged to a closed
+    loop, causing `RuntimeError: Event loop is closed`. `_force_close_sockets()` and
+    `_detach_transport()` helpers safely release file descriptors on abandoned
+    transports without awaiting, eliminating `ResourceWarning: unclosed socket` and
+    `ResourceWarning: unclosed transport` in the test suite under
+    `filterwarnings = error`.
+
+  ### Tests
+  - `tests/test_error_taxonomy.py` — extended to **114 tests** asserting that every
+    entry in `EGRESS_FAILURE_MARKERS` is also present in `RETRYABLE_NETWORK_MARKERS`
+    (containment invariant), and that browser-lifecycle markers are *not* in
+    `EGRESS_FAILURE_MARKERS` (no false IP eviction).
+  - `tests/test_circuit_breaker.py` — **82 new tests** for `CircuitBreaker` state
+    machine, EGRESS vs BROWSER error routing, and IP-index eviction logic.
+  - `tests/test_event_loop_affinity.py` — **272 new tests** for `RedisConnectionManager`
+    per-loop caching and socket-close behaviour across event loop boundaries.
+  - `tests/test_typecheck_requirements.py` — validates `requirements-typecheck.txt`
+    pin consistency.
+
+  ### Files Changed
+  - `app/automation/auth.py`, `app/automation/utcms_http_login.py`
+  - `app/automation/auth_navigator.py`, `app/automation/browser.py`
+  - `app/automation/waybill_bot_multitenant.py`, `app/automation/waybill_enhanced.py`
+  - `app/automation/worker_proxy.py`
+  - `app/core/network.py`, `app/core/redis.py`, `app/core/circuit_breaker.py`
+  - `app/core/config.py`, `app/core/error_taxonomy.py`, `app/core/utils.py`
+  - `app/bot/captcha/interceptor.py`, `app/bot/core/smart_locator.py`
+  - `app/workers/waybill_worker.py`, `app/main.py`
+  - `.github/workflows/cd-deploy.yml`, `.github/workflows/ci-cd.yml`,
+    `.github/workflows/ci-test.yml`
+  - `infra/squid/squid_1.conf`, `infra/squid/squid_worker.conf`
+  - `compose/worker-node.yml`, `pyproject.toml`, `pytest.ini`
+  - `tests/conftest.py` (new fixtures), `tests/test_circuit_breaker.py` (new),
+    `tests/test_error_taxonomy.py` (extended), `tests/test_event_loop_affinity.py` (new),
+    `tests/test_typecheck_requirements.py` (new), `requirements-typecheck.txt` (new)
+
   ## [2.6.0] - 2026-08-11
   
   ### Fixed
