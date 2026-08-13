@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://img.shields.io/badge/Status-Production%20Ready-success?style=for-the-badge" alt="Status" />
-  <img src="https://img.shields.io/badge/Version-2.0.0-blue?style=for-the-badge" alt="Version" />
-  <img src="https://img.shields.io/badge/Tests-646-brightgreen?style=for-the-badge" alt="Tests" />
+  <img src="https://img.shields.io/badge/Version-2.8.0-blue?style=for-the-badge" alt="Version" />
+  <img src="https://img.shields.io/badge/Tests-0%20failed-brightgreen?style=for-the-badge" alt="Tests" />
   <img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge" alt="License" />
 </div>
 
@@ -80,7 +80,7 @@ Client Browser → Nginx (port 80/443) → FastAPI Backend (port 8000)
 Frontend: Next.js 15 (TypeScript, Tailwind CSS, React 19)
 ```
 
-**Single-server deployment** — 13 Docker containers on one host with 2 public IPs.
+**Current production topology: Model B scale-out** — Central API/DB/Redis/Scheduler plus remote Worker VPS nodes, each with its own Iranian egress IP and local Squid.
 
 | Layer | Technology | Version |
 |-------|-----------|---------|
@@ -93,12 +93,12 @@ Frontend: Next.js 15 (TypeScript, Tailwind CSS, React 19)
 | Monitoring | Prometheus | latest |
 | Reverse Proxy | Nginx | 1.27-alpine |
 
-### Proxy Topology
+### Proxy Topology (Model B)
 | Proxy | Port | Egress IP | Used By |
 |-------|------|-----------|---------|
-| Squid 1 | 3128 | <CENTRAL_IP>    | Worker 1 |
-| Squid 2 | 3129 | <SECONDARY_EGRESS_IP>  | Worker 2 |
-| Squid 3 | 3130 | <SECONDARY_EGRESS_IP>  | Worker 3 |
+| Central Squid | 3128 | Central public IP | Worker 1 (currently optional/off) |
+| Worker 2 Squid | 3128 | Worker 2 public IP | Worker 2 |
+| Worker 3 Squid | 3128 | Worker 3 public IP | Worker 3 |
 
 ### Captcha Models
 | Page | Solver | Model |
@@ -148,7 +148,7 @@ cp .env.example .env
 
 ```bash
 .venv/bin/pytest tests/ -q --tb=short
-# Expected: 0 failed (646 tests collected)
+# Expected: 0 failed; exact count changes as regression coverage grows
 ```
 
 ### Start System
@@ -189,7 +189,7 @@ docker compose -f compose/monitoring.yml up -d  # Prometheus
 
 ### Tests
 ```
-646 collected, 0 failed (as of 2026-08-11); a few skip without Postgres/Redis/keras
+Latest validated development gate: 0 failed; environment-dependent tests may skip without PostgreSQL/Redis/Keras.
 ```
 
 ### Alembic Migration Head
@@ -208,6 +208,13 @@ docker compose -f compose/monitoring.yml up -d  # Prometheus
 - [ ] Run `bash manage.sh migrate` on production DB (includes migration 029 with optimization indexes)
 - [ ] Run `sudo bash scripts/secure_squid_ports.sh` (lock down Squid 3129/3130)
 - [ ] Add to crontab: `@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh`
+
+### UTCMS operating contract
+
+Before changing the form, CAPTCHA, proxy routing or submission schedule, read
+[docs/UTCMS_CONSTRAINTS.md](./docs/UTCMS_CONSTRAINTS.md). A job is not considered
+finally registered until its tracking code is present in the RPA response, the
+BarPro database and UTCMS History/Search.
 
 ---
 

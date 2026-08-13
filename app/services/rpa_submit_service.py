@@ -681,9 +681,24 @@ class RPAHttpSubmitService:
                     latency_ms=int((time.perf_counter() - start) * 1000),
                 )
 
+        from app.automation.multitenant_payload_adapter import validate_enhanced_waybill_payload
+
+        normalized_payload = build_enhanced_waybill_payload(payload)
+        validation_errors = validate_enhanced_waybill_payload(normalized_payload)
+        if validation_errors:
+            return SubmitExecutionResult(
+                classification=SubmitClassification(
+                    outcome=SubmitOutcome.VALIDATION_ERROR,
+                    reason_code="payload_validation_failed",
+                    retryable=False,
+                    message="اطلاعات اجباری UTCMS ناقص است: " + "، ".join(validation_errors),
+                ),
+                latency_ms=int((time.perf_counter() - start) * 1000),
+            )
+
         manager = EnhancedWaybillManager(page, context)
         manager_result = await manager.create_waybill_with_map(
-            build_enhanced_waybill_payload(payload),
+            normalized_payload,
             dry_run=False,
             job_id=job_id,
         )

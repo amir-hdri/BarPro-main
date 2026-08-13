@@ -97,11 +97,15 @@ def generate_submission_fingerprint(payload: dict[str, Any]) -> str:
 def _safe_json(raw: str | dict | None) -> dict[str, Any]:
     if isinstance(raw, dict):
         return raw
-    try:
-        parsed = json.loads(raw or "{}")
-    except (TypeError, json.JSONDecodeError):
-        parsed = {}
-    return parsed
+    parsed: Any = raw
+    for _ in range(2):
+        if not isinstance(parsed, str):
+            break
+        try:
+            parsed = json.loads(parsed or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 async def _close_page_quickly(page: Any) -> None:
@@ -202,9 +206,7 @@ async def _claim_and_execute(task: Any, intent_id: str):
         check_proxy_health,
         drain_worker_consumers,
         get_worker_proxy_url,
-        increment_worker_failures,
         is_worker_draining,
-        transition_worker_to_draining,
     )
 
     async with async_session_factory() as session:
@@ -220,6 +222,62 @@ async def _claim_and_execute(task: Any, intent_id: str):
             if intent.status != "claimed":
                 logger.warning(f"Intent {intent_id} has invalid status {intent.status}, skipping")
                 return {"status": "skipped", "reason": f"invalid_intent_status_{intent.status}"}
+
+            # Reject incomplete submissions before consuming a proxy, browser,
+            # execution lease, or retry budget. Historical jobs may contain a
+            # JSON string inside the JSON column, so normalize both encodings.
+            job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
+            job_result = await session.exec(job_statement)
+            job = job_result.first()
+            if not job:
+                raise ValueError(f"Job {intent.job_id} not found for intent {intent_id}")
+
+            from app.automation.multitenant_payload_adapter import (
+                build_enhanced_waybill_payload,
+                validate_enhanced_waybill_payload,
+            )
+
+            normalized_payload = build_enhanced_waybill_payload(_safe_json(job.payload_json))
+            payload_errors = validate_enhanced_waybill_payload(normalized_payload)
+            if payload_errors:
+                error_message = "اطلاعات اجباری بارنامه ناقص است: " + "، ".join(payload_errors)
+                intent.status = "failed"
+                intent.updated_at = _utcnow_naive()
+                session.add(intent)
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.NEEDS_REVIEW.value,
+                    last_error=error_message,
+                    error_category="payload_validation_failed",
+                    terminal_reason="payload_validation_failed",
+                    retryable=False,
+                    celery_task_id=None,
+                    finished_at=_utcnow_naive(),
+                    updated_at=_utcnow_naive(),
+                )
+                if job.driver_id:
+                    await release_driver_execution_slot(
+                        session,
+                        driver_id=job.driver_id,
+                        expected_intent_id=intent_id,
+                    )
+                await session.commit()
+                logger.warning(
+                    "worker_payload_preflight_failed",
+                    extra={
+                        "extra_fields": {
+                            "intent_id": intent_id,
+                            "job_id": job.job_id,
+                            "missing_fields": payload_errors,
+                        }
+                    },
+                )
+                return {
+                    "status": TaskStatus.NEEDS_REVIEW.value,
+                    "error_category": "payload_validation_failed",
+                    "validation_errors": payload_errors,
+                }
 
             # Pre-flight draining check
             if await is_worker_draining(worker_id):
@@ -285,10 +343,9 @@ async def _claim_and_execute(task: Any, intent_id: str):
                 is_healthy = await check_proxy_health(proxy_url)
                 if not is_healthy:
                     logger.error(f"Proxy health check failed for {proxy_url}. Incrementing failures.")
-                    failures = await increment_worker_failures(worker_id)
-                    if failures > 3:
-                        await transition_worker_to_draining(worker_id)
-                        drain_worker_consumers(task)
+                    # Do not permanently cancel Celery consumers for an egress
+                    # outage.  The circuit breaker temporarily removes this IP
+                    # from routing and automatically retries after its TTL.
 
                     # Move job to waiting_retry and intent to failed
                     intent.status = "failed"
@@ -320,13 +377,6 @@ async def _claim_and_execute(task: Any, intent_id: str):
             intent.status = "running"
             intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
             session.add(intent)
-
-            # Get job
-            job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
-            job_result = await session.exec(job_statement)
-            job = job_result.first()
-            if not job:
-                raise ValueError(f"Job {intent.job_id} not found for intent {intent_id}")
 
             # Create unique execution ID
             execution_id = str(uuid.uuid4())
@@ -409,9 +459,7 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
         check_proxy_health,
         drain_worker_consumers,
         get_worker_proxy_url,
-        increment_worker_failures,
         is_worker_draining,
-        transition_worker_to_draining,
     )
 
     async with async_session_factory() as session:
@@ -488,10 +536,8 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
                 is_healthy = await check_proxy_health(proxy_url)
                 if not is_healthy:
                     logger.error(f"Proxy health check failed for {proxy_url}. Incrementing failures.")
-                    failures = await increment_worker_failures(worker_id)
-                    if failures > 3:
-                        await transition_worker_to_draining(worker_id)
-                        drain_worker_consumers(task)
+                    # Keep consumers alive; circuit-breaker routing handles a
+                    # temporarily unavailable egress path and self-recovers.
 
                     # Move job to unknown and intent to failed
                     intent.status = "failed"
@@ -652,7 +698,10 @@ async def _finalize_execution(execution_id: str, intent_id: str, status: str, re
 
 
 def _renew_lease_sync_loop(
-    execution_id: str, fencing_token: int, stop_event: threading.Event, main_loop: asyncio.AbstractEventLoop | None = None
+    execution_id: str,
+    fencing_token: int,
+    stop_event: threading.Event,
+    main_loop: asyncio.AbstractEventLoop | None = None,
 ):
     """Runs in a separate thread, updates lease_expires_at using asyncio.run_coroutine_threadsafe on main_loop.
 
@@ -1080,6 +1129,27 @@ async def _execute_job(
                         logger.info(f"Job {job_id} entered OTP_BACKOFF, retry at {job.next_retry_at}")
                         return result
 
+                    if result_status == "validated":
+                        validation_payload = result.get("result") if isinstance(result.get("result"), dict) else {}
+                        JobStateMachine.transition(
+                            session,
+                            job,
+                            TaskStatus.NEEDS_REVIEW.value,
+                            result_json=validation_payload,
+                            celery_task_id=None,
+                            last_error="Waybill form validated; live submit is disabled",
+                            error_category="live_submit_disabled",
+                            retryable=False,
+                            next_retry_at=None,
+                            finished_at=now,
+                        )
+                        runtime_state.state = DriverRuntimeStateValue.READY.value
+                        runtime_state.next_retry_at = None
+                        runtime_state.updated_at = now
+                        await session.commit()
+                        logger.info("Job %s passed safe pre-submit validation", job_id)
+                        return result
+
                     if result_status == TaskStatus.SUCCESS.value:
                         result_payload = result.get("result")
                         tracking_code = (
@@ -1231,22 +1301,6 @@ async def _execute_job(
 
         except Exception as e:
             logger.error(f"Job {job_id} execution error: {e}", exc_info=True)
-
-            # Track worker failures for auto-heal draining
-            import os
-            import socket
-
-            w_id = os.environ.get("WORKER_ID", socket.gethostname())
-            from app.automation.worker_proxy import (
-                drain_worker_consumers,
-                increment_worker_failures,
-                transition_worker_to_draining,
-            )
-
-            w_failures = await increment_worker_failures(w_id)
-            if w_failures > 3:
-                await transition_worker_to_draining(w_id)
-                drain_worker_consumers(task)
 
             # Check if browser crash occurred and recycle browser
             err_msg = str(e).lower()

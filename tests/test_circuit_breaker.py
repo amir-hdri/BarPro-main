@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.core.circuit_breaker import (
+    NoHealthyWorkerError,
     WORKER_HEARTBEAT_STALE_SECONDS,
     _index_unavailable_from_rows,
     check_and_report_failure,
@@ -105,13 +106,11 @@ def test_get_next_ip_index_sync_with_blocked(mock_redis):
     assert ip == 1
 
 
-def test_get_next_ip_index_sync_all_blocked_fallback(mock_redis):
-    # Mock Redis: All IPs are blocked
+def test_get_next_ip_index_sync_all_blocked_raises(mock_redis):
+    # Mock Redis: All IPs are blocked; do not hammer a known-bad fleet.
     mock_redis.exists.return_value = True
-    mock_redis.incr.return_value = 2  # 2 % 3 = 2 -> selected_ip = healthy_ips[2] (which is 3)
-
-    ip = get_next_ip_index_sync()
-    assert ip == 3
+    with pytest.raises(NoHealthyWorkerError):
+        get_next_ip_index_sync()
 
 
 def test_get_routed_queue_standard():
@@ -209,15 +208,15 @@ def test_get_next_ip_index_sync_registry_failure_fallback(mock_redis):
     assert ip == 1
 
 
-def test_get_next_ip_index_sync_all_workers_dead_fallback(mock_redis):
-    """If every worker is dead the pool degrades to Redis-only health
-    (system keeps routing instead of stopping)."""
+def test_get_next_ip_index_sync_all_workers_dead_raises(mock_redis):
+    """Never dispatch to queues positively known to have no live consumer."""
     mock_redis.exists.return_value = False
     mock_redis.incr.return_value = 2
 
     with patch("app.core.circuit_breaker._get_unavailable_ip_indices_sync", return_value={1, 2, 3}):
-        ip = get_next_ip_index_sync()
-    assert ip == 3
+        with patch("app.core.circuit_breaker._get_known_ip_indices_sync", return_value={1, 2, 3}):
+            with pytest.raises(NoHealthyWorkerError):
+                get_next_ip_index_sync()
 
 
 def test_get_next_ip_index_sync_registry_and_redis_combined(mock_redis):

@@ -30,6 +30,10 @@ class CircuitOpenError(Exception):
         self.retry_after_seconds = retry_after_seconds
 
 
+class NoHealthyWorkerError(RuntimeError):
+    """Raised when the registry knows the fleet but none can consume work."""
+
+
 @dataclass
 class CircuitSnapshot:
     state: str
@@ -370,6 +374,8 @@ async def _get_registry_state() -> tuple[set[int], set[int]]:
             ).where(WorkerRegistry.ip_index.is_not(None))
             result = await session.exec(stmt)
             known, unavailable = _registry_index_state(result.all())
+    except NoHealthyWorkerError:
+        raise
     except Exception as exc:
         # Fail-safe: registry is a complement, never a hard dependency.
         logger.warning(f"Worker registry health check failed (async) — falling back to Redis-only routing: {exc}")
@@ -398,6 +404,8 @@ def _get_registry_state_sync() -> tuple[set[int], set[int]]:
             ).where(WorkerRegistry.ip_index.is_not(None))
             rows = session.execute(stmt).all()
             known, unavailable = _registry_index_state(rows)
+    except NoHealthyWorkerError:
+        raise
     except Exception as exc:
         logger.warning(f"Worker registry health check failed (sync) — falling back to Redis-only routing: {exc}")
         known, unavailable = set(), set()
@@ -462,16 +470,15 @@ async def get_next_ip_index() -> int:
             if not await r.exists(f"utcms:circuit_breaker:blocked:{i}"):
                 healthy_ips.append(i)
 
+        if not healthy_ips and known_from_registry:
+            raise NoHealthyWorkerError("No active, fresh and unblocked worker IP is available")
+
         if not healthy_ips:
-            # Registry filter emptied the pool (e.g. every worker died).
-            # Degrade gracefully: keep honoring Redis blocks, then fall back
-            # to all indices so the system never stops routing.
-            logger.warning("No healthy IP indices after worker-registry filter — falling back to Redis-only health")
+            # Registry is unavailable/empty: preserve the historical fail-safe.
             healthy_ips = [i for i in available_indices if not await r.exists(f"utcms:circuit_breaker:blocked:{i}")]
 
         if not healthy_ips:
-            logger.warning(f"All IP addresses are currently blocked! Falling back to all {available_indices}")
-            healthy_ips = available_indices
+            raise NoHealthyWorkerError("All configured worker IPs are temporarily blocked")
 
         counter = await r.incr("utcms:dispatcher:counter")
         selected_ip = healthy_ips[counter % max(len(healthy_ips), 1)]
@@ -479,6 +486,8 @@ async def get_next_ip_index() -> int:
         _ip_index_cache = selected_ip
         _ip_index_cache_expires = now + _IP_INDEX_CACHE_TTL
         return selected_ip
+    except NoHealthyWorkerError:
+        raise
     except Exception as exc:
         logger.error(f"Failed to get next IP index from Redis (async): {exc}")
         return available_indices[0] if available_indices else 1
@@ -523,22 +532,23 @@ def get_next_ip_index_sync() -> int:
             if not r.exists(f"utcms:circuit_breaker:blocked:{i}"):
                 healthy_ips.append(i)
 
+        if not healthy_ips and known_from_registry:
+            raise NoHealthyWorkerError("No active, fresh and unblocked worker IP is available")
+
         if not healthy_ips:
-            # Registry filter emptied the pool (e.g. every worker died).
-            # Degrade gracefully: keep honoring Redis blocks, then fall back
-            # to all indices so the system never stops routing.
-            logger.warning("No healthy IP indices after worker-registry filter — falling back to Redis-only health")
+            # Registry is unavailable/empty: preserve the historical fail-safe.
             healthy_ips = [i for i in available_indices if not r.exists(f"utcms:circuit_breaker:blocked:{i}")]
 
         if not healthy_ips:
-            logger.warning(f"All IP addresses are currently blocked! Falling back to all {available_indices}")
-            healthy_ips = available_indices
+            raise NoHealthyWorkerError("All configured worker IPs are temporarily blocked")
 
         # Increment global counter
         counter = r.incr("utcms:dispatcher:counter")
         # Select IP (safe: healthy_ips has at least one entry from fallback above)
         selected_ip = healthy_ips[counter % max(len(healthy_ips), 1)]
         return selected_ip
+    except NoHealthyWorkerError:
+        raise
     except Exception as exc:
         logger.error(f"Failed to get next IP index from Redis (sync): {exc}")
         # Default fallback to first available

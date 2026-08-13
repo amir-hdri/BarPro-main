@@ -1,6 +1,8 @@
 # BarPro — Agent Guide
 
 > **📋 See also: [CRITICAL_RULES.md](./CRITICAL_RULES.md)** — خطوط قرمز و الزامات فنی حیاتی پروژه
+>
+> **UTCMS live contract:** [docs/UTCMS_CONSTRAINTS.md](./docs/UTCMS_CONSTRAINTS.md) — فیلدهای اجباری، WAF/IP، CAPTCHA، زمان‌بندی و معیار اثبات ثبت
 
 ## Project Identity
 

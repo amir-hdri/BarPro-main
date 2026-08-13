@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import logging
 import re
 import time
@@ -504,6 +505,20 @@ class UtcmsHttpLogin:
                     error=f"دریافت تصویر کپچا ناموفق (HTTP {img_resp.status_code})",
                 )
             self._captcha_image_bytes = img_resp.content
+            logger.info(
+                "utcms_login_captcha_signature",
+                extra={
+                    "extra_fields": {
+                        "cap_type": self._cap_type or "1",
+                        "image_path": urlparse(captcha_img_url).path,
+                        "content_type": img_resp.headers.get("content-type", ""),
+                        "image_bytes": len(self._captcha_image_bytes),
+                        # A short digest detects a repeated image without
+                        # logging the CAPTCHA itself or its solved value.
+                        "image_digest": hashlib.sha256(self._captcha_image_bytes).hexdigest()[:12],
+                    }
+                },
+            )
         except Exception as exc:
             logger.warning(
                 "utcms_http_login_captcha_download_failed",

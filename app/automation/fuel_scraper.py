@@ -1,12 +1,14 @@
 """Playwright automation scraper for fuel quota inquiries on UTCMS using public ShowFuelQuota.aspx page."""
 
 import asyncio
+import hashlib
 import logging
 import os
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from playwright.async_api import BrowserContext, Page
 
@@ -68,8 +70,11 @@ def parse_plate(plate_number: str) -> dict[str, str]:
 
 
 def get_current_jalali() -> tuple[int, int]:
-    # Determine current Jalali year and month from Gregorian (using Tehran offset)
-    tehran_time = datetime.now(UTC) + timedelta(hours=3.5)
+    # Determine current Jalali year and month using the IANA timezone database.
+    # A fixed ``+03:30`` offset becomes wrong when the host's tzdata reports a
+    # different Tehran offset, which can shift the inquiry period around the
+    # month boundary and make time-based CAPTCHA observations misleading.
+    tehran_time = datetime.now(UTC).astimezone(ZoneInfo("Asia/Tehran"))
     gy, gm, gd = tehran_time.year, tehran_time.month, tehran_time.day
 
     g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 335]
@@ -544,7 +549,10 @@ class FuelScraper:
                 # Clear and refill captcha
                 await self.page.fill("#txtCapcha", "")
                 await self.page.fill("#txtCapcha", solved_value)
-                logger.info(f"Filled captcha field with solved value: {solved_value}")
+                logger.info(
+                    "fuel_captcha_field_filled",
+                    extra={"extra_fields": {"provider": captcha_provider_name, "value_len": len(solved_value)}},
+                )
 
                 # Double check and dismiss any error modal right before clicking submit
                 modal = await self.page.query_selector("#modal-msg-error")
@@ -755,6 +763,24 @@ class FuelScraper:
         import base64
 
         image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+        try:
+            image_shape = await captcha_element.evaluate(
+                "el => ({naturalWidth: el.naturalWidth || 0, naturalHeight: el.naturalHeight || 0})"
+            )
+        except Exception:
+            image_shape = {"naturalWidth": 0, "naturalHeight": 0}
+        logger.info(
+            "utcms_fuel_captcha_signature",
+            extra={
+                "extra_fields": {
+                    "selector": "#imgCapchaEdit1",
+                    "image_bytes": len(image_bytes),
+                    "natural_width": int(image_shape.get("naturalWidth") or 0),
+                    "natural_height": int(image_shape.get("naturalHeight") or 0),
+                    "image_digest": hashlib.sha256(image_bytes).hexdigest()[:12],
+                }
+            },
+        )
 
         # Solve via model
         result = await provider.solve_text_captcha(image_base64)

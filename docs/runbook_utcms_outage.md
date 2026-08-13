@@ -4,6 +4,10 @@ This runbook guides operators on how to detect, manage, and recover from partial
 
 > **Updated: 2026-08-13** — Added WAF block detection, transient HTTP retry diagnostics, and log events for v2.7.0.
 
+> Contract reference: [UTCMS_CONSTRAINTS.md](UTCMS_CONSTRAINTS.md). The 2026-08-13
+> controlled run confirmed successful HTTP login but repeated TLS resets on
+> `/barname/DocumentList/Index`; no tracking code was produced.
+
 ---
 
 ## 1. Outage Detection

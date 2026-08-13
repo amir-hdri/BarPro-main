@@ -79,6 +79,8 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         self.mock_route_calculator.calculate_distance = AsyncMock()
 
         self.manager._handle_submit_captcha_if_present = AsyncMock()
+        self.manager._is_waybill_form_ready = AsyncMock(return_value=True)
+        self.manager._ensure_waybill_form_page = AsyncMock()
         self.manager.smart_locator = AsyncMock()
 
         def mock_locate(page, selectors, *args, **kwargs):
@@ -123,7 +125,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
             "receiver": {"name": "Receiver"},
             "origin": {"province": "Tehran", "coordinates": {"lat": 35.6892, "lng": 51.3890}},
             "destination": {"province": "Mashhad", "coordinates": {"lat": 36.2972, "lng": 59.6067}},
-            "cargo": {"type": "General", "weight": 1000},
+            "cargo": {"type": "General", "packaging": "فله", "weight": 1000, "value": 1000000},
             "vehicle": {"plate": "12A34567"},
             "financial": {"cost": 5000000},
         }
@@ -154,11 +156,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["route"], route_info)
 
         # Verify calls
-        self.mock_page.goto.assert_called_with(
-            utcms_config.WAYBILL_URL,
-            wait_until="domcontentloaded",
-            timeout=utcms_config.PAGE_NAVIGATION_TIMEOUT,
-        )
+        self.mock_page.goto.assert_not_awaited()
         # Verify filled values using selector inventory
         inventory = self.manager._selector_inventory
         self.assertIn("sender:نام فرستنده", inventory)
@@ -184,7 +182,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
             "sender": {},
             "receiver": {},
             "vehicle": {"plate": "12A34567"},
-            "cargo": {"type": "General", "weight": 1000},
+            "cargo": {"type": "General", "packaging": "فله", "weight": 1000, "value": 1000000},
             "origin": {},
             "destination": {},
         }
@@ -204,7 +202,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
             "sender": {},
             "receiver": {},
             "vehicle": {"plate": "12A34567"},
-            "cargo": {"type": "General", "weight": 1000},
+            "cargo": {"type": "General", "packaging": "فله", "weight": 1000, "value": 1000000},
             "origin": {},
             "destination": {},
         }
@@ -227,7 +225,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
             "sender": {},
             "receiver": {},
             "vehicle": {"plate": "12A34567"},
-            "cargo": {"type": "General", "weight": 1000},
+            "cargo": {"type": "General", "packaging": "فله", "weight": 1000, "value": 1000000},
             "origin": {"province": "Tehran"},
             "destination": {"province": "Mashhad"},
         }
@@ -330,8 +328,8 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
     async def test_create_waybill_generic_error(self):
         """Test handling of unexpected exceptions."""
         data = {"sender": {}}
-        # Mock page.goto to raise an exception
-        self.mock_page.goto.side_effect = Exception("Network Error")
+        self.manager._is_waybill_form_ready = AsyncMock(return_value=False)
+        self.manager._ensure_waybill_form_page = AsyncMock(side_effect=Exception("Network Error"))
 
         with self.assertRaises(WaybillError) as context:
             await self.manager.create_waybill_with_map(data)
@@ -401,7 +399,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
             "receiver": {"name": "Receiver"},
             "origin": {"province": "Tehran", "coordinates": {"lat": 35.6892, "lng": 51.3890}},
             "destination": {"province": "Mashhad", "coordinates": {"lat": 36.2972, "lng": 59.6067}},
-            "cargo": {"type": "General", "weight": 1000},
+            "cargo": {"type": "General", "packaging": "فله", "weight": 1000, "value": 1000000},
             "vehicle": {"plate": "12345 اروند"},
             "financial": {"cost": 5000000},
         }

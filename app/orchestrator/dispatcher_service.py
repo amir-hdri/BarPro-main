@@ -154,9 +154,28 @@ class DispatcherService:
                 task_name = "barpro.waybill.execute"
                 base_queue = "waybill_tasks"
 
-            from app.core.circuit_breaker import get_routed_queue
+            from app.core.circuit_breaker import NoHealthyWorkerError, get_routed_queue
 
-            routed_queue = get_routed_queue(base_queue)
+            try:
+                routed_queue = get_routed_queue(base_queue)
+            except NoHealthyWorkerError as exc:
+                intent.status = "failed"
+                intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                session.add(intent)
+                if job.driver_id:
+                    await release_driver_execution_slot(
+                        session, driver_id=job.driver_id, expected_intent_id=intent.intent_id
+                    )
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.WAITING_RETRY.value,
+                    next_retry_at=datetime.now(UTC).replace(tzinfo=None),
+                    last_error=str(exc),
+                    error_category="system_error",
+                )
+                logger.warning("Dispatch deferred because no healthy worker is available")
+                return 0
 
             celery_app.send_task(task_name, args=[intent.intent_id], queue=routed_queue, priority=job.priority or 5)
             return 1

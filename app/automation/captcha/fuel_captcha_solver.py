@@ -3,6 +3,7 @@ import base64
 import json
 import logging
 from pathlib import Path
+from threading import Lock
 
 import numpy as np
 from PIL import Image
@@ -74,17 +75,10 @@ class PyTorchFuelCaptchaProvider(CaptchaProvider):
         self._model = None
         self._vocab = []
         self._initialized = False
-        self._lock: asyncio.Lock | None = None
-        self._lock_loop: asyncio.AbstractEventLoop | None = None
-
-    @property
-    def _safe_lock(self) -> asyncio.Lock:
-        """Recreate lock if event loop changed (Celery workers reuse loop per process)."""
-        current = asyncio.get_event_loop()
-        if self._lock is None or self._lock_loop != current:
-            self._lock = asyncio.Lock()
-            self._lock_loop = current
-        return self._lock
+        # Provider instances are cached per worker process. A threading lock is
+        # deliberately used here because Celery can call the cached provider
+        # from different asyncio event loops over its lifetime.
+        self._init_lock = Lock()
 
     async def solve_text_captcha(self, image_base64: str) -> CaptchaResult:
         if not image_base64 or not str(image_base64).strip():
@@ -95,7 +89,7 @@ class PyTorchFuelCaptchaProvider(CaptchaProvider):
 
         # Lazy load model
         if not self._initialized:
-            async with self._safe_lock:
+            with self._init_lock:
                 if not self._initialized:
                     success = self._load_model()
                     if not success:
@@ -200,7 +194,7 @@ class PyTorchFuelCaptchaProvider(CaptchaProvider):
                 logger.warning(f"Failed to parse predicted Persian words: '{words_predicted}'")
                 return CaptchaResult(solved=False, provider="pytorch_fuel", error="parsing_failed")
 
-            logger.info(f"PyTorch fuel solver successfully solved captcha: '{words_predicted}' -> {digits_solved}")
+            logger.info("PyTorch fuel captcha solved successfully")
             return CaptchaResult(solved=True, provider="pytorch_fuel", value=digits_solved)
 
         except Exception as e:

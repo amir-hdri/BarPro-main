@@ -184,29 +184,12 @@ export interface WaybillPayload {
   destination_address: string;
   destination_district?: string;
   plate_number: string;
-  waybill_number?: string;
   cargo_type?: string;
+  cargo_packaging?: string;
   cargo_weight?: string;
-  cargo_count?: string;
-  cargo_description?: string;
   cargo_value?: string;
-  vehicle_type?: string;
-  driver_phone?: string;
   sender_name: string;
-  sender_phone: string;
-  sender_national_code: string;
-  sender_address: string;
   receiver_name: string;
-  receiver_phone: string;
-  receiver_national_code?: string;
-  receiver_address: string;
-  financial_cost?: string;
-  financial_payment_method?: string;
-  shipping_two_way?: boolean;
-  shipping_time_limit?: string;
-  shipping_end_shipping?: string;
-  shipping_otp?: string;
-  notes?: string;
 }
 
 export interface WaybillJobCreateRequest {
@@ -509,4 +492,3 @@ export interface ClientDetail {
     success_rate: number;
   }>;
 }
-

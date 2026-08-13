@@ -1,5 +1,12 @@
 # BarPro Documentation Index
 
+## مراجع عملیاتی اصلی
+
+- [قرارداد و محدودیت‌های UTCMS](UTCMS_CONSTRAINTS.md) — فیلدهای اجباری، CAPTCHA، IP/WAF، زمان‌بندی، صف‌ها و معیار اثبات ثبت
+- [Runbook قطعی/اختلال UTCMS](runbook_utcms_outage.md)
+- [Runbook استقرار Scale-out](runbook_scale_out.md)
+- [Runbook ثبت Worker](runbook_worker_registration.md)
+
 Use this index for current operational documentation. Older historical reports remain under `docs/archive/` and should not be treated as deployment instructions.
 
 ## Start Here

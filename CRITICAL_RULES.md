@@ -7,6 +7,18 @@
 
 ## 🔴 خطوط قرمز مطلق (هرگز نقض نشوند)
 
+### 0. ثبت نهایی در UTCMS
+
+```
+❌ هرگز status داخلی یا بسته‌شدن modal را معادل ثبت نهایی اعلام نکنید
+❌ هرگز SUCCESS بدون tracking code را موفق نگه ندارید
+❌ هرگز ALLOW_LIVE_SUBMIT را به‌صورت پیش‌فرض فعال نکنید
+```
+
+- ثبت نهایی فقط با تطبیق tracking code در پاسخ RPA، دیتابیس BarPro و History/Search UTCMS اثبات می‌شود.
+- payload ناقص باید پیش از proxy/browser/driver-slot به `needs_review` برود.
+- قرارداد زنده و محدودیت‌های سامانه در `docs/UTCMS_CONSTRAINTS.md` نگهداری می‌شود.
+
 ### 1. امنیت اعتبارنامه‌ها
 
 ```

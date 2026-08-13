@@ -45,6 +45,8 @@ from app.monitoring.metrics import (
 
 logger = logging.getLogger(__name__)
 
+_POST_LOGIN_LANDING_URL = "https://barname.utcms.ir/Barname/Notification/Notification"
+
 
 class UTCMSAuthenticator:
     """Orchestrates the full UTCMS authentication flow.
@@ -827,6 +829,9 @@ class UTCMSAuthenticator:
         if not injected:
             logger.warning("auth_http_login_cookie_inject_failed")
             return False
+        bridge = getattr(self.page, "_barpro_http_browser_bridge", None)
+        if bridge is not None:
+            await bridge.seed_cookies(result.cookies)
         logger.info(
             "auth_http_login_succeeded",
             extra={
@@ -837,13 +842,17 @@ class UTCMSAuthenticator:
                 }
             },
         )
-        # Navigate to the waybill entry point — Playwright is still on about:blank
-        # after cookie injection. We need a real page load to activate the session.
+        # Warm the browser session on UTCMS's official post-login landing page.
+        # Directly opening ``WAYBILL_URL`` as the first Chromium request is
+        # consistently answered with HTTP 408 / a dropped connection by the
+        # portal WAF, while this same page is the target used by UTCMS's own
+        # Login.js and loads reliably with the injected cookies. The waybill
+        # manager will then follow the real menu link from this warm page.
         try:
             await self.page.goto(
-                utcms_config.WAYBILL_URL,
+                _POST_LOGIN_LANDING_URL,
                 wait_until="domcontentloaded",
-                timeout=20000,
+                timeout=40000,
             )
         except Exception as nav_exc:
             logger.warning(

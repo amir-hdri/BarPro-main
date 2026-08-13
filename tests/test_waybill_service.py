@@ -22,13 +22,13 @@ def create_request(operation_mode: OperationMode = OperationMode.SAFE) -> Waybil
     return WaybillMapRequest(
         session_id="svc-test",
         operation_mode=operation_mode,
-        sender=SenderModel(name="Sender", phone="0912", address="Addr", national_code="1234567890"),
-        receiver=ReceiverModel(name="Receiver", phone="0912", address="Addr"),
+        sender=SenderModel(name="Test Sender", phone="0912", address="Addr", national_code="1234567890"),
+        receiver=ReceiverModel(name="Test Receiver", phone="0912", address="Addr"),
         origin=LocationModel(province="A", city="B", address="C", coordinates=GeoCoordinateModel(lat=1.0, lng=1.0)),
         destination=LocationModel(
             province="D", city="E", address="F", coordinates=GeoCoordinateModel(lat=2.0, lng=2.0)
         ),
-        cargo=CargoModel(type="General", weight=1000, count=1, description="test"),
+        cargo=CargoModel(type="General", packaging="فله", weight=1000, count=1, value=1000000, description="test"),
         vehicle=VehicleModel(driver_national_code="123", driver_phone="0912", plate="12A34567", type="Truck"),
         financial=FinancialModel(cost=1000, payment_method="Cash"),
     )

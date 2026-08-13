@@ -29,12 +29,15 @@ Proxy addressing:
   Do NOT use host.docker.internal (unreachable from Linux bridge networks).
 """
 
+import asyncio
 import logging
 import os
 import socket
 import time
 from typing import Any
 from urllib.parse import urlparse, urlunparse
+
+from app.core.config import utcms_config
 
 logger = logging.getLogger(__name__)
 
@@ -227,23 +230,59 @@ def get_playwright_proxy() -> dict | None:
     return {"server": url} if url else None
 
 
-async def check_proxy_health(proxy_url: str, target_url: str = "https://utcms.ir") -> bool:
-    """
-    Verify that Squid can make a real request to the UTCMS login page.
-    """
-    import httpx
+async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> bool:
+    """Verify that Squid can reach UTCMS without confusing UTCMS health with proxy health.
 
-    try:
-        async with httpx.AsyncClient(proxy=proxy_url, timeout=15.0, verify=False, follow_redirects=True) as client:
-            response = await client.get(target_url)
-        return 200 <= response.status_code < 500
-    except Exception as exc:
-        logger.warning(
-            "worker_proxy_health_check_failed",
-            extra={"extra_fields": {"proxy": proxy_url, "target": target_url, "error": str(exc)}},
-        )
-        return False
+    The RPA login path uses ``curl_cffi`` with a Chrome TLS fingerprint.  The old
+    pre-flight used one plain ``httpx`` request to the UTCMS home page, so a
+    single upstream reset/WAF response incorrectly marked Squid unhealthy and
+    permanently drained all Celery consumers on that worker.
 
+    Any real HTTP response proves that the proxy tunnel is operational.  Only
+    connection failures (or an explicit ``X-Squid-Error`` response) count as a
+    proxy failure.  A short retry absorbs UTCMS's observed transient resets.
+    """
+    from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
+
+    effective_target = target_url or utcms_config.LOGIN_URL
+    last_error = ""
+    for attempt in range(1, 4):
+        session = None
+        try:
+            session = cc_requests.Session(
+                impersonate="chrome120",
+                proxies={"http": proxy_url, "https": proxy_url},
+                verify=False,
+            )
+            response = await asyncio.to_thread(session.get, effective_target, timeout=8.0)
+            squid_error = response.headers.get("X-Squid-Error") or response.headers.get("x-squid-error")
+            if not squid_error:
+                return True
+            last_error = f"X-Squid-Error={squid_error}; status={response.status_code}"
+        except Exception as exc:
+            last_error = str(exc)
+        finally:
+            if session is not None:
+                try:
+                    await asyncio.to_thread(session.close)
+                except Exception:
+                    logger.debug("worker_proxy_health_session_close_failed", exc_info=True)
+
+        if attempt < 3:
+            await asyncio.sleep(1.0)
+
+    logger.warning(
+        "worker_proxy_health_check_failed",
+        extra={
+            "extra_fields": {
+                "proxy": proxy_url,
+                "target": effective_target,
+                "attempts": 3,
+                "error": last_error[:240],
+            }
+        },
+    )
+    return False
 
 
 async def increment_worker_failures(worker_id: str) -> int:

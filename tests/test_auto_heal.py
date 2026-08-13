@@ -18,6 +18,15 @@ from app.models_multitenant import WaybillJob
 from app.models_rpa import DispatchIntent, WorkerRegistry
 from app.workers.waybill_worker import _claim_and_execute, _claim_and_reconcile, get_retry_delay
 
+COMPLETE_PAYLOAD = {
+    "sender": {"name": "علی فلاح"},
+    "receiver": {"name": "احمد مومنی"},
+    "origin": {"province": "هرمزگان", "city": "میناب", "address": "بلوار خلیج فارس"},
+    "destination": {"province": "هرمزگان", "city": "میناب", "address": "طالوار"},
+    "cargo": {"type": "مصالح", "packaging": "فله", "weight": "15", "value": "35000000"},
+    "vehicle": {"driver_national_code": "1234567890", "plate": "79ع989ایران84"},
+}
+
 
 @pytest.fixture
 async def async_db():
@@ -121,7 +130,7 @@ async def test_claim_and_execute_draining(async_db):
         job = WaybillJob(
             job_id="job-1",
             idempotency_key="idemp-1",
-            payload_json={},
+            payload_json=COMPLETE_PAYLOAD,
             client_id=1,
             driver_id=1,
             status="claimed",
@@ -172,7 +181,7 @@ async def test_claim_and_execute_unhealthy_proxy(async_db):
         job = WaybillJob(
             job_id="job-2",
             idempotency_key="idemp-2",
-            payload_json={},
+            payload_json=COMPLETE_PAYLOAD,
             client_id=1,
             driver_id=1,
             status="claimed",
@@ -206,9 +215,9 @@ async def test_claim_and_execute_unhealthy_proxy(async_db):
             await _claim_and_execute(mock_task, "intent-2")
 
         assert "unhealthy" in str(exc_info.value)
-        mock_incr.assert_called_once()
-        mock_drain_db.assert_called_once()
-        mock_drain_consumers.assert_called_once_with(mock_task)
+        mock_incr.assert_not_called()
+        mock_drain_db.assert_not_called()
+        mock_drain_consumers.assert_not_called()
 
     # Verify database status updated: intent to failed, job to waiting_retry
     async with async_db() as session:

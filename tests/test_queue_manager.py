@@ -19,8 +19,8 @@ def _request_payload():
         "receiver": {"name": "y", "phone": "2", "address": "b"},
         "origin": {"province": "p", "city": "c", "address": "a", "coordinates": {"lat": 1, "lng": 1}},
         "destination": {"province": "p2", "city": "c2", "address": "a2", "coordinates": {"lat": 2, "lng": 2}},
-        "cargo": {"weight": 1000},
-        "vehicle": {},
+        "cargo": {"type": "مصالح", "packaging": "فله", "weight": 1000, "value": 1000000},
+        "vehicle": {"driver_national_code": "1234567890", "plate": "79ع989ایران84"},
         "financial": {},
     }
 

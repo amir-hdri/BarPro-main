@@ -1,6 +1,22 @@
 # BarPro — وضعیت مشکلات (Issues)
 **آخرین بروزرسانی: 2026-08-13**
 
+> مرجع وضعیت سامانه و محدودیت‌های مشاهده‌شده: [docs/UTCMS_CONSTRAINTS.md](./docs/UTCMS_CONSTRAINTS.md)
+
+## 🆕 2026-08-13 — قرارداد فرم و آزمون کنترل‌شده UTCMS
+
+| # | مورد | وضعیت | نتیجه |
+|---|---|---|---|
+| U1 | UI شامل فیلدهای غیرضروری و payload دارای fallback ساختگی بود | ✅ | فقط فیلدهای اجباری فرم زنده نگه داشته شد؛ fallback تصادفی/ساختگی حذف شد |
+| U2 | نوع بسته‌بندی و ارزش بار در قرارداد کامل اجباری نبود | ✅ | validation مشترک UI/Backend/Worker اضافه شد |
+| U3 | payload ناقص تا مرحله Worker و browser پیش می‌رفت | ✅ | preflight قبل از proxy، browser، lease و retry؛ نتیجه `needs_review` |
+| U4 | نبود Worker سالم می‌توانست به queue/IP خیالی fallback کند | ✅ | routing fail-closed با `NoHealthyWorkerError` و آزادسازی slot |
+| U5 | bridge همه assetهای UTCMS را serialize می‌کرد | ✅ | bridge محدود به document/xhr/fetch؛ assetها از Chromium/Squid |
+| U6 | پاسخ CAPTCHA در بعضی log/debug metadataها ذخیره می‌شد | ✅ | پاسخ حذف؛ فقط signature غیرحساس ثبت می‌شود |
+| U7 | محاسبه دوره سوخت از offset ثابت تهران استفاده می‌کرد | ✅ | `ZoneInfo("Asia/Tehran")` |
+| U8 | آزمون کنترل‌شده ثبت نهایی | ⚠️ | ورود موفق، اما DocumentList با TLS reset و timeout؛ tracking code وجود ندارد |
+| U9 | Worker 3 از نسخه اصلی عقب و Celery آن خاموش است | ⚠️ | پیش از ورود به routing pool باید sync/recreate و heartbeat آن اثبات شود |
+
 > ✅ = برطرف شده | ⬜ = نیاز به اقدام کاربر روی سرور | ⚠️ = باید انجام شود
 > 
 > **تغییرات اخیر:** به‌روزرسانی کامل مستندات، اصلاح امنیت، بهینه‌سازی عملکرد، و رفع 164 ایشو شناسایی‌شده

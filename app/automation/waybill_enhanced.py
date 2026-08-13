@@ -1590,12 +1590,15 @@ class EnhancedWaybillManager:
             }
         """
         try:
-            # رفتن به صفحه ایجاد بارنامه
-            await self._goto_with_retry(utcms_config.WAYBILL_URL, wait_until="domcontentloaded")
+            # Do not cold-navigate directly to WAYBILL_URL. UTCMS's WAF often
+            # rejects that first Chromium request with HTTP 408. Authentication
+            # warms the official Notification landing page; from there this
+            # recovery helper follows the portal's own waybill menu link.
+            if not await self._is_waybill_form_ready():
+                await self._ensure_waybill_form_page()
             try:
                 await self.page.wait_for_load_state("networkidle", timeout=8000)
             except Exception:
-                # networkidle may not fire on heavy pages — fall back to a brief sleep
                 await asyncio.sleep(1.0)
             await self._ensure_waybill_form_page()
             await self._check_account_eligibility()
@@ -2031,9 +2034,11 @@ class EnhancedWaybillManager:
             'select[id="senderSelectType"]',
         ]
 
+        sender_entity_type = str(sender.get("entity_type") or sender.get("type") or "individual").strip().lower()
+        sender_type_value = "2" if sender_entity_type in {"company", "legal", "2", "حقوقی"} else "1"
         await self._select_dropdown_with_fallback(
             sender_type_selectors,
-            "1",  # Explicitly try value '1' first for real person
+            sender_type_value,
             "نوع فرستنده",
             required=True,
         )
@@ -2057,41 +2062,47 @@ class EnhancedWaybillManager:
         sender_last = (sender.get("last_name") or "").strip()
         sender_name = (sender.get("name") or "").strip()
 
-        if not sender_first and not sender_last:
-            if sender_name:
-                parts = sender_name.split(maxsplit=1)
-                sender_first = parts[0]
-                sender_last = parts[1] if len(parts) > 1 else sender_name
-            else:
-                sender_first = "فرستنده"
-                sender_last = "عمومی"
+        if sender_type_value == "2":
+            office_name = (sender.get("office_name") or sender_name).strip()
+            await self._fill_verified_text_field(
+                ['input[id="txtSenderOfficeName"]', 'input[name="txtSenderOfficeName"]'],
+                office_name,
+                "نام حقوقی فرستنده",
+                required=True,
+            )
+            sender_first = sender_last = ""
+        elif not sender_first and not sender_last:
+            parts = sender_name.split(maxsplit=1)
+            sender_first = parts[0] if parts else ""
+            sender_last = parts[1] if len(parts) > 1 else sender_first
         elif not sender_first:
             sender_first = sender_last
         elif not sender_last:
             sender_last = sender_first
 
-        await self._fill_verified_text_field(
-            [
-                'input[id="txtSenderFirstName"]',
-                'input[name="txtSenderFirstName"]',
-                'input[name="SenderName"]',
-                'input[id="SenderName"]',
-            ],
-            sender_first,
-            "نام فرستنده",
-            required=True,
-        )
-        await self._fill_verified_text_field(
-            [
-                'input[id="txtSenderLastName"]',
-                'input[name="txtSenderLastName"]',
-                'input[name="SenderLastName"]',
-                'input[id="SenderLastName"]',
-            ],
-            sender_last,
-            "نام خانوادگی فرستنده",
-            required=True,
-        )
+        if sender_type_value == "1":
+            await self._fill_verified_text_field(
+                [
+                    'input[id="txtSenderFirstName"]',
+                    'input[name="txtSenderFirstName"]',
+                    'input[name="SenderName"]',
+                    'input[id="SenderName"]',
+                ],
+                sender_first,
+                "نام فرستنده",
+                required=True,
+            )
+            await self._fill_verified_text_field(
+                [
+                    'input[id="txtSenderLastName"]',
+                    'input[name="txtSenderLastName"]',
+                    'input[name="SenderLastName"]',
+                    'input[id="SenderLastName"]',
+                ],
+                sender_last,
+                "نام خانوادگی فرستنده",
+                required=True,
+            )
 
         # National code / company code (optional)
         sender_national_code = (sender.get("national_code") or sender.get("national_id") or "").strip()
@@ -2110,17 +2121,18 @@ class EnhancedWaybillManager:
             )
 
         sender_phone = sender.get("phone", "")
-        await self._fill_verified_text_field(
-            [
-                'input[name="txtSenderMobile"]',
-                'input[id="txtSenderMobile"]',
-            ],
-            self._normalize_mobile(sender_phone),
-            "تلفن فرستنده",
-            required=bool(sender_phone),
-            normalizer=self._normalize_mobile,
-            prefer_type=True,
-        )
+        if sender_phone:
+            await self._fill_verified_text_field(
+                [
+                    'input[name="txtSenderMobile"]',
+                    'input[id="txtSenderMobile"]',
+                ],
+                self._normalize_mobile(sender_phone),
+                "تلفن فرستنده",
+                required=False,
+                normalizer=self._normalize_mobile,
+                prefer_type=True,
+            )
 
         # Click Next and check for validation errors
         sender_next = await self._click_step_next(
@@ -2155,9 +2167,11 @@ class EnhancedWaybillManager:
             'select[name="receiverSelectType"]',
             'select[id="receiverSelectType"]',
         ]
+        receiver_entity_type = str(receiver.get("entity_type") or receiver.get("type") or "individual").strip().lower()
+        receiver_type_value = "2" if receiver_entity_type in {"company", "legal", "2", "حقوقی"} else "1"
         await self._select_dropdown_with_fallback(
             receiver_type_selectors,
-            "1",  # Value 1 = حقیقی
+            receiver_type_value,
             "نوع گیرنده",
             required=True,
         )
@@ -2179,41 +2193,47 @@ class EnhancedWaybillManager:
         receiver_last = (receiver.get("last_name") or "").strip()
         receiver_name = (receiver.get("name") or "").strip()
 
-        if not receiver_first and not receiver_last:
-            if receiver_name:
-                parts = receiver_name.split(maxsplit=1)
-                receiver_first = parts[0]
-                receiver_last = parts[1] if len(parts) > 1 else receiver_name
-            else:
-                receiver_first = "گیرنده"
-                receiver_last = "عمومی"
+        if receiver_type_value == "2":
+            office_name = (receiver.get("office_name") or receiver_name).strip()
+            await self._fill_verified_text_field(
+                ['input[id="txtReceiverOfficeName"]', 'input[name="txtReceiverOfficeName"]'],
+                office_name,
+                "نام حقوقی گیرنده",
+                required=True,
+            )
+            receiver_first = receiver_last = ""
+        elif not receiver_first and not receiver_last:
+            parts = receiver_name.split(maxsplit=1)
+            receiver_first = parts[0] if parts else ""
+            receiver_last = parts[1] if len(parts) > 1 else receiver_first
         elif not receiver_first:
             receiver_first = receiver_last
         elif not receiver_last:
             receiver_last = receiver_first
 
-        await self._fill_verified_text_field(
-            [
-                'input[id="txtReceiverFirstName"]',
-                'input[name="txtReceiverFirstName"]',
-                'input[name="ReceiverName"]',
-                'input[id="ReceiverName"]',
-            ],
-            receiver_first,
-            "نام گیرنده",
-            required=True,
-        )
-        await self._fill_verified_text_field(
-            [
-                'input[id="txtReceiverLastName"]',
-                'input[name="txtReceiverLastName"]',
-                'input[name="ReceiverLastName"]',
-                'input[id="ReceiverLastName"]',
-            ],
-            receiver_last,
-            "نام خانوادگی گیرنده",
-            required=True,
-        )
+        if receiver_type_value == "1":
+            await self._fill_verified_text_field(
+                [
+                    'input[id="txtReceiverFirstName"]',
+                    'input[name="txtReceiverFirstName"]',
+                    'input[name="ReceiverName"]',
+                    'input[id="ReceiverName"]',
+                ],
+                receiver_first,
+                "نام گیرنده",
+                required=True,
+            )
+            await self._fill_verified_text_field(
+                [
+                    'input[id="txtReceiverLastName"]',
+                    'input[name="txtReceiverLastName"]',
+                    'input[name="ReceiverLastName"]',
+                    'input[id="ReceiverLastName"]',
+                ],
+                receiver_last,
+                "نام خانوادگی گیرنده",
+                required=True,
+            )
 
         # National code (optional)
         receiver_national_code = (receiver.get("national_code") or receiver.get("national_id") or "").strip()
@@ -2232,17 +2252,18 @@ class EnhancedWaybillManager:
             )
 
         receiver_phone = receiver.get("phone", "")
-        await self._fill_verified_text_field(
-            [
-                'input[name="txtReceiverMobile"]',
-                'input[id="txtReceiverMobile"]',
-            ],
-            self._normalize_mobile(receiver_phone),
-            "تلفن گیرنده",
-            required=bool(receiver_phone),
-            normalizer=self._normalize_mobile,
-            prefer_type=True,
-        )
+        if receiver_phone:
+            await self._fill_verified_text_field(
+                [
+                    'input[name="txtReceiverMobile"]',
+                    'input[id="txtReceiverMobile"]',
+                ],
+                self._normalize_mobile(receiver_phone),
+                "تلفن گیرنده",
+                required=False,
+                normalizer=self._normalize_mobile,
+                prefer_type=True,
+            )
 
         receiver_next = await self._click_step_next(
             2,
@@ -2440,12 +2461,12 @@ class EnhancedWaybillManager:
             )
 
         if not selected_packaging:
-            # Fall back to first non-placeholder option if specific option was not found or not provided
+            # The worker preflight rejects missing packaging before a real run.
+            # Keep the manager tolerant for legacy dry-run/unit callers that only
+            # exercise the navigation stack with a minimal cargo object.
             selected_packaging = await self._select_first_non_placeholder_option("#ddBoxType")
-            if selected_packaging:
-                logger.info("cargo_packaging_selected_first_non_placeholder")
-            else:
-                logger.warning("cargo_packaging_selection_failed_no_options")
+            if not selected_packaging:
+                raise WaybillError("نوع بسته‌بندی ارائه‌شده در فهرست UTCMS پیدا نشد")
 
         weight_val = cargo.get("weight")
         await self._fill_verified_text_field(
@@ -2683,8 +2704,6 @@ class EnhancedWaybillManager:
                             free_zone_parts["zone_name"],
                         ],
                     )
-                if not selected_tajmi:
-                    selected_tajmi = await self._select_first_non_placeholder_option("#PelakComboTajmi")
             if selected_tajmi:
                 try:
                     selected_plate_value = await self.page.eval_on_selector(
@@ -2829,31 +2848,6 @@ class EnhancedWaybillManager:
                             extra={"extra_fields": {"driver_code": driver_code}},
                         )
                         break
-
-        # 2. Match first non-placeholder option
-        if not selected_driver:
-            for option in options:
-                opt_text = self._normalize_text(option.get("text") or "")
-                opt_val = str(option.get("value") or "").strip()
-                if opt_text in {"", "انتخاب", "انتخابکنید", "انتخابکنید..."}:
-                    continue
-                if opt_val in {"", "0"}:
-                    continue
-                selected_driver = await self._set_select_value_with_js("#DriverListTajmi", option.get("value") or "")
-                if selected_driver:
-                    logger.info("vehicle_tajmi_driver_selected_first_non_placeholder")
-                    break
-
-        # 3. Match any valid option
-        if not selected_driver:
-            for option in options:
-                opt_val = str(option.get("value") or "").strip()
-                if not opt_val or opt_val == "0":
-                    continue
-                selected_driver = await self._set_select_value_with_js("#DriverListTajmi", option.get("value") or "")
-                if selected_driver:
-                    logger.info("vehicle_tajmi_driver_selected_fallback_any")
-                    break
 
         logger.info(
             "vehicle_tajmi_driver_select_attempt",
@@ -3017,7 +3011,7 @@ class EnhancedWaybillManager:
             ],
             current_time,
             "ساعت شروع حمل",
-            required=False,
+            required=True,
             prefer_type=True,
         )
 
@@ -4119,7 +4113,7 @@ class EnhancedWaybillManager:
                     "attempt": attempt,
                     "stage": stage,
                     "provider": provider,
-                    "solution": solution,
+                    "solution_recorded": bool(solution),
                     "error": error,
                     "url": getattr(self.page, "url", ""),
                     "image_path": os.fspath(image_path),

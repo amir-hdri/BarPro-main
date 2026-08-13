@@ -128,5 +128,5 @@ class KerasOcrCaptchaProvider(CaptchaProvider):
             logger.warning("Keras OCR model could not decode the captcha digits")
             return CaptchaResult(solved=False, provider="keras_ocr", error="model_decoding_failed")
 
-        logger.info(f"Keras OCR model successfully solved captcha: {prediction}")
+        logger.info("Keras OCR captcha solved successfully")
         return CaptchaResult(solved=True, provider="keras_ocr", value=prediction)

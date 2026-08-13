@@ -6,8 +6,12 @@ from typing import Any
 from playwright.async_api import BrowserContext, Page
 
 from app.automation.auth import UTCMSAuthenticator
-from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload
+from app.automation.multitenant_payload_adapter import (
+    build_enhanced_waybill_payload,
+    validate_enhanced_waybill_payload,
+)
 from app.automation.waybill_enhanced import EnhancedWaybillManager
+from app.core.config import utcms_config
 from app.core.exceptions import WaybillError
 from app.models_multitenant import TaskStatus
 
@@ -68,6 +72,24 @@ class WaybillAutomationBot:
         )
 
         try:
+            normalized_payload = build_enhanced_waybill_payload(payload)
+            validation_errors = validate_enhanced_waybill_payload(normalized_payload)
+            if validation_errors:
+                result["status"] = TaskStatus.NEEDS_REVIEW.value
+                result["error"] = "اطلاعات اجباری UTCMS ناقص است: " + "، ".join(validation_errors)
+                result["error_category"] = "payload_validation_failed"
+                result["steps"].append(
+                    {
+                        "step": "pre_submit_validation",
+                        "status": "needs_review",
+                        "message": result["error"],
+                    }
+                )
+                return result
+
+            from app.automation.http_browser_bridge import ensure_utcms_http_browser_bridge
+
+            await ensure_utcms_http_browser_bridge(self.page)
             # Check if we are already logged in via active session cookies
             # Pass probe_login_url=False to avoid slow page navigations on startup!
             is_logged_in = await self.authenticator._is_logged_in(probe_login_url=False)
@@ -104,9 +126,9 @@ class WaybillAutomationBot:
                 }
             )
 
-            normalized_payload = build_enhanced_waybill_payload(payload)
+            dry_run = not utcms_config.ALLOW_LIVE_SUBMIT
             manager_result = await self.manager.create_waybill_with_map(
-                normalized_payload, dry_run=False, job_id=job_id
+                normalized_payload, dry_run=dry_run, job_id=job_id
             )
 
             # Self-healing: if session was reused but creation failed, check if we got redirected to login page
@@ -123,7 +145,7 @@ class WaybillAutomationBot:
                         await browser_manager.save_auth_state(self.context, auth_state_path=auth_state_path)
                         # Try creation again
                         manager_result = await self.manager.create_waybill_with_map(
-                            normalized_payload, dry_run=False, job_id=job_id
+                            normalized_payload, dry_run=dry_run, job_id=job_id
                         )
 
             result["steps"].append(
@@ -144,6 +166,18 @@ class WaybillAutomationBot:
                         "step": "otp_backoff",
                         "status": "waiting_retry",
                         "message": manager_result.get("message") or "OTP challenge detected",
+                    }
+                )
+                return result
+
+            if str(manager_result.get("status", "")).strip().lower() == "validated":
+                result["status"] = "validated"
+                result["result"] = manager_result.get("validation_summary") or {}
+                result["steps"].append(
+                    {
+                        "step": "pre_submit_validation",
+                        "status": "success",
+                        "message": "Waybill form validated; final submit was disabled",
                     }
                 )
                 return result

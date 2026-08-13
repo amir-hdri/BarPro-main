@@ -10,6 +10,15 @@ from app.models_multitenant import Client, Driver, TaskStatus, WaybillJob
 from app.models_rpa import DispatchIntent, DriverRuntimeState
 from app.workers.waybill_worker import execute_dispatched_intent
 
+COMPLETE_PAYLOAD = {
+    "sender": {"name": "علی فلاح"},
+    "receiver": {"name": "احمد مومنی"},
+    "origin": {"province": "هرمزگان", "city": "میناب", "address": "بلوار خلیج فارس"},
+    "destination": {"province": "هرمزگان", "city": "میناب", "address": "طالوار"},
+    "cargo": {"type": "مصالح", "packaging": "فله", "weight": "15", "value": "35000000"},
+    "vehicle": {"driver_national_code": "1234567890", "plate": "79ع989ایران84"},
+}
+
 
 @pytest.fixture
 async def async_session(tmp_path):
@@ -68,7 +77,7 @@ async def test_redis_unavailable_fail_closed(async_session):
             client_id=1,
             driver_id=1,
             status=TaskStatus.CLAIMED.value,
-            payload_json={},
+            payload_json=COMPLETE_PAYLOAD,
             priority=5,
             attempt_count=0,
         )

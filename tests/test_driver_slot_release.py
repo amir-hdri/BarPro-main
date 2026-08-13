@@ -25,6 +25,15 @@ from app.workers.waybill_worker import _claim_and_execute
 
 _created_engines = []
 
+COMPLETE_PAYLOAD = {
+    "sender": {"name": "علی فلاح"},
+    "receiver": {"name": "احمد مومنی"},
+    "origin": {"province": "هرمزگان", "city": "میناب", "address": "بلوار خلیج فارس"},
+    "destination": {"province": "هرمزگان", "city": "میناب", "address": "طالوار"},
+    "cargo": {"type": "مصالح", "packaging": "فله", "weight": "15", "value": "35000000"},
+    "vehicle": {"driver_national_code": "1234567890", "plate": "79ع989ایران84"},
+}
+
 
 @pytest.fixture(autouse=True)
 async def _dispose_created_engines():
@@ -46,7 +55,13 @@ async def _make_engine():
     return engine, session_factory
 
 
-async def _seed(session_factory, *, intent_status="claimed", job_status=TaskStatus.CLAIMED.value):
+async def _seed(
+    session_factory,
+    *,
+    intent_status="claimed",
+    job_status=TaskStatus.CLAIMED.value,
+    payload=None,
+):
     """Create a tenant, driver, runtime state holding a slot, a claimed job and intent."""
     intent_id = "intent-0001"
     async with session_factory() as session:
@@ -84,7 +99,7 @@ async def _seed(session_factory, *, intent_status="claimed", job_status=TaskStat
             client_id=1,
             driver_id=1,
             status=job_status,
-            payload_json={},
+            payload_json=COMPLETE_PAYLOAD if payload is None else payload,
             priority=5,
             attempt_count=1,
         )
@@ -174,6 +189,38 @@ async def test_slot_release_no_runtime_state_is_noop():
 # --------------------------------------------------------------------------- #
 # Worker pre-execution failure paths must release the slot
 # --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_invalid_payload_needs_review_without_proxy_or_execution():
+    engine, sf = await _make_engine()
+    intent_id = await _seed(sf, payload={})
+    task = MagicMock()
+    proxy_lookup = MagicMock()
+
+    with (
+        patch("app.workers.waybill_worker.async_session_factory", new=sf),
+        patch("app.automation.worker_proxy.is_worker_draining", new=AsyncMock()) as draining_check,
+        patch("app.automation.worker_proxy.get_worker_proxy_url", new=proxy_lookup),
+    ):
+        result = await _claim_and_execute(task, intent_id)
+
+    assert result["status"] == TaskStatus.NEEDS_REVIEW.value
+    assert result["error_category"] == "payload_validation_failed"
+    draining_check.assert_not_awaited()
+    proxy_lookup.assert_not_called()
+
+    async with sf() as session:
+        job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-0001"))).first()
+        intent = (await session.exec(select(DispatchIntent).where(DispatchIntent.intent_id == intent_id))).first()
+        state = (await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == 1))).first()
+        executions = (await session.exec(select(Execution))).all()
+        assert job.status == TaskStatus.NEEDS_REVIEW.value
+        assert job.error_category == "payload_validation_failed"
+        assert job.terminal_reason == "payload_validation_failed"
+        assert intent.status == "failed"
+        assert state.active_execution_id is None
+        assert executions == []
 
 
 @pytest.mark.asyncio

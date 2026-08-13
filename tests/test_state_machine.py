@@ -97,6 +97,12 @@ def test_running_to_needs_review(session):
     assert job.status == JobStatus.NEEDS_REVIEW
 
 
+def test_claimed_to_needs_review(session):
+    job = MockJob(JobStatus.CLAIMED)
+    JobStateMachine.transition(session, job, JobStatus.NEEDS_REVIEW)
+    assert job.status == JobStatus.NEEDS_REVIEW
+
+
 def test_running_to_otp_backoff(session):
     job = MockJob(JobStatus.RUNNING)
     JobStateMachine.transition(session, job, JobStatus.OTP_BACKOFF)

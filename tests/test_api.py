@@ -50,8 +50,8 @@ def _queue_payload():
             "address": "a2",
             "coordinates": {"lat": 2, "lng": 2},
         },
-        "cargo": {"weight": 1000},
-        "vehicle": {},
+        "cargo": {"type": "مصالح", "packaging": "فله", "weight": 1000, "value": 1000000},
+        "vehicle": {"driver_national_code": "1234567890", "plate": "79ع989ایران84"},
         "financial": {},
     }
 

@@ -25,7 +25,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "waiting_retry": {"pending", "dead_letter", "cancelled", "in_progress", "queued", "daily_limit_reached"},
     "otp_backoff": {"pending", "dead_letter", "cancelled", "in_progress", "queued", "daily_limit_reached"},
     "queued": {"claimed", "waiting_retry", "cancelled", "in_progress", "unknown", "daily_limit_reached"},
-    "claimed": {"running", "waiting_retry", "cancelled", "unknown", "daily_limit_reached"},
+    "claimed": {"running", "waiting_retry", "needs_review", "cancelled", "unknown", "daily_limit_reached"},
     "running": {
         "success",
         "failed",

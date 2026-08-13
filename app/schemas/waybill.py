@@ -23,23 +23,27 @@ class LocationModel(BaseModel):
 
 class SenderModel(BaseModel):
     name: str = Field(..., description="نام فرستنده")
-    phone: str = Field(..., description="تلفن فرستنده")
-    address: str = Field(..., description="آدرس فرستنده")
-    national_code: str = Field(..., description="کد ملی فرستنده")
+    phone: str | None = Field(None, description="تلفن فرستنده (اختیاری در UTCMS)")
+    address: str | None = Field(None, description="آدرس فرستنده (در مرحله مبدا ثبت می‌شود)")
+    national_code: str | None = Field(None, description="کد ملی فرستنده (اختیاری در UTCMS)")
+    entity_type: str = Field(default="individual", description="individual یا company")
 
 
 class ReceiverModel(BaseModel):
     name: str = Field(..., description="نام گیرنده")
-    phone: str = Field(..., description="تلفن گیرنده")
-    address: str = Field(..., description="آدرس گیرنده")
+    phone: str | None = Field(None, description="تلفن گیرنده (اختیاری در UTCMS)")
+    address: str | None = Field(None, description="آدرس گیرنده (در مرحله مقصد ثبت می‌شود)")
     national_code: str | None = Field(None, description="کد ملی گیرنده")
+    entity_type: str = Field(default="individual", description="individual یا company")
 
 
 class CargoModel(BaseModel):
-    type: str | None = Field(None, description="نوع کالا")
+    type: str = Field(..., min_length=1, description="نوع کالا")
     weight: str | int | float = Field(..., description="وزن کالا")
     count: str | int = Field(default="1", description="تعداد کالا")
     description: str | None = Field(None, description="توضیحات کالا")
+    packaging: str | None = Field(None, description="نوع بسته‌بندی UTCMS مانند فله یا کیسه")
+    value: str | int | float | None = Field(None, description="ارزش تقریبی بار به ریال")
 
 
 class VehicleModel(BaseModel):

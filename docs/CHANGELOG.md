@@ -1,6 +1,45 @@
 # Changelog
   
   All notable changes to the UTCMS Automation System.
+
+  ## [2.8.0] - 2026-08-13
+
+  ### Changed — UTCMS live form contract
+  - UI، Zod، Pydantic و payload adapter بر اساس فیلدهای واقعاً اجباری فرم
+    HagigiHogugi همگام شدند: راننده/پلاک، استان/شهر/آدرس مبدأ و مقصد، نام کامل
+    فرستنده/گیرنده، نوع کالا، بسته‌بندی، وزن و ارزش بار.
+  - فیلدهای غیرضروری از فرم اصلی حذف و fallbackهای ساختگی برای نام، آدرس، تلفن،
+    کالا و راننده/پلاک حذف شدند.
+  - payload ناقص قبل از proxy، Chromium، lease و retry با
+    `payload_validation_failed` به `needs_review` منتقل می‌شود.
+
+  ### Fixed — Routing and worker isolation
+  - routing در نبود Worker تازه/فعال/unblocked به‌صورت fail-closed عمل می‌کند؛
+    دیگر dispatch به IP blocked یا queue بدون consumer انجام نمی‌شود.
+  - مسیرهای failure پیش از Execution، driver slot را با ownership guard آزاد
+    می‌کنند و retryهای Celery برای intent از قبل failed تکرار جانبی ایجاد نمی‌کنند.
+  - JSON object، JSON string و payload دوبار encodeشده به‌صورت ایمن normalize می‌شوند.
+
+  ### Fixed — UTCMS transport
+  - bridge جدید `http_browser_bridge.py` فقط document/xhr/fetch را با fingerprint
+    کروم `curl_cffi` عبور می‌دهد؛ JS/CSS/font/image توسط Chromium/Squid بارگیری
+    می‌شوند تا serialization و reset انبوه assetها رخ ندهد.
+  - proxy pre-flight بین خطای Squid و reset لحظه‌ای upstream تفاوت می‌گذارد و با
+    retry کوتاه از drain اشتباه Worker جلوگیری می‌کند.
+  - آزمون کنترل‌شده ورود را موفق کرد، ولی `DocumentList/Index` همچنان reset TLS
+    داد؛ ثبت نهایی و tracking code اثبات نشد.
+
+  ### Changed — CAPTCHA and fuel inquiry
+  - امضای غیرحساس CAPTCHA شامل نوع/مسیر/ابعاد/digest برای تشخیص drift ثبت می‌شود؛
+    پاسخ CAPTCHA از log و debug metadata حذف شد.
+  - در نمونه‌های موجود تغییر ساعت‌محور نوع CAPTCHA مشاهده نشد: login همچنان DNT
+    ریاضی `CapType=1` و fuel همچنان CAPTCHA فارسی `#imgCapchaEdit1` است.
+  - Fuel CRNN initialization با `threading.Lock` بین loopهای Celery ایمن شد و
+    دوره جلالی با `ZoneInfo("Asia/Tehran")` محاسبه می‌شود.
+
+  ### Documentation
+  - `docs/UTCMS_CONSTRAINTS.md` به‌عنوان مرجع واحد محدودیت‌های فرم، IP/WAF،
+    CAPTCHA، زمان‌بندی، صف‌ها، سوخت و معیار اثبات ثبت اضافه شد.
   
   ## [2.7.0] - 2026-08-13
   

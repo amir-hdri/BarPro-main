@@ -130,9 +130,7 @@ if celery_app is not None:
             w_id = os.environ.get("WORKER_ID", socket.gethostname())
             from app.automation.worker_proxy import (
                 drain_worker_consumers,
-                increment_worker_failures,
                 is_worker_draining,
-                transition_worker_to_draining,
             )
 
             # Check if draining before execution
@@ -232,21 +230,9 @@ if celery_app is not None:
                     await session.rollback()
                     logger.error(f"Failed in process_fuel_inquiry_task: {e}")
 
-                    # Track failures for auto-heal draining on infrastructure errors
-                    err_msg = str(e).lower()
-                    if (
-                        "proxy" in err_msg
-                        or "network" in err_msg
-                        or "timeout" in err_msg
-                        or any(
-                            msg in err_msg
-                            for msg in ("target closed", "browser closed", "context closed", "page closed")
-                        )
-                    ):
-                        failures = await increment_worker_failures(w_id)
-                        if failures > 3:
-                            await transition_worker_to_draining(w_id)
-                            drain_worker_consumers(self)
+                    # Do not permanently drain consumers for target-site or
+                    # proxy transients. Circuit-breaker TTL routing provides
+                    # bounded backoff and automatically restores the worker.
                     raise
 
         return _run_async(_run())

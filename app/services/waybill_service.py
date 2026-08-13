@@ -357,8 +357,11 @@ class WaybillService:
 
     @staticmethod
     def _build_preflight_summary(request: WaybillMapRequest) -> dict[str, Any]:
+        from app.automation.multitenant_payload_adapter import validate_enhanced_waybill_payload
+
         shipping_options = request.shipping_options
         request_auth = request.utcms_auth
+        payload_errors = validate_enhanced_waybill_payload(WaybillService._build_waybill_payload(request))
 
         has_request_auth = bool(
             request_auth and (request_auth.username or "").strip() and (request_auth.password or "").strip()
@@ -371,14 +374,14 @@ class WaybillService:
             "has_auth_credentials": has_request_auth,
             "two_way": bool(shipping_options and shipping_options.two_way),
             "otp_provided": bool((shipping_options.otp or "").strip()) if shipping_options else False,
+            "payload_contract_valid": not payload_errors,
         }
 
         required_for_live = (
             "has_driver_data",
             "has_vehicle_plate",
-            "has_origin_coordinates",
-            "has_destination_coordinates",
             "has_auth_credentials",
+            "payload_contract_valid",
         )
         missing_requirements = [key for key in required_for_live if not checks[key]]
 
@@ -386,6 +389,7 @@ class WaybillService:
             **checks,
             "required_for_live": list(required_for_live),
             "missing_requirements": missing_requirements,
+            "payload_errors": payload_errors,
             "ready_for_live_submit": len(missing_requirements) == 0,
         }
 

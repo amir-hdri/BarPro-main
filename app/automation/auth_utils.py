@@ -263,7 +263,7 @@ def save_captcha_debug_artifact(
                 "attempt": attempt,
                 "stage": stage,
                 "provider": provider,
-                "solution": solution,
+                "solution_recorded": bool(solution),
                 "error": error,
                 "url": page_url,
                 "image_path": str(image_path),

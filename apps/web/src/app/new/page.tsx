@@ -44,38 +44,21 @@ const initialForm: WaybillFormValues = {
   destination_address: "",
   destination_district: "",
   plate_number: "",
-  waybill_number: "",
   cargo_type: "",
+  cargo_packaging: "",
   cargo_weight: "",
-  cargo_count: "1",
-  cargo_description: "",
   cargo_value: "",
-  vehicle_type: "",
-  driver_phone: "",
   sender_name: "",
-  sender_phone: "",
-  sender_national_code: "",
-  sender_address: "",
   receiver_name: "",
-  receiver_phone: "",
-  receiver_national_code: "",
-  receiver_address: "",
-  financial_cost: "",
-  financial_payment_method: "",
-  shipping_two_way: false,
-  shipping_time_limit: "",
-  shipping_end_shipping: "",
-  shipping_otp: "",
-  notes: "",
 };
 
 const STEPS = [
-  { id: 1, label: "راننده و خودرو", icon: TruckIcon, fields: ["driver_national_code", "plate_number", "vehicle_type", "driver_phone"] },
+  { id: 1, label: "راننده و خودرو", icon: TruckIcon, fields: ["driver_national_code", "plate_number"] },
   { id: 2, label: "مبدا", icon: MapPinIcon, fields: ["origin_province", "origin", "origin_address", "origin_district"] },
   { id: 3, label: "مقصد", icon: MapPinIcon, fields: ["destination_province", "destination", "destination_address", "destination_district"] },
-  { id: 4, label: "بار", icon: CubeIcon, fields: ["cargo_type", "cargo_weight", "cargo_count", "cargo_value", "cargo_description"] },
-  { id: 5, label: "فرستنده و گیرنده", icon: UserIcon, fields: ["sender_name", "sender_phone", "sender_national_code", "sender_address", "receiver_name", "receiver_phone", "receiver_national_code", "receiver_address"] },
-  { id: 6, label: "مالی و تکمیلی", icon: BanknotesIcon, fields: ["financial_cost", "financial_payment_method", "shipping_time_limit", "shipping_two_way"] },
+  { id: 4, label: "بار", icon: CubeIcon, fields: ["cargo_type", "cargo_packaging", "cargo_weight", "cargo_value"] },
+  { id: 5, label: "فرستنده و گیرنده", icon: UserIcon, fields: ["sender_name", "receiver_name"] },
+  { id: 6, label: "ثبت و زمان‌بندی", icon: BanknotesIcon, fields: [] },
 ];
 
 const Field = memo(function Field({
@@ -211,12 +194,11 @@ export default function NewWaybillPage() {
     if (typeof nextValue === "string") {
       if (name === "plate_number") {
         nextValue = canonicalizePlate(nextValue);
-      } else if (name === "cargo_value" || name === "financial_cost") {
+      } else if (name === "cargo_value") {
         const cleanDigits = normalizeDigits(nextValue).replace(/\D/g, "");
         nextValue = cleanDigits ? Number(cleanDigits).toLocaleString("en-US") : "";
       } else if (
-        ["driver_national_code", "driver_phone", "cargo_weight", "cargo_count",
-          "sender_phone", "receiver_phone", "sender_national_code", "receiver_national_code"].includes(name)
+        ["driver_national_code", "cargo_weight"].includes(name)
       ) {
         nextValue = normalizeDigits(nextValue);
       }
@@ -278,15 +260,11 @@ export default function NewWaybillPage() {
       driver_national_code: parsed.data.driver_national_code,
       origin: parsed.data.origin,
       destination: parsed.data.destination,
-      waybill_number: parsed.data.waybill_number,
       cargo_type: parsed.data.cargo_type,
+      cargo_packaging: parsed.data.cargo_packaging,
       cargo_weight: Number.isFinite(cargoWeight) ? cargoWeight : undefined,
-      cargo_description: parsed.data.cargo_description,
       cargo_value: parsed.data.cargo_value,
-      vehicle_type: parsed.data.vehicle_type,
-      driver_phone: parsed.data.driver_phone,
       plate_number: parsed.data.plate_number,
-      notes: parsed.data.notes,
       metadata_json: {
         origin_province: parsed.data.origin_province,
         origin_address: parsed.data.origin_address,
@@ -294,31 +272,16 @@ export default function NewWaybillPage() {
         destination_province: parsed.data.destination_province,
         destination_address: parsed.data.destination_address,
         destination_district: parsed.data.destination_district || undefined,
-        cargo_count: parsed.data.cargo_count,
+        cargo_packaging: parsed.data.cargo_packaging,
         cargo_value: parsed.data.cargo_value,
-        driver_phone: parsed.data.driver_phone,
         sender_name: parsed.data.sender_name,
-        sender_phone: parsed.data.sender_phone,
-        sender_national_code: parsed.data.sender_national_code,
-        sender_address: parsed.data.sender_address,
         receiver_name: parsed.data.receiver_name,
-        receiver_phone: parsed.data.receiver_phone,
-        receiver_national_code: parsed.data.receiver_national_code,
-        receiver_address: parsed.data.receiver_address,
-        financial_cost: parsed.data.financial_cost,
-        payment_method: parsed.data.financial_payment_method,
-        two_way: parsed.data.shipping_two_way,
-        time_limit: parsed.data.shipping_time_limit,
-        end_shipping: parsed.data.shipping_end_shipping || undefined,
-        otp: parsed.data.shipping_otp || undefined,
-        sender: { name: parsed.data.sender_name, phone: parsed.data.sender_phone, national_code: parsed.data.sender_national_code, address: parsed.data.sender_address },
-        receiver: { name: parsed.data.receiver_name, phone: parsed.data.receiver_phone, national_code: parsed.data.receiver_national_code, address: parsed.data.receiver_address },
+        sender: { name: parsed.data.sender_name },
+        receiver: { name: parsed.data.receiver_name },
         origin: { province: parsed.data.origin_province, city: parsed.data.origin, district: parsed.data.origin_district || undefined, address: parsed.data.origin_address, coordinates: originCoords || undefined },
         destination: { province: parsed.data.destination_province, city: parsed.data.destination, district: parsed.data.destination_district || undefined, address: parsed.data.destination_address, coordinates: destinationCoords || undefined },
-        cargo: { type: parsed.data.cargo_type, weight: parsed.data.cargo_weight, count: parsed.data.cargo_count, description: parsed.data.cargo_description, value: parsed.data.cargo_value },
-        vehicle: { driver_national_code: parsed.data.driver_national_code, driver_phone: parsed.data.driver_phone, plate: parsed.data.plate_number, type: parsed.data.vehicle_type },
-        financial: { cost: parsed.data.financial_cost, payment_method: parsed.data.financial_payment_method, cargo_value: parsed.data.cargo_value },
-        shipping_options: { two_way: parsed.data.shipping_two_way, time_limit: parsed.data.shipping_time_limit, end_shipping: parsed.data.shipping_end_shipping || undefined, otp: parsed.data.shipping_otp || undefined, waybill_number: parsed.data.waybill_number },
+        cargo: { type: parsed.data.cargo_type, packaging: parsed.data.cargo_packaging, weight: parsed.data.cargo_weight, value: parsed.data.cargo_value },
+        vehicle: { driver_national_code: parsed.data.driver_national_code, plate: parsed.data.plate_number },
       },
     };
 
@@ -508,25 +471,6 @@ export default function NewWaybillPage() {
                       />
                     </Field>
 
-                    <Field label="نوع خودرو" error={errors.vehicle_type} required>
-                      <input
-                        className={`field ${errors.vehicle_type ? "error" : ""}`}
-                        placeholder="مثال: کامیون ۱۸ چرخ"
-                        value={form.vehicle_type}
-                        onChange={(e) => handleChange("vehicle_type", e.target.value)}
-                      />
-                    </Field>
-
-                    <Field label="تلفن راننده" error={errors.driver_phone} required>
-                      <input
-                        dir="ltr"
-                        aria-label="تلفن راننده"
-                        className={`field ${errors.driver_phone ? "error" : ""}`}
-                        placeholder="09123456789"
-                        value={form.driver_phone}
-                        onChange={(e) => handleChange("driver_phone", e.target.value)}
-                      />
-                    </Field>
                   </div>
 
                   {selectedDriver && (
@@ -788,14 +732,12 @@ export default function NewWaybillPage() {
                       />
                     </Field>
 
-                    <Field label="تعداد" error={errors.cargo_count} required>
+                    <Field label="نوع بسته‌بندی" error={errors.cargo_packaging} required>
                       <input
-                        dir="ltr"
-                        aria-label="تعداد"
-                        className={`field ${errors.cargo_count ? "error" : ""}`}
-                        placeholder="۱"
-                        value={form.cargo_count}
-                        onChange={(e) => handleChange("cargo_count", e.target.value)}
+                        className={`field ${errors.cargo_packaging ? "error" : ""}`}
+                        placeholder="مثال: فله، کیسه، پالت"
+                        value={form.cargo_packaging}
+                        onChange={(e) => handleChange("cargo_packaging", e.target.value)}
                       />
                     </Field>
 
@@ -810,16 +752,6 @@ export default function NewWaybillPage() {
                       />
                     </Field>
 
-                    <div className="sm:col-span-2">
-                      <Field label="شرح بار" error={errors.cargo_description} hint="اختیاری">
-                        <textarea
-                          className="field min-h-24 resize-none"
-                          placeholder="توضیحات تکمیلی در مورد محموله..."
-                          value={form.cargo_description}
-                          onChange={(e) => handleChange("cargo_description", e.target.value)}
-                        />
-                      </Field>
-                    </div>
                   </div>
                 </>
               )}
@@ -837,15 +769,6 @@ export default function NewWaybillPage() {
                       <Field label="نام و نام خانوادگی" error={errors.sender_name} required>
                         <input className={`field ${errors.sender_name ? "error" : ""}`} value={form.sender_name} onChange={(e) => handleChange("sender_name", e.target.value)} />
                       </Field>
-                      <Field label="تلفن" error={errors.sender_phone} required>
-                        <input dir="ltr" aria-label="تلفن فرستنده" className={`field ${errors.sender_phone ? "error" : ""}`} placeholder="09120000000" value={form.sender_phone} onChange={(e) => handleChange("sender_phone", e.target.value)} />
-                      </Field>
-                      <Field label="کد ملی" error={errors.sender_national_code} required>
-                        <input dir="ltr" aria-label="کد ملی فرستنده" className={`field ${errors.sender_national_code ? "error" : ""}`} value={form.sender_national_code} onChange={(e) => handleChange("sender_national_code", e.target.value)} />
-                      </Field>
-                      <Field label="آدرس" error={errors.sender_address} required>
-                        <input className={`field ${errors.sender_address ? "error" : ""}`} value={form.sender_address} onChange={(e) => handleChange("sender_address", e.target.value)} />
-                      </Field>
                     </div>
                   </div>
 
@@ -854,15 +777,6 @@ export default function NewWaybillPage() {
                     <div className="grid gap-4 sm:grid-cols-2">
                       <Field label="نام و نام خانوادگی" error={errors.receiver_name} required>
                         <input className={`field ${errors.receiver_name ? "error" : ""}`} value={form.receiver_name} onChange={(e) => handleChange("receiver_name", e.target.value)} />
-                      </Field>
-                      <Field label="تلفن" error={errors.receiver_phone} required>
-                        <input dir="ltr" aria-label="تلفن گیرنده" className={`field ${errors.receiver_phone ? "error" : ""}`} placeholder="09120000000" value={form.receiver_phone} onChange={(e) => handleChange("receiver_phone", e.target.value)} />
-                      </Field>
-                      <Field label="کد ملی" error={errors.receiver_national_code} hint="اختیاری">
-                        <input dir="ltr" aria-label="کد ملی گیرنده" className="field" value={form.receiver_national_code} onChange={(e) => handleChange("receiver_national_code", e.target.value)} />
-                      </Field>
-                      <Field label="آدرس" error={errors.receiver_address} required>
-                        <input className={`field ${errors.receiver_address ? "error" : ""}`} value={form.receiver_address} onChange={(e) => handleChange("receiver_address", e.target.value)} />
                       </Field>
                     </div>
                   </div>
@@ -873,44 +787,10 @@ export default function NewWaybillPage() {
                 <>
                   <SectionHeader
                     icon={BanknotesIcon}
-                    title="اطلاعات مالی و گزینه‌های حمل"
-                    subtitle="هزینه حمل، روش پرداخت و تنظیمات نهایی"
+                    title="ثبت و زمان‌بندی"
+                    subtitle="مرور اطلاعات ضروری و در صورت نیاز ساخت برنامه تکرار"
                   />
                   <div className="grid gap-5 sm:grid-cols-2">
-                    <Field label="هزینه حمل (ریال)" error={errors.financial_cost} required>
-                      <input dir="ltr" aria-label="هزینه حمل" className={`field ${errors.financial_cost ? "error" : ""}`} placeholder="۵,۰۰۰,۰۰۰" value={form.financial_cost} onChange={(e) => handleChange("financial_cost", e.target.value)} />
-                    </Field>
-
-                    <Field label="روش پرداخت" error={errors.financial_payment_method}>
-                      <input className="field" placeholder="مثال: نقدی، چک" value={form.financial_payment_method} onChange={(e) => handleChange("financial_payment_method", e.target.value)} />
-                    </Field>
-
-                    <Field label="مهلت زمانی" error={errors.shipping_time_limit} hint="مثال: ۱۲۰ دقیقه" required>
-                      <input className={`field ${errors.shipping_time_limit ? "error" : ""}`} value={form.shipping_time_limit} onChange={(e) => handleChange("shipping_time_limit", e.target.value)} />
-                    </Field>
-
-                    <Field label="شماره بارنامه" error={errors.waybill_number} hint="در صورت وجود">
-                      <input dir="ltr" aria-label="شماره بارنامه" className="field" value={form.waybill_number} onChange={(e) => handleChange("waybill_number", e.target.value)} />
-                    </Field>
-
-                    <div className="sm:col-span-2">
-                      <Field label="توضیحات" error={errors.notes} hint="اختیاری">
-                        <textarea className="field min-h-24 resize-none" value={form.notes} onChange={(e) => handleChange("notes", e.target.value)} />
-                      </Field>
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="flex items-center gap-3 rounded-xl border border-white/5 bg-slate-950/60 px-4 py-3.5 cursor-pointer hover:bg-slate-950/80 transition-colors">
-                        <input
-                          type="checkbox"
-                          checked={form.shipping_two_way}
-                          onChange={(e) => handleChange("shipping_two_way", e.target.checked)}
-                          className="w-4 h-4 accent-cyan-500"
-                        />
-                        <span className="text-sm font-semibold text-slate-200">ثبت حمل رفت و برگشت</span>
-                      </label>
-                    </div>
-
                     <div className="sm:col-span-2 border-t border-white/5 pt-5 mt-2">
                       <label className="flex items-center gap-3 rounded-xl border border-white/5 bg-slate-950/60 px-4 py-3.5 cursor-pointer hover:bg-slate-950/80 transition-colors">
                         <input
@@ -1032,10 +912,6 @@ export default function NewWaybillPage() {
                       <div className="flex justify-between">
                         <span className="text-slate-400">بار</span>
                         <span className="font-semibold">{form.cargo_type} / {form.cargo_weight} تن</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">هزینه</span>
-                        <span className="font-semibold text-cyan-400">{form.financial_cost} ریال</span>
                       </div>
                     </div>
                   </div>

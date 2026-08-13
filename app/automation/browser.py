@@ -473,6 +473,9 @@ class BrowserManager:
             # Close all pages within the context explicitly before closing the context itself
             for page in context.pages:
                 try:
+                    bridge = getattr(page, "_barpro_http_browser_bridge", None)
+                    if bridge is not None:
+                        await bridge.close()
                     await asyncio.wait_for(page.close(), timeout=5)
                 except Exception as page_exc:
                     logger.warning(
