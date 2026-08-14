@@ -196,25 +196,30 @@ bash manage.sh migrate   # یا: alembic upgrade head
 ```
 
 - Migration ها با **Redis distributed lock** اجرا می‌شوند (deadlock-safe)
-- HEAD فعلی: `015_add_client_subscription_dates`
+- HEAD فعلی: `032_worker_registry_ip_index`
 - هرگز migration را manually روی production DB اجرا نکنید — از `manage.sh migrate` استفاده کنید
 
-### 15. محدودیت‌های منابع (12 GB RAM)
+### 15. محدودیت‌های منابع (16 GB RAM — Central Server)
 
-| Container | Limit | Reservation | shm_size |
-|-----------|-------|-------------|----------|
-| PostgreSQL | 1 GB | 512 MB | — |
-| Redis | 256 MB | 128 MB | — |
-| Backend API | 256 MB | 128 MB | 256 MB |
-| Celery Worker 1 | 2.5 GB | 2 GB | 512 MB |
-| Celery Worker 2 | 2.5 GB | 2 GB | 512 MB |
-| Celery Worker 3 | 2.5 GB | 2 GB | 512 MB |
-| Celery Beat | 128 MB | 64 MB | — |
-| Frontend (Next.js) | 512 MB | 256 MB | — |
-| Nginx | 256 MB | 128 MB | — |
-| Squid ×3 | 128 MB each | 64 MB each | — |
-| Prometheus | 256 MB | 128 MB | — |
-| **Total limits** | **~10.5 GB** ← fits in 12 GB with ~1.5 GB headroom | | |
+> **سرور مرکزی 16 GB RAM** — Workers 2/3 روی Remote Worker VPSها اجرا می‌شوند (Model B Scale-out)
+
+| Container | Limit | Reservation | shm_size | تغییر |
+|-----------|-------|-------------|----------|-------|
+| PostgreSQL | **1.5 GB** | 768 MB | — | ↑ از 1 GB |
+| Redis | **512 MB** | 256 MB | — | ↑ از 256 MB |
+| Backend API | **512 MB** | 256 MB | 256 MB | ↑ از 256 MB |
+| Celery Worker 1 | **3 GB** | 2.5 GB | 512 MB | ↑ از 2.5 GB |
+| Celery Scheduler | **768 MB** | 384 MB | 128 MB | Dedicated rpa_scheduler consumer (FIX-A1) |
+| Celery Beat | **256 MB** | 128 MB | — | ↑ از 128 MB (OOM fix) |
+| Frontend (Next.js) | **1 GB** | 512 MB | — | ↑ از 512 MB |
+| Nginx | **512 MB** | 256 MB | — | ↑ از 256 MB |
+| Squid ×3 | 128 MB each | 64 MB each | — | — |
+| Prometheus | 256 MB | 128 MB | — | — |
+| Alertmanager | 128 MB | 64 MB | — | — |
+| Grafana | 256 MB | 128 MB | — | — |
+| **Total limits** | **~10.5 GB** ← fits in 16 GB with ~5.5 GB headroom | | | |
+
+> Workers 2/3 (هر کدام 3 GB) روی Remote Worker VPS اجرا می‌شوند و در بودجه سرور مرکزی نیستند. Squid 2/3 فقط در استقرار تک‌سروره (Model A) وجود دارند.
 
 ### 16. پس از نصب HTTPS
 

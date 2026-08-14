@@ -166,7 +166,7 @@ pytest -m "not slow"      # Skip slow tests
 - Tests use `asyncio_mode = "auto"` — async test functions are auto-detected
 - Database tests require PostgreSQL running (check `compose/infra.yml`)
 - Playwright tests require Chromium (install via `playwright install chromium`)
-- **Current status**: 552 passed, 2 skipped, 0 failed
+- **Current status**: 772 passed, 3 skipped, 0 failed
 
 ## Project Structure
 
@@ -203,7 +203,7 @@ BarPro/
 │   ├── squid/squid_*.conf
 │   ├── prometheus/prometheus.yml
 │   └── logging/logrotate.conf
-├── alembic/                # Database migrations; current head 029_add_waybill_jobs_optimization_indexes
+├── alembic/                # Database migrations; current head 032_worker_registry_ip_index
 ├── tests/                  # Pytest test suite
 ├── scripts/                # Utility and deploy scripts
 └── deploy/                 # Deployment configs
@@ -649,4 +649,4 @@ ON waybill_jobs (status) INCLUDE (id);
 
 ---
 
-*Last updated: 2026-08-10 · Tests: 588+ passed, 2 skipped · Deployment: 3-server Model B (Central 16GB + 2× remote Worker VPS) · celery_scheduler service added*
+*Last updated: 2026-08-14 · Tests: 772 passed, 3 skipped · Deployment: 3-server Model B (Central 16GB + 2× remote Worker VPS) · Alembic Head: 032*

@@ -1847,20 +1847,33 @@ class EnhancedWaybillManager:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         menu_selectors = (
-            "a:has-text('حمل بارنامه')",
+            "a[href*='HagigiHogugi' i]",
+            "a[href*='Document/HagigiHogugi' i]",
             "a:has-text('صدور بارنامه')",
+            "a:has-text('ایجاد بارنامه')",
+            "a:has-text('حمل بارنامه')",
             "a[href*='Waybill' i]",
+            "a[href*='DocumentList' i]",
         )
 
         for selector in menu_selectors:
             try:
                 link = await self.smart_locator.locate(self.page, [selector], timeout=1800)
                 href = await link.get_attribute("href")
-                if href:
+                if href and href.strip() and not href.strip().startswith(("#", "javascript:")):
                     await self._goto_with_retry(urljoin(current_url, href), wait_until="domcontentloaded")
                 else:
-                    await link.click()
-                    await self.page.wait_for_load_state("domcontentloaded")
+                    try:
+                        await link.click(timeout=1500)
+                    except Exception:
+                        try:
+                            await link.dispatch_event("click")
+                        except Exception:
+                            await self.page.evaluate("(el) => el.click()", link)
+                    try:
+                        await self.page.wait_for_load_state("domcontentloaded", timeout=4000)
+                    except Exception:
+                        pass
 
                 await asyncio.sleep(0.3)
                 if await self._is_waybill_form_ready():
