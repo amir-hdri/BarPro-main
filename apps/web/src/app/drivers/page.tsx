@@ -65,11 +65,11 @@ export default function DriversPage() {
       return res.data;
     },
     staleTime: 120000,
-    enabled: role === "client",
+    enabled: role === "client" || role === "master_admin",
   });
 
   const loadPlatesAndSchedules = useCallback(async () => {
-    if (role !== "client") return;
+    if (role !== "client" && role !== "master_admin") return;
 
     const [platesResponse, schedulesResponse] = await Promise.all([
       api.get<Plate[]>('/api/v1/plates'),
@@ -114,7 +114,11 @@ export default function DriversPage() {
       return;
     }
     setSaving(true);
-    const response = await api.put<Driver>(`/api/v1/drivers/${editDriver.id}`, editDriver.payload);
+    const payload = { ...editDriver.payload };
+    if (!payload.utcms_password?.trim()) {
+      delete payload.utcms_password;
+    }
+    const response = await api.put<Driver>(`/api/v1/drivers/${editDriver.id}`, payload);
     setSaving(false);
     if (!response.success) {
       toast.error(response.error || 'ویرایش راننده ناموفق بود');
@@ -139,6 +143,19 @@ export default function DriversPage() {
     toast.success('راننده با موفقیت حذف شد');
     await Promise.all([refetchDrivers(), loadPlatesAndSchedules()]);
   }
+
+  async function handleDeletePlate(plateId: number) {
+    setSaving(true);
+    const response = await api.delete<void>(`/api/v1/plates/${plateId}`);
+    setSaving(false);
+    if (!response.success) {
+      toast.error(response.error || 'حذف پلاک ناموفق بود');
+      return;
+    }
+    toast.success('پلاک با موفقیت حذف شد');
+    await loadPlatesAndSchedules();
+  }
+
 
   async function handleCreatePlate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -474,13 +491,41 @@ export default function DriversPage() {
                 </div>
                  <button type="submit" disabled={saving} className="mt-6 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-3.5 text-sm font-bold transition touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500">ثبت پلاک</button>
                 <div className="mt-6 space-y-2">
-                  {plates.map((plate) => (
-                    <div key={plate.id} className="rounded-2xl bg-slate-950/60 border border-white/5 px-4 py-3 text-sm text-slate-300">
-                      {plate.plate_number} - راننده #{plate.driver_id} - {statusLabel(plate.status)}
-                    </div>
-                  ))}
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">لیست پلاک‌های ثبت‌شده</h3>
+                  {plates.length === 0 ? (
+                    <p className="text-xs text-slate-500 italic py-2">هیچ پلاکی ثبت نشده است.</p>
+                  ) : (
+                    plates.map((plate) => {
+                      const driver = drivers.find((d) => d.id === plate.driver_id);
+                      return (
+                        <div
+                          key={plate.id}
+                          className="flex items-center justify-between gap-3 rounded-2xl bg-slate-950/80 border border-white/5 px-4 py-3 text-sm text-slate-300 transition hover:border-cyan-500/20"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="font-bold text-cyan-400">{plate.plate_number}</span>
+                            <span className="text-xs text-slate-400">
+                              (راننده: {driver ? driver.full_name : `#${plate.driver_id}`})
+                            </span>
+                            {plate.vehicle_type && (
+                              <span className="text-xs text-slate-500">| {plate.vehicle_type}</span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeletePlate(plate.id)}
+                            disabled={saving}
+                            className="rounded-lg bg-rose-500/10 border border-rose-500/20 px-3 py-1 text-xs font-bold text-rose-400 hover:bg-rose-600 hover:text-white transition"
+                          >
+                            حذف
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </form>
+
 
               <form onSubmit={handleScheduleCreate} className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 sm:p-8 shadow-2xl text-white">
                 <h2 className="text-xl font-black text-white">زمان‌بندی خودکار بارنامه</h2>

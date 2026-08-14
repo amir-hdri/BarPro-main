@@ -11,27 +11,40 @@ interface PlateInputProps {
   className?: string;
 }
 
+export const parsePlateString = (val: string) => {
+  if (!val) return { part1: "", part2: "", part3: "", part4: "" };
+  const normalized = normalizeDigits(val).trim().replace(/[\s\-_/\\.]+/g, "");
+  
+  // Format 1: 12الف345ایران67 or 12الف34567
+  const match1 = normalized.match(/^(\d{2})([^\d]+)(\d{3})(?:ایران)?(\d{2})$/u);
+  if (match1) {
+    return {
+      part1: match1[1],
+      part2: match1[2].replace("ایران", "").trim(),
+      part3: match1[3],
+      part4: match1[4],
+    };
+  }
+
+  // Format 2: General partial match
+  const match2 = normalized.match(/^(\d{0,2})([^\d]*)(\d{0,3})(?:ایران)?(\d{0,2})$/u);
+  if (match2) {
+    return {
+      part1: match2[1] || "",
+      part2: (match2[2] || "").replace("ایران", "").trim(),
+      part3: match2[3] || "",
+      part4: match2[4] || "",
+    };
+  }
+
+  return { part1: "", part2: "", part3: "", part4: "" };
+};
 
 export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, className }) => {
-  const parseValue = (val: string) => {
-    const normalized = normalizeDigits(val);
-    const match = normalized.match(/^(\d{0,2})([^\d]*)(\d{0,3})(?:ایران)?(\d{0,2})$/u);
-    
-    if (match) {
-      return {
-        part1: match[1] || "",
-        part2: (match[2] || "").replace("ایران", ""),
-        part3: match[3] || "",
-        part4: match[4] || "",
-      };
-    }
-    return { part1: "", part2: "", part3: "", part4: "" };
-  };
-
-  const [parts, setParts] = useState(parseValue(value));
+  const [parts, setParts] = useState(parsePlateString(value));
 
   useEffect(() => {
-    const nextParts = parseValue(value);
+    const nextParts = parsePlateString(value);
     if (JSON.stringify(nextParts) !== JSON.stringify(parts)) {
       setParts(nextParts);
     }
@@ -93,9 +106,22 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
     }
   };
 
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const pasteData = e.clipboardData.getData("text");
+    if (pasteData) {
+      const parsed = parsePlateString(pasteData);
+      if (parsed.part1 || parsed.part2 || parsed.part3 || parsed.part4) {
+        e.preventDefault();
+        updateParts(parsed);
+      }
+    }
+  };
+
   return (
-    <div className={`flex flex-col gap-2 ${className}`}>
-       <div className="flex items-stretch h-14 bg-white border-[3px] border-slate-900 rounded-2xl overflow-hidden shadow-lg font-sans transition-all focus-within:ring-4 focus-within:ring-cyan-500/20 focus-within:border-cyan-600 dir-ltr">
+    <div className={`flex flex-col gap-2 ${className || ""}`} onPaste={handlePaste}>
+       <div className={`flex items-stretch h-14 bg-white border-[3px] ${
+         error ? "border-rose-500 ring-2 ring-rose-500/20" : "border-slate-900 focus-within:ring-4 focus-within:ring-cyan-500/20 focus-within:border-cyan-600"
+       } rounded-2xl overflow-hidden shadow-lg font-sans transition-all dir-ltr`}>
          <div className="w-10 bg-cyan-800 flex flex-col items-center justify-end pb-2 relative select-none shrink-0">
             <div className="absolute top-0 left-0 w-full h-[4px] bg-emerald-600"></div>
             <div className="absolute top-[4px] left-0 w-full h-[4px] bg-white"></div>
@@ -154,7 +180,8 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
           />
         </div>
       </div>
-      {error && <p className="text-xs text-rose-600 font-medium">{error}</p>}
+      {error && <p className="text-xs text-rose-400 font-bold">{error}</p>}
     </div>
   );
 };
+

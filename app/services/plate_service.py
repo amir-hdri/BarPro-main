@@ -22,31 +22,43 @@ class PlateService:
     """Manage vehicle plates with tenant isolation."""
 
     @staticmethod
-    async def create_plate(client: Client, request: PlateCreateRequest, session: AsyncSession) -> PlateResponse:
+    async def create_plate(user_context: dict | Client, request: PlateCreateRequest, session: AsyncSession) -> PlateResponse:
         driver = await session.get(Driver, request.driver_id)
         if not driver:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found")
-        verify_tenant_ownership(client, driver, Driver)
 
-        plate_count = (
-            await session.exec(select(func.count(DriverPlate.id)).where(DriverPlate.client_id == client.id))
-        ).one()
-        if plate_count >= client.max_plates:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Plate limit reached. Maximum allowed: {client.max_plates}",
-            )
+        if isinstance(user_context, Client):
+            client = user_context
+        elif isinstance(user_context, dict) and user_context.get("role") == "master_admin":
+            client = await session.get(Client, driver.client_id)
+            if not client:
+                client = (await session.exec(select(Client))).first()
+        else:
+            client = user_context.get("user") if isinstance(user_context, dict) else user_context
+            verify_tenant_ownership(client, driver, Driver)
 
-        existing = await session.exec(
-            select(DriverPlate).where(
-                (DriverPlate.client_id == client.id) & (DriverPlate.plate_number == request.plate_number)
+        if client:
+            plate_count = (
+                await session.exec(select(func.count(DriverPlate.id)).where(DriverPlate.client_id == client.id))
+            ).one()
+            if plate_count >= client.max_plates:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Plate limit reached. Maximum allowed: {client.max_plates}",
+                )
+
+            existing = await session.exec(
+                select(DriverPlate).where(
+                    (DriverPlate.client_id == client.id) & (DriverPlate.plate_number == request.plate_number)
+                )
             )
-        )
-        if existing.first():
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Plate already exists")
+            if existing.first():
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Plate already exists")
+
+        client_id = client.id if client else driver.client_id
 
         plate = DriverPlate(
-            client_id=client.id,
+            client_id=client_id,
             driver_id=request.driver_id,
             plate_number=request.plate_number,
             vehicle_type=request.vehicle_type,
@@ -64,7 +76,7 @@ class PlateService:
     ) -> list[PlateResponse]:
         if isinstance(user_context, Client):
             user_context = {"role": "client", "user": user_context}
-        role = user_context["role"]
+        role = user_context.get("role")
         if role == "master_admin":
             statement = select(DriverPlate)
         else:
@@ -80,12 +92,15 @@ class PlateService:
 
     @staticmethod
     async def update_plate(
-        client: Client, plate_id: int, request: PlateUpdateRequest, session: AsyncSession
+        user_context: dict | Client, plate_id: int, request: PlateUpdateRequest, session: AsyncSession
     ) -> PlateResponse:
         plate = await session.get(DriverPlate, plate_id)
         if not plate:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plate not found")
-        verify_tenant_ownership(client, plate, DriverPlate)
+
+        if not (isinstance(user_context, dict) and user_context.get("role") == "master_admin"):
+            client = user_context.get("user") if isinstance(user_context, dict) else user_context
+            verify_tenant_ownership(client, plate, DriverPlate)
 
         update_data = request.model_dump(exclude_unset=True)
         for field, value in update_data.items():
@@ -97,10 +112,15 @@ class PlateService:
         return PlateResponse.model_validate(plate)
 
     @staticmethod
-    async def delete_plate(client: Client, plate_id: int, session: AsyncSession) -> None:
+    async def delete_plate(user_context: dict | Client, plate_id: int, session: AsyncSession) -> None:
         plate = await session.get(DriverPlate, plate_id)
         if not plate:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plate not found")
-        verify_tenant_ownership(client, plate, DriverPlate)
+
+        if not (isinstance(user_context, dict) and user_context.get("role") == "master_admin"):
+            client = user_context.get("user") if isinstance(user_context, dict) else user_context
+            verify_tenant_ownership(client, plate, DriverPlate)
+
         await session.delete(plate)
         await session.commit()
+

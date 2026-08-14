@@ -331,7 +331,7 @@ async def get_client_stats(
 @router.post("/drivers", response_model=DriverResponse, status_code=status.HTTP_201_CREATED)
 async def create_driver(
     request: DriverCreateRequest,
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -339,7 +339,7 @@ async def create_driver(
 
     Each driver has unique UTCMS credentials for waybill registration.
     """
-    return await DriverService.create_driver(client, request, session)
+    return await DriverService.create_driver(user_context, request, session)
 
 
 @router.get("/drivers", response_model=list[DriverResponse])
@@ -367,42 +367,42 @@ async def list_drivers(
 @router.get("/drivers/{driver_id}", response_model=DriverResponse)
 async def get_driver(
     driver_id: int,
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Get a specific driver's information."""
-    return await DriverService.get_driver(client, driver_id, session)
+    return await DriverService.get_driver(user_context, driver_id, session)
 
 
 @router.put("/drivers/{driver_id}", response_model=DriverResponse)
 async def update_driver(
     driver_id: int,
     request: DriverUpdateRequest,
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Update driver information."""
-    return await DriverService.update_driver(client, driver_id, request, session)
+    return await DriverService.update_driver(user_context, driver_id, request, session)
 
 
 @router.delete("/drivers/{driver_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_driver(
     driver_id: int,
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Delete a driver."""
-    await DriverService.delete_driver(client, driver_id, session)
+    await DriverService.delete_driver(user_context, driver_id, session)
     return None
 
 
 @router.post("/plates", response_model=PlateResponse, status_code=status.HTTP_201_CREATED)
 async def create_plate(
     request: PlateCreateRequest,
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    return await PlateService.create_plate(client, request, session)
+    return await PlateService.create_plate(user_context, request, session)
 
 
 @router.get("/plates", response_model=list[PlateResponse])
@@ -420,20 +420,21 @@ async def list_plates(
 async def update_plate(
     plate_id: int,
     request: PlateUpdateRequest,
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    return await PlateService.update_plate(client, plate_id, request, session)
+    return await PlateService.update_plate(user_context, plate_id, request, session)
 
 
 @router.delete("/plates/{plate_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_plate(
     plate_id: int,
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    await PlateService.delete_plate(client, plate_id, session)
+    await PlateService.delete_plate(user_context, plate_id, session)
     return None
+
 
 
 @router.post("/driver-schedules", response_model=DriverScheduleResponse, status_code=status.HTTP_201_CREATED)
@@ -541,22 +542,22 @@ async def list_waybill_jobs(
 async def retry_waybill_job(
     job_id: str,
     request: WaybillRetryRequest = Body(default=WaybillRetryRequest()),
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Retry a waybill job with optional auth refresh and payload overrides."""
-    return await WaybillJobService.retry_job(client, job_id, session, request)
+    return await WaybillJobService.retry_job(user_context, job_id, session, request)
 
 
 @router.post("/waybill-jobs/{job_id}/requeue", response_model=WaybillJobResponse)
 async def requeue_waybill_job(
     job_id: str,
     request: WaybillRetryRequest = Body(default=WaybillRetryRequest()),
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Alias endpoint for manual requeue so operations can distinguish it from automatic retries."""
-    return await WaybillJobService.retry_job(client, job_id, session, request)
+    return await WaybillJobService.retry_job(user_context, job_id, session, request)
 
 
 @router.get("/waybill-jobs/{job_id}", response_model=WaybillJobResponse)
@@ -600,7 +601,7 @@ async def get_waybill_job_logs(
     job_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -608,7 +609,7 @@ async def get_waybill_job_logs(
 
     Provides detailed step-by-step execution history for audit purposes.
     """
-    return await WaybillJobService.get_job_logs(client, job_id, session, page=page, page_size=page_size)
+    return await WaybillJobService.get_job_logs(user_context, job_id, session, page=page, page_size=page_size)
 
 
 @router.get("/waybill-jobs/{job_id}/screenshot", response_class=FileResponse)
@@ -645,7 +646,7 @@ async def get_waybill_job_screenshot(
 async def update_waybill_job(
     job_id: str,
     request: WaybillJobUpdateRequest,
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -654,13 +655,13 @@ async def update_waybill_job(
     Allows modification of job properties such as priority, max_retries, status, etc.
     Only accessible to the job owner (client) or master admin.
     """
-    return await WaybillJobService.update_job(client, job_id, session, request)
+    return await WaybillJobService.update_job(user_context, job_id, session, request)
 
 
 @router.delete("/waybill-jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_waybill_job(
     job_id: str,
-    client: Client = Depends(get_current_client),
+    user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -669,8 +670,9 @@ async def delete_waybill_job(
     Removes the job from the system. This action cannot be undone.
     Only accessible to the job owner (client) or master admin.
     """
-    await WaybillJobService.delete_job(client, job_id, session)
+    await WaybillJobService.delete_job(user_context, job_id, session)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
 
 
 # ==================== EXCEL UPLOAD ENDPOINTS ====================

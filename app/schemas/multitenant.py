@@ -212,9 +212,24 @@ class DriverUpdateRequest(BaseModel):
     phone: str | None = Field(None, max_length=20)
     license_number: str | None = Field(None, max_length=50)
     utcms_username: str | None = Field(None, max_length=100)
-    utcms_password: str | None = Field(None, min_length=4, max_length=100)
+    utcms_password: str | None = Field(None, max_length=100)
     status: str | None = Field(None, max_length=20)
     default_payload: dict[str, Any] | None = Field(None)
+
+    @field_validator("utcms_password", "phone", "license_number", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v: Any) -> Any:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+    @field_validator("utcms_password")
+    @classmethod
+    def validate_password_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) < 4:
+            raise ValueError("رمز عبور باید حداقل ۴ کاراکتر باشد")
+        return v
+
 
 
 class DriverResponse(BaseModel):
@@ -468,6 +483,14 @@ class WaybillJobUpdateRequest(BaseModel):
     notes: str | None = Field(default=None, max_length=500, description="یادداشت‌ها")
     business_date: str | None = Field(default=None, max_length=16, description="تاریخ تجاری")
     correlation_id: str | None = Field(default=None, max_length=128, description="شناسه همبستگی")
+
+    @field_validator("terminal_reason", "notes", "business_date", "correlation_id", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v: Any) -> Any:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
 
 
 class WaybillJobResponse(BaseModel):

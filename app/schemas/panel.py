@@ -42,10 +42,25 @@ class DriverUpdateRequest(BaseModel):
 
     # UTCMS credentials
     utcms_username: str | None = Field(default=None, min_length=3, max_length=100)
-    utcms_password: str | None = Field(default=None, min_length=3)
+    utcms_password: str | None = Field(default=None)
 
     # Status
     status: str | None = Field(default=None, pattern="^(active|inactive|suspended)$")
+
+    @field_validator("utcms_password", "phone", "license_number", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v: Any) -> Any:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+    @field_validator("utcms_password")
+    @classmethod
+    def validate_password_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) < 3:
+            raise ValueError("رمز عبور باید حداقل ۳ کاراکتر باشد")
+        return v
+
 
 
 class DriverResponse(BaseModel):

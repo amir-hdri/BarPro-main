@@ -5,6 +5,7 @@ import logging
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
+from sqlalchemy import delete, text
 from sqlmodel import func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -14,7 +15,29 @@ from app.auth_multitenant import (
     verify_tenant_ownership,
 )
 from app.core.network import is_retryable_network_error
-from app.models_multitenant import Client, Driver, DriverStatus
+from app.models_multitenant import (
+    Client,
+    Driver,
+    DriverPlate,
+    DriverSchedule,
+    DriverStatus,
+    FuelInquiry,
+    TaskStatus,
+    WaybillJob,
+)
+
+from app.models_rpa import (
+    DispatchIntent,
+    DriverDailyCounter,
+    DriverRuntimeState,
+    DriverSessionMetadata,
+    DomainEvent,
+    WaybillAttempt,
+)
+
+
+
+
 from app.schemas.multitenant import (
     DriverCreateRequest,
     DriverResponse,
@@ -24,16 +47,32 @@ from app.schemas.multitenant import (
 logger = logging.getLogger(__name__)
 
 
+
 class DriverService:
     """Service for managing drivers with tenant isolation."""
 
     @staticmethod
     async def create_driver(
-        client: Client,
+        user_context: dict | Client,
         request: DriverCreateRequest,
         session: AsyncSession,
     ) -> DriverResponse:
         """Create a new driver for the client."""
+        if isinstance(user_context, Client):
+            client = user_context
+        elif isinstance(user_context, dict) and user_context.get("role") == "master_admin":
+            # For master admin, associate with the first active client or find one
+            client = (await session.exec(select(Client).where(Client.status == "active"))).first()
+            if not client:
+                client = (await session.exec(select(Client))).first()
+            if not client:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No client account found to associate driver with.",
+                )
+        else:
+            client = user_context.get("user") if isinstance(user_context, dict) else user_context
+
         driver_count = (await session.exec(select(func.count(Driver.id)).where(Driver.client_id == client.id))).one()
         if driver_count >= client.max_drivers:
             raise HTTPException(
@@ -65,67 +104,24 @@ class DriverService:
             status=DriverStatus.ACTIVE.value,
         )
 
-        # Add retry logic for database operations to handle network errors
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                session.add(driver)
-                await session.commit()
-                await session.refresh(driver)
-                break  # Exit loop if successful
-            except Exception as e:
-                await session.rollback()  # Rollback on error
-                # If it's the last attempt, raise the appropriate error
-                if attempt == max_retries - 1:  # Last attempt
-                    # If it's a network error, return appropriate status
-                    if is_retryable_network_error(e):
-                        logger.error(
-                            f"Failed to create driver due to network error after {max_retries} attempts: {str(e)}"
-                        )
-                        raise HTTPException(
-                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail="Service temporarily unavailable due to network issues. Please try again later.",
-                        ) from e
-                    else:
-                        logger.error(f"Failed to create driver: {str(e)}")
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to create driver: {str(e)}"
-                        ) from e
-                # Only continue retrying if it's a network-related error
-                if not is_retryable_network_error(e):
-                    logger.error(f"Non-network error during driver creation: {str(e)}")
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to create driver: {str(e)}"
-                    ) from e
-                # Wait before retry with exponential backoff
-                logger.warning(f"Retrying driver creation after network error (attempt {attempt + 1}): {str(e)}")
-                await asyncio.sleep(2**attempt)  # 1s, 2s, 4s backoff
+        session.add(driver)
+        await session.commit()
+        await session.refresh(driver)
 
-        return DriverResponse(
-            id=driver.id,
-            client_id=driver.client_id,
-            driver_national_code=driver.driver_national_code,
-            full_name=driver.full_name,
-            phone=driver.phone,
-            license_number=driver.license_number,
-            utcms_username=driver.utcms_username,
-            status=driver.status,
-            created_at=driver.created_at,
-            updated_at=driver.updated_at,
-        )
+        return DriverResponse.model_validate(driver)
 
     @staticmethod
     async def list_drivers(
-        user_context: dict,
+        user_context: dict | Client,
         session: AsyncSession,
         status_filter: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> list[DriverResponse]:
-        """List all drivers for the client."""
+        """List all drivers for the client or all for admin."""
         if isinstance(user_context, Client):
             user_context = {"role": "client", "user": user_context}
-        role = user_context["role"]
+        role = user_context.get("role")
         if role == "master_admin":
             statement = select(Driver)
         else:
@@ -139,25 +135,11 @@ class DriverService:
         result = await session.exec(statement)
         drivers = result.all()
 
-        return [
-            DriverResponse(
-                id=d.id,
-                client_id=d.client_id,
-                driver_national_code=d.driver_national_code,
-                full_name=d.full_name,
-                phone=d.phone,
-                license_number=d.license_number,
-                utcms_username=d.utcms_username,
-                status=d.status,
-                created_at=d.created_at,
-                updated_at=d.updated_at,
-            )
-            for d in drivers
-        ]
+        return [DriverResponse.model_validate(d) for d in drivers]
 
     @staticmethod
     async def get_driver(
-        client: Client,
+        user_context: dict | Client,
         driver_id: int,
         session: AsyncSession,
     ) -> DriverResponse:
@@ -169,25 +151,16 @@ class DriverService:
                 detail="Driver not found",
             )
 
-        # Verify tenant ownership
-        verify_tenant_ownership(client, driver, Driver)
+        # Verify tenant ownership unless master admin
+        if not (isinstance(user_context, dict) and user_context.get("role") == "master_admin"):
+            client = user_context.get("user") if isinstance(user_context, dict) else user_context
+            verify_tenant_ownership(client, driver, Driver)
 
-        return DriverResponse(
-            id=driver.id,
-            client_id=driver.client_id,
-            driver_national_code=driver.driver_national_code,
-            full_name=driver.full_name,
-            phone=driver.phone,
-            license_number=driver.license_number,
-            utcms_username=driver.utcms_username,
-            status=driver.status,
-            created_at=driver.created_at,
-            updated_at=driver.updated_at,
-        )
+        return DriverResponse.model_validate(driver)
 
     @staticmethod
     async def update_driver(
-        client: Client,
+        user_context: dict | Client,
         driver_id: int,
         request: DriverUpdateRequest,
         session: AsyncSession,
@@ -200,75 +173,35 @@ class DriverService:
                 detail="Driver not found",
             )
 
-        # Verify tenant ownership
-        verify_tenant_ownership(client, driver, Driver)
+        # Verify tenant ownership unless master admin
+        if not (isinstance(user_context, dict) and user_context.get("role") == "master_admin"):
+            client = user_context.get("user") if isinstance(user_context, dict) else user_context
+            verify_tenant_ownership(client, driver, Driver)
 
-        # Update fields
+        # Update fields safely
         update_data = request.model_dump(exclude_unset=True)
         for field, value in update_data.items():
-            if field == "utcms_password" and value:
-                driver.utcms_password_encrypted = encrypt_driver_password(value)
+            if field == "utcms_password":
+                if value is not None and str(value).strip():
+                    driver.utcms_password_encrypted = encrypt_driver_password(str(value).strip())
             elif field != "utcms_password":
                 setattr(driver, field, value)
 
         driver.updated_at = datetime.now(UTC).replace(tzinfo=None)
 
-        # Add retry logic for database operations to handle network errors
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                session.add(driver)
-                await session.commit()
-                await session.refresh(driver)
-                break  # Exit loop if successful
-            except Exception as e:
-                await session.rollback()  # Rollback on error
-                # If it's the last attempt, raise the appropriate error
-                if attempt == max_retries - 1:  # Last attempt
-                    # If it's a network error, return appropriate status
-                    if is_retryable_network_error(e):
-                        logger.error(
-                            f"Failed to update driver due to network error after {max_retries} attempts: {str(e)}"
-                        )
-                        raise HTTPException(
-                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail="Service temporarily unavailable due to network issues. Please try again later.",
-                        ) from e
-                    else:
-                        logger.error(f"Failed to update driver: {str(e)}")
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to update driver: {str(e)}"
-                        ) from e
-                # Only continue retrying if it's a network-related error
-                if not is_retryable_network_error(e):
-                    logger.error(f"Non-network error during driver update: {str(e)}")
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to update driver: {str(e)}"
-                    ) from e
-                # Wait before retry with exponential backoff
-                logger.warning(f"Retrying driver update after network error (attempt {attempt + 1}): {str(e)}")
-                await asyncio.sleep(2**attempt)  # 1s, 2s, 4s backoff
+        session.add(driver)
+        await session.commit()
+        await session.refresh(driver)
 
-        return DriverResponse(
-            id=driver.id,
-            client_id=driver.client_id,
-            driver_national_code=driver.driver_national_code,
-            full_name=driver.full_name,
-            phone=driver.phone,
-            license_number=driver.license_number,
-            utcms_username=driver.utcms_username,
-            status=driver.status,
-            created_at=driver.created_at,
-            updated_at=driver.updated_at,
-        )
+        return DriverResponse.model_validate(driver)
 
     @staticmethod
     async def delete_driver(
-        client: Client,
+        user_context: dict | Client,
         driver_id: int,
         session: AsyncSession,
     ) -> bool:
-        """Delete a driver."""
+        """Delete a driver safely with complete cascade cleanup."""
         driver = await session.get(Driver, driver_id)
         if not driver:
             raise HTTPException(
@@ -276,45 +209,55 @@ class DriverService:
                 detail="Driver not found",
             )
 
-        # Verify tenant ownership
-        verify_tenant_ownership(client, driver, Driver)
+        # Verify tenant ownership unless master admin
+        if not (isinstance(user_context, dict) and user_context.get("role") == "master_admin"):
+            client = user_context.get("user") if isinstance(user_context, dict) else user_context
+            verify_tenant_ownership(client, driver, Driver)
 
-        # Add retry logic for database operations to handle network errors
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                await session.delete(driver)
-                await session.commit()
-                return True  # Exit loop if successful
-            except Exception as e:
-                await session.rollback()  # Rollback on error
-                # If it's the last attempt, raise the appropriate error
-                if attempt == max_retries - 1:  # Last attempt
-                    # If it's a network error, return appropriate status
-                    if is_retryable_network_error(e):
-                        logger.error(
-                            f"Failed to delete driver due to network error after {max_retries} attempts: {str(e)}"
-                        )
-                        raise HTTPException(
-                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail="Service temporarily unavailable due to network issues. Please try again later.",
-                        ) from e
-                    else:
-                        logger.error(f"Failed to delete driver: {str(e)}")
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to delete driver: {str(e)}"
-                        ) from e
-                # Only continue retrying if it's a network-related error
-                if not is_retryable_network_error(e):
-                    logger.error(f"Non-network error during driver deletion: {str(e)}")
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to delete driver: {str(e)}"
-                    ) from e
-                # Wait before retry with exponential backoff
-                logger.warning(f"Retrying driver deletion after network error (attempt {attempt + 1}): {str(e)}")
-                await asyncio.sleep(2**attempt)  # 1s, 2s, 4s backoff
+        try:
+            # 1. Clean up RPA dispatch intents
+            await session.exec(delete(DispatchIntent).where(DispatchIntent.driver_id == driver.id))
+            # 2. Clean up driver runtime states
+            await session.exec(delete(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver.id))
+            # 3. Clean up driver plates
+            await session.exec(delete(DriverPlate).where(DriverPlate.driver_id == driver.id))
+            # 4. Clean up driver schedules
+            await session.exec(delete(DriverSchedule).where(DriverSchedule.driver_id == driver.id))
 
-        return False
+            # 5. Clean up driver daily counters
+            await session.exec(delete(DriverDailyCounter).where(DriverDailyCounter.driver_id == driver.id))
+            # 6. Clean up driver session metadata
+            await session.exec(delete(DriverSessionMetadata).where(DriverSessionMetadata.driver_id == driver.id))
+            # 7. Nullify driver_id in historical waybill jobs (preserving audit trail)
+            jobs = (await session.exec(select(WaybillJob).where(WaybillJob.driver_id == driver.id))).all()
+            for j in jobs:
+                j.driver_id = None
+            # 8. Clean up fuel inquiries
+            await session.exec(delete(FuelInquiry).where(FuelInquiry.driver_id == driver.id))
+
+
+            # 10. Nullify driver_id in attempts and domain events
+            attempts = (await session.exec(select(WaybillAttempt).where(WaybillAttempt.driver_id == driver.id))).all()
+            for att in attempts:
+                att.driver_id = None
+                session.add(att)
+            events = (await session.exec(select(DomainEvent).where(DomainEvent.driver_id == driver.id))).all()
+            for ev in events:
+                ev.driver_id = None
+                session.add(ev)
+
+            # 11. Delete the driver
+            await session.delete(driver)
+            await session.commit()
+            return True
+
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Failed to delete driver {driver_id}: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to delete driver: {str(e)}"
+            ) from e
+
 
     @staticmethod
     async def get_driver_credentials(

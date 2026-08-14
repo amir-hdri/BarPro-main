@@ -49,6 +49,7 @@ def test_create_driver_success(test_client):
     mock_session.refresh = AsyncMock(side_effect=mock_refresh)
 
     app.dependency_overrides[get_current_client] = lambda: mock_client
+    app.dependency_overrides[get_current_user_or_admin] = lambda: {"role": "client", "user": mock_client}
     app.dependency_overrides[get_session] = lambda: mock_session
 
     payload = {
@@ -96,6 +97,7 @@ def test_create_driver_limit_reached(test_client):
     mock_session.exec.return_value = mock_existing_drivers
 
     app.dependency_overrides[get_current_client] = lambda: mock_client
+    app.dependency_overrides[get_current_user_or_admin] = lambda: {"role": "client", "user": mock_client}
     app.dependency_overrides[get_session] = lambda: mock_session
 
     payload = {
@@ -144,7 +146,9 @@ def test_create_driver_duplicate_national_code(test_client):
     ]
 
     app.dependency_overrides[get_current_client] = lambda: mock_client
+    app.dependency_overrides[get_current_user_or_admin] = lambda: {"role": "client", "user": mock_client}
     app.dependency_overrides[get_session] = lambda: mock_session
+
 
     payload = {
         "driver_national_code": "1234567890",

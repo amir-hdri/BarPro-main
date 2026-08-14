@@ -14,9 +14,12 @@ import {
   SparklesIcon,
   ExclamationTriangleIcon,
   InformationCircleIcon,
+  PlusIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { CheckCircleIcon } from "@heroicons/react/24/solid";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "react-hot-toast";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { AuthGuard } from "@/components/layout/AuthGuard";
@@ -29,7 +32,7 @@ import { ProgressBar } from "@/components/ProgressBar";
 import { api } from "@/lib/api";
 import { canonicalizePlate, normalizeDigits } from "@/lib/plate";
 import { toPersianDigits } from "@/lib/format";
-import type { Driver, WaybillJob } from "@/lib/types";
+import type { Driver, Plate, WaybillJob } from "@/lib/types";
 import { waybillSchema, type WaybillFormValues } from "@/schemas/waybillSchema";
 import { useSession } from "@/hooks/useSession";
 
@@ -140,6 +143,7 @@ export default function NewWaybillPage() {
   const { role } = useSession();
   const router = useRouter();
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [plates, setPlates] = useState<Plate[]>([]);
   const [form, setForm] = useState<WaybillFormValues>(initialForm);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loadingDrivers, setLoadingDrivers] = useState(true);
@@ -148,6 +152,18 @@ export default function NewWaybillPage() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [direction, setDirection] = useState<'next' | 'back'>('next');
+
+  // Quick Add Driver Modal states
+  const [showQuickAddDriver, setShowQuickAddDriver] = useState(false);
+  const [quickDriverForm, setQuickDriverForm] = useState({
+    full_name: "",
+    driver_national_code: "",
+    utcms_username: "",
+    utcms_password: "",
+    plate_number: "",
+  });
+  const [quickAddLoading, setQuickAddLoading] = useState(false);
+  const [quickAddError, setQuickAddError] = useState<string | null>(null);
 
   // Map & Location states
   const [originCoords, setOriginCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -165,24 +181,40 @@ export default function NewWaybillPage() {
   const [scheduleStartDate, setScheduleStartDate] = useState("");
   const [scheduleEndDate, setScheduleEndDate] = useState("");
 
-  useEffect(() => {
-    async function loadDrivers() {
-      if (role !== "client") { setLoadingDrivers(false); return; }
-      setLoadingDrivers(true);
-      const response = await api.get<Driver[]>("/api/v1/drivers");
-      if (response.success && response.data) {
-        const driverList = response.data;
-        setDrivers(driverList);
-        setForm((current) =>
-          current.driver_national_code || !driverList[0]
-            ? current
-            : { ...current, driver_national_code: driverList[0].driver_national_code }
-        );
-      }
+  const loadDriversAndPlates = async () => {
+    if (role !== "client" && role !== "master_admin") {
       setLoadingDrivers(false);
+      return;
     }
-    loadDrivers();
+    setLoadingDrivers(true);
+    const [driversRes, platesRes] = await Promise.all([
+      api.get<Driver[]>("/api/v1/drivers"),
+      api.get<Plate[]>("/api/v1/plates"),
+    ]);
+
+    const driverList = driversRes.success && driversRes.data ? driversRes.data : [];
+    const plateList = platesRes.success && platesRes.data ? platesRes.data : [];
+    setDrivers(driverList);
+    setPlates(plateList);
+
+    if (driverList.length > 0) {
+      setForm((current) => {
+        const selectedD = driverList.find((d) => d.driver_national_code === current.driver_national_code) || driverList[0];
+        const matchingPlate = plateList.find((p) => p.driver_id === selectedD.id)?.plate_number;
+        return {
+          ...current,
+          driver_national_code: current.driver_national_code || selectedD.driver_national_code,
+          plate_number: current.plate_number || matchingPlate || "",
+        };
+      });
+    }
+    setLoadingDrivers(false);
+  };
+
+  useEffect(() => {
+    void loadDriversAndPlates();
   }, [role]);
+
 
   const selectedDriver = useMemo(
     () => drivers.find((d) => d.driver_national_code === form.driver_national_code) || null,
@@ -206,6 +238,71 @@ export default function NewWaybillPage() {
     setForm((current) => ({ ...current, [name]: nextValue }));
     setErrors((current) => { const next = { ...current }; delete next[name]; return next; });
   };
+
+  const handleDriverSelection = (driverNationalCode: string) => {
+    handleChange("driver_national_code", driverNationalCode);
+    const foundDriver = drivers.find((d) => d.driver_national_code === driverNationalCode);
+    if (foundDriver) {
+      const matchingPlate = plates.find((p) => p.driver_id === foundDriver.id)?.plate_number;
+      if (matchingPlate) {
+        handleChange("plate_number", matchingPlate);
+      }
+    }
+  };
+
+  const handleQuickAddDriver = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setQuickAddError(null);
+    if (!quickDriverForm.full_name.trim() || !quickDriverForm.driver_national_code.trim()) {
+      setQuickAddError("نام و کد ملی راننده الزامی است.");
+      return;
+    }
+    if (!/^\d{10}$/.test(quickDriverForm.driver_national_code)) {
+      setQuickAddError("کد ملی راننده باید ۱۰ رقم باشد.");
+      return;
+    }
+    if (!quickDriverForm.utcms_username.trim() || quickDriverForm.utcms_password.length < 4) {
+      setQuickAddError("نام کاربری و رمز عبور UTCMS (حداقل ۴ کاراکتر) الزامی است.");
+      return;
+    }
+
+    setQuickAddLoading(true);
+    const driverRes = await api.post<Driver>("/api/v1/drivers", {
+      full_name: quickDriverForm.full_name,
+      driver_national_code: quickDriverForm.driver_national_code,
+      utcms_username: quickDriverForm.utcms_username,
+      utcms_password: quickDriverForm.utcms_password,
+    });
+
+    if (!driverRes.success || !driverRes.data) {
+      setQuickAddLoading(false);
+      setQuickAddError(driverRes.error || "خطا در ثبت راننده");
+      return;
+    }
+
+    const newDriver = driverRes.data;
+
+    // If plate provided, register it as well
+    if (quickDriverForm.plate_number.trim()) {
+      await api.post<Plate>("/api/v1/plates", {
+        driver_id: newDriver.id,
+        plate_number: quickDriverForm.plate_number,
+      });
+    }
+
+    toast.success("راننده با موفقیت افزوده شد");
+    setShowQuickAddDriver(false);
+    setQuickDriverForm({ full_name: "", driver_national_code: "", utcms_username: "", utcms_password: "", plate_number: "" });
+    setQuickAddLoading(false);
+
+    // Reload and select
+    await loadDriversAndPlates();
+    handleChange("driver_national_code", newDriver.driver_national_code);
+    if (quickDriverForm.plate_number.trim()) {
+      handleChange("plate_number", quickDriverForm.plate_number);
+    }
+  };
+
 
   const validateCurrentStep = (): boolean => {
     const stepFields = STEPS[currentStep - 1]?.fields ?? [];
@@ -445,13 +542,26 @@ export default function NewWaybillPage() {
                     subtitle="انتخاب راننده و ثبت مشخصات وسیله نقلیه"
                   />
                   <div className="grid gap-5 sm:grid-cols-2">
-                    <Field label="راننده" error={errors.driver_national_code} required>
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-sm font-semibold text-slate-200">
+                          راننده <span className="text-rose-500 text-xs">*</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setShowQuickAddDriver(true)}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-cyan-400 hover:text-cyan-300 transition"
+                        >
+                          <PlusIcon className="h-3.5 w-3.5" />
+                          + ثبت سریع راننده جدید
+                        </button>
+                      </div>
                       {loadingDrivers ? (
                         <div className="skeleton h-12 w-full" />
                       ) : (
                         <select
                           value={form.driver_national_code}
-                          onChange={(e) => handleChange("driver_national_code", e.target.value)}
+                          onChange={(e) => handleDriverSelection(e.target.value)}
                           className={`field ${errors.driver_national_code ? "error" : ""}`}
                         >
                           <option value="">انتخاب راننده...</option>
@@ -462,12 +572,19 @@ export default function NewWaybillPage() {
                           ))}
                         </select>
                       )}
-                    </Field>
+                      {errors.driver_national_code && (
+                        <span className="mt-1.5 flex items-center gap-1 text-xs text-rose-600 font-medium">
+                          <ExclamationTriangleIcon className="h-3 w-3" />
+                          {errors.driver_national_code}
+                        </span>
+                      )}
+                    </div>
 
                     <Field label="پلاک خودرو" error={errors.plate_number} required>
                       <PlateInput
                         value={form.plate_number}
                         onChange={(val) => handleChange("plate_number", val)}
+                        error={errors.plate_number}
                       />
                     </Field>
 
@@ -488,13 +605,21 @@ export default function NewWaybillPage() {
                   )}
 
                   {drivers.length === 0 && !loadingDrivers && (
-                    <div className="status-bar info">
-                      <InformationCircleIcon className="h-5 w-5 shrink-0" />
-                      ابتدا در بخش رانندگان یک راننده ثبت کنید.
+                    <div className="flex flex-col items-center justify-center p-6 rounded-2xl bg-slate-950/40 border border-dashed border-cyan-500/30 text-center gap-3">
+                      <p className="text-sm text-slate-300">هنوز راننده‌ای در سامانه ثبت نشده است.</p>
+                      <button
+                        type="button"
+                        onClick={() => setShowQuickAddDriver(true)}
+                        className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-5 py-2.5 text-xs font-black transition"
+                      >
+                        <PlusIcon className="h-4 w-4" />
+                        ثبت سریع راننده جدید
+                      </button>
                     </div>
                   )}
                 </>
               )}
+
 
               {currentStep === 2 && (
                 <>
@@ -993,7 +1118,128 @@ export default function NewWaybillPage() {
             </div>
           </form>
         </div>
+
+        {showQuickAddDriver && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+            role="dialog"
+            aria-modal="true"
+            aria-label="ثبت سریع راننده جدید"
+            onClick={() => setShowQuickAddDriver(false)}
+          >
+            <div
+              className="w-full max-w-lg rounded-[2rem] border border-white/10 bg-slate-900 p-6 sm:p-8 shadow-2xl text-white relative overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-400">
+                    <PlusIcon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black">ثبت سریع راننده</h3>
+                    <p className="text-xs text-slate-400">افزودن مستقیم راننده و اتصال به فرم بارنامه</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowQuickAddDriver(false)}
+                  className="rounded-xl p-2 text-slate-400 hover:bg-white/5 hover:text-white transition"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleQuickAddDriver} className="mt-6 space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="text-xs font-semibold text-slate-200">
+                    <span className="mb-1.5 block">نام و نام خانوادگی <span className="text-rose-500">*</span></span>
+                    <input
+                      type="text"
+                      required
+                      placeholder="مثال: رضا احمدی"
+                      value={quickDriverForm.full_name}
+                      onChange={(e) => setQuickDriverForm((c) => ({ ...c, full_name: e.target.value }))}
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white outline-none focus:border-cyan-400 transition"
+                    />
+                  </label>
+
+                  <label className="text-xs font-semibold text-slate-200">
+                    <span className="mb-1.5 block">کد ملی (۱۰ رقم) <span className="text-rose-500">*</span></span>
+                    <input
+                      type="text"
+                      required
+                      maxLength={10}
+                      placeholder="۱۰ رقم کد ملی"
+                      value={quickDriverForm.driver_national_code}
+                      onChange={(e) => setQuickDriverForm((c) => ({ ...c, driver_national_code: normalizeDigits(e.target.value) }))}
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white outline-none focus:border-cyan-400 transition dir-ltr text-right"
+                    />
+                  </label>
+
+                  <label className="text-xs font-semibold text-slate-200">
+                    <span className="mb-1.5 block">نام کاربری UTCMS <span className="text-rose-500">*</span></span>
+                    <input
+                      type="text"
+                      required
+                      placeholder="نام کاربری سامانه"
+                      value={quickDriverForm.utcms_username}
+                      onChange={(e) => setQuickDriverForm((c) => ({ ...c, utcms_username: e.target.value }))}
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white outline-none focus:border-cyan-400 transition dir-ltr text-right"
+                    />
+                  </label>
+
+                  <label className="text-xs font-semibold text-slate-200">
+                    <span className="mb-1.5 block">رمز عبور UTCMS <span className="text-rose-500">*</span></span>
+                    <input
+                      type="password"
+                      required
+                      placeholder="رمز ورود سامانه"
+                      value={quickDriverForm.utcms_password}
+                      onChange={(e) => setQuickDriverForm((c) => ({ ...c, utcms_password: e.target.value }))}
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white outline-none focus:border-cyan-400 transition"
+                    />
+                  </label>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-200">
+                    <span className="mb-1.5 block">پلاک پیش‌فرض خودرو (اختیاری)</span>
+                    <PlateInput
+                      value={quickDriverForm.plate_number}
+                      onChange={(val) => setQuickDriverForm((c) => ({ ...c, plate_number: val }))}
+                    />
+                  </label>
+                </div>
+
+                {quickAddError && (
+                  <div className="rounded-xl bg-rose-500/10 border border-rose-500/20 p-3 text-xs font-bold text-rose-300">
+                    {quickAddError}
+                  </div>
+                )}
+
+                <div className="mt-6 flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowQuickAddDriver(false)}
+                    className="rounded-xl border border-white/10 bg-slate-950 px-5 py-2.5 text-xs font-bold text-slate-300 hover:bg-slate-800 transition"
+                  >
+                    انصراف
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={quickAddLoading}
+                    className="rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-2.5 text-xs font-black transition disabled:opacity-50"
+                  >
+                    {quickAddLoading ? "در حال ثبت..." : "ثبت و انتخاب راننده"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </AppShell>
     </AuthGuard>
   );
 }
+

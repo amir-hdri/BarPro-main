@@ -212,13 +212,21 @@ class WaybillJobService:
 
     @staticmethod
     async def retry_job(
-        client: Client,
+        user_context: dict | Client,
         job_id: str,
         session: AsyncSession,
         request: WaybillRetryRequest | None = None,
     ) -> WaybillJobResponse:
         """Manually retry or requeue a job with optional payload overrides."""
-        statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
+        if isinstance(user_context, Client):
+            user_context = {"role": "client", "user": user_context}
+        role = user_context.get("role")
+        if role == "master_admin":
+            statement = select(WaybillJob).where(WaybillJob.job_id == job_id)
+        else:
+            client = user_context["user"]
+            statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
+
         result = await session.exec(statement)
         job = result.first()
 
@@ -227,6 +235,7 @@ class WaybillJobService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Job not found",
             )
+
 
         # Check if job is in a terminal state that requires safe retry logic
         terminal_statuses = {TaskStatus.FAILED.value, TaskStatus.NEEDS_REVIEW.value}
@@ -462,17 +471,25 @@ class WaybillJobService:
 
     @staticmethod
     async def get_job_logs(
-        client: Client,
+        user_context: dict | Client,
         job_id: str,
         session: AsyncSession,
         page: int = 1,
         page_size: int = 20,
     ) -> TaskLogsResponse:
         """Get execution logs for a job."""
-        # Verify job belongs to client
-        job_stmt = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
+        if isinstance(user_context, Client):
+            user_context = {"role": "client", "user": user_context}
+        role = user_context.get("role")
+        if role == "master_admin":
+            job_stmt = select(WaybillJob).where(WaybillJob.job_id == job_id)
+        else:
+            client = user_context["user"]
+            job_stmt = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
+
         job_result = await session.exec(job_stmt)
-        if not job_result.first():
+        job = job_result.first()
+        if not job:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Job not found",
@@ -481,7 +498,7 @@ class WaybillJobService:
         # Get paginated logs
         logs_stmt = (
             select(WaybillTaskLog)
-            .where((WaybillTaskLog.client_id == client.id) & (WaybillTaskLog.job_id == job_id))
+            .where(WaybillTaskLog.job_id == job_id)
             .order_by(col(WaybillTaskLog.created_at).asc())
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -529,14 +546,21 @@ class WaybillJobService:
 
     @staticmethod
     async def update_job(
-        client: Client,
+        user_context: dict | Client,
         job_id: str,
         session: AsyncSession,
         request: WaybillJobUpdateRequest,
     ) -> WaybillJobResponse:
         """Update an existing waybill job."""
+        if isinstance(user_context, Client):
+            user_context = {"role": "client", "user": user_context}
+        role = user_context.get("role")
+        if role == "master_admin":
+            statement = select(WaybillJob).where(WaybillJob.job_id == job_id)
+        else:
+            client = user_context["user"]
+            statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
 
-        statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
         result = await session.exec(statement)
         job = result.first()
 
@@ -555,6 +579,12 @@ class WaybillJobService:
             update_data["max_retries"] = request.max_retries
         if request.terminal_reason is not None:
             update_data["terminal_reason"] = request.terminal_reason
+        if request.notes is not None:
+            update_data["notes"] = request.notes
+        if request.business_date is not None:
+            update_data["business_date"] = request.business_date
+        if request.correlation_id is not None:
+            update_data["correlation_id"] = request.correlation_id
 
         for key, value in update_data.items():
             setattr(job, key, value)
@@ -565,7 +595,7 @@ class WaybillJobService:
         return WaybillJobResponse.model_validate(job)
 
     @staticmethod
-    async def delete_job(client: Client, job_id: str, session: AsyncSession) -> None:
+    async def delete_job(user_context: dict | Client, job_id: str, session: AsyncSession) -> None:
         """Soft-cancel a waybill job (safer than hard delete).
 
         Rules:
@@ -581,7 +611,15 @@ class WaybillJobService:
           DomainEvent, WaybillAttempt) — destroying the audit trail would be
           unsafe. Only a truly childless job is hard-deleted.
         """
-        statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
+        if isinstance(user_context, Client):
+            user_context = {"role": "client", "user": user_context}
+        role = user_context.get("role")
+        if role == "master_admin":
+            statement = select(WaybillJob).where(WaybillJob.job_id == job_id)
+        else:
+            client = user_context["user"]
+            statement = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
+
         result = await session.exec(statement)
         job = result.first()
 
@@ -590,6 +628,7 @@ class WaybillJobService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Job not found",
             )
+
 
         from app.models_rpa import DispatchIntent, Execution
 

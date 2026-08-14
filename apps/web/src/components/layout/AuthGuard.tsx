@@ -14,7 +14,9 @@ interface AuthGuardProps {
 export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
   const router = useRouter();
   const { isAuthenticated, isReady, role } = useSession();
-  const hasRequiredRole = requiredRole ? role === requiredRole : true;
+  const hasRequiredRole = requiredRole
+    ? role === requiredRole || (requiredRole === 'client' && role === 'master_admin')
+    : true;
 
   useEffect(() => {
     if (!isReady) return;
@@ -27,6 +29,7 @@ export function AuthGuard({ children, requiredRole }: AuthGuardProps) {
       router.replace(role === 'master_admin' ? '/admin' : '/');
     }
   }, [hasRequiredRole, isAuthenticated, isReady, requiredRole, role, router]);
+
 
   if (!isReady) {
     return <div className="rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-8 text-sm text-slate-300 font-bold">در حال آماده‌سازی پنل...</div>;

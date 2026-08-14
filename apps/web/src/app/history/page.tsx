@@ -496,7 +496,10 @@ export default function HistoryPage() {
 
   async function handleEditJob(jobId: string) {
     const payload = { ...editForm };
-    if (payload.status === '') delete payload.status;
+    if (!payload.status) delete payload.status;
+    if (!payload.terminal_reason) delete payload.terminal_reason;
+    if (!payload.business_date) delete payload.business_date;
+    if (!payload.correlation_id) delete payload.correlation_id;
     const response = await api.patch(`/api/v1/waybill-jobs/${jobId}`, payload);
     if (response.success) {
       setEditSuccess('تغییرات ماموریت با موفقیت ذخیره شد');
@@ -508,6 +511,7 @@ export default function HistoryPage() {
       setEditError(response.error || 'ویرایش ناموفق بود');
     }
   }
+
 
   const loadTimeline = useCallback(async (jobId: string) => {
     setTimelineLoading(true);
