@@ -111,7 +111,7 @@ class UtcmsHttpBrowserBridge:
             await self._fulfill_utcms(route, request)
         except Exception as exc:
             logger.warning(
-                "http_browser_bridge_request_failed url=%s method=%s type=%s error=%s",
+                "http_browser_bridge_request_failed url=%s method=%s type=%s error=%s -- falling back to native route.continue_()",
                 request.url,
                 request.method,
                 request.resource_type,
@@ -125,7 +125,10 @@ class UtcmsHttpBrowserBridge:
                     }
                 },
             )
-            await route.abort("connectionfailed")
+            try:
+                await route.continue_()
+            except Exception:
+                await route.abort("connectionfailed")
 
     async def _fulfill_utcms(self, route: Any, request: Any) -> None:
         headers = dict(await request.all_headers())
