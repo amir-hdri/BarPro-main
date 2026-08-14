@@ -254,7 +254,7 @@ async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> b
                 proxies={"http": proxy_url, "https": proxy_url},
                 verify=False,
             )
-            response = await asyncio.to_thread(session.get, effective_target, timeout=8.0)
+            response = await asyncio.to_thread(session.get, effective_target, timeout=12.0)
             squid_error = response.headers.get("X-Squid-Error") or response.headers.get("x-squid-error")
             if not squid_error:
                 return True
@@ -269,7 +269,7 @@ async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> b
                     logger.debug("worker_proxy_health_session_close_failed", exc_info=True)
 
         if attempt < 3:
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(1.5)
 
     logger.warning(
         "worker_proxy_health_check_failed",

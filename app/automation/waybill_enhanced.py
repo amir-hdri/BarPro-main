@@ -1977,12 +1977,29 @@ class EnhancedWaybillManager:
 
     async def _is_waybill_form_ready(self) -> bool:
         markers = (
+            "#txtSenderFirstName",
+            "#txtSenderLastName",
+            "#txtSenderNationalCode",
+            "#txtSenderMobile",
+            "#txtSenderOfficeName",
+            "#senderSelectType",
+            "#txtReceiverFirstName",
+            "#txtReceiverLastName",
+            "#txtReceiverNationalCode",
+            "#txtReceiverMobile",
+            "#txtReceiverOfficeName",
+            "#receiverSelectType",
             'input[name="txtSenderFirstName"]',
+            'input[id="txtSenderFirstName"]',
             'input[name="SenderName"]',
             'input[name="txtReceiverFirstName"]',
             'input[name="ReceiverName"]',
             "#btnGoLVL2",
             "#GoLVL2",
+            "button[onclick*='btnGoLVL2']",
+            "button[onclick*='GoLVL2']",
+            "#formHagigiHogugi",
+            "form[action*='HagigiHogugi' i]",
         )
         for selector in markers:
             try:
