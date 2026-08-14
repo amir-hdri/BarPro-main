@@ -1919,6 +1919,19 @@ class EnhancedWaybillManager:
             raise WaybillError("حساب کاربری به ماژول صدور بارنامه دسترسی ندارد")
 
         if not await self._is_waybill_form_ready():
+            try:
+                page_html = await self.page.content()
+                page_url = await self._current_url()
+                logger.error(
+                    "waybill_form_not_ready_diagnostics: url=%s, html_len=%d, preview=%s",
+                    page_url,
+                    len(page_html),
+                    page_html[:1500].replace("\n", " "),
+                )
+                with open("/tmp/waybill_form_failed.html", "w", encoding="utf-8") as f:
+                    f.write(page_html)
+            except Exception:
+                pass
             raise WaybillError("فرم بارنامه پس از بازیابی در دسترس نیست")
 
     def _waybill_url_candidates(self) -> list[str]:
