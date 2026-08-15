@@ -37,7 +37,7 @@ for s in servers:
     if s["is_central"]:
         # Rebuild frontend and backend containers
         print("Rebuilding & restarting services on Central Server...")
-        cmd = "cd /opt/barpro && docker compose -f compose/backend.yml up -d --build --no-deps backend celery_worker_1 celery_scheduler celery_beat && docker compose -f compose/web.yml up -d --build --no-deps web nginx"
+        cmd = "cd /opt/barpro && docker compose -f compose/backend.yml up -d --build --no-deps backend celery_worker_1 celery_scheduler celery_beat && docker compose -f compose/web.yml up -d --build --no-deps frontend nginx"
         stdin, stdout, stderr = ssh.exec_command(cmd, timeout=300)
         out = stdout.read().decode()
         err = stderr.read().decode()

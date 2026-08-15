@@ -9,11 +9,23 @@ class TaskStatus(StrEnum):
     PENDING = "pending"
     QUEUED = "queued"
     PROCESSING = "processing"
+    IN_PROGRESS = "in_progress"
+    CLAIMED = "claimed"
+    RUNNING = "running"
     RETRYING = "retrying"
+    WAITING_AUTH = "waiting_auth"
+    WAITING_RETRY = "waiting_retry"
+    WAITING_SUBMISSION_WINDOW = "waiting_submission_window"
+    NEEDS_REVIEW = "needs_review"
     OTP_BACKOFF = "otp_backoff"
     SUCCEEDED = "succeeded"
+    SUCCESS = "success"
     FAILED = "failed"
+    DAILY_LIMIT_REACHED = "daily_limit_reached"
     DEAD_LETTER = "dead_letter"
+    CANCELLED = "cancelled"
+    UNKNOWN = "unknown"
+    RECONCILING = "reconciling"
 
 
 class EnqueueWaybillResponse(BaseModel):
@@ -53,6 +65,7 @@ class QueueSnapshotResponse(BaseModel):
     processing: int = Field(default=0)
     retrying: int = Field(default=0)
     otp_backoff: int = Field(default=0)
+    waiting_submission_window: int = Field(default=0)
     dead_letter: int = Field(default=0)
     succeeded: int = Field(default=0)
     failed: int = Field(default=0)

@@ -1,0 +1,18 @@
+{
+  "draw": 1,
+  "recordsTotal": 1,
+  "recordsFiltered": 1,
+  "code": 0,
+  "data": [
+    {
+      "RowID": 1,
+      "date": "1405/05/24",
+      "time": "14:30",
+      "driverNationalCode": "3830000000",
+      "PelakNumber": "12الف34567",
+      "docNo": "987654321",
+      "driverFullName": "تست راننده",
+      "status": "صادر شده"
+    }
+  ]
+}

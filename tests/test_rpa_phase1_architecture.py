@@ -54,6 +54,7 @@ async def test_phase1_scheduler_routes_job_to_auth_then_submit():
     with (
         patch("app.services.rpa_scheduler_service.async_session_factory", new=async_session),
         patch("app.services.rpa_runtime_service.redis_manager.get", new=AsyncMock(return_value=None)),
+        patch("app.services.rpa_scheduler_service.utcms_submission_gate.is_submission_allowed", new=AsyncMock(return_value=True)),
     ):
         rpa_runtime._memory.clear()
         first = await rpa_scheduler_service.create_job(

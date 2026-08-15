@@ -367,6 +367,16 @@ class UTCMSConfig:
             "DESTINATION_TEXT_SELECTOR", "input[name='Destination'], #DestinationInput"
         )
 
+        # Submission Gate & OTP Adaptive Control
+        # Non-negotiable Rule #1: ALLOW_LIVE_SUBMIT default is FALSE.
+        self.ALLOW_LIVE_SUBMIT = _to_bool(os.getenv("ALLOW_LIVE_SUBMIT", "False"), default=False)
+        self.PREDICTED_OTP_FREE_START_HOUR = int(os.getenv("PREDICTED_OTP_FREE_START_HOUR", "18"))
+        self.PREDICTED_OTP_FREE_END_HOUR = int(os.getenv("PREDICTED_OTP_FREE_END_HOUR", "8"))
+        self.GATE_PROBE_INTERVAL_SECONDS = int(os.getenv("GATE_PROBE_INTERVAL_SECONDS", "300"))
+        self.GATE_PROBE_LOCK_TTL_SECONDS = int(os.getenv("GATE_PROBE_LOCK_TTL_SECONDS", "60"))
+        self.GATE_OBSERVATION_VALIDITY_SECONDS = int(os.getenv("GATE_OBSERVATION_VALIDITY_SECONDS", "1800"))
+        self.GATE_BURST_DISPATCH_JITTER_MAX_SECONDS = float(os.getenv("GATE_BURST_DISPATCH_JITTER_MAX_SECONDS", "3.0"))
+
 
 AUTO_GENERATED_SECRETS = _bootstrap_environment()
 utcms_config = UTCMSConfig()

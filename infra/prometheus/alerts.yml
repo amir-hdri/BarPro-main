@@ -65,3 +65,21 @@ groups:
         annotations:
           summary: "Database connection pool utilization is high"
           description: "DB connection pool utilization is {{ $value }}%, exceeding 80%."
+
+      - alert: UTCMSWaitingSubmissionQueueHigh
+        expr: utcms_jobs_waiting_submission_window > 200
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High number of waybills waiting for submission window"
+          description: "There are {{ $value }} waybills waiting for an OTP-free submission window."
+
+      - alert: UTCMSOTPDetectedRateHigh
+        expr: rate(utcms_otp_detected_total[10m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Frequent OTP challenges detected by RPA workers"
+          description: "UTCMS is frequently presenting OTP challenges (rate={{ $value }}/s)."

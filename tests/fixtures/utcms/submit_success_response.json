@@ -1,0 +1,11 @@
+{
+  "resultCode": 200,
+  "resultMessage": "بارنامه با موفقیت صادر شد",
+  "isOtpNeeded": false,
+  "obj": {
+    "documentId": 123456,
+    "trackingCode": "987654321",
+    "issueDate": "1405/05/24",
+    "issueTime": "14:30:00"
+  }
+}

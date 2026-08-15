@@ -1,0 +1,10 @@
+{
+  "resultCode": 200,
+  "resultMessage": "کد اعتبارسنجی پیامک شد",
+  "isOtpNeeded": true,
+  "obj": {
+    "documentId": 123456,
+    "otpValidityPeriodMinutes": 5,
+    "mobileMasked": "0912***0000"
+  }
+}

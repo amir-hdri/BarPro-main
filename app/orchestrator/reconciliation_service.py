@@ -162,6 +162,11 @@ class ReconciliationService:
                         result_json_val = json.dumps(res_json, ensure_ascii=False)
                     else:
                         result_json_val = res_json
+                    job.reconciled_at = datetime.now(UTC).replace(tzinfo=None)
+                    job.mutation_status = "confirmed"
+                    if res.document_id:
+                        job.document_id = res.document_id
+
                     JobStateMachine.transition(
                         session,
                         job,
@@ -169,7 +174,7 @@ class ReconciliationService:
                         result_json=result_json_val,
                         finished_at=datetime.now(UTC).replace(tzinfo=None),
                     )
-                    logger.info("Job #%s reconciled to SUCCESS", job.id)
+                    logger.info("Job #%s reconciled to SUCCESS with tracking code %s", job.id, found_code)
 
             elif outcome == ScraperOutcome.NOT_FOUND:
                 JobStateMachine.transition(

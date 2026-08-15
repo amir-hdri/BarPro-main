@@ -14,12 +14,20 @@ class DriverRuntimeStateValue(StrEnum):
     READY = "ready"
     SUBMITTING = "submitting"
     WAITING_RETRY = "waiting_retry"
+    WAITING_SUBMISSION_WINDOW = "waiting_submission_window"
     RATE_LIMIT_COOLDOWN = "rate_limit_cooldown"
     DAILY_SUCCESS_LIMIT_REACHED = "daily_success_limit_reached"
     DAILY_ATTEMPT_LIMIT_REACHED = "daily_attempt_limit_reached"
     INVALID_CREDENTIALS = "invalid_credentials"
     DISABLED = "disabled"
     ERROR_REVIEW = "error_review"
+
+
+class GateStateValue(StrEnum):
+    UNKNOWN = "unknown"
+    OTP_REQUIRED = "otp_required"
+    OTP_FREE = "otp_free"
+    DEGRADED = "degraded"
 
 
 class AttemptType(StrEnum):
@@ -278,3 +286,39 @@ class Execution(SQLModel, table=True):
         default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
+
+
+class UTCMSSystemObservation(SQLModel, table=True):
+    __tablename__ = "utcms_system_observations"
+    __table_args__ = (
+        Index("idx_utcms_obs_state", "state"),
+        Index("idx_utcms_obs_observed_at", "observed_at"),
+        Index("idx_utcms_obs_valid_until", "valid_until"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    state: str = Field(default=GateStateValue.UNKNOWN.value, max_length=32, index=True)
+    observed_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
+    valid_until: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=False), nullable=True),
+    )
+    next_probe_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=False), nullable=True),
+    )
+    source: str = Field(default="passive_probe", max_length=64)
+    worker_id: str | None = Field(default=None, max_length=128, index=True)
+    evidence_json: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
+        sa_column=Column(DateTime(timezone=False), nullable=False),
+    )
+

@@ -56,15 +56,15 @@ def test_api_v1_location_routes():
     resp = client.get("/api/v1/locations/provinces")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["success"] is True
-    assert len(data["data"]) >= 31
+    assert isinstance(data, list)
+    assert len(data) >= 31
 
     # تست شهرها با پریفیکس جدید
     resp_cities = client.get("/api/v1/locations/cities?province=تهران")
     assert resp_cities.status_code == 200
     cities_data = resp_cities.json()
-    assert cities_data["success"] is True
-    assert len(cities_data["data"]) > 0
+    assert isinstance(cities_data, list)
+    assert len(cities_data) > 0
 
 
 def test_fuel_inquiry_options_route():

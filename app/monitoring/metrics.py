@@ -140,6 +140,26 @@ CAPTCHA_ADAPTIVE_TARGET_DELAY = Gauge(
     "Adaptive target delay between captcha retries",
 )
 
+# ── UTCMS Gate & Reconciliation Metrics ──
+UTCMS_GATE_STATE = Gauge(
+    "utcms_gate_state",
+    "UTCMS submission gate state (1=active, 0=inactive)",
+    ["state"],
+)
+UTCMS_OTP_DETECTED_TOTAL = Counter(
+    "utcms_otp_detected_total",
+    "Total OTP challenges detected by RPA workers",
+)
+UTCMS_JOBS_WAITING_SUBMISSION_WINDOW = Gauge(
+    "utcms_jobs_waiting_submission_window",
+    "Number of waybill jobs held in WAITING_SUBMISSION_WINDOW",
+)
+UTCMS_RECONCILIATION_TOTAL = Counter(
+    "utcms_reconciliation_total",
+    "Total reconciliation attempts by outcome",
+    ["outcome"],
+)
+
 METRICS_CONTENT_TYPE = CONTENT_TYPE_LATEST
 _CAPTCHA_RUNTIME_MAX_EVENTS = 240
 _CAPTCHA_RUNTIME_LOCK = Lock()

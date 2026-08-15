@@ -22,6 +22,7 @@ SESSION_EXPIRED = "session.expired"
 SUBMIT_SUCCEEDED = "submit.succeeded"
 SUBMIT_FAILED = "submit.failed"
 SUBMIT_DELAYED = "submit.delayed"
+JOB_WAITING_SUBMISSION_WINDOW = "job.waiting_submission_window"
 DRIVER_LIMIT_REACHED = "driver.limit_reached"
 
 
@@ -64,6 +65,7 @@ def timeline_title_for(event_type: str, source: str, payload: dict[str, Any] | N
         SUBMIT_SUCCEEDED: "Submit succeeded",
         SUBMIT_FAILED: "Submit failed",
         SUBMIT_DELAYED: "Submit delayed",
+        JOB_WAITING_SUBMISSION_WINDOW: "Waiting for submission window (OTP active)",
         DRIVER_LIMIT_REACHED: "Driver limit reached",
     }
     if event_type in labels:

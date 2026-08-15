@@ -41,6 +41,7 @@ class TaskStatus(StrEnum):
     RETRYING = "retrying"
     WAITING_AUTH = "waiting_auth"
     WAITING_RETRY = "waiting_retry"
+    WAITING_SUBMISSION_WINDOW = "waiting_submission_window"
     NEEDS_REVIEW = "needs_review"
     OTP_BACKOFF = "otp_backoff"
     SUCCESS = "success"
@@ -346,6 +347,19 @@ class WaybillJob(SQLModel, table=True):
     error_category: str | None = Field(default=None, max_length=50, index=True)
     submission_fingerprint: str | None = Field(default=None, max_length=128, index=True)
 
+    # Mutation & Idempotency tracking
+    request_digest: str | None = Field(default=None, max_length=128, index=True)
+    document_id: str | None = Field(default=None, max_length=64, index=True)
+    mutation_status: str | None = Field(default=None, max_length=32, index=True)
+    mutation_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=False), nullable=True),
+    )
+    reconciled_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=False), nullable=True),
+    )
+
     # Retry logic
     attempt_count: int = Field(default=0)
     max_retries: int = Field(default=3)
@@ -492,3 +506,7 @@ class FuelInquiry(SQLModel, table=True):
         default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
+
+
+# Ensure UTCMSSystemObservation table is included in SQLModel metadata
+from app.models_rpa import UTCMSSystemObservation  # noqa: E402, F401

@@ -19,8 +19,15 @@ from app.models_multitenant import Driver, DriverStatus, TaskSource, TaskStatus,
 from app.models_rpa import DomainEvent, DriverDailyCounter, DriverRuntimeState, DriverRuntimeStateValue
 from app.orchestrator.state_machine import JobStateMachine
 from app.rpa.contracts import SchedulerDecision
-from app.rpa.event_taxonomy import DRIVER_LIMIT_REACHED, JOB_CREATED, JOB_QUEUED_AUTH, JOB_QUEUED_SUBMIT
+from app.rpa.event_taxonomy import (
+    DRIVER_LIMIT_REACHED,
+    JOB_CREATED,
+    JOB_QUEUED_AUTH,
+    JOB_QUEUED_SUBMIT,
+    JOB_WAITING_SUBMISSION_WINDOW,
+)
 from app.services.rpa_runtime_service import rpa_runtime
+from app.services.utcms_submission_gate import utcms_submission_gate
 from app.services.rpa_submit_service import build_job_idempotency_key
 
 logger = logging.getLogger(__name__)
@@ -109,6 +116,7 @@ class RPASchedulerService:
                                 TaskStatus.WAITING_RETRY.value,
                                 TaskStatus.WAITING_AUTH.value,
                                 TaskStatus.OTP_BACKOFF.value,
+                                TaskStatus.WAITING_SUBMISSION_WINDOW.value,
                             ]
                         ),
                     )
@@ -123,6 +131,9 @@ class RPASchedulerService:
             batch_limit = max(1, utcms_config.RPA_SCHEDULER_BATCH_SIZE)
             now = datetime.now(UTC).replace(tzinfo=None)
 
+            # Check UTCMS Submission Gate state once per planning cycle
+            is_gate_open = await utcms_submission_gate.is_submission_allowed()
+
             for job, driver in jobs:
                 if len(decisions) >= batch_limit:
                     break
@@ -133,19 +144,19 @@ class RPASchedulerService:
                         TaskStatus.PENDING.value,
                         TaskStatus.WAITING_RETRY.value,
                         TaskStatus.OTP_BACKOFF.value,
+                        TaskStatus.WAITING_SUBMISSION_WINDOW.value,
                     }:
                         job.celery_task_id = None
                     else:
                         continue
 
                 try:
-                    # ── OTP_BACKOFF: only eligible after next_retry_at has passed ──
-                    if job.status == TaskStatus.OTP_BACKOFF.value:
-                        if job.next_retry_at is None:
-                            continue  # no retry time set, skip
-                        retry_at = _as_utc(job.next_retry_at)
-                        if retry_at > now:
-                            continue  # not yet due
+                    # ── OTP_BACKOFF / WAITING_SUBMISSION_WINDOW: only eligible after next_retry_at has passed ──
+                    if job.status in {TaskStatus.OTP_BACKOFF.value, TaskStatus.WAITING_SUBMISSION_WINDOW.value}:
+                        if job.next_retry_at is not None:
+                            retry_at = _as_utc(job.next_retry_at)
+                            if retry_at > now:
+                                continue  # not yet due
 
                     submit_after = _as_utc(job.submit_after)
                     if submit_after and submit_after > now:
@@ -204,6 +215,31 @@ class RPASchedulerService:
                                 {"reason": reason, "queue": queue_name},
                             )
                     else:
+                        # Session is ready -> verify UTCMS Submission Gate before queuing for submit
+                        if not is_gate_open:
+                            if persist and job.status != TaskStatus.WAITING_SUBMISSION_WINDOW.value:
+                                retry_at = now + timedelta(seconds=utcms_config.GATE_PROBE_INTERVAL_SECONDS)
+                                driver.runtime_status = DriverStatus.READY.value
+                                runtime_state.state = DriverRuntimeStateValue.WAITING_SUBMISSION_WINDOW.value
+                                JobStateMachine.transition(
+                                    session,
+                                    job,
+                                    TaskStatus.WAITING_SUBMISSION_WINDOW.value,
+                                    submit_after=retry_at,
+                                    next_retry_at=retry_at,
+                                )
+                                session.add(driver)
+                                session.add(runtime_state)
+                                await self._record_event(
+                                    session,
+                                    job.client_id,
+                                    driver.id,
+                                    job.job_id,
+                                    JOB_WAITING_SUBMISSION_WINDOW,
+                                    {"reason": "gate_closed_otp_active", "retry_at": retry_at.isoformat()},
+                                )
+                            continue
+
                         queue_name = utcms_config.RPA_SUBMIT_QUEUE
                         reason = "session_ready"
                         if persist:

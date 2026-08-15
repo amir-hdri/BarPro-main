@@ -515,12 +515,17 @@ class WaybillJobResponse(BaseModel):
     max_retries: int
     created_at: datetime
     updated_at: datetime
-    started_at: datetime | None
-    finished_at: datetime | None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
     payload_json: dict | list | str | Any | None = None
     result_json: dict | list | str | Any | None = None
     client_name: str | None = None
     client_code: str | None = None
+    request_digest: str | None = None
+    document_id: str | None = None
+    mutation_status: str | None = None
+    mutation_at: datetime | None = None
+    reconciled_at: datetime | None = None
 
     @field_validator("payload_json", "result_json", mode="before")
     @classmethod

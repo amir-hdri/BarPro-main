@@ -5,6 +5,7 @@ class JobStatus(StrEnum):
     PENDING = "pending"
     WAITING_AUTH = "waiting_auth"
     WAITING_RETRY = "waiting_retry"
+    WAITING_SUBMISSION_WINDOW = "waiting_submission_window"
     OTP_BACKOFF = "otp_backoff"
     QUEUED = "queued"
     CLAIMED = "claimed"
@@ -20,17 +21,51 @@ class JobStatus(StrEnum):
 
 
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-    "pending": {"queued", "waiting_auth", "waiting_retry", "cancelled", "in_progress", "daily_limit_reached"},
-    "waiting_auth": {"queued", "pending", "cancelled", "in_progress", "daily_limit_reached"},
-    "waiting_retry": {"pending", "dead_letter", "cancelled", "in_progress", "queued", "daily_limit_reached"},
-    "otp_backoff": {"pending", "dead_letter", "cancelled", "in_progress", "queued", "daily_limit_reached"},
-    "queued": {"claimed", "waiting_retry", "cancelled", "in_progress", "unknown", "daily_limit_reached"},
-    "claimed": {"running", "waiting_retry", "needs_review", "cancelled", "unknown", "daily_limit_reached"},
+    "pending": {
+        "queued",
+        "waiting_auth",
+        "waiting_retry",
+        "waiting_submission_window",
+        "cancelled",
+        "in_progress",
+        "daily_limit_reached",
+    },
+    "waiting_auth": {"queued", "pending", "waiting_submission_window", "cancelled", "in_progress", "daily_limit_reached"},
+    "waiting_retry": {
+        "pending",
+        "dead_letter",
+        "cancelled",
+        "in_progress",
+        "queued",
+        "waiting_submission_window",
+        "daily_limit_reached",
+    },
+    "waiting_submission_window": {
+        "pending",
+        "queued",
+        "waiting_auth",
+        "waiting_retry",
+        "cancelled",
+        "in_progress",
+        "daily_limit_reached",
+    },
+    "otp_backoff": {
+        "pending",
+        "dead_letter",
+        "cancelled",
+        "in_progress",
+        "queued",
+        "waiting_submission_window",
+        "daily_limit_reached",
+    },
+    "queued": {"claimed", "waiting_retry", "waiting_submission_window", "cancelled", "in_progress", "unknown", "daily_limit_reached"},
+    "claimed": {"running", "waiting_retry", "waiting_submission_window", "needs_review", "cancelled", "unknown", "daily_limit_reached"},
     "running": {
         "success",
         "failed",
         "needs_review",
         "waiting_retry",
+        "waiting_submission_window",
         "otp_backoff",
         "unknown",
         "cancelled",
@@ -41,15 +76,16 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "failed",
         "needs_review",
         "waiting_retry",
+        "waiting_submission_window",
         "otp_backoff",
         "unknown",
         "cancelled",
         "daily_limit_reached",
     },
-    "needs_review": {"pending", "cancelled", "daily_limit_reached"},
+    "needs_review": {"pending", "reconciling", "cancelled", "daily_limit_reached"},
     "failed": {"dead_letter", "daily_limit_reached", "pending", "cancelled"},
-    "unknown": {"reconciling", "cancelled"},
-    "reconciling": {"success", "failed", "needs_review", "cancelled"},
+    "unknown": {"reconciling", "cancelled", "failed", "needs_review"},
+    "reconciling": {"success", "failed", "needs_review", "cancelled", "unknown"},
     "dead_letter": set(),
     "cancelled": set(),
     "success": {"needs_review"},

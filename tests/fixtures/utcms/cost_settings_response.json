@@ -1,0 +1,18 @@
+{
+  "resultCode": 200,
+  "resultMessage": "عملیات با موفقیت انجام شد",
+  "obj": {
+    "notifyCost": 0,
+    "itCost": 0,
+    "avarez": 0,
+    "fuelQuotaPrice": 0,
+    "minuteForShipping": 0,
+    "getTrackingPrice": 200,
+    "tajmiiFlag": true,
+    "mapFlag": true,
+    "senderSmsFlag": false,
+    "otpValidityPeriod": 5,
+    "capSiteKey": "6d1844135b",
+    "captchaType": 1
+  }
+}

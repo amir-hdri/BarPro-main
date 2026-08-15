@@ -61,6 +61,24 @@ def test_pending_to_waiting_retry(session):
     assert job.status == JobStatus.WAITING_RETRY
 
 
+def test_pending_to_waiting_submission_window(session):
+    job = MockJob(JobStatus.PENDING)
+    JobStateMachine.transition(session, job, JobStatus.WAITING_SUBMISSION_WINDOW)
+    assert job.status == JobStatus.WAITING_SUBMISSION_WINDOW
+
+
+def test_waiting_submission_window_to_queued(session):
+    job = MockJob(JobStatus.WAITING_SUBMISSION_WINDOW)
+    JobStateMachine.transition(session, job, JobStatus.QUEUED)
+    assert job.status == JobStatus.QUEUED
+
+
+def test_waiting_submission_window_to_pending(session):
+    job = MockJob(JobStatus.WAITING_SUBMISSION_WINDOW)
+    JobStateMachine.transition(session, job, JobStatus.PENDING)
+    assert job.status == JobStatus.PENDING
+
+
 def test_pending_to_cancelled(session):
     job = MockJob(JobStatus.PENDING)
     JobStateMachine.transition(session, job, JobStatus.CANCELLED)

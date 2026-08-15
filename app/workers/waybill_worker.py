@@ -47,6 +47,7 @@ from app.rpa.event_taxonomy import (
     OTP_DETECTED,
 )
 from app.services.rpa_runtime_service import rpa_runtime
+from app.services.utcms_submission_gate import utcms_submission_gate
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -985,6 +986,21 @@ async def _execute_job(
             else:
                 payload = {}
 
+            # Hard Idempotency Guard: Never resubmit if tracking_code already confirmed!
+            if isinstance(job.result_json, dict) and job.result_json.get("tracking_code"):
+                logger.info("job_already_confirmed_skipping_submit", extra={"extra_fields": {"job_id": job_id}})
+                await rpa_runtime.release_lock(auth_lock_key)
+                await rpa_runtime.release_lock(driver_lock_key)
+                return {"status": TaskStatus.SUCCESS.value, "result": job.result_json, "reused": True}
+
+            # Persist durable mutation intent & digest before submit
+            import hashlib
+            request_digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+            job.request_digest = request_digest
+            job.mutation_status = "intent_persisted"
+            job.mutation_at = _utcnow_naive()
+            await session.commit()
+
             from app.services.session_vault import session_vault
 
             auth_state_path = session_vault.auth_state_path_for_account(
@@ -1054,6 +1070,34 @@ async def _execute_job(
             if execution_id and fencing_token is not None:
                 await _assert_still_valid(execution_id, fencing_token)
 
+            # Submission Gate Check: verify live submission is permitted
+            if not await utcms_submission_gate.is_submission_allowed():
+                logger.info(
+                    "gate_closed_pre_execution_transition",
+                    extra={"extra_fields": {"job_id": job_id, "driver_id": driver.id}},
+                )
+                await rpa_runtime.release_lock(auth_lock_key)
+                await rpa_runtime.release_lock(driver_lock_key)
+                runtime_state.auth_lock_owner = None
+                runtime_state.auth_lock_acquired_at = None
+                runtime_state.auth_lock_ttl_seconds = None
+                runtime_state.state = DriverRuntimeStateValue.WAITING_SUBMISSION_WINDOW.value
+                retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.GATE_PROBE_INTERVAL_SECONDS)
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.WAITING_SUBMISSION_WINDOW.value,
+                    celery_task_id=None,
+                    retryable=True,
+                    next_retry_at=retry_at,
+                    submit_after=retry_at,
+                    last_error="UTCMS submission gate closed (OTP required or window closed)",
+                    error_category="otp_required",
+                    updated_at=_utcnow_naive(),
+                )
+                await session.commit()
+                return {"status": TaskStatus.WAITING_SUBMISSION_WINDOW.value, "error_category": "otp_required"}
+
             # Use simple worker proxy helper — bypasses proxy_rotator's cooldown/geo-check
             # that could return None, leaving Chromium without proxy → navigation timeout.
             proxy_dict = get_playwright_proxy()
@@ -1090,12 +1134,13 @@ async def _execute_job(
                     now = _utcnow_naive()
 
                     if result_status == "otp_backoff":
+                        await utcms_submission_gate.record_otp_detected(worker_id=worker_id, evidence=result)
                         retry_minutes = int(result.get("next_retry_at_minutes_add", 60))
                         retry_at = now + timedelta(minutes=retry_minutes)
                         JobStateMachine.transition(
                             session,
                             job,
-                            TaskStatus.OTP_BACKOFF.value,
+                            TaskStatus.WAITING_SUBMISSION_WINDOW.value,
                             celery_task_id=None,
                             next_retry_at=retry_at,
                             submit_after=retry_at,
@@ -1103,7 +1148,7 @@ async def _execute_job(
                             error_category="otp_required",
                             finished_at=now,
                         )
-                        runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
+                        runtime_state.state = DriverRuntimeStateValue.WAITING_SUBMISSION_WINDOW.value
                         runtime_state.next_retry_at = retry_at
                         runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
                         await session.commit()
@@ -1113,7 +1158,7 @@ async def _execute_job(
                             job_id=job_id,
                             client_id=job.client_id,
                             step="otp_backoff",
-                            status="waiting_retry",
+                            status="waiting_submission_window",
                             message=f"OTP detected. Retrying in {retry_minutes} minutes.",
                             details_json=result,
                         )
@@ -1126,7 +1171,7 @@ async def _execute_job(
                             payload={"retry_at": retry_at.isoformat(), "message": job.last_error},
                         )
 
-                        logger.info(f"Job {job_id} entered OTP_BACKOFF, retry at {job.next_retry_at}")
+                        logger.info(f"Job {job_id} entered WAITING_SUBMISSION_WINDOW, retry at {job.next_retry_at}")
                         return result
 
                     if result_status == "validated":
@@ -1156,11 +1201,32 @@ async def _execute_job(
                             result_payload.get("tracking_code") if isinstance(result_payload, dict) else None
                         )
                         if not tracking_code:
-                            result_status = TaskStatus.FAILED.value
-                            result["status"] = TaskStatus.FAILED.value
-                            result["error"] = "Portal success response did not include a tracking code"
+                            # CRITICAL REDLINE: SUCCESS without tracking code is forbidden -> downgrade to UNKNOWN
+                            result_status = TaskStatus.UNKNOWN.value
+                            result["status"] = TaskStatus.UNKNOWN.value
+                            result["error"] = "Portal success response did not include a tracking code; reconciliation required"
                             result["error_category"] = ErrorCategory.SUBMISSION_UNCONFIRMED.value
+                            job.mutation_status = "ambiguous"
+                            JobStateMachine.transition(
+                                session,
+                                job,
+                                TaskStatus.UNKNOWN.value,
+                                celery_task_id=None,
+                                retryable=False,
+                                last_error=result["error"],
+                                error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                                finished_at=now,
+                            )
+                            runtime_state.state = DriverRuntimeStateValue.READY.value
+                            runtime_state.next_retry_at = None
+                            runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                            await session.commit()
+                            return result
                         else:
+                            job.mutation_status = "confirmed"
+                            if isinstance(result_payload, dict) and "document_id" in result_payload and result_payload["document_id"]:
+                                job.document_id = str(result_payload["document_id"])
+
                             JobStateMachine.transition(
                                 session,
                                 job,
