@@ -45,10 +45,18 @@ export const PlateInput: React.FC<PlateInputProps> = ({ value, onChange, error, 
 
   useEffect(() => {
     const nextParts = parsePlateString(value);
-    if (JSON.stringify(nextParts) !== JSON.stringify(parts)) {
-      setParts(nextParts);
-    }
-  }, [value, parts]);
+    setParts((prev) => {
+      if (
+        prev.part1 === nextParts.part1 &&
+        prev.part2 === nextParts.part2 &&
+        prev.part3 === nextParts.part3 &&
+        prev.part4 === nextParts.part4
+      ) {
+        return prev;
+      }
+      return nextParts;
+    });
+  }, [value]);
 
   const part1Ref = useRef<HTMLInputElement>(null);
   const part2Ref = useRef<HTMLInputElement>(null);

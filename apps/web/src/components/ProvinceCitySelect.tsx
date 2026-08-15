@@ -47,9 +47,18 @@ export const ProvinceCitySelect = memo(function ProvinceCitySelect({
     setLoadingProvinces(true);
     setProvinceFetchError(false);
     try {
-      const res = await api.get<Province[]>("/api/v1/locations/provinces");
-      if (res.success && res.data && res.data.length > 0) {
-        setProvinces(res.data);
+      const res = await api.get<Province[] | { data?: Province[] }>("/api/v1/locations/provinces");
+      let list: Province[] = [];
+      if (res.success && res.data) {
+        if (Array.isArray(res.data)) {
+          list = res.data;
+        } else if (Array.isArray((res.data as { data?: Province[] }).data)) {
+          list = (res.data as { data?: Province[] }).data || [];
+        }
+      }
+      if (list.length > 0) {
+        setProvinces(list);
+        setProvinceFetchError(false);
       } else {
         setProvinceFetchError(true);
       }
@@ -74,9 +83,18 @@ export const ProvinceCitySelect = memo(function ProvinceCitySelect({
     setLoadingCities(true);
     setCityFetchError(false);
     try {
-      const res = await api.get<City[]>(`/api/v1/locations/cities?province=${encodeURIComponent(provinceValue)}`);
-      if (res.success && res.data && res.data.length > 0) {
-        setCities(res.data);
+      const res = await api.get<City[] | { data?: City[] }>(`/api/v1/locations/cities?province=${encodeURIComponent(provinceValue)}`);
+      let list: City[] = [];
+      if (res.success && res.data) {
+        if (Array.isArray(res.data)) {
+          list = res.data;
+        } else if (Array.isArray((res.data as { data?: City[] }).data)) {
+          list = (res.data as { data?: City[] }).data || [];
+        }
+      }
+      if (list.length > 0) {
+        setCities(list);
+        setCityFetchError(false);
       } else {
         setCityFetchError(true);
       }

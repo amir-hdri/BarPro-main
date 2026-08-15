@@ -26,16 +26,14 @@ from app.models_multitenant import (
     WaybillJob,
 )
 
+from app.models.admin import AdminDriverSchedule
 from app.models_rpa import (
-    DispatchIntent,
     DriverDailyCounter,
     DriverRuntimeState,
     DriverSessionMetadata,
     DomainEvent,
     WaybillAttempt,
 )
-
-
 
 
 from app.schemas.multitenant import (
@@ -46,6 +44,12 @@ from app.schemas.multitenant import (
 
 logger = logging.getLogger(__name__)
 
+
+def _normalize_digits_str(val: str | None) -> str | None:
+    if not val:
+        return val
+    table = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+    return val.translate(table).strip()
 
 
 class DriverService:
@@ -80,10 +84,13 @@ class DriverService:
                 detail=f"Driver limit reached. Maximum allowed: {client.max_drivers}",
             )
 
+        clean_nat_code = _normalize_digits_str(request.driver_national_code) or ""
+        clean_phone = _normalize_digits_str(request.phone)
+
         # Check if national code already exists for this client
         existing = await session.exec(
             select(Driver).where(
-                (Driver.client_id == client.id) & (Driver.driver_national_code == request.driver_national_code)
+                (Driver.client_id == client.id) & (Driver.driver_national_code == clean_nat_code)
             )
         )
         if existing.first():
@@ -95,12 +102,12 @@ class DriverService:
         # Create driver
         driver = Driver(
             client_id=client.id,
-            driver_national_code=request.driver_national_code,
-            full_name=request.full_name,
-            phone=request.phone,
-            license_number=request.license_number,
-            utcms_username=request.utcms_username,
-            utcms_password_encrypted=encrypt_driver_password(request.utcms_password),
+            driver_national_code=clean_nat_code,
+            full_name=request.full_name.strip(),
+            phone=clean_phone,
+            license_number=request.license_number.strip() if request.license_number else None,
+            utcms_username=request.utcms_username.strip(),
+            utcms_password_encrypted=encrypt_driver_password(request.utcms_password.strip()),
             status=DriverStatus.ACTIVE.value,
         )
 
@@ -178,13 +185,36 @@ class DriverService:
             client = user_context.get("user") if isinstance(user_context, dict) else user_context
             verify_tenant_ownership(client, driver, Driver)
 
-        # Update fields safely
         update_data = request.model_dump(exclude_unset=True)
+
+        # If driver_national_code is being updated, check uniqueness for client
+        if "driver_national_code" in update_data and update_data["driver_national_code"]:
+            clean_nat = _normalize_digits_str(update_data["driver_national_code"])
+            if clean_nat and clean_nat != driver.driver_national_code:
+                existing = await session.exec(
+                    select(Driver).where(
+                        (Driver.client_id == driver.client_id)
+                        & (Driver.driver_national_code == clean_nat)
+                        & (Driver.id != driver.id)
+                    )
+                )
+                if existing.first():
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Driver with this national code already exists",
+                    )
+                driver.driver_national_code = clean_nat
+
+        if "phone" in update_data:
+            driver.phone = _normalize_digits_str(update_data["phone"]) if update_data["phone"] else None
+
         for field, value in update_data.items():
-            if field == "utcms_password":
+            if field in ("driver_national_code", "phone"):
+                continue
+            elif field == "utcms_password":
                 if value is not None and str(value).strip():
                     driver.utcms_password_encrypted = encrypt_driver_password(str(value).strip())
-            elif field != "utcms_password":
+            else:
                 setattr(driver, field, value)
 
         driver.updated_at = datetime.now(UTC).replace(tzinfo=None)
@@ -215,38 +245,32 @@ class DriverService:
             verify_tenant_ownership(client, driver, Driver)
 
         try:
-            # 1. Clean up RPA dispatch intents
-            await session.exec(delete(DispatchIntent).where(DispatchIntent.driver_id == driver.id))
-            # 2. Clean up driver runtime states
+            # 1. Clean up driver runtime states
             await session.exec(delete(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver.id))
-            # 3. Clean up driver plates
+            # 2. Clean up driver plates
             await session.exec(delete(DriverPlate).where(DriverPlate.driver_id == driver.id))
-            # 4. Clean up driver schedules
+            # 3. Clean up driver schedules
             await session.exec(delete(DriverSchedule).where(DriverSchedule.driver_id == driver.id))
-
+            # 4. Clean up legacy admin driver schedules
+            await session.exec(delete(AdminDriverSchedule).where(AdminDriverSchedule.driver_id == driver.id))
             # 5. Clean up driver daily counters
             await session.exec(delete(DriverDailyCounter).where(DriverDailyCounter.driver_id == driver.id))
             # 6. Clean up driver session metadata
             await session.exec(delete(DriverSessionMetadata).where(DriverSessionMetadata.driver_id == driver.id))
-            # 7. Nullify driver_id in historical waybill jobs (preserving audit trail)
+            # 7. Clean up fuel inquiries
+            await session.exec(delete(FuelInquiry).where(FuelInquiry.driver_id == driver.id))
+            # 8. Clean up waybill attempts belonging to this driver
+            await session.exec(delete(WaybillAttempt).where(WaybillAttempt.driver_id == driver.id))
+            # 9. Clean up domain events referencing this driver
+            await session.exec(delete(DomainEvent).where(DomainEvent.driver_id == driver.id))
+
+            # 10. Nullify driver_id in historical waybill jobs (preserving audit trail)
             jobs = (await session.exec(select(WaybillJob).where(WaybillJob.driver_id == driver.id))).all()
             for j in jobs:
                 j.driver_id = None
-            # 8. Clean up fuel inquiries
-            await session.exec(delete(FuelInquiry).where(FuelInquiry.driver_id == driver.id))
+                session.add(j)
 
-
-            # 10. Nullify driver_id in attempts and domain events
-            attempts = (await session.exec(select(WaybillAttempt).where(WaybillAttempt.driver_id == driver.id))).all()
-            for att in attempts:
-                att.driver_id = None
-                session.add(att)
-            events = (await session.exec(select(DomainEvent).where(DomainEvent.driver_id == driver.id))).all()
-            for ev in events:
-                ev.driver_id = None
-                session.add(ev)
-
-            # 11. Delete the driver
+            # 11. Delete the driver record
             await session.delete(driver)
             await session.commit()
             return True

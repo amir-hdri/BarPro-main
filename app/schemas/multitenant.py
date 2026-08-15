@@ -208,6 +208,7 @@ class DriverCreateRequest(BaseModel):
 class DriverUpdateRequest(BaseModel):
     """Update driver information."""
 
+    driver_national_code: str | None = Field(None, max_length=10, pattern=r"^[0-9۰-۹]+$")
     full_name: str | None = Field(None, max_length=255)
     phone: str | None = Field(None, max_length=20)
     license_number: str | None = Field(None, max_length=50)
@@ -216,7 +217,7 @@ class DriverUpdateRequest(BaseModel):
     status: str | None = Field(None, max_length=20)
     default_payload: dict[str, Any] | None = Field(None)
 
-    @field_validator("utcms_password", "phone", "license_number", mode="before")
+    @field_validator("driver_national_code", "utcms_password", "phone", "license_number", mode="before")
     @classmethod
     def empty_str_to_none(cls, v: Any) -> Any:
         if isinstance(v, str) and not v.strip():

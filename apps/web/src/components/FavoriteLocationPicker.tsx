@@ -48,15 +48,28 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
 
   const fetchFavorites = async () => {
     setLoading(true);
-    const res = await api.get<FavoriteLocation[]>("/api/v1/locations/favorites");
-    if (res.success && res.data) {
-      setFavorites(res.data);
+    try {
+      const res = await api.get<FavoriteLocation[] | { data?: FavoriteLocation[] }>("/api/v1/locations/favorites");
+      if (res.success && res.data) {
+        if (Array.isArray(res.data)) {
+          setFavorites(res.data);
+        } else if (Array.isArray((res.data as { data?: FavoriteLocation[] }).data)) {
+          setFavorites((res.data as { data?: FavoriteLocation[] }).data || []);
+        } else {
+          setFavorites([]);
+        }
+      } else {
+        setFavorites([]);
+      }
+    } catch {
+      setFavorites([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
-    fetchFavorites();
+    void fetchFavorites();
   }, []);
 
   const handleSaveCurrent = async () => {

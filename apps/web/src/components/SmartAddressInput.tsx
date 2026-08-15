@@ -26,22 +26,30 @@ export const SmartAddressInput = memo(function SmartAddressInput({ onParsed }: S
     setParsing(true);
     setMessage(null);
 
-    const res = await api.post<ParsedAddressResult>("/api/v1/locations/parse-address", {
+    const res = await api.post<ParsedAddressResult | { data?: ParsedAddressResult }>("/api/v1/locations/parse-address", {
       address_text: rawText,
     });
 
     setParsing(false);
 
     if (res.success && res.data) {
-      const data = res.data;
-      onParsed(data);
-      if (data.province || data.city) {
-        setMessage(`✅ شناسايی شد: استان ${data.province || "—"} | شهر ${data.city || "—"}`);
+      const data: ParsedAddressResult =
+        "province" in res.data
+          ? (res.data as ParsedAddressResult)
+          : ((res.data as { data?: ParsedAddressResult }).data as ParsedAddressResult) || ({} as ParsedAddressResult);
+
+      if (data && (data.province || data.city || data.address)) {
+        onParsed(data);
+        if (data.province || data.city) {
+          setMessage(`✅ شناسایی شد: استان ${data.province || "—"} | شهر ${data.city || "—"}`);
+        } else {
+          setMessage("⚠️ استان/شهر در متن یافت نشد؛ لطفا به صورت دستی انتخاب کنید.");
+        }
       } else {
-        setMessage("⚠️ استان/شهر در متن یافت نشد؛ لطفا به صورت دستی تایید کنید.");
+        setMessage("⚠️ استان/شهر در متن یافت نشد؛ لطفا به صورت دستی انتخاب کنید.");
       }
     } else {
-      setMessage("خطا در پارس هوشمند آدرس");
+      setMessage("خطا در تفکیک هوشمند آدرس");
     }
   };
 

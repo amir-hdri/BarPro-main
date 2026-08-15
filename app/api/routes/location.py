@@ -43,22 +43,19 @@ class FavoriteLocationCreate(BaseModel):
 @router.get("/provinces")
 async def list_provinces():
     """دریافت لیست کل ۳۱ استان ایران به همراه مرکز و مختصات"""
-    provinces = get_all_provinces()
-    return {"success": True, "data": provinces}
+    return get_all_provinces()
 
 
 @router.get("/cities")
 async def list_cities(province: str = Query(..., description="نام استان")):
     """دریافت لیست شهرهای یک استان مشخص"""
-    cities = get_cities_by_province(province)
-    return {"success": True, "province": province, "data": cities}
+    return get_cities_by_province(province)
 
 
 @router.post("/parse-address")
 async def parse_address_endpoint(request: ParseAddressRequest):
     """پارس هوشمند متون سرهم آدرس به استان، شهر، منطقه و آدرس مجزا"""
-    result = parse_smart_address(request.address_text)
-    return {"success": True, "data": result}
+    return parse_smart_address(request.address_text)
 
 
 @router.get("/reverse-geocode")
@@ -73,23 +70,24 @@ async def reverse_geocode_location(
     return await location_service.reverse_geocode(lat, lng)
 
 
-@router.get("/favorites")
+@router.get("/favorites", response_model=list[LocationFavorite])
 async def list_favorites(
     user_context: dict[str, Any] = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """دریافت لیست آدرس‌های محبوب مشتری"""
     client_id = user_context.get("client_id")
+    if not client_id and isinstance(user_context.get("user"), object) and hasattr(user_context["user"], "id"):
+        client_id = user_context["user"].id
     if not client_id:
-        return {"success": True, "data": []}
+        return []
 
     statement = select(LocationFavorite).where(LocationFavorite.client_id == client_id).order_by(LocationFavorite.title)
     results = await session.exec(statement)
-    favorites = results.all()
-    return {"success": True, "data": favorites}
+    return list(results.all())
 
 
-@router.post("/favorites", status_code=status.HTTP_201_CREATED)
+@router.post("/favorites", response_model=LocationFavorite, status_code=status.HTTP_201_CREATED)
 async def create_favorite(
     payload: FavoriteLocationCreate,
     user_context: dict[str, Any] = Depends(get_current_user_or_admin),
@@ -97,6 +95,8 @@ async def create_favorite(
 ):
     """افزودن مکان منتخب جدید برای مشتری"""
     client_id = user_context.get("client_id")
+    if not client_id and isinstance(user_context.get("user"), object) and hasattr(user_context["user"], "id"):
+        client_id = user_context["user"].id
     if not client_id:
         raise HTTPException(status_code=403, detail="شناسه مشتری نامعتبر است")
 
@@ -115,10 +115,10 @@ async def create_favorite(
     session.add(fav)
     await session.commit()
     await session.refresh(fav)
-    return {"success": True, "data": fav}
+    return fav
 
 
-@router.delete("/favorites/{favorite_id}")
+@router.delete("/favorites/{favorite_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_favorite(
     favorite_id: int,
     user_context: dict[str, Any] = Depends(get_current_user_or_admin),
@@ -126,6 +126,8 @@ async def delete_favorite(
 ):
     """حذف مکان منتخب"""
     client_id = user_context.get("client_id")
+    if not client_id and isinstance(user_context.get("user"), object) and hasattr(user_context["user"], "id"):
+        client_id = user_context["user"].id
     if not client_id:
         raise HTTPException(status_code=403, detail="دسترسی غیرمجاز")
 
@@ -139,4 +141,4 @@ async def delete_favorite(
 
     await session.delete(fav)
     await session.commit()
-    return {"success": True, "message": "مکان منتخب با موفقیت حذف شد"}
+    return None

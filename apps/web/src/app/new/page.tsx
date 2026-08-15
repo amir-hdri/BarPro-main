@@ -188,8 +188,8 @@ export default function NewWaybillPage() {
     }
     setLoadingDrivers(true);
     const [driversRes, platesRes] = await Promise.all([
-      api.get<Driver[]>("/api/v1/drivers"),
-      api.get<Plate[]>("/api/v1/plates"),
+      api.get<Driver[]>("/api/v1/drivers?page_size=1000"),
+      api.get<Plate[]>("/api/v1/plates?page_size=1000"),
     ]);
 
     const driverList = driversRes.success && driversRes.data ? driversRes.data : [];
@@ -253,12 +253,13 @@ export default function NewWaybillPage() {
   const handleQuickAddDriver = async (e: React.FormEvent) => {
     e.preventDefault();
     setQuickAddError(null);
-    if (!quickDriverForm.full_name.trim() || !quickDriverForm.driver_national_code.trim()) {
+    const cleanNatCode = normalizeDigits(quickDriverForm.driver_national_code.trim());
+    if (!quickDriverForm.full_name.trim() || !cleanNatCode) {
       setQuickAddError("نام و کد ملی راننده الزامی است.");
       return;
     }
-    if (!/^\d{10}$/.test(quickDriverForm.driver_national_code)) {
-      setQuickAddError("کد ملی راننده باید ۱۰ رقم باشد.");
+    if (!/^\d{10}$/.test(cleanNatCode)) {
+      setQuickAddError("کد ملی راننده باید دقیقاً ۱۰ رقم باشد.");
       return;
     }
     if (!quickDriverForm.utcms_username.trim() || quickDriverForm.utcms_password.length < 4) {
@@ -268,10 +269,10 @@ export default function NewWaybillPage() {
 
     setQuickAddLoading(true);
     const driverRes = await api.post<Driver>("/api/v1/drivers", {
-      full_name: quickDriverForm.full_name,
-      driver_national_code: quickDriverForm.driver_national_code,
-      utcms_username: quickDriverForm.utcms_username,
-      utcms_password: quickDriverForm.utcms_password,
+      full_name: quickDriverForm.full_name.trim(),
+      driver_national_code: cleanNatCode,
+      utcms_username: quickDriverForm.utcms_username.trim(),
+      utcms_password: quickDriverForm.utcms_password.trim(),
     });
 
     if (!driverRes.success || !driverRes.data) {
@@ -286,7 +287,7 @@ export default function NewWaybillPage() {
     if (quickDriverForm.plate_number.trim()) {
       await api.post<Plate>("/api/v1/plates", {
         driver_id: newDriver.id,
-        plate_number: quickDriverForm.plate_number,
+        plate_number: canonicalizePlate(quickDriverForm.plate_number.trim()),
       });
     }
 
@@ -299,7 +300,7 @@ export default function NewWaybillPage() {
     await loadDriversAndPlates();
     handleChange("driver_national_code", newDriver.driver_national_code);
     if (quickDriverForm.plate_number.trim()) {
-      handleChange("plate_number", quickDriverForm.plate_number);
+      handleChange("plate_number", canonicalizePlate(quickDriverForm.plate_number.trim()));
     }
   };
 
@@ -317,9 +318,14 @@ export default function NewWaybillPage() {
       }
       if (Object.keys(stepErrors).length > 0) {
         setErrors(stepErrors);
+        const firstErrorMessage = Object.values(stepErrors)[0];
+        if (firstErrorMessage) {
+          toast.error(firstErrorMessage);
+        }
         return false;
       }
     }
+    setErrors({});
     return true;
   };
 
@@ -1101,7 +1107,8 @@ export default function NewWaybillPage() {
                    </button>
                  ) : (
                    <button
-                     type="submit"
+                     type="button"
+                     onClick={goNext}
                      className="flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 px-4 py-3 sm:px-7 sm:py-3.5 text-xs sm:text-sm font-black text-slate-950 transition-all shadow-lg shadow-cyan-500/20 active:scale-[0.98] touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500"
                      aria-label="مرحله بعد"
                    >

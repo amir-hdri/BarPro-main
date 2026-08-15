@@ -102,6 +102,7 @@ export interface DriverCreateRequest {
 }
 
 export interface DriverUpdateRequest {
+  driver_national_code?: string;
   full_name?: string;
   phone?: string;
   license_number?: string;

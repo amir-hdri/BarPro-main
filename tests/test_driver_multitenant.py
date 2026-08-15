@@ -254,3 +254,91 @@ def test_list_drivers_with_status_filter(test_client):
     mock_session.exec.assert_called_once()
 
     app.dependency_overrides.clear()
+
+
+def test_update_driver_success(test_client):
+    mock_client = Client(
+        id=1,
+        client_code="tenant-1",
+        name="Tenant 1",
+        email="tenant1@example.com",
+    )
+
+    mock_driver = Driver(
+        id=1,
+        client_id=1,
+        driver_national_code="1234567890",
+        full_name="Old Name",
+        phone="09123456789",
+        utcms_username="olduser",
+        utcms_password_encrypted="encrypted_pwd",
+        status="active",
+    )
+
+    mock_session = MagicMock()
+    mock_session.get = AsyncMock(return_value=mock_driver)
+    mock_session.exec = AsyncMock()
+    mock_session.commit = AsyncMock()
+    mock_session.refresh = AsyncMock()
+
+    app.dependency_overrides[get_current_client] = lambda: mock_client
+    app.dependency_overrides[get_current_user_or_admin] = lambda: {"role": "client", "user": mock_client}
+    app.dependency_overrides[get_session] = lambda: mock_session
+
+    update_payload = {
+        "full_name": "New Name",
+        "phone": "۰۹۱۲۳۴۵۶۷۸۹",
+        "status": "inactive",
+    }
+
+    response = test_client.put("/api/v1/drivers/1", json=update_payload)
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["full_name"] == "New Name"
+    assert data["phone"] == "09123456789"
+    assert data["status"] == "inactive"
+
+    mock_session.commit.assert_called_once()
+    app.dependency_overrides.clear()
+
+
+def test_delete_driver_success(test_client):
+    mock_client = Client(
+        id=1,
+        client_code="tenant-1",
+        name="Tenant 1",
+        email="tenant1@example.com",
+    )
+
+    mock_driver = Driver(
+        id=1,
+        client_id=1,
+        driver_national_code="1234567890",
+        full_name="Driver To Delete",
+        utcms_username="deleteuser",
+        utcms_password_encrypted="pwd",
+        status="active",
+    )
+
+    mock_session = MagicMock()
+    mock_session.get = AsyncMock(return_value=mock_driver)
+    
+    # Mock exec for jobs query
+    mock_jobs_result = MagicMock()
+    mock_jobs_result.all.return_value = []
+    mock_session.exec = AsyncMock(return_value=mock_jobs_result)
+    mock_session.delete = AsyncMock()
+    mock_session.commit = AsyncMock()
+
+    app.dependency_overrides[get_current_client] = lambda: mock_client
+    app.dependency_overrides[get_current_user_or_admin] = lambda: {"role": "client", "user": mock_client}
+    app.dependency_overrides[get_session] = lambda: mock_session
+
+    response = test_client.delete("/api/v1/drivers/1")
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    mock_session.delete.assert_called_once_with(mock_driver)
+    mock_session.commit.assert_called_once()
+
+    app.dependency_overrides.clear()

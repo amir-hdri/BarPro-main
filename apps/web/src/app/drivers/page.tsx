@@ -10,6 +10,7 @@ import { PlateInput } from '@/components/PlateInput';
 import { toast } from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { formatDateTime, statusLabel, statusTone } from '@/lib/format';
+import { normalizeDigits } from '@/lib/plate';
 import { useSession } from "@/hooks/useSession";
 import type {
   Driver,
@@ -60,7 +61,7 @@ export default function DriversPage() {
   const { data: drivers = [], isLoading: driversLoading, refetch: refetchDrivers } = useQuery({
     queryKey: ['drivers'],
     queryFn: async () => {
-      const res = await api.get<Driver[]>('/api/v1/drivers');
+      const res = await api.get<Driver[]>('/api/v1/drivers?page_size=1000');
       if (!res.success || !res.data) throw new Error(res.error || 'لیست رانندگان بارگذاری نشد');
       return res.data;
     },
@@ -72,8 +73,8 @@ export default function DriversPage() {
     if (role !== "client" && role !== "master_admin") return;
 
     const [platesResponse, schedulesResponse] = await Promise.all([
-      api.get<Plate[]>('/api/v1/plates'),
-      api.get<DriverSchedule[]>('/api/v1/driver-schedules'),
+      api.get<Plate[]>('/api/v1/plates?page_size=1000'),
+      api.get<DriverSchedule[]>('/api/v1/driver-schedules?page_size=1000'),
     ]);
 
     setPlates(platesResponse.data || []);
@@ -83,16 +84,25 @@ export default function DriversPage() {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!/^\d{10}$/.test(form.driver_national_code)) {
+    const natCode = normalizeDigits(form.driver_national_code.trim());
+    if (!/^\d{10}$/.test(natCode)) {
       setError('کد ملی راننده باید دقیقاً ۱۰ رقم باشد.');
+      toast.error('کد ملی راننده باید ۱۰ رقم معتبر باشد.');
       return;
     }
     if (!form.utcms_username.trim() || utcmsPasswordRef.current.length < 4) {
-      setError('نام کاربری و رمز UTCMS معتبر وارد کنید.');
+      setError('نام کاربری و رمز UTCMS معتبر (حداقل ۴ کاراکتر) وارد کنید.');
+      toast.error('نام کاربری و رمز عبور UTCMS را به درستی وارد کنید.');
       return;
     }
     setSaving(true);
-    const response = await api.post<Driver>('/api/v1/drivers', { ...form, utcms_password: utcmsPasswordRef.current });
+    const cleanPhone = form.phone ? normalizeDigits(form.phone.trim()) : undefined;
+    const response = await api.post<Driver>('/api/v1/drivers', {
+      ...form,
+      driver_national_code: natCode,
+      phone: cleanPhone,
+      utcms_password: utcmsPasswordRef.current.trim(),
+    });
     setSaving(false);
 
     if (!response.success) {
@@ -115,6 +125,12 @@ export default function DriversPage() {
     }
     setSaving(true);
     const payload = { ...editDriver.payload };
+    if (payload.driver_national_code) {
+      payload.driver_national_code = normalizeDigits(payload.driver_national_code.trim());
+    }
+    if (payload.phone) {
+      payload.phone = normalizeDigits(payload.phone.trim());
+    }
     if (!payload.utcms_password?.trim()) {
       delete payload.utcms_password;
     }
@@ -425,6 +441,7 @@ export default function DriversPage() {
                             setEditDriver({
                               id: driver.id,
                               payload: {
+                                driver_national_code: driver.driver_national_code,
                                 full_name: driver.full_name,
                                 phone: driver.phone || '',
                                 license_number: driver.license_number || '',
@@ -451,24 +468,6 @@ export default function DriversPage() {
               )}
             </div>
           </div>
-
-          {editDriver && (
-            <form onSubmit={handleDriverUpdate} className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-900/50 backdrop-blur-xl p-6 sm:p-8 shadow-2xl text-white">
-              <h2 className="text-xl font-black text-white">ویرایش راننده</h2>
-              <div className="mt-6 grid gap-4 md:grid-cols-3">
-                <Input label="نام" value={editDriver.payload.full_name || ''} onChange={(value) => setEditDriver((current) => current ? { ...current, payload: { ...current.payload, full_name: value } } : current)} required />
-                <Input label="تلفن" value={editDriver.payload.phone || ''} onChange={(value) => setEditDriver((current) => current ? { ...current, payload: { ...current.payload, phone: value } } : current)} />
-                <Input label="گواهینامه" value={editDriver.payload.license_number || ''} onChange={(value) => setEditDriver((current) => current ? { ...current, payload: { ...current.payload, license_number: value } } : current)} />
-                <Input label="کاربر UTCMS" value={editDriver.payload.utcms_username || ''} onChange={(value) => setEditDriver((current) => current ? { ...current, payload: { ...current.payload, utcms_username: value } } : current)} required />
-                <Input label="رمز جدید (اختیاری)" type="password" value={editDriver.payload.utcms_password || ''} onChange={(value) => setEditDriver((current) => current ? { ...current, payload: { ...current.payload, utcms_password: value } } : current)} />
-                <Input label="وضعیت" value={editDriver.payload.status || 'active'} onChange={(value) => setEditDriver((current) => current ? { ...current, payload: { ...current.payload, status: value } } : current)} />
-              </div>
-               <div className="mt-6 flex gap-2">
-                 <button type="submit" disabled={saving} className="rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-3 text-sm font-bold transition disabled:opacity-50 touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500">ذخیره</button>
-                 <button type="button" onClick={() => setEditDriver(null)} className="rounded-xl border border-white/10 bg-slate-950 hover:bg-slate-900 px-6 py-3 text-sm font-bold text-slate-300 transition touch-target focus:outline-none focus:ring-2 focus:ring-white">انصراف</button>
-               </div>
-            </form>
-          )}
 
           <div className={`${activeTab === 'plates_schedules' ? 'block animate-in fade-in duration-300' : 'hidden xl:block'} xl:order-2 xl:col-start-1`}>
             <section className="grid gap-6 xl:grid-cols-1">
@@ -643,6 +642,94 @@ export default function DriversPage() {
 
         </section>
       </AppShell>
+
+      {editDriver && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-label="ویرایش اطلاعات راننده" onClick={() => setEditDriver(null)}>
+          <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-slate-900 p-6 sm:p-8 shadow-2xl text-white my-8 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <h3 className="text-lg font-black text-white flex items-center gap-2">
+                <span>ویرایش اطلاعات راننده</span>
+                <span className="text-xs text-cyan-400 font-mono">#{editDriver.id}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditDriver(null)}
+                className="rounded-lg p-1.5 text-slate-400 hover:text-white hover:bg-white/5 transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleDriverUpdate} className="mt-6 space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input
+                  label="نام و نام خانوادگی"
+                  value={editDriver.payload.full_name || ''}
+                  onChange={(value) => setEditDriver((cur) => cur ? { ...cur, payload: { ...cur.payload, full_name: value } } : cur)}
+                  required
+                />
+                <Input
+                  label="کد ملی (۱۰ رقم)"
+                  value={editDriver.payload.driver_national_code || ''}
+                  onChange={(value) => setEditDriver((cur) => cur ? { ...cur, payload: { ...cur.payload, driver_national_code: normalizeDigits(value) } } : cur)}
+                  required
+                />
+                <Input
+                  label="شماره تلفن همراه"
+                  value={editDriver.payload.phone || ''}
+                  onChange={(value) => setEditDriver((cur) => cur ? { ...cur, payload: { ...cur.payload, phone: normalizeDigits(value) } } : cur)}
+                />
+                <Input
+                  label="شماره گواهینامه"
+                  value={editDriver.payload.license_number || ''}
+                  onChange={(value) => setEditDriver((cur) => cur ? { ...cur, payload: { ...cur.payload, license_number: value } } : cur)}
+                />
+                <Input
+                  label="نام کاربری UTCMS"
+                  value={editDriver.payload.utcms_username || ''}
+                  onChange={(value) => setEditDriver((cur) => cur ? { ...cur, payload: { ...cur.payload, utcms_username: value } } : cur)}
+                  required
+                />
+                <Input
+                  label="رمز عبور جدید UTCMS (اختیاری)"
+                  type="password"
+                  value={editDriver.payload.utcms_password || ''}
+                  onChange={(value) => setEditDriver((cur) => cur ? { ...cur, payload: { ...cur.payload, utcms_password: value } } : cur)}
+                />
+                <div className="sm:col-span-2">
+                  <label className="text-sm font-medium text-slate-200 block mb-2">وضعیت راننده</label>
+                  <select
+                    value={editDriver.payload.status || 'active'}
+                    onChange={(e) => setEditDriver((cur) => cur ? { ...cur, payload: { ...cur.payload, status: e.target.value } } : cur)}
+                    className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3.5 text-sm text-white outline-none transition focus:border-cyan-400"
+                  >
+                    <option value="active">فعال (Active)</option>
+                    <option value="inactive">غیرفعال (Inactive)</option>
+                    <option value="blocked">مسدود (Blocked)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="mt-8 flex justify-end gap-3 border-t border-white/10 pt-6">
+                <button
+                  type="button"
+                  onClick={() => setEditDriver(null)}
+                  className="rounded-xl border border-white/10 bg-slate-950 px-5 py-3 text-sm font-bold text-slate-300 hover:bg-slate-800 transition touch-target focus:outline-none focus:ring-2 focus:ring-white"
+                >
+                  انصراف
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-3 text-sm font-bold transition disabled:opacity-50 touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                >
+                  {saving ? 'در حال ذخیره...' : 'ذخیره تغییرات'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {deleteConfirmId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label="تأیید حذف راننده" onClick={() => setDeleteConfirmId(null)}>
