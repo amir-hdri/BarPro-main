@@ -147,7 +147,7 @@ def main():
     run_command(ssh_central, "docker exec barpro-backend python -m alembic -c alembic.ini current")
 
     # -------------------------------------------------------------------------
-    # Step 2: Worker Node 2 Deployment
+    # Step 2: Worker Node 2 Deployment (Fast Inter-Node Image Stream)
     # -------------------------------------------------------------------------
     w2 = NODES[1]
     print(f"\n\n[{w2['name']} ({w2['ip']})] Starting Deployment...")
@@ -160,14 +160,15 @@ def main():
     render_w2_cmd = """cd /opt/barpro && set -a && source <(grep -vF '$' .env) && set +a && sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" -e "s/__CENTRAL_IP__/${CENTRAL_IP:-127.0.0.1}/g" infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf"""
     run_command(ssh_w2, f"bash -c '{render_w2_cmd}'")
 
-    print("\n--- 2.3 Build Worker Image on Worker 2 ---")
-    run_command(ssh_w2, "cd /opt/barpro && docker build --network=host -t ghcr.io/amir-hdri/barpro-main/barpro-backend:latest -f Dockerfile .", timeout=900)
+    print("\n--- 2.3 Stream Built Backend Image from Central to Worker 2 ---")
+    sync_w2_cmd = f"docker save barpro_backend:latest | ssh -o StrictHostKeyChecking=no root@{w2['ip']} 'docker load && docker tag barpro_backend:latest ghcr.io/amir-hdri/barpro-main/barpro-backend:latest'"
+    run_command(ssh_central, sync_w2_cmd, timeout=600)
 
     print("\n--- 2.4 Restart Worker 2 Services ---")
     run_command(ssh_w2, "cd /opt/barpro && docker compose --env-file .env -f compose/worker-node.yml up -d --force-recreate")
 
     # -------------------------------------------------------------------------
-    # Step 3: Worker Node 3 Deployment
+    # Step 3: Worker Node 3 Deployment (Fast Inter-Node Image Stream)
     # -------------------------------------------------------------------------
     w3 = NODES[2]
     print(f"\n\n[{w3['name']} ({w3['ip']})] Starting Deployment...")
@@ -180,8 +181,9 @@ def main():
     render_w3_cmd = """cd /opt/barpro && set -a && source <(grep -vF '$' .env) && set +a && sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" -e "s/__CENTRAL_IP__/${CENTRAL_IP:-127.0.0.1}/g" infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf"""
     run_command(ssh_w3, f"bash -c '{render_w3_cmd}'")
 
-    print("\n--- 3.3 Build Worker Image on Worker 3 ---")
-    run_command(ssh_w3, "cd /opt/barpro && docker build --network=host -t ghcr.io/amir-hdri/barpro-main/barpro-backend:latest -f Dockerfile .", timeout=900)
+    print("\n--- 3.3 Stream Built Backend Image from Central to Worker 3 ---")
+    sync_w3_cmd = f"docker save barpro_backend:latest | ssh -o StrictHostKeyChecking=no root@{w3['ip']} 'docker load && docker tag barpro_backend:latest ghcr.io/amir-hdri/barpro-main/barpro-backend:latest'"
+    run_command(ssh_central, sync_w3_cmd, timeout=600)
 
     print("\n--- 3.4 Restart Worker 3 Services ---")
     run_command(ssh_w3, "cd /opt/barpro && docker compose --env-file .env -f compose/worker-node.yml up -d --force-recreate")
