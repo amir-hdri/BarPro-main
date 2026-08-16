@@ -2,8 +2,9 @@
 Reconciliation Service for reconciling orphan and ambiguous waybill jobs.
 """
 
+import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,11 +12,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.automation.browser import BrowserManager
 from app.core.error_taxonomy import ErrorCategory
 from app.models_multitenant import Driver, WaybillJob
+from app.monitoring.metrics import track_reconciliation_outcome
 from app.orchestrator.alert_manager import admin_alert_service
 from app.orchestrator.state_machine import JobStateMachine, JobStatus
 from app.orchestrator.utcms_reconciliation_scraper import ScraperOutcome, reconciliation_scraper
 
 logger = logging.getLogger(__name__)
+
+# Eventual consistency retry delays in seconds: 15s, 45s, 2m, 5m
+RECONCILIATION_SCHEDULE = [15, 45, 120, 300]
 
 
 class ReconciliationService:
@@ -29,7 +34,7 @@ class ReconciliationService:
     ) -> WaybillJob | None:
         """
         Reconcile a single WaybillJob with UTCMS.
-        Transitions status from unknown -> reconciling -> success/failed/needs_review.
+        Transitions status from unknown -> reconciling -> success/needs_review.
         """
         stmt = select(WaybillJob).where(WaybillJob.id == job_id).with_for_update(skip_locked=True)
         job = (await session.execute(stmt)).scalar_one_or_none()
@@ -57,7 +62,6 @@ class ReconciliationService:
         outcome = ScraperOutcome.AMBIGUOUS
         res_json = job.result_json
         if isinstance(res_json, str):
-            import json
             try:
                 res_json = json.loads(res_json)
             except Exception:
@@ -74,9 +78,7 @@ class ReconciliationService:
             if driver_obj:
                 utcms_username = driver_obj.utcms_username
 
-        # Canonical extractor: nested + flat payload layouts; national code
-        # falls back to the Driver row so reconciliation never runs blind
-        # when the payload omits it.
+        # Extract reconciliation identity
         from app.core.submission_identity import extract_reconciliation_identity
 
         identity = extract_reconciliation_identity(job.payload_json, driver=driver_obj)
@@ -100,8 +102,6 @@ class ReconciliationService:
 
         bm = browser_manager or BrowserManager()
         session_id = None
-        context = None
-        page = None
         try:
             session_id, context = await bm.create_context(auth_state_path=auth_state_path, proxy_dict=proxy_dict)
             page = await bm.new_page(context)
@@ -129,8 +129,23 @@ class ReconciliationService:
                 except Exception as close_exc:
                     logger.warning("Failed closing context in reconciliation of job #%s: %s", job_id, close_exc)
 
+        track_reconciliation_outcome(outcome.value)
+
         # Handle Reconciliation Results via JobStateMachine
         try:
+            # Metadata tracking for eventual consistency retries
+            payload_meta = job.payload_json
+            if isinstance(payload_meta, str):
+                try:
+                    payload_meta = json.loads(payload_meta)
+                except Exception:
+                    payload_meta = {}
+            else:
+                payload_meta = dict(payload_meta or {})
+
+            recon_attempts = int(payload_meta.get("reconciliation_attempts", 0)) + 1
+            payload_meta["reconciliation_attempts"] = recon_attempts
+
             if outcome == ScraperOutcome.REGISTERED:
                 found_code = (
                     (res.tracking_code if hasattr(res, "tracking_code") else None)
@@ -138,7 +153,7 @@ class ReconciliationService:
                     or tracking_code
                 )
                 if not found_code:
-                    # Without a verifiable tracking code, success is unreliable — downgrade to ambiguous
+                    # Without a verifiable tracking code, success is unreliable — downgrade to needs_review
                     JobStateMachine.transition(
                         session,
                         job,
@@ -150,7 +165,6 @@ class ReconciliationService:
                 else:
                     res_json = job.result_json
                     if isinstance(res_json, str):
-                        import json
                         try:
                             res_json = json.loads(res_json)
                         except Exception:
@@ -162,6 +176,8 @@ class ReconciliationService:
                         result_json_val = json.dumps(res_json, ensure_ascii=False)
                     else:
                         result_json_val = res_json
+
+                    # Three witnesses confirmed: RPA code + DB persistence + UTCMS History record
                     job.reconciled_at = datetime.now(UTC).replace(tzinfo=None)
                     job.mutation_status = "confirmed"
                     if res.document_id:
@@ -177,15 +193,38 @@ class ReconciliationService:
                     logger.info("Job #%s reconciled to SUCCESS with tracking code %s", job.id, found_code)
 
             elif outcome == ScraperOutcome.NOT_FOUND:
-                JobStateMachine.transition(
-                    session,
-                    job,
-                    JobStatus.FAILED,
-                    error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
-                    last_error="Waybill not registered on UTCMS during reconciliation scan",
-                    finished_at=datetime.now(UTC).replace(tzinfo=None),
-                )
-                logger.info("Job #%s reconciled to FAILED (Not Registered)", job.id)
+                # Eventual Consistency: Indexing delay. Try up to 4 times (15s, 45s, 2m, 5m).
+                if recon_attempts <= len(RECONCILIATION_SCHEDULE):
+                    delay = RECONCILIATION_SCHEDULE[recon_attempts - 1]
+                    next_retry = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=delay)
+                    job.next_retry_at = next_retry
+                    job.mutation_status = "intent_recorded"
+                    if isinstance(job.payload_json, str):
+                        job.payload_json = json.dumps(payload_meta, ensure_ascii=False)
+                    else:
+                        job.payload_json = payload_meta
+                    logger.info(
+                        "Job #%s not yet visible in UTCMS History (attempt %s/%s). Retrying in %ss",
+                        job.id,
+                        recon_attempts,
+                        len(RECONCILIATION_SCHEDULE),
+                        delay,
+                    )
+                else:
+                    # Reconciliation window expired without confirmation -> Move to NEEDS_REVIEW (NEVER auto-resubmit!)
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        JobStatus.NEEDS_REVIEW,
+                        error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                        last_error="Waybill unconfirmed in UTCMS History after full eventual consistency window (5m); requires manual review",
+                        finished_at=datetime.now(UTC).replace(tzinfo=None),
+                    )
+                    logger.warning(
+                        "Job #%s reconciled to NEEDS_REVIEW after %s failed attempts. Resubmission blocked.",
+                        job.id,
+                        recon_attempts,
+                    )
 
             else:  # AMBIGUOUS
                 JobStateMachine.transition(
@@ -195,16 +234,6 @@ class ReconciliationService:
                     error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
                     last_error="Reconciliation result ambiguous; marked for manual review",
                 )
-                # Increment consecutive unknown counter in payload_json metadata
-                payload_meta = job.payload_json
-                if isinstance(payload_meta, str):
-                    import json
-                    try:
-                        payload_meta = json.loads(payload_meta)
-                    except Exception:
-                        payload_meta = {}
-                else:
-                    payload_meta = dict(payload_meta or {})
                 consecutive_unknowns = payload_meta.get("consecutive_unknowns", 0) + 1
                 payload_meta["consecutive_unknowns"] = consecutive_unknowns
                 if isinstance(job.payload_json, str):
@@ -235,10 +264,14 @@ class ReconciliationService:
         session: AsyncSession,
         browser_manager: BrowserManager | None = None,
     ) -> dict[str, int]:
-        """Scan and reconcile all UNKNOWN / RECONCILING jobs."""
+        """Scan and reconcile all UNKNOWN / RECONCILING jobs whose next_retry_at is due."""
+        now_utc = datetime.now(UTC).replace(tzinfo=None)
         stmt = (
             select(WaybillJob.id)
-            .where(WaybillJob.status.in_([JobStatus.UNKNOWN, JobStatus.RECONCILING]))
+            .where(
+                WaybillJob.status.in_([JobStatus.UNKNOWN, JobStatus.RECONCILING]),
+                (WaybillJob.next_retry_at == None) | (WaybillJob.next_retry_at <= now_utc),  # noqa: E711
+            )
             .with_for_update(skip_locked=True)
         )
         job_ids = (await session.execute(stmt)).scalars().all()

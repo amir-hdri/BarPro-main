@@ -1,0 +1,368 @@
+{
+  "version": "2.0.0",
+  "portal_url": "https://barname.utcms.ir/barname/Document/HagigiHogugi",
+  "route_mode": "user_text",
+  "forms": [
+    {
+      "form_id": "frmSender",
+      "persian_title": "فرستنده",
+      "fields": [
+        {
+          "name_fa": "نوع فرستنده",
+          "id": "senderSelectType",
+          "name": "senderSelectType",
+          "control_type": "select",
+          "required": true,
+          "options": [
+            {"value": "1", "text": "حقیقی"},
+            {"value": "2", "text": "حقوقی"}
+          ],
+          "selector_primary": "#senderSelectType",
+          "selector_fallback": "select[name='senderSelectType']",
+          "readback_property": "value_and_text"
+        },
+        {
+          "name_fa": "نام شرکت فرستنده",
+          "id": "txtSenderOfficeName",
+          "name": "txtSenderOfficeName",
+          "control_type": "text",
+          "required": false,
+          "conditional_required": "senderSelectType == 2",
+          "maxlength": 50,
+          "selector_primary": "#txtSenderOfficeName",
+          "selector_fallback": "input[name='txtSenderOfficeName']",
+          "readback_property": "value"
+        },
+        {
+          "name_fa": "نام فرستنده",
+          "id": "txtSenderFirstName",
+          "name": "txtSenderFirstName",
+          "control_type": "text",
+          "required": false,
+          "conditional_required": "senderSelectType == 1",
+          "maxlength": 20,
+          "selector_primary": "#txtSenderFirstName",
+          "selector_fallback": "input[name='txtSenderFirstName']",
+          "readback_property": "value"
+        },
+        {
+          "name_fa": "نام خانوادگی فرستنده",
+          "id": "txtSenderLastName",
+          "name": "txtSenderLastName",
+          "control_type": "text",
+          "required": false,
+          "conditional_required": "senderSelectType == 1",
+          "maxlength": 50,
+          "selector_primary": "#txtSenderLastName",
+          "selector_fallback": "input[name='txtSenderLastName']",
+          "readback_property": "value"
+        },
+        {
+          "name_fa": "موبایل فرستنده",
+          "id": "txtSenderMobile",
+          "name": "txtSenderMobile",
+          "control_type": "text",
+          "required": false,
+          "maxlength": 11,
+          "selector_primary": "#txtSenderMobile",
+          "selector_fallback": "input[name='txtSenderMobile']",
+          "readback_property": "value"
+        },
+        {
+          "name_fa": "کد ملی فرستنده",
+          "id": "txtSenderNationalCode",
+          "name": "txtSenderNationalCode",
+          "control_type": "text",
+          "required": false,
+          "maxlength": 11,
+          "selector_primary": "#txtSenderNationalCode",
+          "selector_fallback": "input[name='txtSenderNationalCode']",
+          "readback_property": "value"
+        }
+      ]
+    },
+    {
+      "form_id": "frmReciver",
+      "persian_title": "گیرنده",
+      "fields": [
+        {
+          "name_fa": "نوع گیرنده",
+          "id": "receiverSelectType",
+          "name": "receiverSelectType",
+          "control_type": "select",
+          "required": true,
+          "options": [
+            {"value": "1", "text": "حقیقی"},
+            {"value": "2", "text": "حقوقی"}
+          ],
+          "selector_primary": "#receiverSelectType",
+          "selector_fallback": "select[name='receiverSelectType']",
+          "readback_property": "value_and_text"
+        },
+        {
+          "name_fa": "نام شرکت گیرنده",
+          "id": "txtReceiverOfficeName",
+          "name": "txtReceiverOfficeName",
+          "control_type": "text",
+          "required": false,
+          "conditional_required": "receiverSelectType == 2",
+          "maxlength": 50,
+          "selector_primary": "#txtReceiverOfficeName",
+          "selector_fallback": "input[name='txtReceiverOfficeName']",
+          "readback_property": "value"
+        },
+        {
+          "name_fa": "نام گیرنده",
+          "id": "txtReceiverFirstName",
+          "name": "txtReceiverFirstName",
+          "control_type": "text",
+          "required": false,
+          "conditional_required": "receiverSelectType == 1",
+          "maxlength": 50,
+          "selector_primary": "#txtReceiverFirstName",
+          "selector_fallback": "input[name='txtReceiverFirstName']",
+          "readback_property": "value"
+        },
+        {
+          "name_fa": "نام خانوادگی گیرنده",
+          "id": "txtReceiverLastName",
+          "name": "txtReceiverLastName",
+          "control_type": "text",
+          "required": false,
+          "conditional_required": "receiverSelectType == 1",
+          "maxlength": 50,
+          "selector_primary": "#txtReceiverLastName",
+          "selector_fallback": "input[name='txtReceiverLastName']",
+          "readback_property": "value"
+        }
+      ]
+    },
+    {
+      "form_id": "pelakbox",
+      "persian_title": "پلاک خودرو",
+      "fields": [
+        {
+          "name_fa": "ایران (۲ رقم راست)",
+          "id": "pelakIrNum",
+          "name": "pelakIrNum",
+          "control_type": "text",
+          "required": true,
+          "maxlength": 2,
+          "minlength": 2,
+          "selector_primary": "#pelakIrNum",
+          "selector_fallback": "input[name='pelakIrNum']",
+          "readback_property": "value"
+        },
+        {
+          "name_fa": "۳ رقم وسط",
+          "id": "pelakCenter",
+          "name": "pelakCenter",
+          "control_type": "text",
+          "required": true,
+          "maxlength": 3,
+          "minlength": 3,
+          "selector_primary": "#pelakCenter",
+          "selector_fallback": "input[name='pelakCenter']",
+          "readback_property": "value"
+        },
+        {
+          "name_fa": "حرف میانی",
+          "id": "pelakCombo",
+          "name": "pelakCombo",
+          "control_type": "select",
+          "required": true,
+          "selector_primary": "#pelakCombo",
+          "selector_fallback": "select[name='pelakCombo']",
+          "readback_property": "value_and_text"
+        },
+        {
+          "name_fa": "۲ رقم چپ",
+          "id": "pelakFirst",
+          "name": "pelakFirst",
+          "control_type": "text",
+          "required": true,
+          "maxlength": 2,
+          "minlength": 2,
+          "selector_primary": "#pelakFirst",
+          "selector_fallback": "input[name='pelakFirst']",
+          "readback_property": "value"
+        }
+      ]
+    },
+    {
+      "form_id": "frmBar",
+      "persian_title": "ارزش بار",
+      "fields": [
+        {
+          "name_fa": "ارزش تقریبی بار",
+          "id": "txtLoadsValue",
+          "name": "txtLoadsValue",
+          "control_type": "text",
+          "required": true,
+          "maxlength": 200,
+          "selector_primary": "#txtLoadsValue",
+          "selector_fallback": "input[name='txtLoadsValue']",
+          "readback_property": "value"
+        }
+      ]
+    },
+    {
+      "form_id": "frmmabda",
+      "persian_title": "مبدأ بارنامه",
+      "fields": [
+        {
+          "name_fa": "استان مبدأ",
+          "id": "ddStateSource",
+          "name": "ddStateSource",
+          "control_type": "select",
+          "required": true,
+          "selector_primary": "#ddStateSource",
+          "selector_fallback": "select[name='ddStateSource']",
+          "readback_property": "value_and_text"
+        },
+        {
+          "name_fa": "شهر مبدأ",
+          "id": "ddCitySource",
+          "name": "ddCitySource",
+          "control_type": "select",
+          "required": true,
+          "selector_primary": "#ddCitySource",
+          "selector_fallback": "select[name='ddCitySource']",
+          "readback_property": "value_and_text"
+        },
+        {
+          "name_fa": "آدرس مبدأ",
+          "id": "txtAddressSource",
+          "name": "txtAddressSource",
+          "control_type": "textarea",
+          "required": true,
+          "maxlength": 250,
+          "selector_primary": "#txtAddressSource",
+          "selector_fallback": "textarea[name='txtAddressSource']",
+          "readback_property": "value"
+        }
+      ]
+    },
+    {
+      "form_id": "formmagsad",
+      "persian_title": "مقصد بارنامه",
+      "fields": [
+        {
+          "name_fa": "استان مقصد",
+          "id": "ddStateDest",
+          "name": "ddStateDest",
+          "control_type": "select",
+          "required": true,
+          "selector_primary": "#ddStateDest",
+          "selector_fallback": "select[name='ddStateDest']",
+          "readback_property": "value_and_text"
+        },
+        {
+          "name_fa": "شهر مقصد",
+          "id": "ddCityDest",
+          "name": "ddCityDest",
+          "control_type": "select",
+          "required": true,
+          "selector_primary": "#ddCityDest",
+          "selector_fallback": "select[name='ddCityDest']",
+          "readback_property": "value_and_text"
+        },
+        {
+          "name_fa": "آدرس مقصد",
+          "id": "txtAddressDest",
+          "name": "txtAddressDest",
+          "control_type": "textarea",
+          "required": true,
+          "maxlength": 250,
+          "selector_primary": "#txtAddressDest",
+          "selector_fallback": "textarea[name='txtAddressDest']",
+          "readback_property": "value"
+        }
+      ]
+    },
+    {
+      "form_id": "frmkeraye",
+      "persian_title": "کرایه و زمان",
+      "fields": [
+        {
+          "name_fa": "ساعت شروع حمل",
+          "id": "loadingTime",
+          "name": "loadingTime",
+          "control_type": "text",
+          "required": true,
+          "selector_primary": "#loadingTime",
+          "selector_fallback": "input[name='loadingTime']",
+          "readback_property": "value"
+        }
+      ]
+    },
+    {
+      "form_id": "frmcommodityInsert",
+      "persian_title": "کالا و بسته‌بندی",
+      "fields": [
+        {
+          "name_fa": "نام کالا",
+          "id": "txtLoadName",
+          "name": "txtLoadName",
+          "control_type": "text",
+          "required": true,
+          "selector_primary": "#txtLoadName",
+          "selector_fallback": "input[name='txtLoadName']",
+          "readback_property": "value"
+        },
+        {
+          "name_fa": "وزن کالا",
+          "id": "txtWeight",
+          "name": "txtWeight",
+          "control_type": "text",
+          "required": true,
+          "selector_primary": "#txtWeight",
+          "selector_fallback": "input[name='txtWeight']",
+          "readback_property": "value"
+        },
+        {
+          "name_fa": "نوع بسته‌بندی",
+          "id": "ddBoxType",
+          "name": "ddBoxType",
+          "control_type": "select",
+          "required": true,
+          "options": [
+            {"value": "8", "text": "کارتن"},
+            {"value": "9", "text": "جعبه"},
+            {"value": "10", "text": "کیسه"},
+            {"value": "11", "text": "گونی"},
+            {"value": "12", "text": "جامبو"},
+            {"value": "18072", "text": "بشکه"},
+            {"value": "18073", "text": "رول"},
+            {"value": "18074", "text": "فله"},
+            {"value": "18075", "text": "عدل"},
+            {"value": "18076", "text": "شاخه"},
+            {"value": "18077", "text": "سایر"}
+          ],
+          "selector_primary": "#ddBoxType",
+          "selector_fallback": "select[name='ddBoxType']",
+          "readback_property": "value_and_text"
+        }
+      ]
+    },
+    {
+      "form_id": "FormSendOtpCode",
+      "persian_title": "مودال OTP",
+      "fields": [
+        {
+          "name_fa": "کد OTP",
+          "id": "otp",
+          "name": "otp",
+          "control_type": "text",
+          "required": false,
+          "conditional_required": "is_otp_modal_visible",
+          "maxlength": 6,
+          "minlength": 6,
+          "selector_primary": "#otp",
+          "selector_fallback": "input[name='otp']",
+          "readback_property": "value"
+        }
+      ]
+    }
+  ]
+}

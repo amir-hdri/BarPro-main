@@ -929,16 +929,14 @@ def classify_submit_response(status_code: int, body: str) -> SubmitClassificatio
 def build_job_idempotency_key(
     client_id: int, driver_id: int, payload: dict[str, Any], supplied: str | None = None
 ) -> str:
-    if supplied and supplied.strip():
-        candidate = supplied.strip()
-        scoped = f"tenant:{client_id}:{candidate}"
-        if len(scoped) <= 100:
-            return scoped
-        return hashlib.sha256(scoped.encode()).hexdigest()
-    stable_json = json.dumps(
-        {"client_id": client_id, "driver_id": driver_id, "payload": payload}, ensure_ascii=False, sort_keys=True
+    from app.core.submission_identity import compute_canonical_job_idempotency_key
+
+    return compute_canonical_job_idempotency_key(
+        client_id=client_id,
+        driver_id=driver_id,
+        payload=payload,
+        supplied_key=supplied,
     )
-    return hashlib.sha256(stable_json.encode()).hexdigest()
 
 
 def _map_attempt_result(outcome: SubmitOutcome) -> str:

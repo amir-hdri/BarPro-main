@@ -226,6 +226,23 @@ def set_healthy_proxy_count(count: int) -> None:
     HEALTHY_PROXY_COUNT.set(max(0, int(count)))
 
 
+def set_gate_state_metric(state: str) -> None:
+    for s in ("otp_free", "otp_required", "unknown", "degraded"):
+        UTCMS_GATE_STATE.labels(state=s).set(1.0 if s == (state or "").lower() else 0.0)
+
+
+def track_otp_detected() -> None:
+    UTCMS_OTP_DETECTED_TOTAL.inc()
+
+
+def set_jobs_waiting_submission_window(count: int) -> None:
+    UTCMS_JOBS_WAITING_SUBMISSION_WINDOW.set(max(0, int(count)))
+
+
+def track_reconciliation_outcome(outcome: str) -> None:
+    UTCMS_RECONCILIATION_TOTAL.labels(outcome=outcome or "unknown").inc()
+
+
 def track_captcha_attempt(strategy: str, phase: str = "unknown", attempt: int | None = None) -> None:
     global _CAPTCHA_RUNTIME_ATTEMPTS_TOTAL
     normalized_strategy = strategy or "unknown"

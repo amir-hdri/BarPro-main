@@ -99,7 +99,7 @@ async def test_reconcile_job_registered(async_db: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_job_not_found(async_db: AsyncSession):
+async def test_reconcile_job_not_found_eventual_consistency(async_db: AsyncSession):
     job = WaybillJob(
         job_id="test_job_2",
         idempotency_key="idemp_job_2",
@@ -128,12 +128,49 @@ async def test_reconcile_job_not_found(async_db: AsyncSession):
         mock_query.return_value = mock_res
 
         rec_service = ReconciliationService()
+        # Attempt 1: Should remain in RECONCILING with next_retry_at set
         reconciled_job = await rec_service.reconcile_job(session=async_db, job_id=job.id, browser_manager=mock_bm)
 
         assert reconciled_job is not None
-        assert reconciled_job.status == JobStatus.FAILED
+        assert reconciled_job.status == JobStatus.RECONCILING
+        assert reconciled_job.next_retry_at is not None
+        assert reconciled_job.mutation_status == "intent_recorded"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_not_found_exhausted_moves_to_needs_review(async_db: AsyncSession):
+    job = WaybillJob(
+        job_id="test_job_2_exhausted",
+        idempotency_key="idemp_job_2_ex",
+        client_id=1,
+        driver_id=1,
+        payload_json={"origin_city_id": 1, "destination_city_id": 2, "reconciliation_attempts": 4},
+        status=JobStatus.RECONCILING,
+    )
+    async_db.add(job)
+    await async_db.commit()
+    await async_db.refresh(job)
+
+    mock_bm = MagicMock()
+    mock_context = AsyncMock()
+    mock_page = AsyncMock()
+    mock_bm.create_context = AsyncMock(return_value=("session-123", mock_context))
+    mock_bm.new_page = AsyncMock(return_value=mock_page)
+
+    mock_res = ReconciliationResult(outcome=ScraperOutcome.NOT_FOUND)
+
+    with patch(
+        "app.orchestrator.reconciliation_service.reconciliation_scraper.query_waybill_status", new_callable=AsyncMock
+    ) as mock_query:
+        mock_query.return_value = mock_res
+
+        rec_service = ReconciliationService()
+        # Attempt 5: Exhausted -> Should move to NEEDS_REVIEW
+        reconciled_job = await rec_service.reconcile_job(session=async_db, job_id=job.id, browser_manager=mock_bm)
+
+        assert reconciled_job is not None
+        assert reconciled_job.status == JobStatus.NEEDS_REVIEW
         assert reconciled_job.error_category == ErrorCategory.SUBMISSION_UNCONFIRMED.value
-        assert "not registered" in (reconciled_job.last_error or "").lower()
 
 
 @pytest.mark.asyncio

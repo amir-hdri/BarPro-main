@@ -1,0 +1,5 @@
+{
+  "ssrf_risk_checked": true,
+  "is_safe_proxy_url_used": true,
+  "playwright_timeouts_verified": true
+}

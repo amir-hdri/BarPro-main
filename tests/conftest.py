@@ -93,3 +93,13 @@ def admin_token():
         email="admin@barpro.ir",
         role="master_admin",
     )
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Cleanly shutdown OpenTelemetry tracing and background workers on test session end."""
+    try:
+        from app.core.tracing import shutdown_tracing
+
+        shutdown_tracing()
+    except Exception:
+        pass

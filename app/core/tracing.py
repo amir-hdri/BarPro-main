@@ -1,6 +1,7 @@
 """OpenTelemetry tracing configuration for UTCMS automation."""
 
 import logging
+import os
 from contextlib import contextmanager
 
 from opentelemetry import trace
@@ -41,8 +42,8 @@ def setup_tracing(service_name: str = "utcms-automation") -> None:
         _tracer_provider.add_span_processor(span_processor)
         logger.info("otlp_tracing_enabled", extra={"extra_fields": {"endpoint": otlp_endpoint}})
 
-    # Add console exporter in development
-    if utcms_config.LOG_LEVEL == "DEBUG":
+    # Add console exporter in development (skip in test environment to avoid closed stdout flush)
+    if utcms_config.LOG_LEVEL == "DEBUG" and os.getenv("ENVIRONMENT") != "test":
         console_exporter = ConsoleSpanExporter()
         console_processor = BatchSpanProcessor(console_exporter)
         _tracer_provider.add_span_processor(console_processor)
@@ -94,7 +95,11 @@ def get_current_span() -> Span | None:
 
 def shutdown_tracing() -> None:
     """Shutdown tracing and flush pending spans."""
-    global _tracer_provider
-    if _tracer_provider:
-        _tracer_provider.shutdown()
+    global _tracer_provider, _tracer
+    if _tracer_provider is not None:
+        try:
+            _tracer_provider.shutdown()
+        except Exception as exc:
+            logger.debug("opentelemetry_shutdown_exception", extra={"extra_fields": {"error": str(exc)}})
         _tracer_provider = None
+        _tracer = None

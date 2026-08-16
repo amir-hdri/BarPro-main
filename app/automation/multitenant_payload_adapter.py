@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import hashlib
+import re
+
 PLACEHOLDER_VALUES = {":x:", ":x", "x", "X", "", "-", "null", "None", "none"}
 
 
@@ -31,6 +34,41 @@ def _first_value(*values: Any) -> Any:
     return None
 
 
+def _normalize_canonical_text(value: Any) -> str:
+    """Normalize Persian text for canonical route key comparisons."""
+    if not value:
+        return ""
+    text = str(value).strip().lower()
+    text = text.replace("ي", "ی").replace("ك", "ک").replace("‌", " ").replace("\u200c", " ")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def compute_canonical_route_key(origin: dict[str, Any], destination: dict[str, Any]) -> str:
+    """
+    Compute a deterministic canonical route key based exclusively on user text fields:
+    province + city + district + address.
+
+    GPS and coordinates are strictly excluded from the route identity.
+    Two routes with different addresses have different route keys even if province and city match.
+    """
+    origin_province = _normalize_canonical_text(origin.get("province"))
+    origin_city = _normalize_canonical_text(origin.get("city"))
+    origin_district = _normalize_canonical_text(origin.get("district"))
+    origin_address = _normalize_canonical_text(origin.get("address"))
+
+    dest_province = _normalize_canonical_text(destination.get("province"))
+    dest_city = _normalize_canonical_text(destination.get("city"))
+    dest_district = _normalize_canonical_text(destination.get("district"))
+    dest_address = _normalize_canonical_text(destination.get("address"))
+
+    canonical_origin = f"{origin_province}|{origin_city}|{origin_district}|{origin_address}"
+    canonical_dest = f"{dest_province}|{dest_city}|{dest_district}|{dest_address}"
+    full_canonical = f"{canonical_origin}-->{canonical_dest}"
+
+    digest = hashlib.sha256(full_canonical.encode("utf-8")).hexdigest()[:20]
+    return f"route-{digest}"
+
+
 def _location_parts(raw_text: Any, section: dict[str, Any], metadata: dict[str, Any]) -> tuple[str, str, str]:
     """Resolve compact ``province، city، address`` data without inventing values."""
     province = _first_value(section.get("province"), metadata.get("province"))
@@ -47,11 +85,35 @@ def _location_parts(raw_text: Any, section: dict[str, Any], metadata: dict[str, 
     return str(province or ""), str(city or ""), str(address or "")
 
 
+def _validate_iranian_national_code(code: str) -> bool:
+    """Validate Iranian 10-digit national code checksum."""
+    clean_code = re.sub(r"\D", "", str(code or "")).strip()
+    if len(clean_code) != 10:
+        return False
+    if clean_code in {
+        "0000000000",
+        "1111111111",
+        "2222222222",
+        "3333333333",
+        "4444444444",
+        "5555555555",
+        "6666666666",
+        "7777777777",
+        "8888888888",
+        "9999999999",
+    }:
+        return False
+    checksum = sum(int(clean_code[i]) * (10 - i) for i in range(9))
+    remainder = checksum % 11
+    control = int(clean_code[9])
+    return control == remainder if remainder < 2 else control == (11 - remainder)
+
+
 def validate_enhanced_waybill_payload(payload: dict[str, Any]) -> list[str]:
     """Return missing/invalid fields that block a real UTCMS submission.
 
     This mirrors the live HagigiHogugi form instead of the older API schema.
-    Optional contact identifiers are deliberately not required.
+    Optional contact identifiers are deliberately not required, but if present must be valid.
     """
     errors: list[str] = []
     for party_key, label in (("sender", "فرستنده"), ("receiver", "گیرنده")):
@@ -61,14 +123,31 @@ def validate_enhanced_waybill_payload(payload: dict[str, Any]) -> list[str]:
             continue
         entity_type = str(party.get("entity_type") or party.get("type") or "individual").strip().lower()
         if entity_type in {"company", "legal", "2", "حقوقی"}:
-            if not str(party.get("office_name") or party.get("name") or "").strip():
+            office_name = str(party.get("office_name") or party.get("name") or "").strip()
+            if not office_name or office_name in PLACEHOLDER_VALUES or len(office_name) < 2:
                 errors.append(f"نام حقوقی {label}")
         else:
             first_name = str(party.get("first_name") or "").strip()
             last_name = str(party.get("last_name") or "").strip()
             full_name = str(party.get("name") or "").strip()
-            if not (first_name and last_name) and len(full_name.split()) < 2:
-                errors.append(f"نام و نام خانوادگی {label}")
+
+            if first_name and last_name:
+                if first_name.lower() == last_name.lower() and len(first_name) <= 3:
+                    errors.append(f"نام و نام خانوادگی {label} نمی‌تواند کلمات تکراری یکسان باشد")
+            else:
+                parts = [p for p in full_name.split() if p]
+                if len(parts) < 2:
+                    errors.append(f"نام و نام خانوادگی {label}")
+                elif len(parts) == 2 and parts[0].lower() == parts[1].lower():
+                    errors.append(f"نام و نام خانوادگی {label} نمی‌تواند کلمات تکراری یکسان باشد")
+
+            if full_name and len(full_name) < 3:
+                errors.append(f"طول نام {label} بسیار کوتاه است")
+
+        nat_code = _clean_optional(party.get("national_code"))
+        if nat_code:
+            if not _validate_iranian_national_code(nat_code):
+                errors.append(f"کد ملی {label} نامعتبر است")
 
     for location_key, label in (("origin", "مبدا"), ("destination", "مقصد")):
         location = payload.get(location_key)
@@ -76,7 +155,8 @@ def validate_enhanced_waybill_payload(payload: dict[str, Any]) -> list[str]:
             errors.append(f"مشخصات {label}")
             continue
         for field, field_label in (("province", "استان"), ("city", "شهر"), ("address", "آدرس")):
-            if not str(location.get(field) or "").strip():
+            val = str(location.get(field) or "").strip()
+            if not val or val in PLACEHOLDER_VALUES or len(val) < 2:
                 errors.append(f"{field_label} {label}")
 
     cargo = payload.get("cargo")
@@ -89,16 +169,29 @@ def validate_enhanced_waybill_payload(payload: dict[str, Any]) -> list[str]:
             ("weight", "وزن کالا"),
             ("value", "ارزش تقریبی بار"),
         ):
-            if _clean_optional(cargo.get(field)) is None:
+            val = _clean_optional(cargo.get(field))
+            if val is None:
                 errors.append(label)
+
+        weight_val = cargo.get("weight")
+        try:
+            if weight_val is not None and float(str(weight_val).strip()) <= 0:
+                errors.append("وزن کالا باید مثبت و بزرگتر از صفر باشد")
+        except (ValueError, TypeError):
+            errors.append("وزن کالا عددی نامعتبر است")
 
     vehicle = payload.get("vehicle")
     if not isinstance(vehicle, dict):
         errors.append("مشخصات راننده و خودرو")
     else:
-        if not str(vehicle.get("driver_national_code") or "").strip():
+        driver_code = str(vehicle.get("driver_national_code") or "").strip()
+        if not driver_code:
             errors.append("کد ملی راننده")
-        if not str(vehicle.get("plate") or "").strip():
+        elif not _validate_iranian_national_code(driver_code):
+            errors.append("کد ملی راننده نامعتبر است (کنترل رقم نامعتبر)")
+
+        plate_str = str(vehicle.get("plate") or "").strip()
+        if not plate_str or plate_str in PLACEHOLDER_VALUES:
             errors.append("پلاک خودرو")
 
     return errors
@@ -108,16 +201,30 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Normalize the multi-tenant payload for EnhancedWaybillManager.
 
     The multi-tenant API stores either a compact payload or a full nested one.
-    This adapter ensures we always return the richer `WaybillMapRequest`-style structure.
+    This adapter ensures we always return the richer `WaybillMapRequest`-style structure
+    strictly adhering to user_text mode.
     """
     # If it's already a nested payload (from the new manual form), use it as base
     if "sender" in payload and isinstance(payload["sender"], dict):
-        # Ensure it has all required sections for the manager
+        origin_dict = dict(payload.get("origin", {}))
+        dest_dict = dict(payload.get("destination", {}))
+
+        # Enforce user_text mode: coordinates are nullified
+        origin_dict["coordinates"] = None
+        origin_dict["location_mode"] = "user_text"
+        origin_dict["route_source"] = "user_text"
+
+        dest_dict["coordinates"] = None
+        dest_dict["location_mode"] = "user_text"
+        dest_dict["route_source"] = "user_text"
+
         base = {
+            "route_source": "user_text",
+            "location_mode": "user_text",
             "sender": payload.get("sender", {}),
             "receiver": payload.get("receiver", {}),
-            "origin": payload.get("origin", {}),
-            "destination": payload.get("destination", {}),
+            "origin": origin_dict,
+            "destination": dest_dict,
             "cargo": payload.get("cargo", {}),
             "vehicle": payload.get("vehicle", {}),
             "financial": payload.get("financial", {}),
@@ -157,6 +264,8 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
     default_receiver_name = _first_value(receiver_meta.get("name"), metadata.get("customer_name"))
 
     return {
+        "route_source": "user_text",
+        "location_mode": "user_text",
         "sender": {
             "name": default_sender_name,
             "phone": _first_value(sender_meta.get("phone"), metadata.get("sender_phone")),
@@ -176,14 +285,18 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "city": origin_city,
             "district": _first_value(origin_meta.get("district")),
             "address": str(_first_value(origin_address, metadata.get("origin_address")) or ""),
-            "coordinates": origin_meta.get("coordinates"),
+            "coordinates": None,
+            "route_source": "user_text",
+            "location_mode": "user_text",
         },
         "destination": {
             "province": destination_province or str(_first_value(metadata.get("destination_province")) or ""),
             "city": destination_city,
             "district": _first_value(destination_meta.get("district")),
             "address": str(_first_value(destination_address, metadata.get("destination_address")) or ""),
-            "coordinates": destination_meta.get("coordinates"),
+            "coordinates": None,
+            "route_source": "user_text",
+            "location_mode": "user_text",
         },
         "cargo": {
             "type": str(cargo_type or ""),
@@ -230,4 +343,8 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-__all__ = ["build_enhanced_waybill_payload", "validate_enhanced_waybill_payload"]
+__all__ = [
+    "build_enhanced_waybill_payload",
+    "validate_enhanced_waybill_payload",
+    "compute_canonical_route_key",
+]

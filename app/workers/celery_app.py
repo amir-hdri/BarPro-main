@@ -148,6 +148,14 @@ def _build_beat_schedule() -> dict:
                     "expires": 540,
                 },
             },
+            "utcms-gate-probe": {
+                "task": "barpro.gate.probe",
+                "schedule": schedule(utcms_config.GATE_PROBE_INTERVAL_SECONDS),
+                "options": {
+                    "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                    "expires": max(10, utcms_config.GATE_PROBE_INTERVAL_SECONDS - 5),
+                },
+            },
         }
     )
 

@@ -1472,6 +1472,54 @@ class EnhancedWaybillManager:
             await asyncio.sleep(min(2.0, 0.5 + (attempt * 0.5)))
         return None
 
+    async def _click_once_no_retry(
+        self,
+        selectors: list[str],
+        label: str,
+        wait_after_seconds: float = 0.3,
+    ) -> tuple[bool, Exception | None]:
+        """At-Most-Once click for mutation-critical buttons (e.g. final submit).
+
+        Unlike ``_click_with_fallback``, this method:
+        - Locates the element using the smart locator
+        - Fires **exactly one** ``locator.click()``
+        - Catches any post-click error (TargetClosedError, navigation, etc.)
+          **without retrying** — the HTTP POST may already have been sent
+        - Returns ``(clicked, post_click_error)`` so the caller can route
+          to ``UNKNOWN / RECONCILING`` if an error occurred after dispatch
+
+        This prevents duplicate waybill submissions caused by the fallback
+        chain in ``_click_with_fallback`` (force=True → safe_click loop).
+        """
+        locator = None
+        try:
+            locator = await self.smart_locator.locate(self.page, selectors, timeout=4500)
+        except Exception as locate_err:
+            logger.error(
+                "mutation_click_locate_failed",
+                extra={"extra_fields": {"label": label, "selectors": selectors, "error": str(locate_err)}},
+            )
+            return False, locate_err
+
+        try:
+            await locator.click()
+            await asyncio.sleep(wait_after_seconds)
+            return True, None
+        except Exception as click_err:
+            # The click may have been dispatched before the error (e.g. page
+            # navigated away causing TargetClosedError).  We MUST NOT retry.
+            logger.warning(
+                "mutation_click_post_dispatch_error",
+                extra={
+                    "extra_fields": {
+                        "label": label,
+                        "error": str(click_err),
+                        "error_type": type(click_err).__name__,
+                    }
+                },
+            )
+            return True, click_err  # assume click was dispatched
+
     async def _click_with_fallback(
         self,
         selectors: list[str],
@@ -1685,10 +1733,36 @@ class EnhancedWaybillManager:
             self._set_active_pill("financial")
             logger.info("waybill_stage_start", extra={"extra_fields": {"stage": "financial"}})
 
-            # محاسبه مسیر در صورت وجود مختصات
+            # تفکیک دقیق مسیر متنی از نقشه
+            is_user_text = (
+                data.get("location_mode") == "user_text"
+                or data.get("route_source") == "user_text"
+                or origin_result.get("route_source") == "user_text"
+                or not origin_result.get("coordinates")
+            )
+
             route_info = None
-            if origin_result.get("coordinates") and dest_result.get("coordinates"):
-                # تلاش برای استخراج مسیر از روی نقشه UI
+            if is_user_text:
+                route_info = {
+                    "source": "user_text",
+                    "origin": {
+                        "province": origin_result.get("province"),
+                        "city": origin_result.get("city"),
+                        "district": origin_result.get("district"),
+                        "address": origin_result.get("address"),
+                        "readback": origin_result.get("readback"),
+                    },
+                    "destination": {
+                        "province": dest_result.get("province"),
+                        "city": dest_result.get("city"),
+                        "district": dest_result.get("district"),
+                        "address": dest_result.get("address"),
+                        "readback": dest_result.get("readback"),
+                    },
+                    "coordinates_used": False,
+                }
+            elif origin_result.get("coordinates") and dest_result.get("coordinates"):
+                # محاسبه مسیر بر مبنای نقشه صرفاً در صورت وجود صریح مختصات
                 try:
                     await self.map_controller.wait_for_route_calculation(timeout=2000)
                     map_route_info = await self.map_controller.extract_route_info()
@@ -1715,6 +1789,7 @@ class EnhancedWaybillManager:
 
             # پر کردن اطلاعات مالی
             await self._fill_financial_info(data.get("financial", {}))
+
 
             # مدیریت گزینه‌های حمل (two_way، end_shipping، time_limit)
             shipping_opts = data.get("shipping_options") or {}
@@ -2375,9 +2450,21 @@ class EnhancedWaybillManager:
                 await self.page.wait_for_selector(".ui-autocomplete:visible", timeout=3000)
                 items = await self.page.locator(".ui-autocomplete:visible .ui-menu-item").all()
                 if items:
-                    await items[0].click()
-                    dropdown_selected = True
-                    logger.info("cargo_autocomplete_selected_via_ui")
+                    normalized_query = self._normalize_text(cargo_query)
+                    matched_item = None
+                    for item in items:
+                        item_text = self._normalize_text(await item.inner_text())
+                        if normalized_query == item_text or normalized_query in item_text:
+                            matched_item = item
+                            break
+                    if matched_item is not None:
+                        await matched_item.click()
+                        dropdown_selected = True
+                        logger.info("cargo_autocomplete_selected_via_ui")
+                    elif len(items) == 1:
+                        await items[0].click()
+                        dropdown_selected = True
+                        logger.info("cargo_autocomplete_single_option_selected")
             except Exception:
                 logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
@@ -2426,11 +2513,9 @@ class EnhancedWaybillManager:
                             continue
                         label = str(res.get("label") or res.get("value") or "").strip()
                         normalized_label = self._normalize_text(label)
-                        if normalized_query in normalized_label or normalized_label in normalized_query:
+                        if normalized_query == normalized_label or normalized_query in normalized_label or normalized_label in normalized_query:
                             best_match = res
                             break
-                    if not best_match and search_results:
-                        best_match = search_results[0]
 
                     if best_match and isinstance(best_match, dict):
                         selected_id = str(best_match.get("id") or "")
@@ -2504,12 +2589,12 @@ class EnhancedWaybillManager:
             )
 
         if not selected_packaging:
-            # The worker preflight rejects missing packaging before a real run.
-            # Keep the manager tolerant for legacy dry-run/unit callers that only
-            # exercise the navigation stack with a minimal cargo object.
+            if packaging_value:
+                # If a packaging was specified but not found, reject rather than guessing
+                raise WaybillError(f"نوع بسته‌بندی '{packaging_value}' در فهرست UTCMS پیدا نشد")
             selected_packaging = await self._select_first_non_placeholder_option("#ddBoxType")
             if not selected_packaging:
-                raise WaybillError("نوع بسته‌بندی ارائه‌شده در فهرست UTCMS پیدا نشد")
+                raise WaybillError("نوع بسته‌بندی در فهرست UTCMS پیدا نشد")
 
         weight_val = cargo.get("weight")
         await self._fill_verified_text_field(
@@ -3429,32 +3514,84 @@ class EnhancedWaybillManager:
 
         return False
 
-    async def _detect_otp_required(self, submit_state: dict[str, Any] | None = None) -> bool:
-        """تشخیص نیاز به OTP پس از ارسال فرم"""
-        if isinstance(submit_state, dict) and "is_otp_needed" in submit_state:
-            return bool(submit_state.get("is_otp_needed"))
+    _otp_persian_keywords = (
+        "کد تایید",
+        "ارسال پیامک",
+        "کد اعتبارسنجی",
+        "رمز یکبار مصرف",
+        "کد فعالسازی",
+        "کد احراز هویت",
+        "سامانه شاهکار",
+        "شماره همراه راننده",
+        "کد ارسال شده",
+        "کد ۶ رقمی",
+        "کد 5 رقمی",
+        "کد ۵ رقمی",
+    )
 
+    async def _detect_otp_required(self, submit_state: dict[str, Any] | None = None) -> bool:
+        """تشخیص نیاز به OTP پس از ارسال فرم (تطبیقی چندوجهی)"""
+        detected, _ = await self._detect_otp_required_with_evidence(submit_state=submit_state)
+        return detected
+
+    async def _detect_otp_required_with_evidence(
+        self, submit_state: dict[str, Any] | None = None
+    ) -> tuple[bool, dict[str, Any]]:
+        """تشخیص تطبیقی OTP به همراه مستندات تشخیصی (JSON/DOM/متن فارسی)"""
+        # 1. بررسی پاسخ ساخت‌یافته شبکه/JSON
+        if isinstance(submit_state, dict):
+            if submit_state.get("is_otp_needed") is True or str(submit_state.get("status", "")).lower() in ("otp_required", "challenge", "sms_sent"):
+                return True, {"source": "network_json", "submit_state": submit_state}
+            msg = str(submit_state.get("message") or submit_state.get("error") or "")
+            for kw in self._otp_persian_keywords:
+                if kw in msg:
+                    return True, {"source": "network_json_keyword", "matched_keyword": kw, "message": msg}
+
+        # 2. بررسی سلکتورهای DOM
         otp_selectors = [
+            "input#sms-code",
+            "div.otp-challenge",
+            "#submitOtp",
             ".modal.show #otp",
             ".modal.show input[name='otp']",
             ".modal.show .otp-box",
             "input[name='otp']",
             "input[id='otp']",
-            "#submitOtp",
+            "input[id*='otp' i]",
+            "input[name*='otp' i]",
+            "input[id*='verification' i]",
+            "input[name*='verification' i]",
+            "input[placeholder*='کد']",
+            "input[placeholder*='پیامک']",
+            ".otp-box",
+            "#modalOtp",
+            "#divOtp",
+            ".otp-modal",
+            "#pnlOtp",
         ]
         for selector in otp_selectors:
-            if await self._is_selector_visible(selector):
-                return True
+            try:
+                if await self._is_selector_visible(selector):
+                    return True, {"source": "dom_selector", "selector": selector}
+            except Exception:
+                continue
 
+        # 3. بررسی متن‌های فارسی در مدال‌ها و پیام‌های باز روی صفحه
         try:
-            modal_open = await self.page.evaluate(
-                "() => !!(document.body && document.body.classList.contains('modal-open'))"
+            modal_text = await self.page.evaluate(
+                """() => {
+                    const elements = Array.from(document.querySelectorAll('.modal.show, .swal2-container, .toast, .alert, #divOtp, #modalOtp, .modal-open'));
+                    return elements.map(el => el.innerText || el.textContent || '').join(' ');
+                }"""
             )
-            if modal_open and await self._is_selector_visible("#submitOtp"):
-                return True
+            if modal_text:
+                for kw in self._otp_persian_keywords:
+                    if kw in modal_text:
+                        return True, {"source": "modal_text_keyword", "matched_keyword": kw, "excerpt": modal_text[:120]}
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
-        return False
+
+        return False, {}
 
     async def _fill_otp_value(self, otp_value: str) -> bool:
         normalized = self._normalize_captcha_solution(otp_value)
@@ -3699,75 +3836,120 @@ class EnhancedWaybillManager:
             timeout_ms=submit_timeout_ms,
         )
 
-        submit_clicked = await resilient_click(submit_selectors, "ثبت نهایی", wait_after=0.5)
+        # Mutating final click must be executed At-Most-Once — NO retries/fallbacks
+        submit_clicked, post_click_err = await self._click_once_no_retry(
+            submit_selectors, "ثبت نهایی", wait_after_seconds=0.5
+        )
         if not submit_clicked:
             raise WaybillError("ارسال فرم بارنامه انجام نشد (کلیک روی دکمه ثبت ناموفق بود)")
 
-        await self._wait_for_network_settle(primary_timeout_ms=submit_timeout_ms, fallback_sleep_seconds=2.0)
-        await asyncio.sleep(0.1)
-
-        submit_payload = await self._consume_json_response(
-            submit_response_task,
-            timeout_seconds=max(12.0, submit_timeout_ms / 1000),
-        )
-        submit_state = self._parse_register_submit_payload(submit_payload)
-        if submit_state is not None and not submit_state["success"]:
-            raise WaybillError(submit_state["message"] or "ارسال فرم بارنامه ناموفق بود")
-
-        # ── Step 4: OTP Handling ──
-        otp_state = await self._handle_otp_if_required(otp_value, submit_state=submit_state)
-        if not otp_state["success"]:
-            raise WaybillError("مدیریت OTP ناموفق بود")
-
-        if await self._detect_otp_required(submit_state=submit_state):
-            await self._wait_for_network_settle(primary_timeout_ms=12000, fallback_sleep_seconds=2.0)
-
-        # ── Step 5: OTP Detect & Graceful Exit (Self-Healing) ──
-        # After successful submit, check if an OTP/SMS challenge appeared.
-        # If OTP modal is detected → graceful exit with OTP_BACKOFF status.
-        # If NOT detected → submission was successful, proceed normally.
-        otp_backoff_result = await self._check_otp_after_submit()
-        if otp_backoff_result is not None:
-            return otp_backoff_result
-
-        # ── Step 6: Extract tracking code ──
-        document_id = (otp_state or {}).get("document_id") or (submit_state or {}).get("document_id")
-        tracking_code = await self._extract_tracking_code(document_id=document_id)
-        submission_confirmed = await self._is_submission_successful()
-
-        # CRITICAL SECURITY FIX: To prevent false positives where waybills are marked
-        # as "Successful Registration" without actually being registered in UTCMS,
-        # we require a valid tracking code to be extracted to confirm success.
-        if not tracking_code:
+        # If an error occurred after the click was dispatched (e.g. TargetClosedError),
+        # the HTTP POST may already have been sent.  Route to UNKNOWN for reconciliation.
+        if post_click_err is not None:
             logger.warning(
-                "submit_tracking_code_missing_confirm_false",
-                extra={"extra_fields": {"job_id": job_id, "submission_confirmed": submission_confirmed}},
+                "mutation_submit_post_click_error_route_to_unknown",
+                extra={"extra_fields": {"error": str(post_click_err), "job_id": job_id}},
             )
-            submission_confirmed = False
+            return {
+                "success": False,
+                "status": "unknown",
+                "error_category": "submission_unknown",
+                "message": f"Submit click dispatched but post-click error: {post_click_err}",
+                "needs_reconciliation": True,
+            }
 
-        if not tracking_code and not submission_confirmed:
-            import os
-            import time
+        try:
+            await self._wait_for_network_settle(primary_timeout_ms=submit_timeout_ms, fallback_sleep_seconds=2.0)
+            await asyncio.sleep(0.1)
 
-            try:
-                debug_dir = os.path.join(os.getcwd(), "output", "screenshots", "debug")
-                os.makedirs(debug_dir, exist_ok=True)
-                ts = int(time.time())
-                debug_html_path = os.path.join(debug_dir, f"{job_id or 'unknown'}_{ts}.html")
-                debug_png_path = os.path.join(debug_dir, f"{job_id or 'unknown'}_{ts}.png")
+            submit_payload = await self._consume_json_response(
+                submit_response_task,
+                timeout_seconds=max(12.0, submit_timeout_ms / 1000),
+            )
+            submit_state = self._parse_register_submit_payload(submit_payload)
+            if submit_state is not None and not submit_state["success"]:
+                raise WaybillError(submit_state["message"] or "ارسال فرم بارنامه ناموفق بود")
 
-                html_content = await self.page.content()
-                with open(debug_html_path, "w", encoding="utf-8") as f:
-                    f.write(html_content)
-                await self.page.screenshot(path=debug_png_path, full_page=True)
-                logger.error(f"Saved submit failure debug info to {debug_html_path} and {debug_png_path}")
-            except Exception as e:
-                logger.error(f"Failed to save debug info: {e}")
+            # ── Step 4: OTP Handling ──
+            otp_state = await self._handle_otp_if_required(otp_value, submit_state=submit_state)
+            if not otp_state["success"]:
+                raise WaybillError("مدیریت OTP ناموفق بود")
 
-            form_errors = await self._extract_form_errors()
-            if form_errors:
-                raise WaybillError(f"ثبت بارنامه با خطا مواجه شد: {form_errors}")
-            raise WaybillError("ثبت بارنامه تایید نشد: نه کد رهگیری پیدا شد و نه نشانه موفقیت در صفحه وجود داشت")
+            if await self._detect_otp_required(submit_state=submit_state):
+                await self._wait_for_network_settle(primary_timeout_ms=12000, fallback_sleep_seconds=2.0)
+
+            # ── Step 5: OTP Detect & Graceful Exit (Self-Healing) ──
+            # After successful submit, check if an OTP/SMS challenge appeared.
+            # If OTP modal is detected → graceful exit with OTP_BACKOFF status.
+            # If NOT detected → submission was successful, proceed normally.
+            otp_backoff_result = await self._check_otp_after_submit()
+            if otp_backoff_result is not None:
+                return otp_backoff_result
+
+            # ── Step 6: Extract tracking code ──
+            document_id = (otp_state or {}).get("document_id") or (submit_state or {}).get("document_id")
+            tracking_code = await self._extract_tracking_code(document_id=document_id)
+            submission_confirmed = await self._is_submission_successful()
+
+            # CRITICAL SECURITY FIX: To prevent false positives where waybills are marked
+            # as "Successful Registration" without actually being registered in UTCMS,
+            # we require a valid tracking code to be extracted to confirm success.
+            if not tracking_code:
+                logger.warning(
+                    "submit_tracking_code_missing_confirm_false",
+                    extra={"extra_fields": {"job_id": job_id, "submission_confirmed": submission_confirmed}},
+                )
+                submission_confirmed = False
+
+            if not tracking_code and not submission_confirmed:
+                import os
+                import time
+
+                try:
+                    debug_dir = os.path.join(os.getcwd(), "output", "screenshots", "debug")
+                    os.makedirs(debug_dir, exist_ok=True)
+                    ts = int(time.time())
+                    debug_html_path = os.path.join(debug_dir, f"{job_id or 'unknown'}_{ts}.html")
+                    debug_png_path = os.path.join(debug_dir, f"{job_id or 'unknown'}_{ts}.png")
+
+                    html_content = await self.page.content()
+                    with open(debug_html_path, "w", encoding="utf-8") as f:
+                        f.write(html_content)
+                    await self.page.screenshot(path=debug_png_path, full_page=True)
+                    logger.error(f"Saved submit failure debug info to {debug_html_path} and {debug_png_path}")
+                except Exception as e:
+                    logger.error(f"Failed to save debug info: {e}")
+
+                form_errors = await self._extract_form_errors()
+                if form_errors:
+                    raise WaybillError(f"ثبت بارنامه با خطا مواجه شد: {form_errors}")
+
+                # If no explicit form error was detected after submit click, status is ambiguous and MUST enter reconciliation
+                return {
+                    "success": False,
+                    "status": "unknown",
+                    "mutation_status": "ambiguous",
+                    "error": "ثبت بارنامه انجام شد اما پاسخ قطعی دریافت نشد؛ نیاز به تطبیق (Reconciliation)",
+                    "error_category": "submission_unconfirmed",
+                    "tracking_code": None,
+                    "document_id": document_id,
+                }
+        except WaybillError:
+            raise
+        except Exception as post_submit_exc:
+            logger.warning(
+                "post_submit_exception_entering_unknown_for_reconciliation",
+                extra={"extra_fields": {"job_id": job_id, "error": str(post_submit_exc)[:240]}},
+            )
+            return {
+                "success": False,
+                "status": "unknown",
+                "mutation_status": "ambiguous",
+                "error": f"خطا پس از کلیک ثبت بارنامه: {str(post_submit_exc)}",
+                "error_category": "submission_unconfirmed",
+                "tracking_code": None,
+                "document_id": None,
+            }
 
         # Capture waybill screenshot on success
         waybill_screenshot = None
@@ -3881,41 +4063,41 @@ class EnhancedWaybillManager:
 
     async def _check_otp_after_submit(self) -> dict[str, Any] | None:
         """
-        Detect OTP modal after submit. If found, gracefully exit and return OTP_BACKOFF status.
-        The worker will calculate T_now + 60 minutes and update the DB.
-        Timeout increased from 5s to 15s to avoid false negatives on slow OTP modals.
+        Detect OTP challenge after submit (DOM / Persian text / Network).
+        If found, gracefully exit and return OTP_BACKOFF status with diagnostic evidence.
         """
-        otp_selectors = "input#sms-code, div.otp-challenge, #submitOtp, input[name='otp'], .otp-box"
-
         try:
-            candidate = await self.page.wait_for_selector(otp_selectors, timeout=15000)
-            if candidate is None:
-                return None
-            if candidate is not None:
+            detected, evidence = await self._detect_otp_required_with_evidence()
+            if not detected:
+                # Wait briefly (up to 3s) for modal animation if not immediately detected
+                otp_selectors = "input#sms-code, div.otp-challenge, #submitOtp, input[name='otp'], .otp-box, #modalOtp, #divOtp"
                 try:
-                    visible = await resolve_maybe_awaitable(candidate.is_visible())
-                    if not isinstance(visible, bool):
-                        visible = bool(visible)
-                    if not visible:
-                        return None
+                    candidate = await self.page.wait_for_selector(otp_selectors, timeout=3000)
+                    if candidate is not None:
+                        detected, evidence = await self._detect_otp_required_with_evidence()
                 except Exception:
-                    return None
+                    pass
 
-            # OTP modal detected → graceful exit
+            if not detected:
+                return None
+
             logger.warning(
                 "otp_challenge_detected_after_submit",
-                extra={"extra_fields": {"action": "graceful_exit", "retry_after_minutes": 60}},
+                extra={"extra_fields": {"action": "graceful_exit", "evidence": evidence}},
             )
 
-            # Note: context cleanup is handled by the caller (worker's managed_browser_session / finally block)
+            backoff_mins = int(getattr(utcms_config, "UTCMS_OTP_BACKOFF_MINUTES", 60))
             return {
                 "success": False,
-                "status": "OTP_BACKOFF",
-                "next_retry_at_minutes_add": 60,
-                "message": "OTP challenge detected. Bot exited gracefully for manual or delayed retry.",
+                "status": "otp_backoff",
+                "detected": True,
+                "source": evidence.get("source", "adaptive_probe"),
+                "evidence": evidence,
+                "next_retry_at_minutes_add": backoff_mins,
+                "message": f"Adaptive OTP challenge detected ({evidence.get('source', 'unknown')}). Bot exited gracefully for submission window backoff.",
             }
         except Exception:
-            # TimeoutError → OTP modal NOT detected → submission was successful
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
             return None
 
     def _normalize_captcha_solution(self, value: str | None) -> str | None:

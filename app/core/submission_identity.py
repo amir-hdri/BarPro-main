@@ -75,8 +75,10 @@ def extract_reconciliation_identity(payload: Any, driver: Any = None) -> Submiss
 
     plate_number = _first(
         vehicle.get("plate_number"),
+        vehicle.get("plate"),
         vehicle.get("driver_plate"),
         data.get("plate_number"),
+        data.get("plate"),
         data.get("driver_plate"),
     )
     if plate_number is not None:
@@ -140,3 +142,100 @@ def identity_fields_for_fingerprint(identity: SubmissionIdentity) -> list[str]:
         identity.cargo_weight or "",
         identity.business_date or "",
     ]
+
+
+def extract_canonical_commercial_payload(payload: Any, driver: Any = None) -> dict[str, Any]:
+    """Extracts a normalized, deterministic dictionary of commercial waybill fields.
+
+    Strips volatile metadata (correlation_id, session_id, timestamp, etc.) and
+    normalizes plate, textual origin/destination, cargo, parties, and business date.
+    """
+    import hashlib
+
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError):
+            payload = {}
+    data = _as_dict(payload)
+
+    identity = extract_reconciliation_identity(data, driver=driver)
+
+    origin = _as_dict(data.get("origin"))
+    destination = _as_dict(data.get("destination"))
+    cargo = _as_dict(data.get("cargo"))
+    sender = _as_dict(data.get("sender"))
+    receiver = _as_dict(data.get("receiver"))
+
+    return {
+        "driver_national_code": identity.national_code or "",
+        "plate_number": identity.plate_number or "",
+        "origin": {
+            "province": str(origin.get("province") or data.get("origin_province") or "").strip(),
+            "city": identity.origin_city or "",
+            "district": str(origin.get("district") or "").strip(),
+            "address": identity.origin_address or "",
+        },
+        "destination": {
+            "province": str(destination.get("province") or data.get("destination_province") or "").strip(),
+            "city": identity.dest_city or "",
+            "district": str(destination.get("district") or "").strip(),
+            "address": identity.dest_address or "",
+        },
+        "cargo": {
+            "cargo_type": str(cargo.get("cargo_type") or data.get("cargo_type") or "").strip(),
+            "packaging": str(
+                cargo.get("packaging") or cargo.get("box_type") or data.get("packaging") or ""
+            ).strip(),
+            "weight": str(identity.cargo_weight or "").strip(),
+            "value": str(cargo.get("value") or cargo.get("cargo_value") or data.get("cargo_value") or "").strip(),
+        },
+        "sender": {
+            "name": str(sender.get("name") or sender.get("full_name") or data.get("sender_name") or "").strip(),
+            "national_code": str(sender.get("national_code") or data.get("sender_national_code") or "").strip(),
+        },
+        "receiver": {
+            "name": str(receiver.get("name") or receiver.get("full_name") or data.get("receiver_name") or "").strip(),
+            "national_code": str(receiver.get("national_code") or data.get("receiver_national_code") or "").strip(),
+        },
+        "business_date": identity.business_date or "",
+    }
+
+
+def compute_canonical_payload_digest(payload: Any, driver: Any = None) -> str:
+    """Computes a SHA256 hex digest of the canonical commercial waybill payload."""
+    import hashlib
+
+    canonical = extract_canonical_commercial_payload(payload, driver=driver)
+    serialized = json.dumps(canonical, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:32]
+
+
+def compute_canonical_job_idempotency_key(
+    client_id: int,
+    driver_id: int | None,
+    payload: dict[str, Any],
+    supplied_key: str | None = None,
+) -> str:
+    """Computes a collision-resistant, deterministic idempotency key for waybill jobs.
+
+    If supplied_key is provided and non-empty, scopes it by tenant (client_id).
+    Otherwise, computes a deterministic hash over tenant, driver, and canonical commercial payload.
+    """
+    import hashlib
+
+    candidate = str(supplied_key).strip() if supplied_key is not None else None
+    if candidate:
+        scoped = candidate if candidate.startswith(f"tenant:{client_id}:") else f"tenant:{client_id}:{candidate}"
+        if len(scoped) <= 100:
+            return scoped
+        return hashlib.sha256(scoped.encode("utf-8")).hexdigest()
+
+    canonical = extract_canonical_commercial_payload(payload)
+    key_dict = {
+        "client_id": client_id,
+        "driver_id": driver_id,
+        "commercial_payload": canonical,
+    }
+    serialized = json.dumps(key_dict, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()

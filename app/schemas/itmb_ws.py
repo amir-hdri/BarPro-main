@@ -200,3 +200,60 @@ class WS01InsertBOLResponse(BaseModel):
     bol_trace_code: str
     used_salt: int
     baseinfo_validation: dict[str, Any] = Field(default_factory=dict)
+
+
+class WS03StartBOLRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    CompanyCode: str | None = None
+    ServicePassword: str | None = None
+    Salt: int | None = None
+    HashedValue: str | None = None
+    BOLTraceCode: str = Field(..., min_length=1)
+    StartTime: int | None = Field(default=None, ge=0, description="Unix timestamp")
+    StartPosition: GPSCnt
+
+
+class WS03StartBOLResponse(BaseModel):
+    success: bool
+    bol_trace_code: str
+    result_code: int = 200
+    message: str = "سفر با موفقیت آغاز شد"
+
+
+class WS04EndBOLRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    CompanyCode: str | None = None
+    ServicePassword: str | None = None
+    Salt: int | None = None
+    HashedValue: str | None = None
+    BOLTraceCode: str = Field(..., min_length=1)
+    EndTime: int | None = Field(default=None, ge=0, description="Unix timestamp")
+    EndPosition: GPSCnt
+
+
+class WS04EndBOLResponse(BaseModel):
+    success: bool
+    bol_trace_code: str
+    result_code: int = 200
+    message: str = "سفر با موفقیت پایان یافت"
+
+
+class WS06InsertBOLTrackRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    CompanyCode: str | None = None
+    ServicePassword: str | None = None
+    Salt: int | None = None
+    HashedValue: str | None = None
+    BOLTraceCode: str = Field(..., min_length=1)
+    TrackTime: int | None = Field(default=None, ge=0, description="Unix timestamp")
+    TrackPosition: GPSCnt
+
+
+class WS06InsertBOLTrackResponse(BaseModel):
+    success: bool
+    bol_trace_code: str
+    result_code: int = 200
+    message: str = "موقعیت با موفقیت ثبت شد"

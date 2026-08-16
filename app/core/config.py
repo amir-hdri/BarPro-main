@@ -370,8 +370,15 @@ class UTCMSConfig:
         # Submission Gate & OTP Adaptive Control
         # Non-negotiable Rule #1: ALLOW_LIVE_SUBMIT default is FALSE.
         self.ALLOW_LIVE_SUBMIT = _to_bool(os.getenv("ALLOW_LIVE_SUBMIT", "False"), default=False)
-        self.PREDICTED_OTP_FREE_START_HOUR = int(os.getenv("PREDICTED_OTP_FREE_START_HOUR", "18"))
-        self.PREDICTED_OTP_FREE_END_HOUR = int(os.getenv("PREDICTED_OTP_FREE_END_HOUR", "8"))
+        self.PREDICTED_OTP_REQUIRED_START_HOUR = int(
+            os.getenv("PREDICTED_OTP_REQUIRED_START_HOUR", os.getenv("PREDICTED_OTP_FREE_START_HOUR", "18"))
+        )
+        self.PREDICTED_OTP_REQUIRED_END_HOUR = int(
+            os.getenv("PREDICTED_OTP_REQUIRED_END_HOUR", os.getenv("PREDICTED_OTP_FREE_END_HOUR", "8"))
+        )
+        # Compatibility aliases
+        self.PREDICTED_OTP_FREE_START_HOUR = self.PREDICTED_OTP_REQUIRED_START_HOUR
+        self.PREDICTED_OTP_FREE_END_HOUR = self.PREDICTED_OTP_REQUIRED_END_HOUR
         self.GATE_PROBE_INTERVAL_SECONDS = int(os.getenv("GATE_PROBE_INTERVAL_SECONDS", "300"))
         self.GATE_PROBE_LOCK_TTL_SECONDS = int(os.getenv("GATE_PROBE_LOCK_TTL_SECONDS", "60"))
         self.GATE_OBSERVATION_VALIDITY_SECONDS = int(os.getenv("GATE_OBSERVATION_VALIDITY_SECONDS", "1800"))

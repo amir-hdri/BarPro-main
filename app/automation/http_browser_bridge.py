@@ -32,6 +32,9 @@ _RESPONSE_DROP_HEADERS = {
 _BRIDGED_RESOURCE_TYPES = frozenset({"document", "xhr", "fetch"})
 
 
+_SAFE_IDEMPOTENT_METHODS = frozenset({"GET", "HEAD"})
+
+
 class UtcmsHttpBrowserBridge:
     """A page-scoped, serialized curl_cffi transport for UTCMS requests."""
 
@@ -107,11 +110,12 @@ class UtcmsHttpBrowserBridge:
             await route.continue_()
             return
 
+        is_safe_method = request.method.upper() in _SAFE_IDEMPOTENT_METHODS
         try:
             await self._fulfill_utcms(route, request)
         except Exception as exc:
             logger.warning(
-                "http_browser_bridge_request_failed url=%s method=%s type=%s error=%s -- falling back to native route.continue_()",
+                "http_browser_bridge_request_failed url=%s method=%s type=%s error=%s",
                 request.url,
                 request.method,
                 request.resource_type,
@@ -125,10 +129,18 @@ class UtcmsHttpBrowserBridge:
                     }
                 },
             )
-            try:
-                await route.continue_()
-            except Exception:
-                await route.abort("connectionfailed")
+            # Only safe/idempotent requests (GET, HEAD) may fall back to Chromium's native stack.
+            # For mutating methods (POST, PUT, DELETE, PATCH), fallback is forbidden to prevent duplicate submit!
+            if is_safe_method:
+                try:
+                    await route.continue_()
+                except Exception:
+                    await route.abort("connectionfailed")
+            else:
+                try:
+                    await route.abort("failed")
+                except Exception:
+                    pass
 
     async def _fulfill_utcms(self, route: Any, request: Any) -> None:
         headers = dict(await request.all_headers())
@@ -138,10 +150,13 @@ class UtcmsHttpBrowserBridge:
         headers["accept-encoding"] = "identity"
         body = request.post_data_buffer
 
+        is_safe_method = request.method.upper() in _SAFE_IDEMPOTENT_METHODS
+        max_attempts = 3 if is_safe_method else 1
+
         async with self._lock:
             response = None
             last_error: Exception | None = None
-            for attempt in range(1, 4):
+            for attempt in range(1, max_attempts + 1):
                 if self._session is None:
                     self._session = self._new_session()
                 try:
@@ -154,15 +169,17 @@ class UtcmsHttpBrowserBridge:
                         allow_redirects=False,
                         timeout=self.timeout,
                     )
-                    if response.status_code not in (408, 429, 500, 502, 503, 504):
+                    if not is_safe_method or response.status_code not in (408, 429, 500, 502, 503, 504):
                         break
                     await self._reset_session()
-                    if attempt < 3:
+                    if attempt < max_attempts:
                         await asyncio.sleep(float(attempt))
                 except Exception as exc:
                     last_error = exc
                     await self._reset_session()
-                    if attempt < 3:
+                    if not is_safe_method:
+                        break
+                    if attempt < max_attempts:
                         await asyncio.sleep(float(attempt))
 
             if response is None:

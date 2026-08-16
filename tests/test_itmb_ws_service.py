@@ -199,16 +199,10 @@ def test_schema_rejects_invalid_gps_range():
 
 
 @pytest.mark.asyncio
-async def test_insert_bol_retries_on_transient_network_error(monkeypatch):
+async def test_insert_bol_does_not_retry_on_transient_network_error(monkeypatch):
     request = WS01InsertBOLRequest(**_sample_payload())
     service = ITMBWSService()
     call_counter = {"count": 0}
-
-    class _Response:
-        text = "BOL-OK"
-
-        def raise_for_status(self):
-            return None
 
     class _Client:
         async def __aenter__(self):
@@ -219,19 +213,15 @@ async def test_insert_bol_retries_on_transient_network_error(monkeypatch):
 
         async def post(self, url, json):
             call_counter["count"] += 1
-            if call_counter["count"] == 1:
-                raise Exception("connection reset by peer")
-            return _Response()
-
-    async def _no_sleep(self, _attempt):
-        return None
+            raise Exception("connection reset by peer")
 
     monkeypatch.setattr("app.services.itmb_ws_service.httpx.AsyncClient", lambda *args, **kwargs: _Client())
-    monkeypatch.setattr(ITMBWSService, "_sleep_before_retry", _no_sleep)
-    result = await service.insert_bol(request)
+    with pytest.raises(HTTPException) as exc_info:
+        await service.insert_bol(request)
 
-    assert result["bol_trace_code"] == "BOL-OK"
-    assert call_counter["count"] == 2
+    assert exc_info.value.status_code == 500
+    # Must be called exactly once, never retried on mutating POST
+    assert call_counter["count"] == 1
 
 
 def test_bolcnt_accepts_real_person_with_required_fields():

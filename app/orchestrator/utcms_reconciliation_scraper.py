@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -14,6 +15,21 @@ from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_iranian_plate_tags(plate_number: str) -> tuple[str, str, str, str]:
+    if not plate_number:
+        return "", "", "", ""
+    norm = str(plate_number).strip().replace(" ", "").replace("‌", "")
+    for index, digit in enumerate("۰۱۲۳۴۵۶۷۸۹"):
+        norm = norm.replace(digit, str(index))
+    for index, digit in enumerate("٠١٢٣٤٥٦٧٨٩"):
+        norm = norm.replace(digit, str(index))
+    norm = norm.replace("ایران", "")
+    match = re.search(r"(\d{2})([^\d]+)(\d{3})(\d{2})", norm)
+    if match:
+        return match.group(1), match.group(2), match.group(3), match.group(4)
+    return "", "", "", ""
 
 
 class ScraperOutcome(StrEnum):
@@ -35,7 +51,7 @@ class ReconciliationResult:
 class UTCMSReconciliationScraper:
     """Scrapes and reconciles waybill status against official UTCMS endpoints."""
 
-    HISTORY_URL = "https://barname.utcms.ir/Barname/Document/History"
+    HISTORY_URL = "https://barname.utcms.ir/barname/History/History"
     SEARCH_URL = "https://barname.utcms.ir/Barname/Document/HagigiHogugi"
     HISTORY_LIST_ENDPOINT = "/Barname/History/GetHistoryFirstList"
     ISSUED_DOCUMENTS_ENDPOINT = "/Barname/DocumentList/GetIssuedDocumentsNew"
@@ -55,14 +71,19 @@ class UTCMSReconciliationScraper:
         Pre-requisite: page context is authenticated via SessionVault.
         """
         fields = reconciliation_fields or {}
-        tracking_code = tracking_code or fields.get("tracking_code")
-        document_id = document_id or fields.get("document_id")
-        national_code = national_code or fields.get("national_code")
-        plate_number = fields.get("plate_number") or fields.get("car")
-        origin_city = fields.get("origin_city")
-        dest_city = fields.get("dest_city")
+        tracking_code = str(tracking_code or fields.get("tracking_code") or "").strip() or None
+        document_id = str(document_id or fields.get("document_id") or "").strip() or None
+        national_code = str(national_code or fields.get("national_code") or "").strip() or None
+        plate_number = str(fields.get("plate_number") or fields.get("car") or "").strip() or None
+        origin_city = str(fields.get("origin_city") or "").strip() or None
+        dest_city = str(fields.get("dest_city") or "").strip() or None
         cargo_weight = fields.get("cargo_weight")
-        business_date = fields.get("business_date")
+        business_date = str(fields.get("business_date") or "").strip() or None
+        driver_name = str(fields.get("driver_name") or "").strip() or None
+        sender_name = str(fields.get("sender_name") or "").strip() or None
+        receiver_name = str(fields.get("receiver_name") or "").strip() or None
+
+        tag1, tag2, tag3, tag4 = _parse_iranian_plate_tags(plate_number) if plate_number else ("", "", "", "")
 
         try:
             # ── 1. If document_id is known, check showTrackingCode directly ──
@@ -74,11 +95,11 @@ class UTCMSReconciliationScraper:
                         data = await response.json()
                         if isinstance(data, dict) and data.get("resultCode") == 200:
                             obj = data.get("obj") or {}
-                            found_code = obj.get("trackingCode") or obj.get("docNo")
+                            found_code = str(obj.get("trackingCode") or obj.get("docNo") or "").strip()
                             if found_code:
                                 return ReconciliationResult(
                                     outcome=ScraperOutcome.REGISTERED,
-                                    tracking_code=str(found_code),
+                                    tracking_code=found_code,
                                     issue_date=obj.get("issueDate"),
                                     document_id=str(document_id),
                                     status_text=obj.get("status", "صادر شده"),
@@ -97,12 +118,26 @@ class UTCMSReconciliationScraper:
                     details={"error": "session_expired_redirect_to_login", "url": page.url},
                 )
 
-            # Query DataTables endpoint from within page context
+            # Construct verified DataTables payload structure
             post_filter = {
                 "fromDate": business_date or "",
                 "toDate": business_date or "",
-                "docNo": tracking_code or "",
+                "senderName": sender_name or "",
+                "reciverName": receiver_name or "",
+                "driverName": driver_name or "",
                 "driverNationalCode": national_code or None,
+                "sourceAddress": origin_city or "",
+                "destAddress": dest_city or "",
+                "docNo": tracking_code or "",
+                "type": 0,
+                "irCarTag1": tag1,
+                "irCarTag2": tag2,
+                "irCarTag3": tag3,
+                "irCarTag4": tag4,
+                "freeZoneId": "",
+                "freeZoneTwoDigit": "",
+                "freeZoneNo": "",
+                "HasFreezone": True,
             }
 
             fetch_script = f"""
@@ -110,8 +145,26 @@ class UTCMSReconciliationScraper:
                 try {{
                     const formData = new URLSearchParams();
                     formData.append('draw', '1');
+                    formData.append('columns[0][data]', '');
+                    formData.append('columns[0][name]', 'row');
+                    formData.append('columns[0][searchable]', 'false');
+                    formData.append('columns[0][orderable]', 'false');
+                    formData.append('columns[1][data]', 'dateFarsi');
+                    formData.append('columns[1][name]', 'dateFarsi');
+                    formData.append('columns[1][searchable]', 'true');
+                    formData.append('columns[1][orderable]', 'false');
+                    formData.append('columns[5][data]', 'driverFullName');
+                    formData.append('columns[5][name]', 'driverFullName');
+                    formData.append('columns[5][searchable]', 'true');
+                    formData.append('columns[5][orderable]', 'false');
+                    formData.append('columns[11][data]', 'docNo');
+                    formData.append('columns[11][name]', 'trackingCode');
+                    formData.append('columns[11][searchable]', 'true');
+                    formData.append('columns[11][orderable]', 'false');
                     formData.append('start', '0');
                     formData.append('length', '20');
+                    formData.append('search[value]', '');
+                    formData.append('search[regex]', 'false');
                     formData.append('function', 'GetHistoryFirstList');
                     formData.append('data', JSON.stringify([{json.dumps(post_filter)}]));
 
@@ -123,10 +176,12 @@ class UTCMSReconciliationScraper:
                         }},
                         body: formData.toString()
                     }});
-                    if (res.status === 200) {{
-                        return await res.json();
+                    const resText = await res.text();
+                    try {{
+                        return {{ status: res.status, json: JSON.parse(resText) }};
+                    }} catch (parseErr) {{
+                        return {{ status: res.status, text: resText }};
                     }}
-                    return {{ status: res.status, text: await res.text() }};
                 }} catch (e) {{
                     return {{ error: e.toString() }};
                 }}
@@ -137,34 +192,55 @@ class UTCMSReconciliationScraper:
             if isinstance(result_data, dict):
                 if result_data.get("error"):
                     logger.warning("History DataTables evaluate error: %s", result_data["error"])
-                elif "data" in result_data and isinstance(result_data["data"], list):
-                    rows = result_data["data"]
-                    if len(rows) == 0:
+                else:
+                    status_code = result_data.get("status")
+                    json_body = result_data.get("json") or {}
+
+                    # UTCMS returns 500 with "اطلاعات یافت نشد" when query yields zero records
+                    if (
+                        status_code == 500
+                        and isinstance(json_body, dict)
+                        and "یافت نشد" in str(json_body.get("resultMessage", ""))
+                    ):
                         return ReconciliationResult(
                             outcome=ScraperOutcome.NOT_FOUND,
-                            details={"message": "DataTables returned 0 records", "filter": post_filter},
+                            details={"source": "GetHistoryFirstList", "message": "اطلاعات یافت نشد"},
                         )
 
-                    # Match against returned rows
-                    for row in rows:
-                        if self._match_row(row, tracking_code, national_code, plate_number, origin_city, dest_city):
-                            found_code = str(row.get("docNo") or row.get("trackingCode") or "")
+                    if isinstance(json_body, dict) and "data" in json_body and isinstance(json_body["data"], list):
+                        rows = json_body["data"]
+                        if len(rows) == 0:
                             return ReconciliationResult(
-                                outcome=ScraperOutcome.REGISTERED,
-                                tracking_code=found_code if found_code else None,
-                                issue_date=row.get("dateFarsi") or row.get("date"),
-                                status_text=row.get("status", "ثبت شده"),
-                                details={"source": "GetHistoryFirstList", "matched_row": row},
+                                outcome=ScraperOutcome.NOT_FOUND,
+                                details={"source": "GetHistoryFirstList", "message": "empty_data_list"},
                             )
+                        for row in rows:
+                            if self._match_row(
+                                row=row,
+                                tracking_code=tracking_code,
+                                national_code=national_code,
+                                plate_number=plate_number,
+                                origin_city=origin_city,
+                                dest_city=dest_city,
+                                business_date=business_date,
+                            ):
+                                found_code = str(row.get("docNo") or row.get("trackingCode") or "").strip()
+                                return ReconciliationResult(
+                                    outcome=ScraperOutcome.REGISTERED,
+                                    tracking_code=found_code if found_code else tracking_code,
+                                    issue_date=row.get("dateFarsi") or row.get("date"),
+                                    status_text=row.get("status", "ثبت شده"),
+                                    details={"source": "GetHistoryFirstList", "matched_row": row},
+                                )
 
-            # ── 3. DOM Fallback Search (if AJAX evaluate did not return records) ──
+            # ── 3. DOM Fallback Search (if AJAX evaluate did not return matched records) ──
             if tracking_code:
-                code_input = page.locator("input[name='TrackingCode'], #TrackingCode, input#trackingCode")
+                code_input = page.locator("input[name='TrackingCode'], #TrackingCode, input#trackingCode, input#docNo")
                 if await code_input.count() > 0:
                     await code_input.first.fill(tracking_code)
 
             if national_code:
-                nat_input = page.locator("input[name='NationalCode'], #NationalCode")
+                nat_input = page.locator("input[name='NationalCode'], #NationalCode, input#driverNationalCode")
                 if await nat_input.count() > 0:
                     await nat_input.first.fill(national_code)
 
@@ -186,18 +262,34 @@ class UTCMSReconciliationScraper:
                 row = table_rows.nth(i)
                 text = await row.inner_text()
 
-                base_match = (tracking_code and tracking_code in text) or (national_code and national_code in text)
-                if base_match:
+                if tracking_code and tracking_code in text:
                     return ReconciliationResult(
                         outcome=ScraperOutcome.REGISTERED,
                         tracking_code=tracking_code,
                         status_text=text[:100],
                         details={"row_text": text[:200], "row_index": i},
                     )
+                elif (
+                    not tracking_code
+                    and plate_number
+                    and plate_number in text
+                    and national_code
+                    and national_code in text
+                    and origin_city
+                    and origin_city in text
+                    and dest_city
+                    and dest_city in text
+                ):
+                    return ReconciliationResult(
+                        outcome=ScraperOutcome.REGISTERED,
+                        tracking_code=None,
+                        status_text=text[:100],
+                        details={"row_text": text[:200], "row_index": i},
+                    )
 
             return ReconciliationResult(
-                outcome=ScraperOutcome.AMBIGUOUS,
-                details={"row_count": row_count, "summary": "Rows found but specific match unconfirmed"},
+                outcome=ScraperOutcome.NOT_FOUND,
+                details={"row_count": row_count, "summary": "Rows inspected but no target waybill matched"},
             )
 
         except PlaywrightTimeoutError as te:
@@ -221,41 +313,35 @@ class UTCMSReconciliationScraper:
         plate_number: str | None,
         origin_city: str | None,
         dest_city: str | None,
+        business_date: str | None = None,
     ) -> bool:
-        """Check if returned DataTables row matches target waybill parameters."""
+        """Check if returned DataTables row matches target waybill parameters.
+
+        Rule: Never match on national_code alone. If tracking_code is missing or not matched,
+        require a strict composite match of plate, driver national code, origin, and destination.
+        """
         row_doc_no = str(row.get("docNo") or row.get("trackingCode") or "").strip()
         if tracking_code and row_doc_no and row_doc_no == str(tracking_code).strip():
             return True
 
+        # Strict composite match of multiple key attributes
         row_nat_code = str(row.get("driverNationalCode") or "").strip()
         row_car = str(row.get("car") or row.get("PelakNumber") or "").strip()
+        row_src = str(row.get("sourceAddress") or "").strip()
+        row_dst = str(row.get("destAddress") or "").strip()
+        row_date = str(row.get("dateFarsi") or row.get("date") or "").strip()
 
-        matches = 0
-        checks = 0
+        plate_matched = bool(plate_number and (plate_number in row_car or row_car in plate_number))
+        nat_matched = bool(national_code and (national_code in row_nat_code))
+        origin_matched = bool(origin_city and (origin_city in row_src))
+        dest_matched = bool(dest_city and (dest_city in row_dst))
+        date_matched = bool(business_date and (business_date in row_date)) if business_date else True
 
-        if national_code:
-            checks += 1
-            if national_code in row_nat_code:
-                matches += 1
+        # Strict composite: Plate + Driver NatCode + Route (Origin + Destination)
+        if plate_matched and nat_matched and origin_matched and dest_matched and date_matched:
+            return True
 
-        if plate_number:
-            checks += 1
-            if plate_number in row_car:
-                matches += 1
-
-        if origin_city:
-            checks += 1
-            row_src = str(row.get("sourceAddress") or "")
-            if origin_city in row_src:
-                matches += 1
-
-        if dest_city:
-            checks += 1
-            row_dst = str(row.get("destAddress") or "")
-            if dest_city in row_dst:
-                matches += 1
-
-        return checks > 0 and matches >= min(2, checks)
+        return False
 
 
 reconciliation_scraper = UTCMSReconciliationScraper()

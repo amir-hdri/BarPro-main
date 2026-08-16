@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckIcon,
@@ -181,7 +181,7 @@ export default function NewWaybillPage() {
   const [scheduleStartDate, setScheduleStartDate] = useState("");
   const [scheduleEndDate, setScheduleEndDate] = useState("");
 
-  const loadDriversAndPlates = async () => {
+  const loadDriversAndPlates = useCallback(async () => {
     if (role !== "client" && role !== "master_admin") {
       setLoadingDrivers(false);
       return;
@@ -209,11 +209,11 @@ export default function NewWaybillPage() {
       });
     }
     setLoadingDrivers(false);
-  };
+  }, [role]);
 
   useEffect(() => {
     void loadDriversAndPlates();
-  }, [role]);
+  }, [loadDriversAndPlates]);
 
 
   const selectedDriver = useMemo(

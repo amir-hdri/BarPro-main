@@ -77,15 +77,17 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
 
         self.mock_location_selector.select_location = AsyncMock()
         self.mock_route_calculator.calculate_distance = AsyncMock()
+        self.mock_map_controller.wait_for_route_calculation = AsyncMock()
+        self.mock_map_controller.extract_route_info = AsyncMock(return_value=None)
 
         self.manager._handle_submit_captcha_if_present = AsyncMock()
         self.manager._is_waybill_form_ready = AsyncMock(return_value=True)
         self.manager._ensure_waybill_form_page = AsyncMock()
+        self.manager._detect_otp_required = AsyncMock(return_value=False)
+        self.manager._check_otp_after_submit = AsyncMock(return_value=None)
         self.manager.smart_locator = AsyncMock()
 
         def mock_locate(page, selectors, *args, **kwargs):
-            if any("otp" in str(sel).lower() for sel in selectors):
-                raise Exception("OTP selector not present in mock")
             return AsyncMock()
 
         self.manager.smart_locator.locate = AsyncMock(side_effect=mock_locate)
@@ -244,7 +246,10 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         result = await self.manager.create_waybill_with_map(data)
 
         self.mock_route_calculator.calculate_distance.assert_not_called()
-        self.assertIsNone(result.get("route"))
+        self.assertEqual(result.get("route", {}).get("source"), "user_text")
+        self.assertFalse(result.get("route", {}).get("coordinates_used"))
+
+
 
     async def test_fill_financial_info(self):
         """Test financial info filling logic."""
@@ -296,7 +301,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
 
     async def test_detect_otp_required_uses_submit_state_first(self):
         self.mock_page.query_selector = AsyncMock(return_value=None)
-
+        self.manager._detect_otp_required = EnhancedWaybillManager._detect_otp_required.__get__(self.manager)
         detected = await self.manager._detect_otp_required(submit_state={"document_id": 1, "is_otp_needed": True})
 
         self.assertTrue(detected)

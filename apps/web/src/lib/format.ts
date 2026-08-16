@@ -119,8 +119,8 @@ export function statusTone(status: string): string {
 
 export function errorCategoryLabel(category?: string | null): string {
   const map: Record<string, string> = {
-    submission_unconfirmed: 'موفق (در انتظار استخراج کد رهگیری)',
-    submission_unknown: 'خطای غیرمنتظره در ثبت',
+    submission_unconfirmed: 'در انتظار تطبیق و استخراج کد رهگیری (غیرقطعی)',
+    submission_unknown: 'ثبت غیرقطعی (نیاز به تطبیق)',
     driver_submission_in_progress: 'ارسال همزمان بارنامه برای این راننده در جریان است',
     invalid_driver_info: 'اطلاعات راننده یا نام کاربری سامانه نامعتبر است',
     incomplete_waybill_info: 'اطلاعات فرم بارنامه ناقص است',

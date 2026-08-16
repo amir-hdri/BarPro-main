@@ -616,56 +616,55 @@ class LocationSelector:
 
     async def select_location(self, location_data: dict[str, Any], origin: bool = True) -> dict[str, Any]:
         """
-        انتخاب مکان با استفاده از بهترین روش موجود
-
-        اولویت:
-        ۱. Fast-path UTCMS (انتخابگرهای مستقیم)
-        ۲. جستجوی نقشه داخلی (Select2)
-        ۳. آدرس مورد علاقه (favorite)
-        ۴. مختصات صریح، نقشه
-        ۵. منوی کشویی آبشاری
-        ۶. ورودی متنی
+        انتخاب مکان با اولویت حالت user_text:
+        در حالت user_text منحصراً از فیلدهای مستقیم متنی UTCMS (استان، شهر، آدرس) استفاده می‌شود.
+        هیچ‌گونه نقشه، مختصات یا ژئوکدینگ اجرا نخواهد شد.
         """
         prefix = "Origin" if origin else "Destination"
+        has_coords = bool(location_data.get("coordinates"))
+        location_mode = str(
+            location_data.get("location_mode")
+            or location_data.get("route_source")
+            or ("map" if has_coords else "user_text")
+        ).strip().lower()
+
         logger.info(
             "location_selection_started",
-            extra={"extra_fields": {"prefix": prefix, "location_data": location_data}},
+            extra={"extra_fields": {"prefix": prefix, "location_mode": location_mode, "location_data": location_data}},
         )
 
-        # Ensure the correct pill is visible before doing anything
+        # 1. Ensure the correct pill is active
         await self._ensure_location_tab_active(prefix)
         await asyncio.sleep(0.06)
 
+        # ── جریان اجباری user_text ─────────────────────────────────────────────
+        if location_mode == "user_text" or not has_coords:
+            # Enforce user_text flow directly
+            result = await self._try_utcms_direct_fill(location_data, prefix)
+            if result.get("success"):
+                logger.info(
+                    "utcms_user_text_location_selection_succeeded",
+                    extra={"extra_fields": {"prefix": prefix, "result": result}},
+                )
+                return result
+
+            # If user_text mode was explicitly specified, fail immediately
+            if location_data.get("location_mode") == "user_text" or location_data.get("route_source") == "user_text":
+                error_msg = result.get("error") or f"انتخاب مکان متنی ({prefix}) ناموفق بود"
+                logger.error(
+                    "utcms_user_text_location_selection_failed",
+                    extra={"extra_fields": {"prefix": prefix, "error": error_msg, "location_data": location_data}},
+                )
+                raise LocationSelectionError(f"خطای انتخاب مکان ({prefix}): {error_msg}")
+
+
+
+        # Fallback for legacy mode
+        favorite_result = await self._try_favorite_address_selection(location_data, prefix)
+        if favorite_result.get("success"):
+            return favorite_result
+
         coordinates = location_data.get("coordinates")
-        if coordinates and (not location_data.get("province") or not location_data.get("city")):
-            rev = await self._fetch_reverse_geocode(coordinates.get("lat"), coordinates.get("lng"))
-            if not rev:
-                logger.info(
-                    "native_reverse_geocode_failed_falling_back_to_osm",
-                    extra={"extra_fields": {"lat": coordinates.get("lat"), "lng": coordinates.get("lng")}},
-                )
-                rev = await self._reverse_geocode(coordinates.get("lat"), coordinates.get("lng"))
-            if rev:
-                location_data["province"] = location_data.get("province") or rev.get("province")
-                location_data["city"] = location_data.get("city") or rev.get("city") or rev.get("county")
-                location_data["address"] = (
-                    location_data.get("address") or rev.get("address_compact") or rev.get("district")
-                )
-                logger.info(
-                    "location_augmented_with_reverse_geocode",
-                    extra={"extra_fields": {"prefix": prefix, "location_data": location_data}},
-                )
-
-        # ── ۱. Fast-path: UTCMS direct dropdown fill ────────────────────
-        utcms_result = await self._try_utcms_direct_fill(location_data, prefix)
-        if utcms_result["success"]:
-            logger.info("utcms_direct_fill_succeeded", extra={"extra_fields": {"prefix": prefix}})
-            return utcms_result
-        logger.warning(
-            "utcms_direct_fill_failed_falling_back",
-            extra={"extra_fields": {"prefix": prefix, "error": utcms_result.get("error")}},
-        )
-
         selectors = {
             "province": self._build_formatted_selectors(
                 LocationSelectors.PROVINCE_TEMPLATES,
@@ -680,124 +679,53 @@ class LocationSelector:
                 prefix=prefix,
             ),
         }
-        dropdown_runtime = await self._assess_dropdown_runtime(selectors, prefix)
 
-        dropdown_result = {
-            "success": False,
-            "method": "dropdown",
-            "error": "skipped_by_runtime",
-            "runtime": dropdown_runtime,
-        }
-
-        # ── ۲. آدرس مورد علاقه ─────────────────────────────────────
-        favorite_result = await self._try_favorite_address_selection(location_data, prefix)
-        if favorite_result["success"]:
-            return favorite_result
-        logger.warning(
-            "favorite_address_selection_failed_falling_back",
-            extra={"extra_fields": {"prefix": prefix, "error": favorite_result.get("error")}},
-        )
-
-        # ── ۳. جستجوی ماپ داخلی ─────────────────────────────────────
-        map_search_result = {"success": False, "error": "Not attempted"}
-        if not coordinates or coordinates.get("lat") is None or coordinates.get("lng") is None:
-            map_search_result = await self._try_internal_map_search(location_data, prefix)
-            if map_search_result["success"]:
-                return map_search_result
-            logger.warning(
-                "internal_map_search_failed_falling_back",
-                extra={"extra_fields": {"prefix": prefix, "error": map_search_result.get("error")}},
-            )
-
-        # ── ۴. منوی کشویی آبشاری ─────────────────────────────────────
-        if not coordinates or coordinates.get("lat") is None or coordinates.get("lng") is None:
-            if dropdown_runtime.get("viable"):
-                dropdown_result = await self._try_dropdown_selection(location_data, prefix, selectors=selectors)
-                if dropdown_result["success"]:
-                    return dropdown_result
-                logger.warning(
-                    "dropdown_selection_failed_falling_back",
-                    extra={
-                        "extra_fields": {
-                            "prefix": prefix,
-                            "error": dropdown_result.get("error"),
-                            "runtime": dropdown_runtime,
-                        }
-                    },
-                )
-            else:
-                logger.info(
-                    "dropdown_selection_skipped",
-                    extra={"extra_fields": {"prefix": prefix, "runtime": dropdown_runtime}},
-                )
-
-        # ── ۵. Geocoding + مختصات صریح ──────────────────────────────────
-        inferred_coordinates = None
-        if not coordinates or coordinates.get("lat") is None or coordinates.get("lng") is None:
-            inferred_coordinates = await self._geocode_address(location_data)
-            if inferred_coordinates:
-                coordinates = inferred_coordinates
-                location_data = {**location_data, "coordinates": inferred_coordinates}
-                logger.info(
-                    "location_geocoded_for_fallback",
-                    extra={"extra_fields": {"prefix": prefix, "location_data": location_data}},
-                )
-
-        explicit_coords_result = {"success": False, "error": "بدون مختصات"}
+        # 1. Try explicit coordinates
         if coordinates and coordinates.get("lat") is not None and coordinates.get("lng") is not None:
             explicit_coords_result = await self._try_explicit_coordinates(location_data, prefix)
-            if explicit_coords_result["success"]:
+            if explicit_coords_result.get("success"):
                 return explicit_coords_result
-            logger.info(
-                "explicit_coordinates_failed_falling_back",
-                extra={"extra_fields": {"prefix": prefix, "error": explicit_coords_result.get("error")}},
+
+
+        # 2. Try map selection
+        map_result = await self._try_map_selection(location_data, prefix, selectors=selectors)
+        if map_result.get("success"):
+            return map_result
+
+        # 3. Try dropdown selection
+        dropdown_result = await self._try_dropdown_selection(location_data, prefix, selectors=selectors)
+        if dropdown_result.get("success"):
+            return dropdown_result
+
+        raise LocationSelectionError(f"انتخاب مکان بر اساس نقشه ({prefix}) با شکست مواجه شد: {map_result.get('error') or dropdown_result.get('error')}")
+
+
+    async def _read_element_value(self, selector: str) -> str:
+        """بازخوانی مقدار متنی یک input یا textarea از DOM."""
+        try:
+            val = await self.page.eval_on_selector(
+                self._make_visible_selector(selector),
+                "el => (el.value || el.innerText || el.textContent || '').trim()",
             )
+            return str(val or "").strip()
+        except Exception:
+            return ""
 
-        # ── ۶. نقشه با کلیک ─────────────────────────────────────────
-        map_result = {"success": False, "error": "بدون مختصات"}
-        if coordinates and coordinates.get("lat") is not None and coordinates.get("lng") is not None:
-            map_result = await self._try_map_selection(location_data, prefix, selectors=selectors)
-            if map_result["success"]:
-                if inferred_coordinates:
-                    map_result["method"] = "map_geocoded"
-                return map_result
-            logger.warning(
-                "map_selection_failed_falling_back",
-                extra={"extra_fields": {"prefix": prefix, "error": map_result.get("error")}},
+    async def _read_selected_option(self, selector: str) -> dict[str, str]:
+        """بازخوانی مقدار و متن گزینه انتخاب‌شده در یک select از DOM."""
+        try:
+            return await self.page.eval_on_selector(
+                self._make_visible_selector(selector),
+                """el => {
+                    const opt = el.selectedOptions ? el.selectedOptions[0] : null;
+                    return {
+                        value: (el.value || '').trim(),
+                        text: opt ? (opt.text || opt.innerText || '').trim() : ''
+                    };
+                }""",
             )
-
-        if (
-            coordinates and coordinates.get("lat") is not None and coordinates.get("lng") is not None
-        ) and not inferred_coordinates:
-            if dropdown_runtime.get("viable"):
-                dropdown_result = await self._try_dropdown_selection(location_data, prefix, selectors=selectors)
-                if dropdown_result["success"]:
-                    return dropdown_result
-                logger.warning(
-                    "dropdown_selection_failed_falling_back",
-                    extra={
-                        "extra_fields": {
-                            "prefix": prefix,
-                            "error": dropdown_result.get("error"),
-                            "runtime": dropdown_runtime,
-                        }
-                    },
-                )
-
-        # ── ۷. ورودی متنی ─────────────────────────────────────────────
-        text_result = await self._try_text_input(location_data, prefix)
-        if text_result["success"]:
-            return text_result
-
-        raise LocationSelectionError(
-            f"همه روش‌های انتخاب مکان ({prefix}) با شکست مواجه شدند. "
-            f"UTCMS: {utcms_result.get('error')} | "
-            f"Favorite: {favorite_result.get('error')} | "
-            f"MapSearch: {map_search_result.get('error')} | "
-            f"نقشه: {map_result.get('error')} | "
-            f"Dropdown: {dropdown_result.get('error')} | "
-            f"متن: {text_result.get('error')}"
-        )
+        except Exception:
+            return {"value": "", "text": ""}
 
     async def _try_utcms_direct_fill(
         self,
@@ -805,8 +733,16 @@ class LocationSelector:
         prefix: str,
     ) -> dict[str, Any]:
         """
-        Fast-path مخصوص UTCMS: به جای جستجوی دینامیک،
-        مستقیماً با #ddStateSource / #ddCitySource / #txtAddressSource کار می‌کند
+        ترتیب استاندارد و اجباری انتخاب مکان در حالت user_text:
+        ۱. فعال‌سازی تب
+        ۲. انتخاب استان
+        ۳. انتظار برای لود AJAX شهرها
+        ۴. انتخاب شهر (تطابق یکتا، بدون حدس اولین گزینه)
+        ۵. Read-back شهر (مقدار و برچسب)
+        ۶. پر کردن آدرس متنی
+        ۷. Read-back آدرس متنی
+        ۸. بررسی خطاهای اعتبارسنجی
+        ۹. بازگرداندن نتیجه مطمئن
         """
         is_origin = prefix in {"Origin", "Source", "origin", "source"}
         utcms = self._get_utcms_selectors(is_origin)
@@ -815,95 +751,144 @@ class LocationSelector:
         district = (location_data.get("district") or "").strip()
         address = (location_data.get("address") or "").strip()
 
-        if not province and not city:
-            return {"success": False, "method": "utcms_direct", "error": "استان یا شهر داده نشده است"}
+        if not province or not city or not address:
+            return {
+                "success": False,
+                "method": "utcms_direct_text",
+                "error": f"اطلاعات مسیر ناقص است ({prefix}): استان='{province}', شهر='{city}', آدرس='{address}'",
+            }
 
         try:
-            # ۱. صبر برای لود شدن گزینه‌های استان
+            # ۱. اطمینان از فعال بودن تب
+            await self._ensure_location_tab_active(prefix)
+
+            # ۲. انتظار و بارگذاری گزینه‌های استان
             province_ready = await self._wait_for_select_options(
                 utcms["province"],
                 min_real_options=1,
-                timeout_ms=3000,
+                timeout_ms=4000,
             )
             if not province_ready:
                 return {
                     "success": False,
-                    "method": "utcms_direct",
-                    "error": "گزینه‌های استان بارگذاری نشدند",
+                    "method": "utcms_direct_text",
+                    "error": f"گزینه‌های استان ({prefix}) در بازه زمانی تعیین‌شده بارگذاری نشدند",
                 }
 
-            # Log current options for debugging
-            for sel in utcms["province"][:2]:
-                await self._log_select_diagnostics(sel, f"{prefix} province (utcms)", province)
-
-            # ۲. انتخاب استان
+            # انتخاب استان
             province_selected = await self._select_from_options(utcms["province"], province)
             if not province_selected:
                 return {
                     "success": False,
-                    "method": "utcms_direct",
-                    "error": f"انتخاب استان '{province}' ناموفق بود",
+                    "method": "utcms_direct_text",
+                    "error": f"انتخاب استان '{province}' در فرم ({prefix}) ناموفق بود",
                 }
 
-            # ۳. صبر برای cascade شهر (AJAX بعد از انتخاب استان)
+            # Read-back استان
+            province_readback = await self._read_selected_option(utcms["province"][0])
+            norm_prov_target = self._normalize_text(province)
+            norm_prov_read = self._normalize_text(province_readback.get("text", ""))
+            if not province_readback.get("value") or (norm_prov_target not in norm_prov_read and norm_prov_read not in norm_prov_target):
+                return {
+                    "success": False,
+                    "method": "utcms_direct_text",
+                    "error": f"عدم تطابق Read-back استان ({prefix}): مورد انتظار='{province}'، بازخوانی‌شده='{province_readback.get('text')}'",
+                }
+
+            # ۳. انتظار برای بارگذاری AJAX گزینه‌های شهر بعد از انتخاب استان
             city_ready = await self._wait_for_select_options(
                 utcms["city"],
                 min_real_options=1,
-                timeout_ms=4000,
+                timeout_ms=5000,
             )
             if not city_ready:
-                logger.warning(
-                    "utcms_direct_city_options_not_ready",
-                    extra={"extra_fields": {"prefix": prefix, "province": province}},
-                )
+                return {
+                    "success": False,
+                    "method": "utcms_direct_text",
+                    "error": f"گزینه‌های شهر برای استان '{province}' ({prefix}) پس از درخواست AJAX بارگذاری نشدند",
+                }
 
-            for sel in utcms["city"][:2]:
-                await self._log_select_diagnostics(sel, f"{prefix} city (utcms)", city)
-
-            # ۴. انتخاب شهر
+            # ۴. انتخاب شهر بر اساس تطابق یکتا (بدون حدس اولین گزینه)
             city_selected = await self._select_from_options(utcms["city"], city)
             if not city_selected:
-                logger.warning(
-                    "utcms_direct_city_selection_failed",
-                    extra={"extra_fields": {"prefix": prefix, "city": city}},
-                )
-                # در صورت ناموفقی شهر، همچنان ادامه می‌دهیم و آدرس را پر می‌کنیم
+                return {
+                    "success": False,
+                    "method": "utcms_direct_text",
+                    "error": f"شهر '{city}' در میان گزینه‌های استان '{province}' ({prefix}) یافت نشد",
+                }
 
-            # ۵. انتخاب منطقه (اختیاری)
-            if district:
-                district_ready = await self._wait_for_select_options(
-                    utcms["district"],
-                    min_real_options=1,
-                    timeout_ms=2000,
-                )
-                if district_ready:
-                    await self._select_from_options(utcms["district"], district)
+            # ۵. Read-back شهر (مقدار و برچسب)
+            city_readback = await self._read_selected_option(utcms["city"][0])
+            norm_city_target = self._normalize_text(city)
+            norm_city_read = self._normalize_text(city_readback.get("text", ""))
+            if not city_readback.get("value") or (norm_city_target not in norm_city_read and norm_city_read not in norm_city_target):
+                return {
+                    "success": False,
+                    "method": "utcms_direct_text",
+                    "error": f"عدم تطابق Read-back شهر ({prefix}): مورد انتظار='{city}'، بازخوانی‌شده='{city_readback.get('text')}'",
+                }
 
-            # ۶. پر کردن آدرس
-            if address:
-                addr_filled = False
-                for sel in utcms["address"]:
-                    filled = await self._fill_input_like(sel, address)
-                    if filled:
-                        addr_filled = True
-                        break
-                if not addr_filled:
-                    logger.warning(
-                        "utcms_direct_address_fill_failed",
-                        extra={"extra_fields": {"prefix": prefix, "selectors": utcms["address"]}},
-                    )
+            # ۶. پر کردن آدرس متنی در textarea
+            addr_filled = False
+            for sel in utcms["address"]:
+                filled = await self._fill_input_like(sel, address)
+                if filled:
+                    addr_filled = True
+                    break
+
+            if not addr_filled:
+                return {
+                    "success": False,
+                    "method": "utcms_direct_text",
+                    "error": f"درج آدرس در فیلد متنی ({prefix}) ناموفق بود",
+                }
+
+            # ۷. Read-back آدرس متنی از DOM
+            addr_readback = await self._read_element_value(utcms["address"][0])
+            if not addr_readback or self._normalize_text(addr_readback) != self._normalize_text(address):
+                return {
+                    "success": False,
+                    "method": "utcms_direct_text",
+                    "error": f"عدم تطابق Read-back آدرس ({prefix}): مورد انتظار='{address}'، بازخوانی‌شده='{addr_readback}'",
+                }
+
+            # ۸. بررسی خطاهای احتمالی فرم
+            pane_id = "#pills-5" if is_origin else "#pills-6"
+            has_error = await self.page.eval_on_selector(
+                pane_id,
+                """el => {
+                    const err = el.querySelector('.text-danger:not(:empty), .field-validation-error:not(:empty)');
+                    return err ? err.innerText.trim() : null;
+                }""",
+            )
+            if has_error:
+                return {
+                    "success": False,
+                    "method": "utcms_direct_text",
+                    "error": f"خطای اعتبارسنجی فرم ({prefix}): {has_error}",
+                }
 
             return {
                 "success": True,
-                "method": "utcms_direct",
+                "method": "utcms_direct_text",
+                "route_source": "user_text",
+                "coordinates_used": False,
                 "province": province,
                 "city": city,
                 "district": district,
                 "address": address,
+                "readback": {
+                    "province_text": province_readback.get("text"),
+                    "province_value": province_readback.get("value"),
+                    "city_text": city_readback.get("text"),
+                    "city_value": city_readback.get("value"),
+                    "address": addr_readback,
+                },
             }
 
         except Exception as exc:
-            return {"success": False, "method": "utcms_direct", "error": str(exc)}
+            return {"success": False, "method": "utcms_direct_text", "error": str(exc)}
+
 
     async def _fill_coordinate_hidden_fields(self, lat: float, lng: float, prefix: str) -> bool:
         """تلاش برای یافتن و پر کردن hidden fields مربوط به مختصات"""
@@ -1859,21 +1844,28 @@ class LocationSelector:
             if target_clean and (target_clean == norm_text or target_clean == norm_val):
                 return option_value or option_text
 
-        # ۳. تطابق عبارت فرعی (Substring Match)
-        best_value = None
+        # ۳. تطابق عبارت فرعی (Substring Match) - فقط در صورت یکتا بودن تطابق
+        matches: list[str] = []
         for option in raw_options:
             option_text = str(option.get("text") or "").strip()
             option_value = str(option.get("value") or "").strip()
             norm_text = self._normalize_text(option_text)
             norm_val = self._normalize_text(option_value)
 
-            if norm_text == "undefined" or norm_val == "undefined":
+            if norm_text == "undefined" or norm_val == "undefined" or not (norm_text or norm_val):
                 continue
 
             if target_clean in norm_text or target_clean in norm_val or norm_text in target_clean:
-                best_value = option_value or option_text
+                val = option_value or option_text
+                if val not in matches:
+                    matches.append(val)
 
-        return best_value
+        # در صورتی که دقیقاً یک گزینه تطابق داشته باشد آن را انتخاب می‌کنیم (عدم حدس در صورت وجود چند گزینه)
+        if len(matches) == 1:
+            return matches[0]
+
+        return None
+
 
     async def _select_from_options(self, selectors: list[str], value: str) -> bool:
         """انتخاب گزینه از منوی کشویی بر اساس متن یا مقدار"""

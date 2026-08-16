@@ -203,7 +203,7 @@ BarPro/
 │   ├── squid/squid_*.conf
 │   ├── prometheus/prometheus.yml
 │   └── logging/logrotate.conf
-├── alembic/                # Database migrations; current head 032_worker_registry_ip_index
+├── alembic/                # Database migrations; current head 033_utcms_submission_gate_and_job_mutation
 ├── tests/                  # Pytest test suite
 ├── scripts/                # Utility and deploy scripts
 └── deploy/                 # Deployment configs
@@ -263,7 +263,20 @@ docker compose -f compose/monitoring.yml up  # Prometheus only
 
 Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhanced → Local in sequence.
 
-## Optimization Applied (2026-06-30 → 2026-08-13)
+## Optimization Applied (2026-06-30 → 2026-08-16)
+
+### 2026-08-16 — v2.8.0 UTCMS RPA Hardening & Mutation Safety
+| Change | File | Impact |
+|--------|------|--------|
+| `_click_once_no_retry` At-Most-Once submit click | `automation/waybill_enhanced.py` | Eliminates double-click duplicate waybill submissions on target closed/navigation errors |
+| Adaptive OTP Gate & Predicted Window | `services/utcms_submission_gate.py` | 18:00-08:00 defined as predicted OTP_REQUIRED; only confirmed OTP_FREE allows submission |
+| Beat periodic gate probe task `barpro.gate.probe` | `workers/tasks.py` + `workers/celery_app.py` | Low-rate background probe maintains live gate status under Redis distributed lock |
+| Global canonical idempotency & plate inclusion | `core/submission_identity.py` + `services/task_service.py` | Deterministic digest without random/volatile correlation IDs; duplicate dispatch returns existing job |
+| Strict exact/unique cargo & packaging match | `automation/waybill_enhanced.py` | Eliminates guessing first option (`items[0]`, `search_results[0]`); invalid inputs fail fast |
+| Pure text route validation (GPS independence) | `services/management_service.py` + `automation/location_selector.py` | Location readiness verified by city and address strings without GPS coordinates dependency |
+| Three-Witness Reconciliation & Eventual Consistency | `orchestrator/utcms_reconciliation_scraper.py` + `orchestrator/reconciliation_service.py` | Full DataTables payload on `/barname/History/History`; composite multi-attribute match |
+| Frontend unconfirmed status clarity | `apps/web/src/lib/format.ts` | `submission_unconfirmed` displayed as unconfirmed/reconciling, never falsely as success |
+| OpenTelemetry shutdown debug logging | `core/tracing.py` | Replaced `except: pass` with debug logging |
 
 ### 2026-08-13 — v2.7.0 Authentication & Network Layer
 | Change | File | Impact |

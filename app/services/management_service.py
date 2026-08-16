@@ -98,25 +98,26 @@ def _extract_coordinates(details: dict[str, Any]) -> tuple[float | None, float |
 
 
 def _build_route_key(source: dict[str, Any], destination: dict[str, Any], fallback_name: str | None = None) -> str:
-    seed = {
-        "fallback_name": fallback_name or "",
-        "source": {
-            "province": source.get("province"),
-            "city": source.get("city"),
-            "address": source.get("address_compact") or source.get("postal_address") or source.get("address"),
-            "coordinates": (source.get("geom") or {}).get("coordinates"),
-        },
-        "destination": {
-            "province": destination.get("province"),
-            "city": destination.get("city"),
-            "address": destination.get("address_compact")
-            or destination.get("postal_address")
-            or destination.get("address"),
-            "coordinates": (destination.get("geom") or {}).get("coordinates"),
-        },
+    """
+    Build a deterministic canonical route key based exclusively on user text fields:
+    province + city + district + address. Coordinates are excluded from identity.
+    """
+    from app.automation.multitenant_payload_adapter import compute_canonical_route_key
+
+    origin_dict = {
+        "province": source.get("province"),
+        "city": source.get("city"),
+        "district": source.get("district") or source.get("county"),
+        "address": source.get("address_compact") or source.get("postal_address") or source.get("address"),
     }
-    digest = hashlib.sha256(_safe_json_dump(seed).encode("utf-8")).hexdigest()[:20]
-    return f"route-{digest}"
+    dest_dict = {
+        "province": destination.get("province"),
+        "city": destination.get("city"),
+        "district": destination.get("district") or destination.get("county"),
+        "address": destination.get("address_compact") or destination.get("postal_address") or destination.get("address"),
+    }
+    return compute_canonical_route_key(origin_dict, dest_dict)
+
 
 
 def _slug_text(value: str | None, fallback: str) -> str:
@@ -773,7 +774,12 @@ class ManagementService:
                 has_account_is_enabled=True,
                 has_driver_data=bool(account_national_code),
                 has_truck_data=bool(getattr(payload.vehicle, "plate", None)),
-                has_valid_location=bool(payload.origin.coordinates and payload.destination.coordinates),
+                has_valid_location=bool(
+                    getattr(payload.origin, "city", None)
+                    and getattr(payload.origin, "address", None)
+                    and getattr(payload.destination, "city", None)
+                    and getattr(payload.destination, "address", None)
+                ),
                 start_shipping=request.start_shipping,
                 two_way=two_way,
                 custom_current_submit=request.custom_current_submit,

@@ -345,3 +345,12 @@ if celery_app is not None:
         from app.services.fuel_inquiry_service import fuel_inquiry_service
 
         return _run_async(fuel_inquiry_service.cleanup_stale_inquiries())
+
+    @celery_app.task(name="barpro.gate.probe")
+    def probe_utcms_gate():
+        """Periodic low-rate probe for UTCMS submission gate (OTP status)."""
+        import socket
+        from app.services.utcms_submission_gate import utcms_submission_gate
+
+        worker_id = f"gate-probe-{socket.gethostname()}"
+        return _run_async(utcms_submission_gate.perform_periodic_probe(worker_id))

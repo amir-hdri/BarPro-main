@@ -593,14 +593,14 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
     """Evaluate a single schedule and create/execute jobs for due timeslots."""
     from zoneinfo import ZoneInfo
 
-    _utcnow()
+    now_utc = _utcnow()
     tz_name = schedule.timezone or "Asia/Tehran"
     try:
         local_tz = ZoneInfo(tz_name)
     except Exception:
         local_tz = ZoneInfo("Asia/Tehran")
 
-    local_now = datetime.now(local_tz)
+    local_now = now_utc.replace(tzinfo=UTC).astimezone(local_tz)
     today = local_now.date()
     current_hhmm = local_now.strftime("%H:%M")
 

@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 
 from app.core.business_time import business_date_str
@@ -94,7 +95,26 @@ class RPASchedulerService:
             await self._record_event(
                 session, client_id, driver.id, job.job_id, JOB_CREATED, {"priority": priority, "source": source.value}
             )
-            await session.commit()
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                for attempt in range(5):
+                    await asyncio.sleep(0.05 * (attempt + 1))
+                    existing = (
+                        await session.exec(
+                            select(WaybillJob).where(
+                                WaybillJob.client_id == client_id, WaybillJob.idempotency_key == normalized_key
+                            )
+                        )
+                    ).first()
+                    if existing:
+                        logger.warning(
+                            "concurrent_duplicate_idempotency_key_recovered",
+                            extra={"extra_fields": {"job_id": existing.job_id, "idempotency_key": normalized_key}},
+                        )
+                        return existing
+                raise
             await session.refresh(job)
             return job
 
@@ -405,9 +425,17 @@ class RPASchedulerService:
             await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver_id))
         ).first()
         if state is None:
-            state = DriverRuntimeState(client_id=client_id, driver_id=driver_id)
-            session.add(state)
-            await session.flush()
+            try:
+                async with session.begin_nested():
+                    state = DriverRuntimeState(client_id=client_id, driver_id=driver_id)
+                    session.add(state)
+                    await session.flush()
+            except IntegrityError:
+                state = (
+                    await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver_id))
+                ).first()
+                if state is None:
+                    raise
         elif state.client_id != client_id:
             # Self-heal: correct stale client_id that could have been written by an earlier bug
             logger.warning(

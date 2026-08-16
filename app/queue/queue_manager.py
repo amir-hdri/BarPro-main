@@ -48,10 +48,13 @@ class WaybillQueueManager:
             celery_task_id = (
                 task.get("celery_task_id") if isinstance(task, dict) else getattr(task, "celery_task_id", None)
             )
+            existing_corr = (
+                task.get("correlation_id") if isinstance(task, dict) else getattr(task, "correlation_id", None)
+            )
             return EnqueueWaybillResponse(
                 task_id=task_id,
                 idempotency_key=idempotency_key,
-                correlation_id=payload["correlation_id"],
+                correlation_id=existing_corr or payload["correlation_id"],
                 priority=int(payload.get("priority", utcms_config.CELERY_DEFAULT_PRIORITY)),
                 status=TaskStatus(status_val),
                 queued=status_val in {TaskStatus.QUEUED.value, TaskStatus.RETRYING.value, TaskStatus.PROCESSING.value},

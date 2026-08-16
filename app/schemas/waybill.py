@@ -14,11 +14,13 @@ class GeoCoordinateModel(BaseModel):
 
 
 class LocationModel(BaseModel):
-    province: str
-    city: str
-    district: str | None = None
-    address: str
-    coordinates: GeoCoordinateModel | None = None
+    province: str = Field(..., min_length=1, description="استان")
+    city: str = Field(..., min_length=1, description="شهر")
+    district: str | None = Field(default=None, description="منطقه (در صورت وجود)")
+    address: str = Field(..., min_length=1, description="آدرس متنی")
+    coordinates: GeoCoordinateModel | None = Field(default=None, description="مختصات جغرافیایی (اختیاری، در user_text نادیده گرفته می‌شود)")
+    location_mode: str = Field(default="user_text", description="حالت مکان: پیش‌فرض user_text")
+    route_source: str = Field(default="user_text", description="منبع مسیر: پیش‌فرض user_text")
 
 
 class SenderModel(BaseModel):
@@ -80,6 +82,8 @@ class WaybillMapRequest(BaseModel):
     batch_id: str | None = None
     priority: int = Field(default=5, ge=0, le=9)
     operation_mode: OperationMode = Field(default=OperationMode.SAFE)
+    route_source: str = Field(default="user_text", description="منبع مسیر (پیش‌فرض user_text)")
+    location_mode: str = Field(default="user_text", description="حالت مکان‌یابی (پیش‌فرض user_text)")
     utcms_auth: UTCMSLoginModel | None = Field(
         default=None,
         description="در صورت ارسال، لاگین با اطلاعات همین درخواست انجام می‌شود",

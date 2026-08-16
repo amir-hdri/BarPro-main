@@ -33,16 +33,16 @@ class WaybillTaskService:
 
     @staticmethod
     def build_idempotency_key(payload: dict[str, Any], provided: str | None = None) -> str:
-        if provided is not None:
-            candidate = str(provided).strip()
+        candidate = str(provided).strip() if provided is not None else None
         if candidate:
             if len(candidate) > IDEMPOTENCY_KEY_MAX_LENGTH:
                 digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
                 return f"user-{digest}"
             return candidate
 
-        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-        digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+        from app.core.submission_identity import compute_canonical_payload_digest
+
+        digest = compute_canonical_payload_digest(payload)
         return f"auto-{digest}"
 
     async def create_or_get_task(
@@ -84,10 +84,13 @@ class WaybillTaskService:
                 await session.commit()
             except IntegrityError:
                 await session.rollback()
-                existing = await self._find_by_idempotency_key(session, idempotency_key)
-                if existing:
-                    await self._sync_queue_depth()
-                    return self._to_public_dict(existing), True
+                for attempt in range(5):
+                    await asyncio.sleep(0.05 * (attempt + 1))
+                    async with async_session_factory() as read_session:
+                        existing = await self._find_by_idempotency_key(read_session, idempotency_key)
+                        if existing:
+                            await self._sync_queue_depth()
+                            return self._to_public_dict(existing), True
                 raise
             await session.refresh(task)
             track_task_status(TaskStatus.PENDING.value)

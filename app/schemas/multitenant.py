@@ -372,6 +372,8 @@ class WaybillPayload(BaseModel):
     # Route info
     origin: str = Field(..., max_length=500, description="Origin city/location (text only, no map)")
     destination: str = Field(..., max_length=500, description="Destination city/location (text only, no map)")
+    route_source: str = Field(default="user_text", description="منبع مسیر: user_text")
+    location_mode: str = Field(default="user_text", description="حالت مکان: user_text")
 
     # Waybill details
     waybill_number: str | None = Field(default=None, max_length=100)
@@ -439,6 +441,8 @@ class WaybillPayload(BaseModel):
 class WaybillNestedPayload(BaseModel):
     """Rich nested waybill data matching the frontend and WaybillMapRequest."""
 
+    route_source: str = Field(default="user_text", description="منبع مسیر: user_text")
+    location_mode: str = Field(default="user_text", description="حالت مکان: user_text")
     sender: SenderModel
     receiver: ReceiverModel
     origin: LocationModel

@@ -1265,6 +1265,59 @@ async def _execute_job(
                             await browser_manager.record_success_for_recycle()
                             return result
 
+                    if (
+                        result_status == "unknown"
+                        or result_status == TaskStatus.UNKNOWN.value
+                        or result.get("mutation_status") == "ambiguous"
+                        or result.get("error_category") == ErrorCategory.SUBMISSION_UNCONFIRMED.value
+                    ):
+                        job.mutation_status = "ambiguous"
+                        error_msg = result.get(
+                            "error",
+                            "Waybill submission status ambiguous; reconciliation required",
+                        )
+                        JobStateMachine.transition(
+                            session,
+                            job,
+                            TaskStatus.UNKNOWN.value,
+                            celery_task_id=None,
+                            retryable=False,
+                            last_error=error_msg,
+                            error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                            finished_at=now,
+                        )
+                        runtime_state.state = DriverRuntimeStateValue.READY.value
+                        runtime_state.next_retry_at = None
+                        runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                        await session.commit()
+
+                        await _add_job_log(
+                            session=session,
+                            job_id=job_id,
+                            client_id=job.client_id,
+                            step="mutation_ambiguous",
+                            status="unknown",
+                            message=error_msg,
+                            details_json=result,
+                        )
+                        await _record_event(
+                            session=session,
+                            client_id=job.client_id,
+                            driver_id=job.driver_id,
+                            job_id=job.job_id,
+                            event_type=JOB_EXECUTION_FAILED,
+                            payload={
+                                "status": "unknown",
+                                "error": error_msg,
+                                "error_category": ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                            },
+                        )
+                        logger.warning(
+                            "job_entered_unknown_for_mandatory_reconciliation",
+                            extra={"extra_fields": {"job_id": job_id, "error": error_msg}},
+                        )
+                        return result
+
                     job.last_error = result.get("error", "Unknown error")
                     job.error_category = classify_error_string(
                         error_msg=job.last_error,
@@ -1432,8 +1485,14 @@ async def _execute_job(
 
 def _is_retryable(result: dict[str, Any]) -> bool:
     """Determine if a failed job should be retried."""
+    if result.get("mutation_status") == "ambiguous" or result.get("mutation_attempted") is True:
+        return False
     error_category = str(result.get("error_category", "")).strip().lower()
+    if error_category in ("submission_unconfirmed", "ambiguous_mutation", "duplicate_submission"):
+        return False
     status_hint = str(result.get("status", "")).strip().lower().replace("_", "").replace("-", "")
+    if status_hint in ("unknown", "reconciling"):
+        return False
     retryable_categories = {
         "login_failed",
         "captcha_failed",

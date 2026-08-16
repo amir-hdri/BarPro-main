@@ -15,21 +15,25 @@ from app.services.utcms_submission_gate import TEHRAN_TZ, UTCMSSubmissionGate
 
 @pytest.mark.asyncio
 async def test_adaptive_probe_flow():
-    """Verify that probe under lock sets OTP_FREE on successful configuration and closes on OTP."""
+    """Verify that probe under lock sets OTP_FREE on explicit is_otp_needed=False and closes on OTP."""
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
     async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
 
     gate = UTCMSSubmissionGate()
+    mock_redis = AsyncMock()
+    mock_redis.set = AsyncMock(return_value=True)
+    mock_redis.eval = AsyncMock(return_value=1)
+    mock_redis.get = AsyncMock(return_value=None)
 
     with (
-        patch("app.core.redis_client.redis_manager.get", new=AsyncMock(return_value=None)),
+        patch("app.core.redis_client.redis_manager.get", new=AsyncMock(return_value=mock_redis)),
+        patch("app.services.utcms_submission_gate.redis_manager.get", new=AsyncMock(return_value=mock_redis)),
         patch("app.services.utcms_submission_gate.async_session_factory", async_session),
     ):
-        # 1. Successful probe with cost settings
-        cost_settings = {"otpValidityPeriod": 5, "tajmiiFlag": True}
-        state = await gate.probe_utcms_otp_status("worker-1", cost_settings=cost_settings)
+        # 1. Successful probe with is_otp_needed=False
+        state = await gate.probe_utcms_otp_status("worker-1", is_otp_needed=False)
         assert state == GateStateValue.OTP_FREE
         assert await gate.is_submission_allowed() is True
 

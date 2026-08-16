@@ -43,13 +43,12 @@ def test_compact_payload_does_not_invent_party_or_location_data() -> None:
 
     assert normalized["sender"]["phone"] is None
     assert normalized["receiver"]["phone"] is None
-    assert normalized["origin"] == {
-        "province": "کردستان",
-        "city": "سقز",
-        "district": None,
-        "address": "بزرگراه سقز-دیواندره",
-        "coordinates": None,
-    }
+    assert normalized["origin"]["province"] == "کردستان"
+    assert normalized["origin"]["city"] == "سقز"
+    assert normalized["origin"]["district"] is None
+    assert normalized["origin"]["address"] == "بزرگراه سقز-دیواندره"
+    assert normalized["origin"]["coordinates"] is None
+
     assert normalized["destination"]["province"] == "کردستان"
     assert normalized["destination"]["city"] == "سقز"
 
