@@ -39,7 +39,10 @@ def create_ssh(ip: str, retries: int = 5, delay: int = 3) -> paramiko.SSHClient:
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     for attempt in range(1, retries + 1):
         try:
-            ssh.connect(ip, username="root", password=PWD, timeout=25, banner_timeout=35)
+            ssh.connect(ip, username="root", password=PWD, timeout=30, banner_timeout=45)
+            trans = ssh.get_transport()
+            if trans:
+                trans.set_keepalive(15)
             return ssh
         except Exception as exc:
             print(f"  [SSH] Connection to {ip} attempt {attempt}/{retries} failed: {exc}")
@@ -48,17 +51,53 @@ def create_ssh(ip: str, retries: int = 5, delay: int = 3) -> paramiko.SSHClient:
     raise RuntimeError(f"Could not connect to {ip} after {retries} attempts.")
 
 
-def run_command(ssh: paramiko.SSHClient, cmd: str, timeout: int = 600, print_output: bool = True) -> tuple[int, str, str]:
-    stdin, stdout, stderr = ssh.exec_command(cmd, timeout=timeout)
-    out = stdout.read().decode("utf-8", errors="replace")
-    err = stderr.read().decode("utf-8", errors="replace")
-    status = stdout.channel.recv_exit_status()
-    if print_output:
-        if out.strip():
-            print(out.rstrip())
-        if err.strip():
-            print(f"[STDERR] {err.rstrip()}", file=sys.stderr)
-    return status, out, err
+def run_command(ssh: paramiko.SSHClient, cmd: str, timeout: int = 1800, print_output: bool = True) -> tuple[int, str, str]:
+    transport = ssh.get_transport()
+    if not transport or not transport.is_active():
+        raise RuntimeError("SSH transport is not active.")
+    channel = transport.open_session()
+    channel.settimeout(timeout)
+    channel.exec_command(cmd)
+
+    stdout_chunks = []
+    stderr_chunks = []
+
+    while not channel.exit_status_ready():
+        if channel.recv_ready():
+            chunk = channel.recv(4096).decode("utf-8", errors="replace")
+            if chunk:
+                stdout_chunks.append(chunk)
+                if print_output:
+                    sys.stdout.write(chunk)
+                    sys.stdout.flush()
+        if channel.recv_stderr_ready():
+            err_chunk = channel.recv_stderr(4096).decode("utf-8", errors="replace")
+            if err_chunk:
+                stderr_chunks.append(err_chunk)
+                if print_output:
+                    sys.stderr.write(err_chunk)
+                    sys.stderr.flush()
+        time.sleep(0.1)
+
+    # Read remaining
+    while channel.recv_ready():
+        chunk = channel.recv(4096).decode("utf-8", errors="replace")
+        if chunk:
+            stdout_chunks.append(chunk)
+            if print_output:
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
+    while channel.recv_stderr_ready():
+        err_chunk = channel.recv_stderr(4096).decode("utf-8", errors="replace")
+        if err_chunk:
+            stderr_chunks.append(err_chunk)
+            if print_output:
+                sys.stderr.write(err_chunk)
+                sys.stderr.flush()
+
+    status = channel.recv_exit_status()
+    channel.close()
+    return status, "".join(stdout_chunks), "".join(stderr_chunks)
 
 
 def main():
