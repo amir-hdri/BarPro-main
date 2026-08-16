@@ -621,12 +621,7 @@ class LocationSelector:
         هیچ‌گونه نقشه، مختصات یا ژئوکدینگ اجرا نخواهد شد.
         """
         prefix = "Origin" if origin else "Destination"
-        has_coords = bool(location_data.get("coordinates"))
-        location_mode = str(
-            location_data.get("location_mode")
-            or location_data.get("route_source")
-            or ("map" if has_coords else "user_text")
-        ).strip().lower()
+        location_mode = "user_text"
 
         logger.info(
             "location_selection_started",
@@ -638,66 +633,20 @@ class LocationSelector:
         await asyncio.sleep(0.06)
 
         # ── جریان اجباری user_text ─────────────────────────────────────────────
-        if location_mode == "user_text" or not has_coords:
-            # Enforce user_text flow directly
-            result = await self._try_utcms_direct_fill(location_data, prefix)
-            if result.get("success"):
-                logger.info(
-                    "utcms_user_text_location_selection_succeeded",
-                    extra={"extra_fields": {"prefix": prefix, "result": result}},
-                )
-                return result
+        result = await self._try_utcms_direct_fill(location_data, prefix)
+        if result.get("success"):
+            logger.info(
+                "utcms_user_text_location_selection_succeeded",
+                extra={"extra_fields": {"prefix": prefix, "result": result}},
+            )
+            return result
 
-            # If user_text mode was explicitly specified, fail immediately
-            if location_data.get("location_mode") == "user_text" or location_data.get("route_source") == "user_text":
-                error_msg = result.get("error") or f"انتخاب مکان متنی ({prefix}) ناموفق بود"
-                logger.error(
-                    "utcms_user_text_location_selection_failed",
-                    extra={"extra_fields": {"prefix": prefix, "error": error_msg, "location_data": location_data}},
-                )
-                raise LocationSelectionError(f"خطای انتخاب مکان ({prefix}): {error_msg}")
-
-
-
-        # Fallback for legacy mode
-        favorite_result = await self._try_favorite_address_selection(location_data, prefix)
-        if favorite_result.get("success"):
-            return favorite_result
-
-        coordinates = location_data.get("coordinates")
-        selectors = {
-            "province": self._build_formatted_selectors(
-                LocationSelectors.PROVINCE_TEMPLATES,
-                prefix=prefix,
-            ),
-            "city": self._build_formatted_selectors(
-                LocationSelectors.CITY_TEMPLATES,
-                prefix=prefix,
-            ),
-            "district": self._build_formatted_selectors(
-                LocationSelectors.DISTRICT_TEMPLATES,
-                prefix=prefix,
-            ),
-        }
-
-        # 1. Try explicit coordinates
-        if coordinates and coordinates.get("lat") is not None and coordinates.get("lng") is not None:
-            explicit_coords_result = await self._try_explicit_coordinates(location_data, prefix)
-            if explicit_coords_result.get("success"):
-                return explicit_coords_result
-
-
-        # 2. Try map selection
-        map_result = await self._try_map_selection(location_data, prefix, selectors=selectors)
-        if map_result.get("success"):
-            return map_result
-
-        # 3. Try dropdown selection
-        dropdown_result = await self._try_dropdown_selection(location_data, prefix, selectors=selectors)
-        if dropdown_result.get("success"):
-            return dropdown_result
-
-        raise LocationSelectionError(f"انتخاب مکان بر اساس نقشه ({prefix}) با شکست مواجه شد: {map_result.get('error') or dropdown_result.get('error')}")
+        error_msg = result.get("error") or f"انتخاب مکان متنی ({prefix}) ناموفق بود"
+        logger.error(
+            "utcms_user_text_location_selection_failed",
+            extra={"extra_fields": {"prefix": prefix, "error": error_msg, "location_data": location_data}},
+        )
+        raise LocationSelectionError(f"خطای انتخاب مکان ({prefix}): {error_msg}")
 
 
     async def _read_element_value(self, selector: str) -> str:

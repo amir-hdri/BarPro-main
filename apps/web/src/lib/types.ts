@@ -234,6 +234,10 @@ export interface WaybillJob {
   finished_at?: string | null;
   payload_json?: Record<string, unknown> | string | null;
   result_json?: Record<string, unknown> | string | null;
+  mutation_status?: string | null;
+  reconciled_at?: string | null;
+  night_attempt_count?: number;
+  night_attempt_window?: string | null;
   client_name?: string | null;
   client_code?: string | null;
 }

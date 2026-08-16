@@ -69,6 +69,7 @@ async def test_reconcile_job_registered(async_db: AsyncSession):
         driver_id=1,
         payload_json={"origin_city_id": 1, "destination_city_id": 2},
         status=JobStatus.UNKNOWN,
+        mutation_status="dispatched",
     )
     async_db.add(job)
     await async_db.commit()
@@ -107,6 +108,7 @@ async def test_reconcile_job_not_found_eventual_consistency(async_db: AsyncSessi
         driver_id=1,
         payload_json={"origin_city_id": 1, "destination_city_id": 2},
         status=JobStatus.UNKNOWN,
+        mutation_status="dispatched",
     )
     async_db.add(job)
     await async_db.commit()
@@ -134,7 +136,7 @@ async def test_reconcile_job_not_found_eventual_consistency(async_db: AsyncSessi
         assert reconciled_job is not None
         assert reconciled_job.status == JobStatus.RECONCILING
         assert reconciled_job.next_retry_at is not None
-        assert reconciled_job.mutation_status == "intent_recorded"
+        assert reconciled_job.mutation_status == "dispatched"
 
 
 @pytest.mark.asyncio

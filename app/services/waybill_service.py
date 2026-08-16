@@ -494,6 +494,14 @@ class WaybillService:
             "vehicle": request.vehicle.model_dump(),
             "financial": request.financial.model_dump(),
         }
+        # Waybill route is an explicit user-text contract. GPS/map coordinates
+        # may exist for transport telemetry, but must never select or block the
+        # origin/destination used for registration.
+        for endpoint in ("origin", "destination"):
+            payload[endpoint]["coordinates"] = None
+            payload[endpoint]["latitude"] = None
+            payload[endpoint]["longitude"] = None
+            payload[endpoint]["location_mode"] = "user_text"
         if request.shipping_options:
             payload["shipping_options"] = request.shipping_options.model_dump(exclude_none=True)
         return payload

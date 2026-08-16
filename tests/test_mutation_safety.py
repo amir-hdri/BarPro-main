@@ -213,7 +213,11 @@ async def test_timeout_after_submit_transitions_to_unknown_without_retry() -> No
     # Simulate timeout waiting for submit response after click
     manager._consume_json_response = AsyncMock(side_effect=TimeoutError("Response timeout after 30s"))
 
-    result = await manager._submit_waybill(otp_value=None, job_id="job_test_timeout")
+    with patch(
+        "app.services.utcms_submission_gate.utcms_submission_gate.is_submission_allowed",
+        new=AsyncMock(return_value=True),
+    ):
+        result = await manager._submit_waybill(otp_value=None, job_id="job_test_timeout")
 
     assert result["status"] == "unknown"
     assert result["mutation_status"] == "ambiguous"
@@ -241,7 +245,11 @@ async def test_connection_reset_after_submit_transitions_to_unknown_without_retr
     # Simulate connection reset after submit click
     manager._consume_json_response = AsyncMock(side_effect=ConnectionResetError("Connection reset by peer"))
 
-    result = await manager._submit_waybill(otp_value=None, job_id="job_test_reset")
+    with patch(
+        "app.services.utcms_submission_gate.utcms_submission_gate.is_submission_allowed",
+        new=AsyncMock(return_value=True),
+    ):
+        result = await manager._submit_waybill(otp_value=None, job_id="job_test_reset")
 
     assert result["status"] == "unknown"
     assert result["mutation_status"] == "ambiguous"
@@ -278,3 +286,25 @@ async def test_click_once_no_retry_does_not_retry_on_post_click_error() -> None:
     assert error is not None
     assert "closed" in str(error)
 
+
+@pytest.mark.asyncio
+async def test_otp_confirmation_timeout_never_clicks_a_second_selector() -> None:
+    from app.automation.waybill_enhanced import EnhancedWaybillManager
+
+    page = MagicMock()
+    page.on = MagicMock()
+    manager = EnhancedWaybillManager(page, MagicMock())
+    manager._detect_otp_required = AsyncMock(return_value=True)
+    manager.smart_locator.locate = AsyncMock(return_value=MagicMock())
+    manager._fill_otp_value = AsyncMock(return_value=True)
+    manager._wait_for_response_match = AsyncMock(return_value=MagicMock())
+    manager._click_once_no_retry = AsyncMock(return_value=(True, None))
+    manager._wait_for_network_settle = AsyncMock()
+    manager._consume_json_response = AsyncMock(side_effect=TimeoutError("OTP response timeout"))
+
+    result = await manager._handle_otp_if_required("123456", submit_state={"document_id": "42"})
+
+    assert result["status"] == "unknown"
+    assert result["mutation_status"] == "ambiguous"
+    assert result["needs_reconciliation"] is True
+    assert manager._click_once_no_retry.await_count == 1

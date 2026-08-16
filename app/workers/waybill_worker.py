@@ -47,6 +47,7 @@ from app.rpa.event_taxonomy import (
     OTP_DETECTED,
 )
 from app.services.rpa_runtime_service import rpa_runtime
+from app.services.night_submission_policy import register_safe_night_failure
 from app.services.utcms_submission_gate import utcms_submission_gate
 from app.workers.celery_app import celery_app
 
@@ -1125,9 +1126,11 @@ async def _execute_job(
                     except TimeoutError:
                         logger.warning(f"Job {job_id} automation execution timed out after {job_timeout} seconds")
                         result = {
-                            "status": "failed",
+                            "status": "unknown",
                             "error": f"Execution timed out after {job_timeout}s",
-                            "error_category": "system_error",
+                            "error_category": ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                            "mutation_status": "ambiguous",
+                            "needs_reconciliation": True,
                         }
 
                     result_status = str(result.get("status", "")).strip().lower()
@@ -1135,8 +1138,16 @@ async def _execute_job(
 
                     if result_status == "otp_backoff":
                         await utcms_submission_gate.record_otp_detected(worker_id=worker_id, evidence=result)
-                        retry_minutes = int(result.get("next_retry_at_minutes_add", 60))
-                        retry_at = now + timedelta(minutes=retry_minutes)
+                        night_decision = register_safe_night_failure(job)
+                        if night_decision.standby:
+                            retry_at = night_decision.retry_at
+                            error_category = "night_submission_attempts_exhausted"
+                            message = "سه تلاش امن شبانه ناموفق بود؛ ثبت تا ساعت ۰۸:۰۰ تهران در آماده‌باش است"
+                        else:
+                            retry_minutes = int(result.get("next_retry_at_minutes_add", 60))
+                            retry_at = now + timedelta(minutes=retry_minutes)
+                            error_category = "otp_required"
+                            message = result.get("message", "OTP challenge detected")
                         JobStateMachine.transition(
                             session,
                             job,
@@ -1144,9 +1155,9 @@ async def _execute_job(
                             celery_task_id=None,
                             next_retry_at=retry_at,
                             submit_after=retry_at,
-                            last_error=result.get("message", "OTP challenge detected"),
-                            error_category="otp_required",
-                            finished_at=now,
+                            last_error=message,
+                            error_category=error_category,
+                            finished_at=None,
                         )
                         runtime_state.state = DriverRuntimeStateValue.WAITING_SUBMISSION_WINDOW.value
                         runtime_state.next_retry_at = retry_at
@@ -1159,7 +1170,7 @@ async def _execute_job(
                             client_id=job.client_id,
                             step="otp_backoff",
                             status="waiting_submission_window",
-                            message=f"OTP detected. Retrying in {retry_minutes} minutes.",
+                            message=message,
                             details_json=result,
                         )
                         await _record_event(
@@ -1168,7 +1179,12 @@ async def _execute_job(
                             driver_id=job.driver_id,
                             job_id=job.job_id,
                             event_type=OTP_DETECTED,
-                            payload={"retry_at": retry_at.isoformat(), "message": job.last_error},
+                            payload={
+                                "retry_at": retry_at.isoformat(),
+                                "message": job.last_error,
+                                "night_attempt_count": night_decision.attempt_count,
+                                "standby": night_decision.standby,
+                            },
                         )
 
                         logger.info(f"Job {job_id} entered WAITING_SUBMISSION_WINDOW, retry at {job.next_retry_at}")
@@ -1223,20 +1239,23 @@ async def _execute_job(
                             await session.commit()
                             return result
                         else:
-                            job.mutation_status = "confirmed"
+                            job.mutation_status = "dispatched"
                             if isinstance(result_payload, dict) and "document_id" in result_payload and result_payload["document_id"]:
                                 job.document_id = str(result_payload["document_id"])
 
+                            provisional_result = dict(result_payload)
+                            provisional_result["confirmation_status"] = "pending_history_reconciliation"
+                            reconciliation_at = now + timedelta(seconds=15)
                             JobStateMachine.transition(
                                 session,
                                 job,
-                                TaskStatus.SUCCESS.value,
-                                result_json=result_payload,
+                                TaskStatus.UNKNOWN.value,
+                                result_json=provisional_result,
                                 finished_at=now,
-                                last_error=None,
-                                error_category=None,
+                                last_error="Tracking code received; UTCMS History reconciliation is pending",
+                                error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
                                 retryable=False,
-                                next_retry_at=None,
+                                next_retry_at=reconciliation_at,
                             )
                             runtime_state.state = DriverRuntimeStateValue.READY.value
                             runtime_state.next_retry_at = None
@@ -1247,22 +1266,16 @@ async def _execute_job(
                                 session=session,
                                 job_id=job_id,
                                 client_id=job.client_id,
-                                step="complete",
-                                status="success",
-                                message="Waybill registered successfully",
-                                details_json=result_payload,
+                                step="reconciliation_pending",
+                                status="unknown",
+                                message="Tracking code received; waiting for UTCMS History confirmation",
+                                details_json=provisional_result,
                             )
-                            await _record_event(
-                                session=session,
-                                client_id=job.client_id,
-                                driver_id=job.driver_id,
-                                job_id=job.job_id,
-                                event_type=JOB_EXECUTION_SUCCEEDED,
-                                payload={"attempt": job.attempt_count, "tracking_code": tracking_code},
-                            )
-
-                            logger.info(f"Job {job_id} completed successfully")
+                            logger.info("Job %s submitted and queued for mandatory reconciliation", job_id)
                             await browser_manager.record_success_for_recycle()
+                            result["status"] = TaskStatus.UNKNOWN.value
+                            result["mutation_status"] = "dispatched"
+                            result["needs_reconciliation"] = True
                             return result
 
                     if (
@@ -1324,6 +1337,32 @@ async def _execute_job(
                         error_category_hint=result.get("error_category"),
                         status_hint=result.get("status"),
                     ).value
+
+                    night_decision = register_safe_night_failure(job)
+                    if night_decision.standby:
+                        retry_at = night_decision.retry_at
+                        JobStateMachine.transition(
+                            session,
+                            job,
+                            TaskStatus.WAITING_SUBMISSION_WINDOW.value,
+                            celery_task_id=None,
+                            retryable=True,
+                            next_retry_at=retry_at,
+                            submit_after=retry_at,
+                            finished_at=None,
+                            last_error="سه تلاش امن شبانه ناموفق بود؛ ثبت تا ساعت ۰۸:۰۰ تهران در آماده‌باش است",
+                            error_category="night_submission_attempts_exhausted",
+                        )
+                        runtime_state.state = DriverRuntimeStateValue.WAITING_SUBMISSION_WINDOW.value
+                        runtime_state.next_retry_at = retry_at
+                        runtime_state.updated_at = now
+                        await session.commit()
+                        return {
+                            **result,
+                            "status": TaskStatus.WAITING_SUBMISSION_WINDOW.value,
+                            "next_retry_at": retry_at.isoformat(),
+                            "night_attempt_count": night_decision.attempt_count,
+                        }
 
                     if job.attempt_count < job.max_retries and _is_retryable(result):
                         retry_delay = get_retry_delay(result, job.attempt_count)
@@ -1420,6 +1459,39 @@ async def _execute_job(
 
         except Exception as e:
             logger.error(f"Job {job_id} execution error: {e}", exc_info=True)
+
+            # Once a durable mutation intent exists, a timeout/crash may have
+            # happened after the portal accepted the POST. Never let Celery's
+            # retry policy submit the same waybill again; reconcile instead.
+            if job is not None and job.mutation_status in {
+                "intent_persisted",
+                "dispatching",
+                "dispatched",
+                "ambiguous",
+            }:
+                try:
+                    await session.rollback()
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.UNKNOWN.value,
+                        celery_task_id=None,
+                        retryable=False,
+                        last_error=f"Mutation outcome ambiguous after worker exception: {e}",
+                        error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                        finished_at=_utcnow_naive(),
+                        next_retry_at=_utcnow_naive() + timedelta(seconds=15),
+                    )
+                    job.mutation_status = "ambiguous"
+                    await session.commit()
+                    return {
+                        "status": TaskStatus.UNKNOWN.value,
+                        "mutation_status": "ambiguous",
+                        "needs_reconciliation": True,
+                        "error_category": ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                    }
+                except Exception:
+                    logger.warning("ambiguous_mutation_persist_failed", exc_info=True)
 
             # Check if browser crash occurred and recycle browser
             err_msg = str(e).lower()

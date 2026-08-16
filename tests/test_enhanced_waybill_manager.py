@@ -69,6 +69,27 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
             mock_instance = mock_class.return_value
             setattr(self, attr_name, mock_instance)
 
+        gate_patcher = patch(
+            "app.services.utcms_submission_gate.utcms_submission_gate.is_submission_allowed",
+            new=AsyncMock(return_value=True),
+        )
+        self.patches.append(gate_patcher)
+        gate_patcher.start()
+
+        otp_free_patcher = patch(
+            "app.services.utcms_submission_gate.utcms_submission_gate.record_otp_free",
+            new=AsyncMock(),
+        )
+        self.patches.append(otp_free_patcher)
+        otp_free_patcher.start()
+
+        otp_det_patcher = patch(
+            "app.services.utcms_submission_gate.utcms_submission_gate.record_otp_detected",
+            new=AsyncMock(),
+        )
+        self.patches.append(otp_det_patcher)
+        otp_det_patcher.start()
+
     def _configure_manager_mocks(self):
         """Configure common mock behaviors."""
         self.mock_interactor.safe_fill = AsyncMock(return_value=True)
@@ -85,6 +106,19 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         self.manager._ensure_waybill_form_page = AsyncMock()
         self.manager._detect_otp_required = AsyncMock(return_value=False)
         self.manager._check_otp_after_submit = AsyncMock(return_value=None)
+        self.manager._click_once_no_retry = AsyncMock(return_value=(True, None))
+        self.manager._consume_json_response = AsyncMock(
+            return_value={
+                "success": True,
+                "data": {
+                    "resultCode": 200,
+                    "resultMessage": "عملیات با موفقیت انجام شد",
+                    "obj": {"id": 123456, "isOtpNeeded": False},
+                },
+            }
+        )
+        self.manager._wait_for_response_match = AsyncMock(return_value=AsyncMock())
+        self.manager._wait_for_network_settle = AsyncMock()
         self.manager.smart_locator = AsyncMock()
 
         def mock_locate(page, selectors, *args, **kwargs):
@@ -308,19 +342,15 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
 
     async def test_submit_waybill_rejects_click_failure(self):
         """Submit should fail when click action cannot be performed."""
-        self.mock_interactor.safe_click = AsyncMock(return_value=False)
-        self.mock_page.query_selector = AsyncMock(return_value=None)
-        self.manager.smart_locator.locate = AsyncMock(side_effect=Exception("Smart locator click failed"))
+        self.manager._click_once_no_retry = AsyncMock(return_value=(False, None))
 
         with self.assertRaises(WaybillError) as context:
             await self.manager._submit_waybill()
 
         self.assertIn("کلیک روی دکمه ثبت ناموفق بود", str(context.exception))
-        self.assertGreaterEqual(self.mock_interactor.safe_click.await_count, 2)
 
     async def test_submit_waybill_rejects_unconfirmed_result(self):
-        """Submit should fail when no tracking code or success marker exists."""
-        self.mock_interactor.safe_click = AsyncMock(return_value=True)
+        """Submit should fail when no tracking code exists and form error occurs."""
         self.manager._extract_tracking_code = AsyncMock(return_value=None)
         self.manager._is_submission_successful = AsyncMock(return_value=False)
         self.manager._extract_form_errors = AsyncMock(return_value="اعتبارسنجی فرم ناموفق بود")

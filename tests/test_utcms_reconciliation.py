@@ -78,8 +78,8 @@ def test_scraper_multi_field_match_without_tracking_code():
 
 
 @pytest.mark.asyncio
-async def test_show_tracking_code_endpoint_resolution():
-    """Verify showTrackingCode endpoint resolves document_id to trackingCode."""
+async def test_show_tracking_code_requires_history_confirmation():
+    """showTrackingCode narrows the query but History remains mandatory."""
     scraper = UTCMSReconciliationScraper()
     mock_page = AsyncMock()
 
@@ -92,6 +92,25 @@ async def test_show_tracking_code_endpoint_resolution():
     mock_response.status = 200
     mock_response.json = AsyncMock(return_value=fixture_data)
     mock_page.request.get = AsyncMock(return_value=mock_response)
+    mock_page.goto = AsyncMock()
+    mock_page.url = scraper.HISTORY_URL
+    mock_page.evaluate = AsyncMock(
+        return_value={
+            "status": 200,
+            "json": {
+                "data": [
+                    {
+                        "docNo": "987654321",
+                        "dateFarsi": "1405/05/25",
+                        "driverNationalCode": "",
+                        "car": "",
+                        "sourceAddress": "",
+                        "destAddress": "",
+                    }
+                ]
+            },
+        }
+    )
 
     res = await scraper.query_waybill_status(
         page=mock_page,
@@ -100,4 +119,4 @@ async def test_show_tracking_code_endpoint_resolution():
 
     assert res.outcome == ScraperOutcome.REGISTERED
     assert res.tracking_code == "987654321"
-    assert res.document_id == "849201"
+    assert res.details["source"] == "GetHistoryFirstList"

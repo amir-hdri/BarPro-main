@@ -132,7 +132,13 @@ class WaybillAutomationBot:
             )
 
             # Self-healing: if session was reused but creation failed, check if we got redirected to login page
-            if is_logged_in and not manager_result.get("success", False):
+            mutation_may_have_been_dispatched = bool(
+                manager_result.get("mutation_dispatched")
+                or manager_result.get("mutation_status") == "ambiguous"
+                or manager_result.get("needs_reconciliation")
+                or str(manager_result.get("status", "")).lower() in {"unknown", "reconciling"}
+            )
+            if is_logged_in and not manager_result.get("success", False) and not mutation_may_have_been_dispatched:
                 # ``Page.url`` is a property (str), not a coroutine — awaiting a
                 # call on it raises TypeError and would be swallowed by the
                 # broad handler below, masking the real submission error.
@@ -180,6 +186,16 @@ class WaybillAutomationBot:
                         "message": "Waybill form validated; final submit was disabled",
                     }
                 )
+                return result
+
+            if mutation_may_have_been_dispatched:
+                result["status"] = TaskStatus.UNKNOWN.value
+                result["error"] = manager_result.get("message") or manager_result.get("error")
+                result["error_category"] = "submission_unconfirmed"
+                result["mutation_status"] = "ambiguous"
+                result["needs_reconciliation"] = True
+                if manager_result.get("document_id"):
+                    result["document_id"] = manager_result["document_id"]
                 return result
 
             if not manager_result.get("success", False):

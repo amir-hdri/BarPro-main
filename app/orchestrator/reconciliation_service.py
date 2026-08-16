@@ -16,6 +16,7 @@ from app.monitoring.metrics import track_reconciliation_outcome
 from app.orchestrator.alert_manager import admin_alert_service
 from app.orchestrator.state_machine import JobStateMachine, JobStatus
 from app.orchestrator.utcms_reconciliation_scraper import ScraperOutcome, reconciliation_scraper
+from app.services.rpa_runtime_service import rpa_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,7 @@ class ReconciliationService:
                     logger.warning("Failed closing context in reconciliation of job #%s: %s", job_id, close_exc)
 
         track_reconciliation_outcome(outcome.value)
+        confirmed_success = False
 
         # Handle Reconciliation Results via JobStateMachine
         try:
@@ -172,6 +174,7 @@ class ReconciliationService:
                     else:
                         res_json = dict(res_json or {})
                     res_json["tracking_code"] = found_code
+                    res_json["confirmation_status"] = "confirmed_by_history"
                     if isinstance(job.result_json, str):
                         result_json_val = json.dumps(res_json, ensure_ascii=False)
                     else:
@@ -189,7 +192,13 @@ class ReconciliationService:
                         JobStatus.SUCCESS,
                         result_json=result_json_val,
                         finished_at=datetime.now(UTC).replace(tzinfo=None),
+                        next_retry_at=None,
+                        submit_after=None,
+                        last_error=None,
+                        error_category=None,
+                        retryable=False,
                     )
+                    confirmed_success = True
                     logger.info("Job #%s reconciled to SUCCESS with tracking code %s", job.id, found_code)
 
             elif outcome == ScraperOutcome.NOT_FOUND:
@@ -198,7 +207,6 @@ class ReconciliationService:
                     delay = RECONCILIATION_SCHEDULE[recon_attempts - 1]
                     next_retry = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=delay)
                     job.next_retry_at = next_retry
-                    job.mutation_status = "intent_recorded"
                     if isinstance(job.payload_json, str):
                         job.payload_json = json.dumps(payload_meta, ensure_ascii=False)
                     else:
@@ -252,6 +260,11 @@ class ReconciliationService:
 
             await session.commit()
             await session.refresh(job)
+            if confirmed_success and job.driver_id is not None:
+                try:
+                    await rpa_runtime.increment_success(job.client_id, job.driver_id)
+                except Exception:
+                    logger.warning("confirmed_success_counter_increment_failed", exc_info=True)
 
         except Exception as exc:
             await session.rollback()

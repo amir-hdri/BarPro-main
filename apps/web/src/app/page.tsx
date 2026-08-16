@@ -10,7 +10,7 @@ import { EmptyState, ErrorState, Skeleton } from "@/components/layout/States";
 import { ProgressBar } from "@/components/ProgressBar";
 import { useSession } from "@/hooks/useSession";
 import { useWaybillJob } from "@/hooks/useWaybillJob";
-import { formatDateTime, statusLabel, statusTone, toPersianDigits, trackingCodeFromResult } from "@/lib/format";
+import { confirmedTrackingCode, formatDateTime, statusLabel, statusTone, toPersianDigits, trackingCodeFromResult } from "@/lib/format";
 import type { ClientStats, WaybillJob } from "@/lib/types";
 import {
   ClockIcon,
@@ -340,10 +340,15 @@ export default function DashboardPage() {
                       </span>
                     </div>
                     {(() => {
-                      const tc = trackingCodeFromResult(job.result_json);
+                      const provisionalCode = trackingCodeFromResult(job.result_json);
+                      const tc = confirmedTrackingCode(job.result_json, job.status, job.mutation_status, job.reconciled_at);
                       return tc ? (
                         <p className="mt-2 text-[11px] font-bold text-emerald-400">
                           کد رهگیری UTCMS: {tc}
+                        </p>
+                      ) : provisionalCode ? (
+                        <p className="mt-2 text-[11px] font-bold text-amber-400">
+                          در انتظار تطبیق با سوابق UTCMS
                         </p>
                       ) : null;
                     })()}

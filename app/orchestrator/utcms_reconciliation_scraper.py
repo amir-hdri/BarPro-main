@@ -84,9 +84,10 @@ class UTCMSReconciliationScraper:
         receiver_name = str(fields.get("receiver_name") or "").strip() or None
 
         tag1, tag2, tag3, tag4 = _parse_iranian_plate_tags(plate_number) if plate_number else ("", "", "", "")
+        auxiliary_tracking_code: str | None = None
 
         try:
-            # ── 1. If document_id is known, check showTrackingCode directly ──
+            # ── 1. showTrackingCode is an auxiliary witness only ──
             if document_id:
                 try:
                     show_url = f"{self.SHOW_TRACKING_CODE_ENDPOINT}?id={document_id}"
@@ -97,16 +98,12 @@ class UTCMSReconciliationScraper:
                             obj = data.get("obj") or {}
                             found_code = str(obj.get("trackingCode") or obj.get("docNo") or "").strip()
                             if found_code:
-                                return ReconciliationResult(
-                                    outcome=ScraperOutcome.REGISTERED,
-                                    tracking_code=found_code,
-                                    issue_date=obj.get("issueDate"),
-                                    document_id=str(document_id),
-                                    status_text=obj.get("status", "صادر شده"),
-                                    details={"source": "showTrackingCode", "data": obj},
-                                )
+                                auxiliary_tracking_code = found_code
                 except Exception as exc:
                     logger.debug("showTrackingCode query failed: %s", exc)
+
+            if auxiliary_tracking_code:
+                tracking_code = auxiliary_tracking_code
 
             # ── 2. Query History endpoint via History page context ──
             await page.goto(self.HISTORY_URL, wait_until="domcontentloaded", timeout=15000)
@@ -145,24 +142,25 @@ class UTCMSReconciliationScraper:
                 try {{
                     const formData = new URLSearchParams();
                     formData.append('draw', '1');
-                    formData.append('columns[0][data]', '');
-                    formData.append('columns[0][name]', 'row');
-                    formData.append('columns[0][searchable]', 'false');
-                    formData.append('columns[0][orderable]', 'false');
-                    formData.append('columns[1][data]', 'dateFarsi');
-                    formData.append('columns[1][name]', 'dateFarsi');
-                    formData.append('columns[1][searchable]', 'true');
-                    formData.append('columns[1][orderable]', 'false');
-                    formData.append('columns[5][data]', 'driverFullName');
-                    formData.append('columns[5][name]', 'driverFullName');
-                    formData.append('columns[5][searchable]', 'true');
-                    formData.append('columns[5][orderable]', 'false');
-                    formData.append('columns[11][data]', 'docNo');
-                    formData.append('columns[11][name]', 'trackingCode');
-                    formData.append('columns[11][searchable]', 'true');
-                    formData.append('columns[11][orderable]', 'false');
+                    const columns = [
+                        ['', 'row', false], ['dateFarsi', 'dateFarsi', true],
+                        ['time', 'time', true], ['', 'senderFullName', false],
+                        ['', 'receiverFullName', false], ['driverFullName', 'driverFullName', true],
+                        ['', 'car', false], ['', 'Value', false],
+                        ['insuranceValue', 'insuranceValue', false], ['', 'sourceAddress', false],
+                        ['', 'destAddress', false], ['docNo', 'trackingCode', true],
+                        ['', 'btnSelect', false]
+                    ];
+                    columns.forEach((column, index) => {{
+                        formData.append(`columns[${{index}}][data]`, column[0]);
+                        formData.append(`columns[${{index}}][name]`, column[1]);
+                        formData.append(`columns[${{index}}][searchable]`, String(column[2]));
+                        formData.append(`columns[${{index}}][orderable]`, 'false');
+                        formData.append(`columns[${{index}}][search][value]`, '');
+                        formData.append(`columns[${{index}}][search][regex]`, 'false');
+                    }});
                     formData.append('start', '0');
-                    formData.append('length', '20');
+                    formData.append('length', '10');
                     formData.append('search[value]', '');
                     formData.append('search[regex]', 'false');
                     formData.append('function', 'GetHistoryFirstList');

@@ -28,6 +28,7 @@ from app.rpa.event_taxonomy import (
     JOB_WAITING_SUBMISSION_WINDOW,
 )
 from app.services.rpa_runtime_service import rpa_runtime
+from app.services.night_submission_policy import clear_expired_night_attempts
 from app.services.utcms_submission_gate import utcms_submission_gate
 from app.services.rpa_submit_service import build_job_idempotency_key
 
@@ -181,6 +182,8 @@ class RPASchedulerService:
                     submit_after = _as_utc(job.submit_after)
                     if submit_after and submit_after > now:
                         continue
+                    if persist:
+                        clear_expired_night_attempts(job)
 
                     counter = await rpa_runtime.counter_snapshot(job.client_id, driver.id)
                     if persist:

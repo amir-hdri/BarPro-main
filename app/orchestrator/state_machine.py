@@ -1,3 +1,4 @@
+import json
 from enum import StrEnum
 
 
@@ -101,6 +102,20 @@ class JobStateMachine:
     @classmethod
     def transition(cls, session, job, target: str, *, expected_from: set[str] | None = None, **fields):
         target_str = target.value if hasattr(target, "value") else str(target)
+        if target_str == JobStatus.SUCCESS.value and hasattr(job, "mutation_status"):
+            mutation_status = fields.get("mutation_status", getattr(job, "mutation_status", None))
+            reconciled_at = fields.get("reconciled_at", getattr(job, "reconciled_at", None))
+            result_json = fields.get("result_json", getattr(job, "result_json", None))
+            if isinstance(result_json, str):
+                try:
+                    result_json = json.loads(result_json)
+                except (TypeError, json.JSONDecodeError):
+                    result_json = {}
+            tracking_code = result_json.get("tracking_code") if isinstance(result_json, dict) else None
+            if mutation_status != "confirmed" or reconciled_at is None or not tracking_code:
+                raise StateTransitionError(
+                    "Waybill SUCCESS requires confirmed mutation, reconciled_at, and UTCMS tracking_code"
+                )
         if job.status == target_str:
             for key, value in fields.items():
                 setattr(job, key, value)

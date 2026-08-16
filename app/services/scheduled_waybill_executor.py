@@ -52,6 +52,7 @@ from app.rpa.event_taxonomy import (
     JOB_RETRY_SCHEDULED,
 )
 from app.services.rpa_runtime_service import rpa_runtime
+from app.services.utcms_submission_gate import utcms_submission_gate
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +174,21 @@ async def _execute_single_job(
     )
     job_id = job.job_id
 
+    if not await utcms_submission_gate.is_submission_allowed():
+        retry_at = _utcnow() + timedelta(seconds=utcms_config.GATE_PROBE_INTERVAL_SECONDS)
+        JobStateMachine.transition(
+            session,
+            job,
+            TaskStatus.WAITING_SUBMISSION_WINDOW.value,
+            next_retry_at=retry_at,
+            submit_after=retry_at,
+            retryable=True,
+            last_error="UTCMS submission gate is not confirmed OTP-free",
+            error_category="otp_required",
+        )
+        await session.commit()
+        return {"status": TaskStatus.WAITING_SUBMISSION_WINDOW.value, "next_retry_at": retry_at.isoformat()}
+
     from app.services.session_vault import session_vault
 
     auth_state_path = session_vault.auth_state_path_for_account(
@@ -224,14 +240,18 @@ async def _execute_single_job(
                     }
                     status_str = "failed"
                 else:
-                    job.result_json = result_payload
-                    job.last_error = None
-                    job.error_category = None
+                    reconciliation_at = _utcnow() + timedelta(seconds=15)
+                    job.result_json = {**result_payload, "confirmation_status": "pending_history_reconciliation"}
+                    job.mutation_status = "dispatched"
+                    job.last_error = "Tracking code received; UTCMS History reconciliation is pending"
+                    job.error_category = ErrorCategory.SUBMISSION_UNCONFIRMED.value
                     job.retryable = False
-                    job.next_retry_at = None
+                    job.next_retry_at = reconciliation_at
+                    job.submit_after = reconciliation_at
                     job.finished_at = _utcnow()
+                    JobStateMachine.transition(session, job, TaskStatus.UNKNOWN.value)
                     await session.commit()
-                    await _add_log(session, job_id, client.id, "submit", "success", "Waybill submitted successfully")
+                    await _add_log(session, job_id, client.id, "reconciliation_pending", "unknown", "Tracking code received; History check pending")
                     await _record_event(
                         session,
                         client.id,
@@ -242,10 +262,11 @@ async def _execute_single_job(
                             "attempt": attempt,
                             "steps": result.get("steps", []),
                             "tracking_code": tracking_code,
+                            "confirmation_status": "pending_reconciliation",
                         },
                     )
                     await browser_manager.record_success_for_recycle()
-                    return result
+                    return {**result, "status": TaskStatus.UNKNOWN.value, "mutation_status": "dispatched", "needs_reconciliation": True}
             if status_str == "otp_backoff":
                 retry_minutes = int(result.get("next_retry_at_minutes_add", 60))
                 retry_at = _utcnow() + timedelta(minutes=retry_minutes)
@@ -451,9 +472,21 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
                 error_category=None,
             )
             job.retryable = False
-        elif result_status == TaskStatus.WAITING_RETRY.value:
+        elif result_status in {TaskStatus.WAITING_RETRY.value, TaskStatus.WAITING_SUBMISSION_WINDOW.value}:
             # WAITING_RETRY is set inside _execute_single_job and committed there
             pass
+        elif result_status in {TaskStatus.UNKNOWN.value, TaskStatus.RECONCILING.value} or result.get("mutation_status") == "ambiguous":
+            job.mutation_status = "ambiguous"
+            JobStateMachine.transition(
+                session,
+                job,
+                TaskStatus.UNKNOWN.value,
+                finished_at=_utcnow(),
+                next_retry_at=_utcnow() + timedelta(seconds=15),
+                last_error=result.get("error", "Submission outcome ambiguous; reconciliation required"),
+                error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                retryable=False,
+            )
         else:
             target_status = (
                 TaskStatus.NEEDS_REVIEW.value

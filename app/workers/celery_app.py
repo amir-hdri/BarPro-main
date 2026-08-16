@@ -129,15 +129,14 @@ def _build_beat_schedule() -> dict:
                     "expires": 50,
                 },
             },
-            # Reconciliation opens Playwright + proxies (heavy browser work) — same
-            # reasoning as rpa-session-keepalive: keep it off the 5s control queue so
-            # the dispatcher is never starved. expires prevents unbounded backlog.
+            # Due reconciliation jobs use short eventual-consistency delays.
+            # Keep this on its dedicated queue and expire stale ticks to prevent backlog.
             "orchestrator-reconciliation": {
                 "task": "orchestrator.reconciliation.run",
-                "schedule": crontab(minute="*/15"),
+                "schedule": schedule(15.0),
                 "options": {
                     "queue": utcms_config.CELERY_RECONCILIATION_TASKS_QUEUE,
-                    "expires": 840,
+                    "expires": 14,
                 },
             },
             "fuel-inquiry-cleanup-stale": {

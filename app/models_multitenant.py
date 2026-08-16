@@ -364,6 +364,8 @@ class WaybillJob(SQLModel, table=True):
     attempt_count: int = Field(default=0)
     max_retries: int = Field(default=3)
     retryable: bool = Field(default=False)
+    night_attempt_count: int = Field(default=0)
+    night_attempt_window: str | None = Field(default=None, max_length=10, index=True)
     celery_task_id: str | None = Field(default=None, max_length=100, index=True)
     worker_id: str | None = Field(default=None, max_length=100)
 

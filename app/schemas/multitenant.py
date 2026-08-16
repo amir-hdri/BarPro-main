@@ -530,6 +530,8 @@ class WaybillJobResponse(BaseModel):
     mutation_status: str | None = None
     mutation_at: datetime | None = None
     reconciled_at: datetime | None = None
+    night_attempt_count: int = 0
+    night_attempt_window: str | None = None
 
     @field_validator("payload_json", "result_json", mode="before")
     @classmethod

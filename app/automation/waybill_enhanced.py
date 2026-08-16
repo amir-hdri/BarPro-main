@@ -3685,51 +3685,98 @@ class EnhancedWaybillManager:
                 "button:has-text('ارسال')",
                 "button[type='submit']",
             ]
-            for sel in otp_submit_selectors:
-                try:
-                    element = await self.smart_locator.locate(self.page, [sel], timeout=1200)
-                    await element.click()
-                    await self._wait_for_network_settle(primary_timeout_ms=otp_timeout_ms, fallback_sleep_seconds=1.5)
-                    payload = await self._consume_json_response(
-                        otp_response_task,
-                        timeout_seconds=max(10.0, otp_timeout_ms / 1000),
-                    )
-                    otp_state = self._parse_otp_submit_payload(payload)
-                    if otp_state is None:
-                        # اگر پاسخ AJAX نیامد، به این معنی نیست که OTP تایید شده
-                        logger.warning(
-                            "otp_response_missing",
-                            extra={"extra_fields": {"action": "retry_otp"}},
-                        )
-                        return {
-                            "success": False,
-                            "handled": True,
-                            "document_id": (submit_state or {}).get("document_id"),
-                            "message": "پاسخ سرور برای تایید OTP دریافت نشد",
-                        }
-                    if otp_state["success"]:
-                        return {
-                            "success": True,
-                            "handled": True,
-                            "document_id": otp_state.get("document_id") or (submit_state or {}).get("document_id"),
-                        }
-                    self.last_error = otp_state["message"] or "ارسال OTP ناموفق بود"
-                    return {"success": False, "handled": True, "document_id": otp_state.get("document_id")}
-                except Exception:
-                    continue
+            otp_clicked, post_click_err = await self._click_once_no_retry(
+                otp_submit_selectors, "تایید OTP", wait_after_seconds=0.2
+            )
+            if not otp_clicked:
+                return {
+                    "success": False,
+                    "handled": True,
+                    "document_id": (submit_state or {}).get("document_id"),
+                    "message": "دکمه تایید OTP پیدا نشد",
+                    "mutation_dispatched": False,
+                }
+            if post_click_err is not None:
+                return {
+                    "success": False,
+                    "handled": True,
+                    "status": "unknown",
+                    "mutation_status": "ambiguous",
+                    "error_category": "submission_unconfirmed",
+                    "needs_reconciliation": True,
+                    "mutation_dispatched": True,
+                    "document_id": (submit_state or {}).get("document_id"),
+                    "message": f"کلیک تایید OTP ارسال شد اما نتیجه قطعی نیست: {post_click_err}",
+                }
+
+            try:
+                await self._wait_for_network_settle(
+                    primary_timeout_ms=otp_timeout_ms, fallback_sleep_seconds=1.5
+                )
+                payload = await self._consume_json_response(
+                    otp_response_task,
+                    timeout_seconds=max(10.0, otp_timeout_ms / 1000),
+                )
+            except Exception as response_err:
+                logger.warning(
+                    "otp_response_ambiguous_after_dispatch",
+                    extra={"extra_fields": {"error": str(response_err), "action": "reconcile_only"}},
+                )
+                return {
+                    "success": False,
+                    "handled": True,
+                    "status": "unknown",
+                    "mutation_status": "ambiguous",
+                    "error_category": "submission_unconfirmed",
+                    "needs_reconciliation": True,
+                    "mutation_dispatched": True,
+                    "document_id": (submit_state or {}).get("document_id"),
+                    "message": "پاسخ سرور پس از ارسال تایید OTP قطعی نیست",
+                }
+
+            otp_state = self._parse_otp_submit_payload(payload)
+            if otp_state is None:
+                logger.warning("otp_response_missing", extra={"extra_fields": {"action": "reconcile_only"}})
+                return {
+                    "success": False,
+                    "handled": True,
+                    "status": "unknown",
+                    "mutation_status": "ambiguous",
+                    "error_category": "submission_unconfirmed",
+                    "needs_reconciliation": True,
+                    "mutation_dispatched": True,
+                    "document_id": (submit_state or {}).get("document_id"),
+                    "message": "پاسخ سرور برای تایید OTP دریافت نشد",
+                }
+            if otp_state["success"]:
+                return {
+                    "success": True,
+                    "handled": True,
+                    "mutation_dispatched": True,
+                    "document_id": otp_state.get("document_id") or (submit_state or {}).get("document_id"),
+                }
+            self.last_error = otp_state["message"] or "ارسال OTP ناموفق بود"
             return {
                 "success": False,
                 "handled": True,
-                "document_id": (submit_state or {}).get("document_id"),
-                "message": "ارسال کد OTP انجام نشد",
+                "mutation_dispatched": True,
+                "document_id": otp_state.get("document_id"),
+                "message": self.last_error,
             }
 
         # انتظار برای ورود دستی OTP
         if utcms_config.HEADLESS:
-            raise WaybillError(
-                "ثبت بارنامه نیاز به OTP دارد. در حالت HEADLESS امکان ورود دستی وجود ندارد. "
-                "کد OTP را از طریق پارامتر shipping_options.otp ارسال کنید."
-            )
+            return {
+                "success": False,
+                "handled": True,
+                "status": "unknown",
+                "mutation_status": "ambiguous",
+                "error_category": "submission_unconfirmed",
+                "needs_reconciliation": True,
+                "mutation_dispatched": True,
+                "document_id": (submit_state or {}).get("document_id"),
+                "message": "سامانه پس از dispatch کد OTP خواست؛ نتیجه فقط با History قابل تایید است",
+            }
 
         timeout_seconds = max(60, utcms_config.UTCMS_MANUAL_CAPTCHA_TIMEOUT_SECONDS)
         poll_seconds = max(0.5, utcms_config.UTCMS_MANUAL_CAPTCHA_POLL_SECONDS)
@@ -3830,6 +3877,25 @@ class EnhancedWaybillManager:
             "#GoFinalStep",
         ]
 
+        # Central mutation-boundary guard. Scheduler checks are advisory; every
+        # browser/direct caller must pass the same live gate immediately before
+        # the first mutating click.
+        from app.services.utcms_submission_gate import utcms_submission_gate
+
+        if not await utcms_submission_gate.is_submission_allowed():
+            logger.info(
+                "final_mutation_blocked_by_submission_gate",
+                extra={"extra_fields": {"job_id": job_id}},
+            )
+            return {
+                "success": False,
+                "status": "otp_backoff",
+                "error_category": "otp_required",
+                "message": "پنجره ثبت بدون OTP هنوز به صورت زنده تایید نشده است",
+                "mutation_dispatched": False,
+                "next_retry_at_minutes_add": max(1, utcms_config.GATE_PROBE_INTERVAL_SECONDS // 60),
+            }
+
         submit_timeout_ms = min(max(12000, utcms_config.PAGE_NAVIGATION_TIMEOUT), 35000)
         submit_response_task = await self._wait_for_response_match(
             lambda response: "UpdateRegisterNewOld" in (getattr(response, "url", "") or ""),
@@ -3867,12 +3933,24 @@ class EnhancedWaybillManager:
                 timeout_seconds=max(12.0, submit_timeout_ms / 1000),
             )
             submit_state = self._parse_register_submit_payload(submit_payload)
+            if submit_state is not None and submit_state.get("is_otp_needed") is True:
+                await utcms_submission_gate.record_otp_detected(
+                    worker_id="waybill-mutation",
+                    evidence={"is_otp_needed": True, "document_id_present": bool(submit_state.get("document_id"))},
+                )
+            elif submit_state is not None and submit_state.get("is_otp_needed") is False:
+                await utcms_submission_gate.record_otp_free(
+                    worker_id="waybill-mutation",
+                    evidence={"is_otp_needed": False, "document_id_present": bool(submit_state.get("document_id"))},
+                )
             if submit_state is not None and not submit_state["success"]:
                 raise WaybillError(submit_state["message"] or "ارسال فرم بارنامه ناموفق بود")
 
             # ── Step 4: OTP Handling ──
             otp_state = await self._handle_otp_if_required(otp_value, submit_state=submit_state)
             if not otp_state["success"]:
+                if otp_state.get("mutation_status") == "ambiguous":
+                    return otp_state
                 raise WaybillError("مدیریت OTP ناموفق بود")
 
             if await self._detect_otp_required(submit_state=submit_state):
@@ -4076,7 +4154,7 @@ class EnhancedWaybillManager:
                     if candidate is not None:
                         detected, evidence = await self._detect_otp_required_with_evidence()
                 except Exception:
-                    pass
+                    logger.debug("otp_modal_delayed_detection_not_visible", exc_info=True)
 
             if not detected:
                 return None
@@ -4086,15 +4164,17 @@ class EnhancedWaybillManager:
                 extra={"extra_fields": {"action": "graceful_exit", "evidence": evidence}},
             )
 
-            backoff_mins = int(getattr(utcms_config, "UTCMS_OTP_BACKOFF_MINUTES", 60))
             return {
                 "success": False,
-                "status": "otp_backoff",
+                "status": "unknown",
                 "detected": True,
+                "mutation_status": "ambiguous",
+                "needs_reconciliation": True,
+                "mutation_dispatched": True,
+                "error_category": "submission_unconfirmed",
                 "source": evidence.get("source", "adaptive_probe"),
                 "evidence": evidence,
-                "next_retry_at_minutes_add": backoff_mins,
-                "message": f"Adaptive OTP challenge detected ({evidence.get('source', 'unknown')}). Bot exited gracefully for submission window backoff.",
+                "message": f"OTP پس از dispatch تشخیص داده شد؛ ارسال مجدد ممنوع و تطبیق اجباری است ({evidence.get('source', 'unknown')})",
             }
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)

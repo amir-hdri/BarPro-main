@@ -162,6 +162,16 @@ export function trackingCodeFromResult(result?: unknown): string | null {
   return null;
 }
 
+export function confirmedTrackingCode(
+  result: unknown,
+  status?: string | null,
+  mutationStatus?: string | null,
+  reconciledAt?: string | null,
+): string | null {
+  if (status !== 'success' || mutationStatus !== 'confirmed' || !reconciledAt) return null;
+  return trackingCodeFromResult(result);
+}
+
 export function downloadCSV(filename: string, headers: string[], rows: (string | number)[][]): void {
   const processRow = (row: (string | number)[]) =>
     row.map((val) => `"${String(val ?? '').replace(/"/g, '""')}"`).join(',');

@@ -83,6 +83,9 @@ def test_state_machine_waiting_submission_window_transitions():
     JobStateMachine.transition(None, job, JobStatus.RECONCILING)
     assert job.status == JobStatus.RECONCILING.value
 
+    job.mutation_status = "confirmed"
+    job.reconciled_at = datetime.now(UTC).replace(tzinfo=None)
+    job.result_json = {"tracking_code": "UTC-TEST-1"}
     JobStateMachine.transition(None, job, JobStatus.SUCCESS)
     assert job.status == JobStatus.SUCCESS.value
 

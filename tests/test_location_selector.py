@@ -48,18 +48,8 @@ class TestLocationSelector(unittest.IsolatedAsyncioTestCase):
     async def test_select_location_skips_dropdown_when_runtime_marks_it_unusable(self):
         page = AsyncMock()
         selector = LocationSelector(page)
-        selector._assess_dropdown_runtime = AsyncMock(
-            return_value={
-                "prefix": "Origin",
-                "viable": False,
-                "undefined_only": True,
-                "decision": "skip_to_favorite_or_select2",
-                "province_runtime": [],
-            }
-        )
-        selector._try_dropdown_selection = AsyncMock()
-        selector._try_favorite_address_selection = AsyncMock(
-            return_value={"success": True, "method": "favorite", "row_index": 0}
+        selector._try_utcms_direct_fill = AsyncMock(
+            return_value={"success": True, "method": "utcms_direct_text"}
         )
 
         result = await selector.select_location(
@@ -68,8 +58,8 @@ class TestLocationSelector(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertTrue(result["success"])
-        self.assertEqual(result["method"], "favorite")
-        selector._try_dropdown_selection.assert_not_called()
+        self.assertEqual(result["method"], "utcms_direct_text")
+        selector._try_utcms_direct_fill.assert_awaited_once()
 
     async def test_try_dropdown_selection_success(self):
         # Setup

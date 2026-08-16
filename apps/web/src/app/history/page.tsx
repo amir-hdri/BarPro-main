@@ -16,6 +16,7 @@ import {
   statusTone,
   toPersianDigits,
   trackingCodeFromResult,
+  confirmedTrackingCode,
 } from '@/lib/format';
 import type {
   FuelInquiryItem,
@@ -172,11 +173,19 @@ const JobCard = memo(function JobCard({
         </div>
       </div>
       {(() => {
-        const tc = trackingCodeFromResult(job.result_json);
+        const provisionalCode = trackingCodeFromResult(job.result_json);
+        const tc = confirmedTrackingCode(job.result_json, job.status, job.mutation_status, job.reconciled_at);
         if (tc) {
           return (
             <div className="mt-3 rounded-xl bg-emerald-500/10 p-3 text-[11px] font-medium text-emerald-400 border border-emerald-500/20">
               <span className="font-bold">کد رهگیری UTCMS:</span> {tc}
+            </div>
+          );
+        }
+        if (provisionalCode) {
+          return (
+            <div className="mt-3 rounded-xl bg-amber-500/10 p-3 text-[11px] font-medium text-amber-400 border border-amber-500/20">
+              در انتظار تطبیق با سوابق UTCMS
             </div>
           );
         }

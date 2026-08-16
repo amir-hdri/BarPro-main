@@ -44,6 +44,7 @@ from app.rpa.event_taxonomy import (
 )
 from app.services.rpa_run_isolation import prepare_live_run_isolation
 from app.services.rpa_runtime_service import rpa_runtime
+from app.services.utcms_submission_gate import utcms_submission_gate
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +233,31 @@ class RPAHttpSubmitService:
                 payload = json.loads(job.payload_json)
             else:
                 payload = {}
+            if not await utcms_submission_gate.is_submission_allowed():
+                retry_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(
+                    seconds=utcms_config.GATE_PROBE_INTERVAL_SECONDS
+                )
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.WAITING_SUBMISSION_WINDOW.value,
+                    next_retry_at=retry_at,
+                    submit_after=retry_at,
+                    retryable=True,
+                    celery_task_id=None,
+                    last_error="UTCMS submission gate is not confirmed OTP-free",
+                    error_category="otp_required",
+                )
+                await session.commit()
+                return SubmitExecutionResult(
+                    classification=SubmitClassification(
+                        outcome=SubmitOutcome.TRANSIENT_FAILURE,
+                        reason_code="otp_required",
+                        retryable=True,
+                        message="ثبت تا تایید زنده پنجره بدون OTP متوقف شد",
+                    ),
+                    latency_ms=0,
+                )
             JobStateMachine.transition(
                 session,
                 job,
@@ -257,7 +283,7 @@ class RPAHttpSubmitService:
                         result = await self.adapter.execute(payload, session_bundle)
                     except Exception as exc:
                         logger.warning(
-                            "submit_http_adapter_failed_falling_back_to_browser",
+                            "submit_http_adapter_failed_after_possible_dispatch_no_fallback",
                             extra={
                                 "extra_fields": {
                                     "job_id": job.job_id,
@@ -267,13 +293,15 @@ class RPAHttpSubmitService:
                                 }
                             },
                         )
-                        result = await self._execute_browser_submit(
-                            session=session,
-                            client_id=client_id,
-                            driver=driver,
-                            job=job,
-                            payload=payload,
-                            prior_error=str(exc),
+                        result = SubmitExecutionResult(
+                            classification=SubmitClassification(
+                                outcome=SubmitOutcome.UNKNOWN_ERROR,
+                                reason_code="submission_unconfirmed",
+                                retryable=False,
+                                message=f"HTTP submit outcome ambiguous: {exc}",
+                            ),
+                            latency_ms=0,
+                            raw_payload={"mutation_status": "ambiguous"},
                         )
 
                 await rpa_runtime.increment_attempt(client_id, job.driver_id)
@@ -294,7 +322,6 @@ class RPAHttpSubmitService:
                 await self._record_attempt(session, job, runtime_state, classification, result.latency_ms)
 
                 if classification.outcome == SubmitOutcome.SUCCESS:
-                    await rpa_runtime.increment_success(client_id, job.driver_id)
                     res_json = {
                         "status": "success",
                         "reason": classification.reason_code,
@@ -305,16 +332,19 @@ class RPAHttpSubmitService:
                         for k in ["waybill_screenshot", "tracking_code", "url", "route"]:
                             if k in result.raw_payload:
                                 res_json[k] = result.raw_payload[k]
+                    res_json["confirmation_status"] = "pending_history_reconciliation"
+                    reconciliation_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=15)
+                    job.mutation_status = "dispatched"
                     JobStateMachine.transition(
                         session,
                         job,
-                        TaskStatus.SUCCESS.value,
+                        TaskStatus.UNKNOWN.value,
                         result_json=res_json,
                         finished_at=datetime.now(UTC).replace(tzinfo=None),
-                        submit_after=None,
-                        next_retry_at=None,
-                        last_error=None,
-                        error_category=None,
+                        submit_after=reconciliation_at,
+                        next_retry_at=reconciliation_at,
+                        last_error="Tracking code received; UTCMS History reconciliation is pending",
+                        error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
                         terminal_reason=classification.reason_code,
                         celery_task_id=None,
                         updated_at=datetime.now(UTC).replace(tzinfo=None),
@@ -330,7 +360,7 @@ class RPAHttpSubmitService:
                         job.driver_id,
                         job.job_id,
                         SUBMIT_SUCCEEDED,
-                        {"reason": classification.reason_code},
+                        {"reason": classification.reason_code, "confirmation_status": "pending_reconciliation"},
                     )
                 elif classification.outcome == SubmitOutcome.AUTH_EXPIRED:
                     await rpa_runtime.delete_session(client_id, job.driver_id)
@@ -382,10 +412,11 @@ class RPAHttpSubmitService:
                         {"reason": classification.reason_code, "retry_at": job.next_retry_at.isoformat()},
                     )
                 else:
+                    ambiguous = classification.outcome == SubmitOutcome.UNKNOWN_ERROR
                     target_status = (
-                        TaskStatus.NEEDS_REVIEW.value
-                        if classification.outcome in {SubmitOutcome.VALIDATION_ERROR, SubmitOutcome.UNKNOWN_ERROR}
-                        else TaskStatus.FAILED.value
+                        TaskStatus.UNKNOWN.value
+                        if ambiguous
+                        else (TaskStatus.NEEDS_REVIEW.value if classification.outcome == SubmitOutcome.VALIDATION_ERROR else TaskStatus.FAILED.value)
                     )
                     job_error_category = _map_error_category(classification.outcome, classification.reason_code).value
                     result_json = {
@@ -402,14 +433,16 @@ class RPAHttpSubmitService:
                         error_category=job_error_category,
                         last_error=classification.message or classification.reason_code,
                         finished_at=datetime.now(UTC).replace(tzinfo=None),
-                        submit_after=None,
-                        next_retry_at=None,
+                        submit_after=(datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=15)) if ambiguous else None,
+                        next_retry_at=(datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=15)) if ambiguous else None,
                         terminal_reason=classification.reason_code,
                         celery_task_id=None,
                         updated_at=datetime.now(UTC).replace(tzinfo=None),
                         result_json=result_json,
                     )
                     job.result_json = result_json
+                    if ambiguous:
+                        job.mutation_status = "ambiguous"
                     runtime_state.state = DriverRuntimeStateValue.READY.value
                     runtime_state.next_retry_at = None
                     runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)

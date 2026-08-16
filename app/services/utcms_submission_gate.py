@@ -89,19 +89,27 @@ class UTCMSSubmissionGate:
 
         # 1. Check manual override
         if redis is not None:
-            override = await redis.get(self.KEY_MANUAL_OVERRIDE)
-            if override and override in GateStateValue:
-                state_val = GateStateValue(override)
-                set_gate_state_metric(state_val.value)
-                return state_val
+            try:
+                override = await redis.get(self.KEY_MANUAL_OVERRIDE)
+                if override and override in GateStateValue:
+                    state_val = GateStateValue(override)
+                    set_gate_state_metric(state_val.value)
+                    return state_val
+            except Exception:
+                logger.warning("utcms_gate_redis_override_read_failed", exc_info=True)
+                redis = None
 
         # 2. Check fast Redis cache
         if redis is not None:
-            cached = await redis.get(self.KEY_STATE)
-            if cached and cached in GateStateValue:
-                state_val = GateStateValue(cached)
-                set_gate_state_metric(state_val.value)
-                return state_val
+            try:
+                cached = await redis.get(self.KEY_STATE)
+                if cached and cached in GateStateValue:
+                    state_val = GateStateValue(cached)
+                    set_gate_state_metric(state_val.value)
+                    return state_val
+            except Exception:
+                logger.warning("utcms_gate_redis_state_read_failed", exc_info=True)
+                redis = None
         else:
             if time.time() < self._memory_state_expires_at:
                 state_val = GateStateValue(self._memory_state)
@@ -187,19 +195,24 @@ class UTCMSSubmissionGate:
         # Update Redis cache
         redis = await redis_manager.get()
         if redis is not None:
-            await redis.set(self.KEY_STATE, state.value, ex=validity)
-            meta = {
-                "state": state.value,
-                "observed_at": now_utc.isoformat(),
-                "valid_until": valid_until.isoformat(),
-                "next_probe_at": next_probe_at.isoformat(),
-                "source": source,
-                "worker_id": worker_id,
-            }
-            await redis.set(self.KEY_META, json.dumps(meta), ex=validity)
+            try:
+                await redis.set(self.KEY_STATE, state.value, ex=validity)
+                meta = {
+                    "state": state.value,
+                    "observed_at": now_utc.isoformat(),
+                    "valid_until": valid_until.isoformat(),
+                    "next_probe_at": next_probe_at.isoformat(),
+                    "source": source,
+                    "worker_id": worker_id,
+                }
+                await redis.set(self.KEY_META, json.dumps(meta), ex=validity)
 
-            if state == GateStateValue.OTP_REQUIRED:
-                await redis.set(self.KEY_PREDICTION_INVALIDATED, "1", ex=86400)
+                if state == GateStateValue.OTP_REQUIRED:
+                    await redis.set(self.KEY_PREDICTION_INVALIDATED, "1", ex=86400)
+            except Exception:
+                logger.warning("utcms_gate_redis_observation_write_failed", exc_info=True)
+                self._memory_state = state.value
+                self._memory_state_expires_at = time.time() + validity
         else:
             self._memory_state = state.value
             self._memory_state_expires_at = time.time() + validity
