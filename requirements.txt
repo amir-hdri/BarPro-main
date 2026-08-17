@@ -1,7 +1,7 @@
 # Core packages (install from PyPI FIRST, before PyTorch extra index)
 setuptools>=83.0.0
 
-playwright>=1.49.0
+playwright>=1.62.0
 fastapi>=0.115.6
 uvicorn>=0.34.0
 pydantic>=2.10.3
