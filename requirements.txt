@@ -1,5 +1,5 @@
 # Core packages (install from PyPI FIRST, before PyTorch extra index)
-setuptools>=83.0.0
+setuptools>=84.0.0
 
 playwright>=1.49.0
 fastapi>=0.115.6
