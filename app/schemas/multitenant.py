@@ -202,6 +202,8 @@ class DriverCreateRequest(BaseModel):
     license_number: str | None = Field(None, max_length=50)
     utcms_username: str = Field(..., max_length=100)
     utcms_password: str = Field(..., min_length=4, max_length=100)
+    plate_number: str | None = Field(None, max_length=50)
+    vehicle_type: str | None = Field(None, max_length=50)
     default_payload: dict[str, Any] | None = Field(None)
 
 
@@ -248,6 +250,7 @@ class DriverResponse(BaseModel):
     last_auth_at: datetime | None = None
     last_session_expires_at: datetime | None = None
     last_error_code: str | None = None
+    active_plate: str | None = None
     created_at: datetime
     updated_at: datetime
     default_payload_json: dict | list | str | Any | None = None
@@ -586,7 +589,7 @@ class TaskFilterRequest(BaseModel):
     date_from: datetime | None = None
     date_to: datetime | None = None
     page: int = Field(default=1, ge=1)
-    page_size: int = Field(default=20, ge=1, le=100)
+    page_size: int = Field(default=20, ge=1, le=1000)
 
 
 class TaskListResponse(BaseModel):
@@ -693,6 +696,8 @@ class FuelInquiryCreateRequest(BaseModel):
     driver_id: int = Field(gt=0)
     year: int | None = Field(default=None, ge=1300, le=1600)
     month: int | None = Field(default=None, ge=1, le=12)
+    force_retry: bool = Field(default=False)
+    plate_number: str | None = Field(default=None)
 
 
 class FuelInquiryResponse(BaseModel):

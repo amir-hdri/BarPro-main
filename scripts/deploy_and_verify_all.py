@@ -6,28 +6,29 @@ Full automated deployment and end-to-end health verification for BarPro across C
 
 import sys
 import time
+import os
 import paramiko
 
-PWD = "Am" + "@ter@soo100"
+PWD = os.environ["SSH_PASSWORD"]  # from env — never hardcode credentials
 
 NODES = [
     {
         "id": "central",
         "name": "Central Server",
-        "ip": "87.107.5.238",
+        "ip": os.environ.get("CENTRAL_IP", "87.107.5.238"),
         "is_central": True,
     },
     {
         "id": "worker2",
         "name": "Worker Node 2",
-        "ip": "5.56.132.26",
+        "ip": os.environ.get("WORKER_2_IP", "5.56.132.26"),
         "is_central": False,
         "worker_id": 2,
     },
     {
         "id": "worker3",
         "name": "Worker Node 3",
-        "ip": "87.107.5.219",
+        "ip": os.environ.get("WORKER_3_IP", "87.107.5.219"),
         "is_central": False,
         "worker_id": 3,
     },

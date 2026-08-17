@@ -125,8 +125,10 @@ export default function UserReportsPage() {
     setIsLoading(true);
     try {
       const res = await api.get<any[]>('/api/v1/user/reports/driver-performance', undefined, { signal });
-      if (res.success && res.data) {
+      if (res.success && res.data && Array.isArray(res.data)) {
         setDriverPerfData(res.data);
+      } else {
+        setDriverPerfData([]);
       }
     } catch {
       toast.error('خطا در دریافت گزارش عملکرد رانندگان');
@@ -140,8 +142,10 @@ export default function UserReportsPage() {
     setIsLoading(true);
     try {
       const res = await api.get<any[]>('/api/v1/user/reports/errors', undefined, { signal });
-      if (res.success && res.data) {
+      if (res.success && res.data && Array.isArray(res.data)) {
         setErrorDetailsData(res.data);
+      } else {
+        setErrorDetailsData([]);
       }
     } catch {
       toast.error('خطا در دریافت جزئیات خطاها');

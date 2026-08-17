@@ -14,12 +14,13 @@ from app.automation.fuel_scraper import FuelScraper, get_current_jalali
 from app.core.config import utcms_config
 from app.core.error_taxonomy import FUEL_INQUIRY_ERROR_CODE, ErrorCategory, classify_fuel_inquiry_exception
 from app.core.exceptions import WaybillError
-from app.models_multitenant import Client, Driver, DriverPlate, FuelInquiry
+from app.models_multitenant import Client, Driver, DriverPlate, FuelInquiry, WaybillJob
 from app.orchestrator.state_machine import set_fuel_inquiry_status
 from app.schemas.multitenant import (
     FuelInquiryCreateRequest,
     FuelInquiryListResponse,
     FuelInquiryResponse,
+    _normalize_plate,
 )
 from app.services.session_vault import session_vault
 
@@ -44,22 +45,53 @@ class FuelInquiryService:
         if not driver:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="راننده مورد نظر یافت نشد",
+                detail="Driver not found",
             )
 
         # Verify the driver has an active plate before enqueuing.
-        # A fuel inquiry cannot succeed without a plate, so reject early
-        # instead of creating a record that gets stuck in "pending" / fails later.
         plate_stmt = select(DriverPlate).where(
             (DriverPlate.client_id == client.id)
             & (DriverPlate.driver_id == driver.id)
             & (DriverPlate.status == "active")
         )
         plate_res = await session.exec(plate_stmt)
-        if not plate_res.first():
+        driver_plate = plate_res.first()
+
+        if not driver_plate:
+            # Check if plate_number was supplied in the request or exists in recent waybill
+            candidate_plate = request.plate_number
+            if not candidate_plate:
+                # Check recent waybills for this driver
+                recent_wb_stmt = (
+                    select(WaybillJob)
+                    .where((WaybillJob.client_id == client.id) & (WaybillJob.driver_id == driver.id))
+                    .order_by(col(WaybillJob.created_at).desc())
+                )
+                recent_wb = (await session.exec(recent_wb_stmt)).first()
+                if recent_wb and recent_wb.payload_json:
+                    p_json = recent_wb.payload_json if isinstance(recent_wb.payload_json, dict) else {}
+                    candidate_plate = p_json.get("plate_number") or p_json.get("vehicle", {}).get("plate")
+
+            if candidate_plate:
+                try:
+                    norm_plate = _normalize_plate(str(candidate_plate).strip())
+                    new_plate = DriverPlate(
+                        client_id=client.id,
+                        driver_id=driver.id,
+                        plate_number=norm_plate,
+                        vehicle_type="کامیون",
+                        status="active",
+                    )
+                    session.add(new_plate)
+                    await session.commit()
+                    driver_plate = new_plate
+                except Exception as e:
+                    logger.warning(f"Failed to auto-bind candidate plate for fuel inquiry: {e}")
+
+        if not driver_plate:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="راننده پلاک فعال ندارد؛ ابتدا یک پلاک فعال ثبت کنید",
+                detail="راننده پلاک فعال ندارد؛ ابتدا پلاک خودرو را ثبت کنید",
             )
 
         current_year, current_month = get_current_jalali()
@@ -76,14 +108,14 @@ class FuelInquiryService:
         existing_res = await session.exec(existing_stmt)
         existing = existing_res.first()
         if existing:
-            cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=utcms_config.FUEL_INQUIRY_STALE_MINUTES)
+            cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=45)
             last_active = existing.updated_at or existing.created_at
-            if last_active and last_active < cutoff:
+            if request.force_retry or (last_active and last_active < cutoff):
                 logger.warning(
-                    f"Auto-expiring stale fuel inquiry {existing.id} for driver {driver.id} (last active {last_active})"
+                    f"Auto-expiring stale/force-retried fuel inquiry {existing.id} for driver {driver.id} (last active {last_active})"
                 )
                 set_fuel_inquiry_status(existing, "stale")
-                existing.error_message = "زمان اجرای استعلام قبلی به پایان رسید (منقضی شده)"
+                existing.error_message = "استعلام قبلی متوقف شد و استعلام جدید جایگزین گردید"
                 existing.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 session.add(existing)
                 await session.commit()
@@ -129,6 +161,7 @@ class FuelInquiryService:
         # Map to response schema
         response = FuelInquiryResponse.model_validate(inquiry)
         response.driver_name = driver.full_name
+        response.plate_number = driver_plate.plate_number
         return response
 
     @staticmethod
@@ -324,12 +357,6 @@ class FuelInquiryService:
                 raise WaybillError("پلاک فعال برای راننده در سامانه یافت نشد")
 
             national_code = driver.driver_national_code
-            auth_state_path = session_vault.auth_state_path_for_account(
-                username=driver.utcms_username,
-                national_code=national_code,
-                fallback=national_code,
-                scope=f"client-{inquiry.client_id}-driver-{driver.id}",
-            )
 
             from app.automation.worker_proxy import check_proxy_health, get_playwright_proxy
 
@@ -345,10 +372,10 @@ class FuelInquiryService:
             else:
                 logger.warning("fuel_inquiry: no proxy configured; Chromium may not reach utcms.ir")
 
-            logger.info("Launching browser session for fuel inquiry %s", inquiry_id)
+            logger.info("Launching browser session for fuel inquiry %s (isolated ephemeral session)", inquiry_id)
             await browser_manager.initialize()
             async with managed_browser_session(
-                auth_state_path=auth_state_path,
+                auth_state_path=None,
                 proxy_dict=proxy_dict,
             ) as (_session_id, context):
                 page = await browser_manager.new_page(context)
@@ -361,9 +388,6 @@ class FuelInquiryService:
                     j_year=inquiry.year,
                     j_month=inquiry.month,
                 )
-
-                # Save auth state back in case login was refreshed
-                await browser_manager.save_auth_state(context, auth_state_path=auth_state_path)
 
                 # Update database
                 quota_data = result.get("quota_data", {})
@@ -389,15 +413,6 @@ class FuelInquiryService:
 
         except Exception as e:
             logger.exception(f"Error executing fuel inquiry {inquiry_id}")
-
-            # Check for browser crash and recycle
-            err_msg = str(e).lower()
-            if any(msg in err_msg for msg in ("target closed", "browser closed", "context closed", "page closed")):
-                logger.warning("Browser crash detected during fuel inquiry. Triggering browser recycle.")
-                try:
-                    await browser_manager.recycle_browser()
-                except Exception as recycle_err:
-                    logger.error(f"Failed to recycle browser after crash in fuel inquiry: {recycle_err}")
 
             await session.rollback()
             inquiry = await session.get(FuelInquiry, inquiry_id)

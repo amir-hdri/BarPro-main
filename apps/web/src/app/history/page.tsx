@@ -355,9 +355,10 @@ export default function HistoryPage() {
       return;
     }
 
-    setJobs(response.data.tasks);
-    setJobsTotal(response.data.total);
-    const firstJobId = response.data.tasks[0]?.job_id || null;
+    const jobList = Array.isArray(response.data.tasks) ? response.data.tasks : [];
+    setJobs(jobList);
+    setJobsTotal(typeof response.data.total === 'number' ? response.data.total : jobList.length);
+    const firstJobId = jobList[0]?.job_id || null;
     setSelectedJobId((prev) => prev || firstJobId);
     setLoadingJobs(false);
   }, [currentPage, statusFilter, driverNameFilter, plateFilter, dateFromFilter, dateToFilter]);
@@ -383,8 +384,9 @@ export default function HistoryPage() {
       return;
     }
 
-    setFuelInquiries(response.data.items);
-    setFuelTotal(response.data.total);
+    const fuelList = Array.isArray(response.data.items) ? response.data.items : [];
+    setFuelInquiries(fuelList);
+    setFuelTotal(typeof response.data.total === 'number' ? response.data.total : fuelList.length);
     setLoadingFuel(false);
   }, [currentPage, statusFilter, driverNameFilter, plateFilter, dateFromFilter, dateToFilter]);
 
@@ -437,6 +439,8 @@ export default function HistoryPage() {
       driver_id: inquiry.driver_id,
       year: inquiry.year || undefined,
       month: inquiry.month || undefined,
+      force_retry: true,
+      plate_number: inquiry.plate_number || undefined,
     });
     setRetryingFuelId(null);
     if (response.success) {

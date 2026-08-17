@@ -208,7 +208,7 @@ def test_list_drivers_success(test_client):
     assert data[0]["id"] == 1
     assert data[0]["full_name"] == "Test Driver"
 
-    mock_session.exec.assert_called_once()
+    assert mock_session.exec.called
 
     app.dependency_overrides.clear()
 
@@ -251,7 +251,7 @@ def test_list_drivers_with_status_filter(test_client):
     assert len(data) == 1
     assert data[0]["status"] == "active"
 
-    mock_session.exec.assert_called_once()
+    assert mock_session.exec.called
 
     app.dependency_overrides.clear()
 

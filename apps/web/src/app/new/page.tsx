@@ -187,28 +187,33 @@ export default function NewWaybillPage() {
       return;
     }
     setLoadingDrivers(true);
-    const [driversRes, platesRes] = await Promise.all([
-      api.get<Driver[]>("/api/v1/drivers?page_size=1000"),
-      api.get<Plate[]>("/api/v1/plates?page_size=1000"),
-    ]);
+    try {
+      const [driversRes, platesRes] = await Promise.all([
+        api.get<Driver[]>("/api/v1/drivers?page_size=1000"),
+        api.get<Plate[]>("/api/v1/plates?page_size=1000"),
+      ]);
 
-    const driverList = driversRes.success && driversRes.data ? driversRes.data : [];
-    const plateList = platesRes.success && platesRes.data ? platesRes.data : [];
-    setDrivers(driverList);
-    setPlates(plateList);
+      const driverList = driversRes.success && Array.isArray(driversRes.data) ? driversRes.data : [];
+      const plateList = platesRes.success && Array.isArray(platesRes.data) ? platesRes.data : [];
+      setDrivers(driverList);
+      setPlates(plateList);
 
-    if (driverList.length > 0) {
-      setForm((current) => {
-        const selectedD = driverList.find((d) => d.driver_national_code === current.driver_national_code) || driverList[0];
-        const matchingPlate = plateList.find((p) => p.driver_id === selectedD.id)?.plate_number;
-        return {
-          ...current,
-          driver_national_code: current.driver_national_code || selectedD.driver_national_code,
-          plate_number: current.plate_number || matchingPlate || "",
-        };
-      });
+      if (driverList.length > 0) {
+        setForm((current) => {
+          const selectedD = driverList.find((d) => d && d.driver_national_code === current.driver_national_code) || driverList[0];
+          const matchingPlate = selectedD ? (selectedD.active_plate || plateList.find((p) => p && p.driver_id === selectedD.id)?.plate_number) : "";
+          return {
+            ...current,
+            driver_national_code: current.driver_national_code || (selectedD?.driver_national_code ?? ""),
+            plate_number: current.plate_number || matchingPlate || "",
+          };
+        });
+      }
+    } catch (err) {
+      console.error("Failed to load drivers and plates:", err);
+    } finally {
+      setLoadingDrivers(false);
     }
-    setLoadingDrivers(false);
   }, [role]);
 
   useEffect(() => {
@@ -243,7 +248,7 @@ export default function NewWaybillPage() {
     handleChange("driver_national_code", driverNationalCode);
     const foundDriver = drivers.find((d) => d.driver_national_code === driverNationalCode);
     if (foundDriver) {
-      const matchingPlate = plates.find((p) => p.driver_id === foundDriver.id)?.plate_number;
+      const matchingPlate = foundDriver.active_plate || plates.find((p) => p.driver_id === foundDriver.id)?.plate_number || "";
       if (matchingPlate) {
         handleChange("plate_number", matchingPlate);
       }
@@ -282,12 +287,14 @@ export default function NewWaybillPage() {
     }
 
     const newDriver = driverRes.data;
+    const plateToAdd = quickDriverForm.plate_number.trim();
 
     // If plate provided, register it as well
-    if (quickDriverForm.plate_number.trim()) {
+    if (plateToAdd) {
       await api.post<Plate>("/api/v1/plates", {
         driver_id: newDriver.id,
-        plate_number: canonicalizePlate(quickDriverForm.plate_number.trim()),
+        plate_number: canonicalizePlate(plateToAdd),
+        vehicle_type: "کامیون",
       });
     }
 
@@ -299,8 +306,8 @@ export default function NewWaybillPage() {
     // Reload and select
     await loadDriversAndPlates();
     handleChange("driver_national_code", newDriver.driver_national_code);
-    if (quickDriverForm.plate_number.trim()) {
-      handleChange("plate_number", canonicalizePlate(quickDriverForm.plate_number.trim()));
+    if (plateToAdd) {
+      handleChange("plate_number", canonicalizePlate(plateToAdd));
     }
   };
 
@@ -592,6 +599,12 @@ export default function NewWaybillPage() {
                         onChange={(val) => handleChange("plate_number", val)}
                         error={errors.plate_number}
                       />
+                      {form.plate_number && (
+                        <div className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-cyan-400 animate-in fade-in">
+                          <CheckCircleIcon className="h-4 w-4 text-emerald-400 shrink-0" />
+                          <span>پلاک یکتای راننده به صورت خودکار انتخاب شد</span>
+                        </div>
+                      )}
                     </Field>
 
                   </div>

@@ -88,6 +88,7 @@ export interface Driver {
   last_auth_at?: string | null;
   last_session_expires_at?: string | null;
   last_error_code?: string | null;
+  active_plate?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -99,6 +100,16 @@ export interface DriverCreateRequest {
   license_number?: string;
   utcms_username: string;
   utcms_password: string;
+  plate_number?: string;
+  vehicle_type?: string;
+}
+
+export interface FuelInquiryCreateRequest {
+  driver_id: number;
+  year?: number;
+  month?: number;
+  force_retry?: boolean;
+  plate_number?: string;
 }
 
 export interface DriverUpdateRequest {

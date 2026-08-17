@@ -20,7 +20,8 @@ from app.core.database import get_session
 from app.models_multitenant import Client
 from app.services.user_reporting_service import user_reporting_service
 
-router = APIRouter(prefix="/user/reports", tags=["user-reports"])
+router = APIRouter(prefix="/api/v1/user/reports", tags=["user-reports"])
+alias_router = APIRouter(prefix="/user/reports", tags=["user-reports-alias"])
 
 
 @router.get(

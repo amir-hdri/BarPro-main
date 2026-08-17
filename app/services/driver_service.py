@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, text
-from sqlmodel import func, select
+from sqlmodel import col, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth_multitenant import (
@@ -40,6 +40,7 @@ from app.schemas.multitenant import (
     DriverCreateRequest,
     DriverResponse,
     DriverUpdateRequest,
+    _normalize_plate,
 )
 
 logger = logging.getLogger(__name__)
@@ -115,7 +116,40 @@ class DriverService:
         await session.commit()
         await session.refresh(driver)
 
-        return DriverResponse.model_validate(driver)
+        active_plate_str = None
+        if request.plate_number:
+            try:
+                clean_plate = _normalize_plate(request.plate_number.strip())
+                existing_plate = (
+                    await session.exec(
+                        select(DriverPlate).where(
+                            (DriverPlate.client_id == client.id)
+                            & (DriverPlate.driver_id == driver.id)
+                            & (DriverPlate.plate_number == clean_plate)
+                        )
+                    )
+                ).first()
+                if not existing_plate:
+                    new_plate = DriverPlate(
+                        client_id=client.id,
+                        driver_id=driver.id,
+                        plate_number=clean_plate,
+                        vehicle_type=request.vehicle_type or "کامیون",
+                        status="active",
+                    )
+                    session.add(new_plate)
+                    await session.commit()
+                elif existing_plate.status != "active":
+                    existing_plate.status = "active"
+                    session.add(existing_plate)
+                    await session.commit()
+                active_plate_str = clean_plate
+            except Exception as e:
+                logger.warning(f"Failed to auto-register plate on driver create for driver {driver.id}: {e}")
+
+        resp = DriverResponse.model_validate(driver)
+        resp.active_plate = active_plate_str
+        return resp
 
     @staticmethod
     async def list_drivers(
@@ -142,7 +176,30 @@ class DriverService:
         result = await session.exec(statement)
         drivers = result.all()
 
-        return [DriverResponse.model_validate(d) for d in drivers]
+        d_ids = [d.id for d in drivers if getattr(d, "id", None)]
+        active_plates: dict[int, str] = {}
+        if d_ids:
+            try:
+                plate_stmt = select(DriverPlate).where(
+                    col(DriverPlate.driver_id).in_(d_ids),
+                    DriverPlate.status == "active",
+                )
+                plate_res = await session.exec(plate_stmt)
+                plate_rows = plate_res.all() if hasattr(plate_res, "all") else []
+                for p in plate_rows:
+                    p_did = getattr(p, "driver_id", None)
+                    p_pnum = getattr(p, "plate_number", None)
+                    if p_did is not None and p_pnum and p_did not in active_plates:
+                        active_plates[p_did] = str(p_pnum)
+            except Exception as e:
+                logger.debug(f"Could not fetch driver active plates: {e}")
+
+        responses = []
+        for d in drivers:
+            r = DriverResponse.model_validate(d)
+            r.active_plate = active_plates.get(getattr(d, "id", None))
+            responses.append(r)
+        return responses
 
     @staticmethod
     async def get_driver(
@@ -163,7 +220,21 @@ class DriverService:
             client = user_context.get("user") if isinstance(user_context, dict) else user_context
             verify_tenant_ownership(client, driver, Driver)
 
-        return DriverResponse.model_validate(driver)
+        active_plate_str = None
+        try:
+            plate_stmt = select(DriverPlate).where(
+                (DriverPlate.driver_id == driver.id) & (DriverPlate.status == "active")
+            )
+            plate_res = await session.exec(plate_stmt)
+            active_plate_row = plate_res.first() if hasattr(plate_res, "first") else None
+            if active_plate_row and hasattr(active_plate_row, "plate_number"):
+                active_plate_str = str(active_plate_row.plate_number)
+        except Exception:
+            pass
+
+        resp = DriverResponse.model_validate(driver)
+        resp.active_plate = active_plate_str
+        return resp
 
     @staticmethod
     async def update_driver(

@@ -44,12 +44,14 @@ export default function AdminWorkersPage() {
     setFetchError(null);
     const res = await api.get<WorkerHeartbeatResponse>("/api/v1/admin/workers/heartbeats");
     if (res.success && res.data) {
-      const stalledIds = new Set(Object.keys(res.data.stalled));
-      const workerList = Object.values(res.data.active).map((worker) =>
+      const stalledMap = res.data.stalled || {};
+      const activeMap = res.data.active || {};
+      const stalledIds = new Set(Object.keys(stalledMap));
+      const workerList = Object.values(activeMap).map((worker) =>
         stalledIds.has(worker.worker_id) ? { ...worker, status: "stalled" as const } : worker
       );
       setWorkers(workerList);
-      setStalledCount(Object.keys(res.data.stalled).length);
+      setStalledCount(Object.keys(stalledMap).length);
       setLastRefreshed(new Date());
     } else {
       setFetchError(res.error || "خطا در بارگذاری اطلاعات Workerها");

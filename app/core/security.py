@@ -63,19 +63,33 @@ def _has_admin_role(decoded: dict[str, Any] | None) -> bool:
 
 
 def _ensure_auth_config(mode: str) -> None:
-    requires_api_key = mode in ("api_key", "api_key_or_jwt", "api_key_and_jwt")
-    requires_jwt = mode in ("jwt", "api_key_or_jwt", "api_key_and_jwt")
-
-    if requires_api_key and not utcms_config.API_KEY.strip():
+    if mode == "api_key" and not utcms_config.API_KEY.strip():
         raise HTTPException(
             status_code=503,
             detail="پیکربندی امنیتی ناقص است: API_KEY تنظیم نشده است",
         )
-    if requires_jwt and not utcms_config.JWT_SECRET.strip() and mode in ("jwt", "api_key_and_jwt"):
+    if mode == "jwt" and not utcms_config.JWT_SECRET.strip():
         raise HTTPException(
             status_code=503,
             detail="پیکربندی امنیتی ناقص است: JWT_SECRET تنظیم نشده است",
         )
+    if mode == "api_key_and_jwt":
+        if not utcms_config.API_KEY.strip():
+            raise HTTPException(
+                status_code=503,
+                detail="پیکربندی امنیتی ناقص است: API_KEY تنظیم نشده است",
+            )
+        if not utcms_config.JWT_SECRET.strip():
+            raise HTTPException(
+                status_code=503,
+                detail="پیکربندی امنیتی ناقص است: JWT_SECRET تنظیم نشده است",
+            )
+    if mode == "api_key_or_jwt":
+        if not utcms_config.API_KEY.strip() and not utcms_config.JWT_SECRET.strip():
+            raise HTTPException(
+                status_code=503,
+                detail="پیکربندی امنیتی ناقص است: حداقل یکی از API_KEY یا JWT_SECRET باید تنظیم شده باشد",
+            )
 
 
 async def require_sensitive_auth(request: Request) -> None:
@@ -94,7 +108,7 @@ async def require_sensitive_auth(request: Request) -> None:
     _ensure_auth_config(mode)
 
     api_key = request.headers.get(utcms_config.API_KEY_HEADER)
-    token = _extract_bearer_token(request.headers.get("Authorization"))
+    token = _extract_bearer_token(request.headers.get("Authorization")) or request.cookies.get("utcms_auth_token")
 
     has_api_key = _is_api_key_valid(api_key)
     decoded_jwt = _is_jwt_valid(token)

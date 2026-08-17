@@ -1,6 +1,7 @@
+import os
 import paramiko
 
-pwd = "Am" + "@ter@soo100"
+pwd = os.environ["SSH_PASSWORD"]  # from env — never hardcode credentials
 
 test_py = """
 import asyncio
@@ -23,10 +24,14 @@ asyncio.run(main())
 """
 
 # Test Central
+central_ip = os.environ.get("CENTRAL_IP", "87.107.5.238")
+worker2_ip = os.environ.get("WORKER_2_IP", "5.56.132.26")
+worker3_ip = os.environ.get("WORKER_3_IP", "87.107.5.219")
+
 print("=== 1. Central Server Internal Connectivity ===")
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect("87.107.5.238", username="root", password=pwd, timeout=20, banner_timeout=30)
+ssh.connect(central_ip, username="root", password=pwd, timeout=20, banner_timeout=30)
 stdin, stdout, stderr = ssh.exec_command(f'docker exec -i barpro-backend python - << "EOF"\n{test_py}\nEOF\n')
 print(stdout.read().decode())
 ssh.close()
@@ -35,7 +40,7 @@ ssh.close()
 print("\n=== 2. Worker Node 2 Connectivity to Central DB & Redis ===")
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect("5.56.132.26", username="root", password=pwd, timeout=20, banner_timeout=30)
+ssh.connect(worker2_ip, username="root", password=pwd, timeout=20, banner_timeout=30)
 stdin, stdout, stderr = ssh.exec_command(f'docker exec -i barpro-celery-worker python - << "EOF"\n{test_py}\nEOF\n')
 print(stdout.read().decode())
 # Test Squid on Worker 2
@@ -47,7 +52,7 @@ ssh.close()
 print("\n=== 3. Worker Node 3 Connectivity to Central DB & Redis ===")
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect("87.107.5.219", username="root", password=pwd, timeout=20, banner_timeout=30)
+ssh.connect(worker3_ip, username="root", password=pwd, timeout=20, banner_timeout=30)
 stdin, stdout, stderr = ssh.exec_command(f'docker exec -i barpro-celery-worker python - << "EOF"\n{test_py}\nEOF\n')
 print(stdout.read().decode())
 # Test Squid on Worker 3

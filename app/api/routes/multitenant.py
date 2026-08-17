@@ -409,7 +409,7 @@ async def create_plate(
 async def list_plates(
     driver_id: int | None = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=1000),
     user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
@@ -450,7 +450,7 @@ async def create_driver_schedule(
 async def list_driver_schedules(
     driver_id: int | None = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=1000),
     client: Client = Depends(get_current_client),
     session: AsyncSession = Depends(get_session),
 ):
@@ -514,7 +514,7 @@ async def list_waybill_jobs(
     date_from: str | None = None,
     date_to: str | None = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=1000),
     user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
@@ -786,7 +786,7 @@ async def create_fuel_inquiry(
 @router.get("/fuel-inquiries", response_model=FuelInquiryListResponse)
 async def list_fuel_inquiries(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=1000),
     driver_id: int | None = Query(None),
     status: str | None = Query(None),
     driver_name: str | None = Query(None),

@@ -76,9 +76,9 @@ export default function DashboardPage() {
         "/api/v1/waybill-jobs?page=1&page_size=5"
       );
       if (!res.success || !res.data) {
-        throw new Error(res.error || "Query data cannot be undefined");
+        return [];
       }
-      return res.data.tasks || [];
+      return (res.data && Array.isArray(res.data.tasks)) ? res.data.tasks : [];
     },
     staleTime: 30000,
     gcTime: 60000,

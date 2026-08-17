@@ -1,13 +1,14 @@
+import os
 import paramiko
 import json
 import time
 
-pwd = "Am" + "@ter@soo100"
+pwd = os.environ["SSH_PASSWORD"]  # from env — never hardcode credentials
 
 nodes = [
-    {"name": "Central Server", "ip": "87.107.5.238", "is_central": True},
-    {"name": "Worker Node 2", "ip": "5.56.132.26", "is_central": False},
-    {"name": "Worker Node 3", "ip": "87.107.5.219", "is_central": False},
+    {"name": "Central Server", "ip": os.environ.get("CENTRAL_IP", "87.107.5.238"), "is_central": True},
+    {"name": "Worker Node 2", "ip": os.environ.get("WORKER_2_IP", "5.56.132.26"), "is_central": False},
+    {"name": "Worker Node 3", "ip": os.environ.get("WORKER_3_IP", "87.107.5.219"), "is_central": False},
 ]
 
 print("="*70)
@@ -56,9 +57,13 @@ print("3. FULL-MESH CONNECTIVITY & CELERY WORKER AUDIT")
 print("="*70)
 
 # Check Celery inspect and Redis ping from Central Server
+central_ip = next(n["ip"] for n in nodes if n["is_central"])
+worker2_ip = next(n["ip"] for n in nodes if n["name"] == "Worker Node 2")
+worker3_ip = next(n["ip"] for n in nodes if n["name"] == "Worker Node 3")
+
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect("87.107.5.238", username="root", password=pwd, timeout=20, banner_timeout=30)
+ssh.connect(central_ip, username="root", password=pwd, timeout=20, banner_timeout=30)
 
 print("\n[A] Testing Celery Active Worker Inspect from Central Server:")
 stdin, stdout, stderr = ssh.exec_command("docker exec barpro-backend celery -A app.workers.celery_app:celery_app inspect ping -t 5")
@@ -78,7 +83,7 @@ ssh.close()
 print("\n[D] Testing Worker 2 Connectivity to Central Database & Redis:")
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect("5.56.132.26", username="root", password=pwd, timeout=20, banner_timeout=30)
+ssh.connect(worker2_ip, username="root", password=pwd, timeout=20, banner_timeout=30)
 stdin, stdout, stderr = ssh.exec_command("docker exec barpro-celery-worker python -c 'import asyncio; from app.core.database import engine; from sqlmodel import text; from app.core.redis import get_redis_client; async def test(): async with engine.connect() as c: r = await c.execute(text(\"SELECT 1;\")); print(\"Worker2 -> Central DB connection:\", \"OK\"); red = await get_redis_client(); print(\"Worker2 -> Central Redis connection:\", \"OK\" if await red.ping() else \"FAIL\"); asyncio.run(test())'")
 print(stdout.read().decode())
 print("Worker 2 error output if any:", stderr.read().decode())
@@ -88,7 +93,7 @@ ssh.close()
 print("\n[E] Testing Worker 3 Connectivity to Central Database & Redis:")
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect("87.107.5.219", username="root", password=pwd, timeout=20, banner_timeout=30)
+ssh.connect(worker3_ip, username="root", password=pwd, timeout=20, banner_timeout=30)
 stdin, stdout, stderr = ssh.exec_command("docker exec barpro-celery-worker python -c 'import asyncio; from app.core.database import engine; from sqlmodel import text; from app.core.redis import get_redis_client; async def test(): async with engine.connect() as c: r = await c.execute(text(\"SELECT 1;\")); print(\"Worker3 -> Central DB connection:\", \"OK\"); red = await get_redis_client(); print(\"Worker3 -> Central Redis connection:\", \"OK\" if await red.ping() else \"FAIL\"); asyncio.run(test())'")
 print(stdout.read().decode())
 print("Worker 3 error output if any:", stderr.read().decode())

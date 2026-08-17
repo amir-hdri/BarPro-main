@@ -14,6 +14,7 @@ from app.core.error_taxonomy import is_retryable_terminal_category
 from app.models_multitenant import (
     Client,
     Driver,
+    DriverPlate,
     DriverStatus,
     TaskSource,
     TaskStatus,
@@ -40,6 +41,7 @@ from app.schemas.multitenant import (
     WaybillJobResponse,
     WaybillJobUpdateRequest,
     WaybillRetryRequest,
+    _normalize_plate,
 )
 from app.services._helpers import (
     _deep_merge_dict,
@@ -75,6 +77,34 @@ class WaybillJobService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Driver not found",
             )
+
+        # Auto-register / activate plate in DriverPlate for driver if provided
+        plate_str = request.payload.plate_number
+        if plate_str and driver.id and client.id:
+            try:
+                norm_plate = _normalize_plate(plate_str.strip())
+                existing_plate_stmt = select(DriverPlate).where(
+                    (DriverPlate.client_id == client.id)
+                    & (DriverPlate.driver_id == driver.id)
+                    & (DriverPlate.plate_number == norm_plate)
+                )
+                existing_plate = (await session.exec(existing_plate_stmt)).first()
+                if not existing_plate:
+                    new_plate = DriverPlate(
+                        client_id=client.id,
+                        driver_id=driver.id,
+                        plate_number=norm_plate,
+                        vehicle_type="کامیون",
+                        status="active",
+                    )
+                    session.add(new_plate)
+                    await session.commit()
+                elif existing_plate.status != "active":
+                    existing_plate.status = "active"
+                    session.add(existing_plate)
+                    await session.commit()
+            except Exception as e:
+                logger.warning(f"Failed to auto-register plate from waybill for driver {driver.id}: {e}")
 
         job = await rpa_scheduler_service.create_job(
             client_id=client.id or 0,

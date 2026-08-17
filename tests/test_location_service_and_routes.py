@@ -75,3 +75,30 @@ def test_fuel_inquiry_options_route():
     assert data["success"] is True
     assert len(data["years"]) == 10
     assert len(data["months"]) == 12
+
+
+def test_parse_address_route():
+    client = TestClient(app)
+    resp = client.post("/api/v1/locations/parse-address", json={"address_text": "اصفهان خمینی شهر خیابان دهم"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["province"] == "اصفهان"
+    assert data["city"] == "خمینی‌شهر" or data["city"] == "اصفهان"
+
+
+def test_location_favorite_model():
+    from app.models.location_favorite import LocationFavorite
+
+    fav = LocationFavorite(
+        client_id=1,
+        title="انبار مرکزی",
+        province="تهران",
+        city="تهران",
+        district="منطقه ۱",
+        address="خیابان آزادی پلاک ۱",
+    )
+    assert fav.client_id == 1
+    assert fav.title == "انبار مرکزی"
+    assert fav.is_origin is True
+    assert fav.is_destination is True
+

@@ -137,39 +137,96 @@ class FuelScraper:
         base_error = None
         perf_error = None
 
-        # Pass 1: Query Base Quota (1)
-        logger.info("Querying base quota...")
-        try:
-            base_rows = await self._query_quota_type(
-                national_code=national_code,
-                plate_info=plate_info,
-                j_year=j_year,
-                j_month=j_month,
-                quota_type="1",
-                inquiry_id=inquiry_id,
-            )
-        except Exception as e:
-            base_error = str(e)
-            logger.warning(f"Base quota query failed: {e}")
+        # Setup route optimization to block unnecessary assets (fonts, media, non-captcha images)
+        async def optimize_routes(p: Page):
+            try:
+                await p.route(
+                    "**/*",
+                    lambda route: route.abort()
+                    if route.request.resource_type in ["media", "font"]
+                    or (
+                        route.request.resource_type == "image"
+                        and "Cap.aspx" not in route.request.url
+                        and "captcha" not in route.request.url.lower()
+                    )
+                    else route.continue_(),
+                )
+            except Exception as e:
+                logger.debug(f"Could not attach route optimization: {e}")
 
-        # Pass 2: Query Performance Quota (2)
-        logger.info("Querying performance quota...")
-        # If base query succeeded, we can reuse the page context and skip initial navigation
-        skip_nav_perf = len(base_rows) > 0
+        await optimize_routes(self.page)
+
+        page_perf: Page | None = None
         try:
-            perf_rows = await self._query_quota_type(
-                national_code=national_code,
-                plate_info=plate_info,
-                j_year=j_year,
-                j_month=j_month,
-                quota_type="2",
-                inquiry_id=inquiry_id,
-                skip_navigation=skip_nav_perf,
-            )
+            page_perf = await self.context.new_page()
+            await optimize_routes(page_perf)
         except Exception as e:
-            logger.warning(
-                f"Optimized performance quota query failed or skipped: {e}. Falling back to full page load query."
-            )
+            logger.warning(f"Could not spawn secondary tab for parallel query: {e}")
+
+        if page_perf:
+            logger.info("Executing Base Quota and Performance Quota in PARALLEL tabs...")
+
+            async def run_base():
+                nonlocal base_error
+                try:
+                    return await self._query_quota_type(
+                        national_code=national_code,
+                        plate_info=plate_info,
+                        j_year=j_year,
+                        j_month=j_month,
+                        quota_type="1",
+                        inquiry_id=inquiry_id,
+                        page=self.page,
+                    )
+                except Exception as ex:
+                    base_error = str(ex)
+                    logger.warning(f"Parallel Base Quota query failed: {ex}")
+                    return []
+
+            async def run_perf():
+                nonlocal perf_error
+                try:
+                    return await self._query_quota_type(
+                        national_code=national_code,
+                        plate_info=plate_info,
+                        j_year=j_year,
+                        j_month=j_month,
+                        quota_type="2",
+                        inquiry_id=inquiry_id,
+                        page=page_perf,
+                    )
+                except Exception as ex:
+                    perf_error = str(ex)
+                    logger.warning(f"Parallel Performance Quota query failed: {ex}")
+                    return []
+
+            res_base, res_perf = await asyncio.gather(run_base(), run_perf())
+            base_rows = res_base or []
+            perf_rows = res_perf or []
+
+            try:
+                await page_perf.close()
+            except Exception:
+                pass
+        else:
+            # Sequential fallback if second tab could not be created
+            logger.info("Querying base quota sequentially...")
+            try:
+                base_rows = await self._query_quota_type(
+                    national_code=national_code,
+                    plate_info=plate_info,
+                    j_year=j_year,
+                    j_month=j_month,
+                    quota_type="1",
+                    inquiry_id=inquiry_id,
+                    page=self.page,
+                )
+            except Exception as e:
+                base_error = str(e)
+                logger.warning(f"Base quota query failed: {e}")
+
+            logger.info("Querying performance quota sequentially...")
+            skip_nav_perf = len(base_rows) > 0
             try:
                 perf_rows = await self._query_quota_type(
                     national_code=national_code,
@@ -178,11 +235,27 @@ class FuelScraper:
                     j_month=j_month,
                     quota_type="2",
                     inquiry_id=inquiry_id,
-                    skip_navigation=False,
+                    page=self.page,
+                    skip_navigation=skip_nav_perf,
                 )
-            except Exception as e2:
-                perf_error = str(e2)
-                logger.warning(f"Performance quota query fallback failed: {e2}")
+            except Exception as e:
+                logger.warning(
+                    f"Optimized performance quota query failed or skipped: {e}. Falling back to full page load query."
+                )
+                try:
+                    perf_rows = await self._query_quota_type(
+                        national_code=national_code,
+                        plate_info=plate_info,
+                        j_year=j_year,
+                        j_month=j_month,
+                        quota_type="2",
+                        inquiry_id=inquiry_id,
+                        page=self.page,
+                        skip_navigation=False,
+                    )
+                except Exception as e2:
+                    perf_error = str(e2)
+                    logger.warning(f"Performance quota query fallback failed: {e2}")
 
         # If both failed, raise error
         if not base_rows and not perf_rows:
@@ -243,15 +316,15 @@ class FuelScraper:
             "screenshot_url": screenshot_url,
         }
 
-    async def _trigger_and_wait_for_captcha_reload(self):
+    async def _trigger_and_wait_for_captcha_reload(self, page: Page | None = None):
         """Forces captcha refresh and waits for the image load event to complete."""
+        p = page or self.page
         try:
             # 1. Register a load listener in the page context
-            await self.page.evaluate("""() => {
+            await p.evaluate("""() => {
                 const img = document.querySelector("#imgCapchaEdit1");
                 if (img) {
                     window.captchaLoaded = false;
-                    // Remove any old listener if we saved it, or just add a clean one
                     if (window.captchaLoadHandler) {
                         img.removeEventListener('load', window.captchaLoadHandler);
                     }
@@ -259,30 +332,34 @@ class FuelScraper:
                         window.captchaLoaded = true;
                     };
                     img.addEventListener('load', window.captchaLoadHandler, { once: true });
-
-                    // Force refresh by appending random query parameter to bypass cache
                     img.src = "../../Cap.aspx?id=LoginShowFuelQuota&rand=" + Math.random();
                 }
             }""")
             logger.info("Forced captcha refresh with random parameter via JS.")
 
-            # 2. Wait for the load event to fire
-            await self.page.wait_for_function("() => window.captchaLoaded === true", timeout=6000)
+            # 2. Wait reactively for the load event or complete state
+            await p.wait_for_function(
+                "() => window.captchaLoaded === true || (document.querySelector('#imgCapchaEdit1') && document.querySelector('#imgCapchaEdit1').complete && document.querySelector('#imgCapchaEdit1').naturalWidth > 0)",
+                timeout=4000,
+            )
             logger.info("Captcha image reload event detected and complete.")
         except Exception as e:
             logger.warning(f"Error/timeout waiting for captcha reload event: {e}")
-            # Fallback: sleep to let it paint
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(0.3)
 
-    async def _dismiss_error_modal(self):
+    async def _dismiss_error_modal(self, page: Page | None = None):
+        p = page or self.page
         try:
-            modal = await self.page.query_selector("#modal-msg-error")
+            modal = await p.query_selector("#modal-msg-error")
             if modal and await modal.is_visible():
                 logger.info("Dismissing visible error modal...")
                 close_btn = await modal.query_selector("button:has-text('بستن'), button")
                 if close_btn:
                     await close_btn.click()
-                    await asyncio.sleep(0.8)
+                    try:
+                        await p.wait_for_selector("#modal-msg-error", state="hidden", timeout=1000)
+                    except Exception:
+                        await asyncio.sleep(0.2)
         except Exception as e:
             logger.warning(f"Error dismissing modal: {e}")
 
@@ -295,58 +372,52 @@ class FuelScraper:
         quota_type: str,
         inquiry_id: int,
         skip_navigation: bool = False,
+        page: Page | None = None,
     ) -> list[list[str]]:
+        p = page or self.page
         url = "https://utcms.ir/ShowFuelQuota.aspx"
 
         if not skip_navigation:
-            # Load page once
-            # WAF Session Warmup: Iranian national servers (utcms.ir) are protected by a WAF
-            # which rejects direct connections to sub-pages with ERR_CONNECTION_CLOSED
-            # if the initial WAF cookiesession1 is missing. Visiting the homepage first solves this.
             try:
-                logger.info("Performing WAF warmup by visiting base homepage...")
+                logger.info(f"Navigating directly to fuel quota inquiry page: {url}")
+                await p.goto(url, wait_until="domcontentloaded", timeout=25000)
                 try:
-                    await self.page.goto("https://utcms.ir", wait_until="domcontentloaded", timeout=15000)
-                    await asyncio.sleep(1.0)
-                except Exception as warm_err:
-                    logger.warning(
-                        f"WAF warmup homepage visit failed/timed out: {warm_err}. Trying direct page access."
-                    )
-
-                logger.info(f"Navigating to fuel quota inquiry page: {url}")
-                await self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
-                await asyncio.sleep(1.0)
+                    await p.wait_for_load_state("networkidle", timeout=3000)
+                except Exception:
+                    pass
+            except Exception as direct_err:
+                logger.warning(f"Direct navigation failed: {direct_err}. Trying WAF warmup via homepage...")
                 try:
-                    await self.page.wait_for_load_state("networkidle", timeout=6000)
-                except Exception as exc:
-                    logger.debug(
-                        "fuel_scraper_networkidle_timeout",
-                        extra={"extra_fields": {"error": str(exc)}},
-                    )
-            except Exception as e:
-                logger.error(f"Failed to load ShowFuelQuota.aspx: {e}")
-                raise WaybillError(f"صفحه استعلام سوخت بارگذاری نشد: {e}") from e
+                    await p.goto("https://utcms.ir", wait_until="domcontentloaded", timeout=10000)
+                    await asyncio.sleep(0.5)
+                except Exception:
+                    pass
+                try:
+                    await p.goto(url, wait_until="domcontentloaded", timeout=35000)
+                except Exception as e2:
+                    logger.error(f"Failed to load ShowFuelQuota.aspx: {e2}")
+                    raise WaybillError(f"صفحه استعلام سوخت بارگذاری نشد: {e2}") from e2
 
             # Dismiss any initial blank error modal if visible
-            await self._dismiss_error_modal()
+            await self._dismiss_error_modal(page=p)
 
             # Wait briefly for dynamically loaded QuotaType radio buttons to appear
             logger.info("Waiting for dynamically loaded QuotaType radio buttons...")
             try:
-                await self.page.wait_for_selector("input[name='QoutaType']", timeout=2000)
+                await p.wait_for_selector("input[name='QoutaType']", timeout=2000)
             except Exception as e:
                 logger.warning(f"Timeout waiting for QuotaType radio inputs, will inject manually: {e}")
 
             # Dismiss modal again right before filling in case it loaded late
-            await self._dismiss_error_modal()
+            await self._dismiss_error_modal(page=p)
 
             # Fill form fields once
             try:
-                await self.page.fill("#NationalCode", national_code)
+                await p.fill("#NationalCode", national_code)
 
                 # Validate available options in #Year dropdown
                 try:
-                    y_opts = await self.page.locator("#Year option").all()
+                    y_opts = await p.locator("#Year option").all()
                     available_year_vals = []
                     for y_opt in y_opts:
                         val = await y_opt.get_attribute("value")
@@ -358,22 +429,29 @@ class FuelScraper:
 
                     target_y_str = str(j_year)
                     if available_year_vals and target_y_str not in available_year_vals:
-                        logger.warning(f"Requested year {j_year} not found in UTCMS options: {available_year_vals}")
-                        raise WaybillError(
-                            f"سال {j_year} در گزینه‌های سامانه سوخت موجود نیست",
-                            error_code=ErrorCode.WB_VALIDATION_FAILED,
-                        )
+                        numeric_years = sorted([int(y) for y in available_year_vals if y.isdigit()])
+                        if numeric_years and j_year > numeric_years[-1]:
+                            logger.info(
+                                f"Requested year {j_year} exceeds max available year {numeric_years[-1]} in UTCMS. Using {numeric_years[-1]}."
+                            )
+                            target_y_str = str(numeric_years[-1])
+                        else:
+                            logger.warning(f"Requested year {j_year} not found in UTCMS options: {available_year_vals}")
+                            raise WaybillError(
+                                f"سال {j_year} در گزینه‌های سامانه سوخت موجود نیست",
+                                error_code=ErrorCode.WB_VALIDATION_FAILED,
+                            )
                 except WaybillError:
                     raise
                 except Exception as ex_opt:
                     logger.debug(f"Could not pre-check #Year options: {ex_opt}")
 
-                await self.page.select_option("#Year", str(j_year))
-                await self.page.select_option("#Month", str(j_month))
+                await p.select_option("#Year", target_y_str)
+                await p.select_option("#Month", str(j_month))
 
                 # Select plate type (mili = value 1)
-                await self.page.click("input[name='pelakSelected'][value='1']")
-                await self.page.evaluate("""() => {
+                await p.click("input[name='pelakSelected'][value='1']")
+                await p.evaluate("""() => {
                     FreeZoneId = 2;
                     $("input[name='pelakSelected'][value='1']").prop('checked', true);
                     $("#PAddi").show();
@@ -384,7 +462,7 @@ class FuelScraper:
 
                 # Log the options for debugging
                 try:
-                    options = await self.page.locator("#pelakComboLogin option").all()
+                    options = await p.locator("#pelakComboLogin option").all()
                     opts_text = []
                     for opt in options:
                         val = await opt.get_attribute("value")
@@ -395,10 +473,10 @@ class FuelScraper:
                     logger.warning(f"Could not dump options: {e}")
 
                 # Fill plate components
-                await self.page.fill("#pelakFirstLogin", plate_info["first"])
-                await self.page.select_option("#pelakComboLogin", plate_info["char_val"])
-                await self.page.fill("#pelakCenterLogin", plate_info["center"])
-                await self.page.fill("#pelakIrNumLogin", plate_info["ir"])
+                await p.fill("#pelakFirstLogin", plate_info["first"])
+                await p.select_option("#pelakComboLogin", plate_info["char_val"])
+                await p.fill("#pelakCenterLogin", plate_info["center"])
+                await p.fill("#pelakIrNumLogin", plate_info["ir"])
             except WaybillError:
                 raise
             except Exception as e:
@@ -411,7 +489,7 @@ class FuelScraper:
 
             # Wait for the page's own $(document).ready AJAX call to finish
             try:
-                quota_element = await self.page.wait_for_selector(quota_radio, state="attached", timeout=5000)
+                quota_element = await p.wait_for_selector(quota_radio, state="attached", timeout=5000)
             except Exception:
                 quota_element = None
 
@@ -419,35 +497,24 @@ class FuelScraper:
                 logger.info("QuotaType radio inputs not found in DOM after 5s. Retrying GetQoutaType AJAX call...")
                 for load_attempt in range(1, 4):
                     # Dismiss any error modal first
-                    try:
-                        modal = await self.page.query_selector("#modal-msg-error")
-                        if modal and await modal.is_visible():
-                            close_btn = await modal.query_selector("button:has-text('بستن'), button")
-                            if close_btn:
-                                await close_btn.click()
-                                await asyncio.sleep(0.5)
-                    except Exception as exc:
-                        logger.debug(
-                            "fuel_scraper_modal_dismissal_failed",
-                            extra={"extra_fields": {"error": str(exc)}},
-                        )
+                    await self._dismiss_error_modal(page=p)
 
                     # Execute page's own GetQoutaType function
                     try:
-                        await self.page.evaluate("GetQoutaType()")
+                        await p.evaluate("GetQoutaType()")
                         # Wait for selector to appear
-                        await self.page.wait_for_selector(quota_radio, timeout=5000)
-                        quota_element = await self.page.query_selector(quota_radio)
+                        await p.wait_for_selector(quota_radio, timeout=5000)
+                        quota_element = await p.query_selector(quota_radio)
                         if quota_element:
                             logger.info(
                                 f"Successfully loaded QuotaType radio inputs via GetQoutaType() on attempt {load_attempt}"
                             )
                             # Wait a bit for the DOM to settle after the AJAX callback fully executes
-                            await asyncio.sleep(1.0)
+                            await asyncio.sleep(0.5)
                             break
                     except Exception as ex:
                         logger.warning(f"Attempt {load_attempt} to call GetQoutaType() failed: {ex}")
-                        await asyncio.sleep(1.0)
+                        await asyncio.sleep(0.5)
 
             # If still not found, apply manual injection fallback registered with FormValidation
             if not quota_element:
@@ -485,8 +552,8 @@ class FuelScraper:
                     }
                 }
                 """
-                await self.page.evaluate(inject_js)
-                quota_element = await self.page.query_selector(quota_radio)
+                await p.evaluate(inject_js)
+                quota_element = await p.query_selector(quota_radio)
 
             if quota_element:
                 # Force checking using evaluation to bypass any potential modal overlay pointer blocking
@@ -501,7 +568,7 @@ class FuelScraper:
                     }}
                 }}
                 """
-                await self.page.evaluate(check_js)
+                await p.evaluate(check_js)
                 logger.info(f"Checked QuotaType radio with value: {quota_type} via JS")
             else:
                 logger.error("Failed to load and check QuotaType radio buttons")
@@ -512,11 +579,15 @@ class FuelScraper:
 
         # Wait to ensure any page load / AJAX error captcha reload is complete before first attempt
         if not skip_navigation:
-            logger.info("Waiting for initial page load captcha reload to stabilize...")
-            await asyncio.sleep(2.0)
+            try:
+                await p.wait_for_function(
+                    "() => document.querySelector('#imgCapchaEdit1') && document.querySelector('#imgCapchaEdit1').complete && document.querySelector('#imgCapchaEdit1').naturalWidth > 0",
+                    timeout=3000,
+                )
+            except Exception:
+                await asyncio.sleep(0.3)
 
         # Captcha Solve Loop (in-place retry, no page reload)
-        # Increased max attempts to 6 for better reliability on complex Persian word captchas
         max_attempts = 6
         for attempt in range(1, max_attempts + 1):
             logger.info(f"Captcha attempt {attempt} of {max_attempts} for quota type {quota_type}")
@@ -524,18 +595,18 @@ class FuelScraper:
             if attempt > 1:
                 # Force refresh using the cache-bypassing reload method
                 logger.info("Forcing manual captcha reload to bypass cache...")
-                await self._trigger_and_wait_for_captcha_reload()
+                await self._trigger_and_wait_for_captcha_reload(page=p)
             elif skip_navigation:
                 # Reusing page from a previous successful query, so trigger a new captcha manually
                 logger.info("Reusing page for second quota type. Triggering manual captcha reload...")
-                await self._trigger_and_wait_for_captcha_reload()
+                await self._trigger_and_wait_for_captcha_reload(page=p)
 
             # Solve Captcha
             solve_start = asyncio.get_running_loop().time()
             track_captcha_attempt("provider", phase="fuel_quota", attempt=attempt)
 
             try:
-                solved_value, captcha_provider_name = await self._solve_page_captcha()
+                solved_value, captcha_provider_name = await self._solve_page_captcha(page=p)
             except Exception as exc:
                 elapsed = asyncio.get_running_loop().time() - solve_start
                 track_captcha_failure(
@@ -547,25 +618,18 @@ class FuelScraper:
 
             try:
                 # Clear and refill captcha
-                await self.page.fill("#txtCapcha", "")
-                await self.page.fill("#txtCapcha", solved_value)
+                await p.fill("#txtCapcha", "")
+                await p.fill("#txtCapcha", solved_value)
                 logger.info(
                     "fuel_captcha_field_filled",
                     extra={"extra_fields": {"provider": captcha_provider_name, "value_len": len(solved_value)}},
                 )
 
                 # Double check and dismiss any error modal right before clicking submit
-                modal = await self.page.query_selector("#modal-msg-error")
-                if modal and await modal.is_visible():
-                    logger.info("Modal detected right before submit, dismissing it.")
-                    close_btn = await modal.query_selector("button:has-text('بستن'), button")
-                    if close_btn:
-                        await close_btn.click()
-                        await asyncio.sleep(0.8)
+                await self._dismiss_error_modal(page=p)
 
                 # Submit
-                await self.page.click("#Login")
-                await asyncio.sleep(3.0)  # Wait for submission processing
+                await p.click("#Login")
             except Exception as e:
                 logger.error(f"Error submitting form on attempt {attempt}: {e}")
                 if attempt == max_attempts:
@@ -574,25 +638,16 @@ class FuelScraper:
 
             # Detect result modal or error
             try:
-                await self.page.wait_for_selector(
+                await p.wait_for_selector(
                     "#ViewShowFuelQuota, #modal-msg-success, #modal-msg-error, .validation-summary-errors, .alert-danger",
-                    timeout=20000,
+                    timeout=15000,
                 )
             except Exception:
-                await asyncio.sleep(1.0)
-
-            # Save screenshot for debugging
-            try:
-                scratch_dir = os.path.join(os.getcwd(), "scratch")
-                os.makedirs(scratch_dir, exist_ok=True)
-                await self.page.screenshot(path=os.path.join(scratch_dir, f"attempt_{attempt}_result.png"))
-                logger.info(f"Saved attempt {attempt} screenshot for debugging.")
-            except Exception as e:
-                logger.warning(f"Failed to save debug screenshot: {e}")
+                await asyncio.sleep(0.3)
 
             # Check if success modal is visible
-            success_modal = await self.page.query_selector("#ViewShowFuelQuota")
-            success_msg_modal = await self.page.query_selector("#modal-msg-success")
+            success_modal = await p.query_selector("#ViewShowFuelQuota")
+            success_msg_modal = await p.query_selector("#modal-msg-success")
 
             is_success_visible = False
             rows = []
@@ -600,7 +655,7 @@ class FuelScraper:
             if success_modal and await success_modal.is_visible():
                 is_success_visible = True
                 # Scrape table rows (for Performance Quota)
-                tbody_rows = await self.page.query_selector_all("#GridBody tr")
+                tbody_rows = await p.query_selector_all("#GridBody tr")
                 for tr in tbody_rows:
                     tds = await tr.query_selector_all("td")
                     if tds:
@@ -610,12 +665,15 @@ class FuelScraper:
                 logger.info(f"Successfully scraped {len(rows)} rows of quota data")
 
                 # Close modal
-                close_btn = await self.page.query_selector(
+                close_btn = await p.query_selector(
                     "#ViewShowFuelQuota button[data-bs-dismiss='modal'], #ViewShowFuelQuota .btn-default"
                 )
                 if close_btn:
                     await close_btn.click()
-                    await asyncio.sleep(0.5)
+                    try:
+                        await p.wait_for_selector("#ViewShowFuelQuota", state="hidden", timeout=1000)
+                    except Exception:
+                        await asyncio.sleep(0.2)
 
             elif success_msg_modal and await success_msg_modal.is_visible():
                 is_success_visible = True
@@ -643,7 +701,10 @@ class FuelScraper:
                 close_btn = await success_msg_modal.query_selector("button:has-text('بستن'), button")
                 if close_btn:
                     await close_btn.click()
-                    await asyncio.sleep(0.5)
+                    try:
+                        await p.wait_for_selector("#modal-msg-success", state="hidden", timeout=1000)
+                    except Exception:
+                        await asyncio.sleep(0.2)
 
             if is_success_visible:
                 elapsed = asyncio.get_running_loop().time() - solve_start
@@ -653,7 +714,7 @@ class FuelScraper:
             # Check for errors
             error_msg = None
             for selector in ("#modal-msg-error", ".validation-summary-errors", ".alert-danger", ".text-danger"):
-                element = await self.page.query_selector(selector)
+                element = await p.query_selector(selector)
                 if element and await element.is_visible():
                     error_msg = (await element.inner_text()).strip()
                     if error_msg:
@@ -684,15 +745,7 @@ class FuelScraper:
                     )
 
                     # Dismiss the error modal so we can click refresh in the next loop
-                    try:
-                        modal = await self.page.query_selector("#modal-msg-error")
-                        if modal and await modal.is_visible():
-                            close_btn = await modal.query_selector("button:has-text('بستن'), button")
-                            if close_btn:
-                                await close_btn.click()
-                                await asyncio.sleep(0.8)
-                    except Exception as close_err:
-                        logger.warning(f"Failed to close error modal: {close_err}")
+                    await self._dismiss_error_modal(page=p)
                     continue
                 else:
                     # Permanent credential validation error
@@ -702,7 +755,8 @@ class FuelScraper:
         logger.error(f"Failed to solve captcha after {max_attempts} attempts for quota type {quota_type}")
         raise WaybillError(f"عدم موفقیت در حل کپچا پس از {max_attempts} تلاش برای سهمیه {quota_type}")
 
-    async def _solve_page_captcha(self) -> tuple[str, str]:
+    async def _solve_page_captcha(self, page: Page | None = None) -> tuple[str, str]:
+        p = page or self.page
         provider = get_captcha_provider()
         if not provider:
             raise WaybillError("کلاس حل کپچا پیکربندی نشده است")
@@ -711,15 +765,14 @@ class FuelScraper:
         from app.automation.captcha import CnnCaptchaProvider, CompositeCaptchaProvider
 
         if isinstance(provider, CompositeCaptchaProvider):
-            fuel_providers = [p for p in provider.providers if not isinstance(p, CnnCaptchaProvider)]
+            fuel_providers = [p_obj for p_obj in provider.providers if not isinstance(p_obj, CnnCaptchaProvider)]
             provider = CompositeCaptchaProvider(fuel_providers)
 
-        captcha_element = await self.page.query_selector("#imgCapchaEdit1")
+        captcha_element = await p.query_selector("#imgCapchaEdit1")
         if not captcha_element:
             raise WaybillError("تصویر کپچا در صفحه یافت نشد")
 
         # Extract original image bytes via HTML5 Canvas to avoid CSS scale/border distortion
-        # Added check for naturalWidth to ensure image is actually loaded
         js_code = """
         () => {
             const img = document.querySelector("#imgCapchaEdit1");
@@ -733,7 +786,7 @@ class FuelScraper:
         }
         """
         try:
-            data_url = await self.page.evaluate(js_code)
+            data_url = await p.evaluate(js_code)
             if not data_url or "," not in data_url:
                 raise ValueError("Canvas returned empty or invalid data url (image might not be loaded)")
             import base64
@@ -742,8 +795,7 @@ class FuelScraper:
             logger.info("Successfully extracted captcha image via HTML5 canvas.")
         except Exception as e:
             logger.warning(f"Failed to extract captcha via canvas: {e}. Falling back to element screenshot.")
-            # Wait a bit more before screenshot as fallback
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.5)
             image_bytes = await captcha_element.screenshot(type="png")
 
         try:
@@ -754,8 +806,6 @@ class FuelScraper:
             with open(os.path.join(scratch_dir, "fuel_last_captcha.png"), "wb") as f:
                 f.write(image_bytes)
         except Exception as exc:
-            # Debug-only artefact; missing filesystem permissions shouldn't
-            # fail the main flow.
             logger.debug(
                 "fuel_scraper_captcha_artifacts_failed",
                 extra={"extra_fields": {"error": str(exc)}},
@@ -781,10 +831,10 @@ class FuelScraper:
                 }
             },
         )
-
         # Solve via model
         result = await provider.solve_text_captcha(image_base64)
         if not result.solved or not result.value:
             raise WaybillError(result.error or "مدل موفق به حل کپچا نشد")
 
         return result.value, result.provider
+

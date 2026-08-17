@@ -1,8 +1,8 @@
 'use client';
 
-import { memo, useCallback, useEffect, useState, useRef } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { PlusIcon, UserCircleIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, TruckIcon, UserCircleIcon } from '@heroicons/react/24/outline';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
@@ -10,7 +10,7 @@ import { PlateInput } from '@/components/PlateInput';
 import { toast } from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { formatDateTime, statusLabel, statusTone } from '@/lib/format';
-import { normalizeDigits } from '@/lib/plate';
+import { canonicalizePlate, normalizeDigits } from '@/lib/plate';
 import { useSession } from "@/hooks/useSession";
 import type {
   Driver,
@@ -29,6 +29,7 @@ const initialDriver: DriverCreateRequest = {
   license_number: '',
   utcms_username: '',
   utcms_password: '',
+  plate_number: '',
 };
 
 export default function DriversPage() {
@@ -52,7 +53,6 @@ export default function DriversPage() {
     is_active: true,
   });
   const [editDriver, setEditDriver] = useState<{ id: number; payload: DriverUpdateRequest } | null>(null);
-  const utcmsPasswordRef = useRef<string>('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +62,9 @@ export default function DriversPage() {
     queryKey: ['drivers'],
     queryFn: async () => {
       const res = await api.get<Driver[]>('/api/v1/drivers?page_size=1000');
-      if (!res.success || !res.data) throw new Error(res.error || 'لیست رانندگان بارگذاری نشد');
+      if (!res.success || !res.data || !Array.isArray(res.data)) {
+        return [];
+      }
       return res.data;
     },
     staleTime: 120000,
@@ -72,14 +74,18 @@ export default function DriversPage() {
   const loadPlatesAndSchedules = useCallback(async () => {
     if (role !== "client" && role !== "master_admin") return;
 
-    const [platesResponse, schedulesResponse] = await Promise.all([
-      api.get<Plate[]>('/api/v1/plates?page_size=1000'),
-      api.get<DriverSchedule[]>('/api/v1/driver-schedules?page_size=1000'),
-    ]);
+    try {
+      const [platesResponse, schedulesResponse] = await Promise.all([
+        api.get<Plate[]>('/api/v1/plates?page_size=1000'),
+        api.get<DriverSchedule[]>('/api/v1/driver-schedules?page_size=1000'),
+      ]);
 
-    setPlates(platesResponse.data || []);
-    setSchedules(schedulesResponse.data || []);
-    setError(null);
+      setPlates(Array.isArray(platesResponse.data) ? platesResponse.data : []);
+      setSchedules(Array.isArray(schedulesResponse.data) ? schedulesResponse.data : []);
+      setError(null);
+    } catch (err) {
+      console.error("Failed to load plates and schedules:", err);
+    }
   }, [role]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -90,18 +96,25 @@ export default function DriversPage() {
       toast.error('کد ملی راننده باید ۱۰ رقم معتبر باشد.');
       return;
     }
-    if (!form.utcms_username.trim() || utcmsPasswordRef.current.length < 4) {
+    const cleanUsername = form.utcms_username.trim();
+    const cleanPassword = form.utcms_password.trim();
+    if (!cleanUsername || cleanPassword.length < 4) {
       setError('نام کاربری و رمز UTCMS معتبر (حداقل ۴ کاراکتر) وارد کنید.');
       toast.error('نام کاربری و رمز عبور UTCMS را به درستی وارد کنید.');
       return;
     }
     setSaving(true);
     const cleanPhone = form.phone ? normalizeDigits(form.phone.trim()) : undefined;
+    const cleanLicense = form.license_number?.trim() || undefined;
+    const cleanPlate = form.plate_number ? canonicalizePlate(form.plate_number.trim()) : undefined;
     const response = await api.post<Driver>('/api/v1/drivers', {
-      ...form,
+      full_name: form.full_name.trim(),
       driver_national_code: natCode,
       phone: cleanPhone,
-      utcms_password: utcmsPasswordRef.current.trim(),
+      license_number: cleanLicense,
+      utcms_username: cleanUsername,
+      utcms_password: cleanPassword,
+      plate_number: cleanPlate,
     });
     setSaving(false);
 
@@ -113,7 +126,6 @@ export default function DriversPage() {
 
     toast.success('راننده جدید با موفقیت ثبت شد');
     setForm(initialDriver);
-    utcmsPasswordRef.current = '';
     setError(null);
     await Promise.all([refetchDrivers(), loadPlatesAndSchedules()]);
   }
@@ -345,7 +357,23 @@ export default function DriversPage() {
                   <Input label="شماره همراه" value={form.phone || ''} onChange={(value) => setForm((current) => ({ ...current, phone: value }))} />
                   <Input label="شماره گواهینامه" value={form.license_number || ''} onChange={(value) => setForm((current) => ({ ...current, license_number: value }))} />
                   <Input label="نام کاربری UTCMS" value={form.utcms_username} onChange={(value) => setForm((current) => ({ ...current, utcms_username: value }))} required />
-                  <label className="text-sm font-medium text-slate-200"><span className="mb-2 block">رمز عبور UTCMS</span><input type="password" required onChange={(e) => { utcmsPasswordRef.current = e.target.value; }} className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-400" /></label>
+                  <Input label="رمز عبور UTCMS" type="password" value={form.utcms_password} onChange={(value) => setForm((current) => ({ ...current, utcms_password: value }))} required />
+                </div>
+
+                <div className="mt-6 rounded-2xl border border-white/10 bg-slate-900/60 p-5">
+                  <label className="block text-sm font-bold text-slate-200">
+                    <span className="mb-2 flex items-center justify-between">
+                      <span className="flex items-center gap-2">
+                        <TruckIcon className="h-5 w-5 text-cyan-400" />
+                        <span>پلاک خودرو راننده (جهت انتساب یکتای دائم)</span>
+                      </span>
+                      <span className="text-xs font-normal text-cyan-400">یکتا برای هر راننده</span>
+                    </span>
+                    <PlateInput
+                      value={form.plate_number || ''}
+                      onChange={(val) => setForm((current) => ({ ...current, plate_number: val }))}
+                    />
+                  </label>
                 </div>
 
                  <div className="mt-10 flex justify-end">
@@ -392,7 +420,15 @@ export default function DriversPage() {
                             <UserCircleIcon className="h-8 w-8" />
                           </div>
                           <div>
-                            <h3 className="text-lg font-black text-white group-hover:text-cyan-400">{driver.full_name}</h3>
+                            <div className="flex items-center gap-3">
+                              <h3 className="text-lg font-black text-white group-hover:text-cyan-400">{driver.full_name}</h3>
+                              {driver.active_plate && (
+                                <span className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-950/60 px-2.5 py-0.5 text-xs font-black text-cyan-300">
+                                  <TruckIcon className="h-3.5 w-3.5" />
+                                  {driver.active_plate}
+                                </span>
+                              )}
+                            </div>
                             <div className="mt-1 flex items-center gap-3 text-xs font-bold text-slate-400">
                               <span>{driver.driver_national_code}</span>
                               <span className="h-1 w-1 rounded-full bg-slate-700"></span>

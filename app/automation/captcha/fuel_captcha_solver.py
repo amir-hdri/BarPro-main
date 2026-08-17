@@ -166,7 +166,7 @@ class PyTorchFuelCaptchaProvider(CaptchaProvider):
             # Prepare tensor: shape (1, 1, 32, 300)
             tensor = torch.tensor(img_normalized, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self._device)
 
-            with torch.no_grad():
+            with torch.inference_mode():
                 outputs = self._model(tensor)  # (SeqLen, 1, Classes)
 
             # Decode using Greedy CTC Decoder

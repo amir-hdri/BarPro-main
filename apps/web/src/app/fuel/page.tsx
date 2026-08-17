@@ -25,7 +25,7 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { useSession } from '@/hooks/useSession';
-import type { Driver, FuelInquiry, WaybillJob, Plate, WaybillTaskListResponse } from '@/lib/types';
+import type { Driver, FuelInquiry, WaybillJob, Plate } from '@/lib/types';
 import { toast } from 'react-hot-toast';
 
 const toPersianDigitsPreserveZero = (str: string | number): string => {
@@ -189,10 +189,6 @@ export default function FuelInquiryPage() {
   // Filtered inquiries calculation
   const filteredInquiries = useMemo(() => {
     return inquiries.filter((item) => {
-      // Driver selection in creation form (if selected)
-      if (selectedDriverId > 0 && item.driver_id !== selectedDriverId) {
-        return false;
-      }
       // Plate filter pill
       if (selectedPlateFilter && item.plate_number !== selectedPlateFilter) {
         return false;
@@ -220,13 +216,13 @@ export default function FuelInquiryPage() {
       }
       return true;
     });
-  }, [inquiries, selectedDriverId, selectedPlateFilter, filterDriverName, filterPlate, filterStatus, filterDateFrom, filterDateTo]);
+  }, [inquiries, selectedPlateFilter, filterDriverName, filterPlate, filterStatus, filterDateFrom, filterDateTo]);
 
   const stats = useMemo(() => {
-    const total = filteredInquiries.length;
-    const successList = filteredInquiries.filter(i => i.status === 'success');
+    const total = inquiries.length;
+    const successList = inquiries.filter(i => i.status === 'success');
     const success = successList.length;
-    const failed = filteredInquiries.filter(i => i.status === 'failed').length;
+    const failed = inquiries.filter(i => i.status === 'failed').length;
     const rate = total > 0 ? Math.round((success / total) * 100) : 0;
 
     let baseSum = 0;
@@ -249,7 +245,7 @@ export default function FuelInquiryPage() {
       rate,
       totalQuota: baseSum + perfSum
     };
-  }, [filteredInquiries]);
+  }, [inquiries]);
 
   const groupedInquiries = useMemo(() => {
     const groups: Record<string, { driverName: string; plateNumber: string; clientInfo?: string; items: FuelInquiry[] }> = {};
@@ -278,30 +274,31 @@ export default function FuelInquiryPage() {
     });
   }, [filteredInquiries, isAdmin]);
 
-  // Load driver waybills and plates when a driver is picked in creation panel
+  // Fetch driver recent waybills & plates when a driver is selected
   useEffect(() => {
+    if (selectedDriverId === 0) {
+      setDriverWaybills([]);
+      setDriverPlates([]);
+      return;
+    }
+
     const controller = new AbortController();
     const fetchDriverData = async () => {
-      if (selectedDriverId === 0) {
-        setDriverWaybills([]);
-        setDriverPlates([]);
-        setSelectedPlateFilter(null);
-        return;
-      }
       setLoadingWaybills(true);
-      setSelectedPlateFilter(null);
       try {
-        const [waybillsRes, platesRes] = await Promise.all([
-          api.get<WaybillTaskListResponse>('/api/v1/waybill-jobs', { driver_id: selectedDriverId, page_size: 100 }, { signal: controller.signal }),
-          api.get<Plate[]>('/api/v1/plates', { driver_id: selectedDriverId }, { signal: controller.signal }),
+        const [wbRes, plRes] = await Promise.all([
+          api.get<{ tasks: WaybillJob[] }>(`/api/v1/waybill-jobs?driver_id=${selectedDriverId}&page_size=5`, undefined, { signal: controller.signal }),
+          api.get<Plate[]>(`/api/v1/plates?driver_id=${selectedDriverId}&page_size=20`, undefined, { signal: controller.signal }),
         ]);
-        if (waybillsRes.success && waybillsRes.data) {
-          setDriverWaybills(waybillsRes.data.tasks || []);
+
+        if (wbRes.success && wbRes.data) {
+          setDriverWaybills(wbRes.data.tasks || []);
         } else {
           setDriverWaybills([]);
         }
-        if (platesRes.success && platesRes.data) {
-          setDriverPlates(platesRes.data || []);
+
+        if (plRes.success && plRes.data) {
+          setDriverPlates(Array.isArray(plRes.data) ? plRes.data : []);
         } else {
           setDriverPlates([]);
         }
@@ -332,17 +329,17 @@ export default function FuelInquiryPage() {
     try {
       const [driversResponse, inquiriesResponse] = await Promise.all([
         api.get<Driver[]>('/api/v1/drivers', { page_size: 1000 }, { signal }),
-        api.get<{ items: FuelInquiry[] }>('/api/v1/fuel-inquiries', { page_size: 200 }, { signal }),
+        api.get<{ items: FuelInquiry[] }>('/api/v1/fuel-inquiries', { page_size: 100 }, { signal }),
       ]);
 
       if (driversResponse.success && driversResponse.data) {
-        setDrivers(driversResponse.data);
+        setDrivers(Array.isArray(driversResponse.data) ? driversResponse.data : []);
       } else {
         setError(driversResponse.error || 'خطا در بارگذاری لیست رانندگان');
       }
 
       if (inquiriesResponse.success && inquiriesResponse.data) {
-        setInquiries(inquiriesResponse.data.items || []);
+        setInquiries(Array.isArray(inquiriesResponse.data.items) ? inquiriesResponse.data.items : []);
       } else {
         setInquiries([]);
       }
@@ -359,8 +356,16 @@ export default function FuelInquiryPage() {
     return () => controller.abort();
   }, [loadData]);
 
+  // Auto-resume polling for any active inquiry in the list
   useEffect(() => {
-    if (submitting && activeInquiryId) {
+    const active = inquiries.find(i => i.status === 'pending' || i.status === 'processing' || i.status === 'running');
+    if (active && (!activeInquiryId || activeInquiryId !== active.id)) {
+      startPolling(active.id);
+    }
+  }, [inquiries, activeInquiryId]);
+
+  useEffect(() => {
+    if (activeInquiryId) {
       setElapsedTime(0);
       timerRef.current = setInterval(() => {
         setElapsedTime(prev => prev + 1);
@@ -376,7 +381,7 @@ export default function FuelInquiryPage() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [submitting, activeInquiryId]);
+  }, [activeInquiryId]);
 
   const startPolling = (inquiryId: number) => {
     if (pollingRef.current) clearInterval(pollingRef.current);
@@ -403,7 +408,7 @@ export default function FuelInquiryPage() {
 
         setInquiries(prev => prev.map(item => item.id === inquiryId ? updated : item));
 
-        if (updated.status === 'success' || updated.status === 'failed') {
+        if (updated.status === 'success' || updated.status === 'failed' || updated.status === 'stale') {
           if (pollingRef.current) {
             clearInterval(pollingRef.current);
             pollingRef.current = null;
@@ -411,7 +416,7 @@ export default function FuelInquiryPage() {
           if (updated.status === 'success') {
             toast.success('استعلام با موفقیت تکمیل شد');
           } else if (updated.status === 'failed') {
-            toast.error('استعلام با خطا مواجه شد');
+            toast.error(updated.error_message || 'استعلام با خطا مواجه شد');
           }
           setActiveInquiryId(null);
           setSubmitting(false);
@@ -427,35 +432,71 @@ export default function FuelInquiryPage() {
     };
   }, []);
 
-  const refreshHistory = async () => {
-    const inquiriesResponse = await api.get<{ items: FuelInquiry[] }>('/api/v1/fuel-inquiries', { page_size: 200 });
-    if (inquiriesResponse.success && inquiriesResponse.data) {
-      setInquiries(inquiriesResponse.data.items || []);
+  const refreshHistory = async (): Promise<FuelInquiry[]> => {
+    try {
+      const inquiriesResponse = await api.get<{ items: FuelInquiry[] }>('/api/v1/fuel-inquiries', { page_size: 100 });
+      if (inquiriesResponse.success && inquiriesResponse.data) {
+        const items = inquiriesResponse.data.items || [];
+        setInquiries(items);
+        return items;
+      }
+    } catch {
+      // ignore
     }
+    return [];
   };
 
-  const handleStartInquiry = async () => {
+  const handleStartInquiry = async (forceRetry = false) => {
     if (selectedDriverId === 0) return;
     setSubmitting(true);
     setError(null);
     setDropdownOpen(false);
 
+    const activeDriver = drivers.find(d => d.id === selectedDriverId);
+    const driverPlate = activeDriver?.active_plate || driverPlates[0]?.plate_number;
+
     const response = await api.post<FuelInquiry>('/api/v1/fuel-inquiries', {
       driver_id: selectedDriverId,
       year: selectedYear,
       month: selectedMonth,
+      force_retry: forceRetry,
+      plate_number: driverPlate,
     });
 
     if (response.success && response.data) {
       const newInquiry = response.data;
-      setInquiries(prev => [newInquiry, ...prev]);
-      toast.success('استعلام جدید آغاز شد');
+      setInquiries(prev => [newInquiry, ...prev.filter(i => i.id !== newInquiry.id)]);
+      toast.success(forceRetry ? 'استعلام مجدد آغاز شد' : 'استعلام جدید آغاز شد');
       startPolling(newInquiry.id);
     } else {
       const msg = response.error || 'خطا در ایجاد استعلام جدید';
-      if (/فعال|تکرار|در جریان|duplicate/i.test(msg)) {
-        setError('یک استعلام فعال برای این راننده و دوره در جریان است. لطفاً منتظر تکمیل آن بمانید.');
-        toast.error('یک استعلام فعال برای این راننده و دوره در جریان است.');
+      if (/فعال|تکرار|در جریان|duplicate|409/i.test(msg)) {
+        const freshItems = await refreshHistory();
+        const existing = freshItems.find(i => 
+          i.driver_id === selectedDriverId && 
+          (i.status === 'pending' || i.status === 'processing' || i.status === 'running')
+        );
+        if (existing) {
+          startPolling(existing.id);
+          toast('استعلام در حال اجرا بازیابی شد و در حال پایش وضعیت است.', { icon: 'ℹ️' });
+        } else {
+          // Auto force-retry fallback if 409 returned without finding item
+          const retryRes = await api.post<FuelInquiry>('/api/v1/fuel-inquiries', {
+            driver_id: selectedDriverId,
+            year: selectedYear,
+            month: selectedMonth,
+            force_retry: true,
+            plate_number: driverPlate,
+          });
+          if (retryRes.success && retryRes.data) {
+            setInquiries(prev => [retryRes.data!, ...prev.filter(i => i.id !== retryRes.data!.id)]);
+            toast.success('استعلام جدید آغاز شد');
+            startPolling(retryRes.data.id);
+          } else {
+            setError(retryRes.error || msg);
+            toast.error(retryRes.error || msg);
+          }
+        }
       } else {
         setError(msg);
         toast.error(msg);
@@ -480,6 +521,14 @@ export default function FuelInquiryPage() {
   const selectedDriver = useMemo(() => {
     return drivers.find(d => d.id === selectedDriverId) || null;
   }, [drivers, selectedDriverId]);
+
+  const selectedDriverActiveInquiry = useMemo(() => {
+    if (!selectedDriverId) return null;
+    return inquiries.find(i => 
+      i.driver_id === selectedDriverId && 
+      (i.status === 'pending' || i.status === 'processing' || i.status === 'running')
+    ) || null;
+  }, [inquiries, selectedDriverId]);
 
   const filteredDrivers = useMemo(() => {
     return drivers.filter(d =>
@@ -677,8 +726,35 @@ export default function FuelInquiryPage() {
                     </div>
                   </div>
 
+                  {selectedDriverActiveInquiry && (
+                    <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-300 flex flex-col gap-2.5 animate-in duration-200">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold flex items-center gap-1.5 text-[11px]">
+                          <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
+                          یک استعلام در حال پردازش برای این راننده وجود دارد ({getTrackingCode(selectedDriverActiveInquiry)})
+                        </span>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => startPolling(selectedDriverActiveInquiry.id)}
+                          className="flex-1 py-2 px-3 rounded-xl bg-cyan-500/20 text-cyan-300 font-bold hover:bg-cyan-500/30 transition text-center text-[11px]"
+                        >
+                          مشاهده و پایش زنده
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleStartInquiry(true)}
+                          className="flex-1 py-2 px-3 rounded-xl bg-amber-500/20 text-amber-300 font-bold hover:bg-amber-500/30 transition text-center text-[11px]"
+                        >
+                          استعلام مجدد (لغو قبلی)
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <button
-                    onClick={handleStartInquiry}
+                    onClick={() => handleStartInquiry(selectedDriverActiveInquiry ? true : false)}
                     disabled={submitting || selectedDriverId === 0 || loading}
                     className="w-full flex items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-cyan-400 to-cyan-600 px-4 py-3.5 text-sm font-black text-slate-950 transition hover:opacity-90 active:scale-95 disabled:opacity-50 disabled:pointer-events-none shadow-[0_0_35px_rgba(6,182,212,0.3)]"
                   >
@@ -686,6 +762,11 @@ export default function FuelInquiryPage() {
                       <>
                         <ArrowPathIcon className="h-5 w-5 animate-spin" />
                         در حال استعلام...
+                      </>
+                    ) : selectedDriverActiveInquiry ? (
+                      <>
+                        <ArrowPathIcon className="h-5 w-5" />
+                        استعلام مجدد (لغو قبلی و شروع مجدد)
                       </>
                     ) : (
                       <>
@@ -697,20 +778,27 @@ export default function FuelInquiryPage() {
                 </div>
               </div>
 
-              {submitting && activeInquiry && activeInquiry.driver_id === selectedDriverId && (
-                <div className="rounded-3xl border border-cyan-500/20 bg-slate-950 p-6 shadow-xl relative overflow-hidden animate-in duration-300">
+              {activeInquiry && (activeInquiry.status === 'pending' || activeInquiry.status === 'processing' || activeInquiry.status === 'running') && (
+                <div className="rounded-3xl border border-cyan-500/30 bg-slate-950 p-6 shadow-xl relative overflow-hidden animate-in fade-in duration-300">
                   <div className="flex items-center justify-between mb-4">
-                    <span className="text-[10px] font-black text-cyan-400 uppercase tracking-wider bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 rounded-lg">
-                      در حال اجرا
+                    <span className="text-[10px] font-black text-cyan-400 uppercase tracking-wider bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-cyan-400 animate-ping" />
+                      در حال پردازش خودکار
                     </span>
                     <span className="text-[10px] font-bold text-slate-400 font-sans">
                       کد رهگیری: {getTrackingCode(activeInquiry)}
                     </span>
                   </div>
 
-                  <h3 className="text-sm font-bold text-white mb-4">
+                  <h3 className="text-sm font-bold text-white mb-2">
                     استعلام سهمیه راننده: <strong className="text-cyan-400">{activeInquiry.driver_name || selectedDriver?.full_name}</strong>
                   </h3>
+                  <p className="text-xs text-slate-400 mb-4">
+                    دوره: {toPersianDigitsPreserveZero(activeInquiry.month || selectedMonth)} / {toPersianDigitsPreserveZero(activeInquiry.year || selectedYear)}
+                    {activeInquiry.plate_number && (
+                      <span className="mr-3 font-mono text-cyan-300 font-bold">پلاک: {activeInquiry.plate_number}</span>
+                    )}
+                  </p>
 
                   <div className="space-y-4">
                     <ProgressBar
@@ -721,6 +809,17 @@ export default function FuelInquiryPage() {
                     <div className="flex justify-between items-center text-[10px] font-sans font-medium text-slate-500">
                       <span>زمان سپری شده: {toPersianDigitsPreserveZero(elapsedTime)} ثانیه</span>
                       <span>پیشرفت تخمینی: {toPersianDigitsPreserveZero(Math.round(progressPercent))}٪</span>
+                    </div>
+
+                    <div className="pt-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleStartInquiry(true)}
+                        className="text-xs font-bold text-amber-400 hover:text-amber-300 transition flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-xl hover:bg-amber-500/20"
+                      >
+                        <ArrowPathIcon className="h-3.5 w-3.5" />
+                        استعلام مجدد (لغو قبلی)
+                      </button>
                     </div>
                   </div>
                 </div>

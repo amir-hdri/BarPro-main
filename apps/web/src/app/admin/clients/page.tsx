@@ -44,8 +44,12 @@ export default function AdminClientsPage() {
     setMsg(null);
     try {
       const res = await api.get<ClientItem[]>("/api/v1/admin/clients");
-      if (res.data) setClients(res.data);
-      else setMsg({ type: "error", text: res.error || 'خطا در بارگذاری کاربران' });
+      if (res.data && Array.isArray(res.data)) {
+        setClients(res.data);
+      } else {
+        setClients([]);
+        setMsg({ type: "error", text: res.error || 'خطا در بارگذاری کاربران' });
+      }
     } catch {
       setMsg({ type: "error", text: 'خطا در ارتباط با سرور' });
     }

@@ -1,12 +1,13 @@
+import os
 import paramiko
 import time
 
-pwd = "Am" + "@ter@soo100"
+pwd = os.environ["SSH_PASSWORD"]  # from env — never hardcode credentials
 
 servers = [
-    {"name": "Central Server", "ip": "87.107.5.238", "is_central": True},
-    {"name": "Worker Node 2", "ip": "5.56.132.26", "is_central": False},
-    {"name": "Worker Node 3", "ip": "5.56.132.78", "is_central": False},
+    {"name": "Central Server", "ip": os.environ.get("CENTRAL_IP", "87.107.5.238"), "is_central": True},
+    {"name": "Worker Node 2", "ip": os.environ.get("WORKER_2_IP", "5.56.132.26"), "is_central": False},
+    {"name": "Worker Node 3", "ip": os.environ.get("WORKER_3_IP", "87.107.5.219"), "is_central": False},
 ]
 
 for s in servers:
