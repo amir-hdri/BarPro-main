@@ -181,6 +181,47 @@ export default function NewWaybillPage() {
   const [scheduleStartDate, setScheduleStartDate] = useState("");
   const [scheduleEndDate, setScheduleEndDate] = useState("");
 
+  const handleDateBlur = (setter: React.Dispatch<React.SetStateAction<string>>) => (e: React.FocusEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (!val || !val.trim()) return;
+    let s = val.trim();
+    const persianDigits = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
+    const arabicDigits = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+    for (let i = 0; i < 10; i++) {
+      s = s.replaceAll(persianDigits[i], String(i)).replaceAll(arabicDigits[i], String(i));
+    }
+    s = s.replace(/[\s_/\.\\]+/g, '-');
+    const parts = s.split('-');
+    if (parts.length === 3) {
+      const y = parts[0];
+      const m = parts[1].padStart(2, '0');
+      const d = parts[2].padStart(2, '0');
+      setter(`${y}-${m}-${d}`);
+    } else {
+      setter(s);
+    }
+  };
+
+  const handleTimeBlur = (setter: React.Dispatch<React.SetStateAction<string>>) => (e: React.FocusEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (!val || !val.trim()) return;
+    let s = val.trim();
+    const persianDigits = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
+    const arabicDigits = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+    for (let i = 0; i < 10; i++) {
+      s = s.replaceAll(persianDigits[i], String(i)).replaceAll(arabicDigits[i], String(i));
+    }
+    s = s.replace(/[\s_/\.\-]+/g, ':');
+    const parts = s.split(':');
+    if (parts.length >= 2) {
+      const h = parts[0].padStart(2, '0');
+      const mn = parts[1].padStart(2, '0');
+      setter(`${h}:${mn}`);
+    } else {
+      setter(s);
+    }
+  };
+
   const loadDriversAndPlates = useCallback(async () => {
     if (role !== "client" && role !== "master_admin") {
       setLoadingDrivers(false);
@@ -404,23 +445,71 @@ export default function NewWaybillPage() {
         setServerError("عنوان زمان‌بندی الزامی است");
         return;
       }
-      if (!/^\d{2}:\d{2}$/.test(scheduleRunTime)) {
-        setServerError("فرمت ساعت اجرا باید HH:MM باشد");
-        return;
-      }
+
+      const normalizeDateStr = (val?: string): string | undefined => {
+        if (!val || !val.trim()) return undefined;
+        let s = val.trim();
+        const persianDigits = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
+        const arabicDigits = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+        for (let i = 0; i < 10; i++) {
+          s = s.replaceAll(persianDigits[i], String(i)).replaceAll(arabicDigits[i], String(i));
+        }
+        s = s.replace(/[\s_/\.\\]+/g, '-');
+        const parts = s.split('-');
+        if (parts.length === 3) {
+          const y = parts[0];
+          const m = parts[1].padStart(2, '0');
+          const d = parts[2].padStart(2, '0');
+          return `${y}-${m}-${d}`;
+        }
+        return s;
+      };
+
+      const normalizeTimeStr = (val?: string): string => {
+        if (!val || !val.trim()) return '08:00';
+        let s = val.trim();
+        const persianDigits = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
+        const arabicDigits = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
+        for (let i = 0; i < 10; i++) {
+          s = s.replaceAll(persianDigits[i], String(i)).replaceAll(arabicDigits[i], String(i));
+        }
+        s = s.replace(/[\s_/\.\-]+/g, ':');
+        const parts = s.split(':');
+        if (parts.length >= 2) {
+          const h = parts[0].padStart(2, '0');
+          const mn = parts[1].padStart(2, '0');
+          return `${h}:${mn}`;
+        }
+        return s;
+      };
+
+      const normStartTime = normalizeTimeStr(scheduleRunTime);
+      const normStartRunTimes = scheduleRunTimes
+        ? scheduleRunTimes
+            .split(',')
+            .map((s) => normalizeTimeStr(s.trim()))
+            .filter(Boolean)
+        : [normStartTime];
+
+      const normSpecificDates = scheduleSpecificDates
+        ? scheduleSpecificDates
+            .split(',')
+            .map((s) => normalizeDateStr(s.trim()))
+            .filter((x): x is string => Boolean(x))
+        : [];
 
       setSubmitting(true);
       const schedulePayload = {
         driver_id: selectedDriver.id,
         title: scheduleTitle,
         frequency: scheduleFrequency,
-        run_time: scheduleRunTime,
-        run_times: scheduleRunTimes ? scheduleRunTimes.split(',').map((s: string) => s.trim()).filter(Boolean) : [scheduleRunTime],
-        specific_dates: scheduleSpecificDates ? scheduleSpecificDates.split(',').map((s: string) => s.trim()).filter(Boolean) : [],
-        start_date: scheduleStartDate || undefined,
-        end_date: scheduleEndDate || undefined,
+        run_time: normStartTime,
+        run_times: normStartRunTimes,
+        specific_dates: normSpecificDates,
+        start_date: normalizeDateStr(scheduleStartDate),
+        end_date: normalizeDateStr(scheduleEndDate),
         payload_template: payload,
-        is_active: true
+        is_active: true,
       };
 
       const response = await api.post("/api/v1/driver-schedules", schedulePayload);
@@ -985,6 +1074,7 @@ export default function NewWaybillPage() {
                               placeholder="08:00"
                               value={scheduleRunTime}
                               onChange={(e) => setScheduleRunTime(e.target.value)}
+                              onBlur={handleTimeBlur(setScheduleRunTime)}
                               required
                             />
                           </label>
@@ -1004,7 +1094,7 @@ export default function NewWaybillPage() {
 
                         <div>
                           <label className="block text-sm font-semibold text-slate-200">
-                            <span className="mb-2 block">تاریخ‌های مشخص (Solar Hijri YYYY-MM-DD, comma)</span>
+                            <span className="mb-2 block">تاریخ‌های مشخص (فرمت YYYY-MM-DD با کاما)</span>
                             <input
                               className="field"
                               placeholder="1405-04-15, 1405-04-16"
@@ -1019,9 +1109,10 @@ export default function NewWaybillPage() {
                             <span className="mb-2 block">از تاریخ (YYYY-MM-DD)</span>
                             <input
                               className="field"
-                              placeholder="1405-04-01"
+                              placeholder="1405-05-01"
                               value={scheduleStartDate}
                               onChange={(e) => setScheduleStartDate(e.target.value)}
+                              onBlur={handleDateBlur(setScheduleStartDate)}
                             />
                           </label>
                         </div>
@@ -1031,9 +1122,10 @@ export default function NewWaybillPage() {
                             <span className="mb-2 block">تا تاریخ (YYYY-MM-DD)</span>
                             <input
                               className="field"
-                              placeholder="1405-04-30"
+                              placeholder="1405-06-30"
                               value={scheduleEndDate}
                               onChange={(e) => setScheduleEndDate(e.target.value)}
+                              onBlur={handleDateBlur(setScheduleEndDate)}
                             />
                           </label>
                         </div>

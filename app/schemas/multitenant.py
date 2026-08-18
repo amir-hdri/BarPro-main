@@ -311,33 +311,189 @@ class PlateResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+def _normalize_persian_schedule_date(v: str | None) -> str | None:
+    if not v:
+        return None
+    s = str(v).strip()
+    if not s:
+        return None
+    persian_arabic_digits = {
+        '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
+        '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+    }
+    for p, a in persian_arabic_digits.items():
+        s = s.replace(p, a)
+    s = re.sub(r"[\s_/\.\\]+", "-", s)
+    m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", s)
+    if m:
+        y, mth, d = m.groups()
+        return f"{y}-{int(mth):02d}-{int(d):02d}"
+    return s
+
+
+def _normalize_schedule_time(v: str | None) -> str | None:
+    if not v:
+        return None
+    s = str(v).strip()
+    persian_arabic_digits = {
+        '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
+        '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+    }
+    for p, a in persian_arabic_digits.items():
+        s = s.replace(p, a)
+    s = re.sub(r"[\s_/\.\-]+", ":", s)
+    m = re.match(r"^(\d{1,2}):(\d{1,2})$", s)
+    if m:
+        h, mn = m.groups()
+        return f"{int(h):02d}:{int(mn):02d}"
+    return s
+
+
 class DriverScheduleCreateRequest(BaseModel):
     driver_id: int
     title: str = Field(..., min_length=2, max_length=255)
     frequency: str = Field(default="daily", max_length=20)
-    run_time: str = Field(default="08:00", pattern=r"^\d{2}:\d{2}$")
+    run_time: str = Field(default="08:00")
     run_times: list[str] = Field(default_factory=list)
     weekdays: list[int] | None = Field(default=None)
     specific_dates: list[str] = Field(default_factory=list)
-    start_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
-    end_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    start_date: str | None = Field(default=None)
+    end_date: str | None = Field(default=None)
     timezone: str = Field(default="Asia/Tehran", max_length=64)
     payload_template: dict[str, Any] = Field(default_factory=dict)
     is_active: bool = True
+
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def validate_dates(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        norm = _normalize_persian_schedule_date(str(v))
+        if norm and re.match(r"^\d{4}-\d{2}-\d{2}$", norm):
+            return norm
+        raise ValueError(f"فرمت تاریخ نامعتبر است ({v}). فرمت صحیح YYYY-MM-DD است.")
+
+    @field_validator("specific_dates", mode="before")
+    @classmethod
+    def validate_specific_dates(cls, v: Any) -> list[str]:
+        if not v:
+            return []
+        if isinstance(v, str):
+            raw_list = [x.strip() for x in v.split(",") if x.strip()]
+        elif isinstance(v, list):
+            raw_list = v
+        else:
+            return []
+        res = []
+        for item in raw_list:
+            norm = _normalize_persian_schedule_date(str(item))
+            if norm and re.match(r"^\d{4}-\d{2}-\d{2}$", norm):
+                res.append(norm)
+            else:
+                raise ValueError(f"فرمت تاریخ در لیست تاریخ‌های مشخص نامعتبر است ({item}). فرمت صحیح YYYY-MM-DD است.")
+        return res
+
+    @field_validator("run_time", mode="before")
+    @classmethod
+    def validate_run_time(cls, v: Any) -> str:
+        norm = _normalize_schedule_time(str(v) if v else "08:00")
+        if norm and re.match(r"^\d{2}:\d{2}$", norm):
+            return norm
+        raise ValueError(f"فرمت ساعت نامعتبر است ({v}). فرمت صحیح HH:MM است.")
+
+    @field_validator("run_times", mode="before")
+    @classmethod
+    def validate_run_times(cls, v: Any) -> list[str]:
+        if not v:
+            return []
+        if isinstance(v, str):
+            raw_list = [x.strip() for x in v.split(",") if x.strip()]
+        elif isinstance(v, list):
+            raw_list = v
+        else:
+            return []
+        res = []
+        for item in raw_list:
+            norm = _normalize_schedule_time(str(item))
+            if norm and re.match(r"^\d{2}:\d{2}$", norm):
+                res.append(norm)
+            else:
+                raise ValueError(f"فرمت ساعت نامعتبر است ({item}). فرمت صحیح HH:MM است.")
+        return res
 
 
 class DriverScheduleUpdateRequest(BaseModel):
     title: str | None = Field(None, min_length=2, max_length=255)
     frequency: str | None = Field(None, max_length=20)
-    run_time: str | None = Field(None, pattern=r"^\d{2}:\d{2}$")
+    run_time: str | None = None
     run_times: list[str] | None = None
     weekdays: list[int] | None = None
     specific_dates: list[str] | None = None
-    start_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
-    end_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    start_date: str | None = None
+    end_date: str | None = None
     timezone: str | None = Field(None, max_length=64)
     payload_template: dict[str, Any] | None = None
     is_active: bool | None = None
+
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def validate_dates(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        norm = _normalize_persian_schedule_date(str(v))
+        if norm and re.match(r"^\d{4}-\d{2}-\d{2}$", norm):
+            return norm
+        raise ValueError(f"فرمت تاریخ نامعتبر است ({v}). فرمت صحیح YYYY-MM-DD است.")
+
+    @field_validator("specific_dates", mode="before")
+    @classmethod
+    def validate_specific_dates(cls, v: Any) -> list[str] | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            raw_list = [x.strip() for x in v.split(",") if x.strip()]
+        elif isinstance(v, list):
+            raw_list = v
+        else:
+            return None
+        res = []
+        for item in raw_list:
+            norm = _normalize_persian_schedule_date(str(item))
+            if norm and re.match(r"^\d{4}-\d{2}-\d{2}$", norm):
+                res.append(norm)
+            else:
+                raise ValueError(f"فرمت تاریخ در لیست تاریخ‌های مشخص نامعتبر است ({item}). فرمت صحیح YYYY-MM-DD است.")
+        return res
+
+    @field_validator("run_time", mode="before")
+    @classmethod
+    def validate_run_time(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        norm = _normalize_schedule_time(str(v))
+        if norm and re.match(r"^\d{2}:\d{2}$", norm):
+            return norm
+        raise ValueError(f"فرمت ساعت نامعتبر است ({v}). فرمت صحیح HH:MM است.")
+
+    @field_validator("run_times", mode="before")
+    @classmethod
+    def validate_run_times(cls, v: Any) -> list[str] | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            raw_list = [x.strip() for x in v.split(",") if x.strip()]
+        elif isinstance(v, list):
+            raw_list = v
+        else:
+            return None
+        res = []
+        for item in raw_list:
+            norm = _normalize_schedule_time(str(item))
+            if norm and re.match(r"^\d{2}:\d{2}$", norm):
+                res.append(norm)
+            else:
+                raise ValueError(f"فرمت ساعت نامعتبر است ({item}). فرمت صحیح HH:MM است.")
+        return res
 
 
 class DriverScheduleResponse(BaseModel):

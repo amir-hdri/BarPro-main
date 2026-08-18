@@ -48,45 +48,30 @@ export function extractErrorMessage(payload: unknown): string {
 
   const record = payload as Record<string, unknown>;
 
+  const details = record.details || record.detail || record.errors;
+  if (Array.isArray(details) && details.length > 0) {
+    const parts = details
+      .map((item) => {
+        if (!item || typeof item !== 'object') return normalizeToString(item);
+        const obj = item as Record<string, unknown>;
+        const loc = Array.isArray(obj.loc) ? obj.loc.filter((x) => x !== 'body').join('.') : '';
+        const msg = normalizeToString(obj.msg) || normalizeToString(obj.message) || normalizeToString(obj.detail);
+        if (loc && msg) return `${loc}: ${msg}`;
+        return msg;
+      })
+      .filter(Boolean) as string[];
+
+    if (parts.length) {
+      const prefix = normalizeToString(record.message) || 'خطای اعتبارسنجی';
+      return `${prefix}: ${parts.join('، ')}`;
+    }
+  }
+
   const directMessage =
     normalizeToString(record.message) ||
     normalizeToString(record.detail) ||
     normalizeToString(record.msg);
   if (directMessage) return directMessage;
-
-  const detail = record.detail;
-  if (Array.isArray(detail)) {
-    const parts = detail
-      .map((item) => {
-        if (!item || typeof item !== 'object') return normalizeToString(item);
-        const obj = item as Record<string, unknown>;
-        return (
-          normalizeToString(obj.msg) ||
-          normalizeToString(obj.message) ||
-          normalizeToString(obj.detail)
-        );
-      })
-      .filter(Boolean) as string[];
-
-    if (parts.length) return parts.join('، ');
-  }
-
-  const errors = record.errors;
-  if (Array.isArray(errors)) {
-    const parts = errors
-      .map((item) => {
-        if (!item || typeof item !== 'object') return normalizeToString(item);
-        const obj = item as Record<string, unknown>;
-        return (
-          normalizeToString(obj.msg) ||
-          normalizeToString(obj.message) ||
-          normalizeToString(obj.detail)
-        );
-      })
-      .filter(Boolean) as string[];
-
-    if (parts.length) return parts.join('، ');
-  }
 
   const topMsg = normalizeToString(record.msg) || normalizeToString(record.loc);
   if (topMsg) return topMsg;

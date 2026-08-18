@@ -342,3 +342,43 @@ def test_delete_driver_success(test_client):
     mock_session.commit.assert_called_once()
 
     app.dependency_overrides.clear()
+
+
+def test_create_driver_schedule_with_persian_and_underscore_dates(test_client):
+    mock_client = Client(id=1, client_code="tenant-1", name="Tenant 1")
+    mock_driver = Driver(id=1, client_id=1, driver_national_code="1810364371", full_name="Ahmad")
+
+    async def fake_refresh(obj):
+        obj.id = 100
+
+    mock_session = MagicMock()
+    mock_session.get = AsyncMock(return_value=mock_driver)
+    mock_session.add = MagicMock()
+    mock_session.commit = AsyncMock()
+    mock_session.refresh = AsyncMock(side_effect=fake_refresh)
+
+    app.dependency_overrides[get_current_client] = lambda: mock_client
+    app.dependency_overrides[get_session] = lambda: mock_session
+
+    payload = {
+        "driver_id": 1,
+        "title": "برنامه بار آجر",
+        "frequency": "daily",
+        "run_time": "08_00",
+        "start_date": "1405_05_26",
+        "end_date": "۱۴۰۵/۰۶/۲۶",
+        "specific_dates": ["1405_05_26", "1405/06/26"],
+        "payload_template": {"cargo_type": "آجر"},
+    }
+
+    response = test_client.post("/api/v1/driver-schedules", json=payload)
+
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["start_date"] == "1405-05-26"
+    assert data["end_date"] == "1405-06-26"
+    assert data["run_time"] == "08:00"
+    assert data["specific_dates"] == ["1405-05-26", "1405-06-26"]
+
+    app.dependency_overrides.clear()
+
