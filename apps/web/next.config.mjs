@@ -15,6 +15,8 @@ const withPWA = withPWAInit({
   reloadOnOnline: true,
   extendDefaultRuntimeCaching: true,
   workboxOptions: {
+    skipWaiting: true,
+    clientsClaim: true,
     runtimeCaching: [
       {
         urlPattern: ({ url }) => url.pathname.startsWith("/api/"),
