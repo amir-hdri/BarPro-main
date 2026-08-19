@@ -107,9 +107,19 @@ This file tracks the completion status of the phases defined in [BarPro_Unified_
   - Added Base64 data fallback to `/api/v1/fuel-inquiries/{id}/screenshot` endpoint in `multitenant.py`, fixing Model B 404 missing-file errors on Central API when tasks run on remote Worker VPS nodes.
 - **Frontend Quota Table & High-Res Preview**:
   - Enhanced Fuel Inquiry details modal in `apps/web/src/app/fuel/page.tsx` with structured breakdown tables for Base & Performance quotas and high-res screenshot view with external link.
+
+### Waybill Registration Validation & Vehicle Type Integration (Completed: 2026-08-19 — v2.8.3)
+- **Vehicle Type Integration (`vehicle_type`)**:
+  - Integrated dedicated `vehicle_type` selector and customizable field into Step 1 of the Waybill Form (`apps/web/src/app/new/page.tsx`) with 12 preset chips (کامیون، تریلی کشنده، کامیونت خاور، وانت بار، تک ۱۰ تن، جفت ۱۵ تن، تریلی کفی، کمپرسی و...).
+  - Auto-prefills `vehicle_type` from driver's registered plate upon driver/plate selection.
+  - Added `vehicle_type` to the Quick Add Driver modal.
+  - Added `vehicle_type` to Zod schema (`apps/web/src/schemas/waybillSchema.ts`) and TypeScript types (`apps/web/src/lib/types.ts`).
+- **Pydantic Validation Resilience**:
+  - Made `vehicle_type` (defaulting to `"کامیون"`) and `driver_phone` (optional with Persian 09xx digit normalization) flexible in backend `WaybillPayload` (`app/schemas/multitenant.py`), resolving the Union 422 validation failure on `POST /api/v1/waybill-jobs`.
+  - Added `cargo_packaging` to `WaybillPayload` and flexible weight parsing.
+  - Handled flat, nested, and hybrid dictionary payloads in `WaybillJobCreateRequest` and `WaybillJobService.create_job`.
+  - Auto-registers and updates `DriverPlate.vehicle_type` in database upon waybill creation.
 - **Verification**:
-  - 875 passed tests in pytest suite (`./.venv/bin/pytest tests/`).
-  - Clean TypeScript typecheck (`tsc --noEmit` with 0 errors).
-
-
-
+  - 875 passed tests in pytest suite.
+  - 2 new E2E tests in `tests/test_e2e_fullstack_flows.py` verifying fullstack payload flexibility and plate sync.
+  - Clean TypeScript typecheck (`tsc --noEmit` with 0 errors) and `fullstack_cli.py check-schemas` passed.

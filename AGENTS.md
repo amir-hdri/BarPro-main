@@ -265,6 +265,14 @@ Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhance
 
 ## Optimization Applied (2026-06-30 → 2026-08-19)
 
+### 2026-08-19 — v2.8.3 Waybill Payload Validation & Vehicle Type Integration
+| Change | File | Impact |
+|--------|------|--------|
+| Vehicle Type Preset Chips & Custom Input | `apps/web/src/app/new/page.tsx` | Adds 12 vehicle type presets (کامیون، تریلی کشنده، خاور، وانت، تک، جفت و...) with auto-population from driver's plate |
+| Quick Add Driver Vehicle Type Support | `apps/web/src/app/new/page.tsx` | Allows registering vehicle type directly in the quick driver creation modal |
+| Full-Stack Schema Alignment & Normalization | `apps/web/src/schemas/waybillSchema.ts` + `app/schemas/multitenant.py` | Eliminates 422 Union validation error on `POST /api/v1/waybill-jobs`; supports flat/nested/hybrid payloads |
+| Driver Plate Auto-Sync & Storage | `app/services/waybill_job_service.py` | Auto-registers and updates `DriverPlate.vehicle_type` in PostgreSQL upon job creation |
+
 ### 2026-08-19 — v2.8.2 Fuel Quota Performance & Modal Screenshot Persistence
 | Change | File | Impact |
 |--------|------|--------|
