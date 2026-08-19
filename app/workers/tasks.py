@@ -354,3 +354,14 @@ if celery_app is not None:
 
         worker_id = f"gate-probe-{socket.gethostname()}"
         return _run_async(utcms_submission_gate.perform_periodic_probe(worker_id))
+
+    @celery_app.task(name="barpro.clean_ip.probe")
+    def probe_clean_ips():
+        """Periodic background probe and refresh for the Clean IP Pool."""
+        from app.automation.clean_ip_pool import clean_ip_pool
+
+        async def _run():
+            verified = await clean_ip_pool.refresh_pool(force=False)
+            return {"status": "ok", "verified_count": len(verified)}
+
+        return _run_async(_run())

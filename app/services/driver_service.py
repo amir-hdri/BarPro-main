@@ -90,9 +90,7 @@ class DriverService:
 
         # Check if national code already exists for this client
         existing = await session.exec(
-            select(Driver).where(
-                (Driver.client_id == client.id) & (Driver.driver_national_code == clean_nat_code)
-            )
+            select(Driver).where((Driver.client_id == client.id) & (Driver.driver_national_code == clean_nat_code))
         )
         if existing.first():
             raise HTTPException(
@@ -130,6 +128,14 @@ class DriverService:
                 )
             ).first()
             if not existing_plate:
+                plate_count = (
+                    await session.exec(select(func.count(DriverPlate.id)).where(DriverPlate.client_id == client.id))
+                ).one()
+                if plate_count >= client.max_plates:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Plate limit reached. Maximum allowed: {client.max_plates}",
+                    )
                 new_plate = DriverPlate(
                     client_id=client.id,
                     driver_id=driver.id,
@@ -139,10 +145,17 @@ class DriverService:
                 )
                 session.add(new_plate)
                 await session.commit()
-            elif existing_plate.status != "active":
-                existing_plate.status = "active"
-                session.add(existing_plate)
-                await session.commit()
+            else:
+                changed = False
+                if existing_plate.status != "active":
+                    existing_plate.status = "active"
+                    changed = True
+                if request.vehicle_type and existing_plate.vehicle_type != request.vehicle_type:
+                    existing_plate.vehicle_type = request.vehicle_type
+                    changed = True
+                if changed:
+                    session.add(existing_plate)
+                    await session.commit()
 
         resp = DriverResponse.model_validate(driver)
         resp.active_plate = clean_plate
@@ -300,8 +313,7 @@ class DriverService:
                     existing_plate = (
                         await session.exec(
                             select(DriverPlate).where(
-                                (DriverPlate.client_id == driver.client_id)
-                                & (DriverPlate.driver_id == driver.id)
+                                (DriverPlate.client_id == driver.client_id) & (DriverPlate.driver_id == driver.id)
                             )
                         )
                     ).first()
@@ -333,10 +345,20 @@ class DriverService:
                 )
                 plate_res = await session.exec(plate_stmt)
                 active_plate_row = plate_res.first() if hasattr(plate_res, "first") else None
-                if active_plate_row and hasattr(active_plate_row, "plate_number"):
-                    active_plate_str = str(active_plate_row.plate_number)
-            except Exception:
-                pass
+                if not active_plate_row:
+                    plate_stmt_any = select(DriverPlate).where(DriverPlate.driver_id == driver.id)
+                    plate_res_any = await session.exec(plate_stmt_any)
+                    active_plate_row = plate_res_any.first() if hasattr(plate_res_any, "first") else None
+
+                if active_plate_row:
+                    if "vehicle_type" in update_data and update_data["vehicle_type"] is not None:
+                        active_plate_row.vehicle_type = str(update_data["vehicle_type"]).strip()
+                        session.add(active_plate_row)
+                        await session.commit()
+                    if hasattr(active_plate_row, "plate_number"):
+                        active_plate_str = str(active_plate_row.plate_number)
+            except Exception as e:
+                logger.warning(f"Failed to query or update active plate for driver {driver.id}: {e}")
 
         resp = DriverResponse.model_validate(driver)
         resp.active_plate = active_plate_str
@@ -398,7 +420,6 @@ class DriverService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to delete driver: {str(e)}"
             ) from e
-
 
     @staticmethod
     async def get_driver_credentials(

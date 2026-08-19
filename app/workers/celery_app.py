@@ -155,6 +155,14 @@ def _build_beat_schedule() -> dict:
                     "expires": max(10, utcms_config.GATE_PROBE_INTERVAL_SECONDS - 5),
                 },
             },
+            "clean-ip-pool-probe": {
+                "task": "barpro.clean_ip.probe",
+                "schedule": schedule(utcms_config.CLEAN_IP_PROBE_INTERVAL_SECONDS),
+                "options": {
+                    "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                    "expires": max(10, utcms_config.CLEAN_IP_PROBE_INTERVAL_SECONDS - 5),
+                },
+            },
         }
     )
 

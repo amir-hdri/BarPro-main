@@ -385,6 +385,15 @@ class UTCMSConfig:
         self.GATE_OBSERVATION_VALIDITY_SECONDS = int(os.getenv("GATE_OBSERVATION_VALIDITY_SECONDS", "1800"))
         self.GATE_BURST_DISPATCH_JITTER_MAX_SECONDS = float(os.getenv("GATE_BURST_DISPATCH_JITTER_MAX_SECONDS", "3.0"))
 
+        # Clean IP Pool & Egress Proxy Configuration
+        self.EGRESS_PROXY_MODE = os.getenv("EGRESS_PROXY_MODE", "worker_first").strip().lower()
+        self.CLEAN_IP_PROBE_INTERVAL_SECONDS = int(os.getenv("CLEAN_IP_PROBE_INTERVAL_SECONDS", "300"))
+        self.CLEAN_IP_MAX_POOL = int(os.getenv("CLEAN_IP_MAX_POOL", "50"))
+        self.CLEAN_IP_BLOCK_TTL_SECONDS = int(os.getenv("CLEAN_IP_BLOCK_TTL_SECONDS", "1800"))
+        self.IRAN_PROXY_TIMEOUT_SECONDS = float(os.getenv("IRAN_PROXY_TIMEOUT_SECONDS", "7.5"))
+        self.CLEAN_IP_SOURCE_URL = os.getenv("CLEAN_IP_SOURCE_URL", "").strip()
+        self.CLEAN_IP_SOURCE_FILE = os.getenv("CLEAN_IP_SOURCE_FILE", "").strip()
+
 
 AUTO_GENERATED_SECRETS = _bootstrap_environment()
 utcms_config = UTCMSConfig()

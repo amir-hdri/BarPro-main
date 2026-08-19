@@ -203,7 +203,7 @@ BarPro/
 │   ├── squid/squid_*.conf
 │   ├── prometheus/prometheus.yml
 │   └── logging/logrotate.conf
-├── alembic/                # Database migrations; current head 033_utcms_submission_gate_and_job_mutation
+├── alembic/                # Database migrations; current head 036_management_tables_and_activity_logs_fix
 ├── tests/                  # Pytest test suite
 ├── scripts/                # Utility and deploy scripts
 └── deploy/                 # Deployment configs
@@ -263,7 +263,25 @@ docker compose -f compose/monitoring.yml up  # Prometheus only
 
 Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhanced → Local in sequence.
 
-## Optimization Applied (2026-06-30 → 2026-08-19)
+## Optimization Applied (2026-06-30 → 2026-08-20)
+
+### 2026-08-20 — v2.9.1 Driver Fleet Vehicle Type Sync & Multi-Tenant Plate Safeguards
+| Change | File | Impact |
+|--------|------|--------|
+| Multi-Tenant Plate Limit Enforcement | `app/services/driver_service.py` + `app/services/waybill_job_service.py` | Enforces `client.max_plates` check before adding new `DriverPlate` dynamically upon driver creation and waybill submission |
+| Independent `vehicle_type` Plate Sync | `app/services/driver_service.py` | Allows updating `vehicle_type` on the driver's active plate without requiring `plate_number` in `DriverUpdateRequest` |
+| Driver Fleet Vehicle Type Chips & UI Integration | `apps/web/src/app/drivers/page.tsx` | Adds 12 vehicle type preset chips and custom input to create/edit modals; renders vehicle type badges on driver cards |
+| Fuel Quota Parsing Standardization & Canonical Tracking Code | `apps/web/src/app/fuel/page.tsx` | Eliminates raw `quota_data` property access by adopting canonical `parseQuotaData` and `formatFuelTrackingCode` across all cards, tables, and modal views |
+| Alembic Migration Documentation Sync | `AGENTS.md` + `.agents/skills/barpro-fullstack-sync/SKILL.md` | Standardizes current Alembic head reference to `036_management_tables_and_activity_logs_fix` |
+
+### 2026-08-19 — v2.9.0 Clean Iranian Proxy Pool (Zero IP Restriction)
+| Change | File | Impact |
+|--------|------|--------|
+| Multi-Source Iranian Proxy Aggregator & Benchmarking Engine | `app/automation/clean_ip_pool.py` | Aggregates from 11+ global sources, probes live against `https://utcms.ir` via HTTPS CONNECT, verifies status 200, ranks by latency |
+| Egress Fallback & Dynamic Hybrid Routing | `app/automation/worker_proxy.py` + `app/automation/proxy_rotator.py` | `get_best_egress_proxy()` seamlessly fails over from blocked/unreachable worker Squids to the Clean IP Pool (modes: worker_first, clean_pool_only, hybrid) |
+| Per-IP Circuit Breaker & Isolation | `app/core/circuit_breaker.py` | Errors on third-party clean proxies mark only that specific proxy blocked via `mark_blocked()`, leaving worker nodes and `WORKER_IP_INDEX` healthy |
+| Periodic Background Probe & Redis Distributed Sync | `app/workers/tasks.py` + `app/workers/celery_app.py` | `barpro.clean_ip.probe` RedBeat task refreshes the pool every 5 minutes under distributed Redis lock |
+| Management Endpoints & Operational CLI | `app/api/routes/system.py` + `scripts/refresh_iran_proxies.py` | Exposes `GET /api/system/clean-ips`, `POST /api/system/clean-ips/refresh`, and standalone benchmark CLI |
 
 ### 2026-08-19 — v2.8.3 Waybill Payload Validation & Vehicle Type Integration
 | Change | File | Impact |

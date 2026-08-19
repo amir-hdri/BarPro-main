@@ -501,6 +501,19 @@ class ProxyRotator:
 
                     available.append(proxy)
 
+                if not available or (require_iran_ip and not [p for p in available if p.country == "IR" or p.country is None]):
+                    if require_iran_ip:
+                        try:
+                            from app.automation.clean_ip_pool import clean_ip_pool
+
+                            clean_url = clean_ip_pool.get_clean_ip_sync()
+                            if clean_url:
+                                clean_p = ProxyInfo(url=clean_url, country="IR", tags=["clean_pool"])
+                                self.proxies.append(clean_p)
+                                available.append(clean_p)
+                        except Exception as exc:
+                            logger.debug(f"ProxyRotator clean IP fallback error: {exc}")
+
                 if not available:
                     logger.debug("No available proxies")
                     return None

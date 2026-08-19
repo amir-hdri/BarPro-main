@@ -40,10 +40,14 @@ def test_create_driver_success(test_client):
     mock_existing_plate = MagicMock()
     mock_existing_plate.first.return_value = None
 
+    mock_existing_plates_count = MagicMock()
+    mock_existing_plates_count.one.return_value = 0
+
     mock_session.exec.side_effect = [
         mock_existing_drivers,
         mock_existing_national_code,
         mock_existing_plate,
+        mock_existing_plates_count,
     ]
 
     # Ensure refresh populates ID since the response needs it
@@ -117,6 +121,61 @@ def test_create_driver_limit_reached(test_client):
 
     mock_session.add.assert_not_called()
     mock_session.commit.assert_not_called()
+
+    app.dependency_overrides.clear()
+
+
+def test_create_driver_plate_limit_reached(test_client):
+    mock_client = Client(
+        id=1,
+        client_code="tenant-1",
+        name="Tenant 1",
+        email="tenant1@example.com",
+        max_drivers=10,
+        max_plates=1,
+    )
+
+    mock_session = MagicMock()
+    mock_session.exec = AsyncMock()
+    mock_session.commit = AsyncMock()
+    mock_session.refresh = AsyncMock()
+
+    mock_existing_drivers = MagicMock()
+    mock_existing_drivers.one.return_value = 0
+
+    mock_existing_national_code = MagicMock()
+    mock_existing_national_code.first.return_value = None
+
+    mock_existing_plate = MagicMock()
+    mock_existing_plate.first.return_value = None
+
+    mock_existing_plates_count = MagicMock()
+    mock_existing_plates_count.one.return_value = 1
+
+    mock_session.exec.side_effect = [
+        mock_existing_drivers,
+        mock_existing_national_code,
+        mock_existing_plate,
+        mock_existing_plates_count,
+    ]
+
+    app.dependency_overrides[get_current_client] = lambda: mock_client
+    app.dependency_overrides[get_current_user_or_admin] = lambda: {"role": "client", "user": mock_client}
+    app.dependency_overrides[get_session] = lambda: mock_session
+
+    payload = {
+        "driver_national_code": "1234567890",
+        "full_name": "Test Driver",
+        "phone": "09123456789",
+        "utcms_username": "testuser",
+        "utcms_password": "testpassword",
+        "plate_number": "12ع345ایران67",
+    }
+
+    response = test_client.post("/api/v1/drivers", json=payload)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "plate limit reached" in response.json()["message"].lower()
 
     app.dependency_overrides.clear()
 
@@ -305,7 +364,9 @@ def test_update_driver_success(test_client):
 
     mock_session = MagicMock()
     mock_session.get = AsyncMock(return_value=mock_driver)
-    mock_session.exec = AsyncMock(return_value=MagicMock(first=MagicMock(return_value=None), all=MagicMock(return_value=[])))
+    mock_session.exec = AsyncMock(
+        return_value=MagicMock(first=MagicMock(return_value=None), all=MagicMock(return_value=[]))
+    )
     mock_session.commit = AsyncMock()
     mock_session.refresh = AsyncMock()
 
@@ -352,7 +413,9 @@ def test_update_driver_with_plate(test_client):
 
     mock_session = MagicMock()
     mock_session.get = AsyncMock(return_value=mock_driver)
-    mock_session.exec = AsyncMock(return_value=MagicMock(first=MagicMock(return_value=None), all=MagicMock(return_value=[])))
+    mock_session.exec = AsyncMock(
+        return_value=MagicMock(first=MagicMock(return_value=None), all=MagicMock(return_value=[]))
+    )
     mock_session.commit = AsyncMock()
     mock_session.refresh = AsyncMock()
     mock_session.add = MagicMock()
@@ -371,6 +434,63 @@ def test_update_driver_with_plate(test_client):
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["active_plate"] == "12ع345ایران67"
+
+    app.dependency_overrides.clear()
+
+
+def test_update_driver_vehicle_type_only(test_client):
+    from app.models_multitenant import DriverPlate
+
+    mock_client = Client(
+        id=1,
+        client_code="tenant-1",
+        name="Tenant 1",
+        email="tenant1@example.com",
+    )
+
+    mock_driver = Driver(
+        id=1,
+        client_id=1,
+        driver_national_code="1234567890",
+        full_name="Driver 1",
+        phone="09123456789",
+        utcms_username="user1",
+        utcms_password_encrypted="encrypted_pwd",
+        status="active",
+    )
+
+    mock_plate = DriverPlate(
+        id=1,
+        client_id=1,
+        driver_id=1,
+        plate_number="12ع345ایران67",
+        vehicle_type="کامیون",
+        status="active",
+    )
+
+    mock_session = MagicMock()
+    mock_session.get = AsyncMock(return_value=mock_driver)
+    mock_session.exec = AsyncMock(
+        return_value=MagicMock(first=MagicMock(return_value=mock_plate), all=MagicMock(return_value=[]))
+    )
+    mock_session.commit = AsyncMock()
+    mock_session.refresh = AsyncMock()
+    mock_session.add = MagicMock()
+
+    app.dependency_overrides[get_current_client] = lambda: mock_client
+    app.dependency_overrides[get_current_user_or_admin] = lambda: {"role": "client", "user": mock_client}
+    app.dependency_overrides[get_session] = lambda: mock_session
+
+    update_payload = {
+        "vehicle_type": "تریلی ترانزیت",
+    }
+
+    response = test_client.put("/api/v1/drivers/1", json=update_payload)
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["active_plate"] == "12ع345ایران67"
+    assert mock_plate.vehicle_type == "تریلی ترانزیت"
 
     app.dependency_overrides.clear()
 
@@ -395,7 +515,7 @@ def test_delete_driver_success(test_client):
 
     mock_session = MagicMock()
     mock_session.get = AsyncMock(return_value=mock_driver)
-    
+
     # Mock exec for jobs query
     mock_jobs_result = MagicMock()
     mock_jobs_result.all.return_value = []
@@ -453,4 +573,3 @@ def test_create_driver_schedule_with_persian_and_underscore_dates(test_client):
     assert data["specific_dates"] == ["1405-05-26", "1405-06-26"]
 
     app.dependency_overrides.clear()
-

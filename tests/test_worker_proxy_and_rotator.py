@@ -13,7 +13,10 @@ def test_clear_proxy_cache_and_dynamic_lookup():
     # Force development mode for fail-open behavior (return None on unreachable)
     clear_proxy_cache()
     with patch.dict(os.environ, {"WORKER_1_PROXY": "http://172.20.0.1:3128", "ENVIRONMENT": "development"}):
-        with patch("socket.create_connection") as mock_conn:
+        with (
+            patch("socket.create_connection") as mock_conn,
+            patch("app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync", return_value=None),
+        ):
             mock_conn.side_effect = TimeoutError("Connection timed out")
             # Unreachable -> returns None in dev mode (fail-open)
             assert get_worker_proxy_url() is None
@@ -36,10 +39,25 @@ def test_get_worker_proxy_url_fail_closed_in_production():
         os.environ,
         {"WORKER_1_PROXY": "http://172.20.0.1:3128", "ENVIRONMENT": "production", "PROXY_FAIL_CLOSED": "true"},
     ):
-        with patch("socket.create_connection") as mock_conn:
+        with (
+            patch("socket.create_connection") as mock_conn,
+            patch("app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync", return_value=None),
+        ):
             mock_conn.side_effect = TimeoutError("Connection timed out")
             with pytest.raises(ProxyUnavailableError):
                 get_worker_proxy_url()
+
+
+def test_get_worker_proxy_url_clean_pool_fallback():
+    """Verify fallback to clean IP pool when worker Squid is unreachable."""
+    clear_proxy_cache()
+    with patch.dict(os.environ, {"WORKER_1_PROXY": "http://172.20.0.1:3128", "ENVIRONMENT": "production"}):
+        with (
+            patch("socket.create_connection") as mock_conn,
+            patch("app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync", return_value="http://10.0.0.1:3128"),
+        ):
+            mock_conn.side_effect = TimeoutError("Connection timed out")
+            assert get_worker_proxy_url() == "http://10.0.0.1:3128"
 
 
 def test_get_proxy_rotator_thread_safety():

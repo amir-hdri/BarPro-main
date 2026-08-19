@@ -103,15 +103,23 @@ class WaybillJobService:
                 )
                 existing_plate = (await session.exec(existing_plate_stmt)).first()
                 if not existing_plate:
-                    new_plate = DriverPlate(
-                        client_id=client.id,
-                        driver_id=driver.id,
-                        plate_number=norm_plate,
-                        vehicle_type=str(vehicle_type_str),
-                        status="active",
-                    )
-                    session.add(new_plate)
-                    await session.commit()
+                    plate_count = (
+                        await session.exec(select(func.count(DriverPlate.id)).where(DriverPlate.client_id == client.id))
+                    ).one()
+                    if plate_count < client.max_plates:
+                        new_plate = DriverPlate(
+                            client_id=client.id,
+                            driver_id=driver.id,
+                            plate_number=norm_plate,
+                            vehicle_type=str(vehicle_type_str),
+                            status="active",
+                        )
+                        session.add(new_plate)
+                        await session.commit()
+                    else:
+                        logger.warning(
+                            f"Plate limit ({client.max_plates}) reached for client {client.id}; cannot auto-register new plate {norm_plate}"
+                        )
                 else:
                     changed = False
                     if existing_plate.status != "active":
@@ -126,11 +134,7 @@ class WaybillJobService:
             except Exception as e:
                 logger.warning(f"Failed to auto-register plate from waybill for driver {driver.id}: {e}")
 
-        payload_dict = (
-            request.payload.model_dump()
-            if hasattr(request.payload, "model_dump")
-            else dict(request.payload)
-        )
+        payload_dict = request.payload.model_dump() if hasattr(request.payload, "model_dump") else dict(request.payload)
 
         job = await rpa_scheduler_service.create_job(
             client_id=client.id or 0,
@@ -291,7 +295,6 @@ class WaybillJobService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Job not found",
             )
-
 
         # Check if job is in a terminal state that requires safe retry logic
         terminal_statuses = {TaskStatus.FAILED.value, TaskStatus.NEEDS_REVIEW.value}
@@ -684,7 +687,6 @@ class WaybillJobService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Job not found",
             )
-
 
         from app.models_rpa import DispatchIntent, Execution
 

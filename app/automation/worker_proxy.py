@@ -145,22 +145,24 @@ def clear_proxy_cache() -> None:
     global _cached_proxy_url, _cached_proxy_timestamp
     _cached_proxy_url = None
     _cached_proxy_timestamp = 0.0
+    try:
+        from app.automation.clean_ip_pool import clean_ip_pool
+
+        clean_ip_pool.clear_local_cache()
+    except Exception:
+        pass
 
 
-def get_worker_proxy_url() -> str | None:
+def get_best_egress_proxy() -> str | None:
     """
-    Return the Squid proxy URL for this Celery worker, with hostname resolved
-    to a numeric IP. Result is cached per worker process with short TTL.
+    Return the best egress proxy URL based on the configured EGRESS_PROXY_MODE:
+    - 'worker_first' (default): Try dedicated worker Squid. If unreachable or blocked,
+      fail over to the Clean IP Pool (verified Iranian proxies).
+    - 'clean_pool_only': Always use verified proxies from the Clean IP Pool.
+    - 'hybrid': Alternates between local worker Squid and the Clean IP Pool.
 
-    Priority order:
-    1. WORKER_{WORKER_ID}_PROXY  (e.g. WORKER_1_PROXY=http://172.20.0.1:3128)
-    2. RPA_PROXIES               (first entry in comma-separated list)
-    3. None                      (no proxy configured — development only)
-
-    Fail-closed: in production (see ``_proxy_fail_closed``) a missing or
-    unreachable proxy raises ``ProxyUnavailableError`` instead of falling back
-    to a direct connection. The caller is expected to classify it as a
-    transient infrastructure error and requeue the job.
+    Fail-closed: in production (see ``_proxy_fail_closed``), if both the worker proxy
+    and the clean IP pool are unavailable, raises ``ProxyUnavailableError``.
     """
     global _cached_proxy_url, _cached_proxy_timestamp
 
@@ -169,52 +171,112 @@ def get_worker_proxy_url() -> str | None:
     if _cached_proxy_timestamp > 0 and (now - _cached_proxy_timestamp) < ttl:
         return _cached_proxy_url
 
+    mode = os.environ.get("EGRESS_PROXY_MODE", "worker_first").strip().lower()
     worker_id = os.environ.get(_WORKER_ID_ENV, "1")
-    url = os.environ.get(f"WORKER_{worker_id}_PROXY") or (
-        os.environ.get("RPA_PROXIES", "").split(",")[0].strip() or None
-    )
-    if not url:
+    worker_ip_index = os.environ.get("WORKER_IP_INDEX", worker_id)
+
+    from app.automation.clean_ip_pool import clean_ip_pool
+
+    # Helper to check if current worker IP index is marked blocked in Redis
+    def _is_worker_index_blocked() -> bool:
+        if not worker_ip_index:
+            return False
+        try:
+            from app.core.circuit_breaker import _get_redis_sync
+
+            r = _get_redis_sync()
+            return bool(r.exists(f"utcms:circuit_breaker:blocked:{worker_ip_index}"))
+        except Exception:
+            return False
+
+    # 1. Mode: clean_pool_only
+    if mode == "clean_pool_only":
+        clean_url = clean_ip_pool.get_clean_ip_sync()
+        if clean_url:
+            resolved = _resolve_to_ip(clean_url)
+            logger.info(f"worker_proxy: using Clean IP Pool proxy {resolved} (mode=clean_pool_only)")
+            _cached_proxy_url = resolved
+            _cached_proxy_timestamp = now
+            return resolved
         if _proxy_fail_closed():
             _cached_proxy_url = None
             _cached_proxy_timestamp = now
-            raise ProxyUnavailableError(
-                f"worker_proxy: no proxy URL configured for worker_id={worker_id}; "
-                "fail-closed — refusing to run without dedicated egress proxy"
-            )
-        logger.warning("worker_proxy: no proxy URL configured — running direct connection")
+            raise ProxyUnavailableError("worker_proxy: clean_pool_only requested but no clean Iranian proxy available")
         _cached_proxy_url = None
         _cached_proxy_timestamp = now
         return None
 
-    resolved = _resolve_to_ip(url)
+    # 2. Worker Squid candidate
+    url = os.environ.get(f"WORKER_{worker_id}_PROXY") or (
+        os.environ.get("RPA_PROXIES", "").split(",")[0].strip() or None
+    )
 
-    # Health check: verify the proxy socket is reachable
-    parsed = urlparse(resolved)
-    if parsed.hostname and parsed.port:
-        try:
-            with socket.create_connection((parsed.hostname, parsed.port), timeout=1.0):
-                logger.info(f"worker_proxy: using active proxy {resolved} (worker_id={worker_id})")
+    worker_squid_healthy = False
+    resolved_worker_squid = None
+
+    if url and not _is_worker_index_blocked():
+        resolved_worker_squid = _resolve_to_ip(url)
+        parsed = urlparse(resolved_worker_squid)
+        if parsed.hostname and parsed.port:
+            try:
+                with socket.create_connection((parsed.hostname, parsed.port), timeout=1.0):
+                    worker_squid_healthy = True
+            except (OSError, TimeoutError):
+                worker_squid_healthy = False
+                logger.debug(f"worker_proxy: worker proxy {resolved_worker_squid} unreachable")
+
+    # Mode: hybrid
+    if mode == "hybrid":
+        # Toggle based on timestamp
+        use_clean = int(now) % 2 == 0
+        if use_clean:
+            clean_url = clean_ip_pool.get_clean_ip_sync()
+            if clean_url:
+                resolved = _resolve_to_ip(clean_url)
+                logger.info(f"worker_proxy: using Clean IP Pool proxy {resolved} (mode=hybrid)")
                 _cached_proxy_url = resolved
                 _cached_proxy_timestamp = now
                 return resolved
-        except (OSError, TimeoutError):
-            if _proxy_fail_closed():
-                _cached_proxy_url = None
-                _cached_proxy_timestamp = now
-                raise ProxyUnavailableError(
-                    f"worker_proxy: configured proxy {resolved} is unreachable; "
-                    "fail-closed (refusing to fall back to direct connection)"
-                ) from None
-            logger.warning(
-                f"worker_proxy: configured proxy {resolved} is unreachable; falling back to direct connection"
-            )
-            _cached_proxy_url = None
-            _cached_proxy_timestamp = now
-            return None
 
-    _cached_proxy_url = resolved
+    # Default Mode: worker_first
+    if worker_squid_healthy and resolved_worker_squid:
+        logger.info(f"worker_proxy: using active worker proxy {resolved_worker_squid} (worker_id={worker_id})")
+        _cached_proxy_url = resolved_worker_squid
+        _cached_proxy_timestamp = now
+        return resolved_worker_squid
+
+    # Fallback to Clean IP Pool
+    clean_url = clean_ip_pool.get_clean_ip_sync()
+    if clean_url:
+        resolved_clean = _resolve_to_ip(clean_url)
+        logger.warning(
+            f"worker_proxy: worker Squid unavailable/blocked (worker_id={worker_id}), "
+            f"falling back to Clean IP Pool proxy {resolved_clean}"
+        )
+        _cached_proxy_url = resolved_clean
+        _cached_proxy_timestamp = now
+        return resolved_clean
+
+    if _proxy_fail_closed():
+        _cached_proxy_url = None
+        _cached_proxy_timestamp = now
+        raise ProxyUnavailableError(
+            f"worker_proxy: no usable proxy found for worker_id={worker_id} "
+            "(worker Squid unreachable/blocked and Clean IP Pool is empty); fail-closed"
+        )
+
+    logger.warning("worker_proxy: no proxy available — running direct connection (development fail-open)")
+    _cached_proxy_url = None
     _cached_proxy_timestamp = now
-    return resolved
+    return None
+
+
+def get_worker_proxy_url() -> str | None:
+    """
+    Return the active proxy URL for this worker (Squid or Clean IP Pool fallback).
+    Result is cached per worker process with short TTL.
+    """
+    return get_best_egress_proxy()
 
 
 def get_playwright_proxy() -> dict | None:

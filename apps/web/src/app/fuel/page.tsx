@@ -24,26 +24,15 @@ import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
 import { ProgressBar } from '@/components/ProgressBar';
 import { api } from '@/lib/api';
-import { formatDateTime } from '@/lib/format';
+import {
+  formatDateTime,
+  formatFuelTrackingCode,
+  parseQuotaData,
+  toPersianDigitsPreserveZero,
+} from '@/lib/format';
 import { useSession } from '@/hooks/useSession';
 import type { Driver, FuelInquiry, WaybillJob, Plate } from '@/lib/types';
 import { toast } from 'react-hot-toast';
-
-const toPersianDigitsPreserveZero = (str: string | number): string => {
-  if (str === undefined || str === null) return '';
-  const map: Record<string, string> = {
-    '0': '۰', '1': '۱', '2': '۲', '3': '۳', '4': '۴',
-    '5': '۵', '6': '۶', '7': '۷', '8': '۸', '9': '۹'
-  };
-  return str.toString().replace(/[0-9]/g, (w) => map[w] || w);
-};
-
-const getTrackingCode = (inquiry: FuelInquiry): string => {
-  const yy = inquiry.year ? inquiry.year.toString().slice(-2) : '00';
-  const mm = inquiry.month ? inquiry.month.toString().padStart(2, '0') : '00';
-  const idStr = inquiry.id.toString().padStart(4, '0');
-  return toPersianDigitsPreserveZero(`UTC-${yy}${mm}-${idStr}`);
-};
 
 
 
@@ -65,7 +54,7 @@ const FuelInquiryCard = memo(function FuelInquiryCard({
   onSelect: (item: FuelInquiry) => void;
   getDriverInitials: (name: string) => string;
 }) {
-  const summary = item.quota_data?.summary;
+  const parsed = parseQuotaData(item.quota_data);
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-start justify-between">
@@ -75,7 +64,7 @@ const FuelInquiryCard = memo(function FuelInquiryCard({
           </div>
           <div>
             <span className="font-bold text-white block text-sm">{item.driver_name || 'نامشخص'}</span>
-            <span className="text-[10px] text-slate-400 font-sans font-medium">کد رهگیری: {getTrackingCode(item)}</span>
+            <span className="text-[10px] text-slate-400 font-sans font-medium">کد رهگیری: {formatFuelTrackingCode(item)}</span>
           </div>
         </div>
         <div>
@@ -102,10 +91,10 @@ const FuelInquiryCard = memo(function FuelInquiryCard({
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400 bg-slate-900/30 p-3 rounded-2xl border border-white/5 font-sans font-medium">
-        <div>کد رهگیری: <strong className="text-slate-200 font-sans font-semibold">{getTrackingCode(item)}</strong></div>
+        <div>کد رهگیری: <strong className="text-slate-200 font-sans font-semibold">{formatFuelTrackingCode(item)}</strong></div>
         <div>دوره: <strong className="text-cyan-400 font-sans font-semibold">{item.year && item.month ? `${toPersianDigitsPreserveZero(item.year.toString())}/${toPersianDigitsPreserveZero(item.month.toString().padStart(2, '0'))}` : 'جاری'}</strong></div>
-        <div>پایه: <strong className="text-cyan-400 font-sans font-semibold">{summary?.base_quota ? `${toPersianDigitsPreserveZero(summary.base_quota)} لیتر` : '۰'}</strong></div>
-        <div>عملکردی: <strong className="text-blue-400 font-sans font-semibold">{summary?.performance_quota ? `${toPersianDigitsPreserveZero(summary.performance_quota)} لیتر` : '۰'}</strong></div>
+        <div>پایه: <strong className="text-cyan-400 font-sans font-semibold">{parsed.baseQuota ? `${toPersianDigitsPreserveZero(parsed.baseQuota)} لیتر` : '۰'}</strong></div>
+        <div>عملکردی: <strong className="text-blue-400 font-sans font-semibold">{parsed.performanceQuota ? `${toPersianDigitsPreserveZero(parsed.performanceQuota)} لیتر` : '۰'}</strong></div>
         <div className="col-span-2 text-[9px] text-slate-500 font-sans font-medium">زمان: {toPersianDigitsPreserveZero(formatDateTime(item.created_at))}</div>
       </div>
        <button
@@ -229,8 +218,9 @@ export default function FuelInquiryPage() {
     let baseSum = 0;
     let perfSum = 0;
     successList.forEach(i => {
-      const baseStr = i.quota_data?.summary?.base_quota || '0';
-      const perfStr = i.quota_data?.summary?.performance_quota || '0';
+      const parsed = parseQuotaData(i.quota_data);
+      const baseStr = parsed.baseQuota || '0';
+      const perfStr = parsed.performanceQuota || '0';
 
       const baseNum = parseInt(baseStr.replace(/[^\d]/g, ''), 10);
       const perfNum = parseInt(perfStr.replace(/[^\d]/g, ''), 10);
@@ -751,7 +741,7 @@ export default function FuelInquiryPage() {
                       <div className="flex items-center justify-between">
                         <span className="font-bold flex items-center gap-1.5 text-[11px]">
                           <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
-                          یک استعلام در حال پردازش برای این راننده وجود دارد ({getTrackingCode(selectedDriverActiveInquiry)})
+                          یک استعلام در حال پردازش برای این راننده وجود دارد ({formatFuelTrackingCode(selectedDriverActiveInquiry)})
                         </span>
                       </div>
                       <div className="flex gap-2 pt-1">
@@ -806,7 +796,7 @@ export default function FuelInquiryPage() {
                       در حال پردازش خودکار
                     </span>
                     <span className="text-[10px] font-bold text-slate-400 font-sans">
-                      کد رهگیری: {getTrackingCode(activeInquiry)}
+                      کد رهگیری: {formatFuelTrackingCode(activeInquiry)}
                     </span>
                   </div>
 
@@ -1066,18 +1056,21 @@ export default function FuelInquiryPage() {
                                     )}
                                   </td>
                                   <td className="px-6 py-4 text-xs font-sans font-semibold text-slate-300">
-                                    {getTrackingCode(item)}
-                                  </td>
-                                  <td className="px-6 py-4 text-xs">
-                                    {item.quota_data?.summary?.base_quota || item.quota_data?.summary?.performance_quota ? (
-                                      <div className="flex flex-col gap-1 font-sans font-medium text-slate-300">
-                                        <span>پایه: <strong className="text-cyan-400 font-sans font-semibold">{item.quota_data.summary.base_quota ? `${toPersianDigitsPreserveZero(item.quota_data.summary.base_quota)} لیتر` : '۰'}</strong></span>
-                                        <span>عملکردی: <strong className="text-blue-400 font-sans font-semibold">{item.quota_data.summary.performance_quota ? `${toPersianDigitsPreserveZero(item.quota_data.summary.performance_quota)} لیتر` : '۰'}</strong></span>
-                                      </div>
-                                    ) : (
-                                      <span className="text-slate-500 font-sans font-semibold">—</span>
-                                    )}
-                                  </td>
+                                     {formatFuelTrackingCode(item)}
+                                   </td>
+                                   <td className="px-6 py-4 text-xs">
+                                     {(() => {
+                                       const parsed = parseQuotaData(item.quota_data);
+                                       return parsed.baseQuota || parsed.performanceQuota ? (
+                                         <div className="flex flex-col gap-1 font-sans font-medium text-slate-300">
+                                           <span>پایه: <strong className="text-cyan-400 font-sans font-semibold">{parsed.baseQuota ? `${toPersianDigitsPreserveZero(parsed.baseQuota)} لیتر` : '۰'}</strong></span>
+                                           <span>عملکردی: <strong className="text-blue-400 font-sans font-semibold">{parsed.performanceQuota ? `${toPersianDigitsPreserveZero(parsed.performanceQuota)} لیتر` : '۰'}</strong></span>
+                                         </div>
+                                       ) : (
+                                         <span className="text-slate-500 font-sans font-semibold">—</span>
+                                       );
+                                     })()}
+                                   </td>
                                   <td className="px-6 py-4">
                                     {item.status === 'success' && (
                                       <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 text-xs font-bold text-emerald-400">
@@ -1163,60 +1156,67 @@ export default function FuelInquiryPage() {
                 </button>
               </div>
 
-              {selectedInquiry.quota_data?.summary && (
-                <div className="mb-6 grid grid-cols-2 sm:grid-cols-3 gap-3 bg-slate-900/50 p-4 rounded-2xl border border-white/5">
-                  <div>
-                    <span className="text-[10px] text-slate-400 block font-bold">سهمیه پایه</span>
-                    <span className="text-sm font-bold text-cyan-400 mt-1 block">
-                      {selectedInquiry.quota_data.summary.base_quota ? `${toPersianDigitsPreserveZero(selectedInquiry.quota_data.summary.base_quota)} لیتر` : '۰'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 block font-bold">سهمیه عملکردی</span>
-                    <span className="text-sm font-bold text-blue-400 mt-1 block">
-                      {selectedInquiry.quota_data.summary.performance_quota ? `${toPersianDigitsPreserveZero(selectedInquiry.quota_data.summary.performance_quota)} لیتر` : '۰'}
-                    </span>
-                  </div>
-                  <div className="col-span-2 sm:col-span-1">
-                    <span className="text-[10px] text-slate-400 block font-bold">شماره کارت سوخت</span>
-                    <span className="text-sm font-bold text-slate-200 mt-1 block font-sans">
-                      {selectedInquiry.quota_data.summary.card_number ? toPersianDigitsPreserveZero(selectedInquiry.quota_data.summary.card_number) : '—'}
-                    </span>
-                  </div>
-                </div>
-              )}
+              {(() => {
+                const parsed = parseQuotaData(selectedInquiry.quota_data);
+                return (
+                  <>
+                    {(parsed.baseQuota || parsed.performanceQuota || parsed.cardNumber) && (
+                      <div className="mb-6 grid grid-cols-2 sm:grid-cols-3 gap-3 bg-slate-900/50 p-4 rounded-2xl border border-white/5">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-bold">سهمیه پایه</span>
+                          <span className="text-sm font-bold text-cyan-400 mt-1 block">
+                            {parsed.baseQuota ? `${toPersianDigitsPreserveZero(parsed.baseQuota)} لیتر` : '۰'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-bold">سهمیه عملکردی</span>
+                          <span className="text-sm font-bold text-blue-400 mt-1 block">
+                            {parsed.performanceQuota ? `${toPersianDigitsPreserveZero(parsed.performanceQuota)} لیتر` : '۰'}
+                          </span>
+                        </div>
+                        <div className="col-span-2 sm:col-span-1">
+                          <span className="text-[10px] text-slate-400 block font-bold">شماره کارت سوخت</span>
+                          <span className="text-sm font-bold text-slate-200 mt-1 block font-sans">
+                            {parsed.cardNumber ? toPersianDigitsPreserveZero(parsed.cardNumber) : '—'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
 
-              {Array.isArray(selectedInquiry.quota_data?.tables) && selectedInquiry.quota_data.tables.length > 0 && (
-                <div className="mb-6 space-y-4">
-                  {selectedInquiry.quota_data.tables.map((tbl: { headers?: string[]; rows?: string[][] }, idx: number) => (
-                    <div key={idx} className="bg-slate-900/40 rounded-2xl border border-white/5 overflow-hidden">
-                      <div className="px-4 py-2.5 bg-white/[0.02] border-b border-white/5 text-xs font-bold text-slate-300">
-                        {idx === 0 ? 'جدول سهمیه پایه' : 'جدول سهمیه عملکردی'}
+                    {parsed.tables.length > 0 && (
+                      <div className="mb-6 space-y-4">
+                        {parsed.tables.map((tbl, idx) => (
+                          <div key={idx} className="bg-slate-900/40 rounded-2xl border border-white/5 overflow-hidden">
+                            <div className="px-4 py-2.5 bg-white/[0.02] border-b border-white/5 text-xs font-bold text-slate-300">
+                              {idx === 0 ? 'جدول سهمیه پایه' : 'جدول سهمیه عملکردی'}
+                            </div>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-right text-xs">
+                                <thead>
+                                  <tr className="border-b border-white/5 text-[11px] text-slate-400">
+                                    {tbl.headers.map((h, hIdx) => (
+                                      <th key={hIdx} className="p-3 font-semibold">{h}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-white/5 text-slate-200">
+                                  {tbl.rows.map((row, rIdx) => (
+                                    <tr key={rIdx} className="hover:bg-white/[0.02]">
+                                      {row.map((cell, cIdx) => (
+                                        <td key={cIdx} className="p-3 font-sans">{toPersianDigitsPreserveZero(String(cell))}</td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-right text-xs">
-                          <thead>
-                            <tr className="border-b border-white/5 text-[11px] text-slate-400">
-                              {tbl.headers?.map((h: string, hIdx: number) => (
-                                <th key={hIdx} className="p-3 font-semibold">{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-white/5 text-slate-200">
-                            {tbl.rows?.map((row: string[], rIdx: number) => (
-                              <tr key={rIdx} className="hover:bg-white/[0.02]">
-                                {row.map((cell: string, cIdx: number) => (
-                                  <td key={cIdx} className="p-3 font-sans">{toPersianDigitsPreserveZero(cell)}</td>
-                                ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    )}
+                  </>
+                );
+              })()}
 
               {selectedInquiry.screenshot_url && (
                 <div className="mb-6">

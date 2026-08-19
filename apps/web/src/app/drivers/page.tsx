@@ -30,7 +30,23 @@ const initialDriver: DriverCreateRequest = {
   utcms_username: '',
   utcms_password: '',
   plate_number: '',
+  vehicle_type: 'کامیون',
 };
+
+const VEHICLE_TYPE_PRESETS = [
+  "کامیون",
+  "تریلی کشنده",
+  "کامیونت (خاور)",
+  "وانت بار",
+  "تک (۱۰ تن)",
+  "جفت (۱۵ تن)",
+  "تریلی کفی",
+  "تریلی لبه‌دار",
+  "تریلی کمپرسی",
+  "تریلی ترانزیت",
+  "بونکر",
+  "تانکر",
+];
 
 export default function DriversPage() {
   const { role } = useSession();
@@ -120,6 +136,7 @@ export default function DriversPage() {
       utcms_username: cleanUsername,
       utcms_password: cleanPassword,
       plate_number: cleanPlate,
+      vehicle_type: form.vehicle_type || 'کامیون',
     });
     setSaving(false);
 
@@ -368,7 +385,7 @@ export default function DriversPage() {
                   <Input label="رمز عبور UTCMS" type="password" value={form.utcms_password} onChange={(value) => setForm((current) => ({ ...current, utcms_password: value }))} required />
                 </div>
 
-                <div className="mt-6 rounded-2xl border border-white/10 bg-slate-900/60 p-5">
+                <div className="mt-6 rounded-2xl border border-white/10 bg-slate-900/60 p-5 space-y-4">
                   <label className="block text-sm font-bold text-slate-200">
                     <span className="mb-2 flex items-center justify-between">
                       <span className="flex items-center gap-2">
@@ -382,6 +399,35 @@ export default function DriversPage() {
                       onChange={(val) => setForm((current) => ({ ...current, plate_number: val }))}
                     />
                   </label>
+
+                  <div className="pt-2 border-t border-white/5">
+                    <label className="block text-sm font-bold text-slate-200 mb-2">
+                      نوع خودرو / ناوگان
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-400"
+                      placeholder="مثال: کامیون، تریلی کشنده، خاور..."
+                      value={form.vehicle_type || ''}
+                      onChange={(e) => setForm((current) => ({ ...current, vehicle_type: e.target.value }))}
+                    />
+                    <div className="flex flex-wrap gap-1.5 pt-2">
+                      {VEHICLE_TYPE_PRESETS.map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => setForm((current) => ({ ...current, vehicle_type: type }))}
+                          className={`px-2.5 py-1 rounded-lg text-xs transition-all ${
+                            form.vehicle_type === type
+                              ? 'bg-cyan-500 text-slate-950 font-black shadow-sm shadow-cyan-500/30'
+                              : 'bg-slate-950 text-slate-300 hover:bg-slate-800 hover:text-white border border-white/5 font-medium'
+                          }`}
+                        >
+                          {type}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
 
                  <div className="mt-10 flex justify-end">
@@ -431,10 +477,20 @@ export default function DriversPage() {
                             <div className="flex items-center gap-3">
                               <h3 className="text-lg font-black text-white group-hover:text-cyan-400">{driver.full_name}</h3>
                               {driver.active_plate && (
-                                <span className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-950/60 px-2.5 py-0.5 text-xs font-black text-cyan-300">
-                                  <TruckIcon className="h-3.5 w-3.5" />
-                                  {driver.active_plate}
-                                </span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-950/60 px-2.5 py-0.5 text-xs font-black text-cyan-300">
+                                    <TruckIcon className="h-3.5 w-3.5" />
+                                    {driver.active_plate}
+                                  </span>
+                                  {(() => {
+                                    const p = plates.find((pl) => pl.driver_id === driver.id && pl.status === 'active') || plates.find((pl) => pl.driver_id === driver.id);
+                                    return p?.vehicle_type ? (
+                                      <span className="inline-flex items-center rounded-lg border border-white/10 bg-slate-900 px-2 py-0.5 text-[11px] font-bold text-slate-300">
+                                        {p.vehicle_type}
+                                      </span>
+                                    ) : null;
+                                  })()}
+                                </div>
                               )}
                             </div>
                             <div className="mt-1 flex items-center gap-3 text-xs font-bold text-slate-400">
@@ -481,7 +537,8 @@ export default function DriversPage() {
                       <div className="mt-8 flex justify-end gap-3 border-t border-white/5 pt-6">
                         <button
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
+                            const activePlateObj = plates.find((p) => p.driver_id === driver.id && p.status === 'active') || plates.find((p) => p.driver_id === driver.id);
                             setEditDriver({
                               id: driver.id,
                               payload: {
@@ -491,10 +548,11 @@ export default function DriversPage() {
                                 license_number: driver.license_number || '',
                                 utcms_username: driver.utcms_username,
                                 plate_number: driver.active_plate || '',
+                                vehicle_type: activePlateObj?.vehicle_type || 'کامیون',
                                 status: driver.status,
                               },
-                            })
-                          }
+                            });
+                          }}
                           className="rounded-xl border border-white/10 bg-slate-950 px-5 py-3.5 text-xs font-bold text-slate-300 transition hover:bg-slate-900"
                         >
                           ویرایش اطلاعات
@@ -741,11 +799,43 @@ export default function DriversPage() {
                   value={editDriver.payload.utcms_password || ''}
                   onChange={(value) => setEditDriver((cur) => cur ? { ...cur, payload: { ...cur.payload, utcms_password: value } } : cur)}
                 />
-                <div className="sm:col-span-2">
+                <div className="sm:col-span-2 space-y-4 rounded-2xl border border-white/10 bg-slate-900/40 p-4">
+                  <label className="block text-sm font-bold text-slate-200">
+                    پلاک خودرو راننده
+                  </label>
                   <PlateInput
                     value={editDriver.payload.plate_number || ''}
                     onChange={(value) => setEditDriver((cur) => cur ? { ...cur, payload: { ...cur.payload, plate_number: value } } : cur)}
                   />
+
+                  <div className="pt-2 border-t border-white/5">
+                    <label className="block text-sm font-bold text-slate-200 mb-2">
+                      نوع خودرو / ناوگان
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-400"
+                      placeholder="مثال: کامیون، تریلی کشنده، خاور..."
+                      value={editDriver.payload.vehicle_type || ''}
+                      onChange={(e) => setEditDriver((cur) => cur ? { ...cur, payload: { ...cur.payload, vehicle_type: e.target.value } } : cur)}
+                    />
+                    <div className="flex flex-wrap gap-1.5 pt-2">
+                      {VEHICLE_TYPE_PRESETS.map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => setEditDriver((cur) => cur ? { ...cur, payload: { ...cur.payload, vehicle_type: type } } : cur)}
+                          className={`px-2.5 py-1 rounded-lg text-xs transition-all ${
+                            editDriver.payload.vehicle_type === type
+                              ? 'bg-cyan-500 text-slate-950 font-black shadow-sm shadow-cyan-500/30'
+                              : 'bg-slate-950 text-slate-300 hover:bg-slate-800 hover:text-white border border-white/5 font-medium'
+                          }`}
+                        >
+                          {type}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
                 <div className="sm:col-span-2">
                   <label className="text-sm font-medium text-slate-200 block mb-2">وضعیت راننده</label>

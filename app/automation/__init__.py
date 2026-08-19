@@ -49,6 +49,12 @@ from .human_interaction import (
     type_with_human_delays,
     wait_like_human,
 )
+from .clean_ip_pool import (
+    CleanIPPoolManager,
+    CleanIPRecord,
+    get_best_clean_iran_proxy,
+    get_clean_ip_pool,
+)
 from .proxy_rotator import (
     ProxyInfo,
     ProxyRotator,
@@ -108,6 +114,10 @@ __all__ = [
     "get_proxy_rotator",
     "set_proxy_rotator",
     "test_proxy",
+    "CleanIPRecord",
+    "CleanIPPoolManager",
+    "get_clean_ip_pool",
+    "get_best_clean_iran_proxy",
     # Headers
     "HeaderBuilder",
     "BrowserHeaderBuilder",

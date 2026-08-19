@@ -730,6 +730,70 @@ async def proxies_health():
     }
 
 
+# ==================== CLEAN IP POOL MANAGEMENT ====================
+
+
+@router.get(
+    "/system/clean-ips",
+    summary="Get status and list of verified Iranian clean proxies",
+    description="Returns metrics, active count, latency statistics, and verified proxy records from the Clean IP Pool.",
+)
+async def get_clean_ips_status():
+    """Returns the current state and metrics of the Clean IP Pool."""
+    from app.automation.clean_ip_pool import clean_ip_pool
+
+    records = await clean_ip_pool.get_all_clean_ips()
+    active_records = [r for r in records if r.is_usable]
+    blocked_records = [r for r in records if not r.is_usable]
+
+    avg_latency = (
+        round(sum(r.latency_ms for r in active_records) / len(active_records), 1)
+        if active_records
+        else 0.0
+    )
+
+    return {
+        "status": "success",
+        "active_count": len(active_records),
+        "blocked_count": len(blocked_records),
+        "total_count": len(records),
+        "avg_latency_ms": avg_latency,
+        "egress_proxy_mode": utcms_config.EGRESS_PROXY_MODE,
+        "proxies": [
+            {
+                "url": r.safe_url,
+                "protocol": r.protocol,
+                "latency_ms": r.latency_ms,
+                "score": r.score,
+                "isp": r.isp,
+                "city": r.city,
+                "source": r.source,
+                "is_usable": r.is_usable,
+                "fail_count": r.fail_count,
+            }
+            for r in records
+        ],
+    }
+
+
+@router.post(
+    "/system/clean-ips/refresh",
+    summary="Trigger on-demand background refresh of Clean IP Pool",
+    description="Forces a new screening cycle across all 11+ sources and updates the Redis pool.",
+)
+async def refresh_clean_ips_pool(_: dict = Depends(get_current_admin)):
+    """Triggers an on-demand screening and verification cycle for Iranian proxies."""
+    from app.automation.clean_ip_pool import clean_ip_pool
+
+    verified = await clean_ip_pool.refresh_pool(force=True)
+    return {
+        "status": "success",
+        "message": "Clean IP pool refresh completed",
+        "verified_count": len(verified),
+        "best_proxy": verified[0].safe_url if verified else None,
+    }
+
+
 # ==================== ADMIN DRIVER LOCK MANAGEMENT ====================
 
 
