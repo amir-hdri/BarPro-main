@@ -37,9 +37,13 @@ def test_create_driver_success(test_client):
     mock_existing_national_code = MagicMock()
     mock_existing_national_code.first.return_value = None
 
+    mock_existing_plate = MagicMock()
+    mock_existing_plate.first.return_value = None
+
     mock_session.exec.side_effect = [
         mock_existing_drivers,
         mock_existing_national_code,
+        mock_existing_plate,
     ]
 
     # Ensure refresh populates ID since the response needs it
@@ -58,6 +62,7 @@ def test_create_driver_success(test_client):
         "phone": "09123456789",
         "utcms_username": "testuser",
         "utcms_password": "testpassword",
+        "plate_number": "12ع345ایران67",
     }
 
     response = test_client.post("/api/v1/drivers", json=payload)
@@ -69,11 +74,7 @@ def test_create_driver_success(test_client):
     assert data["driver_national_code"] == payload["driver_national_code"]
     assert data["full_name"] == payload["full_name"]
     assert data["utcms_username"] == payload["utcms_username"]
-
-    # Ensure add and commit were called
-    mock_session.add.assert_called_once()
-    mock_session.commit.assert_called_once()
-    mock_session.refresh.assert_called_once()
+    assert data["active_plate"] == "12ع345ایران67"
 
     app.dependency_overrides.clear()
 
@@ -106,6 +107,7 @@ def test_create_driver_limit_reached(test_client):
         "phone": "09123456789",
         "utcms_username": "testuser",
         "utcms_password": "testpassword",
+        "plate_number": "12ع345ایران67",
     }
 
     response = test_client.post("/api/v1/drivers", json=payload)
@@ -149,13 +151,13 @@ def test_create_driver_duplicate_national_code(test_client):
     app.dependency_overrides[get_current_user_or_admin] = lambda: {"role": "client", "user": mock_client}
     app.dependency_overrides[get_session] = lambda: mock_session
 
-
     payload = {
         "driver_national_code": "1234567890",
         "full_name": "Test Driver",
         "phone": "09123456789",
         "utcms_username": "testuser",
         "utcms_password": "testpassword",
+        "plate_number": "12ع345ایران67",
     }
 
     response = test_client.post("/api/v1/drivers", json=payload)
@@ -165,6 +167,32 @@ def test_create_driver_duplicate_national_code(test_client):
 
     mock_session.add.assert_not_called()
     mock_session.commit.assert_not_called()
+
+    app.dependency_overrides.clear()
+
+
+def test_create_driver_missing_plate_fails(test_client):
+    mock_client = Client(
+        id=1,
+        client_code="tenant-1",
+        name="Tenant 1",
+        email="tenant1@example.com",
+    )
+
+    app.dependency_overrides[get_current_client] = lambda: mock_client
+    app.dependency_overrides[get_current_user_or_admin] = lambda: {"role": "client", "user": mock_client}
+
+    payload = {
+        "driver_national_code": "1234567890",
+        "full_name": "Test Driver",
+        "phone": "09123456789",
+        "utcms_username": "testuser",
+        "utcms_password": "testpassword",
+        # plate_number is missing!
+    }
+
+    response = test_client.post("/api/v1/drivers", json=payload)
+    assert response.status_code == 422
 
     app.dependency_overrides.clear()
 

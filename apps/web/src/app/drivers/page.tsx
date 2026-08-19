@@ -103,10 +103,15 @@ export default function DriversPage() {
       toast.error('نام کاربری و رمز عبور UTCMS را به درستی وارد کنید.');
       return;
     }
-    setSaving(true);
     const cleanPhone = form.phone ? normalizeDigits(form.phone.trim()) : undefined;
     const cleanLicense = form.license_number?.trim() || undefined;
-    const cleanPlate = form.plate_number ? canonicalizePlate(form.plate_number.trim()) : undefined;
+    const cleanPlate = form.plate_number ? canonicalizePlate(form.plate_number.trim()) : '';
+    if (!cleanPlate || cleanPlate.length < 2) {
+      setError('ثبت پلاک خودرو برای هر راننده الزامی است.');
+      toast.error('ثبت پلاک خودرو برای هر راننده الزامی است.');
+      return;
+    }
+    setSaving(true);
     const response = await api.post<Driver>('/api/v1/drivers', {
       full_name: form.full_name.trim(),
       driver_national_code: natCode,

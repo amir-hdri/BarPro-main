@@ -202,9 +202,16 @@ class DriverCreateRequest(BaseModel):
     license_number: str | None = Field(None, max_length=50)
     utcms_username: str = Field(..., max_length=100)
     utcms_password: str = Field(..., min_length=4, max_length=100)
-    plate_number: str | None = Field(None, max_length=50)
-    vehicle_type: str | None = Field(None, max_length=50)
+    plate_number: str = Field(..., min_length=2, max_length=50, description="پلاک یکتای خودرو")
+    vehicle_type: str | None = Field("کامیون", max_length=50)
     default_payload: dict[str, Any] | None = Field(None)
+
+    @field_validator("plate_number")
+    @classmethod
+    def validate_plate_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("ثبت پلاک خودرو برای هر راننده الزامی است")
+        return v.strip()
 
 
 class DriverUpdateRequest(BaseModel):

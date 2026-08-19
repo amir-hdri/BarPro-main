@@ -116,39 +116,40 @@ class DriverService:
         await session.commit()
         await session.refresh(driver)
 
-        active_plate_str = None
-        if request.plate_number:
-            try:
-                clean_plate = _normalize_plate(request.plate_number.strip())
-                existing_plate = (
-                    await session.exec(
-                        select(DriverPlate).where(
-                            (DriverPlate.client_id == client.id)
-                            & (DriverPlate.driver_id == driver.id)
-                            & (DriverPlate.plate_number == clean_plate)
-                        )
-                    )
-                ).first()
-                if not existing_plate:
-                    new_plate = DriverPlate(
-                        client_id=client.id,
-                        driver_id=driver.id,
-                        plate_number=clean_plate,
-                        vehicle_type=request.vehicle_type or "کامیون",
-                        status="active",
-                    )
-                    session.add(new_plate)
-                    await session.commit()
-                elif existing_plate.status != "active":
-                    existing_plate.status = "active"
-                    session.add(existing_plate)
-                    await session.commit()
-                active_plate_str = clean_plate
-            except Exception as e:
-                logger.warning(f"Failed to auto-register plate on driver create for driver {driver.id}: {e}")
+        raw_plate = (request.plate_number or "").strip()
+        if not raw_plate:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="ثبت پلاک خودرو برای هر راننده الزامی است.",
+            )
+
+        clean_plate = _normalize_plate(raw_plate)
+        existing_plate = (
+            await session.exec(
+                select(DriverPlate).where(
+                    (DriverPlate.client_id == client.id)
+                    & (DriverPlate.driver_id == driver.id)
+                    & (DriverPlate.plate_number == clean_plate)
+                )
+            )
+        ).first()
+        if not existing_plate:
+            new_plate = DriverPlate(
+                client_id=client.id,
+                driver_id=driver.id,
+                plate_number=clean_plate,
+                vehicle_type=request.vehicle_type or "کامیون",
+                status="active",
+            )
+            session.add(new_plate)
+            await session.commit()
+        elif existing_plate.status != "active":
+            existing_plate.status = "active"
+            session.add(existing_plate)
+            await session.commit()
 
         resp = DriverResponse.model_validate(driver)
-        resp.active_plate = active_plate_str
+        resp.active_plate = clean_plate
         return resp
 
     @staticmethod

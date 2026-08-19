@@ -312,6 +312,11 @@ export default function NewWaybillPage() {
       setQuickAddError("نام کاربری و رمز عبور UTCMS (حداقل ۴ کاراکتر) الزامی است.");
       return;
     }
+    const cleanPlate = quickDriverForm.plate_number ? canonicalizePlate(quickDriverForm.plate_number.trim()) : '';
+    if (!cleanPlate || cleanPlate.length < 2) {
+      setQuickAddError("ثبت پلاک خودرو برای هر راننده الزامی است.");
+      return;
+    }
 
     setQuickAddLoading(true);
     const driverRes = await api.post<Driver>("/api/v1/drivers", {
@@ -319,6 +324,7 @@ export default function NewWaybillPage() {
       driver_national_code: cleanNatCode,
       utcms_username: quickDriverForm.utcms_username.trim(),
       utcms_password: quickDriverForm.utcms_password.trim(),
+      plate_number: cleanPlate,
     });
 
     if (!driverRes.success || !driverRes.data) {
@@ -328,16 +334,7 @@ export default function NewWaybillPage() {
     }
 
     const newDriver = driverRes.data;
-    const plateToAdd = quickDriverForm.plate_number.trim();
-
-    // If plate provided, register it as well
-    if (plateToAdd) {
-      await api.post<Plate>("/api/v1/plates", {
-        driver_id: newDriver.id,
-        plate_number: canonicalizePlate(plateToAdd),
-        vehicle_type: "کامیون",
-      });
-    }
+    const plateToAdd = cleanPlate;
 
     toast.success("راننده با موفقیت افزوده شد");
     setShowQuickAddDriver(false);
@@ -699,16 +696,23 @@ export default function NewWaybillPage() {
                   </div>
 
                   {selectedDriver && (
-                    <div className="mt-2 flex items-center gap-3 rounded-xl bg-slate-950/60 border border-white/5 px-4 py-3">
-                      <div className="h-2 w-2 rounded-full bg-emerald-400 pulse-dot" />
-                      <div className="text-sm">
-                        <span className="font-semibold text-slate-200">{selectedDriver.full_name}</span>
-                        <span className="mx-2 text-slate-700">|</span>
-                        <span className="text-xs text-slate-400 font-mono">{selectedDriver.utcms_username}</span>
-                        <span className={`mr-2 badge ${selectedDriver.status === "active" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-amber-500/10 text-amber-400 border border-amber-500/20"}`}>
-                          {selectedDriver.status === "active" ? "فعال" : selectedDriver.status}
-                        </span>
+                    <div className="mt-2 flex items-center justify-between rounded-xl bg-slate-950/60 border border-white/5 px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="h-2 w-2 rounded-full bg-emerald-400 pulse-dot" />
+                        <div className="text-sm">
+                          <span className="font-semibold text-slate-200">{selectedDriver.full_name}</span>
+                          <span className="mx-2 text-slate-700">|</span>
+                          <span className="text-xs text-slate-400 font-mono">{selectedDriver.utcms_username}</span>
+                          <span className={`mr-2 badge ${selectedDriver.status === "active" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-amber-500/10 text-amber-400 border border-amber-500/20"}`}>
+                            {selectedDriver.status === "active" ? "فعال" : selectedDriver.status}
+                          </span>
+                        </div>
                       </div>
+                      {selectedDriver.active_plate && (
+                        <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/60 border border-cyan-500/20 px-2.5 py-1 rounded-lg">
+                          پلاک متصل: {selectedDriver.active_plate}
+                        </span>
+                      )}
                     </div>
                   )}
 

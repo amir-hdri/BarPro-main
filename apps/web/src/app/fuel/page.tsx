@@ -15,6 +15,7 @@ import {
   ChartBarIcon,
   CheckIcon,
   UserIcon,
+  TruckIcon,
   FunnelIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
@@ -668,7 +669,14 @@ export default function FuelInquiryPage() {
                                   </div>
                                   <div>
                                     <span className="text-xs font-bold block">{d.full_name}</span>
-                                    <span className="text-[9px] text-slate-400 font-sans font-medium mt-0.5 block">{toPersianDigitsPreserveZero(d.driver_national_code)}</span>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      <span className="text-[9px] text-slate-400 font-sans font-medium">{toPersianDigitsPreserveZero(d.driver_national_code)}</span>
+                                      {d.active_plate && (
+                                        <span className="text-[9px] text-cyan-400 font-mono font-bold bg-cyan-950/60 border border-cyan-500/20 px-1.5 py-0.5 rounded">
+                                          {d.active_plate}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
                                 {selectedDriverId === d.id && <CheckIcon className="h-4 w-4 text-cyan-400" />}
@@ -676,6 +684,18 @@ export default function FuelInquiryPage() {
                             ))
                           )}
                         </div>
+                      </div>
+                    )}
+
+                    {selectedDriver && (
+                      <div className="mt-2 flex items-center justify-between rounded-xl bg-slate-900/80 border border-white/5 px-3.5 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <TruckIcon className="h-4 w-4 text-cyan-400 shrink-0" />
+                          <span className="text-[11px] text-slate-300">پلاک متصل خودرو:</span>
+                        </div>
+                        <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-500/10 px-2.5 py-1 rounded-lg border border-cyan-500/20">
+                          {selectedDriver.active_plate || driverPlates[0]?.plate_number || 'بدون پلاک'}
+                        </span>
                       </div>
                     )}
                   </div>
