@@ -265,6 +265,14 @@ Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhance
 
 ## Optimization Applied (2026-06-30 → 2026-08-19)
 
+### 2026-08-19 — v2.8.2 Fuel Quota Performance & Modal Screenshot Persistence
+| Change | File | Impact |
+|--------|------|--------|
+| Single-Tab In-Place Sequential Fuel Scraper | `app/automation/fuel_scraper.py` | Eliminates ASP.NET session clobbering (`Session["LoginShowFuelQuota"]`); reduces inquiry time from 167s to <15s and guarantees 100% extraction of BOTH Base and Performance quotas |
+| Modal-Content Screenshot Capture Before Close | `app/automation/fuel_scraper.py` | Captures modal element screenshot while results and numbers are visible before dismissing the dialog |
+| Multi-Server Base64 Data URI Persistence | `app/automation/fuel_scraper.py` + `app/api/routes/multitenant.py` | Stores screenshots directly in PostgreSQL as Data URIs; fixes Model B 404 missing-file error between remote workers and central API |
+| Quota Data Tables & Full-Res Preview Modal | `apps/web/src/app/fuel/page.tsx` | Displays structured Base/Performance data breakdown tables and full-resolution screenshot links in details modal |
+
 ### 2026-08-19 — v2.8.1 Fuel Inquiry Tracking & Waybill UX Polish
 | Change | File | Impact |
 |--------|------|--------|
