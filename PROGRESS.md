@@ -96,3 +96,17 @@ This file tracks the completion status of the phases defined in [BarPro_Unified_
   - Improved phone validation error messages
   - Added logging to exception handlers
 
+### Fuel Inquiry & Waybill Payload Tracking Upgrade (Completed: 2026-08-19 — v2.8.1)
+- **Fuel Inquiry Tracking & Quota Data Parsing**:
+  - Fixed `[object Object]` bug on Fuel Inquiry cards in `/history` and `/fuel` by implementing comprehensive helper functions (`parseQuotaData`, `formatFuelTrackingCode`, `toPersianDigitsPreserveZero` in `apps/web/src/lib/format.ts`).
+  - Added full details modal (`مشاهده جزئیات کامل`) for fuel inquiries with prominent quota metric cards (سهمیه پایه, سهمیه عملکردی, شماره کارت), table breakdowns, and high-res screenshot previews.
+- **Waybill Payload & Tracking Enhancements**:
+  - Enriched Waybill Job Cards and Details Panel in `/history` with automatic extraction of route, plate, cargo type/weight, driver contact, and confirmed UTCMS tracking codes.
+  - Added vehicle type quick-selector (`نوع خودرو / ناوگان`) to `/new` waybill creation form.
+- **Driver Management & Schema Hardening**:
+  - Hardened `DriverCreateRequest` and `DriverService` with plate number validation and multi-tenant isolation.
+- **Verification**:
+  - 100% clean TypeScript build (`npm run typecheck` & `npm run lint` passed).
+  - 100% test suite pass rate (874+ passed tests in backend pytest suite).
+
+

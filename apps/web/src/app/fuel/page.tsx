@@ -1186,11 +1186,53 @@ export default function FuelInquiryPage() {
                 </div>
               )}
 
+              {Array.isArray(selectedInquiry.quota_data?.tables) && selectedInquiry.quota_data.tables.length > 0 && (
+                <div className="mb-6 space-y-4">
+                  {selectedInquiry.quota_data.tables.map((tbl: { headers?: string[]; rows?: string[][] }, idx: number) => (
+                    <div key={idx} className="bg-slate-900/40 rounded-2xl border border-white/5 overflow-hidden">
+                      <div className="px-4 py-2.5 bg-white/[0.02] border-b border-white/5 text-xs font-bold text-slate-300">
+                        {idx === 0 ? 'جدول سهمیه پایه' : 'جدول سهمیه عملکردی'}
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-right text-xs">
+                          <thead>
+                            <tr className="border-b border-white/5 text-[11px] text-slate-400">
+                              {tbl.headers?.map((h: string, hIdx: number) => (
+                                <th key={hIdx} className="p-3 font-semibold">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5 text-slate-200">
+                            {tbl.rows?.map((row: string[], rIdx: number) => (
+                              <tr key={rIdx} className="hover:bg-white/[0.02]">
+                                {row.map((cell: string, cIdx: number) => (
+                                  <td key={cIdx} className="p-3 font-sans">{toPersianDigitsPreserveZero(cell)}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {selectedInquiry.screenshot_url && (
                 <div className="mb-6">
-                  <span className="text-xs font-bold text-slate-400 block mb-2">تصویر مدرک استعلام پورتال:</span>
-                  <div className="rounded-2xl border border-white/10 overflow-hidden max-h-60 bg-slate-900 flex items-center justify-center">
-                    <img src={selectedInquiry.screenshot_url} alt="اسکرین‌شات استعلام" className="w-full h-auto object-contain max-h-60" />
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-slate-400">تصویر مدرک استعلام پورتال:</span>
+                    <a
+                      href={selectedInquiry.screenshot_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] text-cyan-400 hover:text-cyan-300 font-bold transition"
+                    >
+                      مشاهده تصویر در اندازه اصلی ↗
+                    </a>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 overflow-hidden max-h-80 bg-slate-900 flex items-center justify-center p-2">
+                    <img src={selectedInquiry.screenshot_url} alt="اسکرین‌شات استعلام" className="w-full h-auto object-contain max-h-72 rounded-xl" />
                   </div>
                 </div>
               )}

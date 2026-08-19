@@ -12,9 +12,13 @@ import { api } from '@/lib/api';
 import {
   errorCategoryLabel,
   formatDateTime,
+  formatFuelTrackingCode,
+  parseQuotaData,
+  parseWaybillPayload,
   statusLabel,
   statusTone,
   toPersianDigits,
+  toPersianDigitsPreserveZero,
   trackingCodeFromResult,
   confirmedTrackingCode,
 } from '@/lib/format';
@@ -30,18 +34,24 @@ import {
   Activity,
   AlertCircle,
   Check,
+  ChevronRight,
+  Copy,
+  CreditCard,
   Edit2,
+  Eye,
+  FileText,
   Filter,
   Fuel,
-  FileText,
+  Gauge,
   ListChecks,
+  MapPin,
   MoreVertical,
+  Package,
   RotateCcw,
   Search,
   Trash2,
+  Truck,
   X,
-  Eye,
-  ChevronRight,
 } from 'lucide-react';
 
 const JobCard = memo(function JobCard({
@@ -69,6 +79,8 @@ const JobCard = memo(function JobCard({
   onDeleteModalOpen: (jobId: string, e: React.MouseEvent) => void;
   isAdmin: boolean;
 }) {
+  const payload = parseWaybillPayload(job.payload_json);
+
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const jobId = e.currentTarget.dataset.jobId;
     if (jobId) onCardClick(jobId);
@@ -141,6 +153,7 @@ const JobCard = memo(function JobCard({
               data-job-id={job.job_id}
               onClick={handleActionOpen}
               className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 hover:bg-slate-800 transition-colors border border-white/5 text-slate-300"
+              aria-label="عملیات بیشتر"
             >
               <MoreVertical className="h-4 w-4" />
             </button>
@@ -172,6 +185,31 @@ const JobCard = memo(function JobCard({
           </span>
         </div>
       </div>
+
+      {/* Waybill Payload Metadata Badges */}
+      {(payload.plateNumber || payload.originCity || payload.destinationCity || payload.cargoName) && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
+          {payload.plateNumber && (
+            <span className="inline-flex items-center gap-1 rounded-lg bg-slate-900 border border-white/10 px-2.5 py-1 text-slate-200 font-bold">
+              <Truck className="h-3.5 w-3.5 text-cyan-400" />
+              پلاک: {toPersianDigitsPreserveZero(payload.plateNumber)}
+            </span>
+          )}
+          {(payload.originCity || payload.destinationCity) && (
+            <span className="inline-flex items-center gap-1 rounded-lg bg-slate-900 border border-white/10 px-2.5 py-1 text-slate-300">
+              <MapPin className="h-3.5 w-3.5 text-cyan-400" />
+              {payload.originCity || '—'} ← {payload.destinationCity || '—'}
+            </span>
+          )}
+          {payload.cargoName && (
+            <span className="inline-flex items-center gap-1 rounded-lg bg-slate-900 border border-white/10 px-2.5 py-1 text-slate-300">
+              <Package className="h-3.5 w-3.5 text-cyan-400" />
+              {payload.cargoName} {payload.cargoWeight ? `(${toPersianDigitsPreserveZero(payload.cargoWeight)} تن)` : ''}
+            </span>
+          )}
+        </div>
+      )}
+
       {(() => {
         const provisionalCode = trackingCodeFromResult(job.result_json);
         const tc = confirmedTrackingCode(job.result_json, job.status, job.mutation_status, job.reconciled_at);
@@ -191,6 +229,7 @@ const JobCard = memo(function JobCard({
         }
         return null;
       })()}
+
       {isAdmin && job.error_category && (
         <div className="mt-3 rounded-xl bg-amber-500/10 p-3 text-[11px] font-medium text-amber-400 border border-amber-500/20">
           <span className="font-bold">دسته خطا:</span> {errorCategoryLabel(job.error_category)}
@@ -201,6 +240,7 @@ const JobCard = memo(function JobCard({
           <span className="font-bold">علت خطا:</span> {job.last_error}
         </div>
       )}
+
       <div className="mt-4 flex items-center justify-between text-[11px] font-bold uppercase text-slate-500">
         <div className="flex items-center gap-2">
           <span>بروزرسانی:</span>
@@ -308,6 +348,9 @@ export default function HistoryPage() {
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
   const [actionMenuJobId, setActionMenuJobId] = useState<string | null>(null);
 
+  const selectedJob = jobs.find((j) => j.job_id === selectedJobId) || null;
+  const selectedJobPayload = selectedJob ? parseWaybillPayload(selectedJob.payload_json) : null;
+
   // Fuel Inquiries state
   const [fuelInquiries, setFuelInquiries] = useState<FuelInquiryItem[]>([]);
   const [fuelTotal, setFuelTotal] = useState(0);
@@ -315,6 +358,7 @@ export default function HistoryPage() {
   const [fuelError, setFuelError] = useState<string | null>(null);
   const [retryingFuelId, setRetryingFuelId] = useState<number | null>(null);
   const [screenshotModalUrl, setScreenshotModalUrl] = useState<string | null>(null);
+  const [selectedFuelInquiry, setSelectedFuelInquiry] = useState<FuelInquiryItem | null>(null);
 
   // Edit Modals state
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -799,68 +843,185 @@ export default function HistoryPage() {
               {/* Waybill Timeline & Progress Panel */}
               <div className={`${
                 selectedJobId ? 'block' : 'hidden xl:block'
-              } relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-950 p-8 text-white shadow-2xl w-full`}>
+              } relative overflow-hidden rounded-[2rem] border border-white/5 bg-slate-950 p-6 sm:p-8 text-white shadow-2xl w-full`}>
                 <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-cyan-500/10 blur-[80px]"></div>
 
-                <div className="relative z-10">
+                <div className="relative z-10 space-y-6">
                   {selectedJobId && (
                     <button
                       type="button"
                       onClick={() => setSelectedJobId(null)}
-                      className="xl:hidden mb-6 flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900 px-4 py-2.5 text-xs font-bold text-slate-300 transition hover:bg-slate-800"
+                      className="xl:hidden flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900 px-4 py-2.5 text-xs font-bold text-slate-300 transition hover:bg-slate-800"
                     >
                       <ChevronRight className="h-4 w-4" />
                       بازگشت به لیست ماموریت‌ها
                     </button>
                   )}
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/20">
-                      <Activity className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-bold">{isAdmin ? 'تایم‌لاین اجرایی' : 'وضعیت پیشرفت ماموریت'}</h2>
-                      <p className="text-xs font-medium text-slate-400">{isAdmin ? 'رهگیری لحظه‌ای گام‌های عملیاتی ربات' : 'گزارش کلی پیشرفت اتوماسیون بارنامه'}</p>
-                    </div>
-                  </div>
 
-                  {!selectedJobId ? (
+                  {!selectedJob ? (
                     <div className="mt-10 flex flex-col items-center justify-center rounded-[32px] border border-white/10 bg-white/5 py-20 text-center">
                       <ListChecks className="h-12 w-12 text-slate-600" />
                       <p className="mt-4 text-sm font-medium text-slate-400">برای مشاهده جزئیات، یکی از ماموریت‌ها را انتخاب کنید.</p>
                     </div>
-                  ) : timelineLoading ? (
-                    <div className="mt-10 space-y-4">
-                      {[1, 2, 3].map((item) => (
-                        <div key={item} className="h-24 animate-pulse rounded-3xl bg-white/5" />
-                      ))}
-                    </div>
-                  ) : timelineError ? (
-                    <ErrorState
-                      className="mt-10"
-                      message={timelineError}
-                      onRetry={() => void loadTimeline(selectedJobId)}
-                    />
                   ) : (
-                    <div className="space-y-6">
+                    <>
+                      {/* Waybill Selected Job Header & Summary */}
+                      <div className="rounded-[2rem] border border-white/10 bg-slate-900/60 p-6 backdrop-blur-xl">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-4">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded">
+                                #{selectedJob.job_id.slice(0, 12)}
+                              </span>
+                              <span className={['rounded-xl px-3 py-1 text-xs font-bold shadow-sm', statusTone(selectedJob.status)].join(' ')}>
+                                {statusLabel(selectedJob.status)}
+                              </span>
+                            </div>
+                            <h3 className="mt-2 text-lg font-black text-white">
+                              {selectedJob.driver_name ? `ماموریت بارنامه: ${selectedJob.driver_name}` : 'جزئیات ماموریت بارنامه'}
+                            </h3>
+                            {isAdmin && selectedJob.client_name && (
+                              <p className="text-xs text-cyan-400 font-medium mt-0.5">
+                                مشتری: {selectedJob.client_name} ({selectedJob.client_code})
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {(selectedJob.status === 'failed' || selectedJob.status === 'needs_review' || selectedJob.status === 'waiting_auth' || selectedJob.status === 'waiting_retry') && (
+                              <button
+                                onClick={() => void handleRetryJob(selectedJob.job_id)}
+                                disabled={retryingJobId === selectedJob.job_id}
+                                className="rounded-xl bg-cyan-500 px-4 py-2 text-xs font-bold text-slate-950 shadow-md transition hover:bg-cyan-400 disabled:opacity-50 flex items-center gap-1.5"
+                              >
+                                <RotateCcw className="h-3.5 w-3.5" />
+                                {retryingJobId === selectedJob.job_id ? '...' : 'تلاش مجدد'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Waybill Detailed Attributes Grid */}
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2 text-xs">
+                          <div className="rounded-xl bg-slate-950/60 p-3 border border-white/5 space-y-1">
+                            <span className="text-[10px] text-slate-400 block font-bold">مسیر حمل و نقل:</span>
+                            <span className="text-slate-200 font-bold text-sm block">
+                              {selectedJobPayload?.originCity || 'نامشخص'} ← {selectedJobPayload?.destinationCity || 'نامشخص'}
+                            </span>
+                          </div>
+
+                          <div className="rounded-xl bg-slate-950/60 p-3 border border-white/5 space-y-1">
+                            <span className="text-[10px] text-slate-400 block font-bold">مشخصات ناوگان و پلاک:</span>
+                            <span className="text-slate-200 font-bold text-sm block">
+                              {selectedJobPayload?.plateNumber ? toPersianDigitsPreserveZero(selectedJobPayload.plateNumber) : 'ثبت نشده'}
+                              {selectedJobPayload?.vehicleType && ` (${selectedJobPayload.vehicleType})`}
+                            </span>
+                          </div>
+
+                          <div className="rounded-xl bg-slate-950/60 p-3 border border-white/5 space-y-1">
+                            <span className="text-[10px] text-slate-400 block font-bold">مشخصات محموله:</span>
+                            <span className="text-slate-200 font-medium block">
+                              {selectedJobPayload?.cargoName || '—'}
+                              {selectedJobPayload?.cargoWeight ? ` | وزن: ${toPersianDigitsPreserveZero(selectedJobPayload.cargoWeight)} تن` : ''}
+                            </span>
+                            {selectedJobPayload?.cargoDescription && (
+                              <span className="text-[11px] text-slate-400 block">{selectedJobPayload.cargoDescription}</span>
+                            )}
+                          </div>
+
+                          <div className="rounded-xl bg-slate-950/60 p-3 border border-white/5 space-y-1">
+                            <span className="text-[10px] text-slate-400 block font-bold">اطلاعات راننده و تماس:</span>
+                            <span className="text-slate-200 font-medium block">
+                              {selectedJob.driver_name || '—'}
+                              {selectedJobPayload?.driverPhone ? ` | ${toPersianDigitsPreserveZero(selectedJobPayload.driverPhone)}` : ''}
+                            </span>
+                            {selectedJobPayload?.driverNationalCode && (
+                              <span className="text-[11px] text-slate-400 block">
+                                کد ملی: {toPersianDigitsPreserveZero(selectedJobPayload.driverNationalCode)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Confirmed Tracking Code */}
+                        {(() => {
+                          const provisionalCode = trackingCodeFromResult(selectedJob.result_json);
+                          const tc = confirmedTrackingCode(selectedJob.result_json, selectedJob.status, selectedJob.mutation_status, selectedJob.reconciled_at);
+                          if (tc) {
+                            return (
+                              <div className="mt-4 flex items-center justify-between rounded-xl bg-emerald-500/10 p-3 text-xs text-emerald-400 border border-emerald-500/20 font-medium">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold">کد رهگیری قطعی سامانه UTCMS:</span>
+                                  <span className="font-mono font-bold text-sm bg-emerald-500/20 px-2 py-0.5 rounded">{tc}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void navigator.clipboard.writeText(tc);
+                                    toast.success('کد رهگیری کپی شد');
+                                  }}
+                                  className="rounded-lg bg-emerald-500/20 p-1.5 hover:bg-emerald-500/30 transition text-emerald-300"
+                                  title="کپی کد رهگیری"
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            );
+                          }
+                          if (provisionalCode) {
+                            return (
+                              <div className="mt-4 rounded-xl bg-amber-500/10 p-3 text-xs text-amber-400 border border-amber-500/20 font-medium">
+                                در انتظار تطبیق و استخراج کد رهگیری قطعی از سوابق پورتال UTCMS
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+
+                        {selectedJob.last_error && (
+                          <div className="mt-4 rounded-xl bg-rose-500/10 p-3 text-xs text-rose-400 border border-rose-500/20 font-medium">
+                            <span className="font-bold">علت خطا:</span> {selectedJob.last_error}
+                            {selectedJob.error_category && ` (${errorCategoryLabel(selectedJob.error_category)})`}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Robot Progress Chart */}
                       <JobProgressChart
                         progress={
                           timeline?.progress_percent ||
-                          (jobs.find((j) => j.job_id === selectedJobId)?.status === 'success'
+                          (selectedJob.status === 'success'
                             ? 100
-                            : jobs.find((j) => j.job_id === selectedJobId)?.status === 'in_progress'
+                            : selectedJob.status === 'in_progress'
                             ? 60
-                            : jobs.find((j) => j.job_id === selectedJobId)?.status === 'failed'
+                            : selectedJob.status === 'failed'
                             ? 40
                             : 15)
                         }
-                        status={jobs.find((j) => j.job_id === selectedJobId)?.status || 'pending'}
+                        status={selectedJob.status}
                       />
 
-                      {isAdmin && timeline && timeline.entries.length > 0 && (
-                        <div className="mt-6 space-y-3">
-                          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">جزئیات رخدادهای اتوماسیون</h4>
+                      {/* Timeline Events List */}
+                      {timelineLoading ? (
+                        <div className="space-y-4">
+                          {[1, 2, 3].map((item) => (
+                            <div key={item} className="h-20 animate-pulse rounded-2xl bg-white/5" />
+                          ))}
+                        </div>
+                      ) : timelineError ? (
+                        <ErrorState
+                          className="mt-6"
+                          message={timelineError}
+                          onRetry={() => void loadTimeline(selectedJob.job_id)}
+                        />
+                      ) : timeline && timeline.entries.length > 0 ? (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                            <Activity className="h-4 w-4 text-cyan-400" />
+                            <span>رخدادهای ثبت‌شده اتوماسیون</span>
+                          </div>
                           {timeline.entries.map((entry) => (
-                            <article key={entry.entry_id} className="group relative rounded-2xl border border-white/10 bg-white/5 p-4 transition-all hover:bg-white/10">
+                            <article key={entry.entry_id} className="group relative rounded-2xl border border-white/10 bg-white/5 p-4 transition-all hover:bg-white/10 text-right">
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2.5">
                                   <div className={`h-2 w-2 rounded-full ${entry.status === 'success' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.5)]'}`}></div>
@@ -872,8 +1033,8 @@ export default function HistoryPage() {
                             </article>
                           ))}
                         </div>
-                      )}
-                    </div>
+                      ) : null}
+                    </>
                   )}
                 </div>
               </div>
@@ -905,7 +1066,9 @@ export default function HistoryPage() {
               ) : (
                 <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {fuelInquiries.map((inquiry) => {
-                    const trackingCode = `UTC-${(inquiry.year || 1403).toString().slice(-2)}${(inquiry.month || 1).toString().padStart(2, '0')}-${inquiry.id}`;
+                    const trackingCode = formatFuelTrackingCode(inquiry);
+                    const parsed = parseQuotaData(inquiry.quota_data);
+
                     return (
                       <div
                         key={inquiry.id}
@@ -927,7 +1090,12 @@ export default function HistoryPage() {
                             </p>
                             {inquiry.plate_number && (
                               <p className="text-slate-400">
-                                پلاک: <span className="text-slate-200 font-bold">{inquiry.plate_number}</span>
+                                پلاک: <span className="text-slate-200 font-bold">{toPersianDigitsPreserveZero(inquiry.plate_number)}</span>
+                              </p>
+                            )}
+                            {inquiry.year && inquiry.month && (
+                              <p className="text-slate-400">
+                                دوره: <span className="text-cyan-400 font-semibold">{toPersianDigitsPreserveZero(inquiry.year)}/{toPersianDigitsPreserveZero(inquiry.month.toString().padStart(2, '0'))}</span>
                               </p>
                             )}
                             {isAdmin && inquiry.client_name && (
@@ -940,17 +1108,46 @@ export default function HistoryPage() {
                             </p>
                           </div>
 
-                          {inquiry.quota_data && typeof inquiry.quota_data === 'object' && (
+                          {/* Quota Information Section */}
+                          {(parsed.baseQuota !== null || parsed.performanceQuota !== null) ? (
+                            <div className="mt-3 rounded-xl bg-slate-900/80 border border-white/5 p-3 text-[11px] space-y-1.5 text-slate-300">
+                              <p className="font-bold text-cyan-300">اطلاعات سهمیه اختصاص‌یافته:</p>
+                              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/5">
+                                <div>
+                                  <span className="text-slate-400 block text-[10px]">سهمیه پایه:</span>
+                                  <span className="text-cyan-400 font-bold text-xs mt-0.5 block">
+                                    {toPersianDigitsPreserveZero(parsed.baseQuota || '0')} لیتر
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-slate-400 block text-[10px]">سهمیه عملکردی:</span>
+                                  <span className="text-blue-400 font-bold text-xs mt-0.5 block">
+                                    {toPersianDigitsPreserveZero(parsed.performanceQuota || '0')} لیتر
+                                  </span>
+                                </div>
+                              </div>
+                              {parsed.cardNumber && (
+                                <div className="pt-1 border-t border-white/5 flex justify-between text-slate-400 text-[10px]">
+                                  <span>شماره کارت:</span>
+                                  <span className="text-slate-200 font-mono font-bold">{toPersianDigitsPreserveZero(parsed.cardNumber)}</span>
+                                </div>
+                              )}
+                            </div>
+                          ) : parsed.keyValues.length > 0 ? (
                             <div className="mt-3 rounded-xl bg-slate-900/80 border border-white/5 p-3 text-[11px] space-y-1 text-slate-300">
                               <p className="font-bold text-cyan-300">اطلاعات سهمیه اختصاص‌یافته:</p>
-                              {Object.entries(inquiry.quota_data).slice(0, 3).map(([k, v]) => (
-                                <div key={k} className="flex justify-between text-slate-400">
-                                  <span>{k}:</span>
-                                  <span className="text-slate-200 font-medium">{String(v)}</span>
+                              {parsed.keyValues.slice(0, 3).map((kv) => (
+                                <div key={kv.key} className="flex justify-between text-slate-400">
+                                  <span>{kv.key}:</span>
+                                  <span className="text-slate-200 font-medium">{toPersianDigitsPreserveZero(kv.value)}</span>
                                 </div>
                               ))}
                             </div>
-                          )}
+                          ) : inquiry.status === 'success' ? (
+                            <div className="mt-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-2.5 text-[11px] font-medium text-emerald-400">
+                              اطلاعات استعلام سهمیه سوخت با موفقیت ثبت شد
+                            </div>
+                          ) : null}
 
                           {inquiry.error_message && (
                             <div className="mt-3 rounded-xl bg-rose-500/10 border border-rose-500/20 p-2.5 text-[11px] font-medium text-rose-400">
@@ -960,13 +1157,20 @@ export default function HistoryPage() {
                         </div>
 
                         <div className="mt-4 flex items-center justify-end gap-2 border-t border-white/5 pt-3">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedFuelInquiry(inquiry)}
+                            className="rounded-xl border border-white/10 bg-slate-900 px-3 py-1.5 text-[11px] font-bold text-slate-300 hover:bg-slate-800 transition flex items-center gap-1"
+                          >
+                            <Eye className="h-3 w-3 text-cyan-400" />
+                            جزئیات کامل
+                          </button>
                           {inquiry.screenshot_url && (
                             <button
                               type="button"
                               onClick={() => setScreenshotModalUrl(inquiry.screenshot_url || null)}
                               className="rounded-xl border border-white/10 bg-slate-900 px-3 py-1.5 text-[11px] font-bold text-slate-300 hover:bg-slate-800 transition flex items-center gap-1"
                             >
-                              <Eye className="h-3 w-3 text-cyan-400" />
                               تصویر
                             </button>
                           )}
@@ -986,12 +1190,207 @@ export default function HistoryPage() {
                 </div>
               )}
 
+              {/* Fuel Inquiries Pagination */}
+              {fuelTotal > 20 && (
+                <div className="mt-6 flex items-center justify-between rounded-2xl border border-white/5 bg-slate-950/60 p-4 text-xs">
+                  <span className="font-bold text-slate-400">
+                    صفحه {toPersianDigits(currentPage)} از {toPersianDigits(Math.ceil(fuelTotal / 20))} ({toPersianDigits(fuelTotal)} مورد)
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={currentPage <= 1 || loadingFuel}
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      className="rounded-xl border border-white/10 bg-slate-900 px-3.5 py-1.5 font-bold text-slate-300 hover:bg-slate-800 disabled:opacity-40 transition"
+                    >
+                      قبلی
+                    </button>
+                    <button
+                      type="button"
+                      disabled={currentPage >= Math.ceil(fuelTotal / 20) || loadingFuel}
+                      onClick={() => setCurrentPage((p) => p + 1)}
+                      className="rounded-xl border border-white/10 bg-slate-900 px-3.5 py-1.5 font-bold text-slate-300 hover:bg-slate-800 disabled:opacity-40 transition"
+                    >
+                      بعدی
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {fuelError && (
                 <div className="mt-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 p-4 text-xs font-bold text-rose-400 shadow-sm">
                   {fuelError}
                 </div>
               )}
             </section>
+          )}
+
+          {/* Fuel Inquiry Full Details Modal */}
+          {selectedFuelInquiry && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4" role="dialog" aria-modal="true" onClick={() => setSelectedFuelInquiry(null)}>
+              <div
+                className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-[2rem] border border-white/10 bg-slate-950 p-6 md:p-8 shadow-2xl text-right text-white"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Modal Header */}
+                <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-6">
+                  <div>
+                    <h3 className="text-lg font-black text-white">
+                      جزئیات استعلام سهمیه سوخت: <span className="text-cyan-400">{selectedFuelInquiry.driver_name || `راننده #${selectedFuelInquiry.driver_id}`}</span>
+                    </h3>
+                    <p className="mt-1 text-xs text-slate-400">
+                      کد پیگیری: <span className="font-mono font-bold text-cyan-400">{formatFuelTrackingCode(selectedFuelInquiry)}</span>
+                      {selectedFuelInquiry.plate_number && ` | پلاک: ${toPersianDigitsPreserveZero(selectedFuelInquiry.plate_number)}`}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSelectedFuelInquiry(null)}
+                    className="p-2.5 text-slate-400 hover:text-white rounded-xl hover:bg-white/5 transition"
+                    aria-label="بستن پنجره"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                {/* Status and Metadata */}
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-900/60 p-4 border border-white/5 mb-6 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400">وضعیت:</span>
+                    <span className={['rounded-xl px-3 py-1 font-bold text-xs shadow-sm', statusTone(selectedFuelInquiry.status)].join(' ')}>
+                      {statusLabel(selectedFuelInquiry.status)}
+                    </span>
+                  </div>
+                  <div className="text-slate-400 text-[11px]">
+                    زمان استعلام: {formatDateTime(selectedFuelInquiry.created_at)}
+                  </div>
+                  {isAdmin && selectedFuelInquiry.client_name && (
+                    <div className="text-cyan-400 text-[11px] w-full pt-2 border-t border-white/5">
+                      مشتری: {selectedFuelInquiry.client_name} ({selectedFuelInquiry.client_code})
+                    </div>
+                  )}
+                </div>
+
+                {/* Quota Metric Cards */}
+                {(() => {
+                  const parsed = parseQuotaData(selectedFuelInquiry.quota_data);
+                  return (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-right">
+                          <div className="flex items-center gap-2 text-cyan-400 text-xs font-bold mb-1">
+                            <Fuel className="h-4 w-4" />
+                            <span>سهمیه پایه</span>
+                          </div>
+                          <p className="text-lg font-black text-cyan-300">
+                            {parsed.baseQuota ? `${toPersianDigitsPreserveZero(parsed.baseQuota)} لیتر` : '۰ لیتر'}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4 text-right">
+                          <div className="flex items-center gap-2 text-blue-400 text-xs font-bold mb-1">
+                            <Gauge className="h-4 w-4" />
+                            <span>سهمیه عملکردی</span>
+                          </div>
+                          <p className="text-lg font-black text-blue-300">
+                            {parsed.performanceQuota ? `${toPersianDigitsPreserveZero(parsed.performanceQuota)} لیتر` : '۰ لیتر'}
+                          </p>
+                        </div>
+
+                        <div className="col-span-2 sm:col-span-1 rounded-2xl border border-white/10 bg-slate-900/60 p-4 text-right">
+                          <div className="flex items-center gap-2 text-slate-400 text-xs font-bold mb-1">
+                            <CreditCard className="h-4 w-4 text-cyan-400" />
+                            <span>شماره کارت سوخت</span>
+                          </div>
+                          <p className="text-sm font-mono font-bold text-slate-200 mt-1">
+                            {parsed.cardNumber ? toPersianDigitsPreserveZero(parsed.cardNumber) : '—'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Breakdown Data Tables if present */}
+                      {parsed.tables.length > 0 && (
+                        <div className="space-y-4">
+                          <h4 className="text-xs font-bold text-slate-300">ریز جزئیات جدول سامانه:</h4>
+                          {parsed.tables.map((table, tIdx) => (
+                            <div key={tIdx} className="overflow-x-auto rounded-2xl border border-white/10 bg-slate-900/40">
+                              <table className="w-full text-right text-xs">
+                                <thead>
+                                  <tr className="border-b border-white/10 bg-slate-900 text-slate-300 font-bold">
+                                    {table.headers.map((h, hIdx) => (
+                                      <th key={hIdx} className="p-3">{h}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-white/5 text-slate-300 font-medium">
+                                  {table.rows.map((row, rIdx) => (
+                                    <tr key={rIdx} className="hover:bg-white/[0.02]">
+                                      {row.map((cell, cIdx) => (
+                                        <td key={cIdx} className="p-3">
+                                          {toPersianDigitsPreserveZero(cell)}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Screenshot Preview */}
+                      {selectedFuelInquiry.screenshot_url && (
+                        <div>
+                          <span className="text-xs font-bold text-slate-400 block mb-2">تصویر مدرک استعلام پرتال UTCMS:</span>
+                          <div
+                            onClick={() => setScreenshotModalUrl(selectedFuelInquiry.screenshot_url || null)}
+                            className="cursor-pointer group relative rounded-2xl border border-white/10 bg-slate-900/60 overflow-hidden max-h-56 flex items-center justify-center hover:border-cyan-500/40 transition"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element -- dynamic backend URL */}
+                            <img
+                              src={selectedFuelInquiry.screenshot_url}
+                              alt="اسکرین‌شات استعلام سوخت"
+                              className="w-full h-auto object-contain max-h-56"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition text-xs font-bold text-white gap-1.5">
+                              <Eye className="h-4 w-4 text-cyan-400" />
+                              کلیک جهت مشاهده در ابعاد بزرگ
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {selectedFuelInquiry.error_message && (
+                  <div className="mt-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 p-4 text-xs font-bold text-rose-400">
+                    علت خطا: {selectedFuelInquiry.error_message}
+                  </div>
+                )}
+
+                <div className="mt-6 flex justify-between items-center border-t border-white/10 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const inquiry = selectedFuelInquiry;
+                      setSelectedFuelInquiry(null);
+                      void handleRetryFuelInquiry(inquiry);
+                    }}
+                    className="rounded-xl bg-cyan-500 px-5 py-2.5 text-xs font-bold text-slate-950 hover:bg-cyan-400 transition flex items-center gap-1.5"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    استعلام مجدد
+                  </button>
+                  <button
+                    onClick={() => setSelectedFuelInquiry(null)}
+                    className="rounded-xl border border-white/10 bg-slate-900 px-5 py-2.5 text-xs font-bold text-slate-300 hover:bg-slate-800 transition"
+                  >
+                    بستن پنجره
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Delete Job Modal */}

@@ -132,3 +132,90 @@ def test_waybill_submit_parsers_require_explicit_success():
     assert string_false["success"] is False
     assert missing_result_code["success"] is False
     assert missing_otp_result_code["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_fuel_inquiry_saves_data_uri_and_dual_quotas():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
+    async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with engine.begin() as connection:
+        await connection.run_sync(SQLModel.metadata.create_all)
+
+    async with async_session() as session:
+        client = Client(
+            client_code="fuel-dual",
+            name="Fuel Dual",
+            email="fuel-dual@example.com",
+            hashed_password="hash",
+            username="fuel_dual",
+            full_name="Fuel Dual",
+        )
+        session.add(client)
+        await session.commit()
+        await session.refresh(client)
+
+        driver = Driver(
+            client_id=client.id,
+            driver_national_code="1112223334",
+            full_name="Dual Driver",
+            utcms_username="driver_user",
+            utcms_password_encrypted="encrypted",
+        )
+        session.add(driver)
+        await session.commit()
+        await session.refresh(driver)
+
+        session.add(
+            DriverPlate(
+                client_id=client.id,
+                driver_id=driver.id,
+                plate_number="82ع338ایران24",
+                status="active",
+            )
+        )
+        inquiry = FuelInquiry(client_id=client.id, driver_id=driver.id, year=1405, month=4)
+        session.add(inquiry)
+        await session.commit()
+        await session.refresh(inquiry)
+
+        context = AsyncMock()
+        page = AsyncMock()
+
+        @asynccontextmanager
+        async def fake_browser_session(**_kwargs):
+            yield "session-id", context
+
+        mock_data_uri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        scrape = AsyncMock(
+            return_value={
+                "success": True,
+                "quota_data": {
+                    "tables": [
+                        {"table_index": 0, "headers": ["ردیف", "دوره", "سهمیه (لیتر)"], "rows": [["1", "دوره جاری", "579"]]},
+                        {"table_index": 1, "headers": ["ردیف", "دوره", "سهمیه (لیتر)"], "rows": [["1", "تیر", "1016"]]},
+                    ],
+                    "key_values": {"سهمیه پایه": "579.0", "سهمیه عملکردی": "1016.0"},
+                    "summary": {"base_quota": "579.0", "performance_quota": "1016.0", "card_number": ""},
+                },
+                "screenshot_url": mock_data_uri,
+            }
+        )
+
+        with (
+            patch("app.services.fuel_inquiry_service.managed_browser_session", new=fake_browser_session),
+            patch("app.services.fuel_inquiry_service.browser_manager.initialize", new=AsyncMock()),
+            patch("app.services.fuel_inquiry_service.browser_manager.new_page", new=AsyncMock(return_value=page)),
+            patch("app.services.fuel_inquiry_service.browser_manager.save_auth_state", new=AsyncMock()),
+            patch("app.automation.worker_proxy.get_playwright_proxy", return_value=None),
+            patch("app.services.fuel_inquiry_service.FuelScraper.scrape_fuel_quota", new=scrape),
+        ):
+            await fuel_inquiry_service.run_automation(inquiry.id, session)
+
+        await session.refresh(inquiry)
+        assert inquiry.status == "success"
+        assert inquiry.screenshot_url == mock_data_uri
+        assert inquiry.quota_data_json["summary"]["base_quota"] == "579.0"
+        assert inquiry.quota_data_json["summary"]["performance_quota"] == "1016.0"
+
+    await engine.dispose()
+

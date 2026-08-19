@@ -546,14 +546,15 @@ class WaybillPayload(BaseModel):
     # Waybill details
     waybill_number: str | None = Field(default=None, max_length=100)
     cargo_type: str = Field(..., min_length=1, max_length=100)
+    cargo_packaging: str | None = Field(default=None, max_length=100)
     cargo_weight: float = Field(..., gt=0)
     cargo_description: str | None = Field(default=None, max_length=1000)
     cargo_value: str | None = Field(None, max_length=50)
 
     # Additional fields
-    vehicle_type: str = Field(..., min_length=1, max_length=100)
+    vehicle_type: str = Field(default="کامیون", min_length=1, max_length=100)
     plate_number: str = Field(..., min_length=1, max_length=20)
-    driver_phone: str = Field(..., min_length=11, max_length=20)
+    driver_phone: str | None = Field(default=None, max_length=20)
 
     # Metadata
     notes: str | None = Field(default=None, max_length=500)
@@ -589,10 +590,28 @@ class WaybillPayload(BaseModel):
             raise ValueError("کد ملی راننده معتبر نیست (checksum نامعتبر)")
         return normalized
 
+    @field_validator("cargo_weight", mode="before")
+    @classmethod
+    def validate_cargo_weight(cls, value: Any) -> float:
+        if value is None:
+            raise ValueError("وزن بار الزامی است")
+        norm = _normalize_digits(str(value)).replace(",", "").strip()
+        try:
+            val = float(norm)
+        except Exception:
+            raise ValueError("وزن بار باید عددی معتبر باشد")
+        if val <= 0:
+            raise ValueError("وزن بار باید بزرگ‌تر از صفر باشد")
+        return val
+
     @field_validator("driver_phone", mode="before")
     @classmethod
-    def validate_driver_phone(cls, value: str) -> str:
+    def validate_driver_phone(cls, value: str | None) -> str | None:
+        if not value:
+            return None
         normalized = _normalize_phone(str(value))
+        if not normalized:
+            return None
         if not re.fullmatch(r"09\d{9}", normalized):
             raise ValueError("تلفن راننده باید با ۰۹ شروع شود و ۱۱ رقم باشد")
         return normalized
@@ -625,7 +644,7 @@ class WaybillJobCreateRequest(BaseModel):
     """Create a single waybill job (manual form)."""
 
     driver_national_code: str = Field(..., max_length=10)
-    payload: WaybillPayload | WaybillNestedPayload
+    payload: WaybillPayload | WaybillNestedPayload | dict[str, Any]
     max_retries: int = Field(default=3, ge=0, le=10)
     idempotency_key: str | None = Field(default=None, max_length=200)
     correlation_id: str | None = Field(default=None, max_length=128)

@@ -136,6 +136,8 @@ class FuelScraper:
         perf_rows = []
         base_error = None
         perf_error = None
+        base_screenshot_bytes: bytes | None = None
+        perf_screenshot_bytes: bytes | None = None
 
         # Setup route optimization to block unnecessary assets (fonts, media, non-captcha images)
         async def optimize_routes(p: Page):
@@ -156,79 +158,43 @@ class FuelScraper:
 
         await optimize_routes(self.page)
 
-        page_perf: Page | None = None
+        logger.info("Executing Base Quota and Performance Quota sequentially in single tab...")
+
+        # Step 1: Query Base Quota (QuotaType = 1)
         try:
-            page_perf = await self.context.new_page()
-            await optimize_routes(page_perf)
+            logger.info("Querying base quota (Type 1)...")
+            base_rows, base_screenshot_bytes = await self._query_quota_type(
+                national_code=national_code,
+                plate_info=plate_info,
+                j_year=j_year,
+                j_month=j_month,
+                quota_type="1",
+                inquiry_id=inquiry_id,
+                page=self.page,
+                skip_navigation=False,
+            )
         except Exception as e:
-            logger.warning(f"Could not spawn secondary tab for parallel query: {e}")
+            base_error = str(e)
+            logger.warning(f"Base quota query failed: {e}")
 
-        if page_perf:
-            logger.info("Executing Base Quota and Performance Quota in PARALLEL tabs...")
-
-            async def run_base():
-                nonlocal base_error
-                try:
-                    return await self._query_quota_type(
-                        national_code=national_code,
-                        plate_info=plate_info,
-                        j_year=j_year,
-                        j_month=j_month,
-                        quota_type="1",
-                        inquiry_id=inquiry_id,
-                        page=self.page,
-                    )
-                except Exception as ex:
-                    base_error = str(ex)
-                    logger.warning(f"Parallel Base Quota query failed: {ex}")
-                    return []
-
-            async def run_perf():
-                nonlocal perf_error
-                try:
-                    return await self._query_quota_type(
-                        national_code=national_code,
-                        plate_info=plate_info,
-                        j_year=j_year,
-                        j_month=j_month,
-                        quota_type="2",
-                        inquiry_id=inquiry_id,
-                        page=page_perf,
-                    )
-                except Exception as ex:
-                    perf_error = str(ex)
-                    logger.warning(f"Parallel Performance Quota query failed: {ex}")
-                    return []
-
-            res_base, res_perf = await asyncio.gather(run_base(), run_perf())
-            base_rows = res_base or []
-            perf_rows = res_perf or []
-
+        # Step 2: Query Performance Quota (QuotaType = 2) in-place on same page
+        skip_nav_perf = (len(base_rows) > 0)
+        try:
+            logger.info("Querying performance quota (Type 2) in-place...")
+            perf_rows, perf_screenshot_bytes = await self._query_quota_type(
+                national_code=national_code,
+                plate_info=plate_info,
+                j_year=j_year,
+                j_month=j_month,
+                quota_type="2",
+                inquiry_id=inquiry_id,
+                page=self.page,
+                skip_navigation=skip_nav_perf,
+            )
+        except Exception as e:
+            logger.warning(f"In-place performance quota query failed: {e}. Retrying with fresh page load...")
             try:
-                await page_perf.close()
-            except Exception:
-                pass
-        else:
-            # Sequential fallback if second tab could not be created
-            logger.info("Querying base quota sequentially...")
-            try:
-                base_rows = await self._query_quota_type(
-                    national_code=national_code,
-                    plate_info=plate_info,
-                    j_year=j_year,
-                    j_month=j_month,
-                    quota_type="1",
-                    inquiry_id=inquiry_id,
-                    page=self.page,
-                )
-            except Exception as e:
-                base_error = str(e)
-                logger.warning(f"Base quota query failed: {e}")
-
-            logger.info("Querying performance quota sequentially...")
-            skip_nav_perf = len(base_rows) > 0
-            try:
-                perf_rows = await self._query_quota_type(
+                perf_rows, perf_screenshot_bytes = await self._query_quota_type(
                     national_code=national_code,
                     plate_info=plate_info,
                     j_year=j_year,
@@ -236,26 +202,11 @@ class FuelScraper:
                     quota_type="2",
                     inquiry_id=inquiry_id,
                     page=self.page,
-                    skip_navigation=skip_nav_perf,
+                    skip_navigation=False,
                 )
-            except Exception as e:
-                logger.warning(
-                    f"Optimized performance quota query failed or skipped: {e}. Falling back to full page load query."
-                )
-                try:
-                    perf_rows = await self._query_quota_type(
-                        national_code=national_code,
-                        plate_info=plate_info,
-                        j_year=j_year,
-                        j_month=j_month,
-                        quota_type="2",
-                        inquiry_id=inquiry_id,
-                        page=self.page,
-                        skip_navigation=False,
-                    )
-                except Exception as e2:
-                    perf_error = str(e2)
-                    logger.warning(f"Performance quota query fallback failed: {e2}")
+            except Exception as e2:
+                perf_error = str(e2)
+                logger.warning(f"Performance quota query fallback failed: {e2}")
 
         # If both failed, raise error
         if not base_rows and not perf_rows:
@@ -291,18 +242,34 @@ class FuelScraper:
         base_quota_sum = parse_liters(base_rows)
         perf_quota_sum = parse_liters(perf_rows)
 
-        # Save screenshot
+        # Handle screenshot
         FUEL_SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
         screenshot_filename = f"fuel_inquiry_{inquiry_id}.png"
         screenshot_path = FUEL_SCREENSHOTS_DIR / screenshot_filename
 
+        primary_screenshot_bytes = perf_screenshot_bytes or base_screenshot_bytes
+        if not primary_screenshot_bytes:
+            try:
+                primary_screenshot_bytes = await self.page.screenshot(full_page=False)
+            except Exception as e:
+                logger.debug(f"Fallback full page screenshot failed: {e}")
+
         screenshot_url = None
-        try:
-            await self.page.screenshot(path=str(screenshot_path), full_page=True)
+        screenshot_data_uri = None
+        if primary_screenshot_bytes:
+            try:
+                # Save locally for file endpoint / inspection
+                with open(screenshot_path, "wb") as f:
+                    f.write(primary_screenshot_bytes)
+                import base64
+                screenshot_data_uri = f"data:image/png;base64,{base64.b64encode(primary_screenshot_bytes).decode('utf-8')}"
+                screenshot_url = screenshot_data_uri
+                logger.info(f"Fuel inquiry screenshot saved to {screenshot_path} and Data URI created")
+            except Exception as e:
+                logger.error(f"Failed to save screenshot file or encode base64: {e}")
+                screenshot_url = f"/api/v1/fuel-inquiries/{inquiry_id}/screenshot"
+        else:
             screenshot_url = f"/api/v1/fuel-inquiries/{inquiry_id}/screenshot"
-            logger.info(f"Fuel inquiry screenshot saved to {screenshot_path}")
-        except Exception as e:
-            logger.error(f"Failed to capture screenshot: {e}")
 
         quota_data = {
             "tables": tables_data,
@@ -373,7 +340,7 @@ class FuelScraper:
         inquiry_id: int,
         skip_navigation: bool = False,
         page: Page | None = None,
-    ) -> list[list[str]]:
+    ) -> tuple[list[list[str]], bytes | None]:
         p = page or self.page
         url = "https://utcms.ir/ShowFuelQuota.aspx"
 
@@ -651,6 +618,7 @@ class FuelScraper:
 
             is_success_visible = False
             rows = []
+            modal_screenshot_bytes: bytes | None = None
 
             if success_modal and await success_modal.is_visible():
                 is_success_visible = True
@@ -663,6 +631,16 @@ class FuelScraper:
                         if any(row_data):
                             rows.append(row_data)
                 logger.info(f"Successfully scraped {len(rows)} rows of quota data")
+
+                # Capture screenshot of the modal content BEFORE closing
+                try:
+                    modal_content = await p.query_selector("#ViewShowFuelQuota .modal-content")
+                    if modal_content and await modal_content.is_visible():
+                        modal_screenshot_bytes = await modal_content.screenshot(type="png")
+                    else:
+                        modal_screenshot_bytes = await p.screenshot(type="png", full_page=False)
+                except Exception as e_ss:
+                    logger.debug(f"Failed to capture performance modal screenshot: {e_ss}")
 
                 # Close modal
                 close_btn = await p.query_selector(
@@ -697,6 +675,16 @@ class FuelScraper:
                 # Construct a synthetic row matching the table schema
                 rows = [["1", "دوره جاری", quota_val]]
 
+                # Capture screenshot of the modal content BEFORE closing
+                try:
+                    modal_content = await p.query_selector("#modal-msg-success .modal-content")
+                    if modal_content and await modal_content.is_visible():
+                        modal_screenshot_bytes = await modal_content.screenshot(type="png")
+                    else:
+                        modal_screenshot_bytes = await p.screenshot(type="png", full_page=False)
+                except Exception as e_ss:
+                    logger.debug(f"Failed to capture base modal screenshot: {e_ss}")
+
                 # Close modal
                 close_btn = await success_msg_modal.query_selector("button:has-text('بستن'), button")
                 if close_btn:
@@ -709,7 +697,7 @@ class FuelScraper:
             if is_success_visible:
                 elapsed = asyncio.get_running_loop().time() - solve_start
                 track_captcha_success(strategy="provider", phase="fuel_quota", latency_seconds=elapsed, attempt=attempt)
-                return rows
+                return rows, modal_screenshot_bytes
 
             # Check for errors
             error_msg = None

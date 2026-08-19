@@ -189,6 +189,7 @@ export interface DriverScheduleCreateRequest {
 
 export interface WaybillPayload {
   driver_national_code: string;
+  driver_phone?: string;
   origin: string;
   origin_province: string;
   origin_address: string;
@@ -198,6 +199,7 @@ export interface WaybillPayload {
   destination_address: string;
   destination_district?: string;
   plate_number: string;
+  vehicle_type?: string;
   cargo_type?: string;
   cargo_packaging?: string;
   cargo_weight?: string;

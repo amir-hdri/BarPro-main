@@ -859,24 +859,37 @@ async def get_fuel_inquiry(
     return await fuel_inquiry_service.get_inquiry(user_context, inquiry_id, session)
 
 
-@router.get("/fuel-inquiries/{inquiry_id}/screenshot", response_class=FileResponse)
+@router.get("/fuel-inquiries/{inquiry_id}/screenshot")
 async def get_fuel_inquiry_screenshot(
     inquiry_id: int,
     user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Return a fuel screenshot only after tenant/admin ownership validation."""
+    import base64
+    from fastapi import Response
+
     inquiry = await fuel_inquiry_service.get_inquiry(user_context, inquiry_id, session)
     screenshot_path = FUEL_SCREENSHOTS_DIR / f"fuel_inquiry_{inquiry.id}.png"
-    if not screenshot_path.is_file():
-        from fastapi import HTTPException
+    if screenshot_path.is_file():
+        return FileResponse(
+            screenshot_path,
+            media_type="image/png",
+            filename=f"fuel-inquiry-{inquiry.id}.png",
+        )
 
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="تصویر استعلام یافت نشد")
-    return FileResponse(
-        screenshot_path,
-        media_type="image/png",
-        filename=f"fuel-inquiry-{inquiry.id}.png",
-    )
+    # Fallback to Base64 Data URI stored in database (e.g. from remote worker nodes)
+    raw_url = inquiry.screenshot_url or ""
+    if raw_url.startswith("data:image/"):
+        try:
+            b64_data = raw_url.split(",", 1)[1]
+            img_bytes = base64.b64decode(b64_data)
+            return Response(content=img_bytes, media_type="image/png")
+        except Exception:
+            pass
+
+    from fastapi import HTTPException
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="تصویر استعلام یافت نشد")
 
 
 # ==================== ADMIN DRIVER ENCRYPTION RECOVERY ====================

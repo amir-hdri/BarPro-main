@@ -111,3 +111,9 @@ infra/squid/squid_[123].runtime.conf
 gym-app-final.tar.gz
 frontend-build.tar.gz
 frontend-slim-build.tar.gz
+
+# Local IDE and tool directories
+.opencode/
+pnpm-lock.yaml
+pnpm-workspace.yaml
+

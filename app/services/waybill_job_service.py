@@ -79,10 +79,23 @@ class WaybillJobService:
             )
 
         # Auto-register / activate plate in DriverPlate for driver if provided
-        plate_str = request.payload.plate_number
+        plate_str = getattr(request.payload, "plate_number", None)
+        if not plate_str and hasattr(request.payload, "vehicle") and request.payload.vehicle:
+            plate_str = getattr(request.payload.vehicle, "plate", None)
+        elif not plate_str and isinstance(request.payload, dict):
+            plate_str = request.payload.get("plate_number") or (request.payload.get("vehicle") or {}).get("plate")
+
+        vehicle_type_str = getattr(request.payload, "vehicle_type", None)
+        if not vehicle_type_str and hasattr(request.payload, "vehicle") and request.payload.vehicle:
+            vehicle_type_str = getattr(request.payload.vehicle, "type", None)
+        elif not vehicle_type_str and isinstance(request.payload, dict):
+            vehicle_type_str = request.payload.get("vehicle_type") or (request.payload.get("vehicle") or {}).get("type")
+        if not vehicle_type_str:
+            vehicle_type_str = "کامیون"
+
         if plate_str and driver.id and client.id:
             try:
-                norm_plate = _normalize_plate(plate_str.strip())
+                norm_plate = _normalize_plate(str(plate_str).strip())
                 existing_plate_stmt = select(DriverPlate).where(
                     (DriverPlate.client_id == client.id)
                     & (DriverPlate.driver_id == driver.id)
@@ -94,22 +107,35 @@ class WaybillJobService:
                         client_id=client.id,
                         driver_id=driver.id,
                         plate_number=norm_plate,
-                        vehicle_type="کامیون",
+                        vehicle_type=str(vehicle_type_str),
                         status="active",
                     )
                     session.add(new_plate)
                     await session.commit()
-                elif existing_plate.status != "active":
-                    existing_plate.status = "active"
-                    session.add(existing_plate)
-                    await session.commit()
+                else:
+                    changed = False
+                    if existing_plate.status != "active":
+                        existing_plate.status = "active"
+                        changed = True
+                    if vehicle_type_str and existing_plate.vehicle_type != vehicle_type_str:
+                        existing_plate.vehicle_type = vehicle_type_str
+                        changed = True
+                    if changed:
+                        session.add(existing_plate)
+                        await session.commit()
             except Exception as e:
                 logger.warning(f"Failed to auto-register plate from waybill for driver {driver.id}: {e}")
+
+        payload_dict = (
+            request.payload.model_dump()
+            if hasattr(request.payload, "model_dump")
+            else dict(request.payload)
+        )
 
         job = await rpa_scheduler_service.create_job(
             client_id=client.id or 0,
             driver=driver,
-            payload=request.payload.model_dump(),
+            payload=payload_dict,
             source=source,
             max_retries=request.max_retries,
             priority=request.priority,

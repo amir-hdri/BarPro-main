@@ -263,7 +263,16 @@ docker compose -f compose/monitoring.yml up  # Prometheus only
 
 Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhanced → Local in sequence.
 
-## Optimization Applied (2026-06-30 → 2026-08-16)
+## Optimization Applied (2026-06-30 → 2026-08-19)
+
+### 2026-08-19 — v2.8.1 Fuel Inquiry Tracking & Waybill UX Polish
+| Change | File | Impact |
+|--------|------|--------|
+| Resilient Quota Data Parser & Persian Digits | `apps/web/src/lib/format.ts` | Eliminates `[object Object]` bug on `/history` and `/fuel`; safely renders Base Quota, Performance Quota, Card Number |
+| Full Details Modal for Fuel Inquiries | `apps/web/src/app/history/page.tsx` + `fuel/page.tsx` | Adds comprehensive modal with quota metrics, structured breakdown tables, and high-res screenshot view |
+| Rich Waybill Payload Metadata in Job Cards | `apps/web/src/app/history/page.tsx` + `lib/format.ts` | Displays fleet plate, origin←destination route, cargo weight/type badges and confirmed UTCMS tracking codes |
+| Vehicle Type Quick Selector & Payload Alignment | `apps/web/src/app/new/page.tsx` + `schemas/waybillSchema.ts` | Integrates `vehicle_type` chips and canonical multi-tenant payload serialization on waybill creation |
+| Driver Plate Validation & Schema Resilience | `app/schemas/multitenant.py` + `app/services/driver_service.py` | Enforces truck plate validation while maintaining test and endpoint backward compatibility |
 
 ### 2026-08-16 — v2.8.0 UTCMS RPA Hardening & Mutation Safety
 | Change | File | Impact |

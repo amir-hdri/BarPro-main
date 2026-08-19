@@ -53,6 +53,7 @@ async def test_driver_limit():
                 "phone": "09123456789",
                 "utcms_username": "driver1_utcms",
                 "utcms_password": "password123",
+                "plate_number": "12ع345ایران67",
             }
             resp = ac.post("/api/v1/drivers", json=driver_data_1, headers=headers)
             assert resp.status_code == 201
@@ -64,6 +65,7 @@ async def test_driver_limit():
                 "phone": "09123456789",
                 "utcms_username": "driver2_utcms",
                 "utcms_password": "password123",
+                "plate_number": "12ع345ایران68",
             }
             resp2 = ac.post("/api/v1/drivers", json=driver_data_2, headers=headers)
             assert resp2.status_code == 400

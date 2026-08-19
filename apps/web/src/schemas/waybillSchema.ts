@@ -34,6 +34,16 @@ export const waybillSchema = z.object({
     .string()
     .transform((value) => canonicalizePlate(value))
     .refine((value) => isValidIranPlate(value), "فرمت پلاک باید به صورت ۱۲ب۳۴۵ایران۶۷ باشد"),
+  vehicle_type: requiredText(2, "نوع خودرو الزامی است", 100, "نوع خودرو حداکثر ۱۰۰ حرف مجاز است"),
+  driver_phone: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(""))
+    .refine(
+      (value) => !value || /^09\d{9}$/.test(digitsOnly(value)),
+      "شماره تلفن راننده باید ۱۱ رقم و با ۰۹ شروع شود (مثال: ۰۹۱۲۳۴۵۶۷۸۹)"
+    ),
   cargo_type: requiredText(2, "نوع بار الزامی است", 100, "نوع بار حداکثر ۱۰۰ حرف مجاز است"),
   cargo_packaging: requiredText(1, "نوع بسته‌بندی الزامی است", 100, "نوع بسته‌بندی حداکثر ۱۰۰ حرف مجاز است"),
   cargo_weight: numericText("وزن بار الزامی است", "وزن بار باید عددی بزرگ‌تر از صفر باشد", 20, "وزن بار حداکثر ۲۰ کاراکتر مجاز است"),

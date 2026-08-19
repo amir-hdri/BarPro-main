@@ -38,6 +38,7 @@ import { useSession } from "@/hooks/useSession";
 
 const initialForm: WaybillFormValues = {
   driver_national_code: "",
+  driver_phone: "",
   origin: "",
   origin_province: "",
   origin_address: "",
@@ -47,6 +48,7 @@ const initialForm: WaybillFormValues = {
   destination_address: "",
   destination_district: "",
   plate_number: "",
+  vehicle_type: "کامیون",
   cargo_type: "",
   cargo_packaging: "",
   cargo_weight: "",
@@ -56,7 +58,7 @@ const initialForm: WaybillFormValues = {
 };
 
 const STEPS = [
-  { id: 1, label: "راننده و خودرو", icon: TruckIcon, fields: ["driver_national_code", "plate_number"] },
+  { id: 1, label: "راننده و خودرو", icon: TruckIcon, fields: ["driver_national_code", "plate_number", "vehicle_type"] },
   { id: 2, label: "مبدا", icon: MapPinIcon, fields: ["origin_province", "origin", "origin_address", "origin_district"] },
   { id: 3, label: "مقصد", icon: MapPinIcon, fields: ["destination_province", "destination", "destination_address", "destination_district"] },
   { id: 4, label: "بار", icon: CubeIcon, fields: ["cargo_type", "cargo_packaging", "cargo_weight", "cargo_value"] },
@@ -161,6 +163,7 @@ export default function NewWaybillPage() {
     utcms_username: "",
     utcms_password: "",
     plate_number: "",
+    vehicle_type: "کامیون",
   });
   const [quickAddLoading, setQuickAddLoading] = useState(false);
   const [quickAddError, setQuickAddError] = useState<string | null>(null);
@@ -242,11 +245,14 @@ export default function NewWaybillPage() {
       if (driverList.length > 0) {
         setForm((current) => {
           const selectedD = driverList.find((d) => d && d.driver_national_code === current.driver_national_code) || driverList[0];
-          const matchingPlate = selectedD ? (selectedD.active_plate || plateList.find((p) => p && p.driver_id === selectedD.id)?.plate_number) : "";
+          const matchingPlateObj = selectedD ? (plateList.find((p) => p && (p.plate_number === selectedD.active_plate || p.driver_id === selectedD.id))) : null;
+          const matchingPlate = selectedD ? (selectedD.active_plate || matchingPlateObj?.plate_number) : "";
+          const matchingVehicleType = matchingPlateObj?.vehicle_type || "کامیون";
           return {
             ...current,
             driver_national_code: current.driver_national_code || (selectedD?.driver_national_code ?? ""),
             plate_number: current.plate_number || matchingPlate || "",
+            vehicle_type: current.vehicle_type || matchingVehicleType || "کامیون",
           };
         });
       }
@@ -289,9 +295,13 @@ export default function NewWaybillPage() {
     handleChange("driver_national_code", driverNationalCode);
     const foundDriver = drivers.find((d) => d.driver_national_code === driverNationalCode);
     if (foundDriver) {
-      const matchingPlate = foundDriver.active_plate || plates.find((p) => p.driver_id === foundDriver.id)?.plate_number || "";
+      const matchingPlateObj = plates.find((p) => p && (p.plate_number === foundDriver.active_plate || p.driver_id === foundDriver.id));
+      const matchingPlate = foundDriver.active_plate || matchingPlateObj?.plate_number || "";
       if (matchingPlate) {
         handleChange("plate_number", matchingPlate);
+      }
+      if (matchingPlateObj?.vehicle_type) {
+        handleChange("vehicle_type", matchingPlateObj.vehicle_type);
       }
     }
   };
@@ -325,6 +335,7 @@ export default function NewWaybillPage() {
       utcms_username: quickDriverForm.utcms_username.trim(),
       utcms_password: quickDriverForm.utcms_password.trim(),
       plate_number: cleanPlate,
+      vehicle_type: quickDriverForm.vehicle_type || "کامیون",
     });
 
     if (!driverRes.success || !driverRes.data) {
@@ -335,10 +346,11 @@ export default function NewWaybillPage() {
 
     const newDriver = driverRes.data;
     const plateToAdd = cleanPlate;
+    const vehicleTypeToAdd = quickDriverForm.vehicle_type || "کامیون";
 
     toast.success("راننده با موفقیت افزوده شد");
     setShowQuickAddDriver(false);
-    setQuickDriverForm({ full_name: "", driver_national_code: "", utcms_username: "", utcms_password: "", plate_number: "" });
+    setQuickDriverForm({ full_name: "", driver_national_code: "", utcms_username: "", utcms_password: "", plate_number: "", vehicle_type: "کامیون" });
     setQuickAddLoading(false);
 
     // Reload and select
@@ -346,6 +358,9 @@ export default function NewWaybillPage() {
     handleChange("driver_national_code", newDriver.driver_national_code);
     if (plateToAdd) {
       handleChange("plate_number", canonicalizePlate(plateToAdd));
+    }
+    if (vehicleTypeToAdd) {
+      handleChange("vehicle_type", vehicleTypeToAdd);
     }
   };
 
@@ -404,6 +419,9 @@ export default function NewWaybillPage() {
     }
 
     const cargoWeight = parsed.data.cargo_weight ? Number(parsed.data.cargo_weight) : undefined;
+    const vehicleTypeVal = parsed.data.vehicle_type || "کامیون";
+    const driverPhoneVal = selectedDriver?.phone || (parsed.data.driver_phone ? parsed.data.driver_phone : undefined);
+
     const payload = {
       driver_national_code: parsed.data.driver_national_code,
       origin: parsed.data.origin,
@@ -412,7 +430,9 @@ export default function NewWaybillPage() {
       cargo_packaging: parsed.data.cargo_packaging,
       cargo_weight: Number.isFinite(cargoWeight) ? cargoWeight : undefined,
       cargo_value: parsed.data.cargo_value,
+      vehicle_type: vehicleTypeVal,
       plate_number: parsed.data.plate_number,
+      driver_phone: driverPhoneVal,
       metadata_json: {
         origin_province: parsed.data.origin_province,
         origin_address: parsed.data.origin_address,
@@ -422,6 +442,8 @@ export default function NewWaybillPage() {
         destination_district: parsed.data.destination_district || undefined,
         cargo_packaging: parsed.data.cargo_packaging,
         cargo_value: parsed.data.cargo_value,
+        vehicle_type: vehicleTypeVal,
+        driver_phone: driverPhoneVal,
         sender_name: parsed.data.sender_name,
         receiver_name: parsed.data.receiver_name,
         sender: { name: parsed.data.sender_name },
@@ -429,7 +451,7 @@ export default function NewWaybillPage() {
         origin: { province: parsed.data.origin_province, city: parsed.data.origin, district: parsed.data.origin_district || undefined, address: parsed.data.origin_address, coordinates: originCoords || undefined },
         destination: { province: parsed.data.destination_province, city: parsed.data.destination, district: parsed.data.destination_district || undefined, address: parsed.data.destination_address, coordinates: destinationCoords || undefined },
         cargo: { type: parsed.data.cargo_type, packaging: parsed.data.cargo_packaging, weight: parsed.data.cargo_weight, value: parsed.data.cargo_value },
-        vehicle: { driver_national_code: parsed.data.driver_national_code, plate: parsed.data.plate_number },
+        vehicle: { driver_national_code: parsed.data.driver_national_code, plate: parsed.data.plate_number, type: vehicleTypeVal, driver_phone: driverPhoneVal },
       },
     };
 
@@ -692,6 +714,48 @@ export default function NewWaybillPage() {
                         </div>
                       )}
                     </Field>
+
+                    <div className="sm:col-span-2">
+                      <Field label="نوع خودرو / ناوگان" error={errors.vehicle_type} hint="انتخاب از موارد پرکاربرد یا نوشتن نوع دلخواه" required>
+                        <div className="space-y-2.5">
+                          <input
+                            className={`field ${errors.vehicle_type ? "error" : ""}`}
+                            placeholder="مثال: کامیون، تریلی کشنده، خاور..."
+                            value={form.vehicle_type || ""}
+                            onChange={(e) => handleChange("vehicle_type", e.target.value)}
+                          />
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            {[
+                              "کامیون",
+                              "تریلی کشنده",
+                              "کامیونت (خاور)",
+                              "وانت بار",
+                              "تک (۱۰ تن)",
+                              "جفت (۱۵ تن)",
+                              "تریلی کفی",
+                              "تریلی لبه‌دار",
+                              "تریلی کمپرسی",
+                              "تریلی ترانزیت",
+                              "بونکر",
+                              "تانکر",
+                            ].map((type) => (
+                              <button
+                                key={type}
+                                type="button"
+                                onClick={() => handleChange("vehicle_type", type)}
+                                className={`px-2.5 py-1 rounded-lg text-xs transition-all ${
+                                  form.vehicle_type === type
+                                    ? "bg-cyan-500 text-slate-950 font-black shadow-sm shadow-cyan-500/30"
+                                    : "bg-slate-950 text-slate-300 hover:bg-slate-800 hover:text-white border border-white/5 font-medium"
+                                }`}
+                              >
+                                {type}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </Field>
+                    </div>
 
                   </div>
 
@@ -1146,6 +1210,10 @@ export default function NewWaybillPage() {
                         <span className="font-semibold">{selectedDriver?.full_name || "—"}</span>
                       </div>
                       <div className="flex justify-between">
+                        <span className="text-slate-400">خودرو و پلاک</span>
+                        <span className="font-semibold">{form.vehicle_type || "کامیون"} — {form.plate_number || "—"}</span>
+                      </div>
+                      <div className="flex justify-between">
                         <span className="text-slate-400">مسیر</span>
                         <span className="font-semibold">{form.origin_province} ← {form.destination_province}</span>
                       </div>
@@ -1318,14 +1386,27 @@ export default function NewWaybillPage() {
                   </label>
                 </div>
 
-                <div>
+                <div className="grid gap-4 sm:grid-cols-2">
                   <label className="text-xs font-semibold text-slate-200">
-                    <span className="mb-1.5 block">پلاک پیش‌فرض خودرو (اختیاری)</span>
-                    <PlateInput
-                      value={quickDriverForm.plate_number}
-                      onChange={(val) => setQuickDriverForm((c) => ({ ...c, plate_number: val }))}
+                    <span className="mb-1.5 block">نوع خودرو</span>
+                    <input
+                      type="text"
+                      placeholder="مثال: کامیون، تریلی..."
+                      value={quickDriverForm.vehicle_type}
+                      onChange={(e) => setQuickDriverForm((c) => ({ ...c, vehicle_type: e.target.value }))}
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-white outline-none focus:border-cyan-400 transition"
                     />
                   </label>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-200">
+                      <span className="mb-1.5 block">پلاک پیش‌فرض خودرو <span className="text-rose-500">*</span></span>
+                      <PlateInput
+                        value={quickDriverForm.plate_number}
+                        onChange={(val) => setQuickDriverForm((c) => ({ ...c, plate_number: val }))}
+                      />
+                    </label>
+                  </div>
                 </div>
 
                 {quickAddError && (
