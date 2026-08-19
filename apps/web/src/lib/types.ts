@@ -119,6 +119,8 @@ export interface DriverUpdateRequest {
   license_number?: string;
   utcms_username?: string;
   utcms_password?: string;
+  plate_number?: string;
+  vehicle_type?: string;
   status?: string;
 }
 

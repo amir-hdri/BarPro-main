@@ -279,8 +279,9 @@ class DriverService:
         if "phone" in update_data:
             driver.phone = _normalize_digits_str(update_data["phone"]) if update_data["phone"] else None
 
+        active_plate_str = None
         for field, value in update_data.items():
-            if field in ("driver_national_code", "phone"):
+            if field in ("driver_national_code", "phone", "plate_number", "vehicle_type"):
                 continue
             elif field == "utcms_password":
                 if value is not None and str(value).strip():
@@ -294,7 +295,55 @@ class DriverService:
         await session.commit()
         await session.refresh(driver)
 
-        return DriverResponse.model_validate(driver)
+        if "plate_number" in update_data and update_data["plate_number"] is not None:
+            raw_plate = str(update_data["plate_number"]).strip()
+            if raw_plate:
+                try:
+                    clean_plate = _normalize_plate(raw_plate)
+                    existing_plate = (
+                        await session.exec(
+                            select(DriverPlate).where(
+                                (DriverPlate.client_id == driver.client_id)
+                                & (DriverPlate.driver_id == driver.id)
+                            )
+                        )
+                    ).first()
+                    if existing_plate:
+                        existing_plate.plate_number = clean_plate
+                        existing_plate.status = "active"
+                        if "vehicle_type" in update_data and update_data["vehicle_type"]:
+                            existing_plate.vehicle_type = str(update_data["vehicle_type"]).strip()
+                        session.add(existing_plate)
+                    else:
+                        new_plate = DriverPlate(
+                            client_id=driver.client_id,
+                            driver_id=driver.id,
+                            plate_number=clean_plate,
+                            vehicle_type=str(update_data.get("vehicle_type") or "کامیون").strip(),
+                            status="active",
+                        )
+                        session.add(new_plate)
+                    await session.commit()
+                    active_plate_str = clean_plate
+                except Exception as e:
+                    logger.warning(f"Failed to update plate for driver {driver.id}: {e}")
+            else:
+                active_plate_str = None
+        else:
+            try:
+                plate_stmt = select(DriverPlate).where(
+                    (DriverPlate.driver_id == driver.id) & (DriverPlate.status == "active")
+                )
+                plate_res = await session.exec(plate_stmt)
+                active_plate_row = plate_res.first() if hasattr(plate_res, "first") else None
+                if active_plate_row and hasattr(active_plate_row, "plate_number"):
+                    active_plate_str = str(active_plate_row.plate_number)
+            except Exception:
+                pass
+
+        resp = DriverResponse.model_validate(driver)
+        resp.active_plate = active_plate_str
+        return resp
 
     @staticmethod
     async def delete_driver(

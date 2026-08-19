@@ -277,7 +277,7 @@ def test_update_driver_success(test_client):
 
     mock_session = MagicMock()
     mock_session.get = AsyncMock(return_value=mock_driver)
-    mock_session.exec = AsyncMock()
+    mock_session.exec = AsyncMock(return_value=MagicMock(first=MagicMock(return_value=None), all=MagicMock(return_value=[])))
     mock_session.commit = AsyncMock()
     mock_session.refresh = AsyncMock()
 
@@ -300,6 +300,50 @@ def test_update_driver_success(test_client):
     assert data["status"] == "inactive"
 
     mock_session.commit.assert_called_once()
+    app.dependency_overrides.clear()
+
+
+def test_update_driver_with_plate(test_client):
+    mock_client = Client(
+        id=1,
+        client_code="tenant-1",
+        name="Tenant 1",
+        email="tenant1@example.com",
+    )
+
+    mock_driver = Driver(
+        id=1,
+        client_id=1,
+        driver_national_code="1234567890",
+        full_name="Driver 1",
+        phone="09123456789",
+        utcms_username="user1",
+        utcms_password_encrypted="encrypted_pwd",
+        status="active",
+    )
+
+    mock_session = MagicMock()
+    mock_session.get = AsyncMock(return_value=mock_driver)
+    mock_session.exec = AsyncMock(return_value=MagicMock(first=MagicMock(return_value=None), all=MagicMock(return_value=[])))
+    mock_session.commit = AsyncMock()
+    mock_session.refresh = AsyncMock()
+    mock_session.add = MagicMock()
+
+    app.dependency_overrides[get_current_client] = lambda: mock_client
+    app.dependency_overrides[get_current_user_or_admin] = lambda: {"role": "client", "user": mock_client}
+    app.dependency_overrides[get_session] = lambda: mock_session
+
+    update_payload = {
+        "plate_number": "12ع345ایران67",
+        "vehicle_type": "کامیون کشنده",
+    }
+
+    response = test_client.put("/api/v1/drivers/1", json=update_payload)
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["active_plate"] == "12ع345ایران67"
+
     app.dependency_overrides.clear()
 
 

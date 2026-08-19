@@ -216,10 +216,12 @@ class DriverUpdateRequest(BaseModel):
     license_number: str | None = Field(None, max_length=50)
     utcms_username: str | None = Field(None, max_length=100)
     utcms_password: str | None = Field(None, max_length=100)
+    plate_number: str | None = Field(None, max_length=50)
+    vehicle_type: str | None = Field(None, max_length=50)
     status: str | None = Field(None, max_length=20)
     default_payload: dict[str, Any] | None = Field(None)
 
-    @field_validator("driver_national_code", "utcms_password", "phone", "license_number", mode="before")
+    @field_validator("driver_national_code", "utcms_password", "phone", "license_number", "plate_number", mode="before")
     @classmethod
     def empty_str_to_none(cls, v: Any) -> Any:
         if isinstance(v, str) and not v.strip():

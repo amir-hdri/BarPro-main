@@ -143,6 +143,9 @@ export default function DriversPage() {
     if (payload.phone) {
       payload.phone = normalizeDigits(payload.phone.trim());
     }
+    if (payload.plate_number) {
+      payload.plate_number = canonicalizePlate(payload.plate_number.trim());
+    }
     if (!payload.utcms_password?.trim()) {
       delete payload.utcms_password;
     }
@@ -482,6 +485,7 @@ export default function DriversPage() {
                                 phone: driver.phone || '',
                                 license_number: driver.license_number || '',
                                 utcms_username: driver.utcms_username,
+                                plate_number: driver.active_plate || '',
                                 status: driver.status,
                               },
                             })
@@ -732,6 +736,12 @@ export default function DriversPage() {
                   value={editDriver.payload.utcms_password || ''}
                   onChange={(value) => setEditDriver((cur) => cur ? { ...cur, payload: { ...cur.payload, utcms_password: value } } : cur)}
                 />
+                <div className="sm:col-span-2">
+                  <PlateInput
+                    value={editDriver.payload.plate_number || ''}
+                    onChange={(value) => setEditDriver((cur) => cur ? { ...cur, payload: { ...cur.payload, plate_number: value } } : cur)}
+                  />
+                </div>
                 <div className="sm:col-span-2">
                   <label className="text-sm font-medium text-slate-200 block mb-2">وضعیت راننده</label>
                   <select
