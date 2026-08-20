@@ -758,6 +758,7 @@ export default function DriversPage() {
                 type="button"
                 onClick={() => setEditDriver(null)}
                 className="rounded-lg p-1.5 text-slate-400 hover:text-white hover:bg-white/5 transition"
+                aria-label="بستن پنجره"
               >
                 ✕
               </button>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 
@@ -17,6 +17,9 @@ export default function AuthPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+
+  const clientEmailRef = useRef<HTMLInputElement>(null);
+  const adminUsernameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -56,10 +59,14 @@ export default function AuthPage() {
     const response = await api.post<AuthLoginResponse>('/api/v1/auth/login', login);
     setLoading(false);
 
-     if (!response.success || !response.data) {
-       setError(response.error || 'ورود انجام نشد');
-       return;
-     }
+    if (!response.success || !response.data) {
+      setError(response.error || 'ورود انجام نشد');
+      setTimeout(() => {
+        clientEmailRef.current?.focus();
+        clientEmailRef.current?.select();
+      }, 50);
+      return;
+    }
 
     await completeClientLogin(response.data);
   };
@@ -73,10 +80,14 @@ export default function AuthPage() {
     const response = await api.post<AdminLoginResponse>('/api/v1/admin/login', adminLogin);
     setLoading(false);
 
-     if (!response.success || !response.data) {
-       setError(response.error || 'ورود ادمین انجام نشد');
-       return;
-     }
+    if (!response.success || !response.data) {
+      setError(response.error || 'ورود ادمین انجام نشد');
+      setTimeout(() => {
+        adminUsernameRef.current?.focus();
+        adminUsernameRef.current?.select();
+      }, 50);
+      return;
+    }
 
     await completeAdminLogin(response.data);
   };
@@ -167,6 +178,7 @@ export default function AuthPage() {
                   <div className="relative group">
                     <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-cyan-500/20 to-transparent opacity-0 group-focus-within:opacity-100 transition-opacity blur-sm"></div>
                     <input
+                      ref={clientEmailRef}
                       type="email"
                       autoComplete="email"
                       required
@@ -221,6 +233,7 @@ export default function AuthPage() {
                   <div className="relative group">
                     <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-blue-500/20 to-transparent opacity-0 group-focus-within:opacity-100 transition-opacity blur-sm"></div>
                     <input
+                      ref={adminUsernameRef}
                       type="text"
                       autoComplete="username"
                       required

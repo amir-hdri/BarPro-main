@@ -118,6 +118,9 @@ export function statusTone(status: string): string {
 }
 
 export function errorCategoryLabel(category?: string | null): string {
+  if (!category) return '-';
+  const cleanKey = category.trim().toLowerCase();
+
   const map: Record<string, string> = {
     submission_unconfirmed: 'در انتظار تطبیق و استخراج کد رهگیری (غیرقطعی)',
     submission_unknown: 'ثبت غیرقطعی (نیاز به تطبیق)',
@@ -127,20 +130,41 @@ export function errorCategoryLabel(category?: string | null): string {
     system_or_network_error: 'اختلال در شبکه یا ارتباط با پرتال ملی',
     utcms_login_error: 'عدم موفقیت در ورود به پرتال ملی بارنامه',
     auth_expired: 'نشست راننده منقضی شده است',
-    daily_limit_reached: 'سقف روزانه',
-    daily_success_limit_reached: 'سقف موفقیت روزانه',
-    daily_attempt_limit_reached: 'سقف تلاش روزانه',
-    rate_limited: 'محدود شده',
-    invalid_credentials: 'اطلاعات نادرست',
-    duplicate: 'تکراری',
-    validation_error: 'خطای اعتبارسنجی',
-    transient_failure: 'خطای موقت',
+    daily_limit_reached: 'رسیدن به سقف مجاز روزانه',
+    daily_success_limit_reached: 'رسیدن به سقف موفقیت روزانه',
+    daily_attempt_limit_reached: 'رسیدن به سقف تلاش روزانه',
+    rate_limited: 'محدودیت نرخ ارسال درخواست',
+    invalid_credentials: 'نام کاربری یا رمز عبور اشتباه است',
+    duplicate: 'بارنامه تکراری',
+    validation_error: 'خطای اعتبارسنجی داده‌ها',
+    payload_validation_failed: 'خطای اعتبارسنجی فرم بارنامه',
+    transient_failure: 'خطای موقت و گذرا',
     destination_service_limit: 'محدودیت سرویس مقصد',
     unknown_error: 'خطای نامشخص',
+    unknown_automation_error: 'خطای ناشناخته اتوماسیون',
+    captcha_solve_failed: 'خطا در حل کپچا و پردازش هوشمند تصویر',
+    captcha_exhaustion: 'اتمام سقف تلاش‌های حل کپچا',
+    captcha_failed: 'خطا در حل کپچا',
+    waf_blocked: 'مسدودسازی موقت توسط دیوار آتش پرتال (WAF)',
+    bot_detected: 'شناسایی و توقف ربات توسط پرتال ملی',
+    session_timeout: 'انقضای نشست کاری و نیاز به ورود مجدد',
+    concurrent_lock_held: 'قفل تراکنش همزمان برای راننده',
+    otp_backoff: 'انتظار برای پنجره زمانی بدون رمز یکبارمصرف',
+    otp_required: 'نیازمند تایید رمز یکبارمصرف پیامکی (OTP)',
+    ip_circuit_open: 'قطع‌کننده مدار پروکسی و تعویض آی‌پی',
+    user_data_error: 'اطلاعات ورودی نامعتبر است',
+    auth_failure: 'عدم موفقیت در احراز هویت راننده',
+    login_failed: 'ورود ناموفق به سامانه',
+    target_site_timeout: 'عدم پاسخگویی سامانه مقصد (تایم‌اوت)',
+    selector_changed: 'تغییر ساختار عناصر صفحه سامانه مقصد',
+    transient_infra_error: 'خطای موقت زیرساختی و ارتباطی',
+    worker_resource_error: 'محدودیت منابع یا حافظه پردازشگر',
+    worker_drained: 'توقف و تخلیه موقت پردازشگر',
+    system_error: 'خطای سیستمی در پردازش',
+    circuit_breaker_open: 'فعال بودن مدار محافظتی',
   };
 
-  if (!category) return '-';
-  return map[category] || category;
+  return map[cleanKey] || category;
 }
 
 export function trackingCodeFromResult(result?: unknown): string | null {

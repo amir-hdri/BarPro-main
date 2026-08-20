@@ -467,7 +467,11 @@ function SummaryCard({
 }) {
   const t = toneStyles[tone];
   return (
-    <div className={`relative overflow-hidden bg-slate-900/60 border ${t.border} rounded-2xl p-4 flex items-center justify-between shadow-sm`}>
+    <div
+      role="status"
+      aria-live="polite"
+      className={`relative overflow-hidden bg-slate-900/60 border ${t.border} rounded-2xl p-4 flex items-center justify-between shadow-sm`}
+    >
       <div className={`absolute -end-6 -top-6 h-16 w-16 rounded-full ${t.bg} blur-2xl opacity-60`} />
       <div className="relative">
         <p className="text-xs text-slate-400 font-medium">{label}</p>

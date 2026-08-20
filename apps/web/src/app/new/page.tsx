@@ -184,15 +184,20 @@ export default function NewWaybillPage() {
   const [scheduleStartDate, setScheduleStartDate] = useState("");
   const [scheduleEndDate, setScheduleEndDate] = useState("");
 
-  const handleDateBlur = (setter: React.Dispatch<React.SetStateAction<string>>) => (e: React.FocusEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    if (!val || !val.trim()) return;
-    let s = val.trim();
+  const normalizeScheduleInput = (val: string): string => {
+    let s = val;
     const persianDigits = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
     const arabicDigits = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
     for (let i = 0; i < 10; i++) {
       s = s.replaceAll(persianDigits[i], String(i)).replaceAll(arabicDigits[i], String(i));
     }
+    return s;
+  };
+
+  const handleDateBlur = (setter: React.Dispatch<React.SetStateAction<string>>) => (e: React.FocusEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (!val || !val.trim()) return;
+    let s = normalizeScheduleInput(val.trim());
     s = s.replace(/[\s_/\.\\]+/g, '-');
     const parts = s.split('-');
     if (parts.length === 3) {
@@ -208,12 +213,7 @@ export default function NewWaybillPage() {
   const handleTimeBlur = (setter: React.Dispatch<React.SetStateAction<string>>) => (e: React.FocusEvent<HTMLInputElement>) => {
     const val = e.target.value;
     if (!val || !val.trim()) return;
-    let s = val.trim();
-    const persianDigits = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
-    const arabicDigits = ['٠','١','٢','٣','٤','٥','٦','٧','٨','٩'];
-    for (let i = 0; i < 10; i++) {
-      s = s.replaceAll(persianDigits[i], String(i)).replaceAll(arabicDigits[i], String(i));
-    }
+    let s = normalizeScheduleInput(val.trim());
     s = s.replace(/[\s_/\.\-]+/g, ':');
     const parts = s.split(':');
     if (parts.length >= 2) {
@@ -629,7 +629,7 @@ export default function NewWaybillPage() {
             </div>
           </div>
 
-          <form onSubmit={isLastStep ? handleSubmit : (e) => { e.preventDefault(); goNext(); }} className="pb-24 sm:pb-0">
+          <form onSubmit={isLastStep ? handleSubmit : (e) => { e.preventDefault(); goNext(); }} className="pb-32 sm:pb-0">
             <AnimatePresence mode="wait" custom={direction}>
               <motion.div
                 key={currentStep}
@@ -1141,7 +1141,7 @@ export default function NewWaybillPage() {
                               className="field"
                               placeholder="08:00"
                               value={scheduleRunTime}
-                              onChange={(e) => setScheduleRunTime(e.target.value)}
+                              onChange={(e) => setScheduleRunTime(normalizeScheduleInput(e.target.value))}
                               onBlur={handleTimeBlur(setScheduleRunTime)}
                               required
                             />
@@ -1155,7 +1155,7 @@ export default function NewWaybillPage() {
                               className="field"
                               placeholder="08:00, 14:00"
                               value={scheduleRunTimes}
-                              onChange={(e) => setScheduleRunTimes(e.target.value)}
+                              onChange={(e) => setScheduleRunTimes(normalizeScheduleInput(e.target.value))}
                             />
                           </label>
                         </div>
@@ -1167,7 +1167,7 @@ export default function NewWaybillPage() {
                               className="field"
                               placeholder="1405-04-15, 1405-04-16"
                               value={scheduleSpecificDates}
-                              onChange={(e) => setScheduleSpecificDates(e.target.value)}
+                              onChange={(e) => setScheduleSpecificDates(normalizeScheduleInput(e.target.value))}
                             />
                           </label>
                         </div>
@@ -1179,7 +1179,7 @@ export default function NewWaybillPage() {
                               className="field"
                               placeholder="1405-05-01"
                               value={scheduleStartDate}
-                              onChange={(e) => setScheduleStartDate(e.target.value)}
+                              onChange={(e) => setScheduleStartDate(normalizeScheduleInput(e.target.value))}
                               onBlur={handleDateBlur(setScheduleStartDate)}
                             />
                           </label>
@@ -1192,7 +1192,7 @@ export default function NewWaybillPage() {
                               className="field"
                               placeholder="1405-06-30"
                               value={scheduleEndDate}
-                              onChange={(e) => setScheduleEndDate(e.target.value)}
+                              onChange={(e) => setScheduleEndDate(normalizeScheduleInput(e.target.value))}
                               onBlur={handleDateBlur(setScheduleEndDate)}
                             />
                           </label>
@@ -1329,6 +1329,7 @@ export default function NewWaybillPage() {
                   type="button"
                   onClick={() => setShowQuickAddDriver(false)}
                   className="rounded-xl p-2 text-slate-400 hover:bg-white/5 hover:text-white transition"
+                  aria-label="بستن پنجره"
                 >
                   <XMarkIcon className="h-5 w-5" />
                 </button>

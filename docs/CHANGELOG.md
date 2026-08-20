@@ -2,6 +2,24 @@
   
   All notable changes to the UTCMS Automation System.
 
+  ## [2.9.2] - 2026-08-20
+
+  ### Added & Optimized — Universal Mobile Anti-Zoom, UI/UX Polish & Full-Stack Hardening
+  - **Universal Mobile Viewport & Anti-Zoom (iOS & Android)**:
+    - Enforced `width: device-width`, `initialScale: 1`, `maximumScale: 1`, `userScalable: false`, and `viewportFit: cover` in `apps/web/src/app/layout.tsx`.
+    - Applied universal minimum font size `font-size: 16px !important` across all `input`, `select`, `textarea`, and `.field` elements on screens `< 768px` in `apps/web/src/app/globals.css`, eliminating auto-zoom behavior across iOS Safari, Chrome Android, Samsung Internet, and Firefox Mobile.
+    - Set `touch-action: manipulation` across all interactive elements (`button`, `a`, `input`, `select`, `textarea`) and added text scaling protections (`text-size-adjust: 100%`).
+  - **Full-Stack Status Filter Normalization & Resilience**:
+    - Fixed status filter dropdown in `apps/web/src/app/reports/page.tsx` by replacing uppercase values with canonical lowercase keys (`success`, `failed`, `in_progress`, `pending`, `queued`, `needs_review`, `submission_unconfirmed`).
+    - Hardened database query filters in `app/services/user_reporting_service.py` and `app/services/admin_reporting_service.py` with `.strip().lower()` for case-insensitive filtering.
+  - **Comprehensive Persian RPA Error Taxonomy**:
+    - Extended `errorCategoryLabel` in `apps/web/src/lib/format.ts` with case normalization and Persian translations for all RPA engine and bot error categories (`CAPTCHA_SOLVE_FAILED`, `WAF_BLOCKED`, `SESSION_TIMEOUT`, `CONCURRENT_LOCK_HELD`, `TARGET_SITE_TIMEOUT`, `USER_DATA_ERROR`, `AUTH_FAILURE`, `SELECTOR_CHANGED`, `BOT_DETECTED`, `WORKER_RESOURCE_ERROR`, `WORKER_DRAINED`, `OTP_REQUIRED`, `SYSTEM_ERROR`).
+  - **RTL Admin Layout & Accessibility**:
+    - Corrected admin sidebar layout in `apps/web/src/app/admin/layout.tsx` to adhere to RTL standards (`right-0`, `border-l`, `md:mr-[280px]`, `translate-x-full` mobile slide).
+    - Added missing `aria-label` and `aria-expanded` attributes across all modal close buttons and letter selectors (`CreateClientModal.tsx`, `PlateInput.tsx`, `drivers/page.tsx`, `new/page.tsx`, `fuel/page.tsx`).
+    - Added live screen-reader regions (`role="status"`, `aria-live="polite"`) to dashboard and alert summary cards.
+    - Implemented automatic input focus recovery upon failed authentication in `apps/web/src/app/auth/page.tsx`.
+
   ## [2.9.1] - 2026-08-20
 
   ### Fixed & Security — Validation, Multi-Tenancy & Hardening

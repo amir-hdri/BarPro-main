@@ -1,4 +1,4 @@
 {
-  "cors_allow_credentials_in_backend": false,
-  "axios_defaults_configured": true
+  "status": "passed",
+  "warnings": []
 }

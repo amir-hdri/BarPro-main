@@ -1177,8 +1177,10 @@ export default function FuelInquiryPage() {
                   </p>
                 </div>
                 <button
+                  type="button"
                   onClick={() => setSelectedInquiry(null)}
                   className="rounded-2xl border border-white/10 bg-slate-900 p-2 text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                  aria-label="بستن پنجره"
                 >
                   <XMarkIcon className="h-5 w-5" />
                 </button>

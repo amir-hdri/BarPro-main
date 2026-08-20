@@ -490,10 +490,13 @@ export default function UserReportsPage() {
                       className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none"
                     >
                       <option value="">همه وضعیت‌ها</option>
-                      <option value="SUCCESS">موفق (SUCCESS)</option>
-                      <option value="FAILED">ناموفق (FAILED)</option>
-                      <option value="IN_PROGRESS">در حال اجرا (IN_PROGRESS)</option>
-                      <option value="QUEUED">در صف (QUEUED)</option>
+                      <option value="success">موفق (SUCCESS)</option>
+                      <option value="failed">ناموفق (FAILED)</option>
+                      <option value="in_progress">در حال اجرا (IN_PROGRESS)</option>
+                      <option value="pending">در انتظار (PENDING)</option>
+                      <option value="queued">در صف (QUEUED)</option>
+                      <option value="needs_review">نیازمند بازبینی (NEEDS_REVIEW)</option>
+                      <option value="submission_unconfirmed">ثبت غیرقطعی (UNCONFIRMED)</option>
                     </select>
                   </div>
 

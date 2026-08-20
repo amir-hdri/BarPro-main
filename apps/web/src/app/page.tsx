@@ -214,6 +214,8 @@ export default function DashboardPage() {
               cards.map((card) => (
                 <article
                   key={card.label}
+                  role="status"
+                  aria-live="polite"
                   className="stat-card group relative overflow-hidden animate-in fade-in-up"
                 >
                   <div

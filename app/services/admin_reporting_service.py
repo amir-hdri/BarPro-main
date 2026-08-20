@@ -240,7 +240,7 @@ class AdminReportingService:
                     query = query.where(or_(*p_conds))
 
                 if filters.status:
-                    query = query.where(WaybillJob.status == filters.status)
+                    query = query.where(WaybillJob.status == filters.status.strip().lower())
                 if filters.date_from:
                     dt = datetime.fromisoformat(filters.date_from)
                     query = query.where(WaybillJob.created_at >= dt)

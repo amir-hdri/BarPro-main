@@ -94,7 +94,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <AuthGuard requiredRole="master_admin">
-      <div className="flex min-h-screen bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950" dir="rtl">
+      <div className="flex min-h-screen w-full max-w-full overflow-x-hidden bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950" dir="rtl">
 
         {/* ── Mobile overlay ───────────────────────── */}
         <div
@@ -111,8 +111,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
          {/* ── Sidebar ──────────────────────────────── */}
          <aside
            id="admin-sidebar"
-           className={`fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col border-r border-white/10 bg-slate-900/95 backdrop-blur-2xl shadow-2xl transition-transform duration-300 ease-in-out md:translate-x-0 ${
-             mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+           className={`fixed inset-y-0 right-0 z-50 flex w-[280px] flex-col border-l border-white/10 bg-slate-900/95 backdrop-blur-2xl shadow-2xl transition-transform duration-300 ease-in-out md:translate-x-0 ${
+             mobileOpen ? "translate-x-0" : "translate-x-full md:translate-x-0"
            }`}
            aria-label="ناوبری اصلی"
          >
@@ -207,7 +207,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </aside>
 
          {/* ── Main content ──────────────────────────── */}
-         <div className="flex flex-1 flex-col md:ml-[280px] min-w-0">
+         <div className="flex flex-1 flex-col md:mr-[280px] min-w-0">
 
           {/* Top header */}
           <header className="sticky top-0 z-30 border-b border-white/10 bg-slate-900/70 backdrop-blur-2xl shadow-[0_4px_20px_-10px_rgba(0,0,0,0.4)]">

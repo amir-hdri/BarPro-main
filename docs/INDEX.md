@@ -46,12 +46,13 @@ bash manage.sh stop
 
 ## Important Current State
 
-- Alembic head is `015_add_client_subscription_dates`
+- Alembic head is `036_management_tables_and_activity_logs_fix`
 - Frontend Docker builds inside `apps/web/Dockerfile`
 - No prebuilt `.next/standalone` upload is required
 - JWT transport uses the `httpOnly` cookie `utcms_auth_token`
 - Keep `AUTH_COOKIE_SECURE=false` on HTTP; switch to `true` after HTTPS
 - Required captcha assets include CNN, PyTorch fuel CRNN, fuel vocab, and Keras fallback model
+- Universal mobile anti-zoom enforced across iOS and Android
 
 ## Active Guides
 
@@ -78,4 +79,4 @@ alembic heads
 
 Files in `docs/archive/` are historical records. They may mention old local paths, old auth storage, or previous frontend versions. Do not use them for current deployment decisions.
 
-Last updated: 2026-07-09
+Last updated: 2026-08-20 (v2.9.2)

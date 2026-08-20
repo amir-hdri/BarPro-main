@@ -244,7 +244,7 @@ class UserReportingService:
                 query = query.where(or_(*p_conds))
 
             if status:
-                query = query.where(WaybillJob.status == status)
+                query = query.where(WaybillJob.status == status.strip().lower())
             if date_from:
                 dt = datetime.fromisoformat(date_from)
                 query = query.where(WaybillJob.created_at >= dt)

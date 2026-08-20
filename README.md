@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="https://img.shields.io/badge/Status-Hardened%20v2.9.1-success?style=for-the-badge" alt="Status" />
-  <img src="https://img.shields.io/badge/Version-2.9.1-blue?style=for-the-badge" alt="Version" />
-  <img src="https://img.shields.io/badge/Tests-889%20passed%20%7C%203%20skipped-brightgreen?style=for-the-badge" alt="Tests" />
+  <img src="https://img.shields.io/badge/Status-Hardened%20v2.9.2-success?style=for-the-badge" alt="Status" />
+  <img src="https://img.shields.io/badge/Version-2.9.2-blue?style=for-the-badge" alt="Version" />
+  <img src="https://img.shields.io/badge/Tests-894%20passed%20%7C%203%20skipped-brightgreen?style=for-the-badge" alt="Tests" />
   <img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge" alt="License" />
 </div>
 
@@ -41,6 +41,11 @@
 - **Independent Profiles:** Manage fleets, drivers, and routes per tenant securely
 - **Master Admin Dashboard:** Centralized control for onboarding, quota management, and global live monitoring
 - **Universal Admin Access:** Master admin can view and manage all tenant resources globally
+
+### 📱 Universal Mobile Ergonomics & Anti-Zoom (iOS & Android)
+- **Viewport Scale Lock:** Standardized fixed 1:1 mobile scale (`width: device-width`, `userScalable: false`, `viewportFit: cover`)
+- **Zero Input Zooming:** Universal minimum `16px` font size and `touch-action: manipulation` across iOS Safari and all Android browsers
+- **RTL-Native Ergonomics:** Right-to-left layout alignment, smooth touch drawers with velocity gestures, and safe-area padding
 
 ### 🌐 Clean Iranian Proxy Pool (Zero IP Restriction)
 - **Multi-Source Aggregator:** Automatically harvests and validates live Iranian proxies against `https://utcms.ir`

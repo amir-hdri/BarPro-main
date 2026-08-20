@@ -265,6 +265,16 @@ Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhance
 
 ## Optimization Applied (2026-06-30 → 2026-08-20)
 
+### 2026-08-20 — v2.9.2 Universal Mobile Anti-Zoom, UI/UX Hardening & Full-Stack Taxonomy Sync
+| Change | File | Impact |
+|--------|------|--------|
+| Universal Mobile Anti-Zoom & Viewport Lock | `apps/web/src/app/layout.tsx` + `apps/web/src/app/globals.css` | Enforces `width: device-width`, `maximumScale: 1`, `userScalable: false`, `16px` minimum input font size, and `touch-action: manipulation` across all iOS and Android mobile browsers |
+| Full-Stack Case-Insensitive Status Filtering | `apps/web/src/app/reports/page.tsx` + `app/services/user_reporting_service.py` + `app/services/admin_reporting_service.py` | Eliminates empty query results by syncing dropdown values with backend lowercase keys and applying `.strip().lower()` on database query filters |
+| Comprehensive Persian RPA Error Taxonomy | `apps/web/src/lib/format.ts` | Extends `errorCategoryLabel` with case normalization and friendly Persian translations for all RPA engine and bot error categories |
+| RTL Admin Sidebar Layout Fix | `apps/web/src/app/admin/layout.tsx` | Standardizes admin layout to RTL (`right-0`, `border-l`, `md:mr-[280px]`, `translate-x-full` mobile transition) |
+| Form Digit Normalization & Mobile Spacing | `apps/web/src/app/new/page.tsx` | Implements real-time Persian/Arabic to English digit conversion on `onChange` and prevents mobile navigation bar occlusion with `pb-32 sm:pb-0` |
+| Web Accessibility (a11y) & Focus Management | `CreateClientModal.tsx` + `PlateInput.tsx` + `alerts/page.tsx` + `auth/page.tsx` | Adds missing `aria-label` / `aria-expanded` attributes, live screen-reader regions (`aria-live="polite"`), and automatic focus recovery on login errors |
+
 ### 2026-08-20 — v2.9.1 Driver Fleet Vehicle Type Sync & Multi-Tenant Plate Safeguards
 | Change | File | Impact |
 |--------|------|--------|

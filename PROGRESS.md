@@ -145,3 +145,24 @@ This file tracks the completion status of the phases defined in [BarPro_Unified_
 - **Verification**:
   - 889 passed tests, 3 skipped (892 collected).
   - Clean TypeScript typecheck (`tsc --noEmit`) and zero ESLint warnings.
+
+### Universal Mobile Anti-Zoom, UI/UX Hardening & Full-Stack Taxonomy Sync (Completed: 2026-08-20 — v2.9.2)
+- **Universal Mobile Ergonomics & Anti-Zoom (iOS & Android)**:
+  - Locked viewport scale in `apps/web/src/app/layout.tsx` (`width: device-width`, `initialScale: 1`, `maximumScale: 1`, `userScalable: false`, `viewportFit: cover`).
+  - Enforced minimum font size `font-size: 16px !important` on all inputs/selects/textareas for screens `< 768px` in `apps/web/src/app/globals.css` to prevent automatic zoom on focus across iOS Safari, Chrome Android, Samsung Internet, and Firefox Mobile.
+  - Configured `touch-action: manipulation` across all interactive elements (`button`, `a`, `input`, `select`, `textarea`) and added text scaling protections (`text-size-adjust: 100%`).
+  - Prevented horizontal layout shifts with `overflow-x: hidden; width: 100%; max-width: 100vw;` on `html`, `body`, and outer container components.
+- **Full-Stack Status Filter Normalization & Resilience**:
+  - Synced frontend dropdown values in `apps/web/src/app/reports/page.tsx` with canonical lowercase backend keys (`success`, `failed`, `in_progress`, `pending`, `queued`, `needs_review`, `submission_unconfirmed`).
+  - Hardened backend database queries in `app/services/user_reporting_service.py` and `app/services/admin_reporting_service.py` with `.strip().lower()` for case-insensitive filtering.
+- **Comprehensive Persian RPA Error Taxonomy**:
+  - Extended `errorCategoryLabel` in `apps/web/src/lib/format.ts` with case normalization and Persian translations for all RPA engine and bot error categories (`CAPTCHA_SOLVE_FAILED`, `WAF_BLOCKED`, `SESSION_TIMEOUT`, `CONCURRENT_LOCK_HELD`, `TARGET_SITE_TIMEOUT`, `USER_DATA_ERROR`, `AUTH_FAILURE`, `SELECTOR_CHANGED`, `BOT_DETECTED`, `WORKER_RESOURCE_ERROR`, `WORKER_DRAINED`, `OTP_REQUIRED`, `SYSTEM_ERROR`).
+- **RTL Admin Layout & Accessibility (a11y)**:
+  - Corrected admin sidebar layout in `apps/web/src/app/admin/layout.tsx` to RTL standards (`right-0`, `border-l`, `md:mr-[280px]`, `translate-x-full` mobile slide).
+  - Added missing `aria-label` and `aria-expanded` attributes across all modal close buttons and letter selectors (`CreateClientModal.tsx`, `PlateInput.tsx`, `drivers/page.tsx`, `new/page.tsx`, `fuel/page.tsx`).
+  - Added live screen-reader regions (`role="status"`, `aria-live="polite"`) to dashboard and alert summary cards.
+  - Implemented automatic input focus recovery upon failed authentication in `apps/web/src/app/auth/page.tsx`.
+- **Verification**:
+  - Full-stack CLI audits (`check-schemas`, `check-auth-flow`, `check-websocket-events`, `audit-ui`) all passed with 0 warnings.
+  - Clean TypeScript typecheck (`tsc --noEmit`) and 0 ESLint errors.
+  - Frontend unit tests and backend pytest suites (108 passed) fully verified.

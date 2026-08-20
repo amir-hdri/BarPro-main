@@ -37,8 +37,8 @@ export function AppShell({ children }: AppShellProps) {
   };
 
   return (
-    <div className="min-h-screen text-slate-100 selection:bg-cyan-500/30">
-      <div className="mx-auto flex min-h-screen max-w-[1800px] gap-4 px-3 py-4 sm:gap-6 sm:px-6 md:gap-8 md:px-8 lg:px-10">
+    <div className="min-h-screen w-full overflow-x-hidden text-slate-100 selection:bg-cyan-500/30">
+      <div className="mx-auto flex min-h-screen max-w-[1800px] w-full gap-4 px-3 py-3 sm:gap-6 sm:px-6 sm:py-4 md:gap-8 md:px-8 lg:px-10">
         <div className="hidden w-[300px] shrink-0 xl:block animate-in slide-in-from-left-8 duration-500">
           <Sidebar />
         </div>
@@ -62,8 +62,8 @@ export function AppShell({ children }: AppShellProps) {
                 dragConstraints={{ left: 0, right: 0 }}
                 dragElastic={{ left: 0, right: 0.4 }}
                 onDragEnd={(_, info) => {
-                  // Sliding to the right (offset x > 80) closes it in RTL
-                  if (info.offset.x > 80) {
+                  // Sliding to the right (offset x > 80 or quick flick) closes it in RTL
+                  if (info.offset.x > 80 || info.velocity.x > 300) {
                     setMobileOpen(false);
                   }
                 }}

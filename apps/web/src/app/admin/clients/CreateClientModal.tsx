@@ -163,8 +163,10 @@ export function CreateClientModal({
               </p>
             </div>
             <button
+              type="button"
               onClick={onClose}
               className="rounded-xl p-2 text-slate-400 hover:bg-white/5 hover:text-slate-100 transition"
+              aria-label="بستن پنجره"
             >
               <X className="h-5 w-5" />
             </button>
