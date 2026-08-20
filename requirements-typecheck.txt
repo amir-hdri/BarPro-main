@@ -27,7 +27,7 @@
 # drivers (asyncpg, psycopg2-binary) and the OTLP gRPC exporter, which are
 # referenced through connection strings/config rather than typed call sites.
 
-playwright>=1.49.0
+playwright>=1.62.0
 fastapi>=0.115.6
 uvicorn>=0.34.0
 pydantic>=2.10.3
