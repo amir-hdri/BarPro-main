@@ -40,7 +40,7 @@ def create_ssh(ip: str, retries: int = 5, delay: int = 3) -> paramiko.SSHClient:
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     for attempt in range(1, retries + 1):
         try:
-            ssh.connect(ip, username="root", password=PWD, timeout=30, banner_timeout=45)
+            ssh.connect(ip, username="root", password=PWD, timeout=30, banner_timeout=45, auth_timeout=30)
             trans = ssh.get_transport()
             if trans:
                 trans.set_keepalive(15)
@@ -52,53 +52,70 @@ def create_ssh(ip: str, retries: int = 5, delay: int = 3) -> paramiko.SSHClient:
     raise RuntimeError(f"Could not connect to {ip} after {retries} attempts.")
 
 
-def run_command(ssh: paramiko.SSHClient, cmd: str, timeout: int = 1800, print_output: bool = True) -> tuple[int, str, str]:
-    transport = ssh.get_transport()
-    if not transport or not transport.is_active():
-        raise RuntimeError("SSH transport is not active.")
-    channel = transport.open_session()
-    channel.settimeout(timeout)
-    channel.exec_command(cmd)
+def run_node_cmd(ip: str, cmd: str, timeout: int = 1800, print_output: bool = True, retries: int = 3) -> tuple[int, str, str]:
+    """Execute command on node with automatic connection and retry."""
+    for attempt in range(1, retries + 1):
+        ssh = None
+        try:
+            ssh = create_ssh(ip)
+            transport = ssh.get_transport()
+            if not transport or not transport.is_active():
+                raise RuntimeError("SSH transport is not active.")
+            channel = transport.open_session()
+            channel.settimeout(timeout)
+            channel.exec_command(cmd)
 
-    stdout_chunks = []
-    stderr_chunks = []
+            stdout_chunks = []
+            stderr_chunks = []
 
-    while not channel.exit_status_ready():
-        if channel.recv_ready():
-            chunk = channel.recv(4096).decode("utf-8", errors="replace")
-            if chunk:
-                stdout_chunks.append(chunk)
-                if print_output:
-                    sys.stdout.write(chunk)
-                    sys.stdout.flush()
-        if channel.recv_stderr_ready():
-            err_chunk = channel.recv_stderr(4096).decode("utf-8", errors="replace")
-            if err_chunk:
-                stderr_chunks.append(err_chunk)
-                if print_output:
-                    sys.stderr.write(err_chunk)
-                    sys.stderr.flush()
-        time.sleep(0.1)
+            while not channel.exit_status_ready():
+                if channel.recv_ready():
+                    chunk = channel.recv(4096).decode("utf-8", errors="replace")
+                    if chunk:
+                        stdout_chunks.append(chunk)
+                        if print_output:
+                            sys.stdout.write(chunk)
+                            sys.stdout.flush()
+                if channel.recv_stderr_ready():
+                    err_chunk = channel.recv_stderr(4096).decode("utf-8", errors="replace")
+                    if err_chunk:
+                        stderr_chunks.append(err_chunk)
+                        if print_output:
+                            sys.stderr.write(err_chunk)
+                            sys.stderr.flush()
+                time.sleep(0.1)
 
-    # Read remaining
-    while channel.recv_ready():
-        chunk = channel.recv(4096).decode("utf-8", errors="replace")
-        if chunk:
-            stdout_chunks.append(chunk)
-            if print_output:
-                sys.stdout.write(chunk)
-                sys.stdout.flush()
-    while channel.recv_stderr_ready():
-        err_chunk = channel.recv_stderr(4096).decode("utf-8", errors="replace")
-        if err_chunk:
-            stderr_chunks.append(err_chunk)
-            if print_output:
-                sys.stderr.write(err_chunk)
-                sys.stderr.flush()
+            # Read remaining
+            while channel.recv_ready():
+                chunk = channel.recv(4096).decode("utf-8", errors="replace")
+                if chunk:
+                    stdout_chunks.append(chunk)
+                    if print_output:
+                        sys.stdout.write(chunk)
+                        sys.stdout.flush()
+            while channel.recv_stderr_ready():
+                err_chunk = channel.recv_stderr(4096).decode("utf-8", errors="replace")
+                if err_chunk:
+                    stderr_chunks.append(err_chunk)
+                    if print_output:
+                        sys.stderr.write(err_chunk)
+                        sys.stderr.flush()
 
-    status = channel.recv_exit_status()
-    channel.close()
-    return status, "".join(stdout_chunks), "".join(stderr_chunks)
+            status = channel.recv_exit_status()
+            channel.close()
+            ssh.close()
+            return status, "".join(stdout_chunks), "".join(stderr_chunks)
+        except Exception as exc:
+            if ssh:
+                try:
+                    ssh.close()
+                except Exception:
+                    pass
+            print(f"  [SSH ERROR on {ip}] attempt {attempt}/{retries}: {exc}")
+            if attempt < retries:
+                time.sleep(3)
+            else:
+                raise exc
 
 
 def main():
@@ -111,75 +128,72 @@ def main():
     # -------------------------------------------------------------------------
     central = NODES[0]
     print(f"\n[{central['name']} ({central['ip']})] Starting Deployment...")
-    ssh_central = create_ssh(central["ip"])
 
     print("\n--- 1.1 Git Fetch & Reset to latest main ---")
-    run_command(ssh_central, "cd /opt/barpro && find . -name '._*' -delete && git fetch origin main && git reset --hard origin/main && git log -1 --oneline")
+    run_node_cmd(central["ip"], "cd /opt/barpro && find . -name '._*' -delete && git fetch origin main && git reset --hard origin/main && git log -1 --oneline")
 
     print("\n--- 1.2 Build Frontend Image (Next.js 15) ---")
-    run_command(ssh_central, "cd /opt/barpro && docker compose --env-file .env -f compose/web.yml build frontend", timeout=600)
+    run_node_cmd(central["ip"], "cd /opt/barpro && docker compose --env-file .env -f compose/web.yml build frontend", timeout=600)
 
     print("\n--- 1.3 Restart Infrastructure (PostgreSQL + Redis) ---")
-    run_command(ssh_central, "cd /opt/barpro && docker compose --env-file .env -f compose/infra.yml up -d --force-recreate")
+    run_node_cmd(central["ip"], "cd /opt/barpro && docker compose --env-file .env -f compose/infra.yml up -d --force-recreate")
 
     print("\n--- 1.4 Render Central Squid Configs & Restart Proxies (Squid 1) ---")
-    run_command(ssh_central, "cd /opt/barpro && bash scripts/render_squid_configs.sh && docker compose --env-file .env -f compose/proxy.yml up -d --force-recreate")
+    run_node_cmd(central["ip"], "cd /opt/barpro && bash scripts/render_squid_configs.sh && docker compose --env-file .env -f compose/proxy.yml up -d --force-recreate")
 
     print("\n--- 1.5 Restart Backend, Celery Worker 1, Celery Scheduler, Celery Beat ---")
-    run_command(
-        ssh_central,
+    run_node_cmd(
+        central["ip"],
         "cd /opt/barpro && docker compose --env-file .env -f compose/backend.yml up -d --force-recreate backend celery_worker_1 celery_scheduler celery_beat",
     )
 
     print("\n--- 1.6 Restart Web (Frontend + Nginx) ---")
-    run_command(
-        ssh_central,
+    run_node_cmd(
+        central["ip"],
         "cd /opt/barpro && docker compose --env-file .env -f compose/web.yml up -d --force-recreate frontend nginx",
     )
 
     print("\n--- 1.7 Restart Monitoring (Prometheus + Exporters) ---")
-    run_command(ssh_central, "cd /opt/barpro && docker compose --env-file .env -f compose/monitoring.yml up -d")
+    run_node_cmd(central["ip"], "cd /opt/barpro && docker compose --env-file .env -f compose/monitoring.yml up -d")
 
     print("\n--- 1.8 Waiting 25 seconds for central services initialization ---")
     time.sleep(25)
 
     print("\n--- 1.9 Database Migration Status & Upgrade ---")
-    run_command(ssh_central, "docker exec barpro-backend python -m alembic -c alembic.ini upgrade head")
-    run_command(ssh_central, "docker exec barpro-backend python -m alembic -c alembic.ini current")
+    run_node_cmd(central["ip"], "docker exec barpro-backend python -m alembic -c alembic.ini upgrade head")
+    run_node_cmd(central["ip"], "docker exec barpro-backend python -m alembic -c alembic.ini current")
 
     # -------------------------------------------------------------------------
     # Step 2: Worker Node 2 Deployment
     # -------------------------------------------------------------------------
     w2 = NODES[1]
     print(f"\n\n[{w2['name']} ({w2['ip']})] Starting Deployment...")
-    ssh_w2 = create_ssh(w2["ip"])
 
     print("\n--- 2.1 Git Fetch & Reset to latest main ---")
-    run_command(ssh_w2, "cd /opt/barpro && find . -name '._*' -delete && git fetch origin main && git reset --hard origin/main && git log -1 --oneline")
+    run_node_cmd(w2["ip"], "cd /opt/barpro && find . -name '._*' -delete && git fetch origin main && git reset --hard origin/main && git log -1 --oneline")
 
     print("\n--- 2.2 Render Squid config for Worker 2 ---")
     render_w2_cmd = """cd /opt/barpro && set -a && source <(grep -vF '$' .env) && set +a && sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" -e "s/__CENTRAL_IP__/${CENTRAL_IP:-127.0.0.1}/g" infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf"""
-    run_command(ssh_w2, f"bash -c '{render_w2_cmd}'")
+    run_node_cmd(w2["ip"], f"bash -c '{render_w2_cmd}'")
 
     print("\n--- 2.3 Restart Worker 2 Services ---")
-    run_command(ssh_w2, "cd /opt/barpro && docker compose --env-file .env -f compose/worker-node.yml up -d --force-recreate")
+    run_node_cmd(w2["ip"], "cd /opt/barpro && docker compose --env-file .env -f compose/worker-node.yml up -d --force-recreate")
 
     # -------------------------------------------------------------------------
     # Step 3: Worker Node 3 Deployment
     # -------------------------------------------------------------------------
     w3 = NODES[2]
     print(f"\n\n[{w3['name']} ({w3['ip']})] Starting Deployment...")
-    ssh_w3 = create_ssh(w3["ip"])
 
     print("\n--- 3.1 Git Fetch & Reset to latest main ---")
-    run_command(ssh_w3, "cd /opt/barpro && find . -name '._*' -delete && git fetch origin main && git reset --hard origin/main && git log -1 --oneline")
+    run_node_cmd(w3["ip"], "cd /opt/barpro && find . -name '._*' -delete && git fetch origin main && git reset --hard origin/main && git log -1 --oneline")
 
     print("\n--- 3.2 Render Squid config for Worker 3 ---")
     render_w3_cmd = """cd /opt/barpro && set -a && source <(grep -vF '$' .env) && set +a && sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" -e "s/__CENTRAL_IP__/${CENTRAL_IP:-127.0.0.1}/g" infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf"""
-    run_command(ssh_w3, f"bash -c '{render_w3_cmd}'")
+    run_node_cmd(w3["ip"], f"bash -c '{render_w3_cmd}'")
 
     print("\n--- 3.3 Restart Worker 3 Services ---")
-    run_command(ssh_w3, "cd /opt/barpro && docker compose --env-file .env -f compose/worker-node.yml up -d --force-recreate")
+    run_node_cmd(w3["ip"], "cd /opt/barpro && docker compose --env-file .env -f compose/worker-node.yml up -d --force-recreate")
 
     # -------------------------------------------------------------------------
     # Step 4: Health Checks & Cluster Verification
@@ -191,13 +205,13 @@ def main():
     time.sleep(20)
 
     print("\n--- [A] Central Server Containers ---")
-    run_command(ssh_central, "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'")
+    run_node_cmd(central["ip"], "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'")
 
     print("\n--- [B] Central Backend Health Endpoint ---")
-    run_command(ssh_central, "curl -sf http://localhost:8000/healthz && echo ' -> Central API Health: OK' || echo ' -> Central API Health: FAIL'")
+    run_node_cmd(central["ip"], "curl -sf http://localhost:8000/healthz && echo ' -> Central API Health: OK' || echo ' -> Central API Health: FAIL'")
 
     print("\n--- [C] Central Frontend Health ---")
-    run_command(ssh_central, "curl -sf -I http://localhost:3000 | head -n 5")
+    run_node_cmd(central["ip"], "curl -sf -I http://localhost:3000 | head -n 5")
 
     print("\n--- [D] Database Connectivity from Central Backend ---")
     db_test_script = """
@@ -213,7 +227,7 @@ async def check():
 
 asyncio.run(check())
 """
-    run_command(ssh_central, f'docker exec barpro-backend python -c "{db_test_script}"')
+    run_node_cmd(central["ip"], f'docker exec barpro-backend python -c "{db_test_script}"')
 
     print("\n--- [E] Redis Connectivity & Session Vault from Central Backend ---")
     redis_test_script = """
@@ -229,13 +243,13 @@ async def check():
 
 asyncio.run(check())
 """
-    run_command(ssh_central, f'docker exec barpro-backend python -c "{redis_test_script}"')
+    run_node_cmd(central["ip"], f'docker exec barpro-backend python -c "{redis_test_script}"')
 
     print("\n--- [F] Celery Active Workers Inspection (Cross-Cluster) ---")
-    run_command(ssh_central, "docker exec barpro-backend celery -A app.workers.celery_app:celery_app inspect ping -t 10")
+    run_node_cmd(central["ip"], "docker exec barpro-backend celery -A app.workers.celery_app:celery_app inspect ping -t 10")
 
     print("\n--- [G] Worker Node 2 Status & Connectivity ---")
-    run_command(ssh_w2, "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'")
+    run_node_cmd(w2["ip"], "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'")
     w2_test_script = """
 import asyncio
 from app.core.database import engine
@@ -253,11 +267,11 @@ async def check():
 
 asyncio.run(check())
 """
-    run_command(ssh_w2, f'docker exec barpro-celery-worker python -c "{w2_test_script}"')
-    run_command(ssh_w2, "docker exec barpro-celery-worker curl -s -o /dev/null -w 'WORKER 2 SQUID EGRESS: HTTP_%{http_code}\\n' -x http://squid:3128 https://api.ipify.org")
+    run_node_cmd(w2["ip"], f'docker exec barpro-celery-worker python -c "{w2_test_script}"')
+    run_node_cmd(w2["ip"], "docker exec barpro-celery-worker curl -s -o /dev/null -w 'WORKER 2 SQUID EGRESS: HTTP_%{http_code}\\n' -x http://squid:3128 https://api.ipify.org")
 
     print("\n--- [H] Worker Node 3 Status & Connectivity ---")
-    run_command(ssh_w3, "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'")
+    run_node_cmd(w3["ip"], "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'")
     w3_test_script = """
 import asyncio
 from app.core.database import engine
@@ -275,12 +289,8 @@ async def check():
 
 asyncio.run(check())
 """
-    run_command(ssh_w3, f'docker exec barpro-celery-worker python -c "{w3_test_script}"')
-    run_command(ssh_w3, "docker exec barpro-celery-worker curl -s -o /dev/null -w 'WORKER 3 SQUID EGRESS: HTTP_%{http_code}\\n' -x http://squid:3128 https://api.ipify.org")
-
-    ssh_central.close()
-    ssh_w2.close()
-    ssh_w3.close()
+    run_node_cmd(w3["ip"], f'docker exec barpro-celery-worker python -c "{w3_test_script}"')
+    run_node_cmd(w3["ip"], "docker exec barpro-celery-worker curl -s -o /dev/null -w 'WORKER 3 SQUID EGRESS: HTTP_%{http_code}\\n' -x http://squid:3128 https://api.ipify.org")
 
     print("\n" + "=" * 80)
     print("🎉 ALL NODES DEPLOYED AND FULLY OPERATIONAL!")
