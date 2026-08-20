@@ -6,23 +6,25 @@ This document describes the final production architecture, data flow, and compon
 
 ```mermaid
 graph TD
-    Client[Client Browser / Frontend] -->|HTTP / WebSocket| Nginx[Nginx Reverse Proxy: 80]
+    Client[Client Browser / Mobile PWA] -->|HTTP / WebSocket| Nginx[Nginx Reverse Proxy: 80/443]
     Nginx -->|Proxy Pass| FastAPI[FastAPI Backend: 8000]
     
     FastAPI -->|AsyncPG / SQLModel| PostgreSQL[(PostgreSQL 16 DB)]
     FastAPI -->|Pub/Sub & Cache| Redis[(Redis 7 Cache / Queue)]
     
     Beat[Celery Beat Scheduler] -->|Enqueues Tasks| Redis
+    Scheduler[Celery Scheduler] -->|Dispatches Intents| Redis
     
-    Redis -->|Tasks Queue| Worker1[Celery Worker 1]
-    Redis -->|Tasks Queue| Worker2[Celery Worker 2]
-    Redis -->|Tasks Queue| Worker3[Celery Worker 3]
+    Redis -->|waybill_tasks_1| Worker1[Central Worker 1]
+    Redis -->|waybill_tasks_2 / UFW| Worker2[Remote Worker Node 2]
+    Redis -->|waybill_tasks_3 / UFW| Worker3[Remote Worker Node 3]
     
-    Worker1 -->|Egress IP 1| Squid1[Squid Proxy 1: 3128]
-    Worker2 -->|Egress IP 2| Squid2[Squid Proxy 2: 3129]
-    Worker3 -->|Egress IP 2| Squid3[Squid Proxy 3: 3130]
+    Worker1 -->|Central Egress| Squid1[Central Squid 1: 3128]
+    Worker2 -->|Remote Egress 2| Squid2[Remote Node 2 Squid: 3128]
+    Worker3 -->|Remote Egress 3| Squid3[Remote Node 3 Squid: 3128]
     
-    Squid1 & Squid2 & Squid3 -->|Automated Browsing| UTCMS[Iran National Transportation Portal: barname.utcms.ir]
+    Squid1 & Squid2 & Squid3 -.->|Dynamic Hybrid Fallback| CleanPool[Clean Iranian Proxy Pool]
+    Squid1 & Squid2 & Squid3 & CleanPool -->|Automated Browsing| UTCMS[Iran Transportation Portal: barname.utcms.ir]
     
     Prometheus[Prometheus: 9090] -->|Scrapes /metrics| FastAPI
     Prometheus -->|Triggers Webhook Alerts| FastAPI

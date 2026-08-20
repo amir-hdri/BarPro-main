@@ -63,7 +63,7 @@ bash manage.sh migrate
 Alembic head فعلی:
 
 ```text
-015_add_client_subscription_dates
+036_management_tables_and_activity_logs_fix
 ```
 
 ## تست و build سریع
@@ -99,4 +99,4 @@ bash manage.sh stop
 | فرانت بالا نمی‌آید | `bash manage.sh logs frontend` و `bash manage.sh logs nginx` |
 | کپچا solve نمی‌شود | assetهای `app/automation/captcha/assets/` و `persian_number_ocr.keras` را بررسی کنید |
 
-Last updated: 2026-07-08
+Last updated: 2026-08-20 (v2.9.2)

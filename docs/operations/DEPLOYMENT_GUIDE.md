@@ -4,17 +4,17 @@ This document is the current operational checklist for deploying BarPro on the p
 
 ## Current topology
 
-- Single host deployment with dual public IPs
-- Public entrypoint: Nginx on port `80`
-- Internal services: FastAPI `8000`, Next.js `3000`, PostgreSQL `5432`, Redis `6379`
-- Three Squid egress proxies: `3128`, `3129`, `3130`
-- Docker Compose files live under `compose/`
+- **Model B Scale-Out Deployment (Current Production):**
+  - Central Server (16 GB RAM / 4 vCPU): API on port 8000, Web on port 3000, PostgreSQL on port 5432 (UFW protected), Redis on port 6379 (UFW protected), Celery Scheduler, Celery Beat, Celery Worker 1, and Squid 1 on port 3128.
+  - Remote Worker Nodes: Dedicated VPS nodes in Iran with static IPs, running Celery Worker 2/3 and local Squid proxy (via `compose/worker-node.yml`).
+- Public entrypoint: Nginx on port `80` (HTTP) and `443` (HTTPS ready).
+- Dynamic hybrid proxy fallback: Clean Iranian Proxy Pool (Zero IP Restriction) automatically active.
 
 ## Before you deploy
 
 - Pull the latest repository state into `/opt/barpro`
 - Ensure `.env` exists and contains production secrets
-- Keep `AUTH_COOKIE_SECURE=false` while the site is HTTP-only
+- Keep `AUTH_COOKIE_SECURE=false` while the site is HTTP-only; set `true` once HTTPS is enabled
 - Confirm required ML assets exist in the repo checkout
 - Confirm disk usage stays below the project target threshold
 
@@ -53,16 +53,16 @@ bash manage.sh migrate
 
 - Builds the backend image
 - Builds the frontend image
-- Attempts `alembic upgrade head`
+- Runs database migrations via `alembic upgrade head`
 - Restarts backend and web layers with Docker Compose
 
 ## Verified application state
 
-- Current Alembic head is `015_add_client_subscription_dates`
+- Current Alembic head is `036_management_tables_and_activity_logs_fix`
 - Frontend Docker builds inside `apps/web/Dockerfile`
 - No prebuilt `.next/standalone` upload is required
 - JWT transport uses the `httpOnly` cookie `utcms_auth_token`
-- Frontend no longer depends on sending Bearer tokens from localStorage
+- Universal mobile anti-zoom and viewport locking enforced
 
 ## Validation after deploy
 
@@ -112,4 +112,4 @@ Backups are written under `output/backups/`.
 - If auth fails after login, review cookie settings, CORS, and `FRONTEND_URL`
 - If Compose config warns about unset secrets, review `.env`
 
-Last updated: 2026-07-09
+Last updated: 2026-08-20 (v2.9.2)
