@@ -122,8 +122,8 @@ def main():
     print("\n--- 1.3 Restart Infrastructure (PostgreSQL + Redis) ---")
     run_command(ssh_central, "cd /opt/barpro && docker compose --env-file .env -f compose/infra.yml up -d --force-recreate")
 
-    print("\n--- 1.4 Restart Proxies (Squid 1) ---")
-    run_command(ssh_central, "cd /opt/barpro && docker compose --env-file .env -f compose/proxy.yml up -d --force-recreate")
+    print("\n--- 1.4 Render Central Squid Configs & Restart Proxies (Squid 1) ---")
+    run_command(ssh_central, "cd /opt/barpro && bash scripts/render_squid_configs.sh && docker compose --env-file .env -f compose/proxy.yml up -d --force-recreate")
 
     print("\n--- 1.5 Restart Backend, Celery Worker 1, Celery Scheduler, Celery Beat ---")
     run_command(
