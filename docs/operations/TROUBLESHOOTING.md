@@ -25,13 +25,13 @@
 
 ```bash
 # 1️⃣ بررسی اینکه PostgreSQL در حال اجرا است
-docker-compose ps | grep postgres
+docker compose ps | grep postgres
 
 # 2️⃣ اگر اجرا نمی‌شد، شروع کنید
-docker-compose up -d postgres
+docker compose up -d postgres
 
 # 3️⃣ بررسی logs
-docker-compose logs postgres
+docker compose logs postgres
 
 # 4️⃣ Test اتصال
 psql postgresql://postgres:PASSWORD@localhost:5432/utcms_rpa
@@ -55,7 +55,7 @@ engine_kwargs = {
 
 ```bash
 # یا restart کنید
-docker-compose restart backend
+docker compose restart backend
 ```
 
 ### ❌ خطا: "relation does not exist" یا "column not found"
@@ -148,8 +148,8 @@ cat apps/web/.env.local
 echo "NEXT_PUBLIC_API_URL=http://127.0.0.1:8000" > apps/web/.env.local
 
 # 2️⃣ Rebuild frontend
-docker-compose down frontend
-docker-compose up -d frontend --build
+docker compose down frontend
+docker compose up -d frontend --build
 ```
 
 ```typescript
@@ -194,13 +194,13 @@ echo "JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
 
 ```bash
 # 1️⃣ بررسی Redis
-docker-compose ps | grep redis
+docker compose ps | grep redis
 
 # 2️⃣ شروع اگر نیست
-docker-compose up -d redis
+docker compose up -d redis
 
 # 3️⃣ بررسی logs
-docker-compose logs redis
+docker compose logs redis
 
 # 4️⃣ Test اتصال
 redis-cli -h localhost -p 6379 -a PASSWORD ping
@@ -223,7 +223,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(16))"
 REDIS_PASSWORD=YOUR_NEW_PASSWORD
 
 # 4️⃣ Restart Redis و Backend
-docker-compose restart redis backend
+docker compose restart redis backend
 ```
 
 ### ❌ خطا: Redis memory exhausted
@@ -238,23 +238,23 @@ redis-cli -a PASSWORD info memory
 redis-cli -a PASSWORD FLUSHDB
 
 # 3️⃣ یا restart
-docker-compose restart redis
+docker compose restart redis
 ```
 
 ---
 
 ## مشکلات Docker
 
-### ❌ خطا: "docker-compose command not found"
+### ❌ خطا: "docker compose: command not found"
 
 **حل:**
 
 ```bash
-# اگر Docker Desktop نیست:
-pip install docker-compose
+# نصب یا ارتقای پکیج رسمی Docker Compose V2 در Ubuntu
+sudo apt-get update && sudo apt-get install -y docker-compose-plugin
 
-# یا Docker V2 plugin:
-docker compose up -d  # بدون hyphen
+# تست دستور Docker Compose V2
+docker compose version
 ```
 
 ### ❌ خطا: "No space left on device"
@@ -269,7 +269,7 @@ docker system prune -a
 docker volume prune
 
 # 3️⃣ Restart
-docker-compose up -d
+bash manage.sh restart
 ```
 
 ### ❌ خطا: "Port already in use"
@@ -286,11 +286,8 @@ lsof -i :3000  # Frontend
 # 2️⃣ Kill process (be careful!)
 kill -9 <PID>
 
-# 3️⃣ یا استفاده از port دیگری
-docker-compose -f docker-compose.yml \
-  -e POSTGRES_PORT=5433 \
-  -e REDIS_PORT=6380 \
-  up -d
+# 3️⃣ یا راه‌اندازی با manage.sh
+bash manage.sh restart
 ```
 
 ### ❌ خطا: Service "backend" depends on service "postgres" which is unhealthy
@@ -299,16 +296,16 @@ docker-compose -f docker-compose.yml \
 
 ```bash
 # 1️⃣ بررسی healthcheck
-docker-compose ps
+docker compose ps
 
 # 2️⃣ View detailed logs
-docker-compose logs postgres
+docker compose logs postgres
 
 # 3️⃣ Restart postgres
-docker-compose restart postgres
+docker compose restart postgres
 
 # 4️⃣ Then restart backend
-docker-compose restart backend
+docker compose restart backend
 ```
 
 ---
@@ -457,7 +454,7 @@ export LOG_LEVEL=DEBUG
 echo "LOG_LEVEL=DEBUG" >> .env
 
 # Restart backend
-docker-compose restart backend
+docker compose restart backend
 ```
 
 ### 🔍 Inspect Requests
@@ -523,7 +520,7 @@ asyncio.run(test())
 python3 scripts/verify_system_connections.py
 
 # View comprehensive logs
-docker-compose logs -f
+docker compose logs -f
 
 # Health check
 python3 scripts/health_check.py
