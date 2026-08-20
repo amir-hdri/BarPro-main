@@ -30,7 +30,7 @@
   "devDependencies": {
     "@ducanh2912/next-pwa": "^10.2.8",
     "@eslint/eslintrc": "^3.3.6",
-    "@types/node": "^22.10.2",
+    "@types/node": "^26.2.0",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.1",
     "autoprefixer": "^10.5.4",
