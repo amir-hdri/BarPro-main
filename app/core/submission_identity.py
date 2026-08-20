@@ -150,7 +150,6 @@ def extract_canonical_commercial_payload(payload: Any, driver: Any = None) -> di
     Strips volatile metadata (correlation_id, session_id, timestamp, etc.) and
     normalizes plate, textual origin/destination, cargo, parties, and business date.
     """
-    import hashlib
 
     if isinstance(payload, str):
         try:

@@ -196,7 +196,7 @@ bash manage.sh migrate   # یا: alembic upgrade head
 ```
 
 - Migration ها با **Redis distributed lock** اجرا می‌شوند (deadlock-safe)
-- HEAD فعلی: `032_worker_registry_ip_index`
+- HEAD فعلی: `036_management_tables_and_activity_logs_fix`
 - هرگز migration را manually روی production DB اجرا نکنید — از `manage.sh migrate` استفاده کنید
 
 ### 15. محدودیت‌های منابع (16 GB RAM — Central Server)

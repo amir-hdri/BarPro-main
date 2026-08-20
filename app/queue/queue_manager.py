@@ -17,16 +17,22 @@ class WaybillQueueManager:
     async def enqueue_waybill(
         self,
         request: WaybillMapRequest,
-        client_id: int = 1,
+        client_id: int | None = None,
         driver_id: int | None = None,
         idempotency_key: str | None = None,
     ) -> EnqueueWaybillResponse:
         """Enqueue a waybill task.
 
-        The ``client_id`` parameter defaults to ``1`` for legacy (pre-multi-tenant)
-        API routes that use ``require_sensitive_auth`` (API key). Multi-tenant
-        routes should always pass the authenticated client's ID explicitly.
+        Multi-tenant routes MUST provide the authenticated client_id. In production,
+        unspecified client_id is rejected.
         """
+        if client_id is None:
+            if utcms_config.is_production():
+                raise HTTPException(
+                    status_code=400,
+                    detail="client_id الزامی است و در محیط عملیاتی نمی‌تواند نامشخص باشد",
+                )
+            client_id = 1
         payload = request.model_dump()
         payload["correlation_id"] = (payload.get("correlation_id") or generate_correlation_id()).strip()
         payload["batch_id"] = (

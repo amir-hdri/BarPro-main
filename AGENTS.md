@@ -703,6 +703,4 @@ ON waybill_jobs (status) INCLUDE (id);
 
 > **Verification:** `uvx ruff check` clean on touched files; proxy health tests pass (28 tests in proxy/rotator/system health/readyz suites); scheduler subquery logic tested.
 
----
-
-*Last updated: 2026-08-14 · Tests: 772 passed, 3 skipped · Deployment: 3-server Model B (Central 16GB + 2× remote Worker VPS) · Alembic Head: 032*
+*Last updated: 2026-08-20 · Tests: 889 passed, 3 skipped (892 collected) · Deployment: 3-server Model B (Central 16GB + 2× remote Worker VPS) · Alembic Head: 036_management_tables_and_activity_logs_fix*

@@ -394,6 +394,9 @@ class UTCMSConfig:
         self.CLEAN_IP_SOURCE_URL = os.getenv("CLEAN_IP_SOURCE_URL", "").strip()
         self.CLEAN_IP_SOURCE_FILE = os.getenv("CLEAN_IP_SOURCE_FILE", "").strip()
 
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT == "production"
+
 
 AUTO_GENERATED_SECRETS = _bootstrap_environment()
 utcms_config = UTCMSConfig()

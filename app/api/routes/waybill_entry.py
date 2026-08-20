@@ -3,16 +3,37 @@
 import io
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
-from app.core.security import require_sensitive_auth
+from app.auth_multitenant import _decode_jwt
+from app.core.config import utcms_config
+from app.core.security import _extract_bearer_token, _is_api_key_valid, require_sensitive_auth
 from app.schemas.waybill import OperationMode, WaybillMapRequest
 from app.services.excel_template_service import ExcelTemplateService
 from app.services.waybill_entry_service import excel_waybill_service, manual_waybill_service
 
 router = APIRouter(prefix="/waybill", tags=["waybill-entry"])
 logger = logging.getLogger(__name__)
+
+
+def _extract_client_id_from_request(request: Request) -> int | None:
+    api_key = request.headers.get(utcms_config.API_KEY_HEADER)
+    if api_key and _is_api_key_valid(api_key):
+        return 1
+    token = _extract_bearer_token(request.headers.get("Authorization")) or request.cookies.get("utcms_auth_token")
+    if token:
+        try:
+            payload = _decode_jwt(token)
+            if payload.get("role") == "client":
+                raw_id = payload.get("sub")
+                if raw_id is not None:
+                    return int(str(raw_id))
+            elif payload.get("role") == "master_admin":
+                return 1
+        except Exception:
+            pass
+    return None
 
 
 @router.post(
@@ -40,7 +61,7 @@ async def validate_manual_entry(request: WaybillMapRequest):
     "/submit-manual-waybill",
     dependencies=[Depends(require_sensitive_auth)],
 )
-async def submit_manual_waybill(request: WaybillMapRequest):
+async def submit_manual_waybill(request: WaybillMapRequest, raw_request: Request):
     """ارسال دستی بارنامه با اعتبارسنجی اولیه و قرارگیری در صف برای اجرا."""
     from app.queue.queue_manager import queue_manager
 
@@ -59,7 +80,8 @@ async def submit_manual_waybill(request: WaybillMapRequest):
 
     # Enqueue via queue manager
     try:
-        task = await queue_manager.enqueue_waybill(request)
+        client_id = _extract_client_id_from_request(raw_request)
+        task = await queue_manager.enqueue_waybill(request, client_id=client_id)
         return {
             "success": True,
             "message": "بارنامه با موفقیت در صف ثبت قرار گرفت",
@@ -194,6 +216,7 @@ async def submit_excel_waybills(
     dependencies=[Depends(require_sensitive_auth)],
 )
 async def queue_excel_waybills(
+    raw_request: Request,
     file: UploadFile = File(..., description="فایل اکسل حاوی اطلاعات بارنامه"),
     operation_mode: OperationMode = Form(default=OperationMode.SAFE),
     skip_invalid: bool = Form(default=True, description="رد کردن موارد نامعتبر"),
@@ -226,13 +249,14 @@ async def queue_excel_waybills(
     # Queue each valid waybill
     queued = []
     errors = []
+    client_id = _extract_client_id_from_request(raw_request)
 
     for item in parse_result["waybills"]:
         try:
             waybill = item["waybill"]
 
             # Enqueue
-            task = await queue_manager.enqueue_waybill(waybill)
+            task = await queue_manager.enqueue_waybill(waybill, client_id=client_id)
             queued.append(
                 {
                     "row": item["row"],

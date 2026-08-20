@@ -1,8 +1,7 @@
 """Unit and integration tests for UTCMSSubmissionGate."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
-from zoneinfo import ZoneInfo
 
 import pytest
 

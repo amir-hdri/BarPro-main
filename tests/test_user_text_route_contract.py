@@ -2,13 +2,11 @@
 Tests for user_text route contract (Phase 1.6).
 """
 
-import pytest
 from app.automation.multitenant_payload_adapter import (
     build_enhanced_waybill_payload,
     compute_canonical_route_key,
     validate_enhanced_waybill_payload,
 )
-from app.schemas.waybill import LocationModel, WaybillMapRequest, GeoCoordinateModel
 
 
 def test_payload_without_coordinates():

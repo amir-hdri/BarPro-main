@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, patch
 sys.path.append(os.getcwd())
 
 from app.automation.waybill_enhanced import EnhancedWaybillManager
-from app.core.config import utcms_config
 from app.core.exceptions import WaybillError
 
 

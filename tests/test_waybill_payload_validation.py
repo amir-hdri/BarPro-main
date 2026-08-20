@@ -3,6 +3,7 @@ Tests for Phase 1.8 Payload Validation.
 """
 
 import pytest
+
 from app.automation.multitenant_payload_adapter import (
     _validate_iranian_national_code,
     validate_enhanced_waybill_payload,
@@ -82,3 +83,76 @@ def test_location_missing_fields_fails():
     errors = validate_enhanced_waybill_payload(payload)
     assert any("شهر مبدا" in err for err in errors)
     assert any("آدرس مقصد" in err for err in errors)
+
+
+def test_waybill_job_create_request_strict_union_rejection():
+    """Verify A1: raw/invalid dicts cannot bypass validation."""
+    from pydantic import ValidationError
+
+    from app.schemas.multitenant import WaybillJobCreateRequest
+
+    # 1. Invalid flat payload with bad plate must be rejected
+    with pytest.raises(ValidationError):
+        WaybillJobCreateRequest(
+            driver_national_code="0084575948",
+            payload={
+                "driver_national_code": "0084575948",
+                "origin": "تهران",
+                "destination": "اصفهان",
+                "cargo_type": "سیمان",
+                "cargo_weight": 10,
+                "plate_number": "BAD_PLATE_FORMAT",
+            },
+        )
+
+    # 2. Invalid flat payload with negative weight must be rejected
+    with pytest.raises(ValidationError):
+        WaybillJobCreateRequest(
+            driver_national_code="0084575948",
+            payload={
+                "driver_national_code": "0084575948",
+                "origin": "تهران",
+                "destination": "اصفهان",
+                "cargo_type": "سیمان",
+                "cargo_weight": -5,
+                "plate_number": "12ب345ایران67",
+            },
+        )
+
+    # 3. Empty dictionary payload must be rejected
+    with pytest.raises(ValidationError):
+        WaybillJobCreateRequest(
+            driver_national_code="0084575948",
+            payload={},
+        )
+
+    # 4. Valid flat payload must succeed
+    req_flat = WaybillJobCreateRequest(
+        driver_national_code="0084575948",
+        payload={
+            "driver_national_code": "0084575948",
+            "origin": "تهران",
+            "destination": "اصفهان",
+            "cargo_type": "سیمان",
+            "cargo_weight": 12.5,
+            "plate_number": "12ب345ایران67",
+        },
+    )
+    assert req_flat.payload.cargo_weight == 12.5
+
+    # 5. Valid nested payload must succeed
+    req_nested = WaybillJobCreateRequest(
+        driver_national_code="0084575948",
+        payload={
+            "sender": {"name": "حمید رضایی", "national_id": "0084575948"},
+            "receiver": {"name": "محسن کاظمی", "national_id": "0084575948"},
+            "origin": {"province": "تهران", "city": "تهران", "address": "خیابان آزادی پلاک ۱"},
+            "destination": {"province": "البرز", "city": "کرج", "address": "بلوار جمهوری پلاک ۵"},
+            "cargo": {"cargo_title": "آهن", "packaging_title": "شاخه", "cargo_weight": 2.5, "cargo_value": "1000000"},
+            "vehicle": {"driver_national_code": "0084575948", "plate": "12ب345ایران11"},
+            "financial": {"fare_amount": 5000000, "fare_type": "نقدی"},
+        },
+    )
+    assert req_nested.payload.cargo.type == "آهن"
+    assert req_nested.payload.cargo.weight == 2.5
+

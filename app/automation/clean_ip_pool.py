@@ -19,20 +19,19 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-from dataclasses import asdict, dataclass, field
 import hashlib
 import ipaddress
 import json
 import logging
 import os
 import re
-import socket
 import ssl
 import threading
 import time
-from typing import Any
 import urllib.error
 import urllib.request
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 from app.core.config import utcms_config
 from app.core.redis_client import redis_manager
@@ -762,18 +761,30 @@ class CleanIPPoolManager:
 
         return None
 
+    def _is_blocked_sync(self, proxy_url: str) -> bool:
+        """Synchronously check if a proxy URL is marked blocked in Redis."""
+        if not proxy_url:
+            return True
+        try:
+            from app.core.circuit_breaker import _get_redis_sync
+            r = _get_redis_sync()
+            url_hash = hashlib.sha256(proxy_url.encode()).hexdigest()[:16]
+            return bool(r.exists(f"{self.REDIS_BLOCKED_PREFIX}{url_hash}"))
+        except Exception:
+            return False
+
     def get_clean_ip_sync(self) -> str | None:
-        """Synchronous helper to retrieve best clean proxy."""
+        """Synchronous helper to retrieve best clean proxy (respects blocked status)."""
         if self._local_cache:
             for p in self._local_cache:
-                if p.is_usable:
+                if p.is_usable and not self._is_blocked_sync(p.url):
                     return p.url
 
         if os.path.exists(FILE_BEST_TXT):
             try:
                 with open(FILE_BEST_TXT, encoding="utf-8") as f:
                     content = f.read().strip()
-                    if content:
+                    if content and not self._is_blocked_sync(content):
                         return content
             except Exception:
                 pass

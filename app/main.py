@@ -269,6 +269,13 @@ if not cors_origins:
         "http://127.0.0.1:3000",
     ]
 
+if utcms_config.ENVIRONMENT == "production" and utcms_config.FRONTEND_URL.lower().startswith("https://") and not utcms_config.AUTH_COOKIE_SECURE:
+    logger.critical(
+        "Security risk: FRONTEND_URL uses HTTPS in production, but AUTH_COOKIE_SECURE is False! "
+        "Cookies must have Secure flag enabled over HTTPS."
+    )
+    raise RuntimeError("AUTH_COOKIE_SECURE must be True when FRONTEND_URL uses HTTPS in production.")
+
 logger.info("CORS allowed origins configured", extra={"extra_fields": {"cors_origins": cors_origins}})
 
 app.add_middleware(

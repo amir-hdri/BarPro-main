@@ -1,6 +1,6 @@
 """Unit tests for Phase 5: OTP Detection & Adaptive Behavior."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

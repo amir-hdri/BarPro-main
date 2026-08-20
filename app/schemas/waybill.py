@@ -1,11 +1,21 @@
 from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class OperationMode(StrEnum):
     SAFE = "safe"
     FULL = "full"
+
+
+def _normalize_digits(value: str) -> str:
+    result = value or ""
+    for index, digit in enumerate("۰۱۲۳۴۵۶۷۸۹"):
+        result = result.replace(digit, str(index))
+    for index, digit in enumerate("٠١٢٣٤٥٦٧٨٩"):
+        result = result.replace(digit, str(index))
+    return result
 
 
 class GeoCoordinateModel(BaseModel):
@@ -30,6 +40,16 @@ class SenderModel(BaseModel):
     national_code: str | None = Field(None, description="کد ملی فرستنده (اختیاری در UTCMS)")
     entity_type: str = Field(default="individual", description="individual یا company")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_sender_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "national_id" in d and "national_code" not in d:
+                d["national_code"] = d["national_id"]
+            return d
+        return data
+
 
 class ReceiverModel(BaseModel):
     name: str = Field(..., description="نام گیرنده")
@@ -37,6 +57,16 @@ class ReceiverModel(BaseModel):
     address: str | None = Field(None, description="آدرس گیرنده (در مرحله مقصد ثبت می‌شود)")
     national_code: str | None = Field(None, description="کد ملی گیرنده")
     entity_type: str = Field(default="individual", description="individual یا company")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_receiver_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "national_id" in d and "national_code" not in d:
+                d["national_code"] = d["national_id"]
+            return d
+        return data
 
 
 class CargoModel(BaseModel):
@@ -47,6 +77,36 @@ class CargoModel(BaseModel):
     packaging: str | None = Field(None, description="نوع بسته‌بندی UTCMS مانند فله یا کیسه")
     value: str | int | float | None = Field(None, description="ارزش تقریبی بار به ریال")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_cargo_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "cargo_title" in d and "type" not in d:
+                d["type"] = d["cargo_title"]
+            if "cargo_weight" in d and "weight" not in d:
+                d["weight"] = d["cargo_weight"]
+            if "packaging_title" in d and "packaging" not in d:
+                d["packaging"] = d["packaging_title"]
+            if "cargo_value" in d and "value" not in d:
+                d["value"] = d["cargo_value"]
+            return d
+        return data
+
+    @field_validator("weight", mode="before")
+    @classmethod
+    def validate_cargo_weight(cls, value: Any) -> float:
+        if value is None:
+            raise ValueError("وزن بار الزامی است")
+        norm = _normalize_digits(str(value)).replace(",", "").strip()
+        try:
+            val = float(norm)
+        except Exception:
+            raise ValueError("وزن بار باید عددی معتبر باشد") from None
+        if val <= 0:
+            raise ValueError("وزن بار باید بزرگ‌تر از صفر باشد")
+        return val
+
 
 class VehicleModel(BaseModel):
     driver_national_code: str | None = Field(None, description="کد ملی راننده")
@@ -54,10 +114,36 @@ class VehicleModel(BaseModel):
     plate: str | None = Field(None, description="پلاک خودرو")
     type: str | None = Field(None, description="نوع خودرو")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_vehicle_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "plate_number" in d and "plate" not in d:
+                d["plate"] = d["plate_number"]
+            if "vehicle_type" in d and "type" not in d:
+                d["type"] = d["vehicle_type"]
+            return d
+        return data
+
 
 class FinancialModel(BaseModel):
     cost: str | int | float | None = Field(None, description="هزینه حمل")
     payment_method: str | None = Field(None, description="روش پرداخت")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_financial_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "fare_amount" in d and "cost" not in d:
+                d["cost"] = d["fare_amount"]
+            if "shipping_cost" in d and "cost" not in d:
+                d["cost"] = d["shipping_cost"]
+            if "fare_type" in d and "payment_method" not in d:
+                d["payment_method"] = d["fare_type"]
+            return d
+        return data
 
 
 class UTCMSLoginModel(BaseModel):

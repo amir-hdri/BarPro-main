@@ -5,10 +5,11 @@ import math
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
+from app.auth_multitenant import _decode_jwt
 from app.automation.reporting import report_service
 from app.automation.traffic_control import waybill_traffic_controller
 from app.core.config import utcms_config
-from app.core.security import require_sensitive_auth
+from app.core.security import _extract_bearer_token, _is_api_key_valid, require_sensitive_auth
 from app.queue.queue_manager import queue_manager
 from app.schemas.task import EnqueueWaybillResponse, QueueSnapshotResponse, WaybillTaskStatusResponse
 from app.schemas.waybill import (
@@ -29,6 +30,25 @@ from app.services.waybill_service import waybill_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/waybill", tags=["waybill-map"])
+
+
+def _extract_client_id_from_request(request: Request) -> int | None:
+    api_key = request.headers.get(utcms_config.API_KEY_HEADER)
+    if api_key and _is_api_key_valid(api_key):
+        return 1
+    token = _extract_bearer_token(request.headers.get("Authorization")) or request.cookies.get("utcms_auth_token")
+    if token:
+        try:
+            payload = _decode_jwt(token)
+            if payload.get("role") == "client":
+                raw_id = payload.get("sub")
+                if raw_id is not None:
+                    return int(str(raw_id))
+            elif payload.get("role") == "master_admin":
+                return 1
+        except Exception:
+            pass
+    return None
 
 
 @router.post("/create-with-map", dependencies=[Depends(require_sensitive_auth)])
@@ -54,7 +74,12 @@ async def enqueue_create_waybill_with_map(
     if idempotency_key is not None:
         idempotency_key = idempotency_key.strip() or None
     effective_idempotency_key = dynamic_header_value or idempotency_key
-    return await queue_manager.enqueue_waybill(request, idempotency_key=effective_idempotency_key)
+    client_id = _extract_client_id_from_request(raw_request)
+    return await queue_manager.enqueue_waybill(
+        request,
+        client_id=client_id,
+        idempotency_key=effective_idempotency_key,
+    )
 
 
 @router.get(

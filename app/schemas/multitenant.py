@@ -599,7 +599,7 @@ class WaybillPayload(BaseModel):
         try:
             val = float(norm)
         except Exception:
-            raise ValueError("وزن بار باید عددی معتبر باشد")
+            raise ValueError("وزن بار باید عددی معتبر باشد") from None
         if val <= 0:
             raise ValueError("وزن بار باید بزرگ‌تر از صفر باشد")
         return val
@@ -644,7 +644,7 @@ class WaybillJobCreateRequest(BaseModel):
     """Create a single waybill job (manual form)."""
 
     driver_national_code: str = Field(..., max_length=10)
-    payload: WaybillPayload | WaybillNestedPayload | dict[str, Any]
+    payload: WaybillPayload | WaybillNestedPayload
     max_retries: int = Field(default=3, ge=0, le=10)
     idempotency_key: str | None = Field(default=None, max_length=200)
     correlation_id: str | None = Field(default=None, max_length=128)

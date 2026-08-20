@@ -11,6 +11,8 @@ This worker:
 import asyncio
 import json
 import logging
+import os
+import socket
 import threading
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -42,12 +44,11 @@ from app.orchestrator.state_machine import JobStateMachine, StateTransitionError
 from app.rpa.event_taxonomy import (
     JOB_EXECUTION_FAILED,
     JOB_EXECUTION_STARTED,
-    JOB_EXECUTION_SUCCEEDED,
     JOB_RETRY_SCHEDULED,
     OTP_DETECTED,
 )
-from app.services.rpa_runtime_service import rpa_runtime
 from app.services.night_submission_policy import register_safe_night_failure
+from app.services.rpa_runtime_service import rpa_runtime
 from app.services.utcms_submission_gate import utcms_submission_gate
 from app.workers.celery_app import celery_app
 
@@ -797,6 +798,7 @@ async def _execute_job(
     driver_lock_acquired = False
     auth_lock_acquired = False
     page = None
+    worker_id = str(getattr(task.request, "hostname", None) or os.environ.get("WORKER_ID") or socket.gethostname())
 
     async with async_session_factory() as session:
         try:

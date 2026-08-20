@@ -350,6 +350,7 @@ if celery_app is not None:
     def probe_utcms_gate():
         """Periodic low-rate probe for UTCMS submission gate (OTP status)."""
         import socket
+
         from app.services.utcms_submission_gate import utcms_submission_gate
 
         worker_id = f"gate-probe-{socket.gethostname()}"

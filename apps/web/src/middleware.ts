@@ -8,6 +8,8 @@ function isPublicPath(pathname: string): boolean {
   return publicPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
+const STATIC_EXT_REGEX = /\.(ico|png|jpg|jpeg|svg|css|js|woff2?|map|json|webp|avif|ttf|eot|webmanifest|txt)$/i;
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const authCookie = request.cookies.get(AUTH_COOKIE_NAME);
@@ -23,7 +25,7 @@ export function middleware(request: NextRequest) {
     pathname.startsWith('/proxies') ||
     pathname.startsWith('/captcha') ||
     pathname.startsWith('/circuit-breaker') ||
-    pathname.includes('.')
+    STATIC_EXT_REGEX.test(pathname)
   ) {
     return NextResponse.next();
   }

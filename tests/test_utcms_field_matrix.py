@@ -4,7 +4,6 @@ Tests for UTCMS Field Matrix and Locator Proof (Phase 1.5).
 
 import json
 from pathlib import Path
-import pytest
 
 
 def load_field_matrix():

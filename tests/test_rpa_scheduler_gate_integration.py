@@ -11,7 +11,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import utcms_config
 from app.models_multitenant import Client, Driver, DriverStatus, TaskSource, TaskStatus, WaybillJob
-from app.models_rpa import DriverRuntimeState, DriverRuntimeStateValue
 from app.rpa.contracts import SessionBundle
 from app.services.rpa_runtime_service import rpa_runtime
 from app.services.rpa_scheduler_service import rpa_scheduler_service

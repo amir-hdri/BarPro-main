@@ -509,7 +509,6 @@ class ProxyRotator:
                             clean_url = clean_ip_pool.get_clean_ip_sync()
                             if clean_url:
                                 clean_p = ProxyInfo(url=clean_url, country="IR", tags=["clean_pool"])
-                                self.proxies.append(clean_p)
                                 available.append(clean_p)
                         except Exception as exc:
                             logger.debug(f"ProxyRotator clean IP fallback error: {exc}")

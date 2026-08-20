@@ -1,13 +1,11 @@
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
 import pytest
 from fastapi import HTTPException
 
 from app.automation.http_browser_bridge import UtcmsHttpBrowserBridge
 from app.core.error_taxonomy import ErrorCategory
-from app.models_multitenant import TaskStatus, WaybillJob
-from app.orchestrator.state_machine import JobStatus
 from app.schemas.itmb_ws import WS01InsertBOLRequest
 from app.services.itmb_ws_service import ITMBWSService
 from app.workers.waybill_worker import _is_retryable

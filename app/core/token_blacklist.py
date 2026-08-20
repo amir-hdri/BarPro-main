@@ -56,9 +56,9 @@ async def blacklist_token(jti: str, expires_at: datetime) -> None:
 async def is_blacklisted(jti: str) -> bool:
     """Return ``True`` if the given JTI has been blacklisted.
 
-    Returns ``False`` when Redis is unavailable (fail-open) to avoid
-    blocking all authentication.  The in-memory fallback provides a
-    secondary defense for tokens blacklisted in the same process.
+    Returns ``True`` when Redis is unavailable (fail-closed) to ensure
+    revoked tokens are never accepted during an outage. The in-memory
+    fallback provides local process-level cache.
     """
     with _mem_lock:
         if jti in _mem_fallback:

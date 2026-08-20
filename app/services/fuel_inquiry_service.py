@@ -22,7 +22,6 @@ from app.schemas.multitenant import (
     FuelInquiryResponse,
     _normalize_plate,
 )
-from app.services.session_vault import session_vault
 
 logger = logging.getLogger(__name__)
 

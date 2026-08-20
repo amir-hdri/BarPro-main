@@ -2,6 +2,27 @@
   
   All notable changes to the UTCMS Automation System.
 
+  ## [2.9.1] - 2026-08-20
+
+  ### Fixed & Security — Validation, Multi-Tenancy & Hardening
+  - **Union Validation Bypass Fix**: Eliminated `dict[str, Any]` fallback from `WaybillJobCreateRequest.payload: WaybillPayload | WaybillNestedPayload`, ensuring invalid payloads (malformed plates, negative weights, missing fields) immediately raise HTTP 422 `ValidationError`.
+  - **Payload Pre-Validators**: Added normalization and aliasing pre-validators to `CargoModel`, `VehicleModel`, `FinancialModel`, `SenderModel`, and `ReceiverModel` (`cargo_title` -> `type`, `cargo_weight` -> `weight`, `fare_amount` -> `cost`, `plate_number` -> `plate`).
+  - **Multi-Tenant Queue Isolation**: Enforced `client_id` resolution from JWT auth / API key in legacy routes (`waybill_entry.py`, `waybill_map.py`) and eliminated unsafe `client_id=1` default in production.
+  - **Fail-Closed Dispatcher Routing**: Ensured `circuit_breaker.py` raises `NoHealthyWorkerError` on Redis or registry outages in production instead of blindly falling open.
+  - **Container Least Privilege**: Removed `cap_add: [SYS_ADMIN, NET_ADMIN]` from backend common compose configuration, restricting `SYS_ADMIN` solely to browser worker containers.
+  - **Production Security Check**: Added startup enforcement in `app/main.py` requiring `AUTH_COOKIE_SECURE=True` when HTTPS is configured.
+  - **Frontend Middleware Security**: Replaced broad `pathname.includes('.')` in `apps/web/src/middleware.ts` with strict static asset extension regex.
+  - **Fuel Polling UX**: Stabilized fuel inquiry polling in `apps/web/src/app/fuel/page.tsx` with `useCallback`, added user toasts on network errors and polling timeout, and fixed React hook dependencies.
+  - **Frontend Unit Testing**: Added native Node.js test runner in `apps/web/package.json` (`npm test`) with unit tests covering plate normalization and canonicalization.
+
+  ## [2.9.0] - 2026-08-19
+
+  ### Added — Clean Iranian Proxy Pool (Zero IP Restriction)
+  - **Live Iranian Proxy Aggregator**: Integrated multi-source aggregator (`app/automation/clean_ip_pool.py`) collecting from 11+ sources and actively validating live proxies against `https://utcms.ir`.
+  - **Dynamic Hybrid Routing Engine**: Updated `app/automation/proxy_rotator.py` and `app/automation/worker_proxy.py` to seamlessly fail over between worker local Squids and dynamic clean Iranian proxies, removing egress IP bottlenecks.
+  - **Single-Tab In-Place Fuel Scraper**: Eliminated ASP.NET session collision on `ShowFuelQuota.aspx`, reducing inquiry runtime to < 15 seconds.
+  - **Multi-Server Screenshot Persistence**: Converted screenshots to Base64 Data URIs in PostgreSQL, resolving Model B cross-server 404 missing-file errors.
+
   ## [2.8.0] - 2026-08-13
 
   ### Changed — UTCMS live form contract

@@ -123,3 +123,25 @@ This file tracks the completion status of the phases defined in [BarPro_Unified_
   - 875 passed tests in pytest suite.
   - 2 new E2E tests in `tests/test_e2e_fullstack_flows.py` verifying fullstack payload flexibility and plate sync.
   - Clean TypeScript typecheck (`tsc --noEmit` with 0 errors) and `fullstack_cli.py check-schemas` passed.
+
+### Full-Stack Hardening & Zero IP Restriction (Completed: 2026-08-20 — v2.9.1)
+- **Strict Payload & Schema Validation (A1)**:
+  - Eliminated `dict[str, Any]` bypass from `WaybillJobCreateRequest.payload: WaybillPayload | WaybillNestedPayload`, ensuring invalid payloads (bad plates, negative weights, missing fields) immediately raise 422 `ValidationError`.
+  - Added smart field aliasing pre-validators to `CargoModel`, `VehicleModel`, `FinancialModel`, `SenderModel`, and `ReceiverModel` in `app/schemas/waybill.py`.
+- **Multi-Tenant Queue Isolation & client_id Enforcement (A2)**:
+  - Enforced `client_id` resolution from JWT auth in legacy routes (`waybill_entry.py`, `waybill_map.py`) and removed unsafe `client_id=1` default in production.
+- **Fail-Closed Dispatcher Routing (A3)**:
+  - Ensured `circuit_breaker.py` raises `NoHealthyWorkerError` on Redis or registry outages in production instead of blindly falling open to index 1.
+- **Container Least Privilege (A4)**:
+  - Removed `cap_add` from backend API, beat, and scheduler services in `compose/backend.yml`, applying `SYS_ADMIN` exclusively to browser workers.
+- **Security & Dependency Alignment (A5, A6)**:
+  - Added production startup check enforcing `AUTH_COOKIE_SECURE=True` when HTTPS frontend is configured.
+  - Aligned Dockerfile PyTorch and TensorFlow dependencies directly with `requirements.txt`.
+- **Frontend Security & Polling UX**:
+  - Replaced broad `pathname.includes('.')` in `middleware.ts` with strict static asset extension regex.
+  - Stabilized fuel inquiry polling in `apps/web/src/app/fuel/page.tsx` with `useCallback` and added user toasts on network errors and polling timeout.
+- **Clean Iranian Proxy Pool & Zero IP Restriction (v2.9.0/v2.9.1)**:
+  - Maintained dynamic hybrid routing engine with third-party clean Iranian proxy fallback, eliminating egress IP bottlenecks.
+- **Verification**:
+  - 889 passed tests, 3 skipped (892 collected).
+  - Clean TypeScript typecheck (`tsc --noEmit`) and zero ESLint warnings.

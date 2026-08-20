@@ -1,21 +1,17 @@
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from fastapi.testclient import TestClient
 
-from app.main import app
 from app.models_multitenant import Client, Driver, DriverPlate, FuelInquiry, WaybillJob
 from app.models_rpa import DriverRuntimeState
 from app.schemas.multitenant import DriverCreateRequest, FuelInquiryCreateRequest
 from app.services.driver_service import DriverService
 from app.services.fuel_inquiry_service import fuel_inquiry_service
 from app.services.waybill_job_service import WaybillJobService
-from app.auth_multitenant import get_current_client, get_current_user_or_admin
-from app.core.database import get_session
 
 
 @pytest.mark.asyncio
@@ -330,7 +326,10 @@ async def test_waybill_payload_flexibility_and_vehicle_type_auto_sync():
         assert plate_row.status == "active"
 
         # 2. Test adapter normalisation on this payload
-        from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload, validate_enhanced_waybill_payload
+        from app.automation.multitenant_payload_adapter import (
+            build_enhanced_waybill_payload,
+            validate_enhanced_waybill_payload,
+        )
 
         enhanced = build_enhanced_waybill_payload(frontend_payload_dict)
         assert enhanced["vehicle"]["type"] == "جفت (۱۵ تن)"

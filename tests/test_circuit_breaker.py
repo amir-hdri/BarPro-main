@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.core.circuit_breaker import (
-    NoHealthyWorkerError,
     WORKER_HEARTBEAT_STALE_SECONDS,
+    NoHealthyWorkerError,
     _index_unavailable_from_rows,
     check_and_report_failure,
     get_next_ip_index_sync,

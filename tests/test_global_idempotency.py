@@ -1,21 +1,18 @@
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
+
 import pytest
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-import app.models_rpa  # noqa: F401
 import app.models_multitenant  # noqa: F401
+import app.models_rpa  # noqa: F401
 from app.core.submission_identity import (
     compute_canonical_job_idempotency_key,
-    compute_canonical_payload_digest,
-    extract_canonical_commercial_payload,
     extract_reconciliation_identity,
 )
-from app.models_multitenant import Driver, DriverStatus, TaskSource, WaybillJob
+from app.models_multitenant import Driver, DriverStatus, TaskSource
 from app.queue.queue_manager import WaybillQueueManager
 from app.schemas.waybill import WaybillMapRequest
 from app.services.rpa_scheduler_service import RPASchedulerService

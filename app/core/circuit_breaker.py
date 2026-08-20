@@ -474,6 +474,8 @@ async def get_next_ip_index() -> int:
     try:
         r = await redis_manager.get()
         if r is None:
+            if utcms_config.is_production():
+                raise NoHealthyWorkerError("Redis is unavailable for dispatcher routing (fail-closed)")
             return available_indices[0] if available_indices else 1
 
         # Complementary filter: drop indices attributed to dead/stale workers,
@@ -481,8 +483,13 @@ async def get_next_ip_index() -> int:
         # worker has EVER claimed (misconfigured AVAILABLE_IP_INDICES -> no
         # phantom queue dispatch). Fail-safe: on any registry error both sets
         # are empty and the pool degrades to the previous Redis-only behavior.
-        unavailable_from_registry = await _get_unavailable_ip_indices()
-        known_from_registry = await _get_known_ip_indices()
+        try:
+            unavailable_from_registry = await _get_unavailable_ip_indices()
+            known_from_registry = await _get_known_ip_indices()
+        except Exception as reg_exc:
+            logger.warning(f"Registry lookup failed (async) — falling back to Redis-only: {reg_exc}")
+            unavailable_from_registry = set()
+            known_from_registry = set()
 
         healthy_ips: list[int] = []
         for i in available_indices:
@@ -513,6 +520,8 @@ async def get_next_ip_index() -> int:
         raise
     except Exception as exc:
         logger.error(f"Failed to get next IP index from Redis (async): {exc}")
+        if utcms_config.is_production():
+            raise NoHealthyWorkerError(f"Worker routing failed (fail-closed): {exc}") from exc
         return available_indices[0] if available_indices else 1
 
 
@@ -542,8 +551,13 @@ def get_next_ip_index_sync() -> int:
         # worker has EVER claimed (misconfigured AVAILABLE_IP_INDICES -> no
         # phantom queue dispatch). Fail-safe: on any registry error both sets
         # are empty and the pool degrades to the previous Redis-only behavior.
-        unavailable_from_registry = _get_unavailable_ip_indices_sync()
-        known_from_registry = _get_known_ip_indices_sync()
+        try:
+            unavailable_from_registry = _get_unavailable_ip_indices_sync()
+            known_from_registry = _get_known_ip_indices_sync()
+        except Exception as reg_exc:
+            logger.warning(f"Registry lookup failed (sync) — falling back to Redis-only: {reg_exc}")
+            unavailable_from_registry = set()
+            known_from_registry = set()
 
         # Check blocked keys in Redis + worker-registry liveness
         healthy_ips = []
@@ -574,6 +588,8 @@ def get_next_ip_index_sync() -> int:
         raise
     except Exception as exc:
         logger.error(f"Failed to get next IP index from Redis (sync): {exc}")
+        if utcms_config.is_production():
+            raise NoHealthyWorkerError(f"Worker routing failed (fail-closed): {exc}") from exc
         # Default fallback to first available
         return available_indices[0] if available_indices else 1
 

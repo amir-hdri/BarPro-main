@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import hashlib
 import re
+from typing import Any
 
 PLACEHOLDER_VALUES = {":x:", ":x", "x", "X", "", "-", "null", "None", "none"}
 

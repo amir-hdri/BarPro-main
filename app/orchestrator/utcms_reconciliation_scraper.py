@@ -77,7 +77,7 @@ class UTCMSReconciliationScraper:
         plate_number = str(fields.get("plate_number") or fields.get("car") or "").strip() or None
         origin_city = str(fields.get("origin_city") or "").strip() or None
         dest_city = str(fields.get("dest_city") or "").strip() or None
-        cargo_weight = fields.get("cargo_weight")
+        _cargo_weight = fields.get("cargo_weight")
         business_date = str(fields.get("business_date") or "").strip() or None
         driver_name = str(fields.get("driver_name") or "").strip() or None
         sender_name = str(fields.get("sender_name") or "").strip() or None

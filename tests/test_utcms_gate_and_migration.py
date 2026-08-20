@@ -2,12 +2,11 @@
 
 from datetime import UTC, datetime
 
-import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models_multitenant import TaskStatus, WaybillJob
 from app.models_rpa import GateStateValue, UTCMSSystemObservation
-from app.orchestrator.state_machine import JobStateMachine, JobStatus, StateTransitionError
+from app.orchestrator.state_machine import JobStateMachine, JobStatus
 
 
 def test_utcms_system_observation_model():

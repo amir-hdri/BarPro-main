@@ -26,10 +26,10 @@ RUN pip install --no-cache-dir \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     --retries 30 \
     --timeout 1000 \
-    "torch>=2.5.1"
+    "torch>=2.13.0"
 
 # Then install TensorFlow — heavy, needs retries for Iranian servers
-RUN if [ "$(uname -m)" = "x86_64" ]; then TF_PACKAGE="tensorflow-cpu>=2.16.0"; else TF_PACKAGE="tensorflow>=2.16.0"; fi \
+RUN if [ "$(uname -m)" = "x86_64" ]; then TF_PACKAGE="tensorflow-cpu>=2.18.0"; else TF_PACKAGE="tensorflow>=2.18.0"; fi \
     && pip install --no-cache-dir \
     --index-url https://pypi.org/simple \
     --retries 30 \

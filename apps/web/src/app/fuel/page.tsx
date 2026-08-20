@@ -347,13 +347,98 @@ export default function FuelInquiryPage() {
     return () => controller.abort();
   }, [loadData]);
 
+  const refreshHistory = useCallback(async (): Promise<FuelInquiry[]> => {
+    try {
+      const inquiriesResponse = await api.get<{ items: FuelInquiry[] }>('/api/v1/fuel-inquiries', { page_size: 100 });
+      if (inquiriesResponse.success && inquiriesResponse.data) {
+        const items = inquiriesResponse.data.items || [];
+        setInquiries(items);
+        return items;
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  }, []);
+
+  const startPolling = useCallback((inquiryId: number) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+
+    setActiveInquiryId(inquiryId);
+    pollingAttemptsRef.current = 0;
+    let consecutiveErrors = 0;
+
+    pollingRef.current = setInterval(async () => {
+      pollingAttemptsRef.current += 1;
+
+      if (pollingAttemptsRef.current > MAX_POLLING_ATTEMPTS) {
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+        setActiveInquiryId(null);
+        setSubmitting(false);
+        toast.error('زمان انتظار برای دریافت نتیجه استعلام به پایان رسید.');
+        void refreshHistory();
+        return;
+      }
+
+      try {
+        const response = await api.get<FuelInquiry>(`/api/v1/fuel-inquiries/${inquiryId}`);
+        if (response.success && response.data) {
+          consecutiveErrors = 0;
+          const updated = response.data;
+
+          setInquiries(prev => prev.map(item => item.id === inquiryId ? updated : item));
+
+          if (updated.status === 'success' || updated.status === 'failed' || updated.status === 'stale') {
+            if (pollingRef.current) {
+              clearInterval(pollingRef.current);
+              pollingRef.current = null;
+            }
+            if (updated.status === 'success') {
+              toast.success('استعلام با موفقیت تکمیل شد');
+            } else if (updated.status === 'failed') {
+              toast.error(updated.error_message || 'استعلام با خطا مواجه شد');
+            }
+            setActiveInquiryId(null);
+            setSubmitting(false);
+            void refreshHistory();
+          }
+        } else {
+          consecutiveErrors += 1;
+          if (consecutiveErrors >= 5) {
+            if (pollingRef.current) {
+              clearInterval(pollingRef.current);
+              pollingRef.current = null;
+            }
+            setActiveInquiryId(null);
+            setSubmitting(false);
+            toast.error(response.error || 'خطا در ارتباط با سرور هنگام دریافت نتیجه استعلام');
+          }
+        }
+      } catch {
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= 5) {
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
+          setActiveInquiryId(null);
+          setSubmitting(false);
+          toast.error('خطای شبکه در دریافت نتیجه استعلام');
+        }
+      }
+    }, 3000);
+  }, [refreshHistory]);
+
   // Auto-resume polling for any active inquiry in the list
   useEffect(() => {
     const active = inquiries.find(i => i.status === 'pending' || i.status === 'processing' || i.status === 'running');
     if (active && (!activeInquiryId || activeInquiryId !== active.id)) {
       startPolling(active.id);
     }
-  }, [inquiries, activeInquiryId]);
+  }, [inquiries, activeInquiryId, startPolling]);
 
   useEffect(() => {
     if (activeInquiryId) {
@@ -374,68 +459,11 @@ export default function FuelInquiryPage() {
     };
   }, [activeInquiryId]);
 
-  const startPolling = (inquiryId: number) => {
-    if (pollingRef.current) clearInterval(pollingRef.current);
-
-    setActiveInquiryId(inquiryId);
-    pollingAttemptsRef.current = 0;
-
-    pollingRef.current = setInterval(async () => {
-      pollingAttemptsRef.current += 1;
-
-      if (pollingAttemptsRef.current > MAX_POLLING_ATTEMPTS) {
-        if (pollingRef.current) {
-          clearInterval(pollingRef.current);
-          pollingRef.current = null;
-        }
-        setActiveInquiryId(null);
-        setSubmitting(false);
-        return;
-      }
-
-      const response = await api.get<FuelInquiry>(`/api/v1/fuel-inquiries/${inquiryId}`);
-      if (response.success && response.data) {
-        const updated = response.data;
-
-        setInquiries(prev => prev.map(item => item.id === inquiryId ? updated : item));
-
-        if (updated.status === 'success' || updated.status === 'failed' || updated.status === 'stale') {
-          if (pollingRef.current) {
-            clearInterval(pollingRef.current);
-            pollingRef.current = null;
-          }
-          if (updated.status === 'success') {
-            toast.success('استعلام با موفقیت تکمیل شد');
-          } else if (updated.status === 'failed') {
-            toast.error(updated.error_message || 'استعلام با خطا مواجه شد');
-          }
-          setActiveInquiryId(null);
-          setSubmitting(false);
-          void refreshHistory();
-        }
-      }
-    }, 3000);
-  };
-
   useEffect(() => {
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, []);
-
-  const refreshHistory = async (): Promise<FuelInquiry[]> => {
-    try {
-      const inquiriesResponse = await api.get<{ items: FuelInquiry[] }>('/api/v1/fuel-inquiries', { page_size: 100 });
-      if (inquiriesResponse.success && inquiriesResponse.data) {
-        const items = inquiriesResponse.data.items || [];
-        setInquiries(items);
-        return items;
-      }
-    } catch {
-      // ignore
-    }
-    return [];
-  };
 
   const handleStartInquiry = async (forceRetry = false) => {
     if (selectedDriverId === 0) return;

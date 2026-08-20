@@ -4,8 +4,6 @@ import hashlib
 import json
 from unittest.mock import MagicMock
 
-import pytest
-
 from app.core.error_taxonomy import ErrorCategory
 from app.models_multitenant import TaskStatus, WaybillJob
 from app.orchestrator.state_machine import JobStateMachine, JobStatus

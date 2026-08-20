@@ -1,11 +1,10 @@
 """Driver management service with tenant isolation."""
 
-import asyncio
 import logging
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, text
+from sqlalchemy import delete
 from sqlmodel import col, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -14,7 +13,7 @@ from app.auth_multitenant import (
     encrypt_driver_password,
     verify_tenant_ownership,
 )
-from app.core.network import is_retryable_network_error
+from app.models.admin import AdminDriverSchedule
 from app.models_multitenant import (
     Client,
     Driver,
@@ -22,20 +21,15 @@ from app.models_multitenant import (
     DriverSchedule,
     DriverStatus,
     FuelInquiry,
-    TaskStatus,
     WaybillJob,
 )
-
-from app.models.admin import AdminDriverSchedule
 from app.models_rpa import (
+    DomainEvent,
     DriverDailyCounter,
     DriverRuntimeState,
     DriverSessionMetadata,
-    DomainEvent,
     WaybillAttempt,
 )
-
-
 from app.schemas.multitenant import (
     DriverCreateRequest,
     DriverResponse,

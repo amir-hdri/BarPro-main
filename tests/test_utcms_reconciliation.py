@@ -2,12 +2,11 @@
 
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from app.orchestrator.utcms_reconciliation_scraper import (
-    ReconciliationResult,
     ScraperOutcome,
     UTCMSReconciliationScraper,
 )

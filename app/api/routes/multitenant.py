@@ -867,6 +867,7 @@ async def get_fuel_inquiry_screenshot(
 ):
     """Return a fuel screenshot only after tenant/admin ownership validation."""
     import base64
+
     from fastapi import Response
 
     inquiry = await fuel_inquiry_service.get_inquiry(user_context, inquiry_id, session)

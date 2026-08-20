@@ -2,7 +2,8 @@
 Tests for user_text location selection in location_selector.py (Phase 1.7).
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from app.automation.location_selector import LocationSelectionError, LocationSelector

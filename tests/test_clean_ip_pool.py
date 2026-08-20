@@ -145,6 +145,44 @@ async def test_clean_ip_pool_manager_mark_blocked():
         pool_mgr.clear_local_cache()
 
 
+def test_get_clean_ip_sync_skips_redis_blocked_proxy_in_cache():
+    """get_clean_ip_sync must skip proxies marked blocked in Redis and return the next usable one."""
+    pool_mgr = CleanIPPoolManager()
+    pool_mgr.clear_local_cache()
+
+    proxy_a = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080)
+    proxy_b = CleanIPRecord(url="http://5.56.132.26:3128", ip="5.56.132.26", port=3128)
+    pool_mgr._local_cache = [proxy_a, proxy_b]
+
+    mock_redis = MagicMock()
+    mock_redis.exists.side_effect = [True, False]  # a blocked in Redis, b free
+
+    with patch("app.core.circuit_breaker._get_redis_sync", return_value=mock_redis):
+        url = pool_mgr.get_clean_ip_sync()
+        assert url == "http://5.56.132.26:3128"
+    pool_mgr.clear_local_cache()
+
+
+def test_get_clean_ip_sync_file_fallback_respects_blocked(tmp_path):
+    """File fallback must not return a proxy that is marked blocked in Redis."""
+    pool_mgr = CleanIPPoolManager()
+    pool_mgr.clear_local_cache()
+
+    best_file = tmp_path / "best_iran_proxy.txt"
+    best_file.write_text("http://185.100.47.106:8080\n")
+
+    mock_redis = MagicMock()
+
+    with patch("app.automation.clean_ip_pool.FILE_BEST_TXT", str(best_file)):
+        with patch("app.core.circuit_breaker._get_redis_sync", return_value=mock_redis):
+            mock_redis.exists.return_value = True  # blocked
+            assert pool_mgr.get_clean_ip_sync() is None
+
+            mock_redis.exists.return_value = False  # free
+            assert pool_mgr.get_clean_ip_sync() == "http://185.100.47.106:8080"
+    pool_mgr.clear_local_cache()
+
+
 def test_worker_proxy_fallback_to_clean_pool():
     clear_proxy_cache()
 

@@ -3,11 +3,7 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from app.core.config import utcms_config
-from app.models_multitenant import TaskStatus
-from app.models_rpa import GateStateValue
 from app.orchestrator.state_machine import ALLOWED_TRANSITIONS
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "utcms"

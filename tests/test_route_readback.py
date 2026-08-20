@@ -2,9 +2,9 @@
 Tests for route readback and validation logic (Phase 1.7).
 """
 
-import pytest
-from app.automation.location_selector import LocationSelector
 from unittest.mock import MagicMock
+
+from app.automation.location_selector import LocationSelector
 
 
 def test_normalize_text_persian_characters():

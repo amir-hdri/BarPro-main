@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="https://img.shields.io/badge/Status-Production%20Ready-success?style=for-the-badge" alt="Status" />
-  <img src="https://img.shields.io/badge/Version-2.8.0-blue?style=for-the-badge" alt="Version" />
-  <img src="https://img.shields.io/badge/Tests-0%20failed-brightgreen?style=for-the-badge" alt="Tests" />
+  <img src="https://img.shields.io/badge/Status-Hardened%20v2.9.1-success?style=for-the-badge" alt="Status" />
+  <img src="https://img.shields.io/badge/Version-2.9.1-blue?style=for-the-badge" alt="Version" />
+  <img src="https://img.shields.io/badge/Tests-889%20passed%20%7C%203%20skipped-brightgreen?style=for-the-badge" alt="Tests" />
   <img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge" alt="License" />
 </div>
 
@@ -41,6 +41,11 @@
 - **Independent Profiles:** Manage fleets, drivers, and routes per tenant securely
 - **Master Admin Dashboard:** Centralized control for onboarding, quota management, and global live monitoring
 - **Universal Admin Access:** Master admin can view and manage all tenant resources globally
+
+### 🌐 Clean Iranian Proxy Pool (Zero IP Restriction)
+- **Multi-Source Aggregator:** Automatically harvests and validates live Iranian proxies against `https://utcms.ir`
+- **Dynamic Hybrid Routing:** Transparent failover between Worker local Squids and dynamic clean proxies
+- **Zero IP Restriction:** Eliminates egress IP bottlenecks for robust waybill registration and fuel quota inquiries
 
 ### 🤖 Advanced RPA Engine
 - **Human-like Behavior:** Sophisticated simulation of human interactions (typing delays, parabolic mouse movements) to bypass WAFs and anti-bot mechanisms
@@ -194,7 +199,7 @@ Latest validated development gate: 0 failed; environment-dependent tests may ski
 
 ### Alembic Migration Head
 ```
-029_add_waybill_jobs_optimization_indexes
+036_management_tables_and_activity_logs_fix
 ```
 
 ### Required ML Assets
@@ -205,7 +210,7 @@ Latest validated development gate: 0 failed; environment-dependent tests may ski
 
 ### Remaining Server-Side Actions
 - [ ] Install Let's Encrypt cert → uncomment `listen 443` in nginx.conf → set `AUTH_COOKIE_SECURE=true`
-- [ ] Run `bash manage.sh migrate` on production DB (includes migration 029 with optimization indexes)
+- [ ] Run `bash manage.sh migrate` on production DB (applies all migrations through 036)
 - [ ] Run `sudo bash scripts/secure_squid_ports.sh` (lock down Squid 3129/3130)
 - [ ] Add to crontab: `@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh`
 

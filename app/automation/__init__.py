@@ -19,6 +19,12 @@ from .browser import (
 from .browser_pool import (
     BrowserPool,
 )
+from .clean_ip_pool import (
+    CleanIPPoolManager,
+    CleanIPRecord,
+    get_best_clean_iran_proxy,
+    get_clean_ip_pool,
+)
 from .config import (
     ACCEPT_VARIANTS,
     LOCALE_PROFILES,
@@ -48,12 +54,6 @@ from .human_interaction import (
     human_type,
     type_with_human_delays,
     wait_like_human,
-)
-from .clean_ip_pool import (
-    CleanIPPoolManager,
-    CleanIPRecord,
-    get_best_clean_iran_proxy,
-    get_clean_ip_pool,
 )
 from .proxy_rotator import (
     ProxyInfo,

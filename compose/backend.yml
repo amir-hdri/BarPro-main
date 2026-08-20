@@ -37,7 +37,6 @@ x-backend-common: &backend-common
     dockerfile: Dockerfile
     network: host
   restart: unless-stopped
-  cap_add: [SYS_ADMIN, NET_ADMIN]
   security_opt: [no-new-privileges:true]
   env_file: [../.env]
   environment: &backend-env
@@ -108,6 +107,7 @@ services:
     <<: *backend-common
     image: ${BACKEND_IMAGE:-barpro_backend:latest}
     container_name: barpro-worker-1
+    cap_add: [SYS_ADMIN]
     shm_size: '512m'
     mem_limit: 3g        # ↑ از 2.5g — فضای بیشتر برای Chromium + PyTorch روی 16GB
     mem_reservation: 2.5g  # ↑ از 2g
@@ -154,6 +154,7 @@ services:
     <<: *backend-common
     image: ${BACKEND_IMAGE:-barpro_backend:latest}
     container_name: barpro-worker-2
+    cap_add: [SYS_ADMIN]
     # Model B (scale-out): worker 2/3 run on REMOTE worker nodes.
     # On the central server they are optional — enable with:
     #   docker compose -f compose/backend.yml --profile scale-out up -d
@@ -194,6 +195,7 @@ services:
     <<: *backend-common
     image: ${BACKEND_IMAGE:-barpro_backend:latest}
     container_name: barpro-worker-3
+    cap_add: [SYS_ADMIN]
     # Model B (scale-out): worker 2/3 run on REMOTE worker nodes.
     # On the central server they are optional — enable with:
     #   docker compose -f compose/backend.yml --profile scale-out up -d
