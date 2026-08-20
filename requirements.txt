@@ -3,7 +3,7 @@ setuptools>=83.0.0
 
 playwright>=1.49.0
 fastapi>=0.115.6
-uvicorn>=0.34.0
+uvicorn>=0.52.3
 pydantic>=2.10.3
 aiohttp>=3.11.10
 numpy>=2.2.0
