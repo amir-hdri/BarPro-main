@@ -173,8 +173,7 @@ def main():
     run_node_cmd(w2["ip"], "cd /opt/barpro && find . -name '._*' -delete && git fetch origin main && git reset --hard origin/main && git log -1 --oneline")
 
     print("\n--- 2.2 Render Squid config for Worker 2 ---")
-    render_w2_cmd = """cd /opt/barpro && set -a && source <(grep -vF '$' .env) && set +a && sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" -e "s/__CENTRAL_IP__/${CENTRAL_IP:-127.0.0.1}/g" infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf"""
-    run_node_cmd(w2["ip"], f"bash -c '{render_w2_cmd}'")
+    run_node_cmd(w2["ip"], "cd /opt/barpro && python3 scripts/render_worker_squid.py")
 
     print("\n--- 2.3 Restart Worker 2 Services ---")
     run_node_cmd(w2["ip"], "cd /opt/barpro && docker compose --env-file .env -f compose/worker-node.yml up -d --force-recreate")
@@ -189,8 +188,7 @@ def main():
     run_node_cmd(w3["ip"], "cd /opt/barpro && find . -name '._*' -delete && git fetch origin main && git reset --hard origin/main && git log -1 --oneline")
 
     print("\n--- 3.2 Render Squid config for Worker 3 ---")
-    render_w3_cmd = """cd /opt/barpro && set -a && source <(grep -vF '$' .env) && set +a && sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" -e "s/__CENTRAL_IP__/${CENTRAL_IP:-127.0.0.1}/g" infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf"""
-    run_node_cmd(w3["ip"], f"bash -c '{render_w3_cmd}'")
+    run_node_cmd(w3["ip"], "cd /opt/barpro && python3 scripts/render_worker_squid.py")
 
     print("\n--- 3.3 Restart Worker 3 Services ---")
     run_node_cmd(w3["ip"], "cd /opt/barpro && docker compose --env-file .env -f compose/worker-node.yml up -d --force-recreate")
