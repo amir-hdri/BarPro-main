@@ -101,4 +101,3 @@ def test_location_favorite_model():
     assert fav.title == "انبار مرکزی"
     assert fav.is_origin is True
     assert fav.is_destination is True
-

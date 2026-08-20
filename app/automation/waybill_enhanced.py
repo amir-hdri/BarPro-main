@@ -1790,7 +1790,6 @@ class EnhancedWaybillManager:
             # پر کردن اطلاعات مالی
             await self._fill_financial_info(data.get("financial", {}))
 
-
             # مدیریت گزینه‌های حمل (two_way، end_shipping، time_limit)
             shipping_opts = data.get("shipping_options") or {}
             await self._fill_shipping_options(shipping_opts)
@@ -2003,7 +2002,7 @@ class EnhancedWaybillManager:
                     len(page_html),
                     page_html[:1500].replace("\n", " "),
                 )
-                with open("/tmp/waybill_form_failed.html", "w", encoding="utf-8") as f:
+                with open("/tmp/waybill_form_failed.html", "w", encoding="utf-8") as f:  # nosec B108
                     f.write(page_html)
             except Exception:
                 pass
@@ -2513,7 +2512,11 @@ class EnhancedWaybillManager:
                             continue
                         label = str(res.get("label") or res.get("value") or "").strip()
                         normalized_label = self._normalize_text(label)
-                        if normalized_query == normalized_label or normalized_query in normalized_label or normalized_label in normalized_query:
+                        if (
+                            normalized_query == normalized_label
+                            or normalized_query in normalized_label
+                            or normalized_label in normalized_query
+                        ):
                             best_match = res
                             break
 
@@ -3540,7 +3543,11 @@ class EnhancedWaybillManager:
         """تشخیص تطبیقی OTP به همراه مستندات تشخیصی (JSON/DOM/متن فارسی)"""
         # 1. بررسی پاسخ ساخت‌یافته شبکه/JSON
         if isinstance(submit_state, dict):
-            if submit_state.get("is_otp_needed") is True or str(submit_state.get("status", "")).lower() in ("otp_required", "challenge", "sms_sent"):
+            if submit_state.get("is_otp_needed") is True or str(submit_state.get("status", "")).lower() in (
+                "otp_required",
+                "challenge",
+                "sms_sent",
+            ):
                 return True, {"source": "network_json", "submit_state": submit_state}
             msg = str(submit_state.get("message") or submit_state.get("error") or "")
             for kw in self._otp_persian_keywords:
@@ -3578,16 +3585,18 @@ class EnhancedWaybillManager:
 
         # 3. بررسی متن‌های فارسی در مدال‌ها و پیام‌های باز روی صفحه
         try:
-            modal_text = await self.page.evaluate(
-                """() => {
+            modal_text = await self.page.evaluate("""() => {
                     const elements = Array.from(document.querySelectorAll('.modal.show, .swal2-container, .toast, .alert, #divOtp, #modalOtp, .modal-open'));
                     return elements.map(el => el.innerText || el.textContent || '').join(' ');
-                }"""
-            )
+                }""")
             if modal_text:
                 for kw in self._otp_persian_keywords:
                     if kw in modal_text:
-                        return True, {"source": "modal_text_keyword", "matched_keyword": kw, "excerpt": modal_text[:120]}
+                        return True, {
+                            "source": "modal_text_keyword",
+                            "matched_keyword": kw,
+                            "excerpt": modal_text[:120],
+                        }
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
@@ -3710,9 +3719,7 @@ class EnhancedWaybillManager:
                 }
 
             try:
-                await self._wait_for_network_settle(
-                    primary_timeout_ms=otp_timeout_ms, fallback_sleep_seconds=1.5
-                )
+                await self._wait_for_network_settle(primary_timeout_ms=otp_timeout_ms, fallback_sleep_seconds=1.5)
                 payload = await self._consume_json_response(
                     otp_response_task,
                     timeout_seconds=max(10.0, otp_timeout_ms / 1000),
@@ -4148,7 +4155,9 @@ class EnhancedWaybillManager:
             detected, evidence = await self._detect_otp_required_with_evidence()
             if not detected:
                 # Wait briefly (up to 3s) for modal animation if not immediately detected
-                otp_selectors = "input#sms-code, div.otp-challenge, #submitOtp, input[name='otp'], .otp-box, #modalOtp, #divOtp"
+                otp_selectors = (
+                    "input#sms-code, div.otp-challenge, #submitOtp, input[name='otp'], .otp-box, #modalOtp, #divOtp"
+                )
                 try:
                     candidate = await self.page.wait_for_selector(otp_selectors, timeout=3000)
                     if candidate is not None:

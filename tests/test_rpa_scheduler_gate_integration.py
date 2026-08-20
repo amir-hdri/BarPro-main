@@ -172,7 +172,9 @@ async def test_scheduler_releases_jobs_when_gate_opens():
             assert plan[0].job_id == "job_sched_release_1"
 
         async with async_session() as session:
-            refreshed_job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job_sched_release_1"))).first()
+            refreshed_job = (
+                await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job_sched_release_1"))
+            ).first()
             assert refreshed_job.status == TaskStatus.QUEUED.value
 
     await engine.dispose()

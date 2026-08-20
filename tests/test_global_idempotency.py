@@ -101,7 +101,12 @@ async def test_queue_manager_reused_job_returns_existing_state() -> None:
     qm = WaybillQueueManager()
     request_data = {
         "session_id": "queue-test",
-        "sender": {"name": "علی محمدی", "phone": "09121111111", "address": "خیابان آزادی", "national_code": "1234567890"},
+        "sender": {
+            "name": "علی محمدی",
+            "phone": "09121111111",
+            "address": "خیابان آزادی",
+            "national_code": "1234567890",
+        },
         "receiver": {"name": "رضا کرمی", "phone": "09122222222", "address": "بلوار جمهوری"},
         "origin": {"province": "تهران", "city": "تهران", "address": "خیابان آزادی"},
         "destination": {"province": "البرز", "city": "کرج", "address": "بلوار جمهوری"},
@@ -131,6 +136,7 @@ async def test_queue_manager_reused_job_returns_existing_state() -> None:
 @pytest.mark.asyncio
 async def test_rpa_scheduler_create_job_concurrent_deduplication() -> None:
     from sqlalchemy.pool import StaticPool
+
     test_engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
         echo=False,

@@ -113,10 +113,11 @@ def _build_route_key(source: dict[str, Any], destination: dict[str, Any], fallba
         "province": destination.get("province"),
         "city": destination.get("city"),
         "district": destination.get("district") or destination.get("county"),
-        "address": destination.get("address_compact") or destination.get("postal_address") or destination.get("address"),
+        "address": destination.get("address_compact")
+        or destination.get("postal_address")
+        or destination.get("address"),
     }
     return compute_canonical_route_key(origin_dict, dest_dict)
-
 
 
 def _slug_text(value: str | None, fallback: str) -> str:

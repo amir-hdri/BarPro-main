@@ -26,13 +26,11 @@ def test_national_code_checksum_validation():
     assert _validate_iranian_national_code("0084575948") is True
     assert _validate_iranian_national_code("0012345679") is True
 
-
     # Invalid checksums
     assert _validate_iranian_national_code("1111111111") is False
     assert _validate_iranian_national_code("1234567890") is False
     assert _validate_iranian_national_code("0012345678") is False
     assert _validate_iranian_national_code("123") is False
-
 
 
 def test_valid_payload_passes():
@@ -155,4 +153,3 @@ def test_waybill_job_create_request_strict_union_rejection():
     )
     assert req_nested.payload.cargo.type == "آهن"
     assert req_nested.payload.cargo.weight == 2.5
-

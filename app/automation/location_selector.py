@@ -648,7 +648,6 @@ class LocationSelector:
         )
         raise LocationSelectionError(f"خطای انتخاب مکان ({prefix}): {error_msg}")
 
-
     async def _read_element_value(self, selector: str) -> str:
         """بازخوانی مقدار متنی یک input یا textarea از DOM."""
         try:
@@ -737,7 +736,9 @@ class LocationSelector:
             province_readback = await self._read_selected_option(utcms["province"][0])
             norm_prov_target = self._normalize_text(province)
             norm_prov_read = self._normalize_text(province_readback.get("text", ""))
-            if not province_readback.get("value") or (norm_prov_target not in norm_prov_read and norm_prov_read not in norm_prov_target):
+            if not province_readback.get("value") or (
+                norm_prov_target not in norm_prov_read and norm_prov_read not in norm_prov_target
+            ):
                 return {
                     "success": False,
                     "method": "utcms_direct_text",
@@ -770,7 +771,9 @@ class LocationSelector:
             city_readback = await self._read_selected_option(utcms["city"][0])
             norm_city_target = self._normalize_text(city)
             norm_city_read = self._normalize_text(city_readback.get("text", ""))
-            if not city_readback.get("value") or (norm_city_target not in norm_city_read and norm_city_read not in norm_city_target):
+            if not city_readback.get("value") or (
+                norm_city_target not in norm_city_read and norm_city_read not in norm_city_target
+            ):
                 return {
                     "success": False,
                     "method": "utcms_direct_text",
@@ -837,7 +840,6 @@ class LocationSelector:
 
         except Exception as exc:
             return {"success": False, "method": "utcms_direct_text", "error": str(exc)}
-
 
     async def _fill_coordinate_hidden_fields(self, lat: float, lng: float, prefix: str) -> bool:
         """تلاش برای یافتن و پر کردن hidden fields مربوط به مختصات"""
@@ -1814,7 +1816,6 @@ class LocationSelector:
             return matches[0]
 
         return None
-
 
     async def _select_from_options(self, selectors: list[str], value: str) -> bool:
         """انتخاب گزینه از منوی کشویی بر اساس متن یا مقدار"""

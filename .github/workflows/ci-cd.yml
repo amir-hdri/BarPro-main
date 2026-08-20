@@ -30,16 +30,16 @@ jobs:
     
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -47,7 +47,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip==26.2.1
+          python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
           # Runtime libs mypy needs to see real types instead of Any.
           pip install -r requirements-typecheck.txt
@@ -95,17 +95,17 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
       - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip==26.2.1
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
@@ -124,7 +124,7 @@ jobs:
 
       - name: Upload Coverage
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: test-coverage
           path: |
@@ -140,10 +140,10 @@ jobs:
     
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -160,11 +160,11 @@ jobs:
           NEXT_PUBLIC_API_URL="/api" npm run build
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
 
       - name: Build Backend Image
         id: build-backend
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
@@ -175,7 +175,7 @@ jobs:
 
       - name: Build Frontend Image
         id: build-frontend
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v6
         with:
           context: ./apps/web
           file: ./apps/web/Dockerfile

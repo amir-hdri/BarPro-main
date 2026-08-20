@@ -22,7 +22,9 @@ class PlateService:
     """Manage vehicle plates with tenant isolation."""
 
     @staticmethod
-    async def create_plate(user_context: dict | Client, request: PlateCreateRequest, session: AsyncSession) -> PlateResponse:
+    async def create_plate(
+        user_context: dict | Client, request: PlateCreateRequest, session: AsyncSession
+    ) -> PlateResponse:
         driver = await session.get(Driver, request.driver_id)
         if not driver:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found")
@@ -123,4 +125,3 @@ class PlateService:
 
         await session.delete(plate)
         await session.commit()
-

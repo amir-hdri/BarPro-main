@@ -144,14 +144,16 @@ class FuelScraper:
             try:
                 await p.route(
                     "**/*",
-                    lambda route: route.abort()
-                    if route.request.resource_type in ["media", "font"]
-                    or (
-                        route.request.resource_type == "image"
-                        and "Cap.aspx" not in route.request.url
-                        and "captcha" not in route.request.url.lower()
-                    )
-                    else route.continue_(),
+                    lambda route: (
+                        route.abort()
+                        if route.request.resource_type in ["media", "font"]
+                        or (
+                            route.request.resource_type == "image"
+                            and "Cap.aspx" not in route.request.url
+                            and "captcha" not in route.request.url.lower()
+                        )
+                        else route.continue_()
+                    ),
                 )
             except Exception as e:
                 logger.debug(f"Could not attach route optimization: {e}")
@@ -178,7 +180,7 @@ class FuelScraper:
             logger.warning(f"Base quota query failed: {e}")
 
         # Step 2: Query Performance Quota (QuotaType = 2) in-place on same page
-        skip_nav_perf = (len(base_rows) > 0)
+        skip_nav_perf = len(base_rows) > 0
         try:
             logger.info("Querying performance quota (Type 2) in-place...")
             perf_rows, perf_screenshot_bytes = await self._query_quota_type(
@@ -262,7 +264,10 @@ class FuelScraper:
                 with open(screenshot_path, "wb") as f:
                     f.write(primary_screenshot_bytes)
                 import base64
-                screenshot_data_uri = f"data:image/png;base64,{base64.b64encode(primary_screenshot_bytes).decode('utf-8')}"
+
+                screenshot_data_uri = (
+                    f"data:image/png;base64,{base64.b64encode(primary_screenshot_bytes).decode('utf-8')}"
+                )
                 screenshot_url = screenshot_data_uri
                 logger.info(f"Fuel inquiry screenshot saved to {screenshot_path} and Data URI created")
             except Exception as e:
@@ -825,4 +830,3 @@ class FuelScraper:
             raise WaybillError(result.error or "مدل موفق به حل کپچا نشد")
 
         return result.value, result.provider
-

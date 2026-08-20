@@ -106,7 +106,12 @@ def test_route_key_generation_and_distinct_addresses():
     assert key_a != key_b
 
     # Exact same canonical inputs must produce identical route key
-    origin_a_duplicate = {"province": " تهران ", "city": "تهران", "district": "منطقه ۱", "address": "خیابان ولیعصر  پلاک ۱۰۰"}
+    origin_a_duplicate = {
+        "province": " تهران ",
+        "city": "تهران",
+        "district": "منطقه ۱",
+        "address": "خیابان ولیعصر  پلاک ۱۰۰",
+    }
     assert compute_canonical_route_key(origin_a_duplicate, dest) == key_a
 
 
@@ -126,7 +131,6 @@ def test_incomplete_location_fails_validation():
         },
         "cargo": {"type": "سنگ", "packaging": "فله", "weight": 10.0, "value": "1000000"},
         "vehicle": {"driver_national_code": "0084575948", "plate": "12ب345ایران11"},
-
     }
 
     errors = validate_enhanced_waybill_payload(incomplete_origin)

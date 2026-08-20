@@ -251,7 +251,14 @@ async def _execute_single_job(
                     job.finished_at = _utcnow()
                     JobStateMachine.transition(session, job, TaskStatus.UNKNOWN.value)
                     await session.commit()
-                    await _add_log(session, job_id, client.id, "reconciliation_pending", "unknown", "Tracking code received; History check pending")
+                    await _add_log(
+                        session,
+                        job_id,
+                        client.id,
+                        "reconciliation_pending",
+                        "unknown",
+                        "Tracking code received; History check pending",
+                    )
                     await _record_event(
                         session,
                         client.id,
@@ -266,7 +273,12 @@ async def _execute_single_job(
                         },
                     )
                     await browser_manager.record_success_for_recycle()
-                    return {**result, "status": TaskStatus.UNKNOWN.value, "mutation_status": "dispatched", "needs_reconciliation": True}
+                    return {
+                        **result,
+                        "status": TaskStatus.UNKNOWN.value,
+                        "mutation_status": "dispatched",
+                        "needs_reconciliation": True,
+                    }
             if status_str == "otp_backoff":
                 retry_minutes = int(result.get("next_retry_at_minutes_add", 60))
                 retry_at = _utcnow() + timedelta(minutes=retry_minutes)
@@ -475,7 +487,10 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
         elif result_status in {TaskStatus.WAITING_RETRY.value, TaskStatus.WAITING_SUBMISSION_WINDOW.value}:
             # WAITING_RETRY is set inside _execute_single_job and committed there
             pass
-        elif result_status in {TaskStatus.UNKNOWN.value, TaskStatus.RECONCILING.value} or result.get("mutation_status") == "ambiguous":
+        elif (
+            result_status in {TaskStatus.UNKNOWN.value, TaskStatus.RECONCILING.value}
+            or result.get("mutation_status") == "ambiguous"
+        ):
             job.mutation_status = "ambiguous"
             JobStateMachine.transition(
                 session,

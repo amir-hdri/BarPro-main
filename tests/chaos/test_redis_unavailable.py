@@ -17,7 +17,6 @@ COMPLETE_PAYLOAD = {
     "destination": {"province": "هرمزگان", "city": "میناب", "address": "طالوار"},
     "cargo": {"type": "مصالح", "packaging": "فله", "weight": "15", "value": "35000000"},
     "vehicle": {"driver_national_code": "0084575948", "plate": "79ع989ایران84"},
-
 }
 
 
@@ -51,7 +50,6 @@ async def test_redis_unavailable_fail_closed(async_session):
             id=1,
             client_id=1,
             driver_national_code="0084575948",
-
             full_name="Chaos Driver",
             phone="09123456789",
             utcms_username="drv",

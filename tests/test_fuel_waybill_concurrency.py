@@ -79,7 +79,9 @@ async def test_fuel_and_waybill_concurrent_execution_for_same_driver():
             mock_dispatch.assert_called_once_with(fuel_resp.id)
 
         # 4. Verify that the Waybill's driver slot was NOT touched or cleared
-        check_state = (await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver.id))).first()
+        check_state = (
+            await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver.id))
+        ).first()
         assert check_state is not None
         assert check_state.active_execution_id == active_intent
         assert check_state.state == "running"
@@ -101,11 +103,13 @@ async def test_fuel_and_waybill_concurrent_execution_for_same_driver():
         mock_context = MagicMock()
         mock_page = MagicMock()
 
-        with patch("app.automation.browser.browser_manager.initialize", new_callable=AsyncMock), \
-             patch("app.automation.browser.browser_manager.new_page", new_callable=AsyncMock, return_value=mock_page), \
-             patch("app.services.fuel_inquiry_service.managed_browser_session") as mock_managed_session, \
-             patch("app.automation.fuel_scraper.FuelScraper.scrape_fuel_quota", new_callable=AsyncMock) as mock_scrape, \
-             patch("app.automation.worker_proxy.get_playwright_proxy", return_value=None):
+        with (
+            patch("app.automation.browser.browser_manager.initialize", new_callable=AsyncMock),
+            patch("app.automation.browser.browser_manager.new_page", new_callable=AsyncMock, return_value=mock_page),
+            patch("app.services.fuel_inquiry_service.managed_browser_session") as mock_managed_session,
+            patch("app.automation.fuel_scraper.FuelScraper.scrape_fuel_quota", new_callable=AsyncMock) as mock_scrape,
+            patch("app.automation.worker_proxy.get_playwright_proxy", return_value=None),
+        ):
 
             from contextlib import asynccontextmanager
 
@@ -131,7 +135,9 @@ async def test_fuel_and_waybill_concurrent_execution_for_same_driver():
         assert completed_inquiry.quota_data_json["tables"][0]["rows"][0]["quota"] == "1200"
 
         # 7. Re-verify that the active Waybill execution slot is STILL intact and running
-        final_state = (await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver.id))).first()
+        final_state = (
+            await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver.id))
+        ).first()
         assert final_state.active_execution_id == active_intent
 
     await engine.dispose()

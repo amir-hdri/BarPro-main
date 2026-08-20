@@ -416,7 +416,11 @@ class RPAHttpSubmitService:
                     target_status = (
                         TaskStatus.UNKNOWN.value
                         if ambiguous
-                        else (TaskStatus.NEEDS_REVIEW.value if classification.outcome == SubmitOutcome.VALIDATION_ERROR else TaskStatus.FAILED.value)
+                        else (
+                            TaskStatus.NEEDS_REVIEW.value
+                            if classification.outcome == SubmitOutcome.VALIDATION_ERROR
+                            else TaskStatus.FAILED.value
+                        )
                     )
                     job_error_category = _map_error_category(classification.outcome, classification.reason_code).value
                     result_json = {
@@ -433,8 +437,12 @@ class RPAHttpSubmitService:
                         error_category=job_error_category,
                         last_error=classification.message or classification.reason_code,
                         finished_at=datetime.now(UTC).replace(tzinfo=None),
-                        submit_after=(datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=15)) if ambiguous else None,
-                        next_retry_at=(datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=15)) if ambiguous else None,
+                        submit_after=(
+                            (datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=15)) if ambiguous else None
+                        ),
+                        next_retry_at=(
+                            (datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=15)) if ambiguous else None
+                        ),
                         terminal_reason=classification.reason_code,
                         celery_task_id=None,
                         updated_at=datetime.now(UTC).replace(tzinfo=None),

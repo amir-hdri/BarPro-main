@@ -321,4 +321,3 @@ class UTCMSSystemObservation(SQLModel, table=True):
         default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
-

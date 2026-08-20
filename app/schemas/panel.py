@@ -62,7 +62,6 @@ class DriverUpdateRequest(BaseModel):
         return v
 
 
-
 class DriverResponse(BaseModel):
     """Driver response"""
 

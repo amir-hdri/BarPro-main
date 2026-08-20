@@ -47,10 +47,12 @@ async def test_user_text_location_selection_success(mock_page):
     selector = LocationSelector(mock_page)
 
     # Mock select options query
-    selector._read_select_options = AsyncMock(side_effect=[
-        [{"value": "1", "text": "تهران"}, {"value": "2", "text": "البرز"}],  # Province options
-        [{"value": "101", "text": "تهران"}, {"value": "102", "text": "شهریار"}],  # City options
-    ])
+    selector._read_select_options = AsyncMock(
+        side_effect=[
+            [{"value": "1", "text": "تهران"}, {"value": "2", "text": "البرز"}],  # Province options
+            [{"value": "101", "text": "تهران"}, {"value": "102", "text": "شهریار"}],  # City options
+        ]
+    )
 
     location_data = {
         "location_mode": "user_text",
@@ -77,10 +79,12 @@ async def test_user_text_location_selection_success(mock_page):
 @pytest.mark.asyncio
 async def test_user_text_fails_when_province_not_found(mock_page):
     selector = LocationSelector(mock_page)
-    selector._read_select_options = AsyncMock(return_value=[
-        {"value": "1", "text": "فارس"},
-        {"value": "2", "text": "خراسان رضوی"},
-    ])
+    selector._read_select_options = AsyncMock(
+        return_value=[
+            {"value": "1", "text": "فارس"},
+            {"value": "2", "text": "خراسان رضوی"},
+        ]
+    )
     selector.page.select_option = AsyncMock(side_effect=Exception("Option not found"))
 
     location_data = {
@@ -102,10 +106,12 @@ async def test_user_text_fails_when_city_not_found_without_guessing_first_option
     selector = LocationSelector(mock_page)
 
     # Province succeeds, but city options do not contain the target city
-    selector._read_select_options = AsyncMock(side_effect=[
-        [{"value": "1", "text": "تهران"}],  # Province options
-        [{"value": "201", "text": "دماوند"}, {"value": "202", "text": "فیروزکوه"}],  # City options
-    ])
+    selector._read_select_options = AsyncMock(
+        side_effect=[
+            [{"value": "1", "text": "تهران"}],  # Province options
+            [{"value": "201", "text": "دماوند"}, {"value": "202", "text": "فیروزکوه"}],  # City options
+        ]
+    )
 
     # Make page.select_option fail when city label is "شیراز"
     async def mock_select(selector_str, **kwargs):
@@ -133,10 +139,12 @@ async def test_user_text_fails_when_city_not_found_without_guessing_first_option
 async def test_user_text_fails_when_address_readback_mismatches(mock_page):
     selector = LocationSelector(mock_page)
 
-    selector._read_select_options = AsyncMock(side_effect=[
-        [{"value": "1", "text": "تهران"}],
-        [{"value": "101", "text": "تهران"}],
-    ])
+    selector._read_select_options = AsyncMock(
+        side_effect=[
+            [{"value": "1", "text": "تهران"}],
+            [{"value": "101", "text": "تهران"}],
+        ]
+    )
 
     # Address readback returns empty or wrong text
     async def mock_eval(selector_str, script, *args):
@@ -186,5 +194,8 @@ async def test_find_best_option_match_unique_substring_only():
         {"value": "101", "text": "تهران شرق"},
         {"value": "102", "text": "تهران مرکز"},
     ]
-    assert selector._find_best_option_match(multi_options, "تهران") == "100" or selector._find_best_option_match(multi_options, "تهر") is None
+    assert (
+        selector._find_best_option_match(multi_options, "تهران") == "100"
+        or selector._find_best_option_match(multi_options, "تهر") is None
+    )
     assert selector._find_best_option_match(multi_options, "تهر") is None

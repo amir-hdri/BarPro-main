@@ -746,11 +746,7 @@ async def get_clean_ips_status():
     active_records = [r for r in records if r.is_usable]
     blocked_records = [r for r in records if not r.is_usable]
 
-    avg_latency = (
-        round(sum(r.latency_ms for r in active_records) / len(active_records), 1)
-        if active_records
-        else 0.0
-    )
+    avg_latency = round(sum(r.latency_ms for r in active_records) / len(active_records), 1) if active_records else 0.0
 
     return {
         "status": "success",

@@ -191,7 +191,11 @@ async def test_fuel_inquiry_saves_data_uri_and_dual_quotas():
                 "success": True,
                 "quota_data": {
                     "tables": [
-                        {"table_index": 0, "headers": ["ردیف", "دوره", "سهمیه (لیتر)"], "rows": [["1", "دوره جاری", "579"]]},
+                        {
+                            "table_index": 0,
+                            "headers": ["ردیف", "دوره", "سهمیه (لیتر)"],
+                            "rows": [["1", "دوره جاری", "579"]],
+                        },
                         {"table_index": 1, "headers": ["ردیف", "دوره", "سهمیه (لیتر)"], "rows": [["1", "تیر", "1016"]]},
                     ],
                     "key_values": {"سهمیه پایه": "579.0", "سهمیه عملکردی": "1016.0"},
@@ -218,4 +222,3 @@ async def test_fuel_inquiry_saves_data_uri_and_dual_quotas():
         assert inquiry.quota_data_json["summary"]["performance_quota"] == "1016.0"
 
     await engine.dispose()
-

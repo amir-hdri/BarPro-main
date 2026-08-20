@@ -168,7 +168,10 @@ class ITMBWSService:
             await self._sync_circuit_metric()
             raise HTTPException(
                 status_code=503,
-                detail={"message": "ارتباط وب‌سرویس ITMB موقتاً قطع شده (Circuit Open)", "retry_after_seconds": round(exc.retry_after_seconds, 2)},
+                detail={
+                    "message": "ارتباط وب‌سرویس ITMB موقتاً قطع شده (Circuit Open)",
+                    "retry_after_seconds": round(exc.retry_after_seconds, 2),
+                },
             ) from exc
 
         company_code, salt, hashed_value = resolve_itmb_auth(
@@ -195,7 +198,10 @@ class ITMBWSService:
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code >= 500:
                 await self._mark_circuit_failure()
-            raise HTTPException(status_code=502, detail={"message": "خطای وب‌سرویس ITMB در آغاز بارنامه", "upstream_body": exc.response.text[:500]}) from exc
+            raise HTTPException(
+                status_code=502,
+                detail={"message": "خطای وب‌سرویس ITMB در آغاز بارنامه", "upstream_body": exc.response.text[:500]},
+            ) from exc
         except httpx.RequestError as exc:
             await self._mark_circuit_failure()
             raise HTTPException(status_code=503, detail="ارتباط با وب‌سرویس ITMB برقرار نشد") from exc
@@ -205,9 +211,20 @@ class ITMBWSService:
         result_text = self._extract_result_text(response.text)
         error_payload = self._parse_error(result_text)
         if error_payload:
-            raise HTTPException(status_code=400, detail={"err_code": error_payload.get("ErrCode"), "err_desc": error_payload.get("ErrDesc", "خطا در آغاز بارنامه")})
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "err_code": error_payload.get("ErrCode"),
+                    "err_desc": error_payload.get("ErrDesc", "خطا در آغاز بارنامه"),
+                },
+            )
 
-        return {"success": True, "bol_trace_code": request.BOLTraceCode, "result_code": 200, "message": "سفر با موفقیت آغاز شد"}
+        return {
+            "success": True,
+            "bol_trace_code": request.BOLTraceCode,
+            "result_code": 200,
+            "message": "سفر با موفقیت آغاز شد",
+        }
 
     async def end_bol(self, request: WS04EndBOLRequest) -> dict[str, Any]:
         """WS04_EndBOL: پایان سفر بارنامه در وب‌سرویس ITMB."""
@@ -217,7 +234,10 @@ class ITMBWSService:
             await self._sync_circuit_metric()
             raise HTTPException(
                 status_code=503,
-                detail={"message": "ارتباط وب‌سرویس ITMB موقتاً قطع شده (Circuit Open)", "retry_after_seconds": round(exc.retry_after_seconds, 2)},
+                detail={
+                    "message": "ارتباط وب‌سرویس ITMB موقتاً قطع شده (Circuit Open)",
+                    "retry_after_seconds": round(exc.retry_after_seconds, 2),
+                },
             ) from exc
 
         company_code, salt, hashed_value = resolve_itmb_auth(
@@ -244,7 +264,10 @@ class ITMBWSService:
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code >= 500:
                 await self._mark_circuit_failure()
-            raise HTTPException(status_code=502, detail={"message": "خطای وب‌سرویس ITMB در پایان بارنامه", "upstream_body": exc.response.text[:500]}) from exc
+            raise HTTPException(
+                status_code=502,
+                detail={"message": "خطای وب‌سرویس ITMB در پایان بارنامه", "upstream_body": exc.response.text[:500]},
+            ) from exc
         except httpx.RequestError as exc:
             await self._mark_circuit_failure()
             raise HTTPException(status_code=503, detail="ارتباط با وب‌سرویس ITMB برقرار نشد") from exc
@@ -254,9 +277,20 @@ class ITMBWSService:
         result_text = self._extract_result_text(response.text)
         error_payload = self._parse_error(result_text)
         if error_payload:
-            raise HTTPException(status_code=400, detail={"err_code": error_payload.get("ErrCode"), "err_desc": error_payload.get("ErrDesc", "خطا در پایان بارنامه")})
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "err_code": error_payload.get("ErrCode"),
+                    "err_desc": error_payload.get("ErrDesc", "خطا در پایان بارنامه"),
+                },
+            )
 
-        return {"success": True, "bol_trace_code": request.BOLTraceCode, "result_code": 200, "message": "سفر با موفقیت پایان یافت"}
+        return {
+            "success": True,
+            "bol_trace_code": request.BOLTraceCode,
+            "result_code": 200,
+            "message": "سفر با موفقیت پایان یافت",
+        }
 
     async def insert_bol_track(self, request: WS06InsertBOLTrackRequest) -> dict[str, Any]:
         """WS06_InsertBOLTrack: ثبت نقاط پیمایش بارنامه در وب‌سرویس ITMB."""
@@ -266,7 +300,10 @@ class ITMBWSService:
             await self._sync_circuit_metric()
             raise HTTPException(
                 status_code=503,
-                detail={"message": "ارتباط وب‌سرویس ITMB موقتاً قطع شده (Circuit Open)", "retry_after_seconds": round(exc.retry_after_seconds, 2)},
+                detail={
+                    "message": "ارتباط وب‌سرویس ITMB موقتاً قطع شده (Circuit Open)",
+                    "retry_after_seconds": round(exc.retry_after_seconds, 2),
+                },
             ) from exc
 
         company_code, salt, hashed_value = resolve_itmb_auth(
@@ -293,7 +330,10 @@ class ITMBWSService:
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code >= 500:
                 await self._mark_circuit_failure()
-            raise HTTPException(status_code=502, detail={"message": "خطای وب‌سرویس ITMB در ثبت موقعیت", "upstream_body": exc.response.text[:500]}) from exc
+            raise HTTPException(
+                status_code=502,
+                detail={"message": "خطای وب‌سرویس ITMB در ثبت موقعیت", "upstream_body": exc.response.text[:500]},
+            ) from exc
         except httpx.RequestError as exc:
             await self._mark_circuit_failure()
             raise HTTPException(status_code=503, detail="ارتباط با وب‌سرویس ITMB برقرار نشد") from exc
@@ -303,9 +343,20 @@ class ITMBWSService:
         result_text = self._extract_result_text(response.text)
         error_payload = self._parse_error(result_text)
         if error_payload:
-            raise HTTPException(status_code=400, detail={"err_code": error_payload.get("ErrCode"), "err_desc": error_payload.get("ErrDesc", "خطا در ثبت موقعیت بارنامه")})
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "err_code": error_payload.get("ErrCode"),
+                    "err_desc": error_payload.get("ErrDesc", "خطا در ثبت موقعیت بارنامه"),
+                },
+            )
 
-        return {"success": True, "bol_trace_code": request.BOLTraceCode, "result_code": 200, "message": "موقعیت با موفقیت ثبت شد"}
+        return {
+            "success": True,
+            "bol_trace_code": request.BOLTraceCode,
+            "result_code": 200,
+            "message": "موقعیت با موفقیت ثبت شد",
+        }
 
     async def _sleep_before_retry(self, attempt: int) -> None:
         delay = self._retry_delay_seconds(attempt)

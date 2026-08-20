@@ -183,9 +183,7 @@ def extract_canonical_commercial_payload(payload: Any, driver: Any = None) -> di
         },
         "cargo": {
             "cargo_type": str(cargo.get("cargo_type") or data.get("cargo_type") or "").strip(),
-            "packaging": str(
-                cargo.get("packaging") or cargo.get("box_type") or data.get("packaging") or ""
-            ).strip(),
+            "packaging": str(cargo.get("packaging") or cargo.get("box_type") or data.get("packaging") or "").strip(),
             "weight": str(identity.cargo_weight or "").strip(),
             "value": str(cargo.get("value") or cargo.get("cargo_value") or data.get("cargo_value") or "").strip(),
         },

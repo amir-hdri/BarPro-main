@@ -119,11 +119,7 @@ class UTCMSSubmissionGate:
         # 3. Check latest observation in DB
         try:
             async with async_session_factory() as session:
-                stmt = (
-                    select(UTCMSSystemObservation)
-                    .order_by(desc(col(UTCMSSystemObservation.observed_at)))
-                    .limit(1)
-                )
+                stmt = select(UTCMSSystemObservation).order_by(desc(col(UTCMSSystemObservation.observed_at))).limit(1)
                 result = await session.exec(stmt)
                 latest_obs = result.first()
 

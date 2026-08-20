@@ -163,8 +163,13 @@ async def test_itmb_insert_bol_does_not_retry_on_timeout_or_500() -> None:
         call_count += 1
         raise httpx.ConnectTimeout("Connection timed out after 30s")
 
-    with patch("httpx.AsyncClient.post", side_effect=mock_post), \
-         patch("app.services.itmb_baseinfo_service.itmb_baseinfo_service.validate_bol_references", return_value={"valid": True}):
+    with (
+        patch("httpx.AsyncClient.post", side_effect=mock_post),
+        patch(
+            "app.services.itmb_baseinfo_service.itmb_baseinfo_service.validate_bol_references",
+            return_value={"valid": True},
+        ),
+    ):
         with pytest.raises(HTTPException) as exc_info:
             await service.insert_bol(request)
 

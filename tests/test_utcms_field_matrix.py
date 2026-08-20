@@ -64,7 +64,10 @@ def test_required_fields_have_readback_property():
 
 def test_readback_matcher_logic():
     """Simulate read-back validation logic for required form fields."""
-    def validate_readback(field_spec: dict, dom_readback: dict, expected_value: str, expected_text: str | None = None) -> bool:
+
+    def validate_readback(
+        field_spec: dict, dom_readback: dict, expected_value: str, expected_text: str | None = None
+    ) -> bool:
         prop = field_spec.get("readback_property", "value")
         if prop == "value":
             return str(dom_readback.get("value", "")).strip() == str(expected_value).strip()

@@ -116,7 +116,11 @@ async def test_fullstack_e2e_driver_waybill_fuel_lifecycle():
             payload_json=waybill_payload.model_dump(),
         )
 
-        with patch("app.services.waybill_job_service.rpa_scheduler_service.create_job", new_callable=AsyncMock, return_value=mock_job):
+        with patch(
+            "app.services.waybill_job_service.rpa_scheduler_service.create_job",
+            new_callable=AsyncMock,
+            return_value=mock_job,
+        ):
             job_resp = await WaybillJobService.create_job(
                 client=client,
                 request=waybill_req,
@@ -166,9 +170,7 @@ async def test_fullstack_e2e_driver_waybill_fuel_lifecycle():
                 "tables": [
                     {
                         "title": "سهمیه پایه و عملکردی",
-                        "rows": [
-                            {"period": "1405/05", "base": "500", "performance": "1500", "total": "2000"}
-                        ],
+                        "rows": [{"period": "1405/05", "base": "500", "performance": "1500", "total": "2000"}],
                     }
                 ]
             },
@@ -184,11 +186,19 @@ async def test_fullstack_e2e_driver_waybill_fuel_lifecycle():
         async def _mock_cm(*args, **kwargs):
             yield ("sess-e2e", mock_context)
 
-        with patch("app.automation.browser.browser_manager.initialize", new_callable=AsyncMock), \
-             patch("app.automation.browser.browser_manager.new_page", new_callable=AsyncMock, return_value=mock_page), \
-             patch("app.services.fuel_inquiry_service.managed_browser_session", side_effect=_mock_cm) as mock_managed_session, \
-             patch("app.automation.fuel_scraper.FuelScraper.scrape_fuel_quota", new_callable=AsyncMock, return_value=mock_scraper_result), \
-             patch("app.automation.worker_proxy.get_playwright_proxy", return_value=None):
+        with (
+            patch("app.automation.browser.browser_manager.initialize", new_callable=AsyncMock),
+            patch("app.automation.browser.browser_manager.new_page", new_callable=AsyncMock, return_value=mock_page),
+            patch(
+                "app.services.fuel_inquiry_service.managed_browser_session", side_effect=_mock_cm
+            ) as mock_managed_session,
+            patch(
+                "app.automation.fuel_scraper.FuelScraper.scrape_fuel_quota",
+                new_callable=AsyncMock,
+                return_value=mock_scraper_result,
+            ),
+            patch("app.automation.worker_proxy.get_playwright_proxy", return_value=None),
+        ):
 
             await fuel_inquiry_service.run_automation(fuel_inquiry_resp.id, session)
 
@@ -207,7 +217,9 @@ async def test_fullstack_e2e_driver_waybill_fuel_lifecycle():
         assert finished_inquiry.quota_data_json["tables"][0]["rows"][0]["total"] == "2000"
 
         # 2. Driver runtime state for Waybill was NOT altered or corrupted
-        persisted_runtime = (await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == created_driver.id))).first()
+        persisted_runtime = (
+            await session.exec(select(DriverRuntimeState).where(DriverRuntimeState.driver_id == created_driver.id))
+        ).first()
         assert persisted_runtime.active_execution_id == "intent-concurrent-e2e"
         assert persisted_runtime.state == "running"
 
@@ -308,7 +320,11 @@ async def test_waybill_payload_flexibility_and_vehicle_type_auto_sync():
             payload_json=frontend_payload_dict,
         )
 
-        with patch("app.services.waybill_job_service.rpa_scheduler_service.create_job", new_callable=AsyncMock, return_value=mock_job):
+        with patch(
+            "app.services.waybill_job_service.rpa_scheduler_service.create_job",
+            new_callable=AsyncMock,
+            return_value=mock_job,
+        ):
             resp = await WaybillJobService.create_job(
                 client=client,
                 request=req,
@@ -344,4 +360,3 @@ async def test_waybill_payload_flexibility_and_vehicle_type_auto_sync():
         assert validation_errors == []
 
     await engine.dispose()
-

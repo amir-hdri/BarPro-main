@@ -113,8 +113,26 @@ async def test_clean_ip_pool_manager_redis_and_fallback():
 
     mock_redis = AsyncMock()
     sample_records = [
-        {"url": "http://185.100.47.106:8080", "protocol": "http", "ip": "185.100.47.106", "port": 8080, "score": 95.0, "latency_ms": 50.0, "fail_count": 0, "blocked_until": 0.0},
-        {"url": "http://5.56.132.26:3128", "protocol": "http", "ip": "5.56.132.26", "port": 3128, "score": 85.0, "latency_ms": 110.0, "fail_count": 0, "blocked_until": 0.0},
+        {
+            "url": "http://185.100.47.106:8080",
+            "protocol": "http",
+            "ip": "185.100.47.106",
+            "port": 8080,
+            "score": 95.0,
+            "latency_ms": 50.0,
+            "fail_count": 0,
+            "blocked_until": 0.0,
+        },
+        {
+            "url": "http://5.56.132.26:3128",
+            "protocol": "http",
+            "ip": "5.56.132.26",
+            "port": 3128,
+            "score": 85.0,
+            "latency_ms": 110.0,
+            "fail_count": 0,
+            "blocked_until": 0.0,
+        },
     ]
     mock_redis.get.return_value = json.dumps(sample_records)
     mock_redis.exists.return_value = False
@@ -200,7 +218,10 @@ def test_worker_proxy_fallback_to_clean_pool():
             mock_conn.side_effect = TimeoutError("Squid down")
 
             # Clean IP pool has a verified proxy
-            with patch("app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync", return_value="http://185.100.47.106:8080"):
+            with patch(
+                "app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync",
+                return_value="http://185.100.47.106:8080",
+            ):
                 url = get_worker_proxy_url()
                 assert url == "http://185.100.47.106:8080"
 
@@ -215,7 +236,9 @@ def test_worker_proxy_clean_pool_only_mode():
             "ENVIRONMENT": "development",
         },
     ):
-        with patch("app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync", return_value="http://5.56.132.26:3128"):
+        with patch(
+            "app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync", return_value="http://5.56.132.26:3128"
+        ):
             url = get_worker_proxy_url()
             assert url == "http://5.56.132.26:3128"
 

@@ -45,8 +45,7 @@ DEFAULT_TIMEOUT_SECONDS = 7.5
 MAX_PROBE_WORKERS = 35
 
 USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 )
 
 # Runtime paths for atomic fallback files
@@ -137,11 +136,7 @@ def is_valid_public_ip(ip_str: str) -> bool:
     try:
         ip_obj = ipaddress.ip_address(ip_str.strip())
         return not (
-            ip_obj.is_private
-            or ip_obj.is_loopback
-            or ip_obj.is_reserved
-            or ip_obj.is_link_local
-            or ip_obj.is_multicast
+            ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved or ip_obj.is_link_local or ip_obj.is_multicast
         )
     except (ValueError, TypeError):
         return False
@@ -167,7 +162,7 @@ def _safe_fetch(url: str, timeout: float = 6.0) -> str | None:
                 "Connection": "close",
             },
         )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
             return resp.read().decode("utf-8", errors="ignore")
     except Exception as exc:
         logger.debug(f"Failed to fetch proxy source {url[:60]}: {exc}")
@@ -767,6 +762,7 @@ class CleanIPPoolManager:
             return True
         try:
             from app.core.circuit_breaker import _get_redis_sync
+
             r = _get_redis_sync()
             url_hash = hashlib.sha256(proxy_url.encode()).hexdigest()[:16]
             return bool(r.exists(f"{self.REDIS_BLOCKED_PREFIX}{url_hash}"))
@@ -797,9 +793,7 @@ class CleanIPPoolManager:
         """
         if not proxy_url:
             return
-        logger.warning(
-            f"CleanIPPool: Marking proxy {proxy_url} as blocked for {duration_seconds}s"
-        )
+        logger.warning(f"CleanIPPool: Marking proxy {proxy_url} as blocked for {duration_seconds}s")
         url_hash = hashlib.sha256(proxy_url.encode()).hexdigest()[:16]
 
         # Update in-memory record

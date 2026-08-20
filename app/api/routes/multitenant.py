@@ -436,7 +436,6 @@ async def delete_plate(
     return None
 
 
-
 @router.post("/driver-schedules", response_model=DriverScheduleResponse, status_code=status.HTTP_201_CREATED)
 async def create_driver_schedule(
     request: DriverScheduleCreateRequest,
@@ -674,7 +673,6 @@ async def delete_waybill_job(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-
 # ==================== EXCEL UPLOAD ENDPOINTS ====================
 
 
@@ -890,6 +888,7 @@ async def get_fuel_inquiry_screenshot(
             pass
 
     from fastapi import HTTPException
+
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="تصویر استعلام یافت نشد")
 
 

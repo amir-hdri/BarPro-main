@@ -243,7 +243,6 @@ class DriverUpdateRequest(BaseModel):
         return v
 
 
-
 class DriverResponse(BaseModel):
     """Driver response (never includes passwords)."""
 
@@ -327,8 +326,26 @@ def _normalize_persian_schedule_date(v: str | None) -> str | None:
     if not s:
         return None
     persian_arabic_digits = {
-        '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
-        '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+        "۰": "0",
+        "۱": "1",
+        "۲": "2",
+        "۳": "3",
+        "۴": "4",
+        "۵": "5",
+        "۶": "6",
+        "۷": "7",
+        "۸": "8",
+        "۹": "9",
+        "٠": "0",
+        "١": "1",
+        "٢": "2",
+        "٣": "3",
+        "٤": "4",
+        "٥": "5",
+        "٦": "6",
+        "٧": "7",
+        "٨": "8",
+        "٩": "9",
     }
     for p, a in persian_arabic_digits.items():
         s = s.replace(p, a)
@@ -345,8 +362,26 @@ def _normalize_schedule_time(v: str | None) -> str | None:
         return None
     s = str(v).strip()
     persian_arabic_digits = {
-        '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
-        '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+        "۰": "0",
+        "۱": "1",
+        "۲": "2",
+        "۳": "3",
+        "۴": "4",
+        "۵": "5",
+        "۶": "6",
+        "۷": "7",
+        "۸": "8",
+        "۹": "9",
+        "٠": "0",
+        "١": "1",
+        "٢": "2",
+        "٣": "3",
+        "٤": "4",
+        "٥": "5",
+        "٦": "6",
+        "٧": "7",
+        "٨": "8",
+        "٩": "9",
     }
     for p, a in persian_arabic_digits.items():
         s = s.replace(p, a)
@@ -682,7 +717,6 @@ class WaybillJobUpdateRequest(BaseModel):
         if isinstance(v, str) and not v.strip():
             return None
         return v
-
 
 
 class WaybillJobResponse(BaseModel):

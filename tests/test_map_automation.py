@@ -14,6 +14,7 @@ from app.core.exceptions import LocationSelectionError
 class TestMapAutomation(unittest.IsolatedAsyncioTestCase):
     def _create_mock_page(self):
         from unittest.mock import MagicMock
+
         page = AsyncMock()
         page.locator = MagicMock()
         mock_loc = MagicMock()
@@ -76,9 +77,7 @@ class TestMapAutomation(unittest.IsolatedAsyncioTestCase):
         page = self._create_mock_page()
         selector = LocationSelector(page)
 
-        selector._try_utcms_direct_fill = AsyncMock(
-            return_value={"success": False, "error": "استان یافت نشد"}
-        )
+        selector._try_utcms_direct_fill = AsyncMock(return_value={"success": False, "error": "استان یافت نشد"})
 
         location_data = {
             "province": "Tehran",

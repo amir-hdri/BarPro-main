@@ -998,6 +998,7 @@ async def _execute_job(
 
             # Persist durable mutation intent & digest before submit
             import hashlib
+
             request_digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
             job.request_digest = request_digest
             job.mutation_status = "intent_persisted"
@@ -1222,7 +1223,9 @@ async def _execute_job(
                             # CRITICAL REDLINE: SUCCESS without tracking code is forbidden -> downgrade to UNKNOWN
                             result_status = TaskStatus.UNKNOWN.value
                             result["status"] = TaskStatus.UNKNOWN.value
-                            result["error"] = "Portal success response did not include a tracking code; reconciliation required"
+                            result["error"] = (
+                                "Portal success response did not include a tracking code; reconciliation required"
+                            )
                             result["error_category"] = ErrorCategory.SUBMISSION_UNCONFIRMED.value
                             job.mutation_status = "ambiguous"
                             JobStateMachine.transition(
@@ -1242,7 +1245,11 @@ async def _execute_job(
                             return result
                         else:
                             job.mutation_status = "dispatched"
-                            if isinstance(result_payload, dict) and "document_id" in result_payload and result_payload["document_id"]:
+                            if (
+                                isinstance(result_payload, dict)
+                                and "document_id" in result_payload
+                                and result_payload["document_id"]
+                            ):
                                 job.document_id = str(result_payload["document_id"])
 
                             provisional_result = dict(result_payload)

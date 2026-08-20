@@ -282,8 +282,6 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.get("route", {}).get("source"), "user_text")
         self.assertFalse(result.get("route", {}).get("coordinates_used"))
 
-
-
     async def test_fill_financial_info(self):
         """Test financial info filling logic."""
         financial_data = {"cost": 1000, "payment_method": "Cash"}

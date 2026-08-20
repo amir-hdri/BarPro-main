@@ -32,7 +32,6 @@ COMPLETE_PAYLOAD = {
     "destination": {"province": "هرمزگان", "city": "میناب", "address": "طالوار"},
     "cargo": {"type": "مصالح", "packaging": "فله", "weight": "15", "value": "35000000"},
     "vehicle": {"driver_national_code": "0084575948", "plate": "79ع989ایران84"},
-
 }
 
 

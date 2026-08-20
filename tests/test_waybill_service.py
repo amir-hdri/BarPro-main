@@ -22,17 +22,25 @@ def create_request(operation_mode: OperationMode = OperationMode.SAFE) -> Waybil
     return WaybillMapRequest(
         session_id="svc-test",
         operation_mode=operation_mode,
-        sender=SenderModel(name="علی رضایی", phone="09120000000", address="تهران خیابان کارگر", national_code="0084575948"),
+        sender=SenderModel(
+            name="علی رضایی", phone="09120000000", address="تهران خیابان کارگر", national_code="0084575948"
+        ),
         receiver=ReceiverModel(name="حسن محمدی", phone="09120000000", address="کرج میدان شهدا"),
-        origin=LocationModel(province="تهران", city="تهران", address="خیابان کارگر شمالی پلاک ۱", coordinates=GeoCoordinateModel(lat=1.0, lng=1.0)),
+        origin=LocationModel(
+            province="تهران",
+            city="تهران",
+            address="خیابان کارگر شمالی پلاک ۱",
+            coordinates=GeoCoordinateModel(lat=1.0, lng=1.0),
+        ),
         destination=LocationModel(
             province="البرز", city="کرج", address="میدان شهدا پلاک ۱۰", coordinates=GeoCoordinateModel(lat=2.0, lng=2.0)
         ),
         cargo=CargoModel(type="آهن آلات", packaging="فله", weight=1000, count=1, value=1000000, description="test"),
-        vehicle=VehicleModel(driver_national_code="0084575948", driver_phone="09120000000", plate="12ب345ایران11", type="کامیون"),
+        vehicle=VehicleModel(
+            driver_national_code="0084575948", driver_phone="09120000000", plate="12ب345ایران11", type="کامیون"
+        ),
         financial=FinancialModel(cost=1000, payment_method="Cash"),
     )
-
 
 
 @pytest.mark.asyncio

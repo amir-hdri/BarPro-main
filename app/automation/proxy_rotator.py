@@ -501,7 +501,9 @@ class ProxyRotator:
 
                     available.append(proxy)
 
-                if not available or (require_iran_ip and not [p for p in available if p.country == "IR" or p.country is None]):
+                if not available or (
+                    require_iran_ip and not [p for p in available if p.country == "IR" or p.country is None]
+                ):
                     if require_iran_ip:
                         try:
                             from app.automation.clean_ip_pool import clean_ip_pool

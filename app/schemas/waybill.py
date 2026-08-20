@@ -28,7 +28,9 @@ class LocationModel(BaseModel):
     city: str = Field(..., min_length=1, description="شهر")
     district: str | None = Field(default=None, description="منطقه (در صورت وجود)")
     address: str = Field(..., min_length=1, description="آدرس متنی")
-    coordinates: GeoCoordinateModel | None = Field(default=None, description="مختصات جغرافیایی (اختیاری، در user_text نادیده گرفته می‌شود)")
+    coordinates: GeoCoordinateModel | None = Field(
+        default=None, description="مختصات جغرافیایی (اختیاری، در user_text نادیده گرفته می‌شود)"
+    )
     location_mode: str = Field(default="user_text", description="حالت مکان: پیش‌فرض user_text")
     route_source: str = Field(default="user_text", description="منبع مسیر: پیش‌فرض user_text")
 

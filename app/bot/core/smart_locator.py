@@ -158,7 +158,9 @@ class SmartLocator:
         # 3. Smart Recovery: Fuzzy matching for text-based selectors
         text_selectors = [s for s in selectors if "text=" in s.lower() or ":" in s]
         if text_selectors:
-            self._logger.info(f"smart_locator_attempting_fuzzy_recovery for selectors={selectors} (failures={failures})")
+            self._logger.info(
+                f"smart_locator_attempting_fuzzy_recovery for selectors={selectors} (failures={failures})"
+            )
             for ts in text_selectors:
                 try:
                     # Look for elements containing the text regardless of casing/exact match
