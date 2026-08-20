@@ -116,32 +116,32 @@ def main():
     print("\n--- 1.1 Git Fetch & Reset to latest main ---")
     run_command(ssh_central, "cd /opt/barpro && find . -name '._*' -delete && git fetch origin main && git reset --hard origin/main && git log -1 --oneline")
 
-    print("\n--- 1.2 Build Backend Image ---")
-    run_command(ssh_central, "cd /opt/barpro && docker build --network=host -t barpro_backend:latest -f Dockerfile .", timeout=900)
-
-    print("\n--- 1.3 Build Frontend Image ---")
+    print("\n--- 1.2 Build Frontend Image (Next.js 15) ---")
     run_command(ssh_central, "cd /opt/barpro && docker compose --env-file .env -f compose/web.yml build frontend", timeout=600)
 
-    print("\n--- 1.4 Restart Infrastructure (PostgreSQL + Redis) ---")
-    run_command(ssh_central, "cd /opt/barpro && docker compose --env-file .env -f compose/infra.yml up -d")
+    print("\n--- 1.3 Restart Infrastructure (PostgreSQL + Redis) ---")
+    run_command(ssh_central, "cd /opt/barpro && docker compose --env-file .env -f compose/infra.yml up -d --force-recreate")
 
-    print("\n--- 1.5 Restart Proxies (Squid 1) ---")
-    run_command(ssh_central, "cd /opt/barpro && docker compose --env-file .env -f compose/proxy.yml up -d")
+    print("\n--- 1.4 Restart Proxies (Squid 1) ---")
+    run_command(ssh_central, "cd /opt/barpro && docker compose --env-file .env -f compose/proxy.yml up -d --force-recreate")
 
-    print("\n--- 1.6 Restart Backend, Celery Worker 1, Celery Scheduler, Celery Beat ---")
+    print("\n--- 1.5 Restart Backend, Celery Worker 1, Celery Scheduler, Celery Beat ---")
     run_command(
         ssh_central,
         "cd /opt/barpro && docker compose --env-file .env -f compose/backend.yml up -d --force-recreate backend celery_worker_1 celery_scheduler celery_beat",
     )
 
-    print("\n--- 1.7 Restart Web (Frontend + Nginx) ---")
+    print("\n--- 1.6 Restart Web (Frontend + Nginx) ---")
     run_command(
         ssh_central,
         "cd /opt/barpro && docker compose --env-file .env -f compose/web.yml up -d --force-recreate frontend nginx",
     )
 
-    print("\n--- 1.8 Waiting 20 seconds for central services initialization ---")
-    time.sleep(20)
+    print("\n--- 1.7 Restart Monitoring (Prometheus + Exporters) ---")
+    run_command(ssh_central, "cd /opt/barpro && docker compose --env-file .env -f compose/monitoring.yml up -d")
+
+    print("\n--- 1.8 Waiting 25 seconds for central services initialization ---")
+    time.sleep(25)
 
     print("\n--- 1.9 Database Migration Status & Upgrade ---")
     run_command(ssh_central, "docker exec barpro-backend python -m alembic -c alembic.ini upgrade head")
@@ -161,10 +161,7 @@ def main():
     render_w2_cmd = """cd /opt/barpro && set -a && source <(grep -vF '$' .env) && set +a && sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" -e "s/__CENTRAL_IP__/${CENTRAL_IP:-127.0.0.1}/g" infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf"""
     run_command(ssh_w2, f"bash -c '{render_w2_cmd}'")
 
-    print("\n--- 2.3 Build Worker Backend Image on Worker 2 ---")
-    run_command(ssh_w2, "cd /opt/barpro && docker build --network=host -t ghcr.io/amir-hdri/barpro-main/barpro-backend:latest -f Dockerfile .", timeout=900)
-
-    print("\n--- 2.4 Restart Worker 2 Services ---")
+    print("\n--- 2.3 Restart Worker 2 Services ---")
     run_command(ssh_w2, "cd /opt/barpro && docker compose --env-file .env -f compose/worker-node.yml up -d --force-recreate")
 
     # -------------------------------------------------------------------------
@@ -181,10 +178,7 @@ def main():
     render_w3_cmd = """cd /opt/barpro && set -a && source <(grep -vF '$' .env) && set +a && sed -e "s/__WORKER_EGRESS_IP__/${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" -e "s/__CENTRAL_IP__/${CENTRAL_IP:-127.0.0.1}/g" infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf"""
     run_command(ssh_w3, f"bash -c '{render_w3_cmd}'")
 
-    print("\n--- 3.3 Build Worker Backend Image on Worker 3 ---")
-    run_command(ssh_w3, "cd /opt/barpro && docker build --network=host -t ghcr.io/amir-hdri/barpro-main/barpro-backend:latest -f Dockerfile .", timeout=900)
-
-    print("\n--- 3.4 Restart Worker 3 Services ---")
+    print("\n--- 3.3 Restart Worker 3 Services ---")
     run_command(ssh_w3, "cd /opt/barpro && docker compose --env-file .env -f compose/worker-node.yml up -d --force-recreate")
 
     # -------------------------------------------------------------------------
