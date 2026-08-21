@@ -9,9 +9,9 @@ load_dotenv() {
     [ -f "$env_file" ] || return 0
 
     while IFS= read -r line || [ -n "$line" ]; do
-        line="${line%$'\r'}"
-        case "$line" in
-            ''|[[:space:]]*'#'*) continue ;;
+        local trimmed="${line#"${line%%[![:space:]]*}"}"
+        case "$trimmed" in
+            ''|'#'*) continue ;;
         esac
 
         line="${line#export }"
