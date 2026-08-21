@@ -140,6 +140,26 @@ class ClaimReaper:
                         extra={"extra_fields": {"job_id": job.job_id}},
                     )
 
+                # Also reap stale DriverRuntimeState rows where auth_lock_owner is older than threshold
+                from app.models_rpa import DriverRuntimeState, DriverRuntimeStateValue
+
+                stale_states_stmt = (
+                    select(DriverRuntimeState)
+                    .where(
+                        (DriverRuntimeState.auth_lock_owner != None)  # noqa: E711
+                        & (DriverRuntimeState.auth_lock_acquired_at < threshold)
+                    )
+                    .with_for_update(skip_locked=True)
+                )
+                stale_states = (await session.exec(stale_states_stmt)).all()
+                for st in stale_states:
+                    if not st.active_execution_id:
+                        st.auth_lock_owner = None
+                        st.auth_lock_acquired_at = None
+                        st.state = DriverRuntimeStateValue.READY.value
+                        st.updated_at = now
+                        session.add(st)
+
                 await session.commit()
                 if reclaimed_count > 0:
                     logger.warning(f"ClaimReaper reclaimed {reclaimed_count} stale CLAIMED jobs.")

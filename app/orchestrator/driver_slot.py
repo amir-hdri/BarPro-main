@@ -33,7 +33,7 @@ from datetime import UTC, datetime
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.models_rpa import DriverRuntimeState, Execution
+from app.models_rpa import DriverRuntimeState, DriverRuntimeStateValue, Execution
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,12 @@ async def release_driver_execution_slot(
     slot_intent_id = state.active_execution_id
 
     if not slot_intent_id:
+        if state.auth_lock_owner or state.state != DriverRuntimeStateValue.READY.value:
+            state.auth_lock_owner = None
+            state.auth_lock_acquired_at = None
+            state.state = DriverRuntimeStateValue.READY.value
+            state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+            session.add(state)
         # Idempotent: already released. This is checked before the ownership
         # guard so that releasing an already-empty slot always succeeds.
         logger.info(
@@ -108,7 +114,7 @@ async def release_driver_execution_slot(
         # Ownership guard: the slot belongs to a different intent — leave it
         # alone. This prevents one job's failure from freeing another job's slot.
         logger.info(
-            "driver_slot_release_intent_mismatch",
+            "driver_slot_release_mismatch",
             extra={
                 "extra_fields": {
                     "driver_id": driver_id,
@@ -133,6 +139,9 @@ async def release_driver_execution_slot(
         return False
 
     state.active_execution_id = None
+    state.auth_lock_owner = None
+    state.auth_lock_acquired_at = None
+    state.state = DriverRuntimeStateValue.READY.value
     state.updated_at = datetime.now(UTC).replace(tzinfo=None)
     session.add(state)
     logger.info(
