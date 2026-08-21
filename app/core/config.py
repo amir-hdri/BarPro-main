@@ -389,14 +389,22 @@ class UTCMSConfig:
         # Non-negotiable Rule #1: ALLOW_LIVE_SUBMIT default is FALSE.
         self.ALLOW_LIVE_SUBMIT = _to_bool(os.getenv("ALLOW_LIVE_SUBMIT", "False"), default=False)
         self.PREDICTED_OTP_REQUIRED_START_HOUR = int(
-            os.getenv("PREDICTED_OTP_REQUIRED_START_HOUR", os.getenv("PREDICTED_OTP_FREE_START_HOUR", "18"))
+            os.getenv("PREDICTED_OTP_REQUIRED_START_HOUR", os.getenv("PREDICTED_OTP_FREE_START_HOUR", "17"))
+        )
+        self.PREDICTED_OTP_REQUIRED_START_MINUTE = int(
+            os.getenv("PREDICTED_OTP_REQUIRED_START_MINUTE", os.getenv("PREDICTED_OTP_FREE_START_MINUTE", "30"))
         )
         self.PREDICTED_OTP_REQUIRED_END_HOUR = int(
             os.getenv("PREDICTED_OTP_REQUIRED_END_HOUR", os.getenv("PREDICTED_OTP_FREE_END_HOUR", "8"))
         )
+        self.PREDICTED_OTP_REQUIRED_END_MINUTE = int(
+            os.getenv("PREDICTED_OTP_REQUIRED_END_MINUTE", os.getenv("PREDICTED_OTP_FREE_END_MINUTE", "0"))
+        )
         # Compatibility aliases
         self.PREDICTED_OTP_FREE_START_HOUR = self.PREDICTED_OTP_REQUIRED_START_HOUR
+        self.PREDICTED_OTP_FREE_START_MINUTE = self.PREDICTED_OTP_REQUIRED_START_MINUTE
         self.PREDICTED_OTP_FREE_END_HOUR = self.PREDICTED_OTP_REQUIRED_END_HOUR
+        self.PREDICTED_OTP_FREE_END_MINUTE = self.PREDICTED_OTP_REQUIRED_END_MINUTE
         self.GATE_PROBE_INTERVAL_SECONDS = int(os.getenv("GATE_PROBE_INTERVAL_SECONDS", "300"))
         self.GATE_PROBE_LOCK_TTL_SECONDS = int(os.getenv("GATE_PROBE_LOCK_TTL_SECONDS", "60"))
         self.NIGHT_SUBMISSION_MAX_ATTEMPTS = int(os.getenv("NIGHT_SUBMISSION_MAX_ATTEMPTS", "3"))

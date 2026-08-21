@@ -12,8 +12,10 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "utcms"
 def test_default_config_redlines():
     """Verify safety default configuration values."""
     assert utcms_config.ALLOW_LIVE_SUBMIT is False
-    assert utcms_config.PREDICTED_OTP_FREE_START_HOUR == 18
+    assert utcms_config.PREDICTED_OTP_FREE_START_HOUR == 17
+    assert utcms_config.PREDICTED_OTP_FREE_START_MINUTE == 30
     assert utcms_config.PREDICTED_OTP_FREE_END_HOUR == 8
+    assert utcms_config.PREDICTED_OTP_FREE_END_MINUTE == 0
 
 
 def test_all_fixtures_valid_json_and_contract():

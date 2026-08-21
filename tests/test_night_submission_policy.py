@@ -19,15 +19,15 @@ def _job() -> WaybillJob:
 
 
 def test_night_window_boundaries() -> None:
-    assert night_window_key(datetime(2026, 8, 16, 17, 59, tzinfo=TEHRAN_TZ)) is None
-    assert night_window_key(datetime(2026, 8, 16, 18, 0, tzinfo=TEHRAN_TZ)) == "2026-08-16"
+    assert night_window_key(datetime(2026, 8, 16, 17, 29, tzinfo=TEHRAN_TZ)) is None
+    assert night_window_key(datetime(2026, 8, 16, 17, 30, tzinfo=TEHRAN_TZ)) == "2026-08-16"
     assert night_window_key(datetime(2026, 8, 17, 7, 59, tzinfo=TEHRAN_TZ)) == "2026-08-16"
     assert night_window_key(datetime(2026, 8, 17, 8, 0, tzinfo=TEHRAN_TZ)) is None
 
 
 def test_third_safe_failure_enters_standby_until_next_tehran_eight() -> None:
     job = _job()
-    now = datetime(2026, 8, 16, 18, 0, tzinfo=TEHRAN_TZ)
+    now = datetime(2026, 8, 16, 17, 30, tzinfo=TEHRAN_TZ)
 
     assert register_safe_night_failure(job, now).standby is False
     assert register_safe_night_failure(job, now).standby is False

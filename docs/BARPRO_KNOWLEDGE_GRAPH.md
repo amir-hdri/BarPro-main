@@ -553,8 +553,8 @@ CAPTCHA_MODE فقط یکی از local_only، provider_only، provider_first یا
 
 UTCMS پنجره رسمی و تضمین‌شده‌ای برای OTP منتشر نکرده است.
 
-- CODE-VERIFIED: 18:00 تا 08:00 مقدار پیش‌فرض configurable prediction برای
-  OTP_REQUIRED است.
+- CODE-VERIFIED: 17:30 تا 08:00 مقدار پیش‌فرض configurable prediction برای
+  OTP_REQUIRED و آماده‌باش شبانه است.
 - این بازه قانون قطعی UTCMS یا OTP_FREE window نیست.
 - فقط observation معتبر OTP_FREE اجازه submit می‌دهد.
 - UNKNOWN، DEGRADED و OTP_REQUIRED fail-closed هستند.
@@ -566,8 +566,10 @@ UTCMS پنجره رسمی و تضمین‌شده‌ای برای OTP منتشر 
 
 | variable | default کد | تفسیر |
 |---|---:|---|
-| PREDICTED_OTP_REQUIRED_START_HOUR | 18 | شروع prediction |
-| PREDICTED_OTP_REQUIRED_END_HOUR | 8 | پایان prediction |
+| PREDICTED_OTP_REQUIRED_START_HOUR | 17 | ساعت شروع prediction |
+| PREDICTED_OTP_REQUIRED_START_MINUTE | 30 | دقیقه شروع prediction |
+| PREDICTED_OTP_REQUIRED_END_HOUR | 8 | ساعت پایان prediction |
+| PREDICTED_OTP_REQUIRED_END_MINUTE | 0 | دقیقه پایان prediction |
 | GATE_PROBE_INTERVAL_SECONDS | 300 | فاصله publish probe |
 | GATE_PROBE_LOCK_TTL_SECONDS | 60 | TTL lock |
 | GATE_OBSERVATION_VALIDITY_SECONDS | 1800 | اعتبار observation |

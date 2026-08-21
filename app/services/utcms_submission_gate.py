@@ -60,24 +60,23 @@ class UTCMSSubmissionGate:
         return datetime.now(TEHRAN_TZ)
 
     def is_in_predicted_otp_required_window(self, dt: datetime | None = None) -> bool:
-        """Check if given Tehran datetime is within the predicted OTP_REQUIRED window (default 18:00 - 08:00)."""
+        """Check if given Tehran datetime is within the predicted OTP_REQUIRED window (default 17:30 - 08:00)."""
+        from datetime import time as dt_time
         tehran_dt = dt or self.get_tehran_now()
-        hour = tehran_dt.hour
-        start = getattr(
-            utcms_config,
-            "PREDICTED_OTP_REQUIRED_START_HOUR",
-            getattr(utcms_config, "PREDICTED_OTP_FREE_START_HOUR", 18),
+        cur_time = tehran_dt.time()
+        start = dt_time(
+            hour=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_START_HOUR", 17),
+            minute=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_START_MINUTE", 30),
         )
-        end = getattr(
-            utcms_config,
-            "PREDICTED_OTP_REQUIRED_END_HOUR",
-            getattr(utcms_config, "PREDICTED_OTP_FREE_END_HOUR", 8),
+        end = dt_time(
+            hour=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_END_HOUR", 8),
+            minute=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_END_MINUTE", 0),
         )
 
         if start > end:
-            # Over-night window (e.g. 18:00 to 08:00)
-            return hour >= start or hour < end
-        return start <= hour < end
+            # Over-night window (e.g. 17:30 to 08:00)
+            return cur_time >= start or cur_time < end
+        return start <= cur_time < end
 
     def is_in_predicted_free_window(self, dt: datetime | None = None) -> bool:
         """Compatibility alias. Returns the logical opposite of the OTP_REQUIRED window."""

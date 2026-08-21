@@ -55,7 +55,7 @@ bash manage.sh stop
 - JWT transport uses the `httpOnly` cookie `utcms_auth_token`
 - Keep `AUTH_COOKIE_SECURE=false` on HTTP; switch to `true` after HTTPS
 - Required captcha assets include CNN, PyTorch fuel CRNN, fuel vocab, and Keras fallback model
-- Keras runs in-process; the `18:00–08:00` OTP interval is predictive, not a guaranteed UTCMS window
+- Keras runs in-process; the `17:30–08:00` OTP interval is predictive, not a guaranteed UTCMS window
 - Waybill `success` requires three-witness reconciliation; browser success alone is not final
 - Universal mobile anti-zoom enforced across iOS and Android
 

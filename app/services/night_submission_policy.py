@@ -23,14 +23,36 @@ def tehran_now() -> datetime:
     return datetime.now(TEHRAN_TZ)
 
 
+def is_in_night_window(now: datetime | None = None) -> bool:
+    """Return True if the current or given Tehran datetime is within the 17:30-08:00 window."""
+    current = (now or tehran_now()).astimezone(TEHRAN_TZ).time()
+    start_time = time(
+        hour=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_START_HOUR", 17),
+        minute=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_START_MINUTE", 30),
+    )
+    end_time = time(
+        hour=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_END_HOUR", 8),
+        minute=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_END_MINUTE", 0),
+    )
+    if start_time > end_time:
+        return current >= start_time or current < end_time
+    return start_time <= current < end_time
+
+
 def night_window_key(now: datetime | None = None) -> str | None:
-    """Return the date on which the active 18:00-08:00 window started."""
+    """Return the date on which the active 17:30-08:00 window started."""
     current = (now or tehran_now()).astimezone(TEHRAN_TZ)
-    start_hour = utcms_config.PREDICTED_OTP_REQUIRED_START_HOUR
-    end_hour = utcms_config.PREDICTED_OTP_REQUIRED_END_HOUR
-    if current.hour >= start_hour:
+    start_time = time(
+        hour=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_START_HOUR", 17),
+        minute=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_START_MINUTE", 30),
+    )
+    end_time = time(
+        hour=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_END_HOUR", 8),
+        minute=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_END_MINUTE", 0),
+    )
+    if current.time() >= start_time:
         return current.date().isoformat()
-    if current.hour < end_hour:
+    if current.time() < end_time:
         return (current.date() - timedelta(days=1)).isoformat()
     return None
 
@@ -38,11 +60,18 @@ def night_window_key(now: datetime | None = None) -> str | None:
 def next_reopen_at_utc_naive(now: datetime | None = None) -> datetime:
     """Return the next 08:00 Tehran boundary as a naive UTC DB timestamp."""
     current = (now or tehran_now()).astimezone(TEHRAN_TZ)
-    end_hour = utcms_config.PREDICTED_OTP_REQUIRED_END_HOUR
+    start_time = time(
+        hour=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_START_HOUR", 17),
+        minute=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_START_MINUTE", 30),
+    )
+    end_time = time(
+        hour=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_END_HOUR", 8),
+        minute=getattr(utcms_config, "PREDICTED_OTP_REQUIRED_END_MINUTE", 0),
+    )
     reopen_date: date = current.date()
-    if current.hour >= utcms_config.PREDICTED_OTP_REQUIRED_START_HOUR:
+    if current.time() >= start_time:
         reopen_date += timedelta(days=1)
-    reopen_local = datetime.combine(reopen_date, time(hour=end_hour), tzinfo=TEHRAN_TZ)
+    reopen_local = datetime.combine(reopen_date, end_time, tzinfo=TEHRAN_TZ)
     return reopen_local.astimezone(UTC).replace(tzinfo=None)
 
 

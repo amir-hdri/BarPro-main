@@ -78,25 +78,54 @@ class RPASchedulerService:
                 )
                 return existing
 
+            from app.services.night_submission_policy import is_in_night_window, next_reopen_at_utc_naive
+
+            in_night = is_in_night_window()
+            submit_after_time = next_reopen_at_utc_naive() if in_night else _utcnow_naive()
+            initial_status = TaskStatus.WAITING_SUBMISSION_WINDOW.value if in_night else TaskStatus.PENDING.value
+
             job = WaybillJob(
                 job_id=f"job_{uuid.uuid4().hex[:16]}",
                 idempotency_key=normalized_key,
                 client_id=client_id,
                 driver_id=driver.id,
-                status=TaskStatus.PENDING.value,
+                status=initial_status,
                 source=source.value,
                 payload_json=payload,
                 max_retries=max_retries,
                 correlation_id=(correlation_id or f"corr_{uuid.uuid4().hex[:16]}"),
                 business_date=business_date_str(),
                 priority=priority,
-                submit_after=_utcnow_naive(),
+                submit_after=submit_after_time,
+                next_retry_at=submit_after_time if in_night else None,
             )
             session.add(job)
             await self._ensure_runtime_state(session, client_id, driver.id)
+            event_type = JOB_WAITING_SUBMISSION_WINDOW if in_night else JOB_CREATED
             await self._record_event(
-                session, client_id, driver.id, job.job_id, JOB_CREATED, {"priority": priority, "source": source.value}
+                session,
+                client_id,
+                driver.id,
+                job.job_id,
+                event_type,
+                {
+                    "priority": priority,
+                    "source": source.value,
+                    "night_window": in_night,
+                    "submit_after": submit_after_time.isoformat(),
+                },
             )
+            if in_night:
+                session.add(
+                    WaybillTaskLog(
+                        job_id=job.job_id,
+                        client_id=client_id,
+                        step="night_window_queued",
+                        status="waiting_submission_window",
+                        message="بارنامه در صف آماده‌باش شبانه قرار گرفت (شروع ثبت خودکار از ساعت ۰۸:۰۰ صبح)",
+                        details_json={"reopen_at_utc": submit_after_time.isoformat()},
+                    )
+                )
             try:
                 await session.commit()
             except IntegrityError:

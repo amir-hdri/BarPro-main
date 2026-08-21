@@ -43,13 +43,13 @@ async def test_evidence_sanitization(gate):
 
 @pytest.mark.asyncio
 async def test_predicted_otp_required_window(gate):
-    # Within 18:00 - 08:00 window (predicted OTP_REQUIRED)
-    dt_evening = datetime(2026, 8, 15, 20, 0, tzinfo=TEHRAN_TZ)
+    # Within 17:30 - 08:00 window (predicted OTP_REQUIRED)
+    dt_evening = datetime(2026, 8, 15, 17, 30, tzinfo=TEHRAN_TZ)
     dt_night = datetime(2026, 8, 15, 2, 0, tzinfo=TEHRAN_TZ)
     dt_morning = datetime(2026, 8, 15, 7, 59, tzinfo=TEHRAN_TZ)
     # Outside window
     dt_day = datetime(2026, 8, 15, 12, 0, tzinfo=TEHRAN_TZ)
-    dt_afternoon = datetime(2026, 8, 15, 17, 59, tzinfo=TEHRAN_TZ)
+    dt_afternoon = datetime(2026, 8, 15, 17, 29, tzinfo=TEHRAN_TZ)
 
     assert gate.is_in_predicted_otp_required_window(dt_evening) is True
     assert gate.is_in_predicted_otp_required_window(dt_night) is True

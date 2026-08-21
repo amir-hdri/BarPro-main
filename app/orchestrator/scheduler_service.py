@@ -57,7 +57,12 @@ class SchedulerService:
                     )
                     .where(
                         WaybillJob.status.in_(
-                            [TaskStatus.PENDING.value, TaskStatus.WAITING_RETRY.value, TaskStatus.OTP_BACKOFF.value]
+                            [
+                                TaskStatus.PENDING.value,
+                                TaskStatus.WAITING_RETRY.value,
+                                TaskStatus.OTP_BACKOFF.value,
+                                TaskStatus.WAITING_SUBMISSION_WINDOW.value,
+                            ]
                         )
                     )
                     .where((WaybillJob.next_retry_at == None) | (WaybillJob.next_retry_at <= now))  # noqa: E711
