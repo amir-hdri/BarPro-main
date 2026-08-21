@@ -145,9 +145,9 @@ class UTCMSSubmissionGate:
             set_gate_state_metric(GateStateValue.OTP_REQUIRED.value)
             return GateStateValue.OTP_REQUIRED
 
-        # Outside predicted window without live observation -> UNKNOWN (fail-closed until probed)
-        set_gate_state_metric(GateStateValue.UNKNOWN.value)
-        return GateStateValue.UNKNOWN
+        # Outside predicted window (daytime 08:00 - 18:00 Tehran) without active block -> OTP_FREE
+        set_gate_state_metric(GateStateValue.OTP_FREE.value)
+        return GateStateValue.OTP_FREE
 
     async def is_submission_allowed(self) -> bool:
         """Check if submitting a waybill is currently permitted.

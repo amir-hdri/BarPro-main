@@ -98,7 +98,7 @@ class Client(SQLModel, table=True):
     email: str = Field(max_length=255, index=True)
     phone: str | None = Field(default=None, max_length=20)
     hashed_password: str = Field(max_length=255)
-    status: str = Field(default=ClientStatus.ACTIVE.value, max_length=20, index=True)
+    status: str = Field(default=ClientStatus.ACTIVE.value, max_length=50, index=True)
     access_level: str = Field(default="standard", max_length=50)
 
     # Legacy/DB mandatory columns (used by some auth/registration logic)
@@ -179,9 +179,9 @@ class Driver(SQLModel, table=True):
     default_payload_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
 
     # Status & metadata
-    status: str = Field(default=DriverStatus.ACTIVE.value, max_length=20, index=True)
+    status: str = Field(default=DriverStatus.ACTIVE.value, max_length=50, index=True)
     metadata_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
-    runtime_status: str = Field(default=DriverStatus.ACTIVE.value, max_length=40, index=True)
+    runtime_status: str = Field(default=DriverStatus.ACTIVE.value, max_length=50, index=True)
     last_auth_at: datetime | None = Field(
         default=None,
         sa_column=Column(DateTime(timezone=False), nullable=True),
@@ -226,7 +226,7 @@ class DriverPlate(SQLModel, table=True):
     driver_id: int = Field(foreign_key="drivers.id", index=True)
     plate_number: str = Field(max_length=20, index=True)
     vehicle_type: str | None = Field(default=None, max_length=100)
-    status: str = Field(default=DriverStatus.ACTIVE.value, max_length=20, index=True)
+    status: str = Field(default=DriverStatus.ACTIVE.value, max_length=50, index=True)
     notes: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
@@ -319,7 +319,7 @@ class WaybillJob(SQLModel, table=True):
     driver_id: int | None = Field(default=None, foreign_key="drivers.id", index=True)
 
     # Task metadata
-    status: str = Field(default=TaskStatus.PENDING.value, max_length=20, index=True)
+    status: str = Field(default=TaskStatus.PENDING.value, max_length=50, index=True)
     source: str = Field(default=TaskSource.MANUAL.value, max_length=20)
 
     # Waybill data (JSON payload)
@@ -410,7 +410,7 @@ class WaybillTaskLog(SQLModel, table=True):
 
     # Log entry
     step: str = Field(max_length=100)  # e.g., "login", "captcha", "form_fill", "submit"
-    status: str = Field(max_length=20)  # "success", "failed", "retry"
+    status: str = Field(max_length=50)  # "success", "failed", "retry", "waiting_submission_window"
     message: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     details_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
 
@@ -447,7 +447,7 @@ class UploadBatch(SQLModel, table=True):
     invalid_rows: int = Field(default=0)
 
     # Processing status
-    status: str = Field(default="processing", max_length=20)
+    status: str = Field(default="processing", max_length=50)
     errors_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
 
     # ORM relationship
@@ -481,7 +481,7 @@ class FuelInquiry(SQLModel, table=True):
     driver_id: int = Field(foreign_key="drivers.id", index=True)
 
     # Status of the inquiry (pending, processing, success, failed)
-    status: str = Field(default="pending", max_length=20, index=True)
+    status: str = Field(default="pending", max_length=50, index=True)
     error_message: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     error_category: str | None = Field(default=None, max_length=50, index=True)
 

@@ -216,7 +216,7 @@ class DispatchIntent(SQLModel, table=True):
     attempt_no: int = Field(default=1)
     operation: str = Field(max_length=32)
     fencing_token: int = Field(default=1)
-    status: str = Field(default="pending", max_length=20, index=True)
+    status: str = Field(default="pending", max_length=50, index=True)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),

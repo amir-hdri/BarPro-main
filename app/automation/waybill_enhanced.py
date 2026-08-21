@@ -2221,7 +2221,10 @@ class EnhancedWaybillManager:
             utcms_config.WAYBILL_URL,
             f"{base_url}/barname/Document/HagigiHogugi",
             f"{base_url}/Barname/Document/HagigiHogugi",
+            f"{base_url}/Transportation/Waybill",
+            f"{base_url}/transportation/waybill",
             f"{base_url}/Barname/Waybill/Create",
+            f"{base_url}/Barname/Document/Create",
         ]
         unique: list[str] = []
         for item in candidates:
