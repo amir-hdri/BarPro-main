@@ -465,6 +465,23 @@ export default function HistoryPage() {
     }
   }, [activeCategory, jobs, fuelInquiries]);
 
+  const loadTimeline = useCallback(async (jobId: string) => {
+    setTimelineLoading(true);
+    setTimelineError(null);
+    setTimeline(null);
+    const response = await api.get<JobTimelineResponse>(`/api/v1/waybill-jobs/${jobId}/timeline`, {
+      include_payload: 'true',
+      page: '1',
+      page_size: '20',
+    });
+    if (response.success && response.data) {
+      setTimeline(response.data);
+    } else {
+      setTimelineError(response.error || 'تایم‌لاین بارگذاری نشد');
+    }
+    setTimelineLoading(false);
+  }, []);
+
   useEffect(() => {
     if (!hasActiveItems) return;
     const interval = setInterval(() => {
@@ -601,23 +618,6 @@ export default function HistoryPage() {
     }
   }
 
-
-  const loadTimeline = useCallback(async (jobId: string) => {
-    setTimelineLoading(true);
-    setTimelineError(null);
-    setTimeline(null);
-    const response = await api.get<JobTimelineResponse>(`/api/v1/waybill-jobs/${jobId}/timeline`, {
-      include_payload: 'true',
-      page: '1',
-      page_size: '20',
-    });
-    if (response.success && response.data) {
-      setTimeline(response.data);
-    } else {
-      setTimelineError(response.error || 'تایم‌لاین بارگذاری نشد');
-    }
-    setTimelineLoading(false);
-  }, []);
 
   useEffect(() => {
     if (selectedJobId && activeCategory === 'waybills') {
