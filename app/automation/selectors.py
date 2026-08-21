@@ -256,12 +256,20 @@ class AuthSelectors:
         "button.refresh-captcha",
     )
     SUBMIT_SELECTORS = (
+        "#inter",
         "button[id='inter']",
+        "#btnLogin",
+        "button#btnLogin",
+        "input#btnLogin",
+        "#btnSubmit",
         "button[type='submit']",
         "input[type='submit']",
         "button:has-text('ورود')",
+        "button:has-text('ورود به سامانه')",
         "button:has-text('Login')",
         "button:has-text('Sign in')",
+        ".btn-login",
+        "a#btnLogin",
     )
     LOGOUT_SELECTORS = (
         "text=خروج",

@@ -564,7 +564,9 @@ class UTCMSAuthenticator:
     async def _fill_credentials(
         self, username_selector: str, password_selector: str, username: str, password: str
     ) -> bool:
-        u_ok = await self.navigator.fill_input_like(username_selector, username)
+        digit_table = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+        username_clean = (username or "").translate(digit_table).strip()
+        u_ok = await self.navigator.fill_input_like(username_selector, username_clean)
         p_ok = await self.navigator.fill_input_like(password_selector, password)
         if u_ok and p_ok:
             return True

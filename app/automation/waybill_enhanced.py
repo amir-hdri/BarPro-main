@@ -2130,6 +2130,34 @@ class EnhancedWaybillManager:
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
+        # Ensure sidebar/menu is expanded if collapsed
+        try:
+            sidebar_toggle = await self.page.query_selector("a.sidebar-toggle, button.sidebar-toggle, .sidebar-toggler")
+            if sidebar_toggle:
+                is_collapsed = await self.page.evaluate("document.body.classList.contains('sidebar-collapse')")
+                if is_collapsed:
+                    await sidebar_toggle.click()
+                    await asyncio.sleep(0.3)
+        except Exception:
+            pass
+
+        # Expand parent dropdown menus (e.g. 'مدیریت بارنامه' / 'اسناد حمل')
+        parent_menu_selectors = (
+            "li.treeview:has-text('بارنامه') > a",
+            "li.nav-item:has-text('بارنامه') > a",
+            "a:has-text('مدیریت بارنامه')",
+            "a:has-text('اسناد حمل')",
+            "a:has-text('عملیات بارنامه')",
+        )
+        for p_sel in parent_menu_selectors:
+            try:
+                p_handle = await self.page.query_selector(p_sel)
+                if p_handle:
+                    await p_handle.click(timeout=1000)
+                    await asyncio.sleep(0.2)
+            except Exception:
+                pass
+
         menu_selectors = (
             "a[href*='HagigiHogugi' i]",
             "a[href*='Document/HagigiHogugi' i]",
@@ -2142,24 +2170,25 @@ class EnhancedWaybillManager:
 
         for selector in menu_selectors:
             try:
-                link = await self.smart_locator.locate(self.page, [selector], timeout=1800)
-                href = await link.get_attribute("href")
-                if href and href.strip() and not href.strip().startswith(("#", "javascript:")):
-                    await self._goto_with_retry(urljoin(current_url, href), wait_until="domcontentloaded")
-                else:
+                link = await self.smart_locator.locate(self.page, [selector], timeout=2500)
+                try:
+                    await link.click(timeout=2500)
+                except Exception:
                     try:
-                        await link.click(timeout=1500)
+                        await link.dispatch_event("click")
                     except Exception:
-                        try:
-                            await link.dispatch_event("click")
-                        except Exception:
+                        href = await link.get_attribute("href")
+                        if href and href.strip() and not href.strip().startswith(("#", "javascript:")):
+                            await self._goto_with_retry(urljoin(current_url, href), wait_until="domcontentloaded")
+                        else:
                             await self.page.evaluate("(el) => el.click()", link)
-                    try:
-                        await self.page.wait_for_load_state("domcontentloaded", timeout=4000)
-                    except Exception:
-                        pass
 
-                await asyncio.sleep(0.3)
+                try:
+                    await self.page.wait_for_load_state("domcontentloaded", timeout=6000)
+                except Exception:
+                    pass
+
+                await asyncio.sleep(0.4)
                 if await self._is_waybill_form_ready():
                     return
             except Exception:
@@ -2168,7 +2197,7 @@ class EnhancedWaybillManager:
         for candidate_url in self._waybill_url_candidates():
             try:
                 await self._goto_with_retry(candidate_url, wait_until="domcontentloaded")
-                await asyncio.sleep(0.24)
+                await asyncio.sleep(0.3)
                 if await self._is_waybill_form_ready():
                     return
             except Exception:
