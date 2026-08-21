@@ -91,10 +91,13 @@ class UTCMSSubmissionGate:
         if redis is not None:
             try:
                 override = await redis.get(self.KEY_MANUAL_OVERRIDE)
-                if override and override in GateStateValue:
-                    state_val = GateStateValue(override)
-                    set_gate_state_metric(state_val.value)
-                    return state_val
+                if override:
+                    try:
+                        state_val = GateStateValue(override)
+                        set_gate_state_metric(state_val.value)
+                        return state_val
+                    except ValueError:
+                        pass
             except Exception:
                 logger.warning("utcms_gate_redis_override_read_failed", exc_info=True)
                 redis = None
@@ -103,18 +106,24 @@ class UTCMSSubmissionGate:
         if redis is not None:
             try:
                 cached = await redis.get(self.KEY_STATE)
-                if cached and cached in GateStateValue:
-                    state_val = GateStateValue(cached)
-                    set_gate_state_metric(state_val.value)
-                    return state_val
+                if cached:
+                    try:
+                        state_val = GateStateValue(cached)
+                        set_gate_state_metric(state_val.value)
+                        return state_val
+                    except ValueError:
+                        pass
             except Exception:
                 logger.warning("utcms_gate_redis_state_read_failed", exc_info=True)
                 redis = None
         else:
             if time.time() < self._memory_state_expires_at:
-                state_val = GateStateValue(self._memory_state)
-                set_gate_state_metric(state_val.value)
-                return state_val
+                try:
+                    state_val = GateStateValue(self._memory_state)
+                    set_gate_state_metric(state_val.value)
+                    return state_val
+                except ValueError:
+                    pass
 
         # 3. Check latest observation in DB
         try:
