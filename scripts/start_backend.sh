@@ -58,7 +58,9 @@ echo "✅ Docker containers در حال اجرا هستند"
 echo "🔍 بررسی متغیرهای محیطی..."
 if [ -f ".env" ]; then
     echo "✅ فایل .env یافت شد"
-    set -a && source .env && set +a
+    # shellcheck source=scripts/load_env.sh
+    source scripts/load_env.sh
+    load_dotenv .env
 else
     echo "⚠️  فایل .env یافت نشد، از مقادیر پیش‌فرض استفاده می‌شود"
 fi
@@ -67,8 +69,8 @@ fi
 export DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@127.0.0.1:5432/utcms_rpa}"
 export REDIS_URL="${REDIS_URL:-redis://:${REDIS_PASSWORD}@127.0.0.1:6379/0}"
 
-echo "🔍 اجرای migrations دیتابیس..."
-alembic upgrade head
+echo "🔍 اجرای migrations دیتابیس زیر PostgreSQL advisory lock..."
+python3 -c 'import asyncio; from app.core.database import run_migrations; asyncio.run(run_migrations())'
 
 echo "🔍 تست اتصال به دیتابیس..."
 # Get clean db url for testing (remove +asyncpg)

@@ -1,5 +1,9 @@
 # BarPro Final Polish Report — Driver-Slot Safety, Cancel Lifecycle, Scheduler Policy
 
+> Historical branch report. The current DELETE job contract is permanent
+> deletion and the current state/queue/schema contracts are documented in
+> docs/BARPRO_KNOWLEDGE_GRAPH.md. Do not use this report as a deployment runbook.
+
 Branch: `arena/019fe01a-barpro-main`
 Commit: `5fb6fc1`
 Date: 2026-08-08

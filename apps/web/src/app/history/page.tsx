@@ -370,7 +370,6 @@ export default function HistoryPage() {
   const [editForm, setEditForm] = useState<WaybillJobUpdateRequest>({
     priority: 5,
     max_retries: 3,
-    status: '',
     terminal_reason: '',
     business_date: '',
     correlation_id: '',
@@ -535,7 +534,6 @@ export default function HistoryPage() {
     setEditForm({
       priority: job.priority,
       max_retries: job.max_retries,
-      status: job.status,
       terminal_reason: job.terminal_reason || '',
       business_date: job.business_date || '',
       correlation_id: job.correlation_id || '',
@@ -553,7 +551,6 @@ export default function HistoryPage() {
 
   async function handleEditJob(jobId: string) {
     const payload = { ...editForm };
-    if (!payload.status) delete payload.status;
     if (!payload.terminal_reason) delete payload.terminal_reason;
     if (!payload.business_date) delete payload.business_date;
     if (!payload.correlation_id) delete payload.correlation_id;
@@ -1466,20 +1463,6 @@ export default function HistoryPage() {
                        onChange={(e) => setEditForm({ ...editForm, max_retries: Number(e.target.value) })}
                        className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-xs text-white outline-none focus:border-cyan-400 touch-target"
                      />
-                   </div>
-
-                   <div>
-                     <label className="block text-xs font-bold text-slate-400 mb-1">وضعیت دستی (اختیاری)</label>
-                     <select
-                       value={editForm.status || ''}
-                       onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
-                       className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-xs text-white outline-none focus:border-cyan-400 touch-target"
-                     >
-                       <option value="">بدون تغییر</option>
-                       <option value="pending" className="bg-slate-950">در صف (pending)</option>
-                       <option value="failed" className="bg-slate-950">خطا (failed)</option>
-                       <option value="needs_review" className="bg-slate-950">نیازمند بررسی (needs_review)</option>
-                     </select>
                    </div>
 
                    <div>

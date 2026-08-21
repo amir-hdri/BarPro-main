@@ -54,6 +54,40 @@ def _first(*candidates: Any) -> Any:
     return None
 
 
+def _parse_payload(payload: Any) -> dict[str, Any]:
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError):
+            payload = {}
+    return _as_dict(payload)
+
+
+def _enhanced_commercial_view(data: dict[str, Any]) -> dict[str, Any]:
+    """Return the same normalized commercial view consumed by live RPA.
+
+    Compact frontend payloads keep addresses, parties and some cargo fields in
+    ``metadata_json``. Hashing the raw compact object omitted those fields and
+    could collapse two different submissions onto one idempotency key. The RPA
+    adapter is the canonical authoring point for that compact/nested merge, so
+    identity and execution must consume the same view.
+    """
+    # A partially nested payload is already the most truthful source available.
+    # The compact adapter deliberately treats only a complete nested form
+    # (identified by sender) as nested; applying it to reconciliation fragments
+    # would discard vehicle/origin fields used by workers and tests.
+    if any(isinstance(data.get(key), dict) for key in ("vehicle", "origin", "destination", "cargo")):
+        return data
+
+    try:
+        from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload
+
+        normalized = build_enhanced_waybill_payload(data)
+    except (TypeError, ValueError, KeyError):
+        return data
+    return normalized if isinstance(normalized, dict) else data
+
+
 def extract_reconciliation_identity(payload: Any, driver: Any = None) -> SubmissionIdentity:
     """Extract identity/search fields from a job payload for reconciliation.
 
@@ -61,17 +95,13 @@ def extract_reconciliation_identity(payload: Any, driver: Any = None) -> Submiss
     optional ORM object exposing ``driver_national_code`` (used as a fallback
     when the payload carries no national code).
     """
-    if isinstance(payload, str):
-        try:
-            payload = json.loads(payload)
-        except (TypeError, ValueError):
-            payload = {}
-    data = _as_dict(payload)
+    data = _parse_payload(payload)
+    commercial = _enhanced_commercial_view(data)
 
-    vehicle = _as_dict(data.get("vehicle"))
-    origin = _as_dict(data.get("origin"))
-    destination = _as_dict(data.get("destination"))
-    cargo = _as_dict(data.get("cargo"))
+    vehicle = _as_dict(commercial.get("vehicle"))
+    origin = _as_dict(commercial.get("origin"))
+    destination = _as_dict(commercial.get("destination"))
+    cargo = _as_dict(commercial.get("cargo"))
 
     plate_number = _first(
         vehicle.get("plate_number"),
@@ -151,20 +181,16 @@ def extract_canonical_commercial_payload(payload: Any, driver: Any = None) -> di
     normalizes plate, textual origin/destination, cargo, parties, and business date.
     """
 
-    if isinstance(payload, str):
-        try:
-            payload = json.loads(payload)
-        except (TypeError, ValueError):
-            payload = {}
-    data = _as_dict(payload)
+    data = _parse_payload(payload)
+    commercial = _enhanced_commercial_view(data)
 
     identity = extract_reconciliation_identity(data, driver=driver)
 
-    origin = _as_dict(data.get("origin"))
-    destination = _as_dict(data.get("destination"))
-    cargo = _as_dict(data.get("cargo"))
-    sender = _as_dict(data.get("sender"))
-    receiver = _as_dict(data.get("receiver"))
+    origin = _as_dict(commercial.get("origin"))
+    destination = _as_dict(commercial.get("destination"))
+    cargo = _as_dict(commercial.get("cargo"))
+    sender = _as_dict(commercial.get("sender"))
+    receiver = _as_dict(commercial.get("receiver"))
 
     return {
         "driver_national_code": identity.national_code or "",
@@ -182,7 +208,7 @@ def extract_canonical_commercial_payload(payload: Any, driver: Any = None) -> di
             "address": identity.dest_address or "",
         },
         "cargo": {
-            "cargo_type": str(cargo.get("cargo_type") or data.get("cargo_type") or "").strip(),
+            "cargo_type": str(cargo.get("type") or cargo.get("cargo_type") or data.get("cargo_type") or "").strip(),
             "packaging": str(cargo.get("packaging") or cargo.get("box_type") or data.get("packaging") or "").strip(),
             "weight": str(identity.cargo_weight or "").strip(),
             "value": str(cargo.get("value") or cargo.get("cargo_value") or data.get("cargo_value") or "").strip(),

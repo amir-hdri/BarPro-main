@@ -110,7 +110,7 @@
 | B5 | Double `json.loads()` روی JSONB | ✅ | SQLAlchemy قبلاً deserialize می‌کند |
 | B6 | `json.loads()` روی JSONB result_json | ✅ | برطرف در `rpa_scheduler_service.py` |
 | B7 | Session not injected در services | ✅ | از `get_session()` dependency |
-| B8 | Migration deadlock on startup | ✅ | Redis distributed lock |
+| B8 | Migration deadlock on startup | ✅ | PostgreSQL session-level advisory lock |
 | B9 | JSONB → SQLite incompatibility | ✅ | `JSON as JSONB` dialect-agnostic |
 | B10 | `IntegrityError` در runtime state claim، worker را abort می‌کرد | ✅ | rollback + re-select |
 | B11 | Lock بدون امکان release با token | ✅ | `force_release_lock(key, token=None)` — compare-and-delete |

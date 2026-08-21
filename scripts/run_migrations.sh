@@ -9,8 +9,8 @@
 #  استفاده:
 #    bash scripts/run_migrations.sh
 #
-#  معادل دستی (در صورت عدم دسترسی به اسکریپت):
-#    docker exec barpro-backend alembic upgrade head
+#  این مسیر از PostgreSQL advisory lock استفاده می‌کند و نباید با Alembic خام
+#  جایگزین شود.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set -euo pipefail
@@ -38,7 +38,8 @@ else
 fi
 
 log_info "اجرای migrationها روی کانتینر: $CONTAINER"
-docker exec "$CONTAINER" alembic upgrade head
+docker exec "$CONTAINER" python -c \
+  'import asyncio; from app.core.database import run_migrations; asyncio.run(run_migrations())'
 
 log_ok "✅ migrationها با موفقیت اجرا شدند!"
 

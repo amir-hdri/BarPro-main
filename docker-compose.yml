@@ -7,7 +7,7 @@
 #    └─ postgres, redis
 #
 #  لایه ۲ — پروکسی (proxy):     compose/proxy.yml
-#    └─ squid_1, squid_2, squid_3
+#    └─ squid_1 (Model B default); squid_2/3 only with --profile model-a
 #
 #  لایه ۳ — بک‌اند (backend):   compose/backend.yml
 #    └─ backend API, celery_worker_1/2/3, celery_beat
@@ -18,8 +18,13 @@
 #  لایه ۵ — مانیتورینگ (mon):   compose/monitoring.yml
 #    └─ prometheus
 #
-#  اجرای کل پروژه:
+#  اجرای کل پروژه در Model B (production/default):
 #    bash manage.sh start
+#
+#  اجرای تک‌سروره Model A (سه Squid + سه worker محلی):
+#    BARPRO_TOPOLOGY=model-a bash manage.sh start
+#  یا مستقیماً با Compose:
+#    docker compose --profile model-a --profile scale-out up -d
 #
 #  اجرای یک لایه مشخص برای دیباگ:
 #    docker compose -f compose/infra.yml up

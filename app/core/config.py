@@ -39,6 +39,13 @@ def _to_bool(value: str | None, default: bool = False, required: bool = False) -
     return value.strip().lower() == "true"
 
 
+def _validated_choice(name: str, value: str | None, default: str, allowed: set[str]) -> str:
+    normalized = (default if value is None else value).strip().lower()
+    if normalized not in allowed:
+        raise ValueError(f"Invalid {name} '{normalized}'. Must be one of: {', '.join(sorted(allowed))}")
+    return normalized
+
+
 class UTCMSConfig:
     def __init__(self) -> None:
         # NOTE: the three URLs below address the EXTERNAL UTCMS government
@@ -64,8 +71,12 @@ class UTCMSConfig:
         self.UTCMS_ENABLE_MANUAL_CAPTCHA = _to_bool(os.getenv("UTCMS_ENABLE_MANUAL_CAPTCHA", "False"), default=False)
         self.UTCMS_MANUAL_CAPTCHA_TIMEOUT_SECONDS = int(os.getenv("UTCMS_MANUAL_CAPTCHA_TIMEOUT_SECONDS", "120"))
         self.UTCMS_MANUAL_CAPTCHA_POLL_SECONDS = float(os.getenv("UTCMS_MANUAL_CAPTCHA_POLL_SECONDS", "0.7"))
-        self.CAPTCHA_MODE = os.getenv("CAPTCHA_MODE", "local_only").strip().lower()
-        self.CAPTCHA_PROVIDER = os.getenv("CAPTCHA_PROVIDER", "auto").strip().lower()
+        self.CAPTCHA_MODE = _validated_choice(
+            "CAPTCHA_MODE",
+            os.getenv("CAPTCHA_MODE"),
+            "local_only",
+            {"local_only", "provider_only", "provider_first", "manual_only"},
+        )
         _valid_captcha_providers = {
             "auto",
             "ensemble",
@@ -77,11 +88,12 @@ class UTCMSConfig:
             "local_ocr",
             "off",
         }
-        if self.CAPTCHA_PROVIDER not in _valid_captcha_providers:
-            raise ValueError(
-                f"Invalid CAPTCHA_PROVIDER '{self.CAPTCHA_PROVIDER}'. "
-                f"Must be one of: {', '.join(sorted(_valid_captcha_providers))}"
-            )
+        self.CAPTCHA_PROVIDER = _validated_choice(
+            "CAPTCHA_PROVIDER",
+            os.getenv("CAPTCHA_PROVIDER"),
+            "auto",
+            _valid_captcha_providers,
+        )
         self.TWOCAPTCHA_API_KEY = os.getenv("TWOCAPTCHA_API_KEY", "").strip()
         self.CAPTCHA_TIMEOUT_SECONDS = int(os.getenv("CAPTCHA_TIMEOUT_SECONDS", "120"))
         self.CAPTCHA_POLL_SECONDS = float(os.getenv("CAPTCHA_POLL_SECONDS", "5"))
@@ -120,7 +132,9 @@ class UTCMSConfig:
         self.CAPTCHA_ADAPTIVE_LOW_FAILURE_RATE = float(os.getenv("CAPTCHA_ADAPTIVE_LOW_FAILURE_RATE", "0.10"))
         self.CAPTCHA_ADAPTIVE_MAX_ATTEMPTS = int(os.getenv("CAPTCHA_ADAPTIVE_MAX_ATTEMPTS", "5"))
         self.CAPTCHA_ADAPTIVE_MAX_DELAY_SECONDS = float(os.getenv("CAPTCHA_ADAPTIVE_MAX_DELAY_SECONDS", "2.5"))
-        self.CAPTCHA_DEBUG_SAVE_IMAGES = _to_bool(os.getenv("CAPTCHA_DEBUG_SAVE_IMAGES", "True"), default=True)
+        # CAPTCHA screenshots can contain security challenges and must be
+        # explicitly enabled for a controlled diagnostic run.
+        self.CAPTCHA_DEBUG_SAVE_IMAGES = _to_bool(os.getenv("CAPTCHA_DEBUG_SAVE_IMAGES", "False"), default=False)
         self.CAPTCHA_DEBUG_DIR = (
             os.getenv("CAPTCHA_DEBUG_DIR", "output/captcha_debug").strip() or "output/captcha_debug"
         )
@@ -216,6 +230,7 @@ class UTCMSConfig:
 
                 logging.warning("DATABASE_URL not set, using default SQLite database for development.")
                 self.DATABASE_URL = "sqlite+aiosqlite:///./bot_stats.db"
+        self.MIGRATION_LOCK_TIMEOUT_SECONDS = max(1, int(os.getenv("MIGRATION_LOCK_TIMEOUT_SECONDS", "300")))
         # self.POSTGRES_DSN = os.getenv("POSTGRES_DSN", "").strip()  # unused — kept as reference
 
         self.QUEUE_ENABLED = _to_bool(os.getenv("QUEUE_ENABLED", "True"), default=True)
@@ -263,6 +278,9 @@ class UTCMSConfig:
         self.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
         self.LATENCY_SAMPLE_MAX = int(os.getenv("LATENCY_SAMPLE_MAX", "2000"))
         self.FAILURE_ARTIFACTS_DIR = os.getenv("FAILURE_ARTIFACTS_DIR", "output/failure_artifacts").strip()
+        self.WAYBILL_SUCCESS_SCREENSHOT_ENABLED = _to_bool(
+            os.getenv("WAYBILL_SUCCESS_SCREENSHOT_ENABLED", "False"), default=False
+        )
         self.TRACE_HEADER_NAME = os.getenv("TRACE_HEADER_NAME", "X-Correlation-ID").strip()
 
         # Logging configuration
@@ -386,10 +404,18 @@ class UTCMSConfig:
         self.GATE_BURST_DISPATCH_JITTER_MAX_SECONDS = float(os.getenv("GATE_BURST_DISPATCH_JITTER_MAX_SECONDS", "3.0"))
 
         # Clean IP Pool & Egress Proxy Configuration
-        self.EGRESS_PROXY_MODE = os.getenv("EGRESS_PROXY_MODE", "worker_first").strip().lower()
+        self.EGRESS_PROXY_MODE = _validated_choice(
+            "EGRESS_PROXY_MODE",
+            os.getenv("EGRESS_PROXY_MODE"),
+            "worker_first",
+            {"worker_first", "clean_pool_only", "hybrid"},
+        )
         self.CLEAN_IP_PROBE_INTERVAL_SECONDS = int(os.getenv("CLEAN_IP_PROBE_INTERVAL_SECONDS", "300"))
         self.CLEAN_IP_MAX_POOL = int(os.getenv("CLEAN_IP_MAX_POOL", "50"))
+        self.CLEAN_IP_MAX_CANDIDATES = int(os.getenv("CLEAN_IP_MAX_CANDIDATES", "1000"))
+        self.CLEAN_IP_MAX_PROBE_WORKERS = int(os.getenv("CLEAN_IP_MAX_PROBE_WORKERS", "35"))
         self.CLEAN_IP_BLOCK_TTL_SECONDS = int(os.getenv("CLEAN_IP_BLOCK_TTL_SECONDS", "1800"))
+        self.CLEAN_IP_REFRESH_LOCK_TTL_SECONDS = int(os.getenv("CLEAN_IP_REFRESH_LOCK_TTL_SECONDS", "900"))
         self.IRAN_PROXY_TIMEOUT_SECONDS = float(os.getenv("IRAN_PROXY_TIMEOUT_SECONDS", "7.5"))
         self.CLEAN_IP_SOURCE_URL = os.getenv("CLEAN_IP_SOURCE_URL", "").strip()
         self.CLEAN_IP_SOURCE_FILE = os.getenv("CLEAN_IP_SOURCE_FILE", "").strip()

@@ -25,13 +25,16 @@ import json
 import logging
 import os
 import re
+import socket
 import ssl
 import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 from app.core.config import utcms_config
 from app.core.redis_client import redis_manager
@@ -57,8 +60,6 @@ FILE_WORKING_JSON = os.path.join(PROXIES_RUNTIME_DIR, "working_iran_proxies.json
 
 # Cached SSL context for TLS handshakes
 SSL_CTX = ssl.create_default_context()
-SSL_CTX.check_hostname = False
-SSL_CTX.verify_mode = ssl.CERT_NONE
 
 
 @dataclass
@@ -151,8 +152,36 @@ def is_valid_port(port: Any) -> bool:
         return False
 
 
+def _is_safe_source_url(url: str) -> bool:
+    """Allow source feeds only over HTTP(S) to publicly routable hosts."""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return False
+        if parsed.username or parsed.password:
+            return False
+        addresses = {
+            item[4][0]
+            for item in socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
+        }
+        return bool(addresses) and all(is_valid_public_ip(address) for address in addresses)
+    except (OSError, ValueError):
+        return False
+
+
+class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        absolute_url = urljoin(req.full_url, newurl)
+        if not _is_safe_source_url(absolute_url):
+            raise urllib.error.URLError("unsafe redirect target")
+        return super().redirect_request(req, fp, code, msg, headers, absolute_url)
+
+
 def _safe_fetch(url: str, timeout: float = 6.0) -> str | None:
     """Safely fetch text from an online proxy list source with timeout."""
+    if not _is_safe_source_url(url):
+        logger.warning("CleanIPPool: blocked unsafe source URL host")
+        return None
     try:
         req = urllib.request.Request(
             url,
@@ -162,10 +191,11 @@ def _safe_fetch(url: str, timeout: float = 6.0) -> str | None:
                 "Connection": "close",
             },
         )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
+        opener = urllib.request.build_opener(_SafeRedirectHandler())
+        with opener.open(req, timeout=timeout) as resp:
             return resp.read().decode("utf-8", errors="ignore")
     except Exception as exc:
-        logger.debug(f"Failed to fetch proxy source {url[:60]}: {exc}")
+        logger.debug("Failed to fetch proxy source host %s: %s", urlparse(url).hostname or "unknown", exc)
         return None
 
 
@@ -176,6 +206,7 @@ def atomic_write(filepath: str, content: str) -> None:
     try:
         with open(tmp_file, "w", encoding="utf-8") as f:
             f.write(content)
+        os.chmod(tmp_file, 0o600)
         os.replace(tmp_file, filepath)
     except Exception as exc:
         logger.warning(f"Failed atomic write to {filepath}: {exc}")
@@ -616,18 +647,20 @@ def run_screening_cycle(
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     max_workers: int = MAX_PROBE_WORKERS,
     max_pool_size: int = 50,
+    max_candidates: int = 1000,
 ) -> list[CleanIPRecord]:
     """
     Perform a complete aggregation and benchmarking cycle.
     Updates runtime files and returns sorted verified proxies.
     """
     start_time = time.time()
-    candidates = aggregate_all_candidates()
+    candidates = aggregate_all_candidates()[: max(1, min(max_candidates, 5000))]
     logger.info(f"CleanIPPool: harvested {len(candidates)} unique Iranian proxy candidates.")
 
     verified: list[CleanIPRecord] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(probe_single_proxy, c, UTCMS_TARGET_URL, timeout): c for c in candidates}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(max_workers, 64))) as executor:
+        probe_timeout = max(1.0, min(timeout, 30.0))
+        futures = {executor.submit(probe_single_proxy, c, UTCMS_TARGET_URL, probe_timeout): c for c in candidates}
         for fut in concurrent.futures.as_completed(futures):
             try:
                 res = fut.result()
@@ -638,7 +671,7 @@ def run_screening_cycle(
 
     # Sort fastest first
     verified.sort(key=lambda x: x.latency_ms)
-    verified = verified[:max_pool_size]
+    verified = verified[: max(1, max_pool_size)]
 
     duration = round(time.time() - start_time, 2)
     logger.info(f"CleanIPPool: verified {len(verified)} working proxies in {duration}s.")
@@ -689,13 +722,14 @@ class CleanIPPoolManager:
         self._local_cache: list[CleanIPRecord] = []
         self._local_cache_time: float = 0.0
         self._cache_ttl_seconds: float = 15.0
+        self._refresh_lock = threading.Lock()
         self._initialized = True
 
     async def get_all_clean_ips(self) -> list[CleanIPRecord]:
         """Fetch all verified active proxies from Redis or local fallback."""
         now = time.time()
         if self._local_cache and (now - self._local_cache_time) < self._cache_ttl_seconds:
-            return [p for p in self._local_cache if p.is_usable]
+            return list(self._local_cache)
 
         try:
             r = await redis_manager.get()
@@ -706,7 +740,7 @@ class CleanIPPoolManager:
                     records = [CleanIPRecord.from_dict(item) for item in items]
                     self._local_cache = records
                     self._local_cache_time = now
-                    return [p for p in records if p.is_usable]
+                    return records
         except Exception as exc:
             logger.debug(f"Redis get clean IP pool failed: {exc}")
 
@@ -718,7 +752,7 @@ class CleanIPPoolManager:
                     records = [CleanIPRecord.from_dict(item) for item in items]
                     self._local_cache = records
                     self._local_cache_time = now
-                    return [p for p in records if p.is_usable]
+                    return records
             except Exception as exc:
                 logger.debug(f"File fallback read failed: {exc}")
 
@@ -734,7 +768,7 @@ class CleanIPPoolManager:
         Return the URL of the best available clean Iranian proxy.
         Skips currently blocked proxies.
         """
-        ips = await self.get_all_clean_ips()
+        ips = [record for record in await self.get_all_clean_ips() if record.is_usable]
         if not ips:
             return None
 
@@ -793,7 +827,11 @@ class CleanIPPoolManager:
         """
         if not proxy_url:
             return
-        logger.warning(f"CleanIPPool: Marking proxy {proxy_url} as blocked for {duration_seconds}s")
+        logger.warning(
+            "CleanIPPool: marking proxy %s as blocked for %ss",
+            CleanIPRecord(url=proxy_url).safe_url,
+            duration_seconds,
+        )
         url_hash = hashlib.sha256(proxy_url.encode()).hexdigest()[:16]
 
         # Update in-memory record
@@ -815,15 +853,29 @@ class CleanIPPoolManager:
         Execute a full screening cycle under distributed Redis lock
         and update Redis cache.
         """
+        if not self._refresh_lock.acquire(blocking=False):
+            logger.info("CleanIPPool: refresh already in progress in this process.")
+            return [record for record in await self.get_all_clean_ips() if record.is_usable]
+
         r = None
+        lock_token = uuid.uuid4().hex
+        owns_redis_lock = False
         try:
-            r = await redis_manager.get()
-            if r is not None and not force:
-                # Acquire distributed lock so only 1 worker runs the scan
-                lock_acquired = await r.set(self.REDIS_LOCK_REFRESH, "1", ex=240, nx=True)
+            try:
+                r = await redis_manager.get()
+            except Exception as exc:
+                logger.warning("CleanIPPool: Redis unavailable for refresh lock: %s", exc)
+
+            if r is not None:
+                lock_ttl = max(60, utcms_config.CLEAN_IP_REFRESH_LOCK_TTL_SECONDS)
+                lock_acquired = await r.set(self.REDIS_LOCK_REFRESH, lock_token, ex=lock_ttl, nx=True)
                 if not lock_acquired:
                     logger.info("CleanIPPool: Refresh already in progress by another worker.")
-                    return await self.get_all_clean_ips()
+                    return [record for record in await self.get_all_clean_ips() if record.is_usable]
+                owns_redis_lock = True
+
+            if force:
+                logger.info("CleanIPPool: forced refresh requested; concurrency lock remains enforced.")
 
             # Run screening in background thread pool to avoid blocking async loop
             loop = asyncio.get_running_loop()
@@ -831,8 +883,9 @@ class CleanIPPoolManager:
                 None,
                 run_screening_cycle,
                 getattr(utcms_config, "IRAN_PROXY_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS),
-                MAX_PROBE_WORKERS,
+                getattr(utcms_config, "CLEAN_IP_MAX_PROBE_WORKERS", MAX_PROBE_WORKERS),
                 getattr(utcms_config, "CLEAN_IP_MAX_POOL", 50),
+                getattr(utcms_config, "CLEAN_IP_MAX_CANDIDATES", 1000),
             )
 
             # Store in Redis
@@ -848,13 +901,20 @@ class CleanIPPoolManager:
             return verified
         except Exception as exc:
             logger.error(f"CleanIPPool: Refresh error: {exc}")
-            return await self.get_all_clean_ips()
+            return [record for record in await self.get_all_clean_ips() if record.is_usable]
         finally:
             try:
-                if r is not None:
-                    await r.delete(self.REDIS_LOCK_REFRESH)
+                if r is not None and owns_redis_lock:
+                    await r.eval(
+                        "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                        "return redis.call('del', KEYS[1]) else return 0 end",
+                        1,
+                        self.REDIS_LOCK_REFRESH,
+                        lock_token,
+                    )
             except Exception:
                 pass
+            self._refresh_lock.release()
 
 
 # Global singleton instance

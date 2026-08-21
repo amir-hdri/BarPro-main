@@ -49,6 +49,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         # page.on() is synchronous in Playwright — MagicMock prevents
         # RuntimeWarning "coroutine 'AsyncMockMixin._execute_mock_call' was never awaited"
         mock.on = MagicMock()
+        mock.remove_listener = MagicMock()
 
         return mock
 
@@ -118,6 +119,18 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         )
         self.manager._wait_for_response_match = AsyncMock(return_value=AsyncMock())
         self.manager._wait_for_network_settle = AsyncMock()
+
+        async def mock_fill_cargo_info(cargo):
+            self.manager._record_selector_inventory(
+                field_label="وزن کالا",
+                selectors=["#txtWeight"],
+                status="filled",
+                selector_used="#txtWeight",
+                value=cargo.get("weight"),
+                pill="cargo",
+            )
+
+        self.manager._fill_cargo_info = AsyncMock(side_effect=mock_fill_cargo_info)
         self.manager.smart_locator = AsyncMock()
 
         def mock_locate(page, selectors, *args, **kwargs):
@@ -307,12 +320,12 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         code = await self.manager._extract_tracking_code()
         self.assertEqual(code, "987654")
 
-        # 2. Test extraction from URL fallback
+        # 2. URL path tokens are ambiguous and must not be accepted as proof.
         self.mock_page.query_selector.side_effect = Exception("Not found")
         self.mock_page.url = "http://example.com/waybill/TRACK12345678"
 
         code = await self.manager._extract_tracking_code()
-        self.assertEqual(code, "TRACK12345678")
+        self.assertIsNone(code)
 
     async def test_parse_register_submit_payload_reads_document_id_and_otp_flag(self):
         payload = {
@@ -329,6 +342,25 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["document_id"], 79791831)
         self.assertTrue(result["is_otp_needed"])
+
+    async def test_fetch_tracking_code_prefers_named_json_field_over_document_id(self):
+        self.mock_page.evaluate = AsyncMock(
+            return_value='{"resultCode":200,"obj":{"documentId":123456,"trackingCode":"987654321"}}'
+        )
+
+        code = await self.manager._fetch_tracking_code_by_document_id(123456)
+
+        self.assertEqual(code, "987654321")
+
+    async def test_tracking_code_does_not_fall_back_to_ambiguous_url_token(self):
+        self.mock_page.query_selector = AsyncMock(return_value=None)
+        self.manager.smart_locator.locate = AsyncMock(side_effect=Exception("not found"))
+        self.mock_page.text_content = AsyncMock(return_value="")
+        self.mock_page.url = "https://barname.utcms.ir/waybill/TRACK12345678"
+
+        code = await self.manager._extract_tracking_code()
+
+        self.assertIsNone(code)
 
     async def test_detect_otp_required_uses_submit_state_first(self):
         self.mock_page.query_selector = AsyncMock(return_value=None)

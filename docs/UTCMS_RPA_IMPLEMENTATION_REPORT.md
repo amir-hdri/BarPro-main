@@ -1,5 +1,9 @@
 # گزارش جامع نوسازی و بازمهندسی ربات ثبت بارنامه UTCMS (فازهای ۱.۵ تا ۱.۱۶)
 
+> Historical implementation report dated 2026-08-15. It may describe selectors,
+> URLs or guarantees superseded by current code and UTCMS observations. Current
+> contracts are docs/UTCMS_CONSTRAINTS.md and docs/BARPRO_KNOWLEDGE_GRAPH.md.
+
 **پروژه:** سامانه BarPro — ربات اختصاصی ثبت خودکار بارنامه در پورتال UTCMS (`barname.utcms.ir`)  
 **نسخه گزارش:** ۲.۰.۰  
 **تاریخ تکمیل:** ۲۴ مرداد ۱۴۰۵ (15 August 2026)  

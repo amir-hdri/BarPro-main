@@ -1,3 +1,7 @@
+> Legacy design note: current monitoring inventory is Prometheus, Alertmanager,
+> Grafana, and node/Redis/Postgres/Nginx exporters. Runtime health still requires
+> direct verification. See docs/BARPRO_KNOWLEDGE_GRAPH.md.
+
 ## ۵. سناریوهای مانیتورینگ و گزارش‌گیری (Logging & Reporting)
 
 - یکپارچه‌سازی با **Prometheus + Grafana**: اکسپوز کردن متریک‌های موفقیت/شکست RPA، تاخیرهای حل کپچا، و درصد منابع درگیر.

@@ -15,6 +15,7 @@ from scp import SCPClient
 HOST = os.environ.get("DEPLOY_HOST", "<YOUR_CENTRAL_SERVER_IP>")
 USER = os.environ.get("DEPLOY_USER", "ubuntu")
 PASS = os.environ["SSH_PASSWORD"]
+SSH_KNOWN_HOSTS = os.environ.get("SSH_KNOWN_HOSTS", os.path.expanduser("~/.ssh/known_hosts"))
 REMOTE = "/opt/barpro"
 
 EXCLUDE = {
@@ -51,8 +52,13 @@ inf = lambda m: print(f"  {CY}→{RS}  {m}")
 
 def connect():
     inf(f"اتصال به {HOST}...")
+    if not os.path.isfile(SSH_KNOWN_HOSTS) or not os.access(SSH_KNOWN_HOSTS, os.R_OK):
+        err(f"SSH known_hosts file is missing or unreadable: {SSH_KNOWN_HOSTS}")
+        sys.exit(2)
     ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.load_system_host_keys()
+    ssh.load_host_keys(SSH_KNOWN_HOSTS)
+    ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
     for i in range(5):
         try:
             ssh.connect(

@@ -338,6 +338,76 @@ async def test_phase1_dispatch_due_jobs_enqueues_auth_task_and_persists_task_id(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("initial_status", "result_json", "expected_mutation_status"),
+    [
+        (TaskStatus.QUEUED.value, {"tracking_code": "UTC-RECOVERY-123"}, "dispatched"),
+        (TaskStatus.IN_PROGRESS.value, None, "ambiguous"),
+    ],
+)
+async def test_cleanup_stuck_jobs_routes_possible_mutations_to_reconciliation(
+    initial_status, result_json, expected_mutation_status
+):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
+    async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+
+    stale_at = datetime(2026, 1, 1)
+    async with async_session() as session:
+        client = Client(
+            client_code=f"tenant-recovery-{initial_status}",
+            name="Tenant Recovery",
+            email=f"recovery-{initial_status}@example.com",
+            hashed_password="hash",
+            username=f"tenant_recovery_{initial_status}",
+            full_name="Tenant Recovery Admin",
+        )
+        session.add(client)
+        await session.commit()
+        await session.refresh(client)
+        driver = Driver(
+            client_id=client.id,
+            driver_national_code="5234567890",
+            full_name="Driver Recovery",
+            utcms_username="driver-recovery",
+            utcms_password_encrypted="enc",
+        )
+        session.add(driver)
+        await session.commit()
+        await session.refresh(driver)
+        job = WaybillJob(
+            job_id=f"job-recovery-{initial_status}",
+            idempotency_key=f"idem-recovery-{initial_status}",
+            client_id=client.id,
+            driver_id=driver.id,
+            status=initial_status,
+            payload_json={"driver_national_code": driver.driver_national_code},
+            result_json=result_json,
+            updated_at=stale_at,
+        )
+        session.add(job)
+        await session.commit()
+
+    with patch("app.services.rpa_scheduler_service.async_session_factory", new=async_session):
+        recovered = await rpa_scheduler_service.cleanup_stuck_jobs()
+
+    assert recovered == 1
+    async with async_session() as session:
+        job = (await session.exec(select(WaybillJob))).one()
+        assert job.status == TaskStatus.UNKNOWN.value
+        assert job.mutation_status == expected_mutation_status
+        assert job.retryable is False
+        assert job.next_retry_at is not None
+        assert job.result_json["confirmation_status"] == "pending_history_reconciliation"
+        assert job.result_json["needs_reconciliation"] is True
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_phase1_auth_success_dispatches_submit_for_resume_job():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
     from sqlmodel.ext.asyncio.session import AsyncSession

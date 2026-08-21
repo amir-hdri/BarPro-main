@@ -3,6 +3,8 @@
 > **📋 See also: [CRITICAL_RULES.md](./CRITICAL_RULES.md)** — خطوط قرمز و الزامات فنی حیاتی پروژه
 >
 > **UTCMS live contract:** [docs/UTCMS_CONSTRAINTS.md](./docs/UTCMS_CONSTRAINTS.md) — فیلدهای اجباری، WAF/IP، CAPTCHA، زمان‌بندی و معیار اثبات ثبت
+>
+> **Canonical tracked knowledge graph:** [docs/BARPRO_KNOWLEDGE_GRAPH.md](./docs/BARPRO_KNOWLEDGE_GRAPH.md) — API, schema, queues, RPA, deployment, evidence labels
 
 ## Project Identity
 
@@ -11,7 +13,7 @@
 ## Architecture Overview
 
 ```
-Client Browser → Nginx (port 80/443) → FastAPI Backend (port 8000)
+Client Browser → Nginx (port 80; 443 only after TLS activation) → FastAPI Backend (port 8000)
                                                     ├── PostgreSQL 16 (SQLModel/AsyncPG)
                                                     ├── Redis 7 (cache/queue/pub-sub)
                                                     ├── Celery Workers ×3 (via Squid proxies)
@@ -19,13 +21,16 @@ Client Browser → Nginx (port 80/443) → FastAPI Backend (port 8000)
                                                     │   ├── Worker 2 (remote node, profile scale-out)
                                                     │   └── Worker 3 (remote node, profile scale-out)
                                                     ├── Celery Scheduler (profile-less, rpa_scheduler queue)
-                                                    └── Prometheus (monitoring)
+                                                    └── Monitoring (Prometheus, Alertmanager, Grafana, exporters)
 Frontend: Next.js 15 (TypeScript, Tailwind, React 19)
 ```
 
 - **Single-server deployment (Model A)**: All containers run on one server with 2 public IPs + 3 local Squid proxies
-- **Multi-server deployment (Model B — current production)**: Central server runs API + Worker 1 + Scheduler + Beat + Squid 1; Workers 2/3 run on remote VPS nodes
-- **13+ Docker containers** managed via docker-compose layered files (`compose/`)
+- **Multi-server deployment (Model B — production target/current documented topology)**:
+  Central runs API + Worker 1 + Scheduler + Beat + Squid 1; Workers 2/3 run on
+  remote VPS nodes. Live state still requires timestamped verification.
+- **Layered Docker services** managed via docker-compose files (`compose/`); the exact
+  live container count is topology-dependent and must be verified with full `docker ps`
 - **Root `docker-compose.yml`** uses `include:` (Compose >= 2.20) to assemble all layers — CI/CD and deploy scripts MUST use `docker compose` V2 (not `docker-compose` V1)
 - **Nginx**: Configured with security headers (CSP, X-Frame-Options, X-Content-Type-Options, Permissions-Policy)
 
@@ -36,12 +41,15 @@ Frontend: Next.js 15 (TypeScript, Tailwind, React 19)
 | Central Server — UFW Firewall + Nginx (port 80), Backend, Frontend, Squid 1 egress | 4 | 16 GB |
 | Worker Nodes — Remote VPS with static Iranian IP + local Squid proxy | — | ~6 GB each |
 
-All containers run on the **central server** (single host, dual networking for egress IPs). Workers 2/3 run on remote VPS nodes in Model B.
+Core platform containers run on the **central server**. In Model B, Workers 2/3 and
+their local Squids run on remote VPS nodes and are not part of the central host's
+resource budget.
 
 ### Resource Constraints & Implications
 - **16 GB RAM** on central server — Workers 2/3 are on remote nodes (Model B), not counted in central budget
 - Celery Worker 1 limited to 3 GB; celery_scheduler 768 MB; Beat 256 MB
-- Remaining: ~5 GB for PostgreSQL (1.5G), Redis (512M), Backend API (512M), Frontend (1G), Nginx (512M), Prometheus (256M)
+- Current Model B Central Compose limits total approximately 9 GB, leaving about
+  7 GB for host overhead and headroom; live RSS still requires `docker stats`
 - **4 vCPUs** means CPU contention under load — Worker 1 + DB can saturate cores
 - Disk: ensure <90% utilization
 
@@ -55,7 +63,7 @@ All containers run on the **central server** (single host, dual networking for e
 | Queue | Celery + Redis | latest |
 | RPA | Playwright (Chromium) | latest |
 | Proxy | Squid | latest (ubuntu/squid:latest) |
-| Monitoring | Prometheus | latest |
+| Monitoring | Prometheus + Alertmanager + Grafana + exporters | pinned in `compose/monitoring.yml` |
 | Reverse Proxy | Nginx | 1.27-alpine |
 
 ## Code Conventions
@@ -86,21 +94,27 @@ All containers run on the **central server** (single host, dual networking for e
 6. **No HTTPS** — Nginx listens on port 80 only; all traffic is plaintext
 7. **Rate limiter is fail-closed** — preserve HTTP 429 behavior if Redis is unavailable
 8. **Proxy URL validation exists** — do not weaken `_is_safe_proxy_url`
+9. **Health responses must not expose credentials** — public `/readyz` is sanitized;
+   detailed readiness is admin-only at `/api/v1/admin/readyz`
+10. **Compose is not firewall evidence** — verify UFW/provider firewall and
+    `DOCKER-USER` from a non-worker IP after every deployment
 
 ## Deployment Topology
 
-> **Current deployment (Model B — scale-out):** the central server has a **single public IP**
-> (87.107.5.238). Multi-IP egress is provided by **remote Worker VPSes**, each with its own
+> **Deployment target (Model B — scale-out):** the central server has a **single public IP**.
+> Multi-IP egress is provided by **remote Worker VPSes**, each with its own
 > static Iranian IP and a local Squid proxy. Postgres/Redis bind `0.0.0.0` on the central
-> server (`POSTGRES_BIND`/`REDIS_BIND` in `.env`) and are protected by the UFW allowlist
+> server (`POSTGRES_BIND`/`REDIS_BIND` in `.env`) and **must be protected** by UFW,
+> provider firewall, and `DOCKER-USER`
 > (`scripts/setup_firewall_central.sh`, `scripts/add_worker_firewall.sh`).
 > Workers 2/3 run on the remote nodes via `compose/worker-node.yml`; on the central server
 > they are disabled by default (compose profile `scale-out`).
+> This is a configuration target; live IPs, listeners and firewall denial require runtime verification.
 
 ```
-Central Server (single IP: <CENTRAL_IP> = 87.107.5.238, 16 GB RAM)
-├── PostgreSQL (port 5432, bind 0.0.0.0, UFW: workers only)
-├── Redis (port 6379, bind 0.0.0.0, UFW: workers only)
+Central Server (single IP: <CENTRAL_IP>, 16 GB RAM)
+├── PostgreSQL (port 5432, bind 0.0.0.0, firewall target: workers only)
+├── Redis (port 6379, bind 0.0.0.0, firewall target: workers only)
 ├── Squid 1 (port 3128, egress via <CENTRAL_IP>)    ← Worker 1 (local)
 ├── FastAPI Backend (port 8000, internal)
 ├── Celery Worker 1 → Squid 1 → UTCMS               ← -Q waybill_tasks_1,...
@@ -108,7 +122,7 @@ Central Server (single IP: <CENTRAL_IP> = 87.107.5.238, 16 GB RAM)
 ├── Celery Scheduler → rpa_scheduler                 ← profile-less, always-on control queue consumer
 ├── Next.js Frontend (port 3000, internal)
 ├── Nginx (port 80, public) → reverse proxy
-└── Prometheus (port 9090, exposed internally)
+└── Monitoring stack (Prometheus/Alertmanager/Grafana/exporters; internal or loopback only)
 
 Remote Worker Nodes (each: 2 vCPU / ~6 GB / own static Iranian IP)
 ├── Squid (port 3128, egress via the Worker's own IP)   ← Workers 2/3
@@ -124,15 +138,86 @@ Remote Worker Nodes (each: 2 vCPU / ~6 GB / own static Iranian IP)
 | Squid 3 | 3130 | <CENTRAL_IP> (Model A) / N/A (Model B) | Worker 3 | Model A only (central) |
 | Remote Worker Squid | 3128 | Worker's own IP | Worker 2/3 | Model B only (remote nodes) |
 
-> **Note:** In Model B (current production), Squid 2 and 3 do NOT exist — Workers 2/3 run on remote VPSes with their own local Squid on port 3128. The `squid_2` and `squid_3` services in `compose/proxy.yml` are only used in Model A (single-VM, 3-squid) deployments.
+> **Note:** In Model B, Squid 2 and 3 must not run on Central. They are guarded by
+> the explicit `model-a` Compose profile; Workers 2/3 use their own remote Squid
+> on port 3128. Confirm the live host has no unexpected Model A containers/listeners.
 
 ### Network Flow
-- **Public entry**: port 80 (HTTP) and 443 (HTTPS - ready for Let's Encrypt)
+- **Public entry**: port 80 (HTTP). Port 443 is only a disabled template until a
+  certificate, active listener, redirect, TLS handshake, and secure cookie are verified.
 - **Internal**: Docker bridge network `barpro_platform`
 - **UTCMS egress**: via Squid proxies using different IPs (anti-bot bypass)
-- **Inter-node security**: UFW Firewall restricts database (5432) and Redis (6379) to registered Worker IPs only
+- **Inter-node security target**: UFW/provider firewall must restrict database
+  (5432) and Redis (6379) to registered Worker IPs only; verify this at runtime
+  because bind addresses and Compose files do not prove packet filtering
 - **Squid 2/3 ports (3129, 3130)**: should be firewall-restricted to localhost only (`scripts/secure_squid_ports.sh`)
 - **DNS resolution**: Nginx uses Docker internal DNS (127.0.0.11) with 30s cache for dynamic container IP resolution
+
+## Current Runtime Contracts
+
+### Canonical API Paths
+
+| Area | Current path |
+|---|---|
+| Liveness / public sanitized readiness | `GET /healthz`, `GET /readyz` |
+| Detailed readiness | `GET /api/v1/admin/readyz` (admin only) |
+| Authentication | `/api/v1/auth/*`, `/api/v1/admin/login` |
+| Waybill jobs | `/api/v1/waybill-jobs` and its retry/requeue/timeline/log/screenshot subpaths |
+| Fuel inquiries | `/api/v1/fuel-inquiries` |
+| Clean IP operations | `/api/system/clean-ips`, `/api/system/clean-ips/refresh` (admin only) |
+| Realtime | `WS /ws/waybill` with cookie auth and optional task/batch/correlation filters |
+
+Do not use stale paths such as `/api/system/health`, `/ws/jobs/{client_id}` or
+`/ws/admin/stream`. There is no distinct POST cancel contract:
+`DELETE /api/v1/waybill-jobs/{job_id}` permanently deletes a job.
+
+### Submission State and Reconciliation
+
+A successful browser response is not immediate proof of registration. The safe flow is:
+
+`running → unknown → reconciling → success | needs_review`
+
+`success` requires all three witnesses defined in `docs/UTCMS_CONSTRAINTS.md`:
+an RPA tracking code, the same code persisted in `result_json`, and a matching
+UTCMS History/Search record. `JobStateMachine` also requires
+`mutation_status=confirmed` and `reconciled_at`. Unknown outcomes are reconciled
+with delays `15,45,120,300` seconds and are never automatically resubmitted after
+the bounded window.
+
+### Queue Topology
+
+- Every RPA Worker runs with effective concurrency `1`.
+- Worker 1 consumes base queues plus `waybill_tasks_1`, `rpa_auth_1`,
+  `rpa_submit_1`, `reconciliation_tasks_1`, `scheduled_tasks_1`, and
+  `barpro.fuel.inquiry`.
+- Remote Workers consume the corresponding `*_2` or `*_3` queues and the fuel queue.
+- `celery_scheduler` consumes **only** `rpa_scheduler`.
+- Beat publishes periodic messages; it does not consume gate, proxy, cleanup, or
+  orchestrator tasks.
+- Active bindings, backlog, and registered IP indices are runtime facts. Verify with
+  Celery inspection, Worker Registry, and metrics rather than inferring them from env examples.
+
+### Data Model
+
+SQLModel primary keys are integer IDs. Public identifiers such as `job_id`,
+`batch_id`, `intent_id`, and `execution_id` are strings, not UUID primary keys.
+`WaybillJob` stores `payload_json`, `result_json`, retry, mutation, and
+reconciliation fields. Operational aggregates include `DispatchIntent`,
+`Execution`, `WorkerRegistry`, `ProxyEndpoint`, `UploadBatch`, and
+`UTCMSSystemObservation`. `FuelInquiry` stores quota JSON and a screenshot
+URL/Data URI and has no direct tracking-code column.
+
+### OTP and CAPTCHA
+
+- The `18:00–08:00` window is a configurable **prediction** of
+  `OTP_REQUIRED`, not a guaranteed UTCMS schedule. Only a current
+  `OTP_FREE` observation permits submission; unknown/degraded states fail closed.
+- `CAPTCHA_PROVIDER=auto` uses CNN → PyTorch Fuel CRNN → Keras → Enhanced OCR →
+  Local OCR.
+- Keras lazy-loads and runs in-process in each Worker. `KERAS_PYTHON_PATH` is a
+  legacy compatibility setting and is not consumed by the current solver.
+- Accuracy and latency numbers require a versioned benchmark artifact; do not copy
+  unsupported percentages into operational documentation.
 
 ## Common Pitfalls
 
@@ -142,7 +227,7 @@ Remote Worker Nodes (each: 2 vCPU / ~6 GB / own static Iranian IP)
 | `engine.dispose()` per Celery task | Destroys connection pool, causing connection storms | ✅ Fixed |
 | `asyncio.Lock` on class instances | Race condition when event loop changes; use `threading.Lock` for init | ✅ Fixed |
 | `autoretry_for = (Exception,)` | Retries programming bugs indefinitely; use specific exceptions | ✅ Fixed |
-| Migration startup | `run_migrations()` is active with Redis distributed lock; avoid duplicate startup runners | ✅ Fixed |
+| Migration startup | `run_migrations()` is active with a PostgreSQL session-level advisory lock; avoid raw Alembic startup runners | ✅ Fixed |
 | Event loop per Celery task | `asyncio.new_event_loop()` per task is extremely expensive | ✅ Fixed |
 | Session not injected | Services create `AsyncSession` directly instead of using `get_session()` dependency | ✅ Fixed |
 | Race condition in Redis manager | Double-checked locking pattern is broken for async (redis.py:36-53) | ✅ Fixed |
@@ -152,7 +237,7 @@ Remote Worker Nodes (each: 2 vCPU / ~6 GB / own static Iranian IP)
 | Missing security headers | Backend responses lacked security headers | ✅ Fixed |
 | Missing Redis connection pool settings | No timeout/retry configuration | ✅ Fixed |
 | Docker Compose V1 (`docker-compose`) usage | CI/CD and deploy scripts must use `docker compose` V2 — root `docker-compose.yml` uses `include:` (Compose >= 2.20) which V1 does not support | ✅ Fixed (.github/workflows/cd-deploy.yml) |
-| Multi-IP proxy routing — topology mismatch | `AVAILABLE_IP_INDICES` is topology-specific — `"1,2,3"` for single-VM Model A, `"1,2"` for dual-node Model B. Wrong value causes phantom queue dispatch (circuit_breaker `_get_known_ip_indices` filters unregistered indices at runtime). | ✅ Fixed — deploy scripts set topology-specific values |
+| Multi-IP proxy routing — topology mismatch | `AVAILABLE_IP_INDICES` is topology-specific and must match fresh Worker Registry entries. The intended 3-worker Model B fleet uses indices `1,2,3`; smaller deployments must narrow the set. | ✅ Runtime filtering prevents unregistered indices, but effective values still require deployment verification |
 
 ## Testing
 
@@ -166,7 +251,8 @@ pytest -m "not slow"      # Skip slow tests
 - Tests use `asyncio_mode = "auto"` — async test functions are auto-detected
 - Database tests require PostgreSQL running (check `compose/infra.yml`)
 - Playwright tests require Chromium (install via `playwright install chromium`)
-- **Current status**: 772 passed, 3 skipped, 0 failed
+- Test counts are release snapshots, not timeless facts. Run the requested suite
+  on the current commit and report its exact result instead of copying an old count.
 
 ## Project Structure
 
@@ -194,10 +280,10 @@ BarPro/
 ├── compose/                # Docker Compose layered files
 │   ├── docker-compose.yml  # Root file using `include:` (requires Compose >= 2.20 / docker compose V2)
 │   ├── infra.yml           # PostgreSQL, Redis
-│   ├── proxy.yml           # Squid ×3 (Model A only)
+│   ├── proxy.yml           # Squid 1 by default; Squid 2/3 under model-a profile
 │   ├── backend.yml         # FastAPI + Celery workers + celery_scheduler + Beat
 │   ├── web.yml             # Nginx + Frontend
-│   └── monitoring.yml      # Prometheus
+│   └── monitoring.yml      # Prometheus, Alertmanager, Grafana, exporters
 ├── infra/                  # Config files
 │   ├── nginx/nginx.conf
 │   ├── squid/squid_*.conf
@@ -223,10 +309,11 @@ bash manage.sh backup-db    # PostgreSQL snapshot
 ### Docker Compose Layers (in order)
 ```bash
 docker compose -f compose/infra.yml up       # PostgreSQL + Redis only
-docker compose -f compose/proxy.yml up       # Squid proxies only
+docker compose -f compose/proxy.yml up       # Model B: Squid 1 only
+docker compose -f compose/proxy.yml --profile model-a up  # Model A: Squid 1/2/3
 docker compose -f compose/backend.yml up     # Backend + workers
 docker compose -f compose/web.yml up         # Nginx + Frontend
-docker compose -f compose/monitoring.yml up  # Prometheus only
+docker compose -f compose/monitoring.yml up  # Full monitoring stack
 ```
 
 ## Environment Variables (`.env`)
@@ -244,16 +331,16 @@ docker compose -f compose/monitoring.yml up  # Prometheus only
 | `HEADLESS` | Browser headless mode (true/false) |
 | `CAPTCHA_PROVIDER` | Solver: auto/composite/cnn/pytorch_fuel/keras_ocr/enhanced_ocr/local_ocr/off |
 | `AUTH_COOKIE_SECURE` | Secure flag for httpOnly JWT cookie; false on HTTP, true after HTTPS |
-| `CAPTCHA_MODE` | provider_only / manual_fallback |
+| `CAPTCHA_MODE` | Validated mode: local_only / provider_only / provider_first / manual_only |
 | `CAPTCHA_TIMEOUT_SECONDS` | Max time to solve captcha (default 120) |
 | `CAPTCHA_MAX_RETRIES` | Max auto retries (default 2) |
-| `KERAS_PYTHON_PATH` | Python 3.12 path for Keras OCR (e.g. /opt/barpro/venv/bin/python) |
+| `KERAS_PYTHON_PATH` | Legacy compatibility setting; current Keras provider does not execute a subprocess |
 | `KERAS_MODEL_PATH` | Keras .keras model file for fuel inquiry captchas |
 | `CAPTCHA_LOCAL_FALLBACK_ENABLED` | Enable Tesseract/local OCR fallback |
-| `AVAILABLE_IP_INDICES` | Comma-separated IP indices for proxy routing — **topology-specific, NOT a global constant** (e.g. single-VM Model A = `"1,2,3"`; dual-node deploy_remote = `"1,2"`). An index with no registered worker is filtered out of the routing pool at runtime (circuit_breaker `_get_known_ip_indices`), so an over-wide value is safe but should still match the deployed fleet. |
+| `AVAILABLE_IP_INDICES` | Comma-separated routing indices; topology-specific and filtered against fresh Worker Registry entries. The intended 3-worker Model B fleet uses `"1,2,3"`; smaller fleets must narrow it. |
 | `RPA_PROXIES` | Comma-separated proxy URLs for workers (SSRF risk — see ISSUES.md) |
 
-## Two Captcha Models
+## CAPTCHA Model Chain
 
 | Page | Solver | Model | Provider Name |
 |------|--------|-------|---------------|
@@ -262,6 +349,7 @@ docker compose -f compose/monitoring.yml up  # Prometheus only
 | **Fuel Inquiry fallback** | Keras OCR | `persian_number_ocr.keras` (project root) | `keras_ocr` |
 
 Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhanced → Local in sequence.
+All current providers execute within the Worker process; Keras is lazy-loaded once and reused.
 
 ## Optimization Applied (2026-06-30 → 2026-08-20)
 
@@ -291,7 +379,7 @@ Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhance
 | Egress Fallback & Dynamic Hybrid Routing | `app/automation/worker_proxy.py` + `app/automation/proxy_rotator.py` | `get_best_egress_proxy()` seamlessly fails over from blocked/unreachable worker Squids to the Clean IP Pool (modes: worker_first, clean_pool_only, hybrid) |
 | Per-IP Circuit Breaker & Isolation | `app/core/circuit_breaker.py` | Errors on third-party clean proxies mark only that specific proxy blocked via `mark_blocked()`, leaving worker nodes and `WORKER_IP_INDEX` healthy |
 | Periodic Background Probe & Redis Distributed Sync | `app/workers/tasks.py` + `app/workers/celery_app.py` | `barpro.clean_ip.probe` RedBeat task refreshes the pool every 5 minutes under distributed Redis lock |
-| Management Endpoints & Operational CLI | `app/api/routes/system.py` + `scripts/refresh_iran_proxies.py` | Exposes `GET /api/system/clean-ips`, `POST /api/system/clean-ips/refresh`, and standalone benchmark CLI |
+| Management Endpoints & Operational CLI | `app/api/routes/system.py` + `scripts/refresh_iran_proxies.py` | Exposes admin-protected `GET /api/system/clean-ips`, `POST /api/system/clean-ips/refresh`, and standalone benchmark CLI |
 
 ### 2026-08-19 — v2.8.3 Waybill Payload Validation & Vehicle Type Integration
 | Change | File | Impact |
@@ -371,7 +459,7 @@ Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhance
 | Page listeners removed on page close | `automation/browser.py:463-465` | No listener leak over 1000+ pages |
 | Timeouts added to all browser close operations | `automation/browser.py:139-176` | No hang on context/browser close |
 | `except: pass` replaced with logging in recycle_browser | `automation/browser.py:139-176` | Errors visible in logs |
-| Container resource limits tuned for 12 GB | `compose/*.yml` | Total 10.5 GB limits, 1.5 GB headroom |
+| Model B Central resource limits retuned for 16 GB | `compose/*.yml` | Current documented limits total about 9 GB; verify live RSS separately |
 | Dedicated celery_scheduler service for rpa_scheduler queue | `compose/backend.yml:246-277` | Profile-less, always-on consumer — no starvation on central/dual-node deployments |
 
 ### Database
@@ -407,17 +495,24 @@ ON waybill_jobs (status) INCLUDE (id);
 | Celery Beat | **256 MB** | 128 MB | — | ↑ از 128 MB (OOM fix) |
 | Frontend (Next.js) | **1 GB** | 512 MB | — | ↑ از 512 MB |
 | Nginx | **512 MB** | 256 MB | — | ↑ از 256 MB |
-| Squid ×3 | 128 MB each | 64 MB each | — | — |
+| Squid 1 (Model B Central) | 128 MB | 64 MB | — | Squid 2/3 are Model A only |
 | Prometheus | 256 MB | 128 MB | — | — |
 | Alertmanager | 128 MB | 64 MB | — | — |
 | Grafana | 256 MB | 128 MB | — | — |
-| **Total limits** | **~10.5 GB** ← fits in 16 GB with ~5.5 GB headroom | | | |
+| Exporters ×4 | 64 MB each | 32 MB each | — | node/Redis/Postgres/Nginx |
+| **Model B Central total limits** | **~9.0 GB** ← based on current Compose limits | | | |
 
-> Workers 2/3 (هر کدام 3 GB) روی Remote Worker VPS اجرا می‌شوند و در بودجه سرور مرکزی نیستند. Squid 2/3 فقط در استقرار تک‌سروره (Model A) وجود دارند.
+> Workers 2/3 روی Remote Worker VPS اجرا می‌شوند و در بودجه سرور مرکزی نیستند.
+> عدد بالا budget کد است، نه مصرف زنده؛ `docker stats` و host memory باید جداگانه
+> بررسی شوند. Squid 2/3 فقط در استقرار تک‌سروره Model A وجود دارند.
 
-## Priority Fixes for Server Deployment (see ISSUES.md for full list)
+## Historical Remediation Log (see ISSUES.md for current work)
 
-### ✅ Fixed (all applied and pushed)
+> Status marks below describe repository changes at the time recorded. They do
+> not prove that a production server has deployed them; server state always
+> requires a timestamped runtime check.
+
+### Repository fixes and follow-ups
 
 | # | Fix | Status |
 |---|-----|--------|
@@ -436,7 +531,7 @@ ON waybill_jobs (status) INCLUDE (id);
 | 13 | Fix browser context leaks | ✅ Timeouts on close, listener cleanup, OOM risk reduced |
 | 14 | Migrate JWT to httpOnly cookies | ✅ JWT cookie set by backend; frontend uses `withCredentials` |
 | 15 | Remove `network_mode: host` | ⬜ **Blocked**: dual-IP routing requires it — use `scripts/secure_squid_ports.sh` (iptables) instead |
-| 16 | Fix alembic migrations | ✅ `run_migrations()` now functional with Redis distributed lock — runs on startup via `database.py` |
+| 16 | Fix alembic migrations | ✅ `run_migrations()` now uses a PostgreSQL session-level advisory lock and runs on startup via `database.py` |
 | 17 | Add container vulnerability scanning | ⬜ Future work |
 
 ### ✅ Optimizations Applied
@@ -444,17 +539,17 @@ ON waybill_jobs (status) INCLUDE (id);
 | Change | File(s) |
 |--------|---------|
 | Nginx: separated HTTP/HTTPS config via include | `infra/nginx/nginx.conf`, `infra/nginx/http-server.conf` |
-| Migrations: Redis distributed lock prevents multi-worker deadlock | `app/core/database.py` |
+| Migrations: PostgreSQL session-level advisory lock prevents concurrent runners | `app/core/database.py` |
 | Deploy: `manage.sh deploy` now auto-runs `alembic upgrade head` | `manage.sh` |
 | New: `manage.sh migrate` — run migrations manually | `manage.sh` |
 | New: `scripts/run_migrations.sh` — standalone migration runner | `scripts/run_migrations.sh` |
 | New: `scripts/secure_squid_ports.sh` — iptables for Squid 3129/3130 | `scripts/secure_squid_ports.sh` |
 
-### Remaining User Actions (server-level, cannot automate)
+### Remaining Runtime Actions
 1. **Install Let's Encrypt cert** → uncomment `listen 443` + `ssl` volume in `compose/web.yml` and `infra/nginx/nginx.conf:75-90`, then `bash manage.sh deploy`
-2. **Run `bash manage.sh migrate`** on production DB (or just `bash manage.sh deploy` which auto-runs it)
-3. **Run `sudo bash scripts/secure_squid_ports.sh`** to lock down Squid 3129/3130
-4. **Add to crontab**: `@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh`
+2. **Verify `alembic current`** matches the release head after the locked startup migration
+3. **Verify Model B Central has no Squid 2/3 listeners**; only Model A may expose 3129/3130 locally
+4. **Probe PostgreSQL/Redis/Squid from a non-worker IP** and confirm denial
 5. **After HTTPS install, set `AUTH_COOKIE_SECURE=true`** and redeploy
 
 ### Additional Fixes Applied (2026-07-08)
@@ -655,14 +750,15 @@ ON waybill_jobs (status) INCLUDE (id);
 
 ### Additional Fixes Applied (2026-08-04) — Server 16GB RAM Upgrade, Beat OOM Fix & Deployment Automation
 
-> **Context:** Production deployment on 3-server Model B topology:
-> Central (`87.107.5.238`, 16 GB), Worker 2 (`5.56.132.26`), Worker 3 (`87.107.5.219`).
+> **Historical context:** Production deployment on 3-server Model B topology:
+> Central (16 GB) and two remote Worker VPS nodes. IP values are intentionally
+> omitted from this repository guide.
 > All fixes were validated against a running 25-table PostgreSQL at Alembic head `029`.
 
 | Change | File(s) | Impact |
 |--------|---------|--------|
 | **Celery Beat OOMKilled fix**: `mem_limit` 128m → **256m**, `mem_reservation` 64m → **128m** (Beat imports `automation/captcha` modules on import — ~225MB RSS actual usage) | `compose/backend.yml:225` | Beat stops restarting with exit code 137 |
-| **SKIP_MIGRATIONS=false**: Migration now runs automatically at startup protected by Redis distributed lock (prevents parallel execution across workers) | `compose/backend.yml:44` | No manual `alembic upgrade head` needed on deploy |
+| **SKIP_MIGRATIONS=false**: Migration now runs automatically at startup protected by a PostgreSQL session-level advisory lock | `compose/backend.yml:44` | Deploy tooling must call `run_migrations()` rather than raw Alembic |
 | **Alembic 027 column widening**: `ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(255)` — default is VARCHAR(32) but revision `027_add_fuel_inquiry_error_category` is 35 chars | `alembic/versions/027_add_fuel_inquiry_error_category.py` | Migrations no longer fail with `value too long for type character varying(32)` |
 | **Alembic 029 CONCURRENT index fix**: `op.execute("COMMIT")` before `CREATE INDEX CONCURRENTLY IF NOT EXISTS` (can't run inside Alembic transaction); fixed `down_revision = "028_submission_unconfirmed_category"` | `alembic/versions/029_add_waybill_jobs_optimization_indexes.py` | 3 optimization indexes created successfully |
 | **Playwright CDN fix**: `ENV PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright` (cdn.playwright.dev blocked from Iran) | `Dockerfile:83` | Chromium downloads during Docker build |
@@ -674,7 +770,7 @@ ON waybill_jobs (status) INCLUDE (id);
 | **.env.example completed**: Added `WORKER_ID`, `WORKER_IP_INDEX`, `WORKER_PROXY_PORT`, `CENTRAL_IP`, `GRAFANA_ADMIN_USER/PASSWORD`, `GRAFANA_ROOT_URL`, `AUTH_COOKIE_SECURE` | `.env.example` | Template covers all required variables |
 | **Volume permissions fix** (server action): `chown -R 10001:10001 /var/lib/docker/volumes/barpro_runtime_data/_data/` + mkdir auth/screenshots/output | Applied on central server | Backend starts without PermissionError |
 
-> **Deployment Status (2026-08-04):**
+> **Historical deployment snapshot (2026-08-04; not current evidence):**
 > - PostgreSQL: `barpro_runtime_data` at Alembic head `029` (25 tables)
 > - Workers 2 & 3: healthy, registered in `worker_registry`
 > - Celery Beat: `mem_limit=256m` — OOM resolved
@@ -683,7 +779,8 @@ ON waybill_jobs (status) INCLUDE (id);
 
 ---
 
-*Last updated: 2026-08-04 · Tests: 552 passed, 2 skipped · Deployment: 3-server Model B (Central 16GB + 2× remote Worker VPS)*
+*Historical snapshot dated 2026-08-04; do not use its test/deployment status as
+current runtime evidence.*
 
 ---
 
@@ -691,7 +788,7 @@ ON waybill_jobs (status) INCLUDE (id);
 
 | Change | File(s) | Impact |
 |--------|---------|--------|
-| **Soft-cancel sync**: `delete_job` now atomically cancels pending/claimed `DispatchIntent` rows when a job is soft-cancelled (CANCELLED status), preventing dispatcher from attempting invalid transitions. Dispatcher already had guard for CANCELLED jobs. | `app/services/waybill_job_service.py`, `app/orchestrator/dispatcher_service.py` | Eliminates race where cancelled jobs left stale intents that dispatcher would try to claim. |
+| **Historical soft-cancel implementation (superseded)**: an earlier `delete_job` cancelled intents. The current API contract is permanent DELETE; do not implement cancellation from this changelog entry. | `app/services/waybill_job_service.py`, `app/orchestrator/dispatcher_service.py` | Historical context only; current route/service code is authoritative. |
 | **Proxy fail-closed (production)**: New `ProxyUnavailableError` + `_proxy_fail_closed()` in `worker_proxy`. In production, unreachable/unset proxy raises instead of falling back to direct connection. Dev mode remains fail-open. `_claim_and_execute` / `_claim_and_reconcile` catch and map to `TRANSIENT_INFRA_ERROR` → `WAITING_RETRY`. `classify_exception` maps proxy keywords to retryable. | `app/automation/worker_proxy.py`, `app/workers/waybill_worker.py`, `app/core/error_taxonomy.py` | Prevents silent direct-connection fallback that bypasses proxy rotation/anti-bot; failed proxy now schedules retry with correct error category. |
 | **Scheduler enforcement**: Per-job tenant/driver/quota checks before scheduling: client ACTIVE + subscription window, driver ACTIVE/READY, tenant in-flight < `max_concurrent_tasks`, tenant daily < `max_daily_tasks`. Caches client/driver lookups and counts per loop. | `app/orchestrator/scheduler_service.py` | Prevents scheduling jobs for suspended tenants, inactive drivers, or over-quota tenants. |
 | **CI fixes**: Created missing `requirements-dev.txt` (pytest, ruff, black, mypy, aiosqlite); fixed indentation in `ci-cd.yml` step "Run Unit Tests". | `requirements-dev.txt`, `.github/workflows/ci-cd.yml`, `.github/workflows/ci-test.yml` | CI pipeline no longer fails on missing deps / YAML syntax. |
@@ -713,4 +810,6 @@ ON waybill_jobs (status) INCLUDE (id);
 
 > **Verification:** `uvx ruff check` clean on touched files; proxy health tests pass (28 tests in proxy/rotator/system health/readyz suites); scheduler subquery logic tested.
 
-*Last updated: 2026-08-20 · Tests: 889 passed, 3 skipped (892 collected) · Deployment: 3-server Model B (Central 16GB + 2× remote Worker VPS) · Alembic Head: 036_management_tables_and_activity_logs_fix*
+*Historical release snapshot dated 2026-08-20. Re-run tests and runtime
+verification for the current commit; Alembic head documented for this checkout:
+036_management_tables_and_activity_logs_fix.*

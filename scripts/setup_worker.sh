@@ -37,9 +37,9 @@ log_section "🔧 BarPro Worker Node Setup"
 
 # ── بررسی متغیرهای الزامی ─────────────────────────────────────────────────
 if [ -f .env ]; then
-    set -a
-    source .env
-    set +a
+    # shellcheck source=scripts/load_env.sh
+    source scripts/load_env.sh
+    load_dotenv .env
 else
     log_error "فایل .env یافت نشد! ابتدا .env را با مقادیر ورکر تنظیم کنید."
     echo ""

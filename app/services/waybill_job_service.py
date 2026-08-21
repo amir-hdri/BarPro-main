@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import String, func
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -41,10 +42,10 @@ from app.schemas.multitenant import (
     WaybillJobResponse,
     WaybillJobUpdateRequest,
     WaybillRetryRequest,
+    _normalize_national_code,
     _normalize_plate,
 )
 from app.services._helpers import (
-    _deep_merge_dict,
     _safe_json_payload,
     _timeline_matches_query,
 )
@@ -78,6 +79,19 @@ class WaybillJobService:
                 detail="Driver not found",
             )
 
+        payload_dict = request.payload.model_dump() if hasattr(request.payload, "model_dump") else dict(request.payload)
+        from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload
+
+        enhanced_payload = build_enhanced_waybill_payload(payload_dict)
+        payload_driver_code = _normalize_national_code(
+            str((enhanced_payload.get("vehicle") or {}).get("driver_national_code") or "")
+        )
+        if payload_driver_code and payload_driver_code != request.driver_national_code:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Payload driver_national_code does not match the selected driver",
+            )
+
         # Auto-register / activate plate in DriverPlate for driver if provided
         plate_str = getattr(request.payload, "plate_number", None)
         if not plate_str and hasattr(request.payload, "vehicle") and request.payload.vehicle:
@@ -94,47 +108,47 @@ class WaybillJobService:
             vehicle_type_str = "کامیون"
 
         if plate_str and driver.id and client.id:
-            try:
-                norm_plate = _normalize_plate(str(plate_str).strip())
-                existing_plate_stmt = select(DriverPlate).where(
-                    (DriverPlate.client_id == client.id)
-                    & (DriverPlate.driver_id == driver.id)
-                    & (DriverPlate.plate_number == norm_plate)
+            norm_plate = _normalize_plate(str(plate_str).strip())
+            existing_plate_stmt = select(DriverPlate).where(
+                (DriverPlate.client_id == client.id) & (DriverPlate.plate_number == norm_plate)
+            )
+            existing_plate = (await session.exec(existing_plate_stmt)).first()
+            if existing_plate and existing_plate.driver_id != driver.id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Plate is already assigned to another driver in this tenant",
                 )
-                existing_plate = (await session.exec(existing_plate_stmt)).first()
-                if not existing_plate:
-                    plate_count = (
-                        await session.exec(select(func.count(DriverPlate.id)).where(DriverPlate.client_id == client.id))
-                    ).one()
-                    if plate_count < client.max_plates:
-                        new_plate = DriverPlate(
-                            client_id=client.id,
-                            driver_id=driver.id,
-                            plate_number=norm_plate,
-                            vehicle_type=str(vehicle_type_str),
-                            status="active",
-                        )
-                        session.add(new_plate)
-                        await session.commit()
-                    else:
-                        logger.warning(
-                            f"Plate limit ({client.max_plates}) reached for client {client.id}; cannot auto-register new plate {norm_plate}"
-                        )
-                else:
-                    changed = False
-                    if existing_plate.status != "active":
-                        existing_plate.status = "active"
-                        changed = True
-                    if vehicle_type_str and existing_plate.vehicle_type != vehicle_type_str:
-                        existing_plate.vehicle_type = vehicle_type_str
-                        changed = True
-                    if changed:
-                        session.add(existing_plate)
-                        await session.commit()
-            except Exception as e:
-                logger.warning(f"Failed to auto-register plate from waybill for driver {driver.id}: {e}")
-
-        payload_dict = request.payload.model_dump() if hasattr(request.payload, "model_dump") else dict(request.payload)
+            if not existing_plate:
+                plate_count = (
+                    await session.exec(select(func.count(DriverPlate.id)).where(DriverPlate.client_id == client.id))
+                ).one()
+                if plate_count >= client.max_plates:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Plate limit ({client.max_plates}) reached for this client",
+                    )
+                existing_plate = DriverPlate(
+                    client_id=client.id,
+                    driver_id=driver.id,
+                    plate_number=norm_plate,
+                    vehicle_type=str(vehicle_type_str),
+                    status="active",
+                )
+                session.add(existing_plate)
+            else:
+                if existing_plate.status != "active":
+                    existing_plate.status = "active"
+                if vehicle_type_str and existing_plate.vehicle_type != vehicle_type_str:
+                    existing_plate.vehicle_type = vehicle_type_str
+                session.add(existing_plate)
+            try:
+                await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Plate registration conflicted with another concurrent request",
+                ) from exc
 
         job = await rpa_scheduler_service.create_job(
             client_id=client.id or 0,
@@ -327,25 +341,27 @@ class WaybillJobService:
             )
 
         retry_request = request or WaybillRetryRequest()
+        if retry_request.retry_with_overrides:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Payload overrides are not allowed during retry because they change the canonical "
+                    "submission identity; create a new job instead"
+                ),
+            )
         now = datetime.now(UTC).replace(tzinfo=None)
         event_payload: dict[str, object] = {
             "requested_at": now.isoformat(),
             "force_auth_refresh": retry_request.force_auth_refresh,
         }
 
-        payload = _safe_json_payload(job.payload_json) or {}
-        if retry_request.retry_with_overrides:
-            payload = _deep_merge_dict(payload, retry_request.retry_with_overrides)
-            job.payload_json = payload
-            event_payload["retry_with_overrides"] = retry_request.retry_with_overrides
-
         if retry_request.force_auth_refresh and job.driver_id:
-            await rpa_runtime.delete_session(client.id or 0, job.driver_id)
+            await rpa_runtime.delete_session(job.client_id, job.driver_id)
 
             runtime_state = (
                 await session.exec(
                     select(DriverRuntimeState).where(
-                        DriverRuntimeState.client_id == client.id,
+                        DriverRuntimeState.client_id == job.client_id,
                         DriverRuntimeState.driver_id == job.driver_id,
                     )
                 )
@@ -391,7 +407,7 @@ class WaybillJobService:
             DomainEvent(
                 event_id=f"evt_retry_{uuid.uuid4().hex[:24]}",
                 event_type=JOB_RETRY_REQUESTED,
-                client_id=client.id,
+                client_id=job.client_id,
                 driver_id=job.driver_id,
                 job_id=job.job_id,
                 payload_json=json.dumps(event_payload, ensure_ascii=False),
@@ -400,7 +416,7 @@ class WaybillJobService:
         session.add(
             WaybillTaskLog(
                 job_id=job.job_id,
-                client_id=client.id,
+                client_id=job.client_id,
                 step="manual_requeue",
                 status="pending",
                 message="Job manually requeued for immediate retry",
@@ -638,8 +654,6 @@ class WaybillJobService:
             update_data["max_retries"] = request.max_retries
         if request.terminal_reason is not None:
             update_data["terminal_reason"] = request.terminal_reason
-        if request.notes is not None:
-            update_data["notes"] = request.notes
         if request.business_date is not None:
             update_data["business_date"] = request.business_date
         if request.correlation_id is not None:

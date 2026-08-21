@@ -154,6 +154,16 @@ class WaybillAutomationBot:
                             normalized_payload, dry_run=dry_run, job_id=job_id
                         )
 
+            # A fresh-login retry produces a new result; recompute the mutation
+            # boundary before deciding whether any further submit is safe.
+            mutation_may_have_been_dispatched = bool(
+                manager_result.get("mutation_dispatched")
+                or manager_result.get("mutation_status") == "ambiguous"
+                or manager_result.get("needs_reconciliation")
+                or str(manager_result.get("status", "")).lower() in {"unknown", "reconciling", "submitted"}
+                or str(manager_result.get("confirmation_status", "")).lower() == "pending_history_reconciliation"
+            )
+
             result["steps"].append(
                 {
                     "step": "create_waybill_with_map",
@@ -213,7 +223,9 @@ class WaybillAutomationBot:
                 result["error_category"] = "submission_unconfirmed"
                 return result
 
-            result["status"] = TaskStatus.SUCCESS.value
+            # A browser tracking code is only witness 1/3. Keep the job in the
+            # reconciliation path until History/Search confirms the mutation.
+            result["status"] = TaskStatus.UNKNOWN.value
             result["result"] = {
                 "tracking_code": tracking_code,
                 "url": manager_result.get("url"),
@@ -223,7 +235,11 @@ class WaybillAutomationBot:
                 "destination_map_type": manager_result.get("destination_map_type"),
                 "route": manager_result.get("route"),
                 "waybill_screenshot": manager_result.get("waybill_screenshot"),
+                "confirmation_status": "pending_history_reconciliation",
             }
+            result["error_category"] = "submission_unconfirmed"
+            result["mutation_status"] = "dispatched"
+            result["needs_reconciliation"] = True
             result["steps"].append(
                 {
                     "step": "submit",
@@ -266,6 +282,8 @@ class WaybillAutomationBot:
                 extra={"extra_fields": {"job_id": job_id, "client_id": client_id, "error": self.last_error}},
             )
             return result
+        finally:
+            await self.manager.close()
 
     @staticmethod
     def _categorize_waybill_error(error: WaybillError) -> str:

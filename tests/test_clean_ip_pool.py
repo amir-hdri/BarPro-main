@@ -8,14 +8,18 @@ import pytest
 from app.automation.clean_ip_pool import (
     CleanIPPoolManager,
     CleanIPRecord,
+    _is_safe_source_url,
+    atomic_write,
     is_valid_port,
     is_valid_public_ip,
     probe_single_proxy,
 )
 from app.automation.worker_proxy import (
     ProxyUnavailableError,
+    _resolve_to_ip,
     clear_proxy_cache,
     get_best_egress_proxy,
+    get_playwright_proxy,
     get_worker_proxy_url,
 )
 from app.core.circuit_breaker import check_and_report_failure
@@ -65,6 +69,23 @@ def test_is_valid_public_ip_and_port():
     assert is_valid_port(0) is False
     assert is_valid_port(70000) is False
     assert is_valid_port("invalid") is False
+
+
+def test_safe_source_url_rejects_private_hosts_and_credentials():
+    public_address = [(None, None, None, None, ("185.100.47.106", 443))]
+    private_address = [(None, None, None, None, ("127.0.0.1", 443))]
+
+    with patch("socket.getaddrinfo", return_value=public_address):
+        assert _is_safe_source_url("https://feeds.example/proxies.txt") is True
+        assert _is_safe_source_url("https://user:secret@feeds.example/proxies.txt") is False
+    with patch("socket.getaddrinfo", return_value=private_address):
+        assert _is_safe_source_url("https://internal.example/proxies.txt") is False
+
+
+def test_atomic_write_uses_owner_only_permissions(tmp_path):
+    target = tmp_path / "proxy-state.txt"
+    atomic_write(str(target), "http://user:secret@185.100.47.106:8080\n")
+    assert target.stat().st_mode & 0o777 == 0o600
 
 
 def test_probe_single_proxy_success():
@@ -163,6 +184,51 @@ async def test_clean_ip_pool_manager_mark_blocked():
         pool_mgr.clear_local_cache()
 
 
+@pytest.mark.asyncio
+async def test_forced_refresh_still_honors_distributed_lock():
+    pool_mgr = CleanIPPoolManager()
+    pool_mgr.clear_local_cache()
+    pool_mgr._local_cache = [CleanIPRecord(url="http://185.100.47.106:8080")]
+    pool_mgr._local_cache_time = time.time()
+    mock_redis = AsyncMock()
+    mock_redis.set.return_value = False
+
+    with (
+        patch("app.core.redis_client.redis_manager.get", return_value=mock_redis),
+        patch("app.automation.clean_ip_pool.run_screening_cycle") as screening,
+    ):
+        records = await pool_mgr.refresh_pool(force=True)
+
+    assert len(records) == 1
+    screening.assert_not_called()
+    mock_redis.set.assert_awaited_once()
+    assert mock_redis.set.await_args.kwargs["nx"] is True
+    mock_redis.eval.assert_not_awaited()
+    pool_mgr.clear_local_cache()
+
+
+@pytest.mark.asyncio
+async def test_refresh_releases_only_its_owned_distributed_lock():
+    pool_mgr = CleanIPPoolManager()
+    pool_mgr.clear_local_cache()
+    mock_redis = AsyncMock()
+    mock_redis.set.return_value = True
+    verified = [CleanIPRecord(url="http://185.100.47.106:8080")]
+
+    with (
+        patch("app.core.redis_client.redis_manager.get", return_value=mock_redis),
+        patch("app.automation.clean_ip_pool.run_screening_cycle", return_value=verified),
+    ):
+        records = await pool_mgr.refresh_pool(force=True)
+
+    assert records == verified
+    mock_redis.eval.assert_awaited_once()
+    release_args = mock_redis.eval.await_args.args
+    assert "redis.call('get', KEYS[1]) == ARGV[1]" in release_args[0]
+    assert release_args[2] == pool_mgr.REDIS_LOCK_REFRESH
+    pool_mgr.clear_local_cache()
+
+
 def test_get_clean_ip_sync_skips_redis_blocked_proxy_in_cache():
     """get_clean_ip_sync must skip proxies marked blocked in Redis and return the next usable one."""
     pool_mgr = CleanIPPoolManager()
@@ -229,18 +295,29 @@ def test_worker_proxy_fallback_to_clean_pool():
 def test_worker_proxy_clean_pool_only_mode():
     clear_proxy_cache()
 
-    with patch.dict(
-        os.environ,
-        {
-            "EGRESS_PROXY_MODE": "clean_pool_only",
-            "ENVIRONMENT": "development",
-        },
-    ):
-        with patch(
-            "app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync", return_value="http://5.56.132.26:3128"
+    with patch.dict(os.environ, {"ENVIRONMENT": "development"}):
+        with (
+            patch(
+                "app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync", return_value="http://5.56.132.26:3128"
+            ),
+            patch("app.automation.worker_proxy.utcms_config.EGRESS_PROXY_MODE", "clean_pool_only"),
         ):
             url = get_worker_proxy_url()
             assert url == "http://5.56.132.26:3128"
+
+
+def test_proxy_resolution_preserves_credentials_and_playwright_separates_them():
+    clear_proxy_cache()
+    raw_url = "http://proxy-user:proxy-pass@proxy.example:8080"
+    with patch("socket.gethostbyname", return_value="185.100.47.106"):
+        assert _resolve_to_ip(raw_url) == "http://proxy-user:proxy-pass@185.100.47.106:8080"
+
+    with patch("app.automation.worker_proxy.get_worker_proxy_url", return_value=raw_url):
+        assert get_playwright_proxy() == {
+            "server": "http://proxy.example:8080",
+            "username": "proxy-user",
+            "password": "proxy-pass",
+        }
 
 
 def test_worker_proxy_fail_closed_in_production_when_all_empty():

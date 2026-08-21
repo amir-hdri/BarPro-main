@@ -1,3 +1,6 @@
+> Legacy design note: this file is not evidence of deployed security controls.
+> Use docs/BARPRO_KNOWLEDGE_GRAPH.md and verify firewall/TLS/auth at runtime.
+
 ## ۳. امنیت و کنترل دسترسی (Security & Access Control)
 
 ### 3.1 احراز هویت و Authorization

@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import HTTPException
 
+from app.core.exceptions import WaybillError
 from app.schemas.waybill import (
     CargoModel,
     FinancialModel,
@@ -66,6 +67,7 @@ async def test_service_returns_safe_mode_response():
         manager_instance.create_waybill_with_map = AsyncMock(
             return_value={"success": True, "status": "validated", "validation_summary": {"ready_for_submit": True}}
         )
+        manager_instance.close = AsyncMock()
 
         response = await service.create_waybill_with_map(request)
 
@@ -73,6 +75,7 @@ async def test_service_returns_safe_mode_response():
     assert response["status"] == "validated"
     assert "request_id" in response
     assert response["validation_summary"]["has_driver_data"] is True
+    manager_instance.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -132,3 +135,57 @@ async def test_service_returns_503_when_login_fails_due_to_network():
 
     assert exc.value.status_code == 503
     assert "اتصال" in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_solve_waybill_captcha_closes_manager_when_execution_raises():
+    service = WaybillService()
+
+    with patch("app.automation.waybill_enhanced.EnhancedWaybillManager") as manager_cls:
+        manager_instance = manager_cls.return_value
+        manager_instance.create_waybill_with_map = AsyncMock(side_effect=RuntimeError("form execution failed"))
+        manager_instance.close = AsyncMock()
+
+        with pytest.raises(RuntimeError, match="form execution failed"):
+            await service._solve_waybill_captcha(AsyncMock(), AsyncMock(), {}, dry_run=True)
+
+    manager_instance.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_detect_map_closes_manager_before_early_return():
+    service = WaybillService()
+    page = AsyncMock()
+    page.url = "https://barname.utcms.ir/barname/DocumentList/Index"
+    context = AsyncMock()
+    proxy_rotator = AsyncMock()
+    proxy_rotator.get_next.return_value = None
+
+    with (
+        patch("app.services.waybill_service.browser_manager.initialize", AsyncMock()),
+        patch(
+            "app.services.waybill_service.browser_manager.create_context",
+            AsyncMock(return_value=("detect-map-session", context)),
+        ),
+        patch("app.services.waybill_service.browser_manager.new_page", AsyncMock(return_value=page)),
+        patch("app.services.waybill_service.browser_manager.close_context", AsyncMock()) as close_context,
+        patch("app.services.waybill_service.get_proxy_rotator", return_value=proxy_rotator),
+        patch("app.automation.auth.UTCMSAuthenticator") as auth_cls,
+        patch("app.automation.waybill_enhanced.EnhancedWaybillManager") as manager_cls,
+        patch("app.services.waybill_service.report_service.record_map_usage", AsyncMock()),
+    ):
+        auth_instance = auth_cls.return_value
+        auth_instance._is_logged_in = AsyncMock(return_value=True)
+        auth_instance.last_error = None
+
+        manager_instance = manager_cls.return_value
+        manager_instance._ensure_waybill_form_page = AsyncMock(side_effect=WaybillError("waybill form unavailable"))
+        manager_instance.close = AsyncMock()
+
+        result = await service.detect_map(session_id="public-session")
+
+    assert result["has_map"] is False
+    assert result["authenticated"] is True
+    manager_instance.close.assert_awaited_once()
+    page.close.assert_awaited_once()
+    close_context.assert_awaited_once_with("detect-map-session")

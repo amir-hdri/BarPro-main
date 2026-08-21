@@ -1,5 +1,9 @@
 # UTCMS Waybill List Search Investigation Report (Phase 5)
 
+> Historical investigation. Selectors, URLs and proxy recommendations require
+> revalidation against the live portal. Current reconciliation and Model B proxy
+> contracts are in docs/UTCMS_CONSTRAINTS.md and docs/BARPRO_KNOWLEDGE_GRAPH.md.
+
 This document addresses the questions H.1 through H.4 as required by Phase 5 of the BarPro Unified Master Roadmap v2.0. This investigation determines the configuration and selector parameters to design and implement the Reconciliation Engine in Phase 6.
 
 ---
@@ -105,4 +109,3 @@ Based on these findings, we recommend implementing **Auto Reconciliation Mode (Ø
 - **Date**: 2026-08-01
 - **Approver**: BarPro Architecture Board & Lead Operator
 - **Verification Method**: Manually checked and validated the responsiveness of UTCMS DOM selectors (`table.table tbody tr`, `input[name='TrackingCode']`, etc.) and confirmed behavior under IP limits and WAF controls.
-

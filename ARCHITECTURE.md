@@ -1,483 +1,266 @@
-# 🏗️ معماری و شماتیک سیستم BarPro
+# معماری فعلی BarPro
 
-## 1. معماری کلی سیستم
+> آخرین هم‌ترازی با کد: 2026-08-20
+>
+> commit مبنای audit: `9c472f1`؛ SHA نسخه release باید پس از commit این
+> remediation ثبت شود.
+>
+> این سند قرارداد معماری checkout فعلی است، نه اثبات وضعیت لحظه‌ای سرورها. وضعیت
+> containerها، firewall، environment و IP خروجی باید در هر استقرار جداگانه بررسی شود.
+> قرارداد رفتاری UTCMS در [`docs/UTCMS_CONSTRAINTS.md`](docs/UTCMS_CONSTRAINTS.md)
+> اولویت بالاتری از توضیحات عمومی این سند دارد.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    CLIENT BROWSER                               │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │           Next.js Frontend (Port 3000)                    │ │
-│  │  • React 19 + TypeScript                                   │ │
-│  │  • Tailwind CSS + Heroicons                                │ │
-│  │  • React Query + Axios                                     │ │
-│  │  • React Hook Form + Zod Validation                        │ │
-│  └────────────────────────────────────────────────────────────┘ │
-└────────────────┬────────────────────────────────────────────────┘
-                 │
-                 │ CORS + HTTPS
-                 │ API Calls (http://localhost:8000)
-                 │
-        ┌────────▼───────────┐
-        │   Nginx (80/443)    │
-        │   Reverse Proxy     │
-        └────────┬───────────┘
-                 │
-┌────────────────┴──────────────────────────────────────────┐
-│                                                             │
-│  ┌──────────────────────────────────────────────────────┐ │
-│  │         FastAPI Backend (Port 8000)                 │ │
-│  │  ┌───────────────────────────────────────────────┐  │ │
-│  │  │  • Request Middleware (tracing, auth)        │  │ │
-│  │  │  • CORS Middleware (allow origins)           │  │ │
-│  │  │  • Rate Limiter (public/auth endpoints)      │  │ │
-│  │  └───────────────────────────────────────────────┘  │ │
-│  │                       │                              │ │
-│  │  ┌──────────────────┬─┴────────────┬──────────────┐ │ │
-│  │  │                  │              │              │ │ │
-│  │  ▼                  ▼              ▼              ▼ │ │
-│  │ ┌────────┐   ┌──────────┐   ┌──────────┐   ┌────────┐
-│  │ │Waybill │   │Management│   │Admin     │   │System  │
-│  │ │Routes  │   │Routes    │   │Routes    │   │Routes  │
-│  │ └────────┘   └──────────┘   └──────────┘   └────────┘
-│  │                                                       │
-│  └─────────────────────┬─────────────────────────────────┘
-│                        │
-│    ┌───────────────────┼───────────────────┐
-│    │                   │                   │
-│    ▼                   ▼                   ▼
-│  ┌─────────┐    ┌────────────┐     ┌───────────┐
-│  │ Services│    │ Automation │     │ Monitoring│
-│  │(Business│    │ Engine(RPA)│     │(Prometheus)
-│  │ Logic)  │    │            │     │           │
-│  └─────────┘    └────────────┘     └───────────┘
-└────┬────────────────┬──────────────────┬───┬───────┘
-     │                │                  │   │
-     ▼                ▼                  ▼   ▼
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│ PostgreSQL   │ │ Redis        │ │ Playwright   │
-│ (Database)   │ │ (Cache/Queue)│ │ (Browser)    │
-│ Port 5432    │ │ Port 6379    │ │              │
-└──────────────┘ └──────────────┘ └──────────────┘
+## 1. توپولوژی استقرار
+
+توپولوژی هدف production، **Model B scale-out** است:
+
+```text
+Browser
+  │ HTTP :80 (HTTPS هنوز فعال نیست)
+  ▼
+Nginx ──► Next.js :3000
+  │
+  ├─────► FastAPI :8000
+  │          ├── PostgreSQL 16 :5432
+  │          ├── Redis 7 :6379 (Celery/cache/pub-sub/locks)
+  │          └── WebSocket /ws/waybill
+  │
+  └── Central services
+         ├── Celery Beat (فقط producer زمان‌بندی‌ها)
+         ├── celery_scheduler (مصرف‌کننده singleton صف rpa_scheduler)
+         ├── Celery Worker 1, concurrency=1
+         └── Squid 1 :3128 → IP خروجی Central
+
+Remote Worker 2                    Remote Worker 3
+├── Celery Worker, concurrency=1   ├── Celery Worker, concurrency=1
+└── Local Squid :3128              └── Local Squid :3128
+    → static Iranian IP                → static Iranian IP
+       │                                  │
+       └──── PostgreSQL/Redis Central ─────┘
 ```
 
----
+- Central میزبان API، Web، PostgreSQL، Redis، Worker 1، Beat،
+  `celery_scheduler` و monitoring است.
+- Workerهای 2 و 3 با [`compose/worker-node.yml`](compose/worker-node.yml) روی VPS
+  مستقل اجرا می‌شوند.
+- سرویس‌های Central مربوط به Worker/Squid 2 و 3 فقط متعلق به **Model A** هستند و
+  نباید بدون profile صریح scale-out روی Model B بالا بیایند.
+- PostgreSQL و Redis برای اتصال remote worker ممکن است روی `0.0.0.0` bind شوند؛
+  این bind به‌تنهایی امنیت ایجاد نمی‌کند. UFW، firewall ارائه‌دهنده و
+  `DOCKER-USER` باید دسترسی را فقط به IPهای Worker محدود کنند.
+- تعریف Compose یا گزارش deployment قبلی اثبات firewall و listener زنده نیست؛
+  `docker ps`، `ss -lntp` و probe از یک IP غیرمجاز باید در هر release کنترل شوند.
 
-## 2. جریان درخواست (Request Flow)
+### Model A
 
-```
-1. FRONTEND REQUEST
-   ┌─────────────────────────────────────────┐
-   │ Browser Action                          │
-   │ (Click, Form Submit, etc.)              │
-   └────────────┬────────────────────────────┘
-                │
-   2. AXIOS CLIENT
-   ┌────────────▼────────────────────────────┐
-   │ axios.post('/api/v1/waybills', data)    │
-   │ Headers:                                 │
-   │ - Authorization: Bearer JWT             │
-   │ - Content-Type: application/json        │
-   │ - X-Request-ID: uuid                    │
-   └────────────┬────────────────────────────┘
-                │
-   3. BROWSER SECURITY
-   ┌────────────▼────────────────────────────┐
-   │ CORS Pre-flight Check (OPTIONS)         │
-   │ Origin: http://localhost:3000           │
-   │ Verify Backend allows this origin       │
-   └────────────┬────────────────────────────┘
-                │
-   4. FASTAPI MIDDLEWARE
-   ┌────────────▼────────────────────────────┐
-   │ Request Context Middleware              │
-   │ ├─ Generate/Extract Request ID          │
-   │ ├─ Bind Execution Context               │
-   │ ├─ Rate Limiting Check                  │
-   │ └─ Trace Span Creation                  │
-   └────────────┬────────────────────────────┘
-                │
-   5. ROUTING & VALIDATION
-   ┌────────────▼────────────────────────────┐
-   │ Match API Route                         │
-   │ Parse Request Body (Pydantic)           │
-   │ Validate Input Schema                   │
-   └────────────┬────────────────────────────┘
-                │
-   6. BUSINESS LOGIC
-   ┌────────────▼────────────────────────────┐
-   │ Service Layer                           │
-   │ ├─ Auth Check (JWT validation)          │
-   │ ├─ Tenant Isolation Check               │
-   │ ├─ Business Rules Validation            │
-   │ └─ Task/Operation Processing            │
-   └────────────┬────────────────────────────┘
-                │
-   7. DATABASE INTERACTION
-   ┌────────────▼────────────────────────────┐
-   │ Get Session from Pool                   │
-   │ Execute Query (async)                   │
-   │ ├─ Connection Health Check              │
-   │ ├─ Transaction Begin                    │
-   │ ├─ Execute SQL                          │
-   │ ├─ Commit/Rollback                      │
-   │ └─ Return to Pool                       │
-   └────────────┬────────────────────────────┘
-                │
-   8. RESPONSE
-   ┌────────────▼────────────────────────────┐
-   │ JSON Response (Pydantic schema)         │
-   │ Status: 200 OK                          │
-   │ Headers:                                 │
-   │ - X-Request-ID: uuid                    │
-   │ - Content-Type: application/json        │
-   └────────────┬────────────────────────────┘
-                │
-   9. FRONTEND HANDLING
-   ┌────────────▼────────────────────────────┐
-   │ Axios Response Interceptor              │
-   │ Update React Query Cache                │
-   │ Update UI Component State               │
-   │ Show Success/Error Toast                │
-   └─────────────────────────────────────────┘
+Model A استقرار تک‌ماشینه سازگار با توسعه/legacy است و می‌تواند سه Worker و سه
+Squid محلی داشته باشد. مقادیر `AVAILABLE_IP_INDICES` و profileهای Compose در این
+مدل با Model B یکسان نیستند؛ هیچ مقدار نمونه‌ای نباید بدون تطبیق با Worker Registry
+به production منتقل شود.
+
+## 2. ورودی عمومی و TLS
+
+- پیکربندی فعال Nginx فقط `listen 80` دارد؛ production فعلی باید **HTTP-only**
+  در نظر گرفته شود.
+- block نمونه‌ی `listen 443 ssl` در
+  [`infra/nginx/nginx.conf`](infra/nginx/nginx.conf) comment است. وجود template یا
+  باز بودن TCP/443 به معنی HTTPS عملیاتی نیست.
+- تا قبل از نصب و آزمون certificate، `AUTH_COOKIE_SECURE=false` لازم است. پس از
+  فعال شدن redirect و TLS معتبر، این مقدار باید هم‌زمان به `true` تغییر کند.
+- مسیرهای canonical مستقیماً از Nginx به FastAPI یا Frontend هدایت می‌شوند. aliasهای
+  سازگاری نباید به‌عنوان API عمومی جدید مستند یا مصرف شوند.
+
+## 3. قرارداد API و WebSocket
+
+مسیرهای اصلی از routerهای FastAPI استخراج می‌شوند. OpenAPI همان commit مرجع نهایی
+جزئیات request/response است.
+
+| حوزه | مسیر canonical | نکته |
+|---|---|---|
+| Liveness | `GET /healthz` | probe سبک فرآیند |
+| Readiness | `GET /readyz` | DB/browser/config/CAPTCHA/ITMB/queue/circuit؛ پاسخ نباید DSN یا secret بازگرداند |
+| Metrics | `GET /metrics` | فقط شبکه داخلی monitoring |
+| Authentication | `/api/v1/auth/*`, `/api/v1/admin/login` | JWT در cookie با نام `utcms_auth_token` |
+| Tenant resources | `/api/v1/drivers`, `/api/v1/plates`, `/api/v1/driver-schedules` | tenant-scoped |
+| Waybill jobs | `/api/v1/waybill-jobs` | create/list/get/patch/delete و زیرمسیرهای retry/requeue/timeline/logs/screenshot |
+| Fuel inquiry | `/api/v1/fuel-inquiries` | queue مستقل سوخت |
+| Bulk upload | `/api/v1/upload/*` | Excel/batch tracking |
+| Locations | `/api/v1/locations/*` | قرارداد مکان |
+| Phase-1/legacy operations | `/api/v1/rpa/phase1/*`, `/management/*`, `/waybill/*` | سطح دسترسی هر route از dependency کد تعیین می‌شود |
+| Clean IP operations | `/api/system/clean-ips`, `/api/system/clean-ips/refresh` | admin-protected و بدون افشای credential |
+| Realtime | `WS /ws/waybill` | auth فقط از cookie؛ فیلترهای `task_id`, `batch_id`, `correlation_id` |
+
+مسیرهای `/api/system/health`، `/ws/jobs/{client_id}` و
+`/ws/admin/stream` قرارداد فعلی نیستند. همچنین endpoint جداگانه‌ی `POST cancel`
+وجود ندارد؛ `DELETE /api/v1/waybill-jobs/{job_id}` حذف دائمی است و نباید با cancel
+قابل‌بازیابی اشتباه شود.
+
+## 4. جریان ثبت بارنامه و state machine
+
+```text
+POST /api/v1/waybill-jobs
+  → validation + tenant/quota/idempotency checks
+  → pending / waiting_auth / waiting_submission_window
+  → scheduler creates DispatchIntent
+  → dispatcher selects healthy registered Worker/IP
+  → queued → claimed → running
+  → at-most-once UTCMS submit
+  → unknown (نتیجه mutation هنوز قطعی نیست)
+  → reconciling (UTCMS History/Search)
+       ├── سه شاهد معتبر → success
+       ├── ambiguous/not found after bounded attempts → needs_review
+       └── transient evidence gap → unknown/retry reconciliation
 ```
 
----
+`RUNNING → SUCCESS` یک happy-path معتبر برای اعلام فوری موفقیت نیست. guard در
+`JobStateMachine` برای `WaybillJob` تنها زمانی `success` را می‌پذیرد که:
 
-## 3. Connection Pooling Flow
+1. پاسخ RPA دارای `tracking_code` غیرخالی باشد؛
+2. همان کد در `waybill_jobs.result_json` ذخیره شده باشد؛
+3. History/Search خود UTCMS رکورد متناظر را تأیید کند و
+   `mutation_status=confirmed` و `reconciled_at` ثبت شده باشند.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│         SQLAlchemy Connection Pool                       │
-│         (pool_size=20, max_overflow=10)                  │
-│                                                          │
-│  ┌────────────────────────────────────────────────────┐ │
-│  │  Idle Connections (20)                            │ │
-│  │  [conn] [conn] [conn] [conn] [conn] ...           │ │
-│  │    #1     #2     #3     #4     #5                 │ │
-│  └────────────────────────────────────────────────────┘ │
-│                                                          │
-│  When request arrives:                                  │
-│  1. pool_pre_ping=True → SELECT 1 (health check)       │
-│  2. If healthy → give to request                       │
-│  3. If not healthy → discard + create new              │
-│                                                          │
-│  ┌────────────────────────────────────────────────────┐ │
-│  │  When pool exhausted (all 20 in use)              │ │
-│  │  1. Check max_overflow (10 additional allowed)    │ │
-│  │  2. Create temporary connection                   │ │
-│  │  3. pool_timeout=30s → wait for available         │ │
-│  │  4. If timeout exceeded → raise exception         │ │
-│  │                                                    │ │
-│  │  pool_recycle=3600 → recycle connections every   │ │
-│  │  hour to avoid stale connections                 │ │
-│  └────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────┘
-```
+بسته شدن modal، دریافت پیام success از UI، screenshot یا وجود tracking code بدون
+تأیید History به‌تنهایی اثبات ثبت نهایی نیست. Job نامطمئن هرگز خودکار resubmit
+نمی‌شود؛ پس از پایان reconciliation محدود به `needs_review` می‌رود.
 
----
+تاخیرهای فعلی reconciliation برابر `15, 45, 120, 300` ثانیه‌اند و task دوره‌ای
+آن از queue reconciliation اجرا می‌شود.
 
-## 4. Multi-Tenancy Data Isolation
+## 5. Submission Gate و OTP
 
-```
-┌──────────────────────────────────────────────────┐
-│          PostgreSQL Database                     │
-│        (utcms_rpa)                              │
-│                                                  │
-│  ┌──────────────────────────────────────────┐  │
-│  │     Tenant 1 (client_id=1)              │  │
-│  │                                          │  │
-│  │  clients → id=1, client_code='client1' │  │
-│  │  drivers → 5 drivers (client_id=1)     │  │
-│  │  waybill_tasks → 100 tasks (client1)   │  │
-│  │  reports → 50 reports (client1)        │  │
-│  │                                          │  │
-│  │  Query Filter: WHERE client_id = 1     │  │
-│  └──────────────────────────────────────────┘  │
-│                                                  │
-│  ┌──────────────────────────────────────────┐  │
-│  │     Tenant 2 (client_id=2)              │  │
-│  │                                          │  │
-│  │  clients → id=2, client_code='client2' │  │
-│  │  drivers → 3 drivers (client_id=2)     │  │
-│  │  waybill_tasks → 50 tasks (client2)    │  │
-│  │  reports → 30 reports (client2)        │  │
-│  │                                          │  │
-│  │  Query Filter: WHERE client_id = 2     │  │
-│  └──────────────────────────────────────────┘  │
-│                                                  │
-│  [Complete isolation at database level]         │
-│  [Row-level security via queries]               │
-│  [No accidental data leakage possible]           │
-└──────────────────────────────────────────────────┘
-```
-### دسترسی ادمین ارشد به داده‌های مستأجران (Unified Admin Bypass)
-با وجود ایزولاسیون کامل سطح دیتابیس برای مشتریان معمولی، ادمین ارشد (Master Admin) امکان دسترسی به داده‌های تمام مستأجران را به صورت یکپارچه دارد. این کار از طریق وابستگی `get_current_user_or_admin` در احراز هویت انجام می‌شود. در صورتی که نقش کاربر `master_admin` تشخیص داده شود:
-- کوئری‌ها فیلتر محدودکننده `client_id` را اعمال نمی‌کنند.
-- در پاسخ‌های مربوط به ادمین، اطلاعات مشتری (نام و کد مشتری) به پاسخ تزریق می‌شود.
-- کاربران عادی (`client`) به هیچ وجه دسترسی به خطاها و لاگ‌های تفصیلی خارج از محدوده خود ندارند.
+UTCMS پنجره‌ی رسمی و تضمین‌شده‌ای برای OTP منتشر نکرده است. بازه پیش‌فرض
+`18:00–08:00` فقط **prediction قابل‌تنظیم** برای `OTP_REQUIRED` است، نه قانون
+قطعی سامانه.
 
+- فقط observation معتبر `OTP_FREE` اجازه submit می‌دهد.
+- `UNKNOWN`، `DEGRADED` و `OTP_REQUIRED` fail-closed هستند.
+- state در Redis cache و در `utcms_system_observations` audit می‌شود.
+- Beat فقط task `barpro.gate.probe` را publish می‌کند؛ اجرای آن توسط مصرف‌کننده
+  `rpa_scheduler` و زیر distributed lock انجام می‌شود.
+- مقدارهای effective window، TTL و interval باید از environment همان deployment
+  گزارش شوند؛ default کد اثبات مقدار production نیست.
 
----
+## 6. Celery و صف‌ها
 
-## 5. Authentication Flow
+Beat مصرف‌کننده نیست؛ Beat schedule message تولید می‌کند. `celery_scheduler`
+مصرف‌کننده singleton control-plane است و RPA browser workload نباید روی آن اجرا شود.
 
-```
-┌────────────────────────────────────────┐
-│  LOGIN REQUEST                         │
-│  POST /api/v1/auth/login               │
-│  Body: {username, password}            │
-└────────────┬───────────────────────────┘
-             │
-   ┌─────────▼────────────┐
-   │ Validate Credentials │
-   │ Query DB for Client  │
-   │ bcrypt.verify() pwd  │
-   └─────────┬────────────┘
-             │
-   ┌─────────▼────────────┐
-   │ Create JWT Token     │
-   │ Payload:             │
-   │ - sub: client_id     │
-   │ - client_code        │
-   │ - iat: now           │
-   │ - exp: now + 24h     │
-   │ Sign with JWT_SECRET │
-   └─────────┬────────────┘
-             │
-    ┌─────────▼────────────────────────┐
-    │ Response                          │
-    │ Set-Cookie:                       │
-    │   utcms_auth_token=eyJxxx...;      │
-    │   HttpOnly; Path=/; Secure        │
-    │   (AUTH_COOKIE_SECURE=true/false) │
-    │ {                                 │
-    │   user: { id, name, ... }         │
-    │ }                                 │
-    └─────────┬────────────────────────┘
-              │
-    ┌─────────▼────────────────────────┐
-    │ Subsequent Requests               │
-    │ Credentials: include (Cookies)   │
-    │ Headers: (No Bearer token needed)│
-    │ Cookie: utcms_auth_token=eyJxxx..│
-    └────────────────────────────────────┘
-```
+| مصرف‌کننده | صف‌ها |
+|---|---|
+| Worker 1 | `waybill_tasks`, `waybill_tasks_1`, `rpa_auth_1`, `rpa_submit_1`, `reconciliation_tasks`, `reconciliation_tasks_1`, `scheduled_tasks`, `scheduled_tasks_1`, `barpro.fuel.inquiry` |
+| Worker 2 | base queueهای لازم + `*_2`، `scheduled_tasks_2`, `barpro.fuel.inquiry` |
+| Worker 3 | base queueهای لازم + `*_3`، `scheduled_tasks_3`, `barpro.fuel.inquiry` |
+| `celery_scheduler` | فقط `rpa_scheduler` |
 
----
+- concurrency مؤثر هر Worker RPA برابر `1` است.
+- `AVAILABLE_IP_INDICES` با Worker Registry فیلتر می‌شود؛ index بدون Worker تازه و
+  ثبت‌شده مقصد dispatch نیست.
+- `barpro.fuel.inquiry` توسط تمام Workerها مصرف می‌شود، اما lock بارنامه‌ی راننده
+  را تصاحب نمی‌کند.
+- taskهای orchestrator scheduler/dispatcher/orphan detector/claim reaper، cleanup
+  سوخت، gate probe و Clean IP probe روی `rpa_scheduler` publish می‌شوند.
+- وضعیت واقعی binding و backlog فقط با `celery inspect active_queues` و metrics
+  همان deployment قابل اثبات است.
 
-## 6. WebSocket Connection for Real-time Updates
+## 7. CAPTCHA و login شبکه‌ای
 
-```
-Frontend                              Backend
-  │                                     │
-  │ ws://localhost:8000/ws/job/123      │
-  │────────────────────────────────────>│
-  │                                     │
-  │ (WebSocket Handshake)               │
-  │<────────────────────────────────────│
-  │                                     │
-  │ (Connected)                         │
-  │                                     │
-  │ (RPA Task Running)                  │
-  │                                     │
-  │                                  [Step 1: Login]
-  │<────────────────────────────────────│
-  │  {type: "status_update",            │
-  │   step: "login",                    │
-  │   progress: 10%}                    │
-  │                                  [Step 2: Fill Form]
-  │<────────────────────────────────────│
-  │  {type: "status_update",            │
-  │   step: "fill_form",                │
-  │   progress: 50%}                    │
-  │                                  [Step 3: Submit]
-  │<────────────────────────────────────│
-  │  {type: "status_update",            │
-  │   step: "submit",                   │
-  │   progress: 90%}                    │
-  │                                  [Complete]
-  │<────────────────────────────────────│
-  │  {type: "completed",                │
-  │   result: "success",                │
-  │   tracking_number: "123456"}        │
-  │                                     │
-  │ Close WebSocket Connection          │
-  │ (cleanup)                           │
-```
+`CAPTCHA_PROVIDER=auto` providerها را به ترتیب زیر امتحان می‌کند:
 
----
+1. `cnn` — CAPTCHA ریاضی login؛
+2. `pytorch_fuel` — CRNN عبارت فارسی سوخت؛
+3. `keras_ocr` — fallback سوخت؛
+4. `enhanced_ocr`؛
+5. `local_ocr`.
 
-## 7. Performance & Scalability
+Keras با `keras.models.load_model(..., compile=False)` به‌صورت lazy و thread-safe
+در **همان Worker process** load و reuse می‌شود. `KERAS_PYTHON_PATH` قرارداد runtime
+solver فعلی نیست و نباید معماری subprocess Python 3.12 از آن استنباط شود.
 
-```
-┌─────────────────────────────────────────────────┐
-│            Load Balancing Strategy              │
-│                                                 │
-│  1. CONNECTION POOLING                          │
-│     ├─ Base Pool: 20 connections               │
-│     ├─ Overflow: +10 during peaks              │
-│     ├─ Health Check: every request             │
-│     └─ Recycling: every 3600 seconds           │
-│                                                 │
-│  2. CACHING (Redis)                             │
-│     ├─ Session cache (TTL: 24h)                │
-│     ├─ Task queue (processing tasks)           │
-│     ├─ Rate limit counters                     │
-│     └─ Distributed lock management             │
-│                                                 │
-│  3. RATE LIMITING                               │
-│     ├─ Public endpoints: 10/min                │
-│     ├─ Auth endpoints: 5/min                   │
-│     ├─ User endpoints: 100/min                 │
-│     └─ Admin endpoints: 1000/min               │
-│                                                 │
-│  4. CELERY WORKERS                              │
-│     ├─ Background task processing              │
-│     ├─ RPA automation execution                │
-│     ├─ Report generation                       │
-│     └─ Email/notification sending              │
-└─────────────────────────────────────────────────┘
-```
+هیچ عدد accuracy/latency بدون benchmark نسخه‌دار، hash دیتاست، مدل و environment
+قابل استناد نیست. mode مؤثر (`CAPTCHA_PROVIDER`, `CAPTCHA_MODE`, `CAPTCHA_AUTO_ONLY`)
+ممکن است بین nodeها متفاوت باشد و باید در runtime audit شود.
 
----
+ورود UTCMS صرفاً Playwright نیست: مسیر اصلی می‌تواند HTTP login با `curl_cffi`،
+انتقال cookie/session و bridge محدود `document/xhr/fetch` داشته باشد و در صورت نیاز
+به Playwright fallback کند. 429 و 408/5xx transient نباید بودجه CAPTCHA را بسوزانند.
 
-## 8. Error & Recovery Flow
+## 8. proxy، circuit breaker و IP isolation
 
-```
-┌──────────────────────────────────┐
-│   Request Processing             │
-│                                  │
-│   try:                           │
-│     ├─ Validate Input           │
-│     ├─ Check Auth               │
-│     ├─ Load Data                │
-│     ├─ Process Business Logic   │
-│     ├─ Commit Transaction       │
-│     └─ Return Response          │
-│   except Exception as e:        │
-│     ├─ Log Error with Context   │
-│     ├─ Rollback Transaction     │
-│     ├─ Return Error Response    │
-│     └─ Close Session            │
-│   finally:                      │
-│     └─ Cleanup Resources        │
-└──────────────────────────────────┘
+modeهای معتبر egress عبارت‌اند از `worker_first`، `clean_pool_only` و `hybrid`.
+نام `clean_pool` معتبر نیست و نباید در runbookها استفاده شود.
 
-Error Handling Layers:
-┌──────────────────────────────┐
-│ 1. Input Validation (Pydantic)
-│    → 422 Unprocessable Entity
-│
-│ 2. Authentication (JWT)
-│    → 401 Unauthorized
-│
-│ 3. Authorization (Tenant)
-│    → 403 Forbidden
-│
-│ 4. Business Logic
-│    → 400/409 Custom Error
-│
-│ 5. Database
-│    → Retry with backoff
-│    → 503 Service Unavailable
-│
-│ 6. Unexpected
-│    → 500 Internal Server Error
-│    → Alert monitoring system
-└──────────────────────────────┘
-```
+سه مفهوم مستقل‌اند:
 
----
+- block شدن Worker IP در Redis با TTL عملیاتی 30 دقیقه؛
+- block شدن یک clean proxy به‌صورت per-proxy با TTL قابل تنظیم؛
+- circuit breaker عمومی in-process با threshold و recovery جداگانه.
 
-## 9. Security Layers
+خطای یک clean proxy نباید `WORKER_IP_INDEX` یا تمام node را مسدود کند. از سوی دیگر
+registry یا Redis نامطمئن نباید باعث dispatch fail-open به queue خیالی شود.
 
-```
-┌─────────────────────────────────────────────────┐
-│           SECURITY ARCHITECTURE                 │
-│                                                 │
-│  1. TRANSPORT SECURITY                          │
-│     ├─ HTTPS/WSS (in production)               │
-│     ├─ TLS 1.3+                                 │
-│     └─ Certificate validation                   │
-│                                                 │
-│  2. AUTHENTICATION                              │
-│     ├─ JWT tokens (HS256)                       │
-│     ├─ Token expiration (24h)                   │
-│     ├─ Password hashing (bcrypt)                │
-│     └─ Refresh token rotation                   │
-│                                                 │
-│  3. AUTHORIZATION                               │
-│     ├─ Multi-tenancy enforcement                │
-│     ├─ Row-level security (client_id check)    │
-│     ├─ Role-based access (admin/user)           │
-│     └─ Rate limiting by user                    │
-│                                                 │
-│  4. DATA PROTECTION                             │
-│     ├─ Database encryption (sensitive fields)  │
-│     ├─ Password field hashing                   │
-│     ├─ Secrets in environment                   │
-│     └─ No hardcoded credentials                 │
-│                                                 │
-│  5. INPUT VALIDATION                            │
-│     ├─ Pydantic schema validation               │
-│     ├─ SQL injection prevention (parameterized)│
-│     ├─ XSS prevention (no HTML in JSON)         │
-│     └─ CORS policy enforcement                  │
-│                                                 │
-│  6. MONITORING                                  │
-│     ├─ Request logging & tracing                │
-│     ├─ Error tracking                           │
-│     ├─ Performance monitoring                   │
-│     └─ Alert on suspicious activity             │
-└─────────────────────────────────────────────────┘
-```
+## 9. مدل داده
 
----
+کلیدهای اصلی SQLModel در مدل‌های جاری **integer** هستند. شناسه‌های عمومی مانند
+`job_id`، `batch_id`، `intent_id` و `execution_id` string هستند و نباید با UUID
+primary key اشتباه شوند.
 
-## 11. تاب‌آوری و بازیابی هوشمند (System Resilience)
+| aggregate | فیلدها/نقش‌های مهم |
+|---|---|
+| `Client`, `Driver`, `DriverPlate`, `DriverSchedule` | tenant و fleet ownership |
+| `WaybillJob` | `payload_json`, `result_json`, `attempt_count`, `next_retry_at`, `request_digest`, `mutation_status`, `reconciled_at`, `celery_task_id` |
+| `FuelInquiry` | status، `quota_data_json`، `screenshot_url` که می‌تواند Data URI باشد؛ tracking code مستقیم ندارد |
+| `UploadBatch` | وضعیت ingest گروهی و خطاهای batch |
+| `DispatchIntent` | intent پایدار dispatch، attempt و fencing token |
+| `Execution` | lease اجرای Worker و نتیجه execution |
+| `WorkerRegistry` | heartbeat، capacity، capabilities و `ip_index` |
+| `ProxyEndpoint` | سلامت و cooldown endpointهای proxy |
+| `UTCMSSystemObservation` | observation و اعتبار gate |
 
-### 11.1 بازیابی تسک‌های متوقف شده
-سیستم مجهز به یک ناظر هوشمند (`RPASchedulerService`) است که به صورت دوره‌ای (هر ۵ دقیقه) وضعیت تمامی تسک‌ها را بررسی می‌کند:
-- **تایم‌اوت صف (QUEUED):** اگر تسکی بیش از ۱۵ دقیقه در صف بماند و توسط هیچ کارگری برداشته نشود، سیستم آن را بازیابی کرده و برای تلاش مجدد آماده می‌کند.
-- **تایم‌اوت پردازش (IN_PROGRESS):** اگر فرآیند پردازش یک تسک بیش از ۳۰ دقیقه طول بکشد (نشانه احتمالی کرش کارگر یا قطع شبکه)، سیستم به صورت خودکار وضعیت آن را ریست کرده و از بن‌بست خارج می‌کند.
+نمودار یا agent نباید columnهای فرضی مانند `waybill_payload`, `retry_count` یا
+`tracking_code` مستقیم روی `FuelInquiry` بسازد. مرجع schema، SQLModelهای
+`app/models_multitenant.py` و `app/models_rpa.py` همراه با Alembic head جاری است.
 
-### 11.2 لایه‌های محافظتی RPA
-تمامی سرویس‌های خودکارسازی (`RPAAuthService` و `RPASubmitService`) دارای بلوک‌های مدیریت استثنای سراسری هستند:
-- **Atomic State Reset:** در صورت بروز هرگونه خطای پیش‌بینی نشده در مرورگر یا کد خودکارسازی، وضعیت درایور و تسک بلافاصله به حالت امن (READY یا FAILED) بازگردانده می‌شود.
-- **Cleanup on Crash:** تمامی منابع مرورگر (Context, Page) حتی در صورت بروز خطا به صورت اجباری بسته می‌شوند تا از نشت حافظه (Memory Leak) جلوگیری شود.
+## 10. Redis، rate limit و realtime
 
----
+Redis هم‌زمان broker/cache/pub-sub/distributed-lock و storage state است. eventهای
+Worker از طریق Redis pub/sub به FastAPI و سپس `WS /ws/waybill` bridge می‌شوند.
 
-### 11.3 اعتبارسنجی پیش‌پرواز پروکسی (Pre-flight Proxy Check)
-با توجه به اینکه کانتینرهای مرورگر Playwright برای دسترسی به سامانه کشوری UTCMS باید از پروکسی‌های Squid عبور کنند، کارگر قبل از راه‌اندازی مرورگر، اتصال پروکسی را با متد `check_proxy_health` می‌سنجد. در صورت عدم پاسخ‌گویی پروکسی، کارگر از ایجاد مرورگر خودداری کرده و با بروز خطا تسک را مجدداً به صف Celery برمی‌گرداند.
+rate limiter برنامه sliding-window مبتنی بر Redis ZSET و fail-closed است؛ Token
+Bucket نیست. حدود ثبت‌شده در کد عبارت‌اند از public=60، auth=5، waybill=30،
+driver=60، tenant=100 و admin=200 درخواست در 60 ثانیه. تطبیق prefix هر route باید
+با test قرارداد کنترل شود و صرف وجود rule اثبات اعمال آن روی همه مسیرها نیست.
 
-## 12. نکات نهایی و نگهداری
+## 11. Monitoring
 
+لایه [`compose/monitoring.yml`](compose/monitoring.yml) فقط Prometheus نیست:
 
-```
-User Action
-    │
-    ├─ Is it a real-time update?
-    │  └─ YES → WebSocket Connection
-    │           (ws://localhost:8000/ws/...)
-    │
-    └─ Is it a data mutation (POST/PUT/DELETE)?
-       ├─ YES → Check if heavy operation
-       │        ├─ YES → Celery Task Queue
-       │        │        (async processing)
-       │        │
-       │        └─ NO → Direct API Call
-       │               (sync response)
-       │
-       └─ NO → Direct API Call (GET)
-               └─ Cache Check (Redis)
-                  ├─ HIT → Return from cache
-                  └─ MISS → Query DB, cache result
-```
+- Prometheus با retention فعلی 15 روز؛
+- Alertmanager؛
+- Grafana؛
+- node-exporter؛
+- redis-exporter؛
+- postgres-exporter؛
+- nginx-exporter.
 
----
+Prometheus، Alertmanager و exporterها فقط روی شبکه Docker `barpro_platform` expose
+می‌شوند. Grafana روی `127.0.0.1:3000` bind شده و برای دسترسی راه دور به tunnel یا
+reverse proxy امن نیاز دارد. presence در Compose اثبات اجرای زنده یا delivery
+هشدار نیست؛ container health، scrape targets و receiverها باید پس از deploy بررسی شوند.
 
-**نسخه**: 2.2.0  
-**آخرین بروزرسانی**: 2026-07-09  
-**معمار سیستم**: Microservices-based Multi-tenant RPA Platform
+## 12. قواعد اعتبارسنجی production
+
+پیش از اعلام هم‌راستایی مستندات و سرور، حداقل این شواهد ثبت شوند:
+
+1. git SHA و Alembic head هر سه node؛
+2. full `docker ps` شامل کشف container اضافه، نه فقط expected list؛
+3. active queueها، worker concurrency، registry heartbeat و queue depth؛
+4. listenerها و firewall از داخل و یک IP غیرمجاز؛
+5. egress IP واقعی هر Worker از مسیر Squid؛
+6. effective env غیرحساس شامل OTP/CAPTCHA/proxy/circuit settings؛
+7. TLS handshake و cookie flags؛
+8. Prometheus targets، alert rules و Alertmanager delivery؛
+9. throughput و SLO از metrics/log، نه از quota یا default کد.
+
+هر مورد فاقد این شواهد باید با عبارت «نیازمند بررسی runtime» گزارش شود و نباید از
+نمونه `.env.example` یا وضعیت یک checkout محلی نتیجه‌گیری شود.

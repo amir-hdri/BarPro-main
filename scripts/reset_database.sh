@@ -28,6 +28,6 @@
  echo "🔄 Running migrations..."
  
  # Run migrations
- python -m alembic upgrade head
+ python -c 'import asyncio; from app.core.database import run_migrations; asyncio.run(run_migrations())'
  
  echo "✅ Migrations complete"

@@ -1,3 +1,7 @@
+> Legacy scenario catalogue. Current success requires three-witness UTCMS
+> reconciliation; test counts and runtime outcomes must be re-run for the current
+> commit. See docs/BARPRO_KNOWLEDGE_GRAPH.md.
+
 ## ۶. سناریوهای موفق و ناموفق (Test Scenarios & Edge Cases)
 
 1. **Successful Path**: آپلود اکسل > تایید API > ارسال به صف Redis > دریافت توسط Worker > باز کردن مرورگر و دور زدن ربات‌گیری > ورود اطلاعات بدون خطا > ثبت موفق در سامانه > بروزرسانی دیتابیس داخلی.

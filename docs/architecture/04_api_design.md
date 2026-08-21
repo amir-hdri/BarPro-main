@@ -1,3 +1,6 @@
+> Legacy API proposal: route names below are not the current FastAPI contract.
+> Use OpenAPI for the release and docs/BARPRO_KNOWLEDGE_GRAPH.md.
+
 ## ۴. ساختار APIها (API Design)
 
 با توجه به معماری چند‌مستأجره (Multi-Tenant) و پیاده‌سازی سرویس‌ها، معماری مسیرها به شکل زیر طراحی و عملیاتی شده است:

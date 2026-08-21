@@ -212,19 +212,22 @@ jobs:
           script: |
             set -e
             cd /opt/barpro
-            # The server is a deployment target, not a workspace. An earlier
-            # revision of this script ran `git add . && git commit` here as a
-            # "pre-deploy backup", which leaves local commits on the server; once
-            # that happened `git pull --ff-only` aborted and, under `set -e`, the
-            # deploy stopped before deploying anything. Reset to the remote state
-            # instead. reset --hard never touches untracked/ignored files, so
-            # /opt/barpro/.env survives.
+            # A deploy must be recoverable.  Take and validate a database backup
+            # before changing code or containers; db_backup.sh never writes
+            # credentials to its output and exits non-zero on a bad gzip/pg_dump.
+            bash scripts/db_backup.sh
+
+            # The server is a deployment target, not a writable workspace. Do
+            # not discard local commits or tracked changes implicitly: a dirty
+            # tree is an operator intervention, not a reason to reset --hard.
             git fetch origin --tags --prune
-            if ! git diff --quiet HEAD 2>/dev/null; then
-              echo "NOTE: discarding local modifications to tracked files:"
-              git status --porcelain
+            if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+              echo "ERROR: /opt/barpro has local tracked/untracked changes; refusing deployment." >&2
+              git status --short >&2
+              exit 1
             fi
-            git checkout -f -B main origin/main
+            git checkout main
+            git pull --ff-only origin main
             bash scripts/render_squid_configs.sh
             # Pin to the images built in this run rather than to `latest`.
             export BACKEND_IMAGE="ghcr.io/amir-hdri/barpro-main/barpro-backend:${{ github.sha }}"
@@ -239,18 +242,33 @@ jobs:
             # several seconds. `run --rm --no-deps` applies migrations using the
             # freshly pulled image without disturbing the running stack.
             docker compose up -d postgres redis
+            postgres_ready=0
             for _ in $(seq 1 45); do
               if docker compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+                postgres_ready=1
                 break
               fi
               sleep 2
             done
-            docker compose run --rm --no-deps backend alembic upgrade head
+            if [ "$postgres_ready" -ne 1 ]; then
+              echo "ERROR: PostgreSQL did not become ready within 90 seconds." >&2
+              exit 1
+            fi
+            docker compose run --rm --no-deps backend python -c \
+              'import asyncio; from app.core.database import run_migrations; asyncio.run(run_migrations())'
 
             # Recreate only the services whose image or config changed. The old
             # `docker compose down` took the entire platform offline — including
             # Postgres and Redis — on every deploy, and killed in-flight RPA jobs.
             docker compose up -d --remove-orphans
+            # Model B Central must never retain Model A-only Squid/worker
+            # containers created by an older profile-less compose revision.
+            # Drain Celery before removing the local proxies it depends on.
+            docker compose --profile scale-out stop --timeout 600 celery_worker_2 celery_worker_3
+            docker compose --profile scale-out rm -f celery_worker_2 celery_worker_3
+            docker compose --profile model-a stop squid_2 squid_3
+            docker compose --profile model-a rm -f squid_2 squid_3
+            python3 scripts/deployment_inventory.py --role central
 
             sleep 10
             docker compose ps
@@ -293,19 +311,18 @@ jobs:
           script: |
             set -e
             cd /opt/barpro
-            # The server is a deployment target, not a workspace. An earlier
-            # revision of this script ran `git add . && git commit` here as a
-            # "pre-deploy backup", which leaves local commits on the server; once
-            # that happened `git pull --ff-only` aborted and, under `set -e`, the
-            # deploy stopped before deploying anything. Reset to the remote state
-            # instead. reset --hard never touches untracked/ignored files, so
-            # /opt/barpro/.env survives.
+            # Take and validate a database backup before changing the production
+            # checkout or restarting any service.
+            bash scripts/db_backup.sh
+
+            # Never discard a dirty production checkout automatically.
             git fetch origin --tags --prune
-            if ! git diff --quiet HEAD 2>/dev/null; then
-              echo "NOTE: discarding local modifications to tracked files:"
-              git status --porcelain
+            if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+              echo "ERROR: /opt/barpro has local tracked/untracked changes; refusing deployment." >&2
+              git status --short >&2
+              exit 1
             fi
-            git checkout -f --detach "${{ github.sha }}"
+            git checkout --detach "${{ github.sha }}"
             bash scripts/render_squid_configs.sh
             # Pin to the images built in this run rather than to `latest`.
             export BACKEND_IMAGE="ghcr.io/amir-hdri/barpro-main/barpro-backend:${{ github.sha }}"
@@ -320,18 +337,33 @@ jobs:
             # several seconds. `run --rm --no-deps` applies migrations using the
             # freshly pulled image without disturbing the running stack.
             docker compose up -d postgres redis
+            postgres_ready=0
             for _ in $(seq 1 45); do
               if docker compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+                postgres_ready=1
                 break
               fi
               sleep 2
             done
-            docker compose run --rm --no-deps backend alembic upgrade head
+            if [ "$postgres_ready" -ne 1 ]; then
+              echo "ERROR: PostgreSQL did not become ready within 90 seconds." >&2
+              exit 1
+            fi
+            docker compose run --rm --no-deps backend python -c \
+              'import asyncio; from app.core.database import run_migrations; asyncio.run(run_migrations())'
 
             # Recreate only the services whose image or config changed. The old
             # `docker compose down` took the entire platform offline — including
             # Postgres and Redis — on every deploy, and killed in-flight RPA jobs.
             docker compose up -d --remove-orphans
+            # Model B Central must never retain Model A-only Squid/worker
+            # containers created by an older profile-less compose revision.
+            # Drain Celery before removing the local proxies it depends on.
+            docker compose --profile scale-out stop --timeout 600 celery_worker_2 celery_worker_3
+            docker compose --profile scale-out rm -f celery_worker_2 celery_worker_3
+            docker compose --profile model-a stop squid_2 squid_3
+            docker compose --profile model-a rm -f squid_2 squid_3
+            python3 scripts/deployment_inventory.py --role central
 
             # FLUSHALL intentionally disabled: it would destroy active sessions
             # and task state during deployment.

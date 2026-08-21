@@ -7,7 +7,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.waybill import (
     CargoModel,
@@ -581,10 +581,10 @@ class WaybillPayload(BaseModel):
     # Waybill details
     waybill_number: str | None = Field(default=None, max_length=100)
     cargo_type: str = Field(..., min_length=1, max_length=100)
-    cargo_packaging: str | None = Field(default=None, max_length=100)
+    cargo_packaging: str = Field(..., min_length=1, max_length=100)
     cargo_weight: float = Field(..., gt=0)
     cargo_description: str | None = Field(default=None, max_length=1000)
-    cargo_value: str | None = Field(None, max_length=50)
+    cargo_value: str = Field(..., min_length=1, max_length=50)
 
     # Additional fields
     vehicle_type: str = Field(default="کامیون", min_length=1, max_length=100)
@@ -638,6 +638,18 @@ class WaybillPayload(BaseModel):
         if val <= 0:
             raise ValueError("وزن بار باید بزرگ‌تر از صفر باشد")
         return val
+
+    @field_validator("cargo_value", mode="before")
+    @classmethod
+    def validate_cargo_value(cls, value: Any) -> str:
+        normalized = _normalize_digits(str(value or "")).replace(",", "").strip()
+        try:
+            amount = float(normalized)
+        except (TypeError, ValueError):
+            raise ValueError("ارزش بار باید عددی معتبر باشد") from None
+        if amount <= 0:
+            raise ValueError("ارزش بار باید بزرگ‌تر از صفر باشد")
+        return normalized
 
     @field_validator("driver_phone", mode="before")
     @classmethod
@@ -693,6 +705,29 @@ class WaybillJobCreateRequest(BaseModel):
             raise ValueError("کد ملی راننده معتبر نیست (checksum نامعتبر)")
         return normalized
 
+    @model_validator(mode="after")
+    def validate_payload_driver_matches_selected_driver(self):
+        payload_codes: list[str] = []
+        payload = self.payload
+        if isinstance(payload, WaybillPayload):
+            payload_codes.append(payload.driver_national_code)
+            metadata = payload.metadata_json or {}
+            metadata_vehicle = metadata.get("vehicle") if isinstance(metadata, dict) else None
+            if isinstance(metadata_vehicle, dict) and metadata_vehicle.get("driver_national_code"):
+                payload_codes.append(str(metadata_vehicle["driver_national_code"]))
+        else:
+            if payload.vehicle.driver_national_code:
+                payload_codes.append(payload.vehicle.driver_national_code)
+
+        mismatches = {
+            _normalize_national_code(code)
+            for code in payload_codes
+            if code and _normalize_national_code(code) != self.driver_national_code
+        }
+        if mismatches:
+            raise ValueError("کد ملی راننده در payload با راننده انتخاب‌شده یکسان نیست")
+        return self
+
 
 class WaybillRetryRequest(BaseModel):
     """Manual retry controls for an existing job."""
@@ -707,11 +742,12 @@ class WaybillJobUpdateRequest(BaseModel):
     priority: int | None = Field(default=None, ge=0, le=9, description="اولویت کار (0-9)")
     max_retries: int | None = Field(default=None, ge=0, le=10, description="حداکثر تلاش مجدد")
     terminal_reason: str | None = Field(default=None, max_length=64, description="دلیل پایان کار")
-    notes: str | None = Field(default=None, max_length=500, description="یادداشت‌ها")
     business_date: str | None = Field(default=None, max_length=16, description="تاریخ تجاری")
     correlation_id: str | None = Field(default=None, max_length=128, description="شناسه همبستگی")
 
-    @field_validator("terminal_reason", "notes", "business_date", "correlation_id", mode="before")
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("terminal_reason", "business_date", "correlation_id", mode="before")
     @classmethod
     def empty_str_to_none(cls, v: Any) -> Any:
         if isinstance(v, str) and not v.strip():

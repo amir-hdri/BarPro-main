@@ -1,5 +1,9 @@
 # ممیزی و خط مبنای اتوماسیون BarPro UTCMS (Baseline Audit)
 
+> Historical snapshot: findings, line numbers, test counts and missing-feature
+> statements are dated 2026-08-15 and are not the current source of truth.
+> Use docs/BARPRO_KNOWLEDGE_GRAPH.md and re-run verification on the current commit.
+
 **تاریخ ایجاد:** ۱۵ اوت ۲۰۲۶ (۱۴۰۵/۰۵/۲۴)  
 **نسخه:** 1.0.0  
 **هدف:** مستندسازی خط مبنای سامانه، نتایج ممیزی `utcms_scraper`، فهرست کمبودها بر اساس فایل و شماره خط، و بررسی امنیتی رازها و اعتبارسنجی اولیه.

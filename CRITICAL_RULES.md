@@ -195,7 +195,9 @@
 bash manage.sh migrate   # یا: alembic upgrade head
 ```
 
-- Migration ها با **Redis distributed lock** اجرا می‌شوند (deadlock-safe)
+- Migration ها با **PostgreSQL session-level advisory lock** اجرا می‌شوند؛
+  کلید قفل `MIGRATION_ADVISORY_LOCK_ID` است و timeout از
+  `MIGRATION_LOCK_TIMEOUT_SECONDS` خوانده می‌شود.
 - HEAD فعلی: `036_management_tables_and_activity_logs_fix`
 - هرگز migration را manually روی production DB اجرا نکنید — از `manage.sh migrate` استفاده کنید
 

@@ -117,3 +117,12 @@ frontend-slim-build.tar.gz
 pnpm-lock.yaml
 pnpm-workspace.yaml
 
+# Deployment and audit artifacts
+audit.json
+memory_audit.json
+ssh.json
+topology.json
+versions.json
+status.json
+graphify-out/
+

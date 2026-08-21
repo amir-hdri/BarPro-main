@@ -1,15 +1,18 @@
 # ═══════════════════════════════════════════════════════════════
 #  لایه ۲: پروکسی خروجی (Proxy)
-#  شامل: Squid Proxy 1, 2, 3
+#
+#  Model B (production/default): فقط Squid 1 روی Central اجرا می‌شود.
+#  Model A (single VM): Squid 2/3 فقط با profile صریح model-a اجرا می‌شوند.
 #
 #  هر ورکر از IP متفاوتی برای ارسال درخواست استفاده می‌کند:
 #    squid_1 → IP اول (<CENTRAL_IP>) — ورکر ۱
-#    squid_2 → IP دوم (<SECONDARY_EGRESS_IP>)  — ورکر ۲ (از سرور ۲)
-#    squid_3 → IP سوم               — ورکر ۳
+#    squid_2 → IP دوم (<SECONDARY_EGRESS_IP>) — ورکر ۲ (Model A only)
+#    squid_3 → IP سوم                         — ورکر ۳ (Model A only)
 #
 #  دیباگ مستقل (ابتدا رندر کانفیگ‌ها — قالب‌های گیت را هرگز sed -i نکنید):
 #    bash scripts/render_squid_configs.sh --dev   # یا با IPهای واقعی
-#    docker compose -f compose/proxy.yml up
+#    docker compose -f compose/proxy.yml up                    # Model B: squid_1
+#    docker compose -f compose/proxy.yml --profile model-a up  # Model A: squid_1/2/3
 #    docker compose -f compose/proxy.yml logs -f squid_1
 #    docker compose -f compose/proxy.yml exec squid_1 squidclient -h localhost mgr:info
 # ═══════════════════════════════════════════════════════════════
@@ -22,6 +25,8 @@ services:
     container_name: barpro-squid-1
     restart: unless-stopped
     network_mode: host
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ../infra/squid/squid_1.runtime.conf:/etc/squid/squid.conf:ro
     mem_limit: 128m
@@ -43,7 +48,10 @@ services:
     image: ubuntu/squid:latest
     container_name: barpro-squid-2
     restart: unless-stopped
+    profiles: ["model-a"]
     network_mode: host
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ../infra/squid/squid_2.runtime.conf:/etc/squid/squid.conf:ro
     mem_limit: 128m
@@ -65,7 +73,10 @@ services:
     image: ubuntu/squid:latest
     container_name: barpro-squid-3
     restart: unless-stopped
+    profiles: ["model-a"]
     network_mode: host
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ../infra/squid/squid_3.runtime.conf:/etc/squid/squid.conf:ro
     mem_limit: 128m

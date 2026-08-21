@@ -6,14 +6,16 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import random
 import re
 from datetime import datetime
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from playwright.async_api import BrowserContext, Page
 
+from app.automation.auth_utils import get_captcha_strategy_order
 from app.automation.browser import PageInteractor
 from app.automation.captcha import captcha_engine, get_captcha_provider
 from app.automation.location_selector import LocationSelector, RouteCalculator
@@ -78,10 +80,16 @@ class EnhancedWaybillManager:
         self._selector_inventory: dict[str, dict[str, Any]] = {}
         self._last_dialog_message: str | None = None
         self._dialog_tasks: set[asyncio.Task[Any]] = set()
+        self._dialog_handler: Any = None
+        self._closed = False
+        self._allow_dom_tab_activation = False
+        self.last_error: str | None = None
         self._setup_dialog_listener()
 
     def _setup_dialog_listener(self) -> None:
         """Register automated handler for native browser alert/confirm popups."""
+        if self._dialog_handler is not None:
+            return
         try:
 
             def handle_dialog(dialog):
@@ -100,9 +108,39 @@ class EnhancedWaybillManager:
                 task.add_done_callback(self._dialog_tasks.discard)
                 task.add_done_callback(self._log_dialog_dismissal_failure)
 
+            self._dialog_handler = handle_dialog
             self.page.on("dialog", handle_dialog)
         except Exception:
             logger.warning("failed_to_register_dialog_listener", exc_info=True)
+
+    async def close(self) -> None:
+        """Detach page listeners and finish pending dialog tasks.
+
+        ``Page.on`` listeners otherwise retain the manager (and its context)
+        until the page is garbage-collected.  Workers reuse browser pages, so
+        explicit cleanup is required at the end of every manager lifecycle.
+        """
+        if self._closed:
+            return
+        self._closed = True
+
+        handler = self._dialog_handler
+        self._dialog_handler = None
+        if handler is not None:
+            try:
+                remove_listener = getattr(self.page, "remove_listener", None)
+                if callable(remove_listener):
+                    remove_listener("dialog", handler)
+            except Exception:
+                logger.debug("waybill_dialog_listener_remove_failed", exc_info=True)
+
+        pending = tuple(self._dialog_tasks)
+        self._dialog_tasks.clear()
+        for task in pending:
+            if not task.done():
+                task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
     @staticmethod
     def _log_dialog_dismissal_failure(task: "asyncio.Task[Any]") -> None:
@@ -178,6 +216,59 @@ class EnhancedWaybillManager:
             return compact
         return f"{compact[:45]}..."
 
+    @staticmethod
+    def _is_sensitive_inventory_field(field_label: Any) -> bool:
+        normalized_label = EnhancedWaybillManager._normalize_text(str(field_label or ""))
+        sensitive_markers = (
+            "نام فرستنده",
+            "نام خانوادگی فرستنده",
+            "نام گیرنده",
+            "نام خانوادگی گیرنده",
+            "کد ملی",
+            "شماره همراه",
+            "موبایل",
+            "تلفن",
+            "پلاک",
+            "آدرس",
+            "مبدا",
+            "مقصد",
+        )
+        return any(marker in normalized_label for marker in sensitive_markers)
+
+    @classmethod
+    def _inventory_value_for_log(cls, item: dict[str, Any]) -> str:
+        if cls._is_sensitive_inventory_field(item.get("field")):
+            return "<redacted>"
+        return str(item.get("value_summary") or "")
+
+    @staticmethod
+    def _redact_url(url: Any) -> str:
+        """Return an artifact-safe URL without query parameters or fragments."""
+        raw = str(url or "").strip()
+        if not raw:
+            return ""
+        try:
+            parts = urlsplit(raw)
+            if parts.scheme not in {"http", "https"}:
+                return ""
+            return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _secure_directory(path: Any) -> None:
+        try:
+            os.chmod(path, 0o700)
+        except OSError:
+            logger.debug("artifact_directory_permission_update_failed", exc_info=True)
+
+    @staticmethod
+    def _secure_file(path: Any) -> None:
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            logger.debug("artifact_file_permission_update_failed", exc_info=True)
+
     async def _detect_active_pane(self) -> str:
         try:
             pane_id = await self.page.evaluate("""() => {
@@ -230,7 +321,7 @@ class EnhancedWaybillManager:
             summary[str(item.get("field"))] = {
                 "status": str(item.get("status") or ""),
                 "selector": str(item.get("selector_used") or ""),
-                "value": str(item.get("value_summary") or ""),
+                "value": self._inventory_value_for_log(item),
             }
         return summary
 
@@ -282,9 +373,13 @@ class EnhancedWaybillManager:
         )
 
     def _log_selector_inventory_audit(self) -> None:
-        audit = sorted(
-            self._selector_inventory.values(), key=lambda item: (str(item.get("pill")), str(item.get("field")))
-        )
+        audit = []
+        for item in sorted(
+            self._selector_inventory.values(), key=lambda value: (str(value.get("pill")), str(value.get("field")))
+        ):
+            safe_item = dict(item)
+            safe_item["value_summary"] = self._inventory_value_for_log(item)
+            audit.append(safe_item)
         payload = {"items": audit}
 
         logger.info(
@@ -831,13 +926,6 @@ class EnhancedWaybillManager:
                 option_selector,
                 "els => els.map(el => ({text: (el.textContent || '').trim(), value: (el.getAttribute('value') || '').trim()}))",
             )
-            option_preview = [
-                {
-                    "text": str((option or {}).get("text") or "")[:80],
-                    "value": str((option or {}).get("value") or "")[:180],
-                }
-                for option in options[:10]
-            ]
             logger.info(
                 "select_options_snapshot",
                 extra={
@@ -846,7 +934,9 @@ class EnhancedWaybillManager:
                         "visible_selector": visible_selector,
                         "label": label,
                         "option_count": len(options),
-                        "options": option_preview,
+                        # Driver/plate dropdown labels and values contain PII.
+                        # Log only structural evidence, never option contents.
+                        "options_redacted": True,
                     }
                 },
             )
@@ -989,6 +1079,10 @@ class EnhancedWaybillManager:
         return disabled
 
     async def _force_tab_activation(self, step_index: int) -> bool:
+        # Direct class manipulation bypasses UTCMS client-side validation.
+        # It is permitted only for explicit dry-run diagnostics.
+        if not self._allow_dom_tab_activation:
+            return False
         try:
             activated = await self.page.evaluate(
                 r"""stepIndex => {
@@ -1350,6 +1444,14 @@ class EnhancedWaybillManager:
         except Exception:
             return None
 
+    @staticmethod
+    async def _cancel_response_task(response_task: Any) -> None:
+        if response_task is None or not isinstance(response_task, asyncio.Task):
+            return
+        if not response_task.done():
+            response_task.cancel()
+        await asyncio.gather(response_task, return_exceptions=True)
+
     async def _consume_json_response(self, response_task, timeout_seconds: float = 15.0) -> dict[str, Any] | None:
         if not response_task:
             return None
@@ -1396,13 +1498,13 @@ class EnhancedWaybillManager:
             return None
 
         success_value = payload.get("success")
-        success = (
-            success_value is True
-            or success_value == 1
-            or (isinstance(success_value, str) and success_value.strip().lower() == "true")
-        )
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         result_code = data.get("resultCode", payload.get("resultCode"))
+        explicit_failure = (
+            success_value is False
+            or success_value == 0
+            or (isinstance(success_value, str) and success_value.strip().lower() == "false")
+        )
         result_message = (
             data.get("resultMessage")
             or payload.get("message")
@@ -1410,14 +1512,41 @@ class EnhancedWaybillManager:
             or payload.get("resultMessage")
             or ""
         )
-        obj = data.get("obj") if isinstance(data.get("obj"), dict) else {}
-        document_id = obj.get("id") or payload.get("id")
-        is_otp_needed = bool(obj.get("isOtpNeeded"))
+        obj_value = data.get("obj", payload.get("obj"))
+        obj = obj_value if isinstance(obj_value, dict) else {}
+        document_id = (
+            obj.get("documentId")
+            or obj.get("document_id")
+            or obj.get("id")
+            or data.get("documentId")
+            or data.get("document_id")
+            or data.get("id")
+            or payload.get("documentId")
+            or payload.get("document_id")
+            or payload.get("id")
+        )
+        tracking_code = (
+            obj.get("trackingCode")
+            or obj.get("tracking_code")
+            or data.get("trackingCode")
+            or data.get("tracking_code")
+            or payload.get("trackingCode")
+            or payload.get("tracking_code")
+        )
+        otp_value = obj.get("isOtpNeeded", data.get("isOtpNeeded", payload.get("isOtpNeeded")))
+        is_otp_needed = otp_value is True or (isinstance(otp_value, str) and otp_value.strip().lower() == "true")
 
-        resolved_success = success and result_code in (200, "200")
+        # A generic ``success=true`` flag is not sufficient evidence for a
+        # UTCMS mutation.  Some intermediary responses use that flag for a
+        # transport/UI operation while omitting the business result code.
+        # Require the endpoint's explicit success code so an incomplete or
+        # schema-drifted response fails closed and enters reconciliation rather
+        # than being treated as a confirmed submission.
+        resolved_success = result_code in (200, "200") and not explicit_failure
         return {
             "success": resolved_success,
             "document_id": document_id,
+            "tracking_code": str(tracking_code).strip() if tracking_code is not None else None,
             "is_otp_needed": is_otp_needed,
             "message": str(result_message or ""),
             "payload": payload,
@@ -1428,16 +1557,68 @@ class EnhancedWaybillManager:
         if not isinstance(payload, dict):
             return None
 
-        result_code = payload.get("resultCode")
-        result_message = payload.get("resultMessage") or payload.get("message") or payload.get("detail") or ""
-        document_id = payload.get("obj") or payload.get("id")
-        success = result_code in (200, "200")
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        result_code = data.get("resultCode", payload.get("resultCode"))
+        result_message = (
+            data.get("resultMessage")
+            or payload.get("resultMessage")
+            or payload.get("message")
+            or payload.get("detail")
+            or ""
+        )
+        obj_value = data.get("obj", payload.get("obj"))
+        obj = obj_value if isinstance(obj_value, dict) else {}
+        document_id = (
+            obj.get("documentId")
+            or obj.get("document_id")
+            or obj.get("id")
+            or data.get("documentId")
+            or data.get("document_id")
+            or data.get("id")
+            or payload.get("documentId")
+            or payload.get("document_id")
+            or payload.get("id")
+        )
+        tracking_code = (
+            obj.get("trackingCode")
+            or obj.get("tracking_code")
+            or data.get("trackingCode")
+            or data.get("tracking_code")
+            or payload.get("trackingCode")
+            or payload.get("tracking_code")
+        )
+        success_value = payload.get("success")
+        explicit_failure = (
+            success_value is False
+            or success_value == 0
+            or (isinstance(success_value, str) and success_value.strip().lower() == "false")
+        )
+        success = result_code in (200, "200") and not explicit_failure
         return {
             "success": success,
             "document_id": document_id,
+            "tracking_code": str(tracking_code).strip() if tracking_code is not None else None,
             "message": str(result_message or ""),
             "payload": payload,
         }
+
+    @staticmethod
+    def _is_register_submit_response(response: Any) -> bool:
+        """Match the actual mutating UTCMS request, not an obsolete JS name."""
+        url = str(getattr(response, "url", "") or "").lower().split("?", 1)[0]
+        return url.endswith("/barname/printreport/printbarnamenew") or url.endswith("/printbarnamenew")
+
+    @staticmethod
+    def _is_otp_submit_response(response: Any) -> bool:
+        """Match known OTP confirmation endpoints while keeping the watcher narrow."""
+        url = str(getattr(response, "url", "") or "").lower().split("?", 1)[0]
+        return any(
+            url.endswith(suffix)
+            for suffix in (
+                "/barname/document/issuedocumentbyotpnew",
+                "/issuedocumentbyotpnew",
+            )
+        )
 
     async def _fetch_tracking_code_by_document_id(self, document_id: Any) -> str | None:
         if not document_id:
@@ -1465,9 +1646,31 @@ class EnhancedWaybillManager:
             if not text or "error" in text.lower() or "not found" in text.lower() or "خطا" in text:
                 await asyncio.sleep(min(2.0, 0.5 + (attempt * 0.5)))
                 continue
+            try:
+                payload = json.loads(text)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                payload = None
+            if isinstance(payload, dict):
+                data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+                obj = data.get("obj") if isinstance(data.get("obj"), dict) else {}
+                tracking_code = (
+                    obj.get("trackingCode")
+                    or obj.get("tracking_code")
+                    or data.get("trackingCode")
+                    or data.get("tracking_code")
+                )
+                if tracking_code is not None:
+                    normalized_code = self._to_english_digits(str(tracking_code).strip())
+                    if re.fullmatch(r"\d{6,}", normalized_code):
+                        return normalized_code
+                # A valid JSON object without a named tracking field may
+                # contain document IDs, timestamps, or dates. Never infer a
+                # tracking code from arbitrary numbers in that object.
+                await asyncio.sleep(min(2.0, 0.5 + (attempt * 0.5)))
+                continue
             matches = re.findall(r"\d{6,}", text)
             if matches:
-                return matches[0]
+                return matches[-1]
 
             await asyncio.sleep(min(2.0, 0.5 + (attempt * 0.5)))
         return None
@@ -1638,6 +1841,12 @@ class EnhancedWaybillManager:
             }
         """
         try:
+            self._allow_dom_tab_activation = bool(dry_run)
+            # A manager may be reused by the multi-tenant bot after its
+            # previous execution detached listeners.
+            if self._dialog_handler is None:
+                self._closed = False
+                self._setup_dialog_listener()
             # Do not cold-navigate directly to WAYBILL_URL. UTCMS's WAF often
             # rejects that first Chromium request with HTTP 408. Authentication
             # warms the official Notification landing page; from there this
@@ -1867,12 +2076,12 @@ class EnhancedWaybillManager:
 
         current_url = await self._current_url()
         if await self._looks_like_not_found_page():
-            try:
-                html = await self.page.content()
-                with open("waybill_notfound_snapshot.html", "w", encoding="utf-8") as f:
-                    f.write(html)
-            except Exception:
-                logger.warning("waybill_enhanced_silent_error", exc_info=True)
+            # Do not dump the full authenticated DOM (cookies, names and
+            # CSRF tokens) into the worker cwd.  The central failure-artifact
+            # service is responsible for controlled evidence capture.
+            logger.warning(
+                "waybill_notfound_page_detected", extra={"extra_fields": {"url": self._redact_url(current_url)}}
+            )
 
             recovery_selectors = (
                 "a:has-text('ورود مجدد به سامانه')",
@@ -1997,15 +2206,12 @@ class EnhancedWaybillManager:
                 page_html = await self.page.content()
                 page_url = await self._current_url()
                 logger.error(
-                    "waybill_form_not_ready_diagnostics: url=%s, html_len=%d, preview=%s",
-                    page_url,
+                    "waybill_form_not_ready_diagnostics: url=%s, html_len=%d",
+                    self._redact_url(page_url),
                     len(page_html),
-                    page_html[:1500].replace("\n", " "),
                 )
-                with open("/tmp/waybill_form_failed.html", "w", encoding="utf-8") as f:  # nosec B108
-                    f.write(page_html)
             except Exception:
-                pass
+                logger.debug("waybill_form_diagnostics_failed", exc_info=True)
             raise WaybillError("فرم بارنامه پس از بازیابی در دسترس نیست")
 
     def _waybill_url_candidates(self) -> list[str]:
@@ -2450,20 +2656,17 @@ class EnhancedWaybillManager:
                 items = await self.page.locator(".ui-autocomplete:visible .ui-menu-item").all()
                 if items:
                     normalized_query = self._normalize_text(cargo_query)
-                    matched_item = None
+                    matched_items = []
                     for item in items:
                         item_text = self._normalize_text(await item.inner_text())
-                        if normalized_query == item_text or normalized_query in item_text:
-                            matched_item = item
-                            break
-                    if matched_item is not None:
-                        await matched_item.click()
+                        if normalized_query == item_text:
+                            matched_items.append(item)
+                    if len(matched_items) == 1:
+                        await matched_items[0].click()
                         dropdown_selected = True
                         logger.info("cargo_autocomplete_selected_via_ui")
-                    elif len(items) == 1:
-                        await items[0].click()
-                        dropdown_selected = True
-                        logger.info("cargo_autocomplete_single_option_selected")
+                    elif len(matched_items) > 1:
+                        raise WaybillError(f"نوع کالا '{cargo_query}' چند تطابق دقیق در UTCMS دارد")
             except Exception:
                 logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
@@ -2505,27 +2708,33 @@ class EnhancedWaybillManager:
                 selected_name = cargo_query
 
                 if search_results and isinstance(search_results, list):
-                    best_match = None
+                    exact_matches = []
                     normalized_query = self._normalize_text(cargo_query)
                     for res in search_results:
                         if not isinstance(res, dict):
                             continue
                         label = str(res.get("label") or res.get("value") or "").strip()
                         normalized_label = self._normalize_text(label)
-                        if (
-                            normalized_query == normalized_label
-                            or normalized_query in normalized_label
-                            or normalized_label in normalized_query
-                        ):
-                            best_match = res
-                            break
+                        if normalized_query == normalized_label:
+                            exact_matches.append(res)
 
-                    if best_match and isinstance(best_match, dict):
+                    unique_matches = {
+                        str(match.get("id") or ""): match
+                        for match in exact_matches
+                        if str(match.get("id") or "").strip()
+                    }
+                    if len(unique_matches) == 1:
+                        best_match = next(iter(unique_matches.values()))
                         selected_id = str(best_match.get("id") or "")
                         selected_name = str(best_match.get("label") or best_match.get("value") or cargo_query)
+                    elif len(unique_matches) > 1:
+                        raise WaybillError(f"نوع کالا '{cargo_query}' چند شناسه دقیق در UTCMS دارد")
 
+                # A free-text value is not a valid UTCMS cargo selection.  The
+                # hidden ID is required by the form's client-side validation;
+                # never invent it from the query string.
                 if not selected_id:
-                    selected_id = cargo_query
+                    raise WaybillError(f"نوع کالا '{cargo_query}' در فهرست UTCMS پیدا نشد")
 
                 try:
                     await self.page.eval_on_selector(
@@ -2580,7 +2789,7 @@ class EnhancedWaybillManager:
         packaging_value = packaging_hint or cargo.get("packaging") or cargo.get("description")
         selected_packaging = False
         if packaging_value:
-            selected_packaging = await self._select_dropdown_with_fallback(
+            selected_packaging = await self._select_exact_dropdown_with_fallback(
                 [
                     "#ddBoxType",
                     'select[name="ddBoxType"]',
@@ -2588,16 +2797,12 @@ class EnhancedWaybillManager:
                 ],
                 str(packaging_value),
                 "نوع بسته بندی",
-                required=False,
             )
 
         if not selected_packaging:
             if packaging_value:
-                # If a packaging was specified but not found, reject rather than guessing
                 raise WaybillError(f"نوع بسته‌بندی '{packaging_value}' در فهرست UTCMS پیدا نشد")
-            selected_packaging = await self._select_first_non_placeholder_option("#ddBoxType")
-            if not selected_packaging:
-                raise WaybillError("نوع بسته‌بندی در فهرست UTCMS پیدا نشد")
+            raise WaybillError("نوع بسته‌بندی اجباری است و باید دقیقاً از فهرست UTCMS انتخاب شود")
 
         weight_val = cargo.get("weight")
         await self._fill_verified_text_field(
@@ -3419,6 +3624,80 @@ class EnhancedWaybillManager:
         )
         return False
 
+    async def _select_exact_dropdown_with_fallback(
+        self,
+        selectors: list[str],
+        value: str,
+        field_label: str,
+    ) -> bool:
+        """Select a unique exact label/value match and verify the DOM read-back."""
+        target = self._normalize_text(value)
+        if not target:
+            return False
+
+        for selector in selectors:
+            try:
+                options = await self.page.eval_on_selector_all(
+                    f"{selector} option",
+                    "els => els.map(el => ({text: (el.textContent || '').trim(), value: (el.value || '').trim()}))",
+                )
+            except Exception:
+                continue
+
+            matches = []
+            for option in options or []:
+                option_text = str((option or {}).get("text") or "").strip()
+                option_value = str((option or {}).get("value") or "").strip()
+                if target in {self._normalize_text(option_text), self._normalize_text(option_value)}:
+                    matches.append((option_value, option_text))
+
+            unique_matches = list(dict.fromkeys(matches))
+            if len(unique_matches) != 1:
+                continue
+
+            option_value, option_text = unique_matches[0]
+            selected = False
+            try:
+                locator = await self.smart_locator.locate(self.page, [selector], timeout=1200)
+                if option_value:
+                    await locator.select_option(value=option_value)
+                else:
+                    await locator.select_option(label=option_text)
+                selected = True
+            except Exception:
+                selected = await self._set_select_value_with_js(selector, option_value or option_text)
+            if not selected:
+                continue
+
+            try:
+                readback = await self.page.eval_on_selector(
+                    selector,
+                    "el => ({value: String(el.value || '').trim(), text: String(el.selectedOptions?.[0]?.textContent || '').trim()})",
+                )
+            except Exception:
+                continue
+            readback_value = self._normalize_text(str((readback or {}).get("value") or ""))
+            readback_text = self._normalize_text(str((readback or {}).get("text") or ""))
+            if target not in {readback_value, readback_text}:
+                continue
+
+            self._record_selector_inventory(
+                field_label=field_label,
+                selectors=selectors,
+                status="filled" if selector == selectors[0] else "fallback-only",
+                selector_used=selector,
+                value=option_text or option_value,
+            )
+            return True
+
+        self._record_selector_inventory(
+            field_label=field_label,
+            selectors=selectors,
+            status="unsupported",
+            value=value,
+        )
+        return False
+
     async def _select_dropdown(self, selector: str, value: str) -> bool:
         """انتخاب از منوی کشویی"""
         value_text = str(value).strip()
@@ -3684,20 +3963,18 @@ class EnhancedWaybillManager:
 
             otp_timeout_ms = min(max(10000, utcms_config.PAGE_NAVIGATION_TIMEOUT), 30000)
             otp_response_task = await self._wait_for_response_match(
-                lambda response: "IssueDocumentByOtpNew" in (getattr(response, "url", "") or ""),
+                self._is_otp_submit_response,
                 timeout_ms=otp_timeout_ms,
             )
             # کلیک تایید OTP
             otp_submit_selectors = [
                 "#submitOtp",
-                "button:has-text('تایید')",
-                "button:has-text('ارسال')",
-                "button[type='submit']",
             ]
             otp_clicked, post_click_err = await self._click_once_no_retry(
                 otp_submit_selectors, "تایید OTP", wait_after_seconds=0.2
             )
             if not otp_clicked:
+                await self._cancel_response_task(otp_response_task)
                 return {
                     "success": False,
                     "handled": True,
@@ -3847,25 +4124,30 @@ class EnhancedWaybillManager:
             return False
 
         # ── Step 1: Click "مرحله نهایی" ──
-        await resilient_click(
+        final_stage_clicked = await resilient_click(
             [
                 "#btnregisterbarname",
                 "#GoFinalStep",
-                "button:has-text('مرحله نهایی')",
-                "button:has-text('ثبت بارنامه')",
-                "button:has-text('ثبت بارنامه')",
-                "button:has-text('ادامه')",
             ],
             "مرحله نهایی",
             wait_after=0.5,
             max_retries=1,
         )
+        if not final_stage_clicked:
+            raise WaybillError("ورود به مرحله نهایی ثبت بارنامه تایید نشد")
 
         # ── Step 1.5: Wait for final stage loading ──
+        final_submit_ready = False
         try:
             await self.page.locator("#btnRegisterFinished").first.wait_for(state="visible", timeout=8000)
+            final_submit_ready = True
         except Exception:
-            logger.warning("waybill_enhanced_silent_error", exc_info=True)
+            for selector in ("#btnFinalSubmit", "#btnSubmit"):
+                if await self._is_selector_visible(selector):
+                    final_submit_ready = True
+                    break
+        if not final_submit_ready:
+            raise WaybillError("مرحله نهایی UTCMS آماده نشد؛ ثبت ارسال نشد")
 
         # ── Step 2: Solve captcha (if present) ──
         await self._handle_submit_captcha_if_present()
@@ -3875,13 +4157,6 @@ class EnhancedWaybillManager:
             "#btnRegisterFinished",
             "#btnFinalSubmit",
             "#btnSubmit",
-            "button[type='submit']:not([id*='otp' i]):not([id*='Otp'])",
-            "input[type='submit']",
-            "button:has-text('تایید و ثبت')",
-            "button:has-text('ثبت نهایی')",
-            "button:has-text('ثبت')",
-            "button:has-text('تایید')",
-            "#GoFinalStep",
         ]
 
         # Central mutation-boundary guard. Scheduler checks are advisory; every
@@ -3905,7 +4180,7 @@ class EnhancedWaybillManager:
 
         submit_timeout_ms = min(max(12000, utcms_config.PAGE_NAVIGATION_TIMEOUT), 35000)
         submit_response_task = await self._wait_for_response_match(
-            lambda response: "UpdateRegisterNewOld" in (getattr(response, "url", "") or ""),
+            self._is_register_submit_response,
             timeout_ms=submit_timeout_ms,
         )
 
@@ -3914,6 +4189,7 @@ class EnhancedWaybillManager:
             submit_selectors, "ثبت نهایی", wait_after_seconds=0.5
         )
         if not submit_clicked:
+            await self._cancel_response_task(submit_response_task)
             raise WaybillError("ارسال فرم بارنامه انجام نشد (کلیک روی دکمه ثبت ناموفق بود)")
 
         # If an error occurred after the click was dispatched (e.g. TargetClosedError),
@@ -3926,6 +4202,8 @@ class EnhancedWaybillManager:
             return {
                 "success": False,
                 "status": "unknown",
+                "mutation_status": "ambiguous",
+                "mutation_dispatched": True,
                 "error_category": "submission_unknown",
                 "message": f"Submit click dispatched but post-click error: {post_click_err}",
                 "needs_reconciliation": True,
@@ -3973,12 +4251,16 @@ class EnhancedWaybillManager:
 
             # ── Step 6: Extract tracking code ──
             document_id = (otp_state or {}).get("document_id") or (submit_state or {}).get("document_id")
-            tracking_code = await self._extract_tracking_code(document_id=document_id)
+            tracking_code = (
+                (otp_state or {}).get("tracking_code")
+                or (submit_state or {}).get("tracking_code")
+                or await self._extract_tracking_code(document_id=document_id)
+            )
             submission_confirmed = await self._is_submission_successful()
 
-            # CRITICAL SECURITY FIX: To prevent false positives where waybills are marked
-            # as "Successful Registration" without actually being registered in UTCMS,
-            # we require a valid tracking code to be extracted to confirm success.
+            # A tracking code is only a provisional witness.  History/Search
+            # reconciliation must still confirm the final state; callers map
+            # this result to UNKNOWN until the third witness is present.
             if not tracking_code:
                 logger.warning(
                     "submit_tracking_code_missing_confirm_false",
@@ -3987,24 +4269,6 @@ class EnhancedWaybillManager:
                 submission_confirmed = False
 
             if not tracking_code and not submission_confirmed:
-                import os
-                import time
-
-                try:
-                    debug_dir = os.path.join(os.getcwd(), "output", "screenshots", "debug")
-                    os.makedirs(debug_dir, exist_ok=True)
-                    ts = int(time.time())
-                    debug_html_path = os.path.join(debug_dir, f"{job_id or 'unknown'}_{ts}.html")
-                    debug_png_path = os.path.join(debug_dir, f"{job_id or 'unknown'}_{ts}.png")
-
-                    html_content = await self.page.content()
-                    with open(debug_html_path, "w", encoding="utf-8") as f:
-                        f.write(html_content)
-                    await self.page.screenshot(path=debug_png_path, full_page=True)
-                    logger.error(f"Saved submit failure debug info to {debug_html_path} and {debug_png_path}")
-                except Exception as e:
-                    logger.error(f"Failed to save debug info: {e}")
-
                 form_errors = await self._extract_form_errors()
                 if form_errors:
                     raise WaybillError(f"ثبت بارنامه با خطا مواجه شد: {form_errors}")
@@ -4018,7 +4282,14 @@ class EnhancedWaybillManager:
                     "error_category": "submission_unconfirmed",
                     "tracking_code": None,
                     "document_id": document_id,
+                    "mutation_dispatched": True,
+                    "needs_reconciliation": True,
                 }
+
+            # Keep the browser-layer result explicitly provisional.  The
+            # orchestrator is the only component allowed to transition to
+            # terminal SUCCESS after History/Search reconciliation.
+            submission_confirmed = False
         except WaybillError:
             raise
         except Exception as post_submit_exc:
@@ -4034,21 +4305,24 @@ class EnhancedWaybillManager:
                 "error_category": "submission_unconfirmed",
                 "tracking_code": None,
                 "document_id": None,
+                "mutation_dispatched": True,
+                "needs_reconciliation": True,
             }
 
         # Capture waybill screenshot on success
         waybill_screenshot = None
-        if tracking_code or submission_confirmed:
-            import os
+        if utcms_config.WAYBILL_SUCCESS_SCREENSHOT_ENABLED and (tracking_code or submission_confirmed):
             import time
 
             try:
                 screenshots_dir = "runtime/screenshots/waybill"
                 os.makedirs(screenshots_dir, exist_ok=True)
+                self._secure_directory(screenshots_dir)
                 screenshot_filename = f"{job_id or 'unknown_' + str(int(time.time()))}.png"
                 screenshot_path = os.path.join(screenshots_dir, screenshot_filename)
 
                 await self.page.screenshot(path=screenshot_path, full_page=True)
+                self._secure_file(screenshot_path)
                 waybill_screenshot = f"/api/v1/waybill-jobs/{job_id}/screenshot"
                 logger.info(f"Successfully saved waybill screenshot to {screenshot_path}")
             except Exception as e:
@@ -4057,7 +4331,9 @@ class EnhancedWaybillManager:
         return {
             "success": True,
             "status": "submitted",
+            "confirmation_status": "pending_history_reconciliation",
             "tracking_code": tracking_code,
+            "document_id": document_id,
             "url": await self._current_url(),
             "waybill_screenshot": waybill_screenshot,
         }
@@ -4413,12 +4689,14 @@ class EnhancedWaybillManager:
         safe_stage = re.sub(r"[^a-zA-Z0-9_-]+", "_", stage or "capture")
         debug_dir = Path(utcms_config.CAPTCHA_DEBUG_DIR)
         debug_dir.mkdir(parents=True, exist_ok=True)
+        self._secure_directory(debug_dir)
 
         base_name = f"{timestamp}-{safe_phase}-a{attempt or 0}-{safe_stage}"
         image_path = debug_dir / f"{base_name}.png"
         meta_path = debug_dir / f"{base_name}.json"
 
         image_path.write_bytes(image_bytes)
+        self._secure_file(image_path)
         meta_path.write_text(
             json.dumps(
                 {
@@ -4429,13 +4707,14 @@ class EnhancedWaybillManager:
                     "provider": provider,
                     "solution_recorded": bool(solution),
                     "error": error,
-                    "url": getattr(self.page, "url", ""),
+                    "url": self._redact_url(getattr(self.page, "url", "")),
                     "image_path": os.fspath(image_path),
                 },
                 ensure_ascii=False,
                 indent=2,
             )
         )
+        self._secure_file(meta_path)
         logger.info(
             "captcha_debug_saved",
             extra={
@@ -4653,22 +4932,19 @@ class EnhancedWaybillManager:
         attempts = max(1, utcms_config.CAPTCHA_AUTO_MAX_ATTEMPTS)
         retry_delay = max(0.1, utcms_config.CAPTCHA_AUTO_RETRY_DELAY_SECONDS)
         mode = (utcms_config.CAPTCHA_MODE or "").strip().lower()
-        allow_provider = mode in ("provider_first", "provider_only")
-        allow_math_fallback = mode != "provider_only" or utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED
+        strategy_order = get_captcha_strategy_order(mode, utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED)
 
         for attempt in range(1, attempts + 1):
             if attempt > 1 and utcms_config.CAPTCHA_AUTO_REFRESH_ON_RETRY:
                 await self._refresh_submit_captcha()
                 await asyncio.sleep(retry_delay)
 
-            if allow_provider:
-                solved_provider = await self._solve_submit_captcha_with_provider(captcha_selector)
-                if solved_provider and await self._fill_with_selector(captcha_selector, solved_provider):
-                    return True
-
-            if allow_math_fallback:
-                solved_math = await self._solve_submit_math_captcha(captcha_selector)
-                if solved_math and await self._fill_with_selector(captcha_selector, solved_math):
+            for strategy in strategy_order:
+                if strategy == "provider":
+                    solved = await self._solve_submit_captcha_with_provider(captcha_selector)
+                else:
+                    solved = await self._solve_submit_math_captcha(captcha_selector)
+                if solved and await self._fill_with_selector(captcha_selector, solved):
                     return True
 
         return False
@@ -4716,11 +4992,12 @@ class EnhancedWaybillManager:
                 return
             raise WaybillError("فیلد کپچا یافت شد اما مقداردهی کپچا انجام نشد")
 
-        solved_auto = await self._auto_fill_submit_captcha(captcha_selector)
+        captcha_mode = (utcms_config.CAPTCHA_MODE or "").strip().lower()
+        solved_auto = False if captcha_mode == "manual_only" else await self._auto_fill_submit_captcha(captcha_selector)
         if solved_auto:
             return
 
-        if utcms_config.CAPTCHA_AUTO_ONLY or (utcms_config.CAPTCHA_MODE or "").strip().lower() != "manual_only":
+        if captcha_mode != "manual_only":
             logger.warning(
                 "submit_captcha_auto_solve_failed", extra={"extra_fields": {"mode": utcms_config.CAPTCHA_MODE}}
             )
@@ -4915,6 +5192,7 @@ class EnhancedWaybillManager:
         selectors = [
             ".tracking-code",
             "#TrackingCode",
+            "#TrackingCodeNumber",
             "[data-tracking]",
             ".waybill-number",
             "#printId",
@@ -4934,7 +5212,8 @@ class EnhancedWaybillManager:
                 )
                 if labeled:
                     return labeled[0]
-                # اگر المنت حاوی برچسب نیست، ولی خودش مختص کد رهگیری است، اولین عدد 6+ رقمی را برگردان
+                # If the element is dedicated to tracking, accept its sole
+                # numeric value; do not infer a code from arbitrary page text.
                 codes = re.findall(r"\d{6,}", text or "")
                 if codes:
                     return codes[0]
@@ -4951,12 +5230,5 @@ class EnhancedWaybillManager:
                     return labeled[0]
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
-
-        # تلاش با استفاده از URL (فقط اعداد با برچسب رهگیری در URL)
-        url = await self._current_url()
-        if "track" in url.lower() or "waybill" in url.lower() or "print" in url.lower() or "receipt" in url.lower():
-            codes = re.findall(r"[A-Z0-9]{8,}", self._to_english_digits(url))
-            if codes:
-                return codes[0]
 
         return None

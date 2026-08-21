@@ -1,7 +1,9 @@
 """Rate limiting middleware for FastAPI with Redis and in-memory backends."""
 
 import asyncio
+import math
 import time
+import uuid
 from dataclasses import dataclass
 
 from fastapi import HTTPException, Request, Response
@@ -55,7 +57,8 @@ class InMemoryRateLimiter:
             self._requests[key] = [ts for ts in self._requests[key] if ts > window_start]
 
             current_count = len(self._requests[key])
-            reset_at = now + config.window_seconds
+            oldest = self._requests[key][0] if self._requests[key] else now
+            reset_at = oldest + config.window_seconds
 
             if current_count >= config.max_requests:
                 oldest = min(self._requests[key]) if self._requests[key] else now
@@ -95,6 +98,19 @@ class RedisRateLimiter:
         self._redis: aioredis.Redis | None = None
         self._lock = asyncio.Lock()
 
+    _SLIDING_WINDOW_SCRIPT = """
+    redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+    local current = redis.call('ZCARD', KEYS[1])
+    if current >= tonumber(ARGV[3]) then
+        local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+        return {0, current, oldest[2] or ARGV[2]}
+    end
+    redis.call('ZADD', KEYS[1], ARGV[2], ARGV[5])
+    redis.call('EXPIRE', KEYS[1], ARGV[4])
+    local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+    return {1, current + 1, oldest[2] or ARGV[2]}
+    """
+
     async def _get_redis(self) -> aioredis.Redis:
         if self._redis is None:
             async with self._lock:
@@ -116,26 +132,21 @@ class RedisRateLimiter:
         window_start = now - config.window_seconds
         window_key = f"{config.key_prefix}:{key}"
 
-        pipe = redis_client.pipeline()
-        # Remove expired entries
-        pipe.zremrangebyscore(window_key, 0, window_start)
-        # Count current requests
-        pipe.zcard(window_key)
-        # Add current request
-        pipe.zadd(window_key, {str(now): now})
-        # Set expiry
-        pipe.expire(window_key, config.window_seconds * 2)
-        results = await pipe.execute()
+        allowed, request_count, oldest_score = await redis_client.eval(
+            self._SLIDING_WINDOW_SCRIPT,
+            1,
+            window_key,
+            str(window_start),
+            str(now),
+            str(config.max_requests),
+            str(config.window_seconds * 2),
+            f"{now}:{uuid.uuid4().hex}",
+        )
+        request_count = int(request_count)
+        reset_at = float(oldest_score) + config.window_seconds
 
-        current_count = results[1]
-        reset_at = now + config.window_seconds
-
-        if current_count >= config.max_requests:
-            oldest = await redis_client.zrange(window_key, 0, 0, withscores=True)
-            if oldest:
-                retry_after = oldest[0][1] + config.window_seconds - now
-            else:
-                retry_after = config.window_seconds
+        if not int(allowed):
+            retry_after = reset_at - now
             return RateLimitState(
                 remaining=0,
                 limit=config.max_requests,
@@ -144,7 +155,7 @@ class RedisRateLimiter:
             )
 
         return RateLimitState(
-            remaining=config.max_requests - current_count - 1,
+            remaining=config.max_requests - request_count,
             limit=config.max_requests,
             reset_at=reset_at,
         )
@@ -299,7 +310,7 @@ async def rate_limit_dependency(
                 "retry_after_seconds": round(retry_after, 2),
             },
             headers={
-                "Retry-After": str(int(retry_after)),
+                "Retry-After": str(max(1, math.ceil(retry_after))),
                 "X-RateLimit-Limit": str(state.limit),
                 "X-RateLimit-Remaining": "0",
                 "X-RateLimit-Reset": str(int(state.reset_at)),

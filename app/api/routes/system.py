@@ -36,11 +36,140 @@ router = APIRouter(tags=["system"])
 _readyz_cache: tuple[float, dict[str, str], dict] | None = None
 _readyz_cache_lock = asyncio.Lock()
 
+_PUBLIC_READYZ_MESSAGES = {
+    "database": {
+        "ok": "database connection ok",
+        "skipped": "database host not resolvable",
+        "error": "database connection failed",
+    },
+    "browser": {
+        "ok": "browser initialized",
+        "skipped": "browser check skipped",
+        "error": "browser initialization failed",
+    },
+    "config": {
+        "ok": "configuration valid",
+        "skipped": "configuration check skipped",
+        "error": "configuration invalid",
+    },
+    "captcha_model": {
+        "ok": "cnn model loaded",
+        "skipped": "captcha model check skipped",
+        "error": "cnn model unavailable",
+    },
+    "itmb_config": {
+        "ok": "ITMB configuration ready",
+        "skipped": "ITMB configuration check skipped",
+        "error": "ITMB configuration unavailable",
+    },
+    "itmb_baseinfo_cache": {
+        "ok": "baseinfo cache ready",
+        "skipped": "baseinfo validation disabled",
+        "error": "baseinfo cache unavailable",
+    },
+    "itmb_live_probe": {
+        "ok": "live probe ok",
+        "skipped": "live probe disabled",
+        "error": "live probe failed",
+    },
+    "queue": {
+        "ok": "queue ready",
+        "skipped": "queue check skipped",
+        "error": "queue check failed",
+    },
+    "circuit_breaker": {
+        "ok": "circuit healthy",
+        "skipped": "circuit check skipped",
+        "error": "circuit open",
+    },
+}
+_SENSITIVE_READYZ_KEYS = {
+    "api_key",
+    "broker",
+    "broker_url",
+    "celery_broker_url",
+    "dsn",
+    "password",
+    "secret",
+    "token",
+}
+
 
 def _reset_readyz_cache() -> None:
     """Clear the readyz TTL cache (used by tests between scenarios)."""
     global _readyz_cache
     _readyz_cache = None
+
+
+def _public_readyz_details(checks: dict[str, str], details: dict) -> dict[str, dict]:
+    """Return the non-sensitive subset safe for unauthenticated health probes."""
+    public_details: dict[str, dict] = {}
+    for component, check_status in checks.items():
+        messages = _PUBLIC_READYZ_MESSAGES.get(component, {})
+        public_details[component] = {"message": messages.get(check_status, "component check completed")}
+
+    circuit_status = details.get("circuit_breaker", {}).get("status")
+    if isinstance(circuit_status, dict):
+        public_details["circuit_breaker"]["status"] = {
+            key: circuit_status[key]
+            for key in ("state", "failure_count", "retry_after_seconds", "enabled")
+            if key in circuit_status
+        }
+
+    return public_details
+
+
+def _redact_sensitive_readyz_values(value):
+    """Recursively remove credential-bearing fields from readiness diagnostics."""
+    if isinstance(value, dict):
+        return {
+            key: _redact_sensitive_readyz_values(item)
+            for key, item in value.items()
+            if str(key).strip().lower() not in _SENSITIVE_READYZ_KEYS
+        }
+    if isinstance(value, list):
+        return [_redact_sensitive_readyz_values(item) for item in value]
+    return value
+
+
+async def _readyz_snapshot() -> tuple[dict[str, str], dict]:
+    """Return a cached readiness snapshot without duplicating expensive checks."""
+    global _readyz_cache
+    ttl = utcms_config.READYZ_CACHE_TTL_SECONDS
+    async with _readyz_cache_lock:
+        now = time.monotonic()
+        if _readyz_cache is not None and now - _readyz_cache[0] < ttl:
+            return _readyz_cache[1], _readyz_cache[2]
+
+        checks, details = await _compute_readyz_checks()
+        _readyz_cache = (now, checks, details)
+        return checks, details
+
+
+def _readyz_response(checks: dict[str, str], details: dict, *, include_internal_details: bool) -> JSONResponse:
+    ready = all(value in {"ok", "skipped"} for value in checks.values())
+    content = {
+        "status": "ready" if ready else "not_ready",
+        "checks": checks,
+        "details": (
+            _redact_sensitive_readyz_values(details)
+            if include_internal_details
+            else _public_readyz_details(checks, details)
+        ),
+    }
+
+    if not ready:
+        logger.warning(
+            "readiness_check_failed",
+            extra={
+                "extra_fields": {
+                    "status": content["status"],
+                    "checks": checks,
+                }
+            },
+        )
+
+    return JSONResponse(status_code=200 if ready else 503, content=content)
 
 
 def _database_host() -> str:
@@ -239,14 +368,12 @@ async def _compute_readyz_checks() -> tuple[dict[str, str], dict]:
                 checks["queue"] = "skipped"
                 details["queue"] = {
                     "message": "queue snapshot unavailable because database host is not resolvable",
-                    "broker": utcms_config.CELERY_BROKER_URL,
                 }
             else:
                 checks["queue"] = "ok"
                 details["queue"] = {
                     "message": "queue configured",
                     "snapshot": queue_snapshot,
-                    "broker": utcms_config.CELERY_BROKER_URL,
                 }
             if utcms_config.QUEUE_READYZ_LIVE_CHECK and queue_snapshot is not None:
                 ping_result = celery_app.control.ping(timeout=1.0) if celery_app is not None else []
@@ -273,27 +400,15 @@ async def _compute_readyz_checks() -> tuple[dict[str, str], dict]:
 
 @router.get("/readyz")
 async def readyz():
-    global _readyz_cache
-    ttl = utcms_config.READYZ_CACHE_TTL_SECONDS
-    async with _readyz_cache_lock:
-        now = time.monotonic()
-        if _readyz_cache is not None and now - _readyz_cache[0] < ttl:
-            checks, details = _readyz_cache[1], _readyz_cache[2]
-        else:
-            checks, details = await _compute_readyz_checks()
-            _readyz_cache = (now, checks, details)
+    checks, details = await _readyz_snapshot()
+    return _readyz_response(checks, details, include_internal_details=False)
 
-    ready = all(value in {"ok", "skipped"} for value in checks.values())
-    content = {
-        "status": "ready" if ready else "not_ready",
-        "checks": checks,
-        "details": details,
-    }
 
-    if not ready:
-        logger.warning("readiness_check_failed", extra={"extra_fields": content})
-
-    return JSONResponse(status_code=200 if ready else 503, content=content)
+@router.get("/api/v1/admin/readyz", dependencies=[Depends(get_current_admin)])
+async def admin_readyz():
+    """Return detailed readiness diagnostics to authenticated administrators."""
+    checks, details = await _readyz_snapshot()
+    return _readyz_response(checks, details, include_internal_details=True)
 
 
 @router.get("/metrics")
@@ -431,7 +546,7 @@ async def recover_stalled_workers():
     }
 
 
-@router.get("/auth-config")
+@router.get("/auth-config", dependencies=[Depends(get_current_admin)])
 async def auth_config():
     mode = utcms_config.API_AUTH_MODE.strip().lower()
     return {
@@ -734,11 +849,12 @@ async def proxies_health():
 
 
 @router.get(
-    "/system/clean-ips",
+    "/api/system/clean-ips",
     summary="Get status and list of verified Iranian clean proxies",
     description="Returns metrics, active count, latency statistics, and verified proxy records from the Clean IP Pool.",
 )
-async def get_clean_ips_status():
+@router.get("/system/clean-ips", include_in_schema=False)
+async def get_clean_ips_status(_: dict = Depends(get_current_admin)):
     """Returns the current state and metrics of the Clean IP Pool."""
     from app.automation.clean_ip_pool import clean_ip_pool
 
@@ -773,10 +889,11 @@ async def get_clean_ips_status():
 
 
 @router.post(
-    "/system/clean-ips/refresh",
+    "/api/system/clean-ips/refresh",
     summary="Trigger on-demand background refresh of Clean IP Pool",
     description="Forces a new screening cycle across all 11+ sources and updates the Redis pool.",
 )
+@router.post("/system/clean-ips/refresh", include_in_schema=False)
 async def refresh_clean_ips_pool(_: dict = Depends(get_current_admin)):
     """Triggers an on-demand screening and verification cycle for Iranian proxies."""
     from app.automation.clean_ip_pool import clean_ip_pool

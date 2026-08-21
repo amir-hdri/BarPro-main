@@ -41,7 +41,7 @@ async def test_worker_bot_uses_dry_run_when_live_submit_is_disabled() -> None:
 
 
 @pytest.mark.asyncio
-async def test_worker_bot_allows_final_submit_only_when_enabled() -> None:
+async def test_worker_bot_keeps_tracking_code_pending_history_reconciliation() -> None:
     page = MagicMock()
     page.url = "about:blank"
     context = MagicMock()
@@ -58,6 +58,12 @@ async def test_worker_bot_allows_final_submit_only_when_enabled() -> None:
             client_id=1,
         )
 
-    assert result["status"] == "success"
+    # A browser tracking code is witness 1/3 only.  The worker must keep the
+    # job UNKNOWN until the DB and UTCMS History/Search witnesses reconcile it.
+    assert result["status"] == "unknown"
     assert result["result"]["tracking_code"] == "123456"
+    assert result["result"]["confirmation_status"] == "pending_history_reconciliation"
+    assert result["error_category"] == "submission_unconfirmed"
+    assert result["mutation_status"] == "dispatched"
+    assert result["needs_reconciliation"] is True
     assert bot.manager.create_waybill_with_map.await_args.kwargs["dry_run"] is False

@@ -1,3 +1,7 @@
+> Legacy design note: this file records early requirements and may use obsolete
+> models or contracts. For current implementation use
+> docs/BARPRO_KNOWLEDGE_GRAPH.md and ARCHITECTURE.md.
+
 ## ۱. موجودیت‌ها و مدل‌های داده (Data Models & Entities)
 جهت پیاده‌سازی سیستم چندمستأجره (Multi-Tenant) و کنترل سطوح دسترسی (RBAC) با ثبت گزارشات کامل (Audit Logging)، فایل `models_multitenant.py` طراحی و جداول دیتابیس (SQLModel / SQLAlchemy) برای آن ایجاد شده است:
 

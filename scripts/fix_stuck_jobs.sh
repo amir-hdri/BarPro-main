@@ -47,7 +47,7 @@ if command -v alembic &> /dev/null; then
         echo -e "${GREEN}✓ مایگریشن 4a5b6c7d8e9f قبلاً اعمال شده است${NC}"
     else
         echo " اعمال مایگریشن جدید 4a5b6c7d8e9f..."
-        if alembic upgrade head; then
+        if python -c 'import asyncio; from app.core.database import run_migrations; asyncio.run(run_migrations())'; then
             echo -e "${GREEN}✓ تمام مایگریشن‌ها اعمال شد${NC}"
         else
             echo -e "${RED}خطا: در اعمال مایگریشن‌ها${NC}"

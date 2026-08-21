@@ -59,6 +59,24 @@ _LOCAL_PUBLIC_IPS: set[str] = {
 }
 
 
+def _safe_proxy_url(url: str) -> str:
+    parsed = urlparse(url)
+    if not parsed.hostname:
+        return url
+    host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    netloc = f"{host}:{parsed.port}" if parsed.port else host
+    return urlunparse(parsed._replace(netloc=netloc))
+
+
+def _replace_proxy_hostname(url: str, hostname: str) -> str:
+    parsed = urlparse(url)
+    userinfo = parsed.netloc.rsplit("@", 1)[0] if "@" in parsed.netloc else ""
+    host = f"[{hostname}]" if ":" in hostname else hostname
+    host_port = f"{host}:{parsed.port}" if parsed.port else host
+    netloc = f"{userinfo}@{host_port}" if userinfo else host_port
+    return urlunparse(parsed._replace(netloc=netloc))
+
+
 class ProxyUnavailableError(RuntimeError):
     """Raised when a required Squid proxy is unconfigured/unreachable.
 
@@ -97,9 +115,7 @@ def _resolve_to_ip(url: str) -> str:
 
     # Force host.docker.internal to route to the Docker bridge gateway
     if hostname == "host.docker.internal":
-        port = parsed.port
-        netloc = f"{_DOCKER_GATEWAY}:{port}" if port else _DOCKER_GATEWAY
-        return urlunparse(parsed._replace(netloc=netloc))
+        return _replace_proxy_hostname(url, _DOCKER_GATEWAY)
 
     try:
         ip = socket.gethostbyname(hostname)
@@ -124,9 +140,7 @@ def _resolve_to_ip(url: str) -> str:
 
         if ip != hostname:
             # Rebuild netloc with numeric IP
-            port = parsed.port
-            netloc = f"{ip}:{port}" if port else ip
-            resolved = urlunparse(parsed._replace(netloc=netloc))
+            resolved = _replace_proxy_hostname(url, ip)
             logger.debug(f"worker_proxy: resolved {hostname} → {ip} in proxy URL")
             return resolved
     except OSError:
@@ -171,7 +185,7 @@ def get_best_egress_proxy() -> str | None:
     if _cached_proxy_timestamp > 0 and (now - _cached_proxy_timestamp) < ttl:
         return _cached_proxy_url
 
-    mode = os.environ.get("EGRESS_PROXY_MODE", "worker_first").strip().lower()
+    mode = utcms_config.EGRESS_PROXY_MODE
     worker_id = os.environ.get(_WORKER_ID_ENV, "1")
     worker_ip_index = os.environ.get("WORKER_IP_INDEX", worker_id)
 
@@ -194,7 +208,7 @@ def get_best_egress_proxy() -> str | None:
         clean_url = clean_ip_pool.get_clean_ip_sync()
         if clean_url:
             resolved = _resolve_to_ip(clean_url)
-            logger.info(f"worker_proxy: using Clean IP Pool proxy {resolved} (mode=clean_pool_only)")
+            logger.info("worker_proxy: using Clean IP Pool proxy %s (mode=clean_pool_only)", _safe_proxy_url(resolved))
             _cached_proxy_url = resolved
             _cached_proxy_timestamp = now
             return resolved
@@ -223,7 +237,7 @@ def get_best_egress_proxy() -> str | None:
                     worker_squid_healthy = True
             except (OSError, TimeoutError):
                 worker_squid_healthy = False
-                logger.debug(f"worker_proxy: worker proxy {resolved_worker_squid} unreachable")
+                logger.debug("worker_proxy: worker proxy %s unreachable", _safe_proxy_url(resolved_worker_squid))
 
     # Mode: hybrid
     if mode == "hybrid":
@@ -233,14 +247,18 @@ def get_best_egress_proxy() -> str | None:
             clean_url = clean_ip_pool.get_clean_ip_sync()
             if clean_url:
                 resolved = _resolve_to_ip(clean_url)
-                logger.info(f"worker_proxy: using Clean IP Pool proxy {resolved} (mode=hybrid)")
+                logger.info("worker_proxy: using Clean IP Pool proxy %s (mode=hybrid)", _safe_proxy_url(resolved))
                 _cached_proxy_url = resolved
                 _cached_proxy_timestamp = now
                 return resolved
 
     # Default Mode: worker_first
     if worker_squid_healthy and resolved_worker_squid:
-        logger.info(f"worker_proxy: using active worker proxy {resolved_worker_squid} (worker_id={worker_id})")
+        logger.info(
+            "worker_proxy: using active worker proxy %s (worker_id=%s)",
+            _safe_proxy_url(resolved_worker_squid),
+            worker_id,
+        )
         _cached_proxy_url = resolved_worker_squid
         _cached_proxy_timestamp = now
         return resolved_worker_squid
@@ -251,7 +269,7 @@ def get_best_egress_proxy() -> str | None:
         resolved_clean = _resolve_to_ip(clean_url)
         logger.warning(
             f"worker_proxy: worker Squid unavailable/blocked (worker_id={worker_id}), "
-            f"falling back to Clean IP Pool proxy {resolved_clean}"
+            f"falling back to Clean IP Pool proxy {_safe_proxy_url(resolved_clean)}"
         )
         _cached_proxy_url = resolved_clean
         _cached_proxy_timestamp = now
@@ -289,7 +307,15 @@ def get_playwright_proxy() -> dict | None:
             ...
     """
     url = get_worker_proxy_url()
-    return {"server": url} if url else None
+    if not url:
+        return None
+    parsed = urlparse(url)
+    proxy = {"server": _safe_proxy_url(url)}
+    if parsed.username:
+        proxy["username"] = parsed.username
+    if parsed.password:
+        proxy["password"] = parsed.password
+    return proxy
 
 
 async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> bool:
@@ -337,7 +363,7 @@ async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> b
         "worker_proxy_health_check_failed",
         extra={
             "extra_fields": {
-                "proxy": proxy_url,
+                "proxy": _safe_proxy_url(proxy_url),
                 "target": effective_target,
                 "attempts": 3,
                 "error": last_error[:240],

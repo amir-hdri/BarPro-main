@@ -167,6 +167,18 @@ def get_captcha_mode() -> str:
     return "local_only"
 
 
+def get_captcha_strategy_order(mode: str, local_fallback_enabled: bool = True) -> tuple[str, ...]:
+    """Return the canonical automatic solver order for every supported mode."""
+    normalized = (mode or "").strip().lower()
+    if normalized == "provider_only":
+        return ("provider",)
+    if normalized == "provider_first":
+        return ("provider", "math") if local_fallback_enabled else ("provider",)
+    if normalized == "manual_only":
+        return ()
+    return ("math", "provider")
+
+
 def navigation_error_message(url: str, error: Exception) -> str:
     raw = str(error or "").strip()
     lowered = raw.lower()

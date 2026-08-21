@@ -336,39 +336,21 @@ class RPASchedulerService:
 
             count = 0
             for job in stuck_jobs:
-                # CRITICAL: Check if job was already successfully submitted to portal
-                # by checking for tracking_code in result_json
-                if job.result_json:
+                old_status = job.status
+                result_data: dict[str, Any] = {}
+                if isinstance(job.result_json, dict):
+                    result_data = dict(job.result_json)
+                elif isinstance(job.result_json, str):
                     try:
-                        result_data = job.result_json  # already deserialized by SQLAlchemy JSON/JSONB
-                        if result_data.get("tracking_code"):
-                            logger.warning(
-                                "stuck_job_already_has_tracking_code_skipping_recovery",
-                                extra={
-                                    "extra_fields": {
-                                        "job_id": job.job_id,
-                                        "status": job.status,
-                                        "tracking_code": result_data.get("tracking_code"),
-                                    }
-                                },
-                            )
-                            # Mark as SUCCESS to prevent future recovery attempts
-                            JobStateMachine.transition(
-                                session,
-                                job,
-                                TaskStatus.SUCCESS.value,
-                                finished_at=_utcnow_naive(),
-                                updated_at=_utcnow_naive(),
-                            )
-                            session.add(job)
-                            continue
-                    except json.JSONDecodeError as exc:
+                        parsed_result = json.loads(job.result_json)
+                        if isinstance(parsed_result, dict):
+                            result_data = parsed_result
+                    except (TypeError, json.JSONDecodeError) as exc:
                         logger.debug(
                             "rpa_scheduler_result_json_corrupted",
                             extra={"extra_fields": {"job_id": job.job_id, "error": str(exc)}},
                         )
-
-                old_status = job.status
+                tracking_code = str(result_data.get("tracking_code") or "").strip() or None
                 logger.warning(
                     "recovering_stuck_job",
                     extra={
@@ -380,18 +362,38 @@ class RPASchedulerService:
                     },
                 )
 
-                if old_status == TaskStatus.IN_PROGRESS.value:
-                    # The worker may have failed after UTCMS accepted the submit.
-                    # Never automatically resubmit an unknown external outcome.
+                if tracking_code or old_status == TaskStatus.IN_PROGRESS.value:
+                    # A tracking code is only witness 1/3, and an expired
+                    # in-progress lease may have crossed the mutation boundary.
+                    # Both cases must reconcile before any further submission.
+                    reconciliation_at = _utcnow_naive()
+                    result_data.update(
+                        {
+                            "status": TaskStatus.UNKNOWN.value,
+                            "confirmation_status": "pending_history_reconciliation",
+                            "needs_reconciliation": True,
+                        }
+                    )
                     JobStateMachine.transition(
                         session,
                         job,
-                        TaskStatus.NEEDS_REVIEW.value,
+                        TaskStatus.UNKNOWN.value,
                         error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
-                        last_error="Worker lease expired; reconcile UTCMS before retrying",
-                        finished_at=_utcnow_naive(),
-                        updated_at=_utcnow_naive(),
+                        last_error=(
+                            "Tracking code exists but UTCMS History is not confirmed"
+                            if tracking_code
+                            else "Worker lease expired after submission may have started; reconciliation required"
+                        ),
+                        result_json=result_data,
+                        next_retry_at=reconciliation_at,
+                        submit_after=reconciliation_at,
+                        retryable=False,
+                        celery_task_id=None,
+                        worker_id=None,
+                        finished_at=reconciliation_at,
+                        updated_at=reconciliation_at,
                     )
+                    job.mutation_status = "dispatched" if tracking_code else "ambiguous"
                 else:
                     JobStateMachine.transition(
                         session,
@@ -413,8 +415,8 @@ class RPASchedulerService:
                         step="recovery",
                         status=job.status,
                         message=(
-                            "نتیجه ثبت در UTCMS نامشخص است؛ پیش از تلاش مجدد نیاز به بررسی دارد"
-                            if job.status == TaskStatus.NEEDS_REVIEW.value
+                            "نتیجه ثبت در UTCMS نامشخص است و برای تطبیق History زمان‌بندی شد"
+                            if job.status == TaskStatus.UNKNOWN.value
                             else f"تسک از وضعیت {old_status} بازیابی شد (عدم پاسخگویی کارگر/تایم‌اوت)"
                         ),
                     )

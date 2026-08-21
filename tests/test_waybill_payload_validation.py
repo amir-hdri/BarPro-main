@@ -132,7 +132,9 @@ def test_waybill_job_create_request_strict_union_rejection():
             "origin": "تهران",
             "destination": "اصفهان",
             "cargo_type": "سیمان",
+            "cargo_packaging": "کیسه",
             "cargo_weight": 12.5,
+            "cargo_value": "1000000",
             "plate_number": "12ب345ایران67",
         },
     )
@@ -153,3 +155,73 @@ def test_waybill_job_create_request_strict_union_rejection():
     )
     assert req_nested.payload.cargo.type == "آهن"
     assert req_nested.payload.cargo.weight == 2.5
+
+
+@pytest.mark.parametrize("missing_field", ["cargo_packaging", "cargo_value"])
+def test_flat_waybill_payload_requires_all_live_utcms_cargo_fields(missing_field):
+    """Flat payloads must not bypass the live UTCMS packaging/value contract."""
+    from pydantic import ValidationError
+
+    from app.schemas.multitenant import WaybillJobCreateRequest
+
+    payload = {
+        "driver_national_code": "0084575948",
+        "origin": "تهران",
+        "destination": "اصفهان",
+        "cargo_type": "سیمان",
+        "cargo_packaging": "کیسه",
+        "cargo_weight": 12.5,
+        "cargo_value": "1000000",
+        "plate_number": "12ب345ایران67",
+    }
+    payload.pop(missing_field)
+
+    with pytest.raises(ValidationError):
+        WaybillJobCreateRequest(driver_national_code="0084575948", payload=payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "driver_national_code": "0012345679",
+            "origin": "تهران",
+            "destination": "اصفهان",
+            "cargo_type": "سیمان",
+            "cargo_packaging": "کیسه",
+            "cargo_weight": 12.5,
+            "cargo_value": "1000000",
+            "plate_number": "12ب345ایران67",
+        },
+        {
+            "sender": {"name": "حمید رضایی"},
+            "receiver": {"name": "محسن کاظمی"},
+            "origin": {"province": "تهران", "city": "تهران", "address": "خیابان آزادی"},
+            "destination": {"province": "البرز", "city": "کرج", "address": "بلوار جمهوری"},
+            "cargo": {
+                "cargo_title": "آهن",
+                "packaging_title": "شاخه",
+                "cargo_weight": 2.5,
+                "cargo_value": "1000000",
+            },
+            "vehicle": {"driver_national_code": "0012345679", "plate": "12ب345ایران11"},
+        },
+    ],
+)
+def test_waybill_create_rejects_payload_driver_identity_mismatch(payload):
+    from pydantic import ValidationError
+
+    from app.schemas.multitenant import WaybillJobCreateRequest
+
+    with pytest.raises(ValidationError, match="payload"):
+        WaybillJobCreateRequest(driver_national_code="0084575948", payload=payload)
+
+
+@pytest.mark.parametrize("extra_field", [{"status": "success"}, {"notes": "manual override"}])
+def test_waybill_update_rejects_unknown_or_state_machine_fields(extra_field):
+    from pydantic import ValidationError
+
+    from app.schemas.multitenant import WaybillJobUpdateRequest
+
+    with pytest.raises(ValidationError):
+        WaybillJobUpdateRequest.model_validate(extra_field)

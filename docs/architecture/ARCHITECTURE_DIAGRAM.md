@@ -1,3 +1,7 @@
+> Legacy diagram: API paths, TLS, schema, queue and final-success flow below may
+> be obsolete. The canonical current diagrams and contracts are in
+> docs/BARPRO_KNOWLEDGE_GRAPH.md and ARCHITECTURE.md.
+
 # نمودار معماری سیستم Multi-Tenant
 
 ## 📐 معماری کلی

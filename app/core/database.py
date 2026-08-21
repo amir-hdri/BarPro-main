@@ -4,9 +4,11 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 
 from alembic.config import Config
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import AsyncAdaptedQueuePool
@@ -46,6 +48,8 @@ elif "sqlite" not in utcms_config.DATABASE_URL.lower():
 engine = create_async_engine(utcms_config.DATABASE_URL, **engine_kwargs)
 async_session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
+MIGRATION_ADVISORY_LOCK_ID = 0x42415250524F
+
 
 def _get_alembic_config() -> "Config":
     """Get Alembic configuration with current database URL."""
@@ -64,11 +68,11 @@ def _get_alembic_config() -> "Config":
 
 
 async def run_migrations() -> None:
-    """Run pending Alembic migrations programmatically using a distributed lock.
+    """Run pending Alembic migrations under a PostgreSQL advisory lock.
 
-    Uses Redis to ensure only ONE Celery worker runs migrations at startup,
-    preventing deadlocks when multiple workers start simultaneously.
-    On PostgreSQL, we MUST NOT fallback to create_all() if migrations fail.
+    The lock is held by a dedicated database session while Alembic uses its own
+    connection. It cannot expire mid-migration and is released automatically if
+    the process or connection dies. PostgreSQL migrations never run unlocked.
     """
     if os.getenv("SKIP_MIGRATIONS") == "true":
         logger.info(
@@ -84,42 +88,33 @@ async def run_migrations() -> None:
         )
         return
 
-    # Try to acquire a distributed lock via Redis (only one worker runs migrations)
+    lock_connection = None
     lock_acquired = False
-    try:
-        from app.core.redis import redis_manager
-
-        if redis_manager is not None and redis_manager._redis is not None:
-            lock_acquired = await redis_manager._redis.setnx("migration_lock", "1")
-            if lock_acquired:
-                await redis_manager._redis.expire("migration_lock", 300)  # 5 min TTL
-                logger.info("migration_lock_acquired", extra={"extra_fields": {"note": "Running migrations..."}})
-            else:
-                logger.info(
-                    "migration_lock_held_by_another_worker",
-                    extra={"extra_fields": {"note": "Skipping migrations — another worker is handling them."}},
-                )
-                return
-        else:
-            logger.info(
-                "migration_redis_unavailable_running_directly",
-                extra={"extra_fields": {"note": "Redis not available, running migrations directly."}},
-            )
-    except Exception:
-        logger.warning("migration_lock_check_failed_running_directly", exc_info=True)
+    is_postgresql = utcms_config.DATABASE_URL.lower().startswith("postgresql")
 
     try:
-        from alembic.config import Config
-
         from alembic import command
 
-        alembic_ini_path = os.path.join(os.path.dirname(__file__), "..", "..", "alembic.ini")
-        if not os.path.exists(alembic_ini_path):
-            logger.warning("alembic_ini_not_found", extra={"extra_fields": {"path": alembic_ini_path}})
-            return
+        if is_postgresql:
+            lock_connection = await engine.connect()
+            deadline = time.monotonic() + utcms_config.MIGRATION_LOCK_TIMEOUT_SECONDS
+            while True:
+                result = await lock_connection.execute(
+                    text("SELECT pg_try_advisory_lock(:lock_id)"),
+                    {"lock_id": MIGRATION_ADVISORY_LOCK_ID},
+                )
+                if bool(result.scalar_one()):
+                    lock_acquired = True
+                    logger.info("migration_advisory_lock_acquired")
+                    break
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        "Timed out waiting for the PostgreSQL migration advisory lock. "
+                        "Another deployment may still be migrating."
+                    )
+                await asyncio.sleep(1)
 
-        alembic_cfg = Config(str(alembic_ini_path))
-        alembic_cfg.set_main_option("sqlalchemy.url", utcms_config.DATABASE_URL)
+        alembic_cfg = _get_alembic_config()
 
         def _run_upgrade(cfg: Config) -> None:
             command.upgrade(cfg, "head")
@@ -133,22 +128,23 @@ async def run_migrations() -> None:
             extra={
                 "extra_fields": {
                     "error": str(exc),
-                    "solution": "Fix migrations manually: alembic downgrade base && alembic upgrade head",
+                    "solution": "Stop rollout, inspect the failed revision, and restore the verified backup if required.",
                 }
             },
         )
-        raise RuntimeError(
-            f"Database migration failed on PostgreSQL: {exc}\n" "Please fix migrations manually or reset database."
-        ) from exc
+        raise RuntimeError(f"Database migration failed: {exc}") from exc
     finally:
-        if lock_acquired:
+        if lock_connection is not None:
             try:
-                from app.core.redis import redis_manager
-
-                if redis_manager is not None and redis_manager._redis is not None:
-                    await redis_manager._redis.delete("migration_lock")
+                if lock_acquired:
+                    await lock_connection.execute(
+                        text("SELECT pg_advisory_unlock(:lock_id)"),
+                        {"lock_id": MIGRATION_ADVISORY_LOCK_ID},
+                    )
             except Exception:
-                logger.warning("migration_lock_release_failed", exc_info=True)
+                logger.warning("migration_advisory_lock_release_failed", exc_info=True)
+            finally:
+                await lock_connection.close()
 
 
 async def init_db():

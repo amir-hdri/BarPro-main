@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import socket
 import sys
 import time
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 IP = os.environ.get("COPY_REMOTE_IP", "<YOUR_CENTRAL_SERVER_IP>")
 USERNAME = os.environ.get("COPY_REMOTE_USER", "ubuntu")
 PASSWORD = os.environ["COPY_REMOTE_PASSWORD"]
+KNOWN_HOSTS = os.environ.get("SSH_KNOWN_HOSTS", os.path.expanduser("~/.ssh/known_hosts"))
 
 
 def find_local_proxy():
@@ -52,11 +54,19 @@ def connect_ssh(retries=5, delay=5):
                 transport = paramiko.Transport(s)
                 transport.connect(username=USERNAME, password=PASSWORD)
                 ssh = paramiko.SSHClient()
-                ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                if not os.path.isfile(KNOWN_HOSTS) or not os.access(KNOWN_HOSTS, os.R_OK):
+                    raise RuntimeError(f"SSH known_hosts file is missing or unreadable: {KNOWN_HOSTS}")
+                ssh.load_system_host_keys()
+                ssh.load_host_keys(KNOWN_HOSTS)
+                ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
                 ssh._transport = transport
             else:
                 ssh = paramiko.SSHClient()
-                ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                if not os.path.isfile(KNOWN_HOSTS) or not os.access(KNOWN_HOSTS, os.R_OK):
+                    raise RuntimeError(f"SSH known_hosts file is missing or unreadable: {KNOWN_HOSTS}")
+                ssh.load_system_host_keys()
+                ssh.load_host_keys(KNOWN_HOSTS)
+                ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
                 ssh.connect(IP, username=USERNAME, password=PASSWORD, timeout=15)
 
             logger.info("Connected successfully via SSH.")

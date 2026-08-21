@@ -193,6 +193,60 @@ async def test_readyz_queue_failure_returns_503():
 
 
 @pytest.mark.asyncio
+async def test_public_readyz_redacts_internal_details_and_broker_credentials():
+    checks = {
+        "database": "ok",
+        "browser": "ok",
+        "config": "ok",
+        "captcha_model": "ok",
+        "itmb_config": "ok",
+        "itmb_baseinfo_cache": "ok",
+        "itmb_live_probe": "ok",
+        "queue": "ok",
+        "circuit_breaker": "ok",
+    }
+    details = {
+        "database": {"message": "database connection ok", "host": "postgres.internal"},
+        "captcha_model": {"provider": "cnn", "model_path": "/srv/private/model.pth"},
+        "queue": {
+            "message": "queue configured",
+            "broker": "redis://:do-not-expose@redis:6379/0",
+            "snapshot": {"queued": 12},
+        },
+        "circuit_breaker": {
+            "message": "circuit healthy",
+            "status": {
+                "state": "closed",
+                "failure_count": 0,
+                "retry_after_seconds": 0,
+                "enabled": True,
+                "internal_marker": "private",
+            },
+        },
+    }
+
+    with patch("app.api.routes.system._compute_readyz_checks", new=AsyncMock(return_value=(checks, details))):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.get("/readyz")
+
+    assert response.status_code == 200
+    payload = response.json()
+    serialized = response.text
+    assert "do-not-expose" not in serialized
+    assert "redis://" not in serialized
+    assert "postgres.internal" not in serialized
+    assert "/srv/private/model.pth" not in serialized
+    assert "snapshot" not in payload["details"]["queue"]
+    assert payload["details"]["circuit_breaker"]["status"] == {
+        "state": "closed",
+        "failure_count": 0,
+        "retry_after_seconds": 0,
+        "enabled": True,
+    }
+
+
+@pytest.mark.asyncio
 async def test_readyz_database_hang_takes_full_delay():
     # This test verifies that the database check currently lacks a timeout,
     # and will block for the full duration of the hang.

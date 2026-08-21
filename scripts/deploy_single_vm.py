@@ -46,6 +46,7 @@ SECONDARY_GW = "95.38.232.1"
 
 SSH_USER = "ubuntu"
 SSH_PASS = os.environ["SSH_PASSWORD"]
+SSH_KNOWN_HOSTS = os.environ.get("SSH_KNOWN_HOSTS", os.path.expanduser("~/.ssh/known_hosts"))
 
 REMOTE_DIR = "/opt/barpro"  # محل استقرار روی سرور
 DB_NAME = "utcms_rpa"
@@ -128,16 +129,14 @@ def section(title: str) -> None:
 
 
 def banner() -> None:
-    print(
-        f"""
+    print(f"""
 {C.BOLD}{C.CYAN}╔══════════════════════════════════════════════════════════════╗
 ║       BarPro — ArvanCloud Deployment Agent  🚀              ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Primary  : {PRIMARY_IP:<47}║
 ║  Secondary: {SECONDARY_IP:<47}║
 ║  Remote   : {REMOTE_DIR:<47}║
-╚══════════════════════════════════════════════════════════════╝{C.RESET}"""
-    )
+╚══════════════════════════════════════════════════════════════╝{C.RESET}""")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -147,8 +146,15 @@ def banner() -> None:
 
 def ssh_connect(retries: int = 6, delay: int = 8) -> paramiko.SSHClient:
     """اتصال SSH با قابلیت تلاش مجدد."""
+    if not os.path.isfile(SSH_KNOWN_HOSTS) or not os.access(SSH_KNOWN_HOSTS, os.R_OK):
+        raise SystemExit(
+            f"SSH known_hosts file is missing or unreadable: {SSH_KNOWN_HOSTS}. "
+            "Enroll the production host key out-of-band before deployment."
+        )
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.load_system_host_keys()
+    client.load_host_keys(SSH_KNOWN_HOSTS)
+    client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
     for attempt in range(1, retries + 1):
         try:
@@ -440,8 +446,7 @@ def _build_production_env() -> str:
     pg_pass = _extract_env("POSTGRES_PASSWORD", "postgres")
     redis_pw = _extract_env("REDIS_PASSWORD", "redis")
 
-    lines.append(
-        f"""
+    lines.append(f"""
 # ── تنظیمات تولید (auto-generated) ──────────────────────────────
 ENVIRONMENT="production"
 HEADLESS="true"
@@ -466,8 +471,7 @@ WORKER_3_PROXY="http://172.20.0.1:3130"
 
 # مسیر مدل OCR در کانتینر
 KERAS_PYTHON_PATH="python3"
-"""
-    )
+""")
     return "".join(lines)
 
 
@@ -573,7 +577,9 @@ def step_upload(ssh: paramiko.SSHClient) -> bool:
 
 def _get_compose_cmd(ssh: paramiko.SSHClient) -> str:
     ok_flag, _ = run(ssh, "docker compose version", silent=True)
-    return "docker compose" if ok_flag else "docker-compose"
+    if not ok_flag:
+        raise RuntimeError("Docker Compose V2 is required; the legacy Compose client is unsupported.")
+    return "docker compose"
 
 
 def step_deploy(ssh: paramiko.SSHClient) -> bool:
@@ -600,9 +606,13 @@ def step_deploy(ssh: paramiko.SSHClient) -> bool:
         f"cd {REMOTE_DIR}/apps/web && NODE_ENV=production NEXT_PUBLIC_API_URL=/api npm run build 2>&1 | tail -20",
         # Pull ایمیج‌های بدون build (سریع‌تر از wait کردن در build)
         f"cd {REMOTE_DIR} && {compose} pull --quiet postgres redis nginx prometheus || true",
-        # Build و راه‌اندازی همه سرویس‌ها (با --profile docker-backend)
-        # (--profile scale-out شامل worker 2/3 است — برای استقرار تک‌سروره Model A)
-        f"cd {REMOTE_DIR} && {compose} --profile docker-backend --profile scale-out "
+        # Take and validate a DB backup before switching any container. On a
+        # first install pg_dump may be unavailable because Postgres is not up;
+        # an existing database container must never be upgraded without it.
+        f"if docker inspect barpro-postgres >/dev/null 2>&1; then cd {REMOTE_DIR} && bash scripts/db_backup.sh; fi",
+        # Model A is intentionally explicit: model-a enables local Squid 2/3
+        # and scale-out enables local Worker 2/3 on the same VM.
+        f"cd {REMOTE_DIR} && {compose} --profile docker-backend --profile model-a --profile scale-out "
         f"up -d --build --remove-orphans --timeout 300",
         # اجرایی کردن اسکریپت بکاپ
         f"chmod +x {REMOTE_DIR}/scripts/db_backup.sh",
@@ -641,19 +651,20 @@ def step_migrate(ssh: paramiko.SSHClient) -> bool:
         sys.stdout.flush()
         time.sleep(4)
     else:
-        warn("PostgreSQL در زمان مناسب آماده نشد — مایگریشن رد می‌شود")
-        return True  # fatal نیست
+        err("PostgreSQL در زمان مناسب آماده نشد — استقرار متوقف می‌شود")
+        return False
 
     print()
     ok_flag, _ = run(
         ssh,
-        f"cd {REMOTE_DIR} && {compose} exec -T backend " f"alembic upgrade head",
+        f"cd {REMOTE_DIR} && {compose} exec -T backend python -c "
+        "'import asyncio; from app.core.database import run_migrations; asyncio.run(run_migrations())'",
         timeout=120,
     )
 
     if not ok_flag:
-        warn("مایگریشن ناموفق بود — ممکن است قبلاً اجرا شده باشد")
-        return True  # ادامه می‌دهیم
+        err("مایگریشن ناموفق بود — استقرار نباید ادامه پیدا کند")
+        return False
 
     ok("مایگریشن‌های دیتابیس اعمال شدند")
     return True
@@ -840,8 +851,8 @@ def main() -> None:
                 sys.exit(1)
 
             # مرحله ۵: مایگریشن
-            if not args.skip_migrate:
-                step_migrate(ssh)
+            if not args.skip_migrate and not step_migrate(ssh):
+                sys.exit(1)
 
             # بررسی نهایی
             final_health_check(ssh)
@@ -853,8 +864,7 @@ def main() -> None:
         ssh.close()
 
     # ── خروجی موفق ────────────────────────────────────────────────
-    print(
-        f"""
+    print(f"""
 {C.BOLD}{C.GREEN}╔══════════════════════════════════════════════════════════════╗
 ║                   🎉  استقرار موفق  🎉                       ║
 ╠══════════════════════════════════════════════════════════════╣
@@ -862,8 +872,7 @@ def main() -> None:
 ║  API Docs : http://{PRIMARY_IP}/api/docs{" "*25}║
 ║  Metrics  : http://{PRIMARY_IP}:9090{" "*27}║
 ╚══════════════════════════════════════════════════════════════╝{C.RESET}
-"""
-    )
+""")
 
 
 if __name__ == "__main__":

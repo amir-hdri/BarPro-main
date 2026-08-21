@@ -25,6 +25,7 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
         """Minimal setup for pure logic tests."""
         self.mock_page = AsyncMock()
         self.mock_page.on = Mock()
+        self.mock_page.remove_listener = Mock()
         self.mock_context = AsyncMock()
 
         # Patch only what's needed
@@ -244,6 +245,66 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
         key = "bootstrap:empty_field"
         self.assertIn(key, self.manager._selector_inventory)
         self.assertEqual(self.manager._selector_inventory[key]["status"], "skipped")
+
+    def test_submit_response_parser_accepts_live_top_level_fixture(self):
+        payload = {
+            "resultCode": 200,
+            "resultMessage": "بارنامه با موفقیت صادر شد",
+            "isOtpNeeded": False,
+            "obj": {"documentId": 123456, "trackingCode": "987654321"},
+        }
+        parsed = self.manager._parse_register_submit_payload(payload)
+        self.assertIsNotNone(parsed)
+        self.assertTrue(parsed["success"])
+        self.assertFalse(parsed["is_otp_needed"])
+        self.assertEqual(parsed["document_id"], 123456)
+        self.assertEqual(parsed["tracking_code"], "987654321")
+
+    def test_otp_response_parser_accepts_nested_fixture(self):
+        payload = {
+            "data": {
+                "resultCode": 200,
+                "resultMessage": "کد اعتبارسنجی پیامک شد",
+                "obj": {"documentId": 123456},
+            }
+        }
+        parsed = self.manager._parse_otp_submit_payload(payload)
+        self.assertIsNotNone(parsed)
+        self.assertTrue(parsed["success"])
+        self.assertEqual(parsed["document_id"], 123456)
+
+    def test_submit_watchers_match_canonical_utcms_action_only(self):
+        class Response:
+            def __init__(self, url):
+                self.url = url
+
+        self.assertTrue(
+            self.manager._is_register_submit_response(
+                Response("https://barname.utcms.ir/Barname/PrintReport/printbarnameNew?x=1")
+            )
+        )
+        self.assertFalse(self.manager._is_register_submit_response(Response("https://example.test/UpdateRegisterNewOld")))
+        self.assertTrue(
+            self.manager._is_otp_submit_response(Response("https://barname.utcms.ir/Barname/Document/IssueDocumentByOtpNew"))
+        )
+
+    async def test_exact_dropdown_requires_unique_readback(self):
+        self.manager.smart_locator.locate = AsyncMock(return_value=AsyncMock())
+        self.mock_page.eval_on_selector_all = AsyncMock(
+            return_value=[
+                {"text": "فله", "value": "7"},
+                {"text": "کیسه", "value": "8"},
+            ]
+        )
+        self.mock_page.eval_on_selector = AsyncMock(return_value={"value": "7", "text": "فله"})
+        selected = await self.manager._select_exact_dropdown_with_fallback(["#ddBoxType"], "فله", "نوع بسته بندی")
+        self.assertTrue(selected)
+        self.manager.smart_locator.locate.return_value.select_option.assert_awaited_once_with(value="7")
+
+    async def test_close_detaches_dialog_listener(self):
+        await self.manager.close()
+        self.mock_page.remove_listener.assert_called_once()
+        self.assertTrue(self.manager._closed)
 
 
 if __name__ == "__main__":

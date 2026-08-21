@@ -27,6 +27,15 @@ from aiohttp import ClientError, ClientSession, ClientTimeout
 logger = logging.getLogger(__name__)
 
 
+def _redact_proxy_url(url: str) -> str:
+    parsed = urlparse(url)
+    if not parsed.hostname:
+        return url
+    host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    netloc = f"{host}:{parsed.port}" if parsed.port else host
+    return parsed._replace(netloc=netloc).geturl()
+
+
 @dataclass
 class ProxyConfig:
     """Configuration for adding a new proxy."""
@@ -77,6 +86,11 @@ class ProxyInfo:
             proto, rest = self.url.split("://", 1)
             return f"{proto}://{self.username}:{self.password}@{rest}"
         return self.url
+
+    @property
+    def safe_url(self) -> str:
+        """Return a log/API-safe URL without embedded credentials."""
+        return _redact_proxy_url(self.url)
 
     @property
     def is_healthy(self) -> bool:
@@ -271,7 +285,10 @@ class ProxyRotator:
                 continue
 
             if not self._is_safe_proxy_url(url):
-                logger.warning("blocked_unsafe_proxy_during_load", extra={"extra_fields": {"url": url[:60]}})
+                logger.warning(
+                    "blocked_unsafe_proxy_during_load",
+                    extra={"extra_fields": {"url": _redact_proxy_url(url)[:60]}},
+                )
                 continue
 
             if "socks5://" in url:
@@ -421,15 +438,16 @@ class ProxyRotator:
         except Exception as e:
             logger.warning(
                 "proxy_safety_check_failed",
-                extra={"extra_fields": {"url": url[:60], "error": str(e)}},
+                extra={"extra_fields": {"url": _redact_proxy_url(url)[:60], "error": str(e)}},
             )
             return False
 
     def add_proxy(self, config: ProxyConfig) -> ProxyInfo:
         """Add a single proxy using ProxyConfig."""
         if not self._is_safe_proxy_url(config.url):
-            logger.warning("blocked_private_proxy_url", extra={"extra_fields": {"url": config.url[:60]}})
-            raise ValueError(f"Proxy URL points to a private/reserved IP range: {config.url[:60]}")
+            safe_url = _redact_proxy_url(config.url)
+            logger.warning("blocked_private_proxy_url", extra={"extra_fields": {"url": safe_url[:60]}})
+            raise ValueError(f"Proxy URL points to a private/reserved IP range: {safe_url[:60]}")
 
         proxy = ProxyInfo(
             url=config.url,
@@ -439,9 +457,7 @@ class ProxyRotator:
             tags=config.tags or [],
         )
         self.proxies.append(proxy)
-        parsed = urlparse(config.url)
-        safe_url = parsed._replace(netloc=f"{parsed.hostname}:{parsed.port}") if parsed.password else config.url
-        logger.debug(f"Added proxy: {safe_url}")
+        logger.debug("Added proxy: %s", proxy.safe_url)
         return proxy
 
     async def verify_country(self, proxy: ProxyInfo) -> bool:
@@ -564,7 +580,7 @@ class ProxyRotator:
 
                     await asyncio.to_thread(check_socket)
                 except (OSError, TimeoutError) as exc:
-                    logger.warning(f"Proxy {chosen.url} is TCP unreachable: {exc}. Excluding from rotation.")
+                    logger.warning("Proxy %s is TCP unreachable: %s. Excluding from rotation.", chosen.safe_url, exc)
                     chosen.fail_count = max(chosen.fail_count, 3)  # Ensure is_healthy returns False immediately
                     chosen.record_failure(f"TCP unreachable: {exc}")
                     chosen.last_used = time.time()
@@ -572,12 +588,13 @@ class ProxyRotator:
 
             # If require_iran_ip is true and proxy's country is not verified, check on-the-fly
             if require_iran_ip and chosen.country is None:
-                logger.info(f"Checking Geo-IP on-the-fly for proxy {chosen.url[:40]}...")
+                logger.info("Checking Geo-IP on-the-fly for proxy %s...", chosen.safe_url[:40])
                 # Fetch country info outside of the lock to prevent blocking get_next for other tasks
                 success = await self.verify_country(chosen)
                 if not success or chosen.country != "IR":
                     logger.warning(
-                        f"On-the-fly Geo-IP check failed or proxy {chosen.url[:40]} is not in Iran. Detected: {chosen.country}. Skipping."
+                        f"On-the-fly Geo-IP check failed or proxy {chosen.safe_url[:40]} "
+                        f"is not in Iran. Detected: {chosen.country}. Skipping."
                     )
                     # Mark as non-IR and record failure
                     chosen.record_failure("Not an Iran IP")
@@ -593,7 +610,8 @@ class ProxyRotator:
                     logger.warning(f"Proxy used callback failed: {e}")
 
             logger.debug(
-                f"Selected proxy: {chosen.url[:50]}... (health: {chosen.health_score:.1f}, country: {chosen.country})"
+                f"Selected proxy: {chosen.safe_url[:50]}... "
+                f"(health: {chosen.health_score:.1f}, country: {chosen.country})"
             )
             return chosen
 
@@ -630,11 +648,13 @@ class ProxyRotator:
                                     data = await response.json()
                                     if isinstance(data, dict) and "ip" in data:
                                         logger.debug(
-                                            f"Proxy OK: {proxy.url[:40]}... IP: {data['ip']} Country: {proxy.country} ({latency:.2f}s)"
+                                            f"Proxy OK: {proxy.safe_url[:40]}... IP: {data['ip']} "
+                                            f"Country: {proxy.country} ({latency:.2f}s)"
                                         )
                                 except Exception:
                                     logger.debug(
-                                        f"Proxy OK: {proxy.url[:40]}... Country: {proxy.country} ({latency:.2f}s)"
+                                        f"Proxy OK: {proxy.safe_url[:40]}... "
+                                        f"Country: {proxy.country} ({latency:.2f}s)"
                                     )
 
                                 return True
@@ -743,7 +763,7 @@ class ProxyRotator:
             "overall_success_rate": round(overall_success_rate, 2),
             "proxies": [
                 {
-                    "url": p.url[:50] + "..." if len(p.url) > 50 else p.url,
+                    "url": p.safe_url[:50] + "..." if len(p.safe_url) > 50 else p.safe_url,
                     "health_score": round(p.health_score, 2),
                     "success_rate": round(p.success_rate, 2),
                     "avg_latency": round(p.avg_latency, 3),
@@ -764,6 +784,7 @@ class ProxyRotator:
 
         with open(filepath, "w", encoding=encoding) as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+        os.chmod(filepath, 0o600)
 
         logger.info(f"Saved {len(self.proxies)} proxies to {filepath}")
 

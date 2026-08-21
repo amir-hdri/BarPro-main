@@ -738,12 +738,44 @@ class RPAHttpSubmitService:
             )
 
         manager = EnhancedWaybillManager(page, context)
-        manager_result = await manager.create_waybill_with_map(
-            normalized_payload,
-            dry_run=False,
-            job_id=job_id,
-        )
+        try:
+            manager_result = await manager.create_waybill_with_map(
+                normalized_payload,
+                dry_run=False,
+                job_id=job_id,
+            )
+        finally:
+            try:
+                await manager.close()
+            except Exception:
+                logger.warning("browser_submit_manager_close_failed", exc_info=True)
         latency_ms = int((time.perf_counter() - start) * 1000)
+        manager_status = str(manager_result.get("status") or "").strip().lower()
+        mutation_status = str(manager_result.get("mutation_status") or "").strip().lower()
+        ambiguous_mutation = bool(
+            manager_status in {"unknown", "reconciling"}
+            or mutation_status == "ambiguous"
+            or manager_result.get("mutation_dispatched")
+            or manager_result.get("needs_reconciliation")
+        )
+
+        if ambiguous_mutation:
+            return SubmitExecutionResult(
+                classification=SubmitClassification(
+                    outcome=SubmitOutcome.UNKNOWN_ERROR,
+                    reason_code="submission_unconfirmed",
+                    retryable=False,
+                    message=str(
+                        manager_result.get("error")
+                        or manager_result.get("message")
+                        or f"{prior_error} | browser submission outcome requires reconciliation"
+                    ),
+                    response_excerpt=json.dumps(manager_result, ensure_ascii=False)[:1000],
+                ),
+                latency_ms=latency_ms,
+                raw_payload=manager_result,
+            )
+
         if manager_result.get("success"):
             return SubmitExecutionResult(
                 classification=SubmitClassification(

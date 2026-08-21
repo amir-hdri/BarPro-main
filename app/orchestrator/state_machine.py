@@ -37,6 +37,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "waiting_submission_window",
         "cancelled",
         "in_progress",
+        "unknown",
         "daily_limit_reached",
     },
     "waiting_retry": {
@@ -46,6 +47,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "in_progress",
         "queued",
         "waiting_submission_window",
+        "unknown",
         "daily_limit_reached",
     },
     "waiting_submission_window": {
@@ -64,6 +66,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "in_progress",
         "queued",
         "waiting_submission_window",
+        "unknown",
         "daily_limit_reached",
     },
     "queued": {

@@ -1,3 +1,6 @@
+> Legacy design note: this document is not the current database/API/state
+> contract. Use docs/BARPRO_KNOWLEDGE_GRAPH.md and ARCHITECTURE.md.
+
 # طراحی سیستم چندسطحی مدیریت کاربران و ثبت بارنامه
 **تاریخ:** 2025-05-01  
 **نسخه:** 3.0.0

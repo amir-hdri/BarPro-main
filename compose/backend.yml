@@ -41,7 +41,7 @@ x-backend-common: &backend-common
   env_file: [../.env]
   environment: &backend-env
     PYTHON_ENV: production
-    SKIP_MIGRATIONS: "false"  # ✅ Redis distributed lock از اجرای موازی جلوگیری می‌کند
+    SKIP_MIGRATIONS: "false"  # PostgreSQL advisory lock از اجرای موازی جلوگیری می‌کند
     # ✅ استفاده از نام سرویس (postgres) به عنوان hostname در شبکه داکر
     DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-utcms_rpa}
     REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0

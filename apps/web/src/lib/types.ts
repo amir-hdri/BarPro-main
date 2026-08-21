@@ -219,7 +219,6 @@ export interface WaybillJobCreateRequest {
 export interface WaybillJobUpdateRequest {
   priority?: number;
   max_retries?: number;
-  status?: string;
   terminal_reason?: string;
   business_date?: string;
   correlation_id?: string;

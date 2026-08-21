@@ -37,6 +37,11 @@ from unittest.mock import patch
 
 from app.core.circuit_breaker import get_available_ip_indices, get_routed_queue
 from app.core.config import utcms_config
+from scripts.deployment_inventory import (
+    CENTRAL_EXPECTED_CONTAINERS,
+    audit_container_inventory,
+    expected_containers,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 COMPOSE_DIR = PROJECT_ROOT / "compose"
@@ -44,6 +49,10 @@ COMPOSE_BACKEND = COMPOSE_DIR / "backend.yml"
 COMPOSE_WORKER_NODE = COMPOSE_DIR / "worker-node.yml"
 LOCAL_START_SYSTEM = PROJECT_ROOT / "scripts" / "start_system.sh"
 LOCAL_STOP_SYSTEM = PROJECT_ROOT / "scripts" / "stop_system.sh"
+PROXY_COMPOSE = COMPOSE_DIR / "proxy.yml"
+MANAGE_SCRIPT = PROJECT_ROOT / "manage.sh"
+QUICK_DEPLOY_CENTRAL = PROJECT_ROOT / "scripts" / "quick_deploy_central.sh"
+DEPLOY_SINGLE_VM = PROJECT_ROOT / "scripts" / "deploy_single_vm.py"
 
 # Every script/doc that tells an operator to bring up compose/worker-node.yml.
 # Each invocation MUST pass --env-file .env so compose interpolation reads the
@@ -1023,6 +1032,97 @@ def test_compose_up_paths_render_squid_before_proxy():
     assert render_index < first_up, "quick_deploy_central.sh must render before any compose up."
 
 
+def _compose_service_block(compose_text: str, service: str) -> str:
+    """Extract one top-level service block from a two-space-indented compose."""
+    match = re.search(
+        rf"(?ms)^  {re.escape(service)}:\s*$\n(.*?)(?=^  [A-Za-z0-9_-]+:\s*$|\Z)",
+        compose_text,
+    )
+    assert match is not None, f"service {service!r} missing from compose file"
+    return match.group(1)
+
+
+def test_model_b_proxy_default_and_model_a_opt_in_contract():
+    """Central Model B must not start Squid 2/3 without an explicit profile."""
+    proxy_text = PROXY_COMPOSE.read_text(encoding="utf-8")
+
+    assert "profiles:" not in _compose_service_block(proxy_text, "squid_1")
+    for service in ("squid_2", "squid_3"):
+        block = _compose_service_block(proxy_text, service)
+        assert 'profiles: ["model-a"]' in block, (
+            f"{service} must be protected by the explicit model-a profile; "
+            "otherwise Model B Central publishes ports 3129/3130 again."
+        )
+
+    single_vm = DEPLOY_SINGLE_VM.read_text(encoding="utf-8")
+    assert "--profile model-a" in single_vm
+    assert "--profile scale-out" in single_vm, "Model A needs both local Squid 2/3 and local Celery Worker 2/3."
+
+
+def test_model_b_deploy_paths_remove_stale_model_a_containers():
+    """A profile change alone does not guarantee old containers are stopped."""
+    manage = MANAGE_SCRIPT.read_text(encoding="utf-8")
+    assert 'BARPRO_TOPOLOGY="${BARPRO_TOPOLOGY:-model-b}"' in manage
+    assert "remove_model_a_services_from_central" in manage
+    assert "deployment_inventory.py --role central" in manage
+    for service in ("squid_2", "squid_3", "celery_worker_2", "celery_worker_3"):
+        assert service in manage
+
+    for path in (QUICK_DEPLOY_CENTRAL, DEPLOY_ALL_SERVERS):
+        text = path.read_text(encoding="utf-8")
+        assert "--profile model-a stop squid_2 squid_3" in text, path
+        assert "--profile model-a rm -f squid_2 squid_3" in text, path
+        assert re.search(
+            r"--profile scale-out stop(?: --timeout \d+)? celery_worker_2 celery_worker_3",
+            text,
+        ), path
+        assert "--profile scale-out rm -f celery_worker_2 celery_worker_3" in text, path
+        worker_stop = re.search(
+            r"--profile scale-out stop(?: --timeout \d+)? celery_worker_2 celery_worker_3",
+            text,
+        )
+        assert worker_stop is not None
+        assert worker_stop.start() < text.index("--profile model-a stop squid_2 squid_3"), (
+            f"{path} must drain Celery before stopping its proxy"
+        )
+
+
+def test_version_audit_fails_closed_on_unexpected_running_containers():
+    """Version audit must surface stale Model A and unrelated containers."""
+    containers = {
+        "barpro-squid-1": {"image_tag": "ubuntu/squid:latest"},
+        "barpro-squid-2": {"image_tag": "ubuntu/squid:latest"},
+        "another-app": {"image_tag": "example/app:latest"},
+    }
+    result = audit_container_inventory(
+        {name: info["image_tag"] for name, info in containers.items()},
+        {"barpro-squid-1": "ubuntu/squid:latest"},
+    )
+    assert result["status"] == "failed"
+    assert set(result["unexpected"]) == {"barpro-squid-2", "another-app"}
+
+    monitoring_names = {
+        "barpro-prometheus",
+        "barpro-alertmanager",
+        "barpro-node-exporter",
+        "barpro-redis-exporter",
+        "barpro-postgres-exporter",
+        "barpro-nginx-exporter",
+        "barpro-grafana",
+    }
+    assert monitoring_names <= set(CENTRAL_EXPECTED_CONTAINERS)
+
+
+def test_container_inventory_uses_effective_deployment_images(monkeypatch):
+    monkeypatch.setenv("BACKEND_IMAGE", "ghcr.io/example/barpro-backend:commit-sha")
+    monkeypatch.setenv("FRONTEND_IMAGE", "ghcr.io/example/barpro-frontend:commit-sha")
+    expected = expected_containers("central")
+
+    for name in ("barpro-backend", "barpro-worker-1", "barpro-scheduler", "barpro-beat"):
+        assert expected[name] == "ghcr.io/example/barpro-backend:commit-sha"
+    assert expected["barpro-frontend"] == "ghcr.io/example/barpro-frontend:commit-sha"
+
+
 def test_cd_workflow_uses_compose_v2_and_registry_images():
     """X12: the CD pipeline must use `docker compose` V2 and CD-published images.
 
@@ -1056,7 +1156,9 @@ def test_cd_workflow_uses_compose_v2_and_registry_images():
         line for line in cd_text.splitlines() if "docker compose " in line and not line.strip().startswith("#")
     ]
     assert compose_invocations, "cd-deploy.yml must contain docker compose invocations"
-    assert "run --rm --no-deps backend alembic" in cd_text, "cd-deploy.yml must run migrations with --no-deps."
+    assert "run --rm --no-deps backend python -c" in cd_text, (
+        "cd-deploy.yml must run the advisory-lock migration entry point with --no-deps."
+    )
     assert "render_squid_configs.sh" in cd_text, (
         "cd-deploy.yml must render squid configs before starting the stack " "(proxy.yml mounts the runtime files)."
     )

@@ -20,6 +20,7 @@ from app.automation.auth_utils import (
     captcha_image_score,
     get_captcha_math_min_confidence,
     get_captcha_mode,
+    get_captcha_strategy_order,
     is_ajax_login_response_url,
     is_authenticated_url,
     is_captcha_related_error,
@@ -492,27 +493,18 @@ class UTCMSAuthenticator:
         max_attempts = max(1, utcms_config.CAPTCHA_AUTO_MAX_ATTEMPTS)
         retry_delay = max(0.1, utcms_config.CAPTCHA_AUTO_RETRY_DELAY_SECONDS)
         mode = get_captcha_mode()
-        # In local_only mode: use BOTH math hint parsing AND local ML image
-        # providers (CNN, PyTorch CRNN, Keras OCR — all bundled in-project).
-        # get_captcha_provider() returns only local models when
-        # CAPTCHA_LOCAL_ONLY=True, so calling it is always safe.
-        is_local_only = mode == "local_only"
-        allow_provider = mode in ("provider_first", "provider_only") or is_local_only
-        allow_math_fallback = mode != "provider_only" or utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED or is_local_only
+        strategy_order = get_captcha_strategy_order(mode, utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED)
         for attempt in range(1, max_attempts + 1):
             if attempt > 1 and utcms_config.CAPTCHA_AUTO_REFRESH_ON_RETRY:
                 await self._refresh_captcha()
                 await asyncio.sleep(retry_delay)
-            # Try math hint parsing first (fast, high confidence for "2+3" style)
-            if allow_math_fallback:
-                solved = await self._solve_math_captcha(phase="login", attempt=attempt)
-                if solved and await self._set_captcha_value(captcha_selector, solved):
-                    return True
-            # Then try local ML image providers (CNN model on actual captcha image)
-            if allow_provider:
-                solved = await self._solve_captcha_with_provider(
-                    captcha_selector=captcha_selector, phase="login", attempt=attempt
-                )
+            for strategy in strategy_order:
+                if strategy == "math":
+                    solved = await self._solve_math_captcha(phase="login", attempt=attempt)
+                else:
+                    solved = await self._solve_captcha_with_provider(
+                        captcha_selector=captcha_selector, phase="login", attempt=attempt
+                    )
                 if solved and await self._set_captcha_value(captcha_selector, solved):
                     return True
         self.last_error = "حل خودکار کپچا ناموفق بود. کیفیت تصویر کپچا یا مدل CNN را بررسی کنید."
@@ -533,7 +525,7 @@ class UTCMSAuthenticator:
             return await self._set_captcha_value(captcha_selector, utcms_config.UTCMS_CAPTCHA_VALUE)
 
         captcha_mode = get_captcha_mode()
-        if force_auto or utcms_config.CAPTCHA_AUTO_ONLY or captcha_mode != "manual_only":
+        if force_auto or captcha_mode != "manual_only":
             return await self._auto_solve_captcha(captcha_selector)
 
         allow_manual = captcha_mode == "manual_only" and utcms_config.UTCMS_ENABLE_MANUAL_CAPTCHA

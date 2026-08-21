@@ -2,15 +2,60 @@
 # BarPro Platform Management Script
 
 set -e
+set -o pipefail
 
 # Load environment variables if present
 if [ -f .env ]; then
-    set -a
-    source .env
-    set +a
+    # shellcheck source=scripts/load_env.sh
+    source scripts/load_env.sh
+    load_dotenv .env
 fi
 
 COMPOSE_FILES="-f compose/infra.yml -f compose/proxy.yml -f compose/backend.yml -f compose/web.yml -f compose/monitoring.yml"
+
+# Production defaults to Model B: one Central Squid/worker plus remote worker
+# nodes. Model A is intentionally opt-in because enabling its local Squid 2/3
+# on Central exposes ports 3129/3130 and duplicates the remote worker slots.
+BARPRO_TOPOLOGY="${BARPRO_TOPOLOGY:-model-b}"
+case "$BARPRO_TOPOLOGY" in
+    model-a|model-b) ;;
+    *)
+        echo "ERROR: BARPRO_TOPOLOGY must be 'model-b' (default) or 'model-a'." >&2
+        exit 2
+        ;;
+esac
+
+remove_model_a_services_from_central() {
+    echo "Removing Model A-only services from the Model B Central host..."
+    # Drain Celery before removing the local proxies it depends on.
+    docker compose -f compose/backend.yml --profile scale-out stop celery_worker_2 celery_worker_3 > /dev/null 2>&1 || true
+    docker compose -f compose/backend.yml --profile scale-out rm -f celery_worker_2 celery_worker_3 > /dev/null 2>&1 || true
+    docker compose -f compose/proxy.yml --profile model-a stop squid_2 squid_3 > /dev/null 2>&1 || true
+    docker compose -f compose/proxy.yml --profile model-a rm -f squid_2 squid_3 > /dev/null 2>&1 || true
+}
+
+create_verified_backup() {
+    local backup_dir="output/backups"
+    local db_name="${POSTGRES_DB:-utcms_rpa}"
+    local timestamp backup_file temp_file
+    timestamp="$(date +%Y%m%d_%H%M%S)"
+    backup_file="$backup_dir/barpro_backup_${timestamp}.sql.gz"
+    temp_file="${backup_file}.tmp"
+
+    mkdir -p "$backup_dir"
+    rm -f "$temp_file"
+    trap 'rm -f "$temp_file"' RETURN
+
+    echo "Creating verified PostgreSQL backup..."
+    docker compose -f compose/infra.yml exec -T postgres \
+        pg_dump -U postgres -d "$db_name" | gzip -c > "$temp_file"
+    test -s "$temp_file"
+    gzip -t "$temp_file"
+    chmod 600 "$temp_file"
+    mv "$temp_file" "$backup_file"
+    trap - RETURN
+    echo "Verified backup written to $backup_file"
+}
 
 # Ensure the shared docker network exists with the expected subnet.
 # Workers reach host Squid proxies via the bridge gateway 172.20.0.1.
@@ -25,7 +70,7 @@ ensure_network() {
 #
 # WHY: `compose/backend.yml` declares no depends_on, and `docker compose up -d`
 # returns as soon as containers are created — not when they are usable. Postgres'
-# healthcheck has interval 10s, so on a cold start `alembic upgrade head` used to
+# healthcheck has interval 10s, so on a cold start the migration runner used to
 # run while Postgres was still initialising, exit non-zero, and — because this
 # script runs under `set -e` — abort `manage.sh start` outright. The backend came
 # up but nginx, the frontend and Prometheus were never started, i.e. containers
@@ -71,25 +116,37 @@ wait_for_backend_container() {
 case "$1" in
     start)
         ensure_network
+        echo "Starting BarPro with topology: $BARPRO_TOPOLOGY"
         echo "Rendering Squid configs (infra/squid/squid_*.runtime.conf)..."
         bash scripts/render_squid_configs.sh
         
         echo "Starting BarPro Infrastructure (Postgres, Redis)..."
         docker compose -f compose/infra.yml up -d
         
-        echo "Starting Squid Proxies..."
-        docker compose -f compose/proxy.yml up -d
+        if [ "$BARPRO_TOPOLOGY" = "model-a" ]; then
+            echo "Starting Model A Squid proxies (1/2/3)..."
+            docker compose -f compose/proxy.yml --profile model-a up -d
+        else
+            echo "Starting Model B Central Squid (Squid 1 only)..."
+            docker compose -f compose/proxy.yml up -d squid_1
+            remove_model_a_services_from_central
+        fi
         
         echo "Starting Backend, Workers & Control-Queue Scheduler (celery_scheduler)..."
         # `up -d` starts every service in backend.yml including the dedicated,
         # profile-less celery_scheduler that consumes the rpa_scheduler control
         # queue (NEW-1/FIX-A).
-        docker compose -f compose/backend.yml up -d
+        if [ "$BARPRO_TOPOLOGY" = "model-a" ]; then
+            docker compose -f compose/backend.yml --profile scale-out up -d
+        else
+            docker compose -f compose/backend.yml up -d
+        fi
         
         echo "Running Alembic migrations..."
         wait_for_postgres
         wait_for_backend_container
-        docker compose -f compose/backend.yml exec -T backend alembic upgrade head
+        docker compose -f compose/backend.yml exec -T backend python -c \
+            'import asyncio; from app.core.database import run_migrations; asyncio.run(run_migrations())'
         
         echo "Starting Nginx & Next.js Frontend..."
         docker compose -f compose/web.yml up -d
@@ -103,8 +160,8 @@ case "$1" in
         echo "Stopping BarPro components gracefully..."
         docker compose -f compose/monitoring.yml down || true
         docker compose -f compose/web.yml down || true
-        docker compose -f compose/backend.yml down || true
-        docker compose -f compose/proxy.yml down || true
+        docker compose -f compose/backend.yml --profile scale-out down || true
+        docker compose -f compose/proxy.yml --profile model-a down || true
         docker compose -f compose/infra.yml down || true
         echo "BarPro platform stopped."
         ;;
@@ -187,6 +244,14 @@ asyncio.run(main())
             note_failure
         fi
 
+        echo -n "Central container inventory: "
+        if python3 scripts/deployment_inventory.py --role central > /dev/null 2>&1; then
+            echo "OK"
+        else
+            echo "FAILED (missing, stale, or unexpected container)"
+            note_failure
+        fi
+
         # Probe each Squid by actually proxying a request through it. A TCP connect
         # is not enough: Squid accepts connections long before it can egress.
         # utcms.ir (not barname.utcms.ir) is the agreed health target — the latter
@@ -205,10 +270,13 @@ asyncio.run(main())
         }
 
         probe_squid "Squid 1 - central" "127.0.0.1:3128"
-        # Reachable from the central server only; secure_squid_ports.sh firewalls
-        # these ports to the central IP. Run this command on the central server.
-        probe_squid "Squid 2 - worker 1" "5.56.132.26:3128"
-        probe_squid "Squid 3 - worker 2" "87.107.5.219:3128"
+        if [ "$BARPRO_TOPOLOGY" = "model-a" ]; then
+            probe_squid "Squid 2 - local Model A" "127.0.0.1:3129"
+            probe_squid "Squid 3 - local Model A" "127.0.0.1:3130"
+        else
+            probe_squid "Squid - remote Worker 2" "${WORKER_2_IP:-5.56.132.26}:3128"
+            probe_squid "Squid - remote Worker 3" "${WORKER_3_IP:-87.107.5.219}:3128"
+        fi
 
         echo ""
         if [ "$HEALTH_FAILURES" -eq 0 ]; then
@@ -222,7 +290,8 @@ asyncio.run(main())
         echo "Running database migrations..."
         wait_for_postgres
         wait_for_backend_container
-        docker compose -f compose/backend.yml exec -T backend alembic upgrade head
+        docker compose -f compose/backend.yml exec -T backend python -c \
+            'import asyncio; from app.core.database import run_migrations; asyncio.run(run_migrations())'
         echo "✅ Migrations complete."
         ;;
     beat-restart)
@@ -245,16 +314,18 @@ asyncio.run(main())
                        logs -f --tail=100 "$SERVICE"
         ;;
     backup-db)
-        echo "Backing up PostgreSQL database..."
-        BACKUP_FILE="backup_$(date +%F_%H%M%S).sql"
-        DB_NAME="${POSTGRES_DB:-utcms_rpa}"
-        docker compose -f compose/infra.yml exec -T postgres \
-            pg_dump -U postgres "$DB_NAME" > "$BACKUP_FILE"
-        echo "✅ Backup written to $BACKUP_FILE"
+        create_verified_backup
         ;;
     deploy)
-        echo "Deploying update from repository..."
-        git pull origin main || true
+        echo "Deploying update from repository with topology: $BARPRO_TOPOLOGY"
+        if ! git diff --quiet || ! git diff --cached --quiet; then
+            echo "ERROR: tracked local changes detected; refusing deployment." >&2
+            git status --short >&2
+            exit 1
+        fi
+        git pull --ff-only origin main
+
+        create_verified_backup
         
         echo "Building backend image..."
         docker compose -f compose/backend.yml build --no-cache backend
@@ -264,20 +335,34 @@ asyncio.run(main())
         
         echo "Rendering Squid configs before restart (git template stays clean)..."
         bash scripts/render_squid_configs.sh
+
+        if [ "$BARPRO_TOPOLOGY" = "model-a" ]; then
+            echo "Restarting Model A Squid proxies (1/2/3)..."
+            docker compose -f compose/proxy.yml --profile model-a up -d
+        else
+            echo "Restarting Model B Central Squid (Squid 1 only)..."
+            docker compose -f compose/proxy.yml up -d squid_1
+            remove_model_a_services_from_central
+        fi
         
         echo "Restarting all services..."
-        docker compose -f compose/backend.yml up -d
+        if [ "$BARPRO_TOPOLOGY" = "model-a" ]; then
+            docker compose -f compose/backend.yml --profile scale-out up -d
+        else
+            docker compose -f compose/backend.yml up -d
+        fi
         docker compose -f compose/web.yml up -d
         
         echo "Running migrations after deploy..."
         sleep 10  # backend startup grace
-        docker compose -f compose/backend.yml exec -T backend alembic upgrade head
+        $0 migrate
         
         echo "✅ Deploy complete. Verifying health..."
         $0 health
         ;;
     *)
         echo "Usage: $0 {start|stop|restart|status|health|migrate|beat-restart|logs [service]|backup-db|deploy}"
+        echo "       BARPRO_TOPOLOGY=model-a $0 start  # explicit legacy single-VM topology"
         exit 1
         ;;
 esac

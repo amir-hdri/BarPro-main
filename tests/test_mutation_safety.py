@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -6,9 +7,25 @@ from fastapi import HTTPException
 
 from app.automation.http_browser_bridge import UtcmsHttpBrowserBridge
 from app.core.error_taxonomy import ErrorCategory
+from app.core.exceptions import WaybillError
 from app.schemas.itmb_ws import WS01InsertBOLRequest
 from app.services.itmb_ws_service import ITMBWSService
 from app.workers.waybill_worker import _is_retryable
+
+
+def _permit_final_stage(manager, page) -> None:
+    """Move the test explicitly past the non-mutating final-stage gate.
+
+    ``_submit_waybill`` must not be allowed to reach the mutation boundary by
+    accident (for example, through a permissive generic locator mock).  The
+    stage transition and readiness check are therefore mocked explicitly;
+    the tests can then exercise the at-most-once final click and its
+    reconciliation contract.
+    """
+
+    manager._click_with_fallback = AsyncMock(return_value=True)
+    manager._is_selector_visible = AsyncMock(return_value=True)
+    page.locator.return_value.first.wait_for = AsyncMock()
 
 
 def _sample_itmb_payload():
@@ -205,8 +222,8 @@ async def test_timeout_after_submit_transitions_to_unknown_without_retry() -> No
     context = MagicMock()
     manager = EnhancedWaybillManager(page, context)
 
-    # Mock page elements
-    page.locator.return_value.first.wait_for = AsyncMock()
+    # Explicitly permit the non-mutating transition into the final stage.
+    _permit_final_stage(manager, page)
     manager._handle_submit_captcha_if_present = AsyncMock()
     manager._click_once_no_retry = AsyncMock(return_value=(True, None))
     manager._close_blocking_overlays = AsyncMock()
@@ -224,6 +241,8 @@ async def test_timeout_after_submit_transitions_to_unknown_without_retry() -> No
 
     assert result["status"] == "unknown"
     assert result["mutation_status"] == "ambiguous"
+    assert result["mutation_dispatched"] is True
+    assert result["needs_reconciliation"] is True
     assert result["error_category"] == "submission_unconfirmed"
     assert not _is_retryable(result)
 
@@ -237,8 +256,8 @@ async def test_connection_reset_after_submit_transitions_to_unknown_without_retr
     context = MagicMock()
     manager = EnhancedWaybillManager(page, context)
 
-    # Mock page elements
-    page.locator.return_value.first.wait_for = AsyncMock()
+    # Explicitly permit the non-mutating transition into the final stage.
+    _permit_final_stage(manager, page)
     manager._handle_submit_captcha_if_present = AsyncMock()
     manager._click_once_no_retry = AsyncMock(return_value=(True, None))
     manager._close_blocking_overlays = AsyncMock()
@@ -256,8 +275,71 @@ async def test_connection_reset_after_submit_transitions_to_unknown_without_retr
 
     assert result["status"] == "unknown"
     assert result["mutation_status"] == "ambiguous"
+    assert result["mutation_dispatched"] is True
+    assert result["needs_reconciliation"] is True
     assert result["error_category"] == "submission_unconfirmed"
     assert not _is_retryable(result)
+
+
+@pytest.mark.asyncio
+async def test_final_submit_response_watcher_is_cancelled_when_click_is_not_dispatched() -> None:
+    """A failed locate must not leave a response watcher pending."""
+
+    from app.automation.waybill_enhanced import EnhancedWaybillManager
+
+    page = MagicMock()
+    page.on = MagicMock()
+    manager = EnhancedWaybillManager(page, MagicMock())
+    _permit_final_stage(manager, page)
+    manager._handle_submit_captcha_if_present = AsyncMock()
+
+    watcher_started = asyncio.Event()
+
+    async def pending_watcher() -> None:
+        watcher_started.set()
+        await asyncio.Event().wait()
+
+    watcher = asyncio.create_task(pending_watcher())
+    manager._wait_for_response_match = AsyncMock(return_value=watcher)
+    manager._click_once_no_retry = AsyncMock(return_value=(False, RuntimeError("button not found")))
+
+    with patch(
+        "app.services.utcms_submission_gate.utcms_submission_gate.is_submission_allowed",
+        new=AsyncMock(return_value=True),
+    ):
+        with pytest.raises(WaybillError, match="ارسال فرم بارنامه انجام نشد"):
+            await manager._submit_waybill(otp_value=None, job_id="job_test_watcher_cancel")
+
+    assert watcher.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_final_mutation_uses_only_allowlisted_submit_selectors() -> None:
+    """The mutation click must not regress to a broad/generic selector."""
+
+    from app.automation.waybill_enhanced import EnhancedWaybillManager
+
+    page = MagicMock()
+    page.on = MagicMock()
+    manager = EnhancedWaybillManager(page, MagicMock())
+    _permit_final_stage(manager, page)
+    manager._handle_submit_captcha_if_present = AsyncMock()
+    manager._wait_for_response_match = AsyncMock(return_value=MagicMock())
+    manager._consume_json_response = AsyncMock(side_effect=TimeoutError("response timeout"))
+    manager._click_once_no_retry = AsyncMock(return_value=(True, None))
+    manager._wait_for_network_settle = AsyncMock()
+
+    with patch(
+        "app.services.utcms_submission_gate.utcms_submission_gate.is_submission_allowed",
+        new=AsyncMock(return_value=True),
+    ):
+        result = await manager._submit_waybill(otp_value=None, job_id="job_test_selector_allowlist")
+
+    assert result["status"] == "unknown"
+    manager._click_once_no_retry.assert_awaited_once()
+    clicked_selectors = manager._click_once_no_retry.await_args.args[0]
+    assert clicked_selectors == ["#btnRegisterFinished", "#btnFinalSubmit", "#btnSubmit"]
+    assert all(selector.startswith("#") for selector in clicked_selectors)
 
 
 @pytest.mark.asyncio

@@ -32,7 +32,6 @@ from app.schemas.multitenant import (
     AdminClientUpdateRequest,
     AdminLoginRequest,
     BatchStatusResponse,
-    BulkUploadResponse,
     ClientLoginRequest,
     ClientRegisterRequest,
     ClientResponse,
@@ -62,7 +61,7 @@ from app.schemas.multitenant import (
 from app.services.client_service import ClientService
 from app.services.driver_schedule_service import DriverScheduleService
 from app.services.driver_service import DriverService
-from app.services.excel_upload_service import ExcelUploadService
+from app.services.excel_upload_service import LEGACY_EXCEL_UPLOAD_DISABLED_DETAIL, ExcelUploadService
 from app.services.fuel_inquiry_service import fuel_inquiry_service
 from app.services.plate_service import PlateService
 from app.services.user_reporting_service import user_reporting_service
@@ -544,7 +543,12 @@ async def retry_waybill_job(
     user_context: dict = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Retry a waybill job with optional auth refresh and payload overrides."""
+    """Retry a waybill job, optionally invalidating its cached UTCMS session.
+
+    Retry preserves the original canonical submission identity. Payload
+    overrides are rejected; callers must create a new job for changed business
+    data.
+    """
     return await WaybillJobService.retry_job(user_context, job_id, session, request)
 
 
@@ -651,7 +655,9 @@ async def update_waybill_job(
     """
     Update an existing waybill job.
 
-    Allows modification of job properties such as priority, max_retries, status, etc.
+    Allows modification of non-state-machine metadata such as priority,
+    max_retries, terminal reason, business date, and correlation ID. Status
+    changes are deliberately excluded and must follow the state machine.
     Only accessible to the job owner (client) or master admin.
     """
     return await WaybillJobService.update_job(user_context, job_id, session, request)
@@ -664,9 +670,11 @@ async def delete_waybill_job(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Delete a waybill job permanently.
+    Cancel or archive a waybill job safely.
 
-    Removes the job from the system. This action cannot be undone.
+    Active executions are protected from cancellation. Jobs with audit child
+    records are soft-cancelled to preserve evidence; only a truly childless job
+    can be removed permanently.
     Only accessible to the job owner (client) or master admin.
     """
     await WaybillJobService.delete_job(user_context, job_id, session)
@@ -676,7 +684,16 @@ async def delete_waybill_job(
 # ==================== EXCEL UPLOAD ENDPOINTS ====================
 
 
-@router.post("/upload/excel", response_model=BulkUploadResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/upload/excel",
+    status_code=status.HTTP_410_GONE,
+    deprecated=True,
+    responses={
+        status.HTTP_410_GONE: {
+            "description": "Legacy Excel creation is disabled; use POST /api/v1/waybill-jobs.",
+        }
+    },
+)
 async def upload_excel_file(
     file: UploadFile,
     max_retries: int = 3,
@@ -684,27 +701,18 @@ async def upload_excel_file(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Upload Excel file for bulk waybill creation.
+    Disabled legacy Excel bulk creation endpoint.
 
-    The Excel file should contain columns for:
-    - driver_national_code (required)
-    - origin (required) - TEXT ONLY, no map
-    - destination (required) - TEXT ONLY, no map
-    - waybill_number (optional)
-    - cargo_type (optional)
-    - cargo_weight (optional)
-    - vehicle_type (optional)
-    - plate_number (optional)
-    - notes (optional)
-
-    All rows are validated before job creation.
-    Invalid rows are reported in the response.
+    The historical format cannot represent all fields required by the live
+    UTCMS contract and its implementation bypassed canonical validation,
+    idempotency, scheduler, and state-machine event creation.  It therefore
+    fails closed with HTTP 410.  Submit fully validated rows through
+    ``POST /api/v1/waybill-jobs`` instead.
     """
-    return await ExcelUploadService.process_upload(
-        client,
-        file,
-        session,
-        max_retries=max_retries,
+    del file, max_retries, client, session
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=LEGACY_EXCEL_UPLOAD_DISABLED_DETAIL,
     )
 
 

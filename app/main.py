@@ -306,6 +306,28 @@ async def security_headers_middleware(request: Request, call_next):
     return response
 
 
+def _matches_route_prefix(path: str, prefix: str) -> bool:
+    return path == prefix or path.startswith(f"{prefix}/")
+
+
+def _rate_limit_rule_for_path(path: str) -> str:
+    """Map each API surface to its configured sliding-window policy."""
+    if any(
+        _matches_route_prefix(path, prefix)
+        for prefix in ("/api/v1/admin/login", "/admin/login", "/api/v1/auth/login", "/api/v1/auth/register")
+    ):
+        return "auth"
+    if any(_matches_route_prefix(path, prefix) for prefix in ("/api/v1/admin", "/admin", "/management")):
+        return "admin"
+    if any(_matches_route_prefix(path, prefix) for prefix in ("/waybill", "/api/v1/waybill-jobs")):
+        return "waybill"
+    if _matches_route_prefix(path, "/api/v1/drivers"):
+        return "driver"
+    if _matches_route_prefix(path, "/api/v1"):
+        return "tenant"
+    return "public"
+
+
 @app.middleware("http")
 async def request_context_middleware(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
@@ -320,21 +342,7 @@ async def request_context_middleware(request: Request, call_next):
     path = request.url.path
     from app.core.rate_limiter import rate_limit_dependency
 
-    rate_rule = "public"
-    # Order matters: first match wins
-    if any(
-        path.startswith(p)
-        for p in ("/api/v1/admin/login", "/admin/login", "/api/v1/auth/login", "/api/v1/auth/register")
-    ):
-        rate_rule = "auth"
-    elif any(path.startswith(p) for p in ("/api/v1/admin", "/admin", "/management")):
-        rate_rule = "admin"
-    elif any(path.startswith(p) for p in ("/waybill/", "/api/v1/waybill-jobs/")):
-        rate_rule = "waybill"
-    elif path.startswith("/api/v1/drivers/"):
-        rate_rule = "driver"
-    elif path.startswith("/api/v1/"):
-        rate_rule = "tenant"
+    rate_rule = _rate_limit_rule_for_path(path)
 
     try:
         rate_limit_state = await rate_limit_dependency(request, rule=rate_rule)

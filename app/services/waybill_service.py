@@ -318,7 +318,13 @@ class WaybillService:
         from app.automation.waybill_enhanced import EnhancedWaybillManager
 
         manager = EnhancedWaybillManager(page, context)
-        return await manager.create_waybill_with_map(waybill_payload, dry_run=dry_run)
+        try:
+            return await manager.create_waybill_with_map(waybill_payload, dry_run=dry_run)
+        finally:
+            try:
+                await manager.close()
+            except Exception:
+                logger.warning("waybill_manager_close_failed", exc_info=True)
 
     async def _inject_map_into_page(self, page, waybill_data: dict) -> None:
         """Hook for injecting a Leaflet map into the page DOM before submission."""
@@ -405,6 +411,7 @@ class WaybillService:
 
         internal_session_id: str | None = None
         page = None
+        manager = None
         try:
             proxy_info = await get_proxy_rotator().get_next()
             proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
@@ -466,6 +473,15 @@ class WaybillService:
             )
             raise HTTPException(status_code=500, detail="خطای داخلی سرور در تشخیص نقشه") from exc
         finally:
+            if manager is not None:
+                try:
+                    await manager.close()
+                except Exception:
+                    logger.warning(
+                        "detect_map_manager_close_failed",
+                        extra={"extra_fields": {"request_id": request_id}},
+                        exc_info=True,
+                    )
             if page:
                 try:
                     await page.close()

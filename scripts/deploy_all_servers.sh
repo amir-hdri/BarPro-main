@@ -33,7 +33,21 @@ CENTRAL_IP="${CENTRAL_IP:-87.107.5.238}"
 WORKER2_IP="${WORKER2_IP:-5.56.132.26}"
 WORKER3_IP="${WORKER3_IP:-87.107.5.219}"
 PROJECT_DIR="/opt/barpro"
-SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=20 -o BatchMode=yes"
+# Never disable host-key verification for a production deploy.  Operators may
+# point this at a fleet-specific known_hosts file, but an unknown host must be
+# enrolled out-of-band before this script is allowed to run.
+SSH_KNOWN_HOSTS="${SSH_KNOWN_HOSTS:-${HOME}/.ssh/known_hosts}"
+if [ ! -r "$SSH_KNOWN_HOSTS" ]; then
+    log_error "SSH known_hosts file is missing or unreadable: $SSH_KNOWN_HOSTS"
+    log_error "Enroll each fleet host out-of-band, then set SSH_KNOWN_HOSTS if needed."
+    exit 2
+fi
+SSH_OPTS=(
+    -o "StrictHostKeyChecking=yes"
+    -o "UserKnownHostsFile=$SSH_KNOWN_HOSTS"
+    -o ConnectTimeout=20
+    -o BatchMode=yes
+)
 
 # ── تابع اجرای دستور روی سرور ─────────────────────────────────────────────
 run_remote() {
@@ -41,14 +55,14 @@ run_remote() {
     local cmd="$2"
     local desc="${3:-}"
     [ -n "$desc" ] && log_info "$desc"
-    ssh $SSH_OPTS "root@$host" "$cmd"
+    ssh "${SSH_OPTS[@]}" "root@$host" "$cmd"
 }
 
 # ── بررسی دسترسی SSH ──────────────────────────────────────────────────────
 log_section "🔐 بررسی دسترسی SSH به همه سرورها"
 
 for host in "$CENTRAL_IP" "$WORKER2_IP" "$WORKER3_IP"; do
-    if ssh $SSH_OPTS "root@$host" "echo OK" &>/dev/null; then
+    if ssh "${SSH_OPTS[@]}" "root@$host" "echo OK" &>/dev/null; then
         log_ok "SSH به $host موفق"
     else
         log_error "SSH به $host شکست خورد — بررسی کنید و دوباره اجرا کنید"
@@ -63,10 +77,17 @@ log_section "🖥️  مرحله ۱: deploy سرور مرکزی ($CENTRAL_IP)"
 
 run_remote "$CENTRAL_IP" "
 set -e
+set -o pipefail
 cd $PROJECT_DIR
 
-echo '1.1 git pull...'
-git pull origin main 2>&1 | tail -3
+echo '1.0 verified database backup...'
+bash scripts/db_backup.sh
+
+echo '1.1 fast-forward git update...'
+git diff --quiet HEAD
+git diff --cached --quiet
+git fetch origin main --prune
+git pull --ff-only origin main
 
 echo '1.2 build backend image (ممکن است ۱۰-۲۰ دقیقه طول بکشد)...'
 docker build --network=host -t barpro_backend:latest -f Dockerfile . 2>&1 | tail -5
@@ -75,10 +96,18 @@ docker build --network=host -t barpro_backend:latest -f Dockerfile . 2>&1 | tail
 # می‌کنند — دیگر tag جداگانه لازم نیست (backend.yml بدون image override).
 
 echo '1.4 ری‌استارت infra (Postgres + Redis) با mem_limit جدید...'
-docker compose --env-file .env -f compose/infra.yml up -d --force-recreate 2>&1 | tail -5
+docker compose --env-file .env -f compose/infra.yml up -d 2>&1 | tail -5
 
-echo '1.5 ری‌استارت proxy (Squid)...'
-docker compose --env-file .env -f compose/proxy.yml up -d --force-recreate 2>&1 | tail -3
+echo '1.5 رندر و ری‌استارت proxy مرکزی (Model B: Squid 1 only)...'
+bash scripts/render_squid_configs.sh
+docker compose --env-file .env -f compose/proxy.yml up -d --force-recreate squid_1 2>&1 | tail -3
+# Remove legacy Model A services left running by older profile-less compose
+# revisions. Remote Worker 2/3 keep their own local Squid on port 3128.
+# Drain Celery before removing the local proxies it depends on.
+docker compose --env-file .env -f compose/backend.yml --profile scale-out stop --timeout 600 celery_worker_2 celery_worker_3 >/dev/null 2>&1 || true
+docker compose --env-file .env -f compose/backend.yml --profile scale-out rm -f celery_worker_2 celery_worker_3 >/dev/null 2>&1 || true
+docker compose --env-file .env -f compose/proxy.yml --profile model-a stop squid_2 squid_3 >/dev/null 2>&1 || true
+docker compose --env-file .env -f compose/proxy.yml --profile model-a rm -f squid_2 squid_3 >/dev/null 2>&1 || true
 
 echo '1.6 ری‌استارت backend + worker_1 + scheduler + beat...'
 # --env-file .env: interpolation در compose باید /opt/barpro/.env را بخواند نه
@@ -95,11 +124,13 @@ docker compose --env-file .env -f compose/monitoring.yml up -d 2>&1 | tail -3
 echo '1.9 انتظار ۳۰ ثانیه برای آماده شدن...'
 sleep 30
 
-echo '1.10 بررسی migration...'
-docker exec barpro-backend python -m alembic -c alembic.ini current 2>/dev/null || echo 'migration check skipped'
+echo '1.10 اجرای migration تحت advisory lock...'
+docker exec barpro-backend python -c \
+  'import asyncio; from app.core.database import run_migrations; asyncio.run(run_migrations())'
 
 echo '1.11 وضعیت کانتینرها:'
 docker ps --format 'table {{.Names}}\t{{.Status}}'
+python3 scripts/deployment_inventory.py --role central
 " "در حال deploy سرور مرکزی..."
 
 log_ok "سرور مرکزی deploy شد"
@@ -111,10 +142,14 @@ log_section "⚙️  مرحله ۲: deploy Worker 2 ($WORKER2_IP)"
 
 run_remote "$WORKER2_IP" "
 set -e
+set -o pipefail
 cd $PROJECT_DIR
 
-echo '2.1 git pull...'
-git pull origin main 2>&1 | tail -3
+echo '2.1 fast-forward git update...'
+git diff --quiet HEAD
+git diff --cached --quiet
+git fetch origin main --prune
+git pull --ff-only origin main
 
 echo '2.2 build worker image (ممکن است ۱۰-۲۰ دقیقه)...'
 docker build --network=host -t ghcr.io/amir-hdri/barpro-main/barpro-backend:latest -f Dockerfile . 2>&1 | tail -5
@@ -124,9 +159,10 @@ echo '2.3 رندر squid_worker.runtime.conf (جایگزینی placeholderها).
 # under set -u with "unbound variable". Lines containing '$' are filtered out
 # first — only WORKER_EGRESS_IP / CENTRAL_IP are needed here. The \${...}
 # placeholders must stay escaped so they expand on the WORKER NODE (R2).
-set -a
-source <(grep -vF '$' .env)
-set +a
+source scripts/load_env.sh
+load_dotenv .env
+: "\${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}"
+: "\${CENTRAL_IP:?CENTRAL_IP required}"
 sed -e "s/__WORKER_EGRESS_IP__/\${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" \
     -e "s/__CENTRAL_IP__/\${CENTRAL_IP:-127.0.0.1}/g" \
     infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf
@@ -139,6 +175,7 @@ sleep 30
 
 echo '2.6 وضعیت:'
 docker ps --format 'table {{.Names}}\t{{.Status}}'
+python3 scripts/deployment_inventory.py --role worker
 " "در حال deploy Worker 2..."
 
 log_ok "Worker 2 deploy شد"
@@ -150,10 +187,14 @@ log_section "⚙️  مرحله ۳: deploy Worker 3 ($WORKER3_IP)"
 
 run_remote "$WORKER3_IP" "
 set -e
+set -o pipefail
 cd $PROJECT_DIR
 
-echo '3.1 git pull...'
-git pull origin main 2>&1 | tail -3
+echo '3.1 fast-forward git update...'
+git diff --quiet HEAD
+git diff --cached --quiet
+git fetch origin main --prune
+git pull --ff-only origin main
 
 echo '3.2 build worker image (ممکن است ۱۰-۲۰ دقیقه)...'
 docker build --network=host -t ghcr.io/amir-hdri/barpro-main/barpro-backend:latest -f Dockerfile . 2>&1 | tail -5
@@ -163,9 +204,10 @@ echo '3.3 رندر squid_worker.runtime.conf (جایگزینی placeholderها).
 # under set -u with "unbound variable". Lines containing '$' are filtered out
 # first — only WORKER_EGRESS_IP / CENTRAL_IP are needed here. The \${...}
 # placeholders must stay escaped so they expand on the WORKER NODE (R2).
-set -a
-source <(grep -vF '$' .env)
-set +a
+source scripts/load_env.sh
+load_dotenv .env
+: "\${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}"
+: "\${CENTRAL_IP:?CENTRAL_IP required}"
 sed -e "s/__WORKER_EGRESS_IP__/\${WORKER_EGRESS_IP:?WORKER_EGRESS_IP required}/g" \
     -e "s/__CENTRAL_IP__/\${CENTRAL_IP:-127.0.0.1}/g" \
     infra/squid/squid_worker.conf > infra/squid/squid_worker.runtime.conf
@@ -178,6 +220,7 @@ sleep 30
 
 echo '3.6 وضعیت:'
 docker ps --format 'table {{.Names}}\t{{.Status}}'
+python3 scripts/deployment_inventory.py --role worker
 " "در حال deploy Worker 3..."
 
 log_ok "Worker 3 deploy شد"
@@ -189,23 +232,45 @@ log_section "🩺 مرحله ۴: Health Check نهایی"
 
 # سرور مرکزی
 log_info "Health check سرور مرکزی..."
-CENTRAL_HEALTH=$(run_remote "$CENTRAL_IP" "curl -sf http://localhost:8000/healthz 2>/dev/null && echo 'API_OK' || echo 'API_FAIL'" 2>/dev/null || echo "SSH_FAIL")
-[ "$CENTRAL_HEALTH" = "API_OK" ] && log_ok "Backend API: OK" || log_warn "Backend API: $CENTRAL_HEALTH"
+if run_remote "$CENTRAL_IP" "curl -fsS http://localhost/healthz >/dev/null" >/dev/null; then
+    CENTRAL_HEALTH="API_OK"
+    log_ok "Backend API: OK"
+else
+    CENTRAL_HEALTH="API_FAIL"
+    log_error "Backend API health check failed"
+    exit 1
+fi
 
 # بررسی Frontend
-FRONTEND_OK=$(run_remote "$CENTRAL_IP" "docker inspect barpro-frontend --format '{{.State.Health.Status}}' 2>/dev/null || echo 'unknown'" 2>/dev/null || echo "ssh_fail")
+if ! run_remote "$CENTRAL_IP" "test \"\$(docker inspect barpro-frontend --format '{{.State.Health.Status}}' 2>/dev/null)\" = healthy" >/dev/null; then
+    log_error "Frontend health check failed"
+    exit 1
+fi
+FRONTEND_OK="healthy"
 log_info "Frontend Status: $FRONTEND_OK"
 
 # بررسی Beat
-BEAT_STATUS=$(run_remote "$CENTRAL_IP" "docker inspect barpro-beat --format '{{.State.Status}}' 2>/dev/null || echo 'not_found'" 2>/dev/null || echo "ssh_fail")
+if ! run_remote "$CENTRAL_IP" "test \"\$(docker inspect barpro-beat --format '{{.State.Status}}' 2>/dev/null)\" = running" >/dev/null; then
+    log_error "Celery Beat is not running"
+    exit 1
+fi
+BEAT_STATUS="running"
 log_info "Beat Status: $BEAT_STATUS"
 
 # Worker 2
-WORKER2_STATUS=$(run_remote "$WORKER2_IP" "docker inspect barpro-celery-worker --format '{{.State.Status}}' 2>/dev/null || echo 'not_found'" 2>/dev/null || echo "ssh_fail")
+if ! run_remote "$WORKER2_IP" "test \"\$(docker inspect barpro-celery-worker --format '{{.State.Status}}' 2>/dev/null)\" = running" >/dev/null; then
+    log_error "Worker 2 is not running"
+    exit 1
+fi
+WORKER2_STATUS="running"
 log_info "Worker 2 Status: $WORKER2_STATUS"
 
 # Worker 3
-WORKER3_STATUS=$(run_remote "$WORKER3_IP" "docker inspect barpro-celery-worker --format '{{.State.Status}}' 2>/dev/null || echo 'not_found'" 2>/dev/null || echo "ssh_fail")
+if ! run_remote "$WORKER3_IP" "test \"\$(docker inspect barpro-celery-worker --format '{{.State.Status}}' 2>/dev/null)\" = running" >/dev/null; then
+    log_error "Worker 3 is not running"
+    exit 1
+fi
+WORKER3_STATUS="running"
 log_info "Worker 3 Status: $WORKER3_STATUS"
 
 echo ""

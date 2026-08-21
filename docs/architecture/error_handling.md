@@ -1,3 +1,6 @@
+> Legacy design note. For current error taxonomy, retry routing, circuit
+> isolation, and reconciliation use docs/BARPRO_KNOWLEDGE_GRAPH.md and code.
+
 # سیستم خطا یابی و رفع خطا (Error Handling System)
 
 این سند طراحی سیستم حرفه‌ای خطا یابی و رفع خطا را برای این پروژه شرح می‌دهد.

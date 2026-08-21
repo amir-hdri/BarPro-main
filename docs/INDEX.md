@@ -13,7 +13,9 @@ Use this index for current operational documentation. Older historical reports r
 
 | Document | Purpose |
 |---|---|
-| `README.md` | Current project overview and verified readiness state |
+| `README.md` | Project overview; runtime readiness claims require timestamped evidence |
+| `ARCHITECTURE.md` | Canonical code-level architecture, API/state/schema/queue contracts, and runtime verification boundaries |
+| `docs/BARPRO_KNOWLEDGE_GRAPH.md` | Tracked full-system knowledge graph with CODE-VERIFIED / CONFIG-TARGET / RUNTIME-VERIFICATION labels |
 | `DEPLOYMENT_GUIDE.md` | Production deployment checklist |
 | `SERVER_STATUS.md` | Current server/runtime status summary |
 | `docs/guides/QUICK_START.md` | Local and Docker quick start |
@@ -29,8 +31,9 @@ Use this index for current operational documentation. Older historical reports r
 - Database: PostgreSQL 16
 - Queue/cache: Redis 7 and Celery
 - Browser automation: Playwright Chromium
-- Reverse proxy: Nginx on port `80`
+- Reverse proxy: Nginx on port `80`; HTTPS remains inactive until TLS is explicitly enabled and verified
 - Deployment: Docker Compose layers in `compose/`
+- Monitoring: Prometheus, Alertmanager, Grafana, and node/Redis/Postgres/Nginx exporters
 
 ## Core Commands
 
@@ -52,7 +55,13 @@ bash manage.sh stop
 - JWT transport uses the `httpOnly` cookie `utcms_auth_token`
 - Keep `AUTH_COOKIE_SECURE=false` on HTTP; switch to `true` after HTTPS
 - Required captcha assets include CNN, PyTorch fuel CRNN, fuel vocab, and Keras fallback model
+- Keras runs in-process; the `18:00–08:00` OTP interval is predictive, not a guaranteed UTCMS window
+- Waybill `success` requires three-witness reconciliation; browser success alone is not final
 - Universal mobile anti-zoom enforced across iOS and Android
+
+Server/container/firewall/environment claims are runtime facts. When direct evidence is
+missing, document them as `requires runtime verification` rather than inferring them
+from Compose or `.env.example`.
 
 ## Active Guides
 
@@ -62,7 +71,7 @@ bash manage.sh stop
 | Server status | `SERVER_STATUS.md` |
 | Development startup | `docs/guides/QUICK_START.md`, `docs/guides/START_SYSTEM.md` |
 | Security and issues | `ISSUES.md`, `FIXES_SUMMARY.md` |
-| Architecture | `AGENTS.md`, `AI_AGENT_GUIDE.md`, `ARCHITECTURE.md` |
+| Architecture | `docs/BARPRO_KNOWLEDGE_GRAPH.md`, `AGENTS.md`, `AI_AGENT_GUIDE.md`, `ARCHITECTURE.md` |
 
 ## Verification Commands
 
@@ -78,5 +87,9 @@ alembic heads
 ## Archive Policy
 
 Files in `docs/archive/` are historical records. They may mention old local paths, old auth storage, or previous frontend versions. Do not use them for current deployment decisions.
+
+Files under `docs/architecture/` carrying a “Legacy design” banner are retained
+for design history only. They may contain obsolete routes, schema or TLS assumptions;
+the tracked knowledge graph and root `ARCHITECTURE.md` take precedence.
 
 Last updated: 2026-08-20 (v2.9.2)

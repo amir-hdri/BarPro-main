@@ -1,4 +1,7 @@
- # Project Structure
+> Legacy project-tree snapshot. Use rg --files and
+> docs/BARPRO_KNOWLEDGE_GRAPH.md for the current repository structure.
+
+# Project Structure
  
  ## Root Directory
  ```

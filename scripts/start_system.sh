@@ -594,9 +594,9 @@ if [ ! -f .env ]; then
 fi
 
 echo -e "${GREEN}✅ فایل .env موجود است${NC}"
-set -a
-source .env
-set +a
+# shellcheck source=scripts/load_env.sh
+source scripts/load_env.sh
+load_dotenv .env
 echo ""
 
 echo "🛑 توقف containers قبلی (در صورت وجود)..."

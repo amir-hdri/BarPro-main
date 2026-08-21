@@ -11,9 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from alembic import command
-from alembic.config import Config
 from app.core.config import utcms_config
+from app.core.database import run_migrations as run_locked_migrations
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -53,22 +52,6 @@ async def check_alembic_version() -> str | None:
         await engine.dispose()
 
 
-def run_migrations():
-    """Run Alembic migrations."""
-    project_root = Path(__file__).resolve().parent.parent
-    alembic_ini_path = project_root / "alembic.ini"
-
-    if not alembic_ini_path.exists():
-        raise FileNotFoundError(f"alembic.ini not found at {alembic_ini_path}")
-
-    alembic_cfg = Config(str(alembic_ini_path))
-    alembic_cfg.set_main_option("sqlalchemy.url", utcms_config.DATABASE_URL)
-
-    logger.info("Running migrations...")
-    command.upgrade(alembic_cfg, "head")
-    logger.info("✅ Migrations completed successfully")
-
-
 async def main():
     """Main initialization logic."""
     logger.info("🔄 Starting database initialization...")
@@ -88,7 +71,7 @@ async def main():
     # Alembic's env.py uses asyncio.run(), so execute migrations in a worker
     # thread to avoid nesting an event loop inside this async entrypoint.
     try:
-        await asyncio.to_thread(run_migrations)
+        await run_locked_migrations()
 
         # Verify final state
         final_version = await check_alembic_version()

@@ -38,6 +38,8 @@ services:
       NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
     expose: ['3000']
     networks: [platform]
+    security_opt:
+      - no-new-privileges:true
     mem_limit: 1g        # ↑ از 512m — برای روان‌بودن SSR و کش Next.js روی 16GB
     mem_reservation: 512m  # ↑ از 256m
     healthcheck:
@@ -72,6 +74,8 @@ services:
     # بعد از نصب گواهی HTTPS: خط زیر را uncomment کنید
     # - '443:443'
     networks: [platform]
+    security_opt:
+      - no-new-privileges:true
     mem_limit: 512m      # ↑ از 256m — buffer zone برای spikes ترافیک
     mem_reservation: 256m  # ↑ از 128m
     healthcheck:

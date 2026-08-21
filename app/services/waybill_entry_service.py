@@ -1,13 +1,13 @@
 """Service for handling manual waybill entry and Excel file uploads."""
 
 import logging
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile, status
 
-from app.core.config import utcms_config
 from app.schemas.waybill import (
     CargoModel,
     FinancialModel,
@@ -20,6 +20,7 @@ from app.schemas.waybill import (
     VehicleModel,
     WaybillMapRequest,
 )
+from app.services.excel_upload_service import LEGACY_EXCEL_UPLOAD_DISABLED_DETAIL
 
 logger = logging.getLogger(__name__)
 
@@ -302,7 +303,7 @@ class ExcelWaybillParser:
         except Exception as exc:
             logger.warning(
                 "excel_row_parse_failed",
-                extra={"extra_fields": {"error": str(exc), "row_data": row[:5]}},
+                extra={"extra_fields": {"error": str(exc)}},
             )
             return None
 
@@ -435,75 +436,58 @@ class ExcelWaybillService:
                 return {"success": False, "error": "File too large (max 10 MB)", "row_count": 0}
             if len(content) >= 4 and content[:4] not in EXCEL_MAGIC_BYTES:
                 return {"success": False, "error": "Invalid file format — must be Excel (.xlsx/.xls)", "row_count": 0}
-            temp_dir = Path("tmp")
-            temp_dir.mkdir(exist_ok=True)
-            temp_file = temp_dir / f"upload_{uuid.uuid4().hex[:8]}_{file.filename}"
-            temp_file.write_bytes(content)
+            # Parse inside an isolated temporary directory. Never concatenate
+            # the untrusted upload name into a filesystem path.
+            suffix = Path(file.filename or "").suffix.lower()
+            if suffix not in {".xlsx", ".xls"}:
+                suffix = ".xlsx"
 
-            # Parse using existing Excel reader
+            # Parse using the existing Excel reader.
             from scripts.register_waybills_from_excel import read_xlsx
 
-            rows = read_xlsx(temp_file)
-            if not rows or len(rows) < 2:
+            with tempfile.TemporaryDirectory(prefix="barpro_excel_") as temp_dir:
+                temp_file = Path(temp_dir) / f"upload_{uuid.uuid4().hex[:8]}{suffix}"
+                temp_file.write_bytes(content)
+                rows = read_xlsx(temp_file)
+                if not rows or len(rows) < 2:
+                    return {
+                        "success": False,
+                        "error": "فایل اکسل باید شامل هدر و حداقل یک ردیف داده باشد",
+                        "row_count": 0,
+                    }
+
+                headers = rows[0]
+                column_map = self.parser.parse_header_row(headers)
+                waybills = []
+                errors = []
+                for idx, row in enumerate(rows[1:], start=2):
+                    try:
+                        waybill = self.parser.row_to_waybill_request(row, column_map, operation_mode)
+                        if waybill:
+                            # Preview validation only; this does not create a
+                            # canonical job or imply submission readiness.
+                            validation = self.manual_service.validate_manual_entry(waybill)
+                            waybills.append({"row": idx, "waybill": waybill, "validation": validation})
+                        else:
+                            errors.append({"row": idx, "error": "داده‌های ناکافی برای ایجاد بارنامه"})
+                    except Exception as exc:
+                        errors.append({"row": idx, "error": str(exc)})
+
                 return {
-                    "success": False,
-                    "error": "فایل اکسل باید شامل هدر و حداقل یک ردیف داده باشد",
-                    "row_count": 0,
+                    "success": True,
+                    "file_name": file.filename,
+                    "total_rows": len(rows) - 1,
+                    "valid_waybills": len(waybills),
+                    "errors": len(errors),
+                    "waybills": waybills,
+                    "error_details": errors,
+                    "column_map": column_map,
                 }
-
-            # Parse headers
-            headers = rows[0]
-            column_map = self.parser.parse_header_row(headers)
-
-            # Parse data rows
-            waybills = []
-            errors = []
-            for idx, row in enumerate(rows[1:], start=2):
-                try:
-                    waybill = self.parser.row_to_waybill_request(row, column_map, operation_mode)
-                    if waybill:
-                        # Validate
-                        validation = self.manual_service.validate_manual_entry(waybill)
-                        waybills.append(
-                            {
-                                "row": idx,
-                                "waybill": waybill,
-                                "validation": validation,
-                            }
-                        )
-                    else:
-                        errors.append(
-                            {
-                                "row": idx,
-                                "error": "داده‌های ناکافی برای ایجاد بارنامه",
-                            }
-                        )
-                except Exception as exc:
-                    errors.append(
-                        {
-                            "row": idx,
-                            "error": str(exc),
-                        }
-                    )
-
-            # Cleanup temp file
-            temp_file.unlink(missing_ok=True)
-
-            return {
-                "success": True,
-                "file_name": file.filename,
-                "total_rows": len(rows) - 1,
-                "valid_waybills": len(waybills),
-                "errors": len(errors),
-                "waybills": waybills,
-                "error_details": errors,
-                "column_map": column_map,
-            }
 
         except Exception as exc:
             logger.exception(
                 "excel_parse_failed",
-                extra={"extra_fields": {"filename": file.filename, "error": str(exc)}},
+                extra={"extra_fields": {"error": str(exc)}},
             )
             return {
                 "success": False,
@@ -517,64 +501,9 @@ class ExcelWaybillService:
         operation_mode: OperationMode = OperationMode.SAFE,
         skip_invalid: bool = True,
     ) -> dict[str, Any]:
-        """Parse and process all waybills from Excel file."""
-        # First parse the file
-        parse_result = await self.parse_excel_file(file, operation_mode)
-
-        if not parse_result["success"]:
-            return parse_result
-
-        # Process each waybill
-        results = []
-        success_count = 0
-        error_count = 0
-
-        for item in parse_result["waybills"]:
-            try:
-                item["waybill"]
-
-                # Check if live submit is allowed
-                if operation_mode == OperationMode.FULL and not utcms_config.ALLOW_LIVE_SUBMIT:
-                    if skip_invalid:
-                        error_count += 1
-                        results.append(
-                            {
-                                "row": item["row"],
-                                "status": "skipped",
-                                "error": "ارسال واقعی غیرفعال است",
-                            }
-                        )
-                        continue
-
-                # Here you would call the waybill service to actually process
-                # For now, just mark as queued
-                results.append(
-                    {
-                        "row": item["row"],
-                        "status": "queued",
-                        "validation": item["validation"],
-                    }
-                )
-                success_count += 1
-
-            except Exception as exc:
-                error_count += 1
-                results.append(
-                    {
-                        "row": item["row"],
-                        "status": "failed",
-                        "error": str(exc),
-                    }
-                )
-
-        return {
-            "success": True,
-            "file_name": parse_result["file_name"],
-            "total_processed": len(results),
-            "success_count": success_count,
-            "error_count": error_count,
-            "results": results,
-        }
+        """Reject the unsafe legacy Excel mutation path."""
+        del file, operation_mode, skip_invalid
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail=LEGACY_EXCEL_UPLOAD_DISABLED_DETAIL)
 
 
 # Singleton instance

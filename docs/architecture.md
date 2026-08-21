@@ -1,66 +1,110 @@
 # BarPro System Architecture Overview
 
-This document describes the final production architecture, data flow, and components of BarPro RPA platform.
+This document is a compact companion to
+[ARCHITECTURE.md](../ARCHITECTURE.md). It describes the current code contract,
+not proof of live firewall, container, queue, or TLS state. Any item without
+direct server evidence requires runtime verification.
 
-## 1. High-Level Diagram
+## High-Level Diagram
 
-```mermaid
-graph TD
-    Client[Client Browser / Mobile PWA] -->|HTTP / WebSocket| Nginx[Nginx Reverse Proxy: 80/443]
-    Nginx -->|Proxy Pass| FastAPI[FastAPI Backend: 8000]
-    
-    FastAPI -->|AsyncPG / SQLModel| PostgreSQL[(PostgreSQL 16 DB)]
-    FastAPI -->|Pub/Sub & Cache| Redis[(Redis 7 Cache / Queue)]
-    
-    Beat[Celery Beat Scheduler] -->|Enqueues Tasks| Redis
-    Scheduler[Celery Scheduler] -->|Dispatches Intents| Redis
-    
-    Redis -->|waybill_tasks_1| Worker1[Central Worker 1]
-    Redis -->|waybill_tasks_2 / UFW| Worker2[Remote Worker Node 2]
-    Redis -->|waybill_tasks_3 / UFW| Worker3[Remote Worker Node 3]
-    
-    Worker1 -->|Central Egress| Squid1[Central Squid 1: 3128]
-    Worker2 -->|Remote Egress 2| Squid2[Remote Node 2 Squid: 3128]
-    Worker3 -->|Remote Egress 3| Squid3[Remote Node 3 Squid: 3128]
-    
-    Squid1 & Squid2 & Squid3 -.->|Dynamic Hybrid Fallback| CleanPool[Clean Iranian Proxy Pool]
-    Squid1 & Squid2 & Squid3 & CleanPool -->|Automated Browsing| UTCMS[Iran Transportation Portal: barname.utcms.ir]
-    
-    Prometheus[Prometheus: 9090] -->|Scrapes /metrics| FastAPI
-    Prometheus -->|Triggers Webhook Alerts| FastAPI
-```
+    Browser / Mobile PWA
+       | HTTP and WebSocket; port 80
+       v
+    Nginx
+       |-- Next.js :3000
+       |-- FastAPI :8000
+              |-- PostgreSQL 16
+              |-- Redis 7: cache, Celery, pub/sub, locks
+              |-- WS /ws/waybill
+       |
+       |-- Central Worker 1, concurrency 1 -> Squid 1 :3128
+       |-- Beat -> publishes periodic tasks
+       |-- celery_scheduler -> consumes only rpa_scheduler
+       |
+       |-- Remote Worker 2, concurrency 1 -> local Squid :3128
+       |-- Remote Worker 3, concurrency 1 -> local Squid :3128
 
----
+    Monitoring: Prometheus + Alertmanager + Grafana
+                + node/Redis/Postgres/Nginx exporters
 
-## 2. Core Components
+Production uses Model B: Worker/Squid 2 and 3 run on remote VPS nodes. Central
+copies of those services belong to the explicit Model A profile and must not run
+on a Model B Central host.
 
-### 2.1 Reverse Proxy & Frontend
-- **Nginx (Port 80)**: Serves as the public gateway. Routes traffic to Next.js or FastAPI, limits body uploads, and filters paths.
-- **Next.js (Port 3000)**: Serves the React administration and client dashboard. Communicates with FastAPI via Axios using credentials.
+## Gateway and API
 
-### 2.2 Backend Application
-- **FastAPI (Port 8000)**: Serves API endpoints under `/api/v1`. Includes routes for clients, drivers, plates, waybills, and system status.
-- **SQLModel / SQLAlchemy**: Object-Relational Mapper (ORM) using AsyncPG dialect for asynchronous database operations.
-- **Redis Manager**: Handles cache lookups, token blacklisting, and coordinates worker queue-depth snapshots using atomic counters (`HINCRBY`).
-- **Realtime Hub**: Emits and bridges WebSocket messages across processes using Redis Pub/Sub.
+- Nginx currently listens on port 80. HTTPS/443 is a disabled template until
+  certificate, listener, redirect, external handshake, and cookie behavior are
+  verified.
+- FastAPI exposes health at GET /healthz, sanitized readiness at GET /readyz,
+  detailed admin readiness at GET /api/v1/admin/readyz, tenant APIs under
+  /api/v1, and authenticated realtime updates at WS /ws/waybill.
+- Clean IP management is admin-only under /api/system/clean-ips and its refresh
+  subpath.
+- /api/system/health, /ws/jobs/{client_id}, and /ws/admin/stream are not current
+  contracts.
+- DELETE /api/v1/waybill-jobs/{job_id} is permanent deletion; it is not a POST
+  cancel endpoint.
 
-### 2.3 RPA Automation Engine
-- **Celery Workers**: Run background waybill submissions and fuel inquiry inquiries.
-- **Playwright (Chromium)**: Controls browser sessions, handles mathematical and Persian text CAPTCHAs using local PyTorch and Keras OCR models, and inputs driver credentials.
-- **Worker Proxy Rotator**: Proxies outbound browser requests through dynamic Squid endpoints to balance and hide egress IPs.
-- **UFW Firewall**: Restricts database (5432) and Redis (6379) ports to registered Worker node IPs only. All container-to-container traffic uses Docker bridge network `barpro_platform`.
+## Waybill Flow
 
-## 3. Security & Networking
+    create and validate
+      -> pending / waiting_auth / waiting_submission_window
+      -> DispatchIntent
+      -> queued -> claimed -> running
+      -> at-most-once UTCMS mutation
+      -> unknown -> reconciling
+      -> success | needs_review
 
-- **Inter-node security**: UFW Firewall on the central server restricts PostgreSQL (port 5432) and Redis (port 6379) access to allowlisted Worker node IPs only. No WireGuard or VPN is required.
-- **Squid egress isolation**: Each worker uses a dedicated Squid proxy with its own egress IP to distribute query frequency and avoid IP blocks from the national portal.
-- **Container hardening**: All containers run with `cap_add: [SYS_ADMIN, NET_ADMIN]` and `security_opt: [no-new-privileges:true]`. No `privileged: true` is used.
+A browser success message is not final. Success requires:
 
----
+1. a non-empty tracking code in the RPA result;
+2. the same code persisted in waybill_jobs.result_json;
+3. a matching record in UTCMS History/Search.
 
-## 3. Data Flow (Waybill Submission)
+The state guard also requires mutation_status=confirmed and reconciled_at.
+Unconfirmed results are never automatically resubmitted after the bounded
+reconciliation window.
 
-1. **Job Enqueued**: Client submits a waybill request -> FastAPI validates and saves `WaybillJob` in `pending` status -> pushes task metadata to Redis queue.
-2. **Worker Claiming**: A Celery worker pulls the task -> runs pre-flight checks (verifies it is not draining, verifies proxy health) -> locks `WaybillJob` and creates a `DispatchIntent` with `fencing_token`.
-3. **Execution**: Playwright launches Chromium -> loads session state from Redis Session Vault -> logs in, solves CAPTCHA -> enters waybill details -> submits.
-4. **Finalization & Audit**: Marks job as `success` or `failed` (saving errors in `WaybillTaskLog`) -> releases DB locks -> returns results to frontend via WebSockets.
+## Queues
+
+- Worker 1 consumes base queues plus queue suffix 1 and barpro.fuel.inquiry.
+- Remote Workers consume the corresponding suffix 2 or 3 queues and the fuel
+  queue.
+- celery_scheduler consumes only rpa_scheduler.
+- Beat publishes periodic tasks; it is not a consumer.
+- Active bindings, backlog, concurrency, and Worker Registry indices must be
+  checked on the live deployment.
+
+## CAPTCHA, Login, and OTP
+
+- CAPTCHA auto order is CNN -> Fuel CRNN -> Keras -> Enhanced -> Local.
+- Keras is lazy-loaded and reused in-process; KERAS_PYTHON_PATH does not select
+  a subprocess in the current solver.
+- Login may use curl_cffi HTTP authentication, session transfer, and a limited
+  document/xhr/fetch bridge before Playwright fallback.
+- 18:00-08:00 is a configurable OTP_REQUIRED prediction, not an official UTCMS
+  window. Only a current OTP_FREE observation permits submission.
+
+## Data Model
+
+SQLModel primary keys are integer IDs. Public job_id, batch_id, intent_id, and
+execution_id values are strings. Core operational models include:
+
+- Client, Driver, DriverPlate, DriverSchedule, WaybillJob, FuelInquiry;
+- UploadBatch, DispatchIntent, Execution, WorkerRegistry;
+- ProxyEndpoint and UTCMSSystemObservation.
+
+WaybillJob stores payload_json, result_json, retry, mutation, and reconciliation
+fields. FuelInquiry stores quota JSON and a screenshot URL/Data URI and has no
+direct tracking-code column.
+
+## Security and Monitoring Boundaries
+
+- PostgreSQL/Redis may bind to all interfaces for remote Workers, but UFW,
+  provider firewall, and DOCKER-USER must restrict them to registered Worker
+  IPs. This requires an external denial probe after deployment.
+- Rate limiting is a Redis sliding window, not Token Bucket. Code rules are
+  public=60, auth=5, waybill=30, driver=60, tenant=100, and admin=200 per minute.
+- Prometheus, Alertmanager, and exporters are internal-only; Grafana binds to
+  loopback. Compose presence does not prove healthy targets or alert delivery.

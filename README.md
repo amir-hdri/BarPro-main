@@ -187,7 +187,8 @@ bash manage.sh health   # Verify all services
 
 ```bash
 docker compose -f compose/infra.yml up -d       # PostgreSQL + Redis
-docker compose -f compose/proxy.yml up -d       # Squid ×3
+docker compose -f compose/proxy.yml up -d       # Model B: Squid 1 only
+docker compose -f compose/proxy.yml --profile model-a up -d  # Model A: Squid ×3
 docker compose -f compose/backend.yml up -d     # FastAPI + Workers + Beat
 docker compose -f compose/web.yml up -d         # Nginx + Next.js
 docker compose -f compose/monitoring.yml up -d  # Prometheus

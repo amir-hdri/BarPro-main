@@ -23,6 +23,7 @@ from scp import SCPClient
 # ═══════════════════════════════════════════════════════════════════
 DEFAULT_IP = os.environ.get("CENTRAL_IP", "<YOUR_CENTRAL_SERVER_IP>")
 SSH_USER = os.environ.get("DEPLOY_USER", "ubuntu")
+SSH_KNOWN_HOSTS = os.environ.get("SSH_KNOWN_HOSTS", os.path.expanduser("~/.ssh/known_hosts"))
 REMOTE_DIR = "/opt/barpro"
 DB_NAME = "utcms_rpa"
 
@@ -91,8 +92,13 @@ def hdr(t):
 def ssh_connect(ip: str, user: str, password: str) -> paramiko.SSHClient:
     hdr("🔗  اتصال SSH به سرور")
     info(f"اتصال به {user}@{ip} ...")
+    if not os.path.isfile(SSH_KNOWN_HOSTS) or not os.access(SSH_KNOWN_HOSTS, os.R_OK):
+        err(f"SSH known_hosts file is missing or unreadable: {SSH_KNOWN_HOSTS}")
+        sys.exit(1)
     ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.load_system_host_keys()
+    ssh.load_host_keys(SSH_KNOWN_HOSTS)
+    ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
     for attempt in range(5):
         try:
             ssh.connect(
@@ -174,7 +180,9 @@ def main():
     )
     parser.add_argument("--ip", default=DEFAULT_IP, help="IP آدرس سرور")
     parser.add_argument("--user", default=SSH_USER, help="نام کاربری SSH")
-    parser.add_argument("--password", help="رمز عبور SSH (در صورت عدم ارائه، از متغیر محیطی SSH_PASSWORD خوانده می‌شود)")
+    parser.add_argument(
+        "--password", help="رمز عبور SSH (در صورت عدم ارائه، از متغیر محیطی SSH_PASSWORD خوانده می‌شود)"
+    )
 
     args = parser.parse_args()
 
@@ -205,16 +213,14 @@ def main():
 
     step_list = sorted(list(set(step_list)))
 
-    print(
-        f"""
+    print(f"""
 {C.BOLD}{C.BLUE}╔══════════════════════════════════════════════════════════════╗
 ║      BarPro — ابزار مدیریت استقرار سرور                      ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  سرور  : {args.ip:<50}║
 ║  مراحل : {str(step_list):<50}║
 ╚══════════════════════════════════════════════════════════════╝{C.RESET}
-"""
-    )
+""")
 
     ssh = ssh_connect(args.ip, args.user, password)
 
@@ -304,19 +310,25 @@ def main():
                 check=False,
             )
 
-            # تشخیص دستور compose
+            # Compose V2 is required because the repository uses `include:`.
             ok_dc, _ = run_cmd(ssh, "docker compose version", check=False)
-            compose = "docker compose" if ok_dc else "docker-compose"
+            if not ok_dc:
+                err("Docker Compose V2 is required; refusing the unsupported V1 fallback.")
+                sys.exit(1)
+            compose = "docker compose"
             # پاک‌سازی کانتینرهای متداخل هم‌نام
             run_cmd(
                 ssh,
-                "docker rm -f barpro-squid-2 barpro-squid-3 barpro-squid-1 barpro-postgres barpro-redis barpro-backend barpro-frontend barpro-worker-1 barpro-worker-2 barpro-worker-3 barpro-beat barpro-prometheus barpro-nginx 2>/dev/null || true",
-                "حذف کانتینرهای قدیمی متداخل",
+                "docker ps --format 'table {{.Names}}\\t{{.Status}}'",
+                "بررسی کانتینرهای فعلی (بدون حذف خودکار)",
             )
-            # ساخت و بالا آوردن کانتینرها با تایم‌اوت بالا
+            # This legacy step-by-step deploy renders a secondary egress IP, so
+            # it is the single-VM Model A path. Both local Squid and worker
+            # profiles must be explicit; production Model B uses the fleet
+            # deployment scripts instead.
             success, _ = run_cmd(
                 ssh,
-                f"cd {REMOTE_DIR} && {compose} --profile docker-backend "
+                f"cd {REMOTE_DIR} && {compose} --profile docker-backend --profile model-a --profile scale-out "
                 f"up -d --build --remove-orphans --timeout 300 2>&1",
                 "اجرای docker compose build & up",
                 timeout=2400,
@@ -334,7 +346,10 @@ def main():
             hdr("🗄️  مرحله ۴ — مایگریشن دیتابیس (Alembic)")
 
             ok_dc, _ = run_cmd(ssh, "docker compose version", check=False)
-            compose = "docker compose" if ok_dc else "docker-compose"
+            if not ok_dc:
+                err("Docker Compose V2 is required; refusing the unsupported V1 fallback.")
+                sys.exit(1)
+            compose = "docker compose"
 
             info("صبر برای آماده شدن PostgreSQL...")
             pg_ready = False
@@ -355,12 +370,14 @@ def main():
             if pg_ready:
                 run_cmd(
                     ssh,
-                    f"cd {REMOTE_DIR} && {compose} exec -T backend alembic upgrade head 2>&1",
-                    "اجرای alembic upgrade head inside backend",
+                    f"cd {REMOTE_DIR} && {compose} exec -T backend python -c "
+                    "'import asyncio; from app.core.database import run_migrations; asyncio.run(run_migrations())'",
+                    "اجرای migration تحت PostgreSQL advisory lock",
                 )
                 ok("مایگریشن دیتابیس با موفقیت اعمال شد.")
             else:
-                warn("مایگریشن اعمال نشد چون دیتابیس آماده نبود.")
+                err("مایگریشن اعمال نشد چون دیتابیس آماده نبود.")
+                sys.exit(1)
 
         # ──────────────────────────────────────────────────────────────
         # مرحله ۵: تست سلامت و گزارش نهایی
@@ -369,28 +386,30 @@ def main():
             hdr("📊  مرحله ۵ — بررسی وضعیت نهایی و تست سلامت")
 
             ok_dc, _ = run_cmd(ssh, "docker compose version", check=False)
-            compose = "docker compose" if ok_dc else "docker-compose"
+            if not ok_dc:
+                err("Docker Compose V2 is required.")
+                sys.exit(1)
+            compose = "docker compose"
 
             run_cmd(ssh, f"cd {REMOTE_DIR} && {compose} ps 2>&1", "وضعیت کانتینرها", check=False)
 
             print()
             run_cmd(
                 ssh,
-                f"curl -sf http://localhost/api/healthz 2>&1 || curl -sf http://localhost:8000/healthz 2>&1 || echo 'API در حال آماده‌سازی'",
+                f"curl -fsS http://localhost/healthz 2>&1",
                 "تست بک‌اند",
-                check=False,
+                check=True,
                 timeout=15,
             )
             run_cmd(
                 ssh,
-                f"curl -sI http://localhost/ 2>&1 | head -5 || echo 'فرانت‌اند در حال آماده‌سازی'",
+                f"curl -fsSI http://localhost/ 2>&1 | head -5",
                 "تست فرانت‌اند",
-                check=False,
+                check=True,
                 timeout=15,
             )
 
-            print(
-                f"""
+            print(f"""
 {C.BOLD}{C.GREEN}╔══════════════════════════════════════════════════════════════╗
 ║              🎉  وضعیت نهایی استقرار                         ║
 ╠══════════════════════════════════════════════════════════════╣
@@ -398,8 +417,7 @@ def main():
 ║  Frontend    : http://{args.ip}                          ║
 ║  Prometheus  : http://{args.ip}:9090                     ║
 ╚══════════════════════════════════════════════════════════════╝{C.RESET}
-"""
-            )
+""")
 
     finally:
         ssh.close()

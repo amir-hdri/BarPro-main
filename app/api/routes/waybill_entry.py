@@ -3,13 +3,14 @@
 import io
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.auth_multitenant import _decode_jwt
 from app.core.config import utcms_config
 from app.core.security import _extract_bearer_token, _is_api_key_valid, require_sensitive_auth
 from app.schemas.waybill import OperationMode, WaybillMapRequest
+from app.services.excel_upload_service import LEGACY_EXCEL_UPLOAD_DISABLED_DETAIL
 from app.services.excel_template_service import ExcelTemplateService
 from app.services.waybill_entry_service import excel_waybill_service, manual_waybill_service
 
@@ -104,12 +105,18 @@ async def submit_manual_waybill(request: WaybillMapRequest, raw_request: Request
 @router.post(
     "/parse-excel",
     dependencies=[Depends(require_sensitive_auth)],
+    deprecated=True,
 )
 async def parse_excel_file(
     file: UploadFile = File(..., description="فایل اکسل حاوی اطلاعات بارنامه"),
     operation_mode: OperationMode = Form(default=OperationMode.SAFE),
 ):
-    """پردازش فایل اکسل و نمایش اطلاعات بارنامه‌ها."""
+    """Parse Excel for a read-only preview; this endpoint never queues or submits jobs.
+
+    The preview is retained for compatibility only. It is not a submission
+    contract and its validation result must not be treated as proof that a row
+    satisfies the canonical ``WaybillJobCreateRequest``/UTCMS contract.
+    """
     # Validate file type
     if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(
@@ -148,6 +155,8 @@ async def parse_excel_file(
 
     return {
         "success": True,
+        "read_only": True,
+        "submission_endpoint": "/api/v1/waybill-jobs",
         "file_name": result["file_name"],
         "total_rows": result["total_rows"],
         "valid_waybills": result["valid_waybills"],
@@ -171,49 +180,39 @@ async def parse_excel_file(
 @router.post(
     "/submit-excel-waybills",
     dependencies=[Depends(require_sensitive_auth)],
+    status_code=status.HTTP_410_GONE,
+    deprecated=True,
+    responses={
+        status.HTTP_410_GONE: {
+            "description": "Legacy Excel submission is disabled; use POST /api/v1/waybill-jobs."
+        }
+    },
 )
 async def submit_excel_waybills(
     file: UploadFile = File(..., description="فایل اکسل حاوی اطلاعات بارنامه"),
     operation_mode: OperationMode = Form(default=OperationMode.SAFE),
     skip_invalid: bool = Form(default=True, description="رد کردن موارد نامعتبر"),
 ):
-    """پردازش و ارسال گروهی بارنامه‌ها از فایل اکسل."""
-    # Validate file type
-    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "INVALID_FILE_TYPE",
-                "message": "فایل باید با فرمت اکسل (xlsx/xls) باشد",
-            },
-        )
+    """Reject the legacy Excel mutation path.
 
-    # Process Excel file
-    result = await excel_waybill_service.process_excel_waybills(file, operation_mode, skip_invalid)
-
-    if not result["success"]:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "EXCEL_PROCESS_FAILED",
-                "message": result.get("error", "خطا در پردازش فایل اکسل"),
-            },
-        )
-
-    return {
-        "success": True,
-        "message": f"پردازش {result['total_processed']} بارنامه انجام شد",
-        "file_name": result["file_name"],
-        "total_processed": result["total_processed"],
-        "success_count": result["success_count"],
-        "error_count": result["error_count"],
-        "results": result["results"],
-    }
+    The former implementation only labelled parsed rows as ``queued`` without
+    dispatching them. Any future bulk flow must build a complete
+    ``WaybillJobCreateRequest`` for each row and call the canonical job service.
+    """
+    del file, operation_mode, skip_invalid
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail=LEGACY_EXCEL_UPLOAD_DISABLED_DETAIL)
 
 
 @router.post(
     "/queue-excel-waybills",
     dependencies=[Depends(require_sensitive_auth)],
+    status_code=status.HTTP_410_GONE,
+    deprecated=True,
+    responses={
+        status.HTTP_410_GONE: {
+            "description": "Legacy Excel queueing is disabled; use POST /api/v1/waybill-jobs."
+        }
+    },
 )
 async def queue_excel_waybills(
     raw_request: Request,
@@ -221,67 +220,14 @@ async def queue_excel_waybills(
     operation_mode: OperationMode = Form(default=OperationMode.SAFE),
     skip_invalid: bool = Form(default=True, description="رد کردن موارد نامعتبر"),
 ):
-    """پردازش و افزودن گروهی بارنامه‌ها به صف."""
-    from app.queue.queue_manager import queue_manager
+    """Reject the legacy queue path.
 
-    # Validate file type
-    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "INVALID_FILE_TYPE",
-                "message": "فایل باید با فرمت اکسل (xlsx/xls) باشد",
-            },
-        )
-
-    # Parse Excel first
-    parse_result = await excel_waybill_service.parse_excel_file(file, operation_mode)
-
-    if not parse_result["success"]:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "EXCEL_PARSE_FAILED",
-                "message": parse_result.get("error", "خطا در پردازش فایل اکسل"),
-            },
-        )
-
-    # Queue each valid waybill
-    queued = []
-    errors = []
-    client_id = _extract_client_id_from_request(raw_request)
-
-    for item in parse_result["waybills"]:
-        try:
-            waybill = item["waybill"]
-
-            # Enqueue
-            task = await queue_manager.enqueue_waybill(waybill, client_id=client_id)
-            queued.append(
-                {
-                    "row": item["row"],
-                    "task_id": task.task_id,
-                    "status": "queued",
-                }
-            )
-        except Exception as exc:
-            errors.append(
-                {
-                    "row": item["row"],
-                    "error": str(exc),
-                }
-            )
-
-    return {
-        "success": True,
-        "message": f"{len(queued)} بارنامه به صف اضافه شد",
-        "file_name": parse_result["file_name"],
-        "total_parsed": parse_result["total_rows"],
-        "queued_count": len(queued),
-        "error_count": len(errors),
-        "queued_tasks": queued,
-        "errors": errors,
-    }
+    This route used ``queue_manager``/``task_service`` directly and bypassed
+    canonical validation, plate ownership, scheduler, state machine, and
+    reconciliation contracts.
+    """
+    del raw_request, file, operation_mode, skip_invalid
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail=LEGACY_EXCEL_UPLOAD_DISABLED_DETAIL)
 
 
 @router.get("/excel-template", tags=["templates"], dependencies=[Depends(require_sensitive_auth)])

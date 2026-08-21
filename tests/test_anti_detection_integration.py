@@ -105,6 +105,7 @@ class TestProxyRotator:
         )
 
         assert proxy.full_url == "http://user:pass@example.com:8080"
+        assert proxy.safe_url == "http://example.com:8080"
         assert proxy.is_healthy is True
         assert proxy.fail_count == 0
 
@@ -163,6 +164,15 @@ class TestProxyRotator:
 
         assert loaded == 2
         assert rotator.proxies[0].url == "http://proxy1.com:8080"
+
+    def test_proxy_rotator_state_file_uses_owner_only_permissions(self, tmp_path):
+        from app.automation.proxy_rotator import ProxyInfo, ProxyRotator
+
+        state_file = tmp_path / "proxy-state.json"
+        rotator = ProxyRotator()
+        rotator.proxies.append(ProxyInfo(url="http://example.com:8080", username="user", password="pass"))
+        rotator.save_to_file(str(state_file))
+        assert state_file.stat().st_mode & 0o777 == 0o600
 
     @pytest.mark.asyncio
     async def test_proxy_rotator_get_next(self):

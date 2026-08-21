@@ -1,115 +1,68 @@
-# Deployment Guide
+# Operations Deployment Checklist
 
-This document is the current operational checklist for deploying BarPro on the production server.
+The canonical production procedure is
+[../../DEPLOYMENT_GUIDE.md](../../DEPLOYMENT_GUIDE.md). This file records the
+short operations checklist and must not diverge from that guide.
 
-## Current topology
+## Deployment Contract
 
-- **Model B Scale-Out Deployment (Current Production):**
-  - Central Server (16 GB RAM / 4 vCPU): API on port 8000, Web on port 3000, PostgreSQL on port 5432 (UFW protected), Redis on port 6379 (UFW protected), Celery Scheduler, Celery Beat, Celery Worker 1, and Squid 1 on port 3128.
-  - Remote Worker Nodes: Dedicated VPS nodes in Iran with static IPs, running Celery Worker 2/3 and local Squid proxy (via `compose/worker-node.yml`).
-- Public entrypoint: Nginx on port `80` (HTTP) and `443` (HTTPS ready).
-- Dynamic hybrid proxy fallback: Clean Iranian Proxy Pool (Zero IP Restriction) automatically active.
+- Production defaults to Model B with BARPRO_TOPOLOGY=model-b.
+- Central runs Worker 1 and Squid 1. Worker/Squid 2 and 3 run on their remote
+  VPS nodes; Central Model A services require explicit opt-in.
+- Nginx currently serves HTTP on port 80. The commented TLS template is not
+  operational HTTPS.
+- AUTH_COOKIE_SECURE=false remains required until certificate, listener,
+  redirect, external handshake, login, logout, and WebSocket tests all pass.
+- Keras CAPTCHA inference is lazy-loaded in-process. KERAS_PYTHON_PATH does
+  not select a subprocess in the current solver.
+- Alembic head expected by this checkout is
+  036_management_tables_and_activity_logs_fix.
 
-## Before you deploy
+## Start or Update
 
-- Pull the latest repository state into `/opt/barpro`
-- Ensure `.env` exists and contains production secrets
-- Keep `AUTH_COOKIE_SECURE=false` while the site is HTTP-only; set `true` once HTTPS is enabled
-- Confirm required ML assets exist in the repo checkout
-- Confirm disk usage stays below the project target threshold
+    cd /opt/barpro
+    BARPRO_TOPOLOGY=model-b bash manage.sh start
 
-Required assets:
+    # Existing installation
+    git pull
+    BARPRO_TOPOLOGY=model-b bash manage.sh deploy
 
-- `persian_number_ocr.keras`
-- `app/automation/captcha/assets/captcha_cnn.pth`
-- `app/automation/captcha/assets/fuel_captcha_crnn.pth`
-- `app/automation/captcha/assets/fuel_captcha_vocab.json`
+Do not pass production passwords on the command line or store them in this
+repository.
 
-## Deployment commands
+## Required Runtime Verification
 
-Initial bring-up:
+After deployment, record evidence for:
 
-```bash
-cd /opt/barpro
-bash manage.sh start
-```
+1. Git SHA and Alembic head on Central and both Workers.
+2. Full container inventory, including detection of unexpected containers.
+3. No Central squid_2, squid_3, celery_worker_2, or celery_worker_3 in Model B.
+4. Worker Registry heartbeats/IP indices and Celery active queues.
+5. Worker concurrency of one and celery_scheduler consuming only rpa_scheduler.
+6. Actual egress IP through each Worker-local Squid.
+7. PostgreSQL/Redis/Squid denial from a non-worker source IP.
+8. Sanitized public /readyz; detailed /api/v1/admin/readyz only with admin authentication.
+9. Admin-only /api/system/clean-ips and refresh route.
+10. Prometheus targets, Alertmanager, Grafana, and node/Redis/Postgres/Nginx exporters.
+11. Reconciliation backlog and successful jobs carrying all three UTCMS witnesses.
 
-Update an existing installation:
+Any item without direct evidence is requires runtime verification; Compose
+configuration or .env.example is not sufficient.
 
-```bash
-cd /opt/barpro
-git pull
-bash manage.sh deploy
-```
+## Monitoring Inventory
 
-Manual migration fallback:
+compose/monitoring.yml defines Prometheus, Alertmanager, Grafana,
+node-exporter, redis-exporter, postgres-exporter, and nginx-exporter.
+Prometheus/Alertmanager/exporters are internal-only and Grafana binds to
+loopback. A healthy Compose render does not prove that targets scrape or alerts
+are delivered.
 
-```bash
-cd /opt/barpro
-bash manage.sh migrate
-```
+## Safe Result Interpretation
 
-## What `manage.sh deploy` does
+Waybill success follows:
 
-- Builds the backend image
-- Builds the frontend image
-- Runs database migrations via `alembic upgrade head`
-- Restarts backend and web layers with Docker Compose
+    running -> unknown -> reconciling -> success | needs_review
 
-## Verified application state
-
-- Current Alembic head is `036_management_tables_and_activity_logs_fix`
-- Frontend Docker builds inside `apps/web/Dockerfile`
-- No prebuilt `.next/standalone` upload is required
-- JWT transport uses the `httpOnly` cookie `utcms_auth_token`
-- Universal mobile anti-zoom and viewport locking enforced
-
-## Validation after deploy
-
-```bash
-bash manage.sh status
-bash manage.sh health
-docker compose -f compose/backend.yml config
-docker compose -f compose/web.yml config
-```
-
-Optional smoke check:
-
-```bash
-docker run --rm barpro_backend:latest python -c "from app.main import app; print(app.title)"
-```
-
-## Safe rollback approach
-
-- Roll back with Git to a known good commit using normal, reviewable Git operations
-- Re-run `bash manage.sh deploy`
-- If the database schema changed incompatibly, restore from a known good backup before downgrading code
-
-Do not use destructive Git commands in routine operational playbooks.
-
-## Backups
-
-Create an on-demand database backup:
-
-```bash
-cd /opt/barpro
-bash manage.sh backup
-```
-
-Backups are written under `output/backups/`.
-
-## Security follow-ups
-
-- Run `sudo bash scripts/secure_squid_ports.sh` on the server
-- Add the same script to `@reboot`
-- Enable HTTPS before switching `AUTH_COOKIE_SECURE=true`
-- Do not expose Redis or PostgreSQL publicly
-
-## Troubleshooting
-
-- If deploy warns about migrations, run `bash manage.sh migrate`
-- If frontend fails to start, inspect `bash manage.sh logs frontend` and `bash manage.sh logs nginx`
-- If auth fails after login, review cookie settings, CORS, and `FRONTEND_URL`
-- If Compose config warns about unset secrets, review `.env`
-
-Last updated: 2026-08-20 (v2.9.2)
+Do not treat a browser success message as final. Success requires a tracking
+code from RPA, the same value persisted in result_json, and a matching UTCMS
+History/Search record.

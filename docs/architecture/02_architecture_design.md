@@ -1,3 +1,7 @@
+> Legacy design note: this file records early requirements and may use obsolete
+> topology or contracts. For current implementation use
+> docs/BARPRO_KNOWLEDGE_GRAPH.md and ARCHITECTURE.md.
+
 ## ۲. طراحی معماری سیستم (System Architecture)
 
 ### 2.1 نمای کلی معماری

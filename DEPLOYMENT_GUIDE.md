@@ -1,108 +1,172 @@
-# راهنمای استقرار BarPro در production (نسخه v2.9.2)
+# راهنمای استقرار production بارپرو
 
-این سند وضعیت فعلی و تاییدشده استقرار BarPro را برای سرور production شرح می‌دهد.
+> نسخه مستندات: 2026-08-20
+>
+> توپولوژی پیش‌فرض: Model B scale-out
+>
+> این سند checklist استقرار است. هیچ مقدار نمونه، Compose file یا گزارش قدیمی
+> به‌تنهایی اثبات وضعیت زنده‌ی سرور نیست.
 
-## نمای کلی معماری
+## 1. توپولوژی
 
-- **توپولوژی اصلی (Model B — توزیع‌شده Scale-Out):**
-  - **سرور مرکزی (Central Server):** ۱۶ گیگابایت RAM، ۴ هسته vCPU، شامل سرویس‌های Nginx (پورت 80/443)، بک‌اند FastAPI (پورت داخلی 8000)، فرانت‌اند Next.js 15 (پورت داخلی 3000)، دیتابیس PostgreSQL 16 (پورت 5432 با حفاظت UFW)، کش و صف Redis 7 (پورت 6379 با حفاظت UFW)، Celery Scheduler، Celery Beat، Celery Worker 1 و Squid 1 (پورت 3128).
-  - **ورکر نودهای ریموت (Remote Worker Nodes):** سرورهای VPS اختصاصی در دیتاسنترهای داخلی ایران، هر کدام دارای IP استاتیک ایرانی تمیز، Celery Worker محلی و Squid محلی روی پورت 3128 (از طریق `compose/worker-node.yml`).
-- **توپولوژی تک‌سرور (Model A):** تمام سرویس‌ها به همراه ۳ ورکر و ۳ پروکسی Squid روی یک سرور با ۲ یا چند IP عمومی.
-- **استخر تمیز پروکسی ایرانی (Clean Iranian Proxy Pool):** سیستم اگریگیتور و پروب خودکار پروکسی‌های ایرانی جهت رفع قطعی محدودیت‌های IP در ثبت بارنامه و استعلام سهمیه سوخت.
-- **احراز هویت و نشست:** توکن JWT از طریق کوکی امن `httpOnly` با نام `utcms_auth_token` منتقل می‌شود.
-- **ارگونومی موبایل:** بهینه‌سازی کامل ضدزوم (iOS و Android) و قفل مقیاس Viewport.
+### Model B — پیش‌فرض production
 
-## پیش‌نیازهای سرور مرکزی
+- Central: PostgreSQL، Redis، FastAPI، Next.js، Nginx، Worker 1،
+  celery_scheduler، Beat، Squid 1 و monitoring.
+- Remote Worker 2/3: هر کدام Celery Worker با concurrency=1 و Squid محلی روی
+  پورت 3128 و IP استاتیک ایرانی.
+- Worker/Squid 2 و 3 مرکزی نباید در این مدل اجرا شوند.
+- BARPRO_TOPOLOGY=model-b مقدار پیش‌فرض manage.sh است.
 
-- Ubuntu 22.04 LTS یا جدیدتر
-- Docker Engine و Docker Compose V2 (`docker compose`)
-- Git
-- حداقل `4 vCPU` و `16 GB RAM`
-- مسیر استقرار: `/opt/barpro`
+### Model A — opt-in
 
-## متغیرهای محیطی ضروری (`.env`)
+استقرار تک‌سرور با Worker/Squid 2 و 3 فقط با انتخاب صریح انجام می‌شود:
 
-فایل `.env` را بر اساس `.env.example` بسازید و تنظیم کنید:
+    BARPRO_TOPOLOGY=model-a bash manage.sh start
 
-- `API_KEY`
-- `JWT_SECRET` (حداقل ۳۲ کاراکتر)
-- `POSTGRES_PASSWORD`
-- `REDIS_PASSWORD`
-- `DRIVER_ENCRYPTION_KEY` (کلید Fernet ۳۲ بایتی)
-- `MASTER_ADMIN_USERNAME`
-- `MASTER_ADMIN_PASSWORD`
-- `POSTGRES_BIND=0.0.0.0` (جهت اتصال ورکر نودهای ریموت تحت فایروال UFW)
-- `REDIS_BIND=0.0.0.0` (جهت اتصال ورکر نودهای ریموت تحت فایروال UFW)
-- `AUTH_COOKIE_SECURE=false` (برای استقرار HTTP فعلی؛ پس از فعال‌سازی HTTPS روی `true` تنظیم شود)
-- `CAPTCHA_PROVIDER=auto` (یا یکی از `composite`, `cnn`, `pytorch_fuel`, `keras_ocr`, `enhanced_ocr`, `local_ocr`)
+این mode برای production Model B استفاده نشود.
 
-## فایل‌ها و مدل‌های ضروری CAPTCHA
+## 2. پیش‌نیاز و secretها
 
-این فایل‌ها باید در checkout سرور وجود داشته باشند:
+- Ubuntu 22.04 یا جدیدتر، Docker Engine و Docker Compose V2.
+- checkout معمول Central در /opt/barpro.
+- .env از .env.example ساخته شود، اما secret واقعی هرگز commit نشود.
+- حداقل secretهای لازم: API_KEY, JWT_SECRET, POSTGRES_PASSWORD,
+  REDIS_PASSWORD, DRIVER_ENCRYPTION_KEY, MASTER_ADMIN_USERNAME و
+  MASTER_ADMIN_PASSWORD.
+- مقدارهای POSTGRES_BIND=0.0.0.0 و REDIS_BIND=0.0.0.0 فقط در صورت نیاز
+  remote worker مجازند و باید با UFW، firewall ارائه‌دهنده و DOCKER-USER
+  محدود شوند.
+- تا وقتی TLS فعال و verify نشده است، AUTH_COOKIE_SECURE=false باقی بماند.
+- AVAILABLE_IP_INDICES باید با Worker Registry همان fleet هم‌راستا باشد؛ fleet
+  سه‌ورکری مورد انتظار از 1,2,3 استفاده می‌کند.
 
-- `persian_number_ocr.keras` (مدل Keras OCR فال‌بک سوخت)
-- `app/automation/captcha/assets/captcha_cnn.pth` (مدل CNN حل کپچای ریاضی لاگین)
-- `app/automation/captcha/assets/fuel_captcha_crnn.pth` (مدل CRNN حل کپچای متنی فارسی سوخت)
-- `app/automation/captcha/assets/fuel_captcha_vocab.json` (دیکشنری واژگان کپچای سوخت)
+## 3. assetهای CAPTCHA
 
-## استقرار اولیه
+این فایل‌ها باید داخل image/checkout قابل خواندن باشند:
 
-```bash
-git clone <repo-url> /opt/barpro
-cd /opt/barpro
-cp .env.example .env
-# ویرایش و مقداردهی متغیرهای امنیتی .env
-bash manage.sh start
-```
+- persian_number_ocr.keras
+- app/automation/captcha/assets/captcha_cnn.pth
+- app/automation/captcha/assets/fuel_captcha_crnn.pth
+- app/automation/captcha/assets/fuel_captcha_vocab.json
 
-ترتیب لایه‌های داکر کامپوز:
+ترتیب CAPTCHA_PROVIDER=auto برابر CNN → Fuel CRNN → Keras → Enhanced → Local
+است. Keras داخل همان Worker process lazy-load می‌شود؛ KERAS_PYTHON_PATH مسیر
+subprocess فعال نیست. mode مؤثر هر node باید پس از deploy گزارش شود.
 
-1. `infra` - PostgreSQL 16 و Redis 7
-2. `proxy` - پروکسی Squid 1 (و Squid 2/3 در صورت اجرای تک‌سرور)
-3. `backend` - FastAPI, Celery Worker 1, Celery Scheduler, Celery Beat
-4. `web` - Next.js 15 و Nginx
-5. `mon` - Prometheus
+## 4. راه‌اندازی Central
 
-## دستورات اصلی عملیات (`manage.sh`)
+    git clone <repo-url> /opt/barpro
+    cd /opt/barpro
+    cp .env.example .env
+    # secretها و مقادیر topology را خارج از Git تنظیم کنید
+    BARPRO_TOPOLOGY=model-b bash manage.sh start
 
-| دستور | کاربرد |
-|---|---|
-| `bash manage.sh start` | راه‌اندازی گام‌به‌گام و لایه‌ای کل سیستم |
-| `bash manage.sh stop` | توقف گریسفول کل سیستم |
-| `bash manage.sh restart` | ری‌استارت منظم کل سرویس‌ها |
-| `bash manage.sh status` | وضعیت کانتینرها، مصرف رم، دیسک و پردازنده |
-| `bash manage.sh health` | بررسی سلامت دیتابیس، ردیس، API و فرانت‌اند |
-| `bash manage.sh logs backend` | مشاهده زنده لاگ بک‌اند |
-| `bash manage.sh deploy` | بیلد، مهاجرت دیتابیس و انتشار نسخه جدید |
-| `bash manage.sh migrate` | اجرای مهاجرت‌های دیتابیس (`alembic upgrade head`) |
-| `bash manage.sh backup` | بکاپ کامل و فشرده از PostgreSQL |
+لایه‌ها:
 
-## مهاجرت‌های دیتابیس (Alembic)
+1. compose/infra.yml — PostgreSQL و Redis؛
+2. compose/proxy.yml — فقط Squid 1 در Model B؛
+3. compose/backend.yml — API، Worker 1، Beat و celery_scheduler؛
+4. compose/web.yml — Next.js و Nginx؛
+5. compose/monitoring.yml — Prometheus، Alertmanager، Grafana و exporterها.
 
-آخرین نسخه Alembic Head تاییدشده:
-```bash
-036_management_tables_and_activity_logs_fix
-```
+Workerهای remote با compose/worker-node.yml و runbookهای
+docs/runbook_scale_out.md و docs/runbook_worker_registration.md مستقر شوند.
 
-## وضعیت فرانت‌اند در Docker
+## 5. مهاجرت و دستورات عملیات
 
-- بیلد فرانت‌اند به صورت Multi-stage داخل `apps/web/Dockerfile` انجام می‌شود.
-- هیچ نیازی به آپلود دستی پوشه `.next/standalone` نیست.
-- `docker compose -f compose/web.yml build frontend` بیلد بدون خطا و بهینه‌سازی‌شده را ایجاد می‌کند.
+    bash manage.sh start
+    bash manage.sh status
+    bash manage.sh health
+    bash manage.sh deploy
+    bash manage.sh migrate
+    bash manage.sh backup
+    bash manage.sh stop
 
-## امنیت بین‌سروری و فایروال (UFW)
+Alembic head مورد انتظار این checkout:
 
-1. روی سرور مرکزی فایروال UFW را با اسکریپت `scripts/setup_firewall_central.sh` پیکربندی کنید.
-2. با اضافه شدن هر ورکر ریموت جدید، از اسکریپت `scripts/add_worker_firewall.sh <WORKER_IP>` استفاده کنید تا پورت‌های 5432 و 6379 فقط برای همان ورکر باز شوند.
-3. در صورت استفاده از Squidهای پورت 3129 و 3130 روی سرور مرکزی، اسکریپت `scripts/secure_squid_ports.sh` را جهت محدودسازی به لوکال‌هاست اجرا کنید.
+    036_management_tables_and_activity_logs_fix
 
-## فعال‌سازی HTTPS
+مهاجرت‌ها زیر PostgreSQL session-level advisory lock اجرا می‌شوند. تمام مسیرهای
+deploy باید `app.core.database.run_migrations()` را فراخوانی کنند و از Alembic خام
+عبور نکنند. قبل از deploy دارای schema change، backup قابل‌بازیابی الزامی است.
 
-1. پس از صدور و نصب گواهینامه SSL در مسیر `infra/nginx/certs/`:
-2. بخش‌های SSL در `infra/nginx/nginx.conf` را فعال کنید.
-3. مقدار `AUTH_COOKIE_SECURE=true` را در `.env` قرار دهید.
-4. `bash manage.sh deploy` را اجرا نمایید.
+## 6. قرارداد queue بعد از deploy
 
----
+- Worker 1: base queues، صف‌های دارای suffix شماره 1، reconciliation/scheduled
+  base و barpro.fuel.inquiry.
+- Worker 2/3: صف‌های متناظر suffix شماره 2 یا 3 و fuel queue.
+- celery_scheduler: فقط rpa_scheduler.
+- Beat فقط producer periodic taskهاست.
+- concurrency هر Worker RPA برابر 1 است.
 
-*وضعیت: تأییدشده و پایدار (v2.9.2 — 2026-08-20)*
+این موارد با inspect زنده بررسی شوند:
+
+    docker exec barpro-celery-worker-1 celery -A app.workers.celery_app inspect active_queues
+    docker exec barpro-celery-worker-1 celery -A app.workers.celery_app inspect stats
+
+نام دقیق container remote ممکن است متفاوت باشد؛ فرمان را روی هر node با نام
+container همان deployment اجرا کنید.
+
+## 7. اعتبارسنجی پس از deploy
+
+    bash manage.sh status
+    bash manage.sh health
+    docker compose -f compose/backend.yml config
+    docker compose -f compose/web.yml config
+    docker compose -f compose/monitoring.yml config
+    docker ps
+    ss -lntp
+
+سپس موارد زیر ثبت شوند:
+
+1. git SHA و alembic current روی Central و هر Worker؛
+2. نبود celery_worker_2/3 و squid_2/3 روی Central Model B؛
+3. heartbeat و ip_indexهای Worker Registry؛
+4. active queueها و concurrency واقعی هر Worker؛
+5. egress IP واقعی هر Squid؛
+6. دسترسی نداشتن یک IP غیر-worker به 5432/6379/3128–3130؛
+7. پاسخ GET /healthz و پاسخ sanitized مسیر GET /readyz بدون URL یا credential؛
+8. دسترسی admin به GET /api/v1/admin/readyz و /api/system/clean-ips؛
+9. Prometheus targets، Alertmanager و health Grafana/exporterها؛
+10. backlog reconciliation و successهای دارای سه شاهد.
+
+هر موردی که اجرا نشده است با «نیازمند بررسی runtime» گزارش شود.
+
+## 8. HTTPS
+
+در checkout فعلی block مربوط به 443 در Nginx غیرفعال است. عبارت «HTTPS ready»
+به معنی TLS عملیاتی نیست. برای فعال‌سازی:
+
+1. certificate و private key با permission مناسب نصب شوند؛
+2. volume certificate و block listen 443 ssl فعال شوند؛
+3. nginx -t و TLS handshake بیرونی موفق باشند؛
+4. redirect از HTTP به HTTPS فعال و آزمون شود؛
+5. AUTH_COOKIE_SECURE=true تنظیم و login/logout/WebSocket تست شود.
+
+تا تکمیل هر پنج مرحله، deployment باید HTTP-only مستند شود.
+
+## 9. Monitoring
+
+compose/monitoring.yml شامل Prometheus، Alertmanager، Grafana و exporterهای
+node، Redis، PostgreSQL و Nginx است. Prometheus/Alertmanager/exporterها فقط داخل
+شبکه Docker expose می‌شوند و Grafana روی loopback bind است. وجود service در
+Compose اثبات running بودن، scrape موفق یا delivery هشدار نیست.
+
+## 10. معیار موفقیت ثبت
+
+هیچ smoke test نباید نتیجه RPA را مستقیماً success اعلام کند. موفقیت production
+تنها با سه شاهد قرارداد UTCMS معتبر است:
+
+1. tracking code در پاسخ RPA؛
+2. همان code در waybill_jobs.result_json؛
+3. رکورد متناظر در History/Search UTCMS.
+
+جریان ایمن running → unknown → reconciling → success یا needs_review است.
+
+## 11. rollback
+
+- commit قبلی و backup دیتابیس پیش از deploy ثبت شوند.
+- rollback کد با عملیات Git قابل‌بازبینی و سپس bash manage.sh deploy انجام شود.
+- downgrade schema تنها با بررسی migration و طرح restore انجام شود.
+- از git reset --hard و پاک‌سازی destructive در runbook عادی استفاده نشود.
