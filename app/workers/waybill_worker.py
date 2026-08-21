@@ -1086,7 +1086,15 @@ async def _execute_job(
                 runtime_state.auth_lock_acquired_at = None
                 runtime_state.auth_lock_ttl_seconds = None
                 runtime_state.state = DriverRuntimeStateValue.WAITING_SUBMISSION_WINDOW.value
-                retry_at = _utcnow_naive() + timedelta(seconds=utcms_config.GATE_PROBE_INTERVAL_SECONDS)
+                from app.services.night_submission_policy import is_in_night_window, next_reopen_at_utc_naive
+
+                in_night = is_in_night_window()
+                retry_at = next_reopen_at_utc_naive() if in_night else (_utcnow_naive() + timedelta(seconds=utcms_config.GATE_PROBE_INTERVAL_SECONDS))
+                gate_err_msg = (
+                    "در صف آماده‌باش شبانه قرار گرفت؛ ثبت خودکار از ساعت ۰۸:۰۰ صبح فردا انجام می‌شود"
+                    if in_night
+                    else "UTCMS submission gate closed (OTP required or window closed)"
+                )
                 JobStateMachine.transition(
                     session,
                     job,
@@ -1095,7 +1103,7 @@ async def _execute_job(
                     retryable=True,
                     next_retry_at=retry_at,
                     submit_after=retry_at,
-                    last_error="UTCMS submission gate closed (OTP required or window closed)",
+                    last_error=gate_err_msg,
                     error_category="otp_required",
                     updated_at=_utcnow_naive(),
                 )

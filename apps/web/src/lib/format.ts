@@ -55,7 +55,7 @@ export function statusLabel(status: string): string {
     in_progress: 'در حال پردازش ربات',
     retrying: 'در حال تلاش مجدد خودکار',
     waiting_auth: 'در انتظار ورود به سامانه',
-    waiting_submission_window: 'در انتظار بازه ثبت بدون OTP (پایش خودکار)',
+    waiting_submission_window: 'در صف آماده‌باش (شروع ثبت خودکار ۰۸:۰۰ صبح)',
     reconciling: 'در حال تطبیق با سامانه مرکزی',
     unknown: 'نیازمند استعلام وضعیت (نامشخص)',
     otp_backoff: 'توقف موقت (درخواست پیامک OTP)',

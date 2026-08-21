@@ -110,14 +110,23 @@ class ClaimReaper:
                             expected_intent_id=active_intent.intent_id if active_intent else None,
                         )
 
-                    # Transition job to WAITING_RETRY so scheduler can pick it up
+                    # Transition job to WAITING_RETRY (or WAITING_SUBMISSION_WINDOW at night) so scheduler can pick it up
                     try:
+                        from app.services.night_submission_policy import is_in_night_window, next_reopen_at_utc_naive
+
+                        in_night = is_in_night_window()
+                        next_retry = next_reopen_at_utc_naive() if in_night else now
+                        target_status = (
+                            TaskStatus.WAITING_SUBMISSION_WINDOW.value if in_night else TaskStatus.WAITING_RETRY.value
+                        )
+
                         JobStateMachine.transition(
                             session,
                             job,
-                            TaskStatus.WAITING_RETRY.value,
+                            target_status,
                             expected_from={TaskStatus.CLAIMED.value},
-                            next_retry_at=now,
+                            next_retry_at=next_retry,
+                            submit_after=next_retry if in_night else job.submit_after,
                             last_error="Claim reaper: job was in CLAIMED without a live execution or deliverable intent",
                             error_category="system_error",
                         )

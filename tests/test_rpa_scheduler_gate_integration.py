@@ -66,6 +66,7 @@ async def test_scheduler_holds_jobs_when_gate_closed():
             priority=5,
             correlation_id="corr-gate-1",
             idempotency_key="idem-gate-1",
+            submit_after=datetime.now(UTC).replace(tzinfo=None),
         )
 
         # Prime active session

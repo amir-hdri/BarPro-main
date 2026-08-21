@@ -18,6 +18,12 @@ from app.services.rpa_scheduler_service import rpa_scheduler_service
 from app.services.rpa_submit_service import build_job_idempotency_key, classify_submit_response
 
 
+@pytest.fixture(autouse=True)
+def mock_daylight_submission():
+    with patch("app.services.night_submission_policy.is_in_night_window", return_value=False):
+        yield
+
+
 @pytest.mark.asyncio
 async def test_phase1_scheduler_routes_job_to_auth_then_submit():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)

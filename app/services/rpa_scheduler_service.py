@@ -17,7 +17,7 @@ from app.core.business_time import business_date_str
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.core.error_taxonomy import ErrorCategory
-from app.models_multitenant import Driver, DriverStatus, TaskSource, TaskStatus, WaybillJob
+from app.models_multitenant import Driver, DriverStatus, TaskSource, TaskStatus, WaybillJob, WaybillTaskLog
 from app.models_rpa import DomainEvent, DriverDailyCounter, DriverRuntimeState, DriverRuntimeStateValue
 from app.orchestrator.state_machine import JobStateMachine
 from app.rpa.contracts import SchedulerDecision
@@ -61,6 +61,7 @@ class RPASchedulerService:
         priority: int = 5,
         correlation_id: str | None = None,
         idempotency_key: str | None = None,
+        submit_after: datetime | None = None,
     ) -> WaybillJob:
         async with async_session_factory() as session:
             normalized_key = build_job_idempotency_key(client_id, driver.id, payload, supplied=idempotency_key)
@@ -80,9 +81,14 @@ class RPASchedulerService:
 
             from app.services.night_submission_policy import is_in_night_window, next_reopen_at_utc_naive
 
-            in_night = is_in_night_window()
-            submit_after_time = next_reopen_at_utc_naive() if in_night else _utcnow_naive()
-            initial_status = TaskStatus.WAITING_SUBMISSION_WINDOW.value if in_night else TaskStatus.PENDING.value
+            if submit_after is not None:
+                in_night = False
+                submit_after_time = submit_after
+                initial_status = TaskStatus.PENDING.value
+            else:
+                in_night = is_in_night_window()
+                submit_after_time = next_reopen_at_utc_naive() if in_night else _utcnow_naive()
+                initial_status = TaskStatus.WAITING_SUBMISSION_WINDOW.value if in_night else TaskStatus.PENDING.value
 
             job = WaybillJob(
                 job_id=f"job_{uuid.uuid4().hex[:16]}",

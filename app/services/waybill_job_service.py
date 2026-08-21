@@ -384,12 +384,23 @@ class WaybillJobService:
 
             event_payload["force_auth_refresh"] = True
 
+        from app.services.night_submission_policy import is_in_night_window, next_reopen_at_utc_naive
+
+        in_night = is_in_night_window()
+        submit_after_time = next_reopen_at_utc_naive() if in_night else now
+        target_status = TaskStatus.WAITING_SUBMISSION_WINDOW.value if in_night else TaskStatus.PENDING.value
+        log_msg = (
+            "بارنامه مجدداً در صف آماده‌باش شبانه قرار گرفت (شروع ثبت خودکار از ساعت ۰۸:۰۰ صبح)"
+            if in_night
+            else "Job manually requeued for immediate retry"
+        )
+
         JobStateMachine.transition(
             session,
             job,
-            TaskStatus.PENDING.value,
-            submit_after=now,
-            next_retry_at=None,
+            target_status,
+            submit_after=submit_after_time,
+            next_retry_at=submit_after_time if in_night else None,
             finished_at=None,
             started_at=None,
             retryable=True,
@@ -406,7 +417,7 @@ class WaybillJobService:
         session.add(
             DomainEvent(
                 event_id=f"evt_retry_{uuid.uuid4().hex[:24]}",
-                event_type=JOB_RETRY_REQUESTED,
+                event_type=JOB_WAITING_SUBMISSION_WINDOW if in_night else JOB_RETRY_REQUESTED,
                 client_id=job.client_id,
                 driver_id=job.driver_id,
                 job_id=job.job_id,
@@ -418,8 +429,8 @@ class WaybillJobService:
                 job_id=job.job_id,
                 client_id=job.client_id,
                 step="manual_requeue",
-                status="pending",
-                message="Job manually requeued for immediate retry",
+                status=target_status,
+                message=log_msg,
                 details_json=event_payload,
             )
         )
