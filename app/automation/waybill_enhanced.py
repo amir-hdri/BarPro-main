@@ -1853,11 +1853,12 @@ class EnhancedWaybillManager:
             # recovery helper follows the portal's own waybill menu link.
             if not await self._is_waybill_form_ready():
                 await self._ensure_waybill_form_page()
-            try:
-                await self.page.wait_for_load_state("networkidle", timeout=8000)
-            except Exception:
-                await asyncio.sleep(1.0)
-            await self._ensure_waybill_form_page()
+                try:
+                    await self.page.wait_for_load_state("domcontentloaded", timeout=4000)
+                except Exception:
+                    pass
+                if not await self._is_waybill_form_ready():
+                    await self._ensure_waybill_form_page()
             await self._check_account_eligibility()
             await self._wait_for_step_marker(
                 1,

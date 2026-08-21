@@ -204,6 +204,18 @@ class SchedulerService:
                     logger.info(
                         f"Scheduled {scheduled_count} jobs as pending dispatch intents ({skipped} skipped by policy)."
                     )
+                    try:
+                        from app.core.config import utcms_config
+                        from app.workers.celery_app import celery_app
+
+                        if celery_app is not None:
+                            celery_app.send_task(
+                                "orchestrator.dispatcher.run",
+                                queue=utcms_config.RPA_SCHEDULER_QUEUE,
+                                expires=5,
+                            )
+                    except Exception:
+                        pass
                 return scheduled_count
 
             except Exception as e:

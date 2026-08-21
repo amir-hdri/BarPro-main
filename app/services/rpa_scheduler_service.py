@@ -118,6 +118,16 @@ class RPASchedulerService:
                         return existing
                 raise
             await session.refresh(job)
+            try:
+                from app.workers.celery_app import celery_app
+                if celery_app is not None:
+                    celery_app.send_task(
+                        "orchestrator.scheduler.run",
+                        queue=utcms_config.RPA_SCHEDULER_QUEUE,
+                        expires=10,
+                    )
+            except Exception:
+                pass
             return job
 
     async def plan_due_jobs(self, *, persist: bool = True) -> list[SchedulerDecision]:

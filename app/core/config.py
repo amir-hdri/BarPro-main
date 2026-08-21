@@ -363,7 +363,7 @@ class UTCMSConfig:
         self.RPA_SESSION_REFRESH_SKEW_SECONDS = int(os.getenv("RPA_SESSION_REFRESH_SKEW_SECONDS", "300"))
         self.RPA_SCHEDULER_BATCH_SIZE = int(os.getenv("RPA_SCHEDULER_BATCH_SIZE", "200"))
         self.RPA_SCHEDULER_TENANT_SLICE = int(os.getenv("RPA_SCHEDULER_TENANT_SLICE", "20"))
-        self.RPA_SCHEDULER_INTERVAL_SECONDS = int(os.getenv("RPA_SCHEDULER_INTERVAL_SECONDS", "15"))
+        self.RPA_SCHEDULER_INTERVAL_SECONDS = int(os.getenv("RPA_SCHEDULER_INTERVAL_SECONDS", "3"))
         self.RPA_AUTH_QUEUE = os.getenv("RPA_AUTH_QUEUE", "rpa_auth").strip()
         self.RPA_SUBMIT_QUEUE = os.getenv("RPA_SUBMIT_QUEUE", "rpa_submit").strip()
         self.RPA_REFRESH_QUEUE = os.getenv("RPA_REFRESH_QUEUE", "rpa_refresh").strip()

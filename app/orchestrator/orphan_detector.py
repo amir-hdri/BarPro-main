@@ -122,8 +122,7 @@ class OrphanDetector:
                     .where(WaybillJob.updated_at < stale_cutoff)
                     .with_for_update(skip_locked=True)
                 )
-                stale_jobs_res = await session.execute(stale_jobs_stmt)
-                stale_jobs = stale_jobs_res.scalars().all()
+                stale_jobs = (await session.exec(stale_jobs_stmt)).all()
                 for stale_job in stale_jobs:
                     if stale_job.driver_id:
                         await release_driver_execution_slot(session, driver_id=stale_job.driver_id)
