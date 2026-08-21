@@ -44,6 +44,7 @@ class UtcmsHttpBrowserBridge:
         self.timeout = timeout
         self._lock = asyncio.Lock()
         self._session: Any = None
+        self._seeded_cookies: list[dict[str, Any]] = []
 
     async def install(self) -> None:
         await self.page.route("**/*", self._handle_route)
@@ -59,14 +60,41 @@ class UtcmsHttpBrowserBridge:
     async def seed_cookies(self, cookies: list[dict[str, Any]]) -> None:
         """Seed the curl session with cookies obtained by HTTP login."""
         async with self._lock:
+            self._seeded_cookies = [dict(c) for c in cookies if isinstance(c, dict)]
             if self._session is None:
                 self._session = self._new_session()
-            for cookie in cookies:
+            else:
+                for cookie in self._seeded_cookies:
+                    name = str(cookie.get("name") or "").strip()
+                    if not name:
+                        continue
+                    try:
+                        self._session.cookies.set(
+                            name,
+                            str(cookie.get("value") or ""),
+                            domain=cookie.get("domain") or _UTCMS_HOST,
+                            path=cookie.get("path") or "/",
+                        )
+                    except Exception:
+                        logger.debug("http_browser_bridge_seed_cookie_failed", exc_info=True)
+
+    def _new_session(self) -> Any:
+        from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
+
+        proxies = {"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else None
+        session = cc_requests.Session(
+            impersonate="chrome120",
+            proxies=proxies,
+            verify=False,
+            timeout=self.timeout,
+        )
+        if self._seeded_cookies:
+            for cookie in self._seeded_cookies:
                 name = str(cookie.get("name") or "").strip()
                 if not name:
                     continue
                 try:
-                    self._session.cookies.set(
+                    session.cookies.set(
                         name,
                         str(cookie.get("value") or ""),
                         domain=cookie.get("domain") or _UTCMS_HOST,
@@ -74,17 +102,7 @@ class UtcmsHttpBrowserBridge:
                     )
                 except Exception:
                     logger.debug("http_browser_bridge_seed_cookie_failed", exc_info=True)
-
-    def _new_session(self) -> Any:
-        from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
-
-        proxies = {"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else None
-        return cc_requests.Session(
-            impersonate="chrome120",
-            proxies=proxies,
-            verify=False,
-            timeout=self.timeout,
-        )
+        return session
 
     async def _reset_session(self) -> None:
         old, self._session = self._session, None

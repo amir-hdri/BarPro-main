@@ -823,9 +823,14 @@ class UTCMSAuthenticator:
         if not injected:
             logger.warning("auth_http_login_cookie_inject_failed")
             return False
-        bridge = getattr(self.page, "_barpro_http_browser_bridge", None)
-        if bridge is not None:
-            await bridge.seed_cookies(result.cookies)
+        try:
+            from app.automation.http_browser_bridge import ensure_utcms_http_browser_bridge
+
+            bridge = await ensure_utcms_http_browser_bridge(self.page)
+            if bridge is not None:
+                await bridge.seed_cookies(result.cookies)
+        except Exception:
+            logger.debug("auth_http_login_bridge_setup_failed", exc_info=True)
         logger.info(
             "auth_http_login_succeeded",
             extra={
