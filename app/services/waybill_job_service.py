@@ -474,25 +474,29 @@ class WaybillJobService:
         logs = (await session.exec(logs_stmt)).all()
         events = (await session.exec(events_stmt)).all()
 
-        # Calculate progress percent
+        # Calculate progress percent accurately across all TaskStatus values
         progress_percent = 10
-        if job.status == "success":
+        if job.status == TaskStatus.SUCCESS.value:
             progress_percent = 100
-        elif job.status in ("failed", "dead_letter", "needs_review"):
+        elif job.status in (TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.CANCELLED.value):
             progress_percent = 100
-        elif job.status == "processing":
-            progress_percent = min(15 + len(events) * 15 + len(logs) * 10, 95)
-
-        if role == "client":
-            # For client, do not send timeline entries at all
-            return TaskTimelineResponse(
-                job_id=job.job_id,
-                total=0,
-                page=query.page,
-                page_size=query.page_size,
-                entries=[],
-                progress_percent=progress_percent,
-            )
+        elif job.status == TaskStatus.NEEDS_REVIEW.value:
+            progress_percent = 95 if (job.result_json or getattr(job, "mutation_status", None) in ("dispatched", "ambiguous")) else 100
+        elif job.status in (TaskStatus.UNKNOWN.value, TaskStatus.RECONCILING.value):
+            progress_percent = 90
+        elif job.status in (TaskStatus.RUNNING.value, TaskStatus.IN_PROGRESS.value):
+            progress_percent = min(50 + len(logs) * 10, 90)
+        elif job.status in (TaskStatus.QUEUED.value, TaskStatus.CLAIMED.value):
+            progress_percent = 25
+        elif job.status in (
+            TaskStatus.WAITING_AUTH.value,
+            TaskStatus.WAITING_RETRY.value,
+            TaskStatus.WAITING_SUBMISSION_WINDOW.value,
+            TaskStatus.OTP_BACKOFF.value,
+        ):
+            progress_percent = 15
+        else:
+            progress_percent = 10
 
         # Build detailed timeline entries for admin
         entries: list[TaskTimelineEntry] = []

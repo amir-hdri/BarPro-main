@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-hot-toast';
 
 import { AppShell } from '@/components/layout/AppShell';
@@ -442,6 +442,41 @@ export default function HistoryPage() {
       }
     }
   }, [role, activeCategory, loadJobs, loadFuelInquiries]);
+
+  // Auto-refresh when jobs or fuel inquiries are in active/in-progress states
+  const hasActiveItems = useMemo(() => {
+    if (activeCategory === 'waybills') {
+      const activeStatuses = new Set([
+        'pending',
+        'queued',
+        'claimed',
+        'running',
+        'in_progress',
+        'waiting_auth',
+        'waiting_retry',
+        'waiting_submission_window',
+        'otp_backoff',
+        'unknown',
+        'reconciling',
+      ]);
+      return jobs.some((j) => activeStatuses.has(j.status));
+    } else {
+      return fuelInquiries.some((f) => ['pending', 'processing', 'running'].includes(f.status));
+    }
+  }, [activeCategory, jobs, fuelInquiries]);
+
+  useEffect(() => {
+    if (!hasActiveItems) return;
+    const interval = setInterval(() => {
+      if (activeCategory === 'waybills') {
+        void loadJobs();
+        if (selectedJobId) void loadTimeline(selectedJobId);
+      } else {
+        void loadFuelInquiries();
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [hasActiveItems, activeCategory, loadJobs, selectedJobId, loadTimeline, loadFuelInquiries]);
 
   const handleApplyFilters = (e: React.FormEvent) => {
     e.preventDefault();
@@ -986,13 +1021,19 @@ export default function HistoryPage() {
                       {/* Robot Progress Chart */}
                       <JobProgressChart
                         progress={
-                          timeline?.progress_percent ||
+                          timeline?.progress_percent ??
                           (selectedJob.status === 'success'
                             ? 100
-                            : selectedJob.status === 'in_progress'
+                            : selectedJob.status === 'in_progress' || selectedJob.status === 'running'
                             ? 60
-                            : selectedJob.status === 'failed'
-                            ? 40
+                            : selectedJob.status === 'unknown' || selectedJob.status === 'reconciling'
+                            ? 90
+                            : selectedJob.status === 'queued' || selectedJob.status === 'claimed'
+                            ? 25
+                            : selectedJob.status === 'needs_review'
+                            ? 95
+                            : selectedJob.status === 'failed' || selectedJob.status === 'dead_letter'
+                            ? 100
                             : 15)
                         }
                         status={selectedJob.status}
