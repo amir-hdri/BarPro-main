@@ -1557,10 +1557,15 @@ async def _execute_job(
                     except Exception:
                         logger.warning("failed_to_clear_auth_lock_columns_db", exc_info=True)
 
-                if driver_lock_acquired:
-                    await rpa_runtime.release_lock(rpa_runtime.submit_lock_key(cached_client_id, cached_driver_id))
-                if auth_lock_acquired:
-                    await rpa_runtime.release_lock(rpa_runtime.auth_lock_key(cached_client_id, cached_driver_id))
+                if cached_client_id and cached_driver_id:
+                    try:
+                        await rpa_runtime.release_lock(rpa_runtime.submit_lock_key(cached_client_id, cached_driver_id))
+                    except Exception:
+                        pass
+                    try:
+                        await rpa_runtime.release_lock(rpa_runtime.auth_lock_key(cached_client_id, cached_driver_id))
+                    except Exception:
+                        pass
             await session.close()
 
 
