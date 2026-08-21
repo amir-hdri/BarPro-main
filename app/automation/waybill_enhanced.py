@@ -2260,6 +2260,10 @@ class EnhancedWaybillManager:
                     self._redact_url(page_url),
                     len(page_html),
                 )
+                if "قادر به پاسخگویی نمی باشد" in page_html or "چند دقیقه دیگر مجدداً تلاش نمایید" in page_html:
+                    raise WaybillError("سامانه بارنامه موقتاً در حال به‌روزرسانی یا خارج از دسترس است (پاسخ سرور: قادر به پاسخگویی نمی باشد)")
+            except WaybillError:
+                raise
             except Exception:
                 logger.debug("waybill_form_diagnostics_failed", exc_info=True)
             raise WaybillError("فرم بارنامه پس از بازیابی در دسترس نیست")

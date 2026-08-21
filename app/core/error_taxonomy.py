@@ -49,7 +49,15 @@ def classify_exception(error: Exception) -> tuple[ErrorCategory, bool]:
             return ErrorCategory.CAPTCHA_EXHAUSTION, False
         if "selector" in text:
             return ErrorCategory.SELECTOR_CHANGED, False
-        if "timeout" in text or is_retryable_network_error(error):
+        if (
+            "timeout" in text
+            or "قادر به پاسخگویی" in text
+            or "خارج از دسترس" in text
+            or "به‌روزرسانی" in text
+            or "408" in text
+            or "در دسترس نیست" in text
+            or is_retryable_network_error(error)
+        ):
             return ErrorCategory.TARGET_SITE_TIMEOUT, True
         if "field" in text or "validation" in text or "form" in text:
             return ErrorCategory.USER_DATA_ERROR, False
