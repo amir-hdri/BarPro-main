@@ -2070,10 +2070,30 @@ class EnhancedWaybillManager:
     async def _ensure_waybill_form_page(self):
         """
         In some deployments, the configured create URL lands on a not-found shell page.
-        Try to discover and open the real "حمل بارنامه" page from the side menu.
+        Try to discover and open the real "حمل بارنامه" page directly or from the side menu.
         """
         if await self._is_waybill_form_ready():
             return
+
+        current_url = await self._current_url()
+
+        # 1. Direct navigation to canonical waybill form endpoints first
+        canonical_urls = (
+            "https://barname.utcms.ir/barname/Document/HagigiHogugi",
+            "https://barname.utcms.ir/Barname/Document/HagigiHogugi",
+            "https://barname.utcms.ir/barname/Document/Create",
+            "https://barname.utcms.ir/Barname/Document/Create",
+        )
+        for cand_url in canonical_urls:
+            if cand_url.lower() != current_url.lower():
+                try:
+                    await self._goto_with_retry(cand_url, wait_until="domcontentloaded")
+                    await asyncio.sleep(0.3)
+                    if await self._is_waybill_form_ready():
+                        logger.info("waybill_form_reached_via_direct_url", extra={"extra_fields": {"url": cand_url}})
+                        return
+                except Exception:
+                    pass
 
         current_url = await self._current_url()
         if await self._looks_like_not_found_page():
