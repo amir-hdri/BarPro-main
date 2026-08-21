@@ -2159,8 +2159,12 @@ class EnhancedWaybillManager:
                 pass
 
         menu_selectors = (
+            "a:has-text('بارنامه حقیقی / حقوقی')",
+            "a:has-text('بارنامه حقیقی')",
+            "a:has-text('حقیقی / حقوقی')",
             "a[href*='HagigiHogugi' i]",
             "a[href*='Document/HagigiHogugi' i]",
+            "a[href*='/barname/Document/HagigiHogugi' i]",
             "a:has-text('صدور بارنامه')",
             "a:has-text('ایجاد بارنامه')",
             "a:has-text('حمل بارنامه')",
