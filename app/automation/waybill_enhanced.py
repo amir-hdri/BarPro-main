@@ -2129,26 +2129,22 @@ class EnhancedWaybillManager:
                 except Exception:
                     continue
 
+        current_url = await self._current_url()
+
+        # Try fast direct query for HagigiHogugi link on the current page
         try:
-            menu_links = await self.page.eval_on_selector_all(
-                "a",
-                "els => els.map(e => ({text:(e.innerText||'').trim(), href:(e.getAttribute('href')||'').trim()}))",
-            )
-            interesting = [
-                item
-                for item in menu_links
-                if ("بارنامه" in item.get("text", "")) or ("Waybill" in item.get("href", ""))
-            ]
-            logger.info(
-                "waybill_menu_links_discovered",
-                extra={"extra_fields": {"url": current_url, "links": interesting[:20]}},
-            )
-            if any("درخواست دسترسی" in item.get("text", "") for item in interesting):
-                raise WaybillError("حساب کاربری به ماژول صدور بارنامه دسترسی ندارد")
-        except WaybillError:
-            raise
+            hagigi_link = await self.page.query_selector("a[href*='HagigiHogugi' i], a:has-text('بارنامه حقیقی')")
+            if hagigi_link:
+                href = await hagigi_link.get_attribute("href")
+                if href and not href.strip().startswith(("#", "javascript:")):
+                    target = urljoin(current_url, href)
+                    await self._goto_with_retry(target, wait_until="domcontentloaded")
+                    await asyncio.sleep(0.3)
+                    if await self._is_waybill_form_ready():
+                        logger.info("waybill_form_reached_via_page_link", extra={"extra_fields": {"url": target}})
+                        return
         except Exception:
-            logger.warning("waybill_enhanced_silent_error", exc_info=True)
+            pass
 
         # Ensure sidebar/menu is expanded if collapsed
         try:

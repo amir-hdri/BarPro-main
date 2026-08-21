@@ -20,7 +20,22 @@ from app.core.config import utcms_config
 logger = logging.getLogger(__name__)
 
 _UTCMS_HOST = "barname.utcms.ir"
-_REQUEST_DROP_HEADERS = {"connection", "content-length", "host", "proxy-connection"}
+_REQUEST_DROP_HEADERS = {
+    "connection",
+    "content-length",
+    "host",
+    "proxy-connection",
+    "cookie",
+    "user-agent",
+    "sec-ch-ua",
+    "sec-ch-ua-mobile",
+    "sec-ch-ua-platform",
+    "sec-ch-ua-model",
+    "sec-ch-ua-arch",
+    "sec-ch-ua-bitness",
+    "sec-ch-ua-full-version",
+    "sec-ch-ua-full-version-list",
+}
 _RESPONSE_DROP_HEADERS = {
     "connection",
     "content-encoding",
@@ -87,6 +102,22 @@ class UtcmsHttpBrowserBridge:
             proxies=proxies,
             verify=False,
             timeout=self.timeout,
+        )
+        session.headers.update(
+            {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9,fa;q=0.8",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "same-origin",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1",
+            }
         )
         if self._seeded_cookies:
             for cookie in self._seeded_cookies:
