@@ -1,8 +1,8 @@
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.core.database import async_session_factory
 from app.models_multitenant import TaskStatus, WaybillJob
@@ -114,9 +114,40 @@ class OrphanDetector:
                             },
                         )
 
+                # Sweep any orphaned WaybillJob in RUNNING/IN_PROGRESS that had no updates for > 10m
+                stale_cutoff = now - timedelta(minutes=10)
+                stale_jobs_stmt = (
+                    select(WaybillJob)
+                    .where(col(WaybillJob.status).in_([TaskStatus.RUNNING.value, TaskStatus.IN_PROGRESS.value]))
+                    .where(WaybillJob.updated_at < stale_cutoff)
+                    .with_for_update(skip_locked=True)
+                )
+                stale_jobs_res = await session.execute(stale_jobs_stmt)
+                stale_jobs = stale_jobs_res.scalars().all()
+                for stale_job in stale_jobs:
+                    if stale_job.driver_id:
+                        await release_driver_execution_slot(session, driver_id=stale_job.driver_id)
+                    try:
+                        JobStateMachine.transition(
+                            session,
+                            stale_job,
+                            TaskStatus.FAILED.value,
+                            last_error="عملیات به دلیل عدم پاسخگویی ورکر منقضی شد",
+                            error_category="worker_execution_timeout",
+                            finished_at=now,
+                            retryable=True,
+                        )
+                        orphaned_count += 1
+                        logger.warning(
+                            "stale_job_cleaned_by_orphan_detector",
+                            extra={"extra_fields": {"job_id": stale_job.job_id}},
+                        )
+                    except Exception as clean_err:
+                        logger.warning("stale_job_cleanup_failed", extra={"extra_fields": {"error": str(clean_err)}})
+
                 await session.commit()
                 if orphaned_count > 0:
-                    logger.warning(f"OrphanDetector marked {orphaned_count} executions as orphaned.")
+                    logger.warning(f"OrphanDetector marked {orphaned_count} executions/jobs as orphaned.")
                 return orphaned_count
 
             except Exception as e:
