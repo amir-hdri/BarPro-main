@@ -235,6 +235,10 @@ class UtcmsHttpLogin:
         if not username or not password:
             return HttpLoginResult(success=False, error="نام کاربری یا رمز عبور خالی است")
 
+        _digit_map = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+        username = str(username).translate(_digit_map).strip()
+        password = str(password).translate(_digit_map).strip()
+
         captcha_attempts_left = max(1, getattr(utcms_config, "CAPTCHA_AUTO_MAX_ATTEMPTS", 3))
         last_result: HttpLoginResult | None = None
         rate_limit_retries_left = 3
