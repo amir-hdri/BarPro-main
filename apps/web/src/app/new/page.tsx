@@ -28,6 +28,7 @@ import { ProvinceCitySelect } from "@/components/ProvinceCitySelect";
 import { SmartAddressInput } from "@/components/SmartAddressInput";
 import { LocationMapPicker } from "@/components/LocationMapPicker";
 import { FavoriteLocationPicker } from "@/components/FavoriteLocationPicker";
+import { RouteDistanceBadge } from "@/components/RouteDistanceBadge";
 import { ProgressBar } from "@/components/ProgressBar";
 import { api } from "@/lib/api";
 import { canonicalizePlate, normalizeDigits } from "@/lib/plate";
@@ -1002,6 +1003,12 @@ export default function NewWaybillPage() {
                       />
                     </Field>
                   </div>
+
+                  {/* فاصله و زمان تخمینی مسیر (مبدأ → مقصد) */}
+                  <RouteDistanceBadge
+                    originCoords={originCoords}
+                    destinationCoords={destinationCoords}
+                  />
                 </>
               )}
 

@@ -511,3 +511,109 @@ export interface ClientDetail {
     success_rate: number;
   }>;
 }
+
+// ─── Multi-route + distance/time feature ────────────────────────────────────
+
+export interface WaybillRouteTemplate {
+  id: number;
+  client_id: number;
+  name: string;
+  origin_province?: string | null;
+  origin_city?: string | null;
+  origin_address?: string | null;
+  origin_lat?: number | null;
+  origin_lng?: number | null;
+  dest_province?: string | null;
+  dest_city?: string | null;
+  dest_address?: string | null;
+  dest_lat?: number | null;
+  dest_lng?: number | null;
+  distance_km?: number | null;
+  duration_min?: number | null;
+  is_favorite: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RouteTemplateCreateRequest {
+  name: string;
+  origin_province?: string;
+  origin_city?: string;
+  origin_address?: string;
+  origin_lat?: number;
+  origin_lng?: number;
+  dest_province?: string;
+  dest_city?: string;
+  dest_address?: string;
+  dest_lat?: number;
+  dest_lng?: number;
+  is_favorite?: boolean;
+}
+
+export interface RouteTemplateUpdateRequest {
+  name?: string;
+  origin_province?: string | null;
+  origin_city?: string | null;
+  origin_address?: string | null;
+  origin_lat?: number | null;
+  origin_lng?: number | null;
+  dest_province?: string | null;
+  dest_city?: string | null;
+  dest_address?: string | null;
+  dest_lat?: number | null;
+  dest_lng?: number | null;
+  is_favorite?: boolean | null;
+}
+
+export interface DistanceRequest {
+  origin_lat: number;
+  origin_lng: number;
+  dest_lat: number;
+  dest_lng: number;
+}
+
+export interface DistanceResponse {
+  distance_km: number;
+  duration_min: number;
+  distance_text: string;
+  duration_text: string;
+  source: string;
+}
+
+export interface BatchCreateRequest {
+  driver_id: number;
+  name?: string;
+  route_template_ids: number[];
+  base_payload_json: Record<string, unknown>;
+  target_count?: number;
+  repeat_mode?: 'round_robin' | 'random' | 'sequential';
+  interval_minutes?: number;
+  priority?: number;
+}
+
+export interface WaybillBatch {
+  id: number;
+  client_id: number;
+  idempotency_key?: string | null;
+  driver_id?: number | null;
+  name?: string | null;
+  route_template_ids: number[];
+  base_payload_json?: Record<string, unknown> | null;
+  target_count: number;
+  repeat_mode: string;
+  interval_minutes: number;
+  status: string;
+  progress: { completed: number; failed: number; today: number };
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BatchProgressResponse {
+  batch_id: number;
+  target: number;
+  completed: number;
+  failed: number;
+  today: number;
+  progress_percent: number;
+  status: string;
+}

@@ -14,6 +14,8 @@ import {
   Building2,
   Settings,
   X,
+  Route,
+  Layers,
 } from 'lucide-react';
 
 import { useSession } from '@/hooks/useSession';
@@ -21,6 +23,8 @@ import { useSession } from '@/hooks/useSession';
 const clientNavigation = [
   { href: '/', icon: Home, label: 'داشبورد', badge: null },
   { href: '/new', icon: FilePlus2, label: 'ثبت بارنامه', badge: 'جدید' },
+  { href: '/batches', icon: Layers, label: 'ثبت دسته‌ای', badge: 'چندمسیره' },
+  { href: '/route-templates', icon: Route, label: 'قالب‌های مسیر', badge: null },
   { href: '/fuel', icon: Flame, label: 'استعلام سوخت', badge: null },
   { href: '/history', icon: Clock, label: 'پیگیری کارها', badge: null },
   { href: '/drivers', icon: Truck, label: 'رانندگان', badge: null },

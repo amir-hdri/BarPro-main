@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import type { BatchCreateRequest, WaybillBatch } from './types';
 
 export const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || 'utcms_auth_token';
 
@@ -191,6 +192,36 @@ export async function patch<T = unknown>(
 export async function del<T = unknown>(path: string, options?: RequestOptions): Promise<ApiResponse<T>> {
   try {
     const res = await axiosClient.delete<T>(path, { signal: options?.signal });
+    return { data: res.data, success: true };
+  } catch (e: unknown) {
+    const axiosError = e as { response?: { data?: unknown } };
+    const payload = axiosError?.response?.data ?? e;
+    return { error: extractErrorMessage(payload), success: false };
+  }
+}
+
+// ─── Multi-route batch helpers ───────────────────────────────────────────────
+
+export function generateIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `idem-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Create a multi-route batch. Sends an `X-Idempotency-Key` header so retrying
+ * the same logical request returns the already-created batch instead of duplicating.
+ */
+export async function createBatch(
+  body: BatchCreateRequest,
+  idempotencyKey?: string
+): Promise<ApiResponse<WaybillBatch>> {
+  const key = idempotencyKey || generateIdempotencyKey();
+  try {
+    const res = await axiosClient.post<WaybillBatch>('/api/v1/batches', body, {
+      headers: { 'X-Idempotency-Key': key },
+    });
     return { data: res.data, success: true };
   } catch (e: unknown) {
     const axiosError = e as { response?: { data?: unknown } };
