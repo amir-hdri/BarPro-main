@@ -145,6 +145,11 @@ def classify_error_string(
         or "target_site" in text
         or "network" in text
         or "timeout" in text
+        or "قادر به پاسخگویی" in text
+        or "خارج از دسترس" in text
+        or "به‌روزرسانی" in text
+        or "در دسترس نیست" in text
+        or "408" in text
         or "system_error" in cat_hint
         or "destination_error" in cat_hint
         or "service" in cat_hint

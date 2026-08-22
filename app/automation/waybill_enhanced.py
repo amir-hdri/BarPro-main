@@ -2092,6 +2092,16 @@ class EnhancedWaybillManager:
                     if await self._is_waybill_form_ready():
                         logger.info("waybill_form_reached_via_direct_url", extra={"extra_fields": {"url": cand_url}})
                         return
+                    try:
+                        page_text = await self.page.text_content("body") or ""
+                        if "قادر به پاسخگویی نمی باشد" in page_text or "چند دقیقه دیگر مجدداً تلاش نمایید" in page_text:
+                            raise WaybillError("سامانه بارنامه موقتاً در حال به‌روزرسانی یا خارج از دسترس است (پاسخ سرور: سرور در حال حاضر قادر به پاسخگویی نمی باشد)")
+                    except WaybillError:
+                        raise
+                    except Exception:
+                        pass
+                except WaybillError:
+                    raise
                 except Exception:
                     pass
 
