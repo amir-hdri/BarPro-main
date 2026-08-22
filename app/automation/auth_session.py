@@ -16,8 +16,10 @@ from app.core.config import utcms_config
 
 logger = logging.getLogger(__name__)
 
-SESSION_STATE_FILE = "utcms_session_state.json"
 AUTH_KEYWORDS = (
+    "barname",
+    "applicationtoken",
+    "cookiesession1",
     "auth",
     "session",
     "sessionid",

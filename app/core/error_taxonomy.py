@@ -175,27 +175,25 @@ def classify_error_string(
     return ErrorCategory.UNKNOWN_AUTOMATION_ERROR
 
 
-# Error categories that are safe to retry from terminal states (FAILED/NEEDS_REVIEW).
-# These represent transient/infrastructure issues, NOT data integrity or submission confirmation issues.
 RETRYABLE_TERMINAL_CATEGORIES: frozenset[ErrorCategory] = frozenset(
     {
         ErrorCategory.TARGET_SITE_TIMEOUT,
         ErrorCategory.TRANSIENT_INFRA_ERROR,
         ErrorCategory.WORKER_RESOURCE_ERROR,
         ErrorCategory.CAPTCHA_EXHAUSTION,
+        ErrorCategory.UNKNOWN_AUTOMATION_ERROR,
+        ErrorCategory.AUTH_FAILURE,
+        ErrorCategory.SELECTOR_CHANGED,
+        ErrorCategory.BOT_DETECTED,
     }
 )
 
 # Error categories that should NEVER be retried directly from terminal states.
-# These require reconciliation, admin review, or data correction.
+# These require reconciliation, admin review, or user data correction.
 NON_RETRYABLE_TERMINAL_CATEGORIES: frozenset[ErrorCategory] = frozenset(
     {
         ErrorCategory.SUBMISSION_UNCONFIRMED,
         ErrorCategory.USER_DATA_ERROR,
-        ErrorCategory.AUTH_FAILURE,
-        ErrorCategory.SELECTOR_CHANGED,
-        ErrorCategory.BOT_DETECTED,
-        ErrorCategory.UNKNOWN_AUTOMATION_ERROR,
     }
 )
 
