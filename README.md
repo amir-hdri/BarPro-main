@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="https://img.shields.io/badge/Status-Hardened%20v2.9.2-success?style=for-the-badge" alt="Status" />
-  <img src="https://img.shields.io/badge/Version-2.9.2-blue?style=for-the-badge" alt="Version" />
-  <img src="https://img.shields.io/badge/Tests-894%20passed%20%7C%203%20skipped-brightgreen?style=for-the-badge" alt="Tests" />
+  <img src="https://img.shields.io/badge/Status-Hardened%20v2.9.3-success?style=for-the-badge" alt="Status" />
+  <img src="https://img.shields.io/badge/Version-2.9.3-blue?style=for-the-badge" alt="Version" />
+  <img src="https://img.shields.io/badge/Tests-989%20tests-brightgreen?style=for-the-badge" alt="Tests" />
   <img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge" alt="License" />
 </div>
 
@@ -51,6 +51,13 @@
 - **Multi-Source Aggregator:** Automatically harvests and validates live Iranian proxies against `https://utcms.ir`
 - **Dynamic Hybrid Routing:** Transparent failover between Worker local Squids and dynamic clean proxies
 - **Zero IP Restriction:** Eliminates egress IP bottlenecks for robust waybill registration and fuel quota inquiries
+
+### 🚚 Multi-Route Waybill Registration (Distance/Time)
+- **Route Templates:** Save reusable origin→destination routes with precomputed road distance and duration (`/api/v1/route-templates`)
+- **Multi-Route Batches:** Expand N routes × target count into concrete jobs with round-robin / random / sequential modes (`/api/v1/batches`)
+- **Road Distance/Time:** `POST /api/v1/locations/distance` resolves distance via Neshan routing with Redis cache and a local haversine fallback
+- **100% Accuracy Gate:** Batch creation validates every payload against the live worker contract, returning exact missing fields as 422 instead of silent `NEEDS_REVIEW`
+- **Anti-Spam Interval:** Jobs are staggered via `submit_after` so `interval_minutes` is enforced by the scheduler
 
 ### 🤖 Advanced RPA Engine
 - **Human-like Behavior:** Sophisticated simulation of human interactions (typing delays, parabolic mouse movements) to bypass WAFs and anti-bot mechanisms
@@ -205,7 +212,7 @@ Latest validated development gate: 0 failed; environment-dependent tests may ski
 
 ### Alembic Migration Head
 ```
-036_management_tables_and_activity_logs_fix
+038_add_multiroute_batch_distance
 ```
 
 ### Required ML Assets
@@ -216,7 +223,7 @@ Latest validated development gate: 0 failed; environment-dependent tests may ski
 
 ### Remaining Server-Side Actions
 - [ ] Install Let's Encrypt cert → uncomment `listen 443` in nginx.conf → set `AUTH_COOKIE_SECURE=true`
-- [ ] Run `bash manage.sh migrate` on production DB (applies all migrations through 036)
+- [ ] Run `bash manage.sh migrate` on production DB (applies all migrations through 038)
 - [ ] Run `sudo bash scripts/secure_squid_ports.sh` (lock down Squid 3129/3130)
 - [ ] Add to crontab: `@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh`
 
@@ -253,7 +260,7 @@ BarPro/
 ├── compose/                # Docker Compose layered files
 ├── infra/                  # Nginx, Squid, Prometheus configs
 ├── alembic/                # Database migrations
-├── tests/                  # Pytest test suite (646 tests)
+├── tests/                  # Pytest test suite (989 tests)
 ├── scripts/                # Utility and deploy scripts
 ├── CRITICAL_RULES.md       # ⚠️ خطوط قرمز و قوانین حیاتی
 ├── AGENTS.md               # AI agent guide
@@ -303,7 +310,7 @@ BarPro/
 - JWT در کوکی httpOnly — امنیت بالا در برابر XSS
 - Rate Limiter fail-closed — بسته شدن در صورت قطع Redis
 - بازیابی خودکار jobهای stuck
-- هدف: 0 شکست (646 تست collect می‌شود)
+- هدف: 0 شکست (989 تست collect می‌شود)
 
 ### راه‌اندازی سریع
 ```bash

@@ -146,7 +146,7 @@ This file tracks the completion status of the phases defined in [BarPro_Unified_
   - 889 passed tests, 3 skipped (892 collected).
   - Clean TypeScript typecheck (`tsc --noEmit`) and zero ESLint warnings.
 
-### Universal Mobile Anti-Zoom, UI/UX Hardening & Full-Stack Taxonomy Sync (Completed: 2026-08-20 — v2.9.2)
+### Universal Mobile Anti-Zoom, UI/UX Hardening & Full-Stack Taxonomy Sync (Completed: 2026-08-20 — v2.9.3)
 - **Universal Mobile Ergonomics & Anti-Zoom (iOS & Android)**:
   - Locked viewport scale in `apps/web/src/app/layout.tsx` (`width: device-width`, `initialScale: 1`, `maximumScale: 1`, `userScalable: false`, `viewportFit: cover`).
   - Enforced minimum font size `font-size: 16px !important` on all inputs/selects/textareas for screens `< 768px` in `apps/web/src/app/globals.css` to prevent automatic zoom on focus across iOS Safari, Chrome Android, Samsung Internet, and Firefox Mobile.

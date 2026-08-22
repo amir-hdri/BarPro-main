@@ -6,7 +6,7 @@
 >
 > commit نهایی remediation: هنگام release باید جایگزین شود
 >
-> Alembic head مبنا: 036_management_tables_and_activity_logs_fix
+> Alembic head مبنا: 038_add_multiroute_batch_distance
 >
 > جایگزین tracked برای knowledge graph خارجی قبلی
 >
@@ -322,7 +322,7 @@ ManagedSyncLog زیرسیستم management را پشتیبانی می‌کنند
 ### 6.5. Migration
 
 - CODE-VERIFIED: head مستند این بازبینی
-  036_management_tables_and_activity_logs_fix است.
+  038_add_multiroute_batch_distance است.
 - VERIFIED-CODE: migration startup زیر PostgreSQL session-level advisory lock با
   `MIGRATION_ADVISORY_LOCK_ID = 0x42415250524F` و timeout قابل تنظیم انجام می‌شود؛
   اجرای raw Alembic در مسیرهای deploy ممنوع است.

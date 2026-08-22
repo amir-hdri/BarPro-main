@@ -85,7 +85,9 @@ Squid محلی داشته باشد. مقادیر `AVAILABLE_IP_INDICES` و profi
 | Waybill jobs | `/api/v1/waybill-jobs` | create/list/get/patch/delete و زیرمسیرهای retry/requeue/timeline/logs/screenshot |
 | Fuel inquiry | `/api/v1/fuel-inquiries` | queue مستقل سوخت |
 | Bulk upload | `/api/v1/upload/*` | Excel/batch tracking |
-| Locations | `/api/v1/locations/*` | قرارداد مکان |
+| Locations | `/api/v1/locations/*`, `POST /api/v1/locations/distance` | قرارداد مکان + فاصله/زمان جاده‌ای (Neshan → haversine) |
+| Route templates | `/api/v1/route-templates` | قالب مسیر + favorite (tenant-scoped) |
+| Multi-route batches | `/api/v1/batches` | ایجاد دستهٔ چندمسیره + پیشرفت؛ idempotent با `X-Idempotency-Key` |
 | Phase-1/legacy operations | `/api/v1/rpa/phase1/*`, `/management/*`, `/waybill/*` | سطح دسترسی هر route از dependency کد تعیین می‌شود |
 | Clean IP operations | `/api/system/clean-ips`, `/api/system/clean-ips/refresh` | admin-protected و بدون افشای credential |
 | Realtime | `WS /ws/waybill` | auth فقط از cookie؛ فیلترهای `task_id`, `batch_id`, `correlation_id` |
@@ -208,7 +210,9 @@ primary key اشتباه شوند.
 | aggregate | فیلدها/نقش‌های مهم |
 |---|---|
 | `Client`, `Driver`, `DriverPlate`, `DriverSchedule` | tenant و fleet ownership |
-| `WaybillJob` | `payload_json`, `result_json`, `attempt_count`, `next_retry_at`, `request_digest`, `mutation_status`, `reconciled_at`, `celery_task_id` |
+| `WaybillJob` | `payload_json`, `result_json`, `attempt_count`, `next_retry_at`, `submit_after`, `request_digest`, `mutation_status`, `reconciled_at`, `celery_task_id` + multi-route: `batch_id`, `route_template_id`, `sequence_index`, `distance_km`, `duration_min` |
+| `WaybillRouteTemplate` | مسیر ذخیره‌شده مبدأ→مقصد با `distance_km`/`duration_min` پیش‌محاسبه‌شده |
+| `WaybillBatch` | دستهٔ چندمسیره: `route_template_ids`, `base_payload_json`, `target_count`, `repeat_mode`, `interval_minutes`, `idempotency_key` |
 | `FuelInquiry` | status، `quota_data_json`، `screenshot_url` که می‌تواند Data URI باشد؛ tracking code مستقیم ندارد |
 | `UploadBatch` | وضعیت ingest گروهی و خطاهای batch |
 | `DispatchIntent` | intent پایدار dispatch، attempt و fencing token |

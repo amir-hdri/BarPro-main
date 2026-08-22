@@ -738,6 +738,34 @@ docker compose -f compose/web.yml up -d
 
 ---
 
+## ۷.۵ قابلیت چندمسیره + فاصله/زمان (Implemented — v2.9.3، 2026-08-23)
+
+> این بخش خارج از فازهای ۰–۱۳ است و به‌عنوان یک قابلیت تکمیل‌شده ثبت می‌شود.
+
+### هدف
+ثبت بارنامه به‌صورت چندمسیره: تعریف چند مسیر (مبدأ→مقصد)، سپس گسترش آن‌ها به تعداد دلخواه بارنامه با رعایت فاصلهٔ زمانی ضد اسپم.
+
+### اجزای پیاده‌سازی‌شده
+| مؤلفه | مسیر / جدول |
+|---|---|
+| قالب مسیر | `waybill_route_template` (+ `app/services/route_template_service.py`) |
+| دستهٔ چندمسیره | `waybill_batch` (+ `app/services/batch_service.py`) |
+| سرویس فاصله/زمان | `app/services/distance_service.py` (Neshan → Redis → haversine) |
+| migration | `038_add_multiroute_batch_distance` |
+| API | `POST /api/v1/locations/distance`، `/api/v1/route-templates`، `/api/v1/batches` |
+| تنظیمات | `NESHAN_API_KEY` / `NESHAN_TIMEOUT_SECONDS` / `NESHAN_CACHE_TTL_SECONDS` |
+
+### نکات کلیدی صحت (تفاوت با نسخهٔ اولیهٔ پیشنهادی)
+- PK ها `int` هستند (نه UUID)؛ `job_id` و `idempotency_key` رشته‌ای unique تولید می‌شوند.
+- payload کامل `WaybillMapRequest`-سازگار ساخته می‌شود (sender/receiver/cargo/vehicle + origin/destination تودرتو).
+- **دقت ۱۰۰٪:** ایجاد دسته، payload ادغام‌شده را با `validate_enhanced_waybill_payload` اعتبارسنجی می‌کند و کد ملی/پلاک راننده از `Driver`/`DriverPlate` غنی‌سازی می‌شود.
+- فاصلهٔ زمانی با `submit_after` پلکانی می‌شود (نه `next_retry_at`)، تا `plan_due_jobs` آن را رعایت کند.
+- `driver_id` اجباری است (job بدون راننده توسط `plan_due_jobs` دیده نمی‌شود).
+
+### مستندات مرتبط
+- `docs/MULTI_ROUTE_FEATURE.md`
+
+
 ## ۸. نمودار وابستگی و ترتیب اجرا
 
 ```

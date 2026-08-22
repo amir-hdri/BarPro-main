@@ -2,7 +2,33 @@
   
   All notable changes to the UTCMS Automation System.
 
-  ## [2.9.2] - 2026-08-20
+  ## [2.9.3] - 2026-08-23
+
+### Added — Multi-Route Waybill Registration (Route Templates, Batches & Distance/Time)
+- **Route templates** (`waybill_route_template`): save reusable origin→destination routes with precomputed road distance and duration; CRUD + favorite endpoints under `/api/v1/route-templates`.
+- **Multi-route batches** (`waybill_batch`): expand N route templates × target count into concrete `waybill_jobs` with round-robin / random / sequential repeat modes; endpoints under `/api/v1/batches`.
+- **Distance/time service**: `POST /api/v1/locations/distance` resolves road distance and duration via Neshan routing API with Redis cache and a local haversine fallback (no external call when `NESHAN_API_KEY` is unset).
+- **Migration `038_add_multiroute_batch_distance`**: creates the two tables, adds `batch_id`, `route_template_id`, `sequence_index`, `distance_km`, `duration_min` to `waybill_jobs`, with matching foreign keys and indexes.
+- **100% registration accuracy gate**: batch creation validates every route's province/city/address and the base payload against the live worker contract (`validate_enhanced_waybill_payload`), returning a 422 with the exact missing fields instead of silently failing to `NEEDS_REVIEW` at runtime.
+- **Interval enforcement**: jobs are staggered via `submit_after` (not `next_retry_at`) so `plan_due_jobs` respects `interval_minutes` (anti-spam).
+
+### Changed
+- `JOB_TIMEOUT_SECONDS` default 480 → 330 (stays below `CELERY_TASK_TIME_LIMIT` 360).
+- `driver_id` is now required on batch creation with tenant-ownership validation.
+- OpenAPI `version` metadata 2.0.0 → 2.9.3.
+- Worker timeout fallback 480 → 330.
+
+### Fixed
+- Multi-route payloads now produce the full `WaybillMapRequest`-compatible structure (sender/receiver/cargo/vehicle + nested origin/destination), fixing silent `payload_validation_failed`.
+- Route-template `update` no longer nulls non-nullable fields.
+- Batch "today" progress uses Asia/Tehran timezone.
+- Haversine fallback is no longer cached (no cache poisoning).
+
+### Docs
+- README / CRITICAL_RULES / AGENTS / INDEX / DEPLOYMENT_GUIDE / QUICK_START / KNOWLEDGE_GRAPH: migration head 036/037 → 038, test count → 989, version → 2.9.3.
+- New `docs/MULTI_ROUTE_FEATURE.md`.
+
+## [2.9.2] - 2026-08-20
 
   ### Added & Optimized — Universal Mobile Anti-Zoom, UI/UX Polish & Full-Stack Hardening
   - **Universal Mobile Viewport & Anti-Zoom (iOS & Android)**:

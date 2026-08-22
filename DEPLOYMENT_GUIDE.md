@@ -85,7 +85,7 @@ docs/runbook_scale_out.md و docs/runbook_worker_registration.md مستقر شو
 
 Alembic head مورد انتظار این checkout:
 
-    036_management_tables_and_activity_logs_fix
+    038_add_multiroute_batch_distance
 
 مهاجرت‌ها زیر PostgreSQL session-level advisory lock اجرا می‌شوند. تمام مسیرهای
 deploy باید `app.core.database.run_migrations()` را فراخوانی کنند و از Alembic خام

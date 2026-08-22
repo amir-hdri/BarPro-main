@@ -41,6 +41,9 @@ on a Model B Central host.
   /api/v1, and authenticated realtime updates at WS /ws/waybill.
 - Clean IP management is admin-only under /api/system/clean-ips and its refresh
   subpath.
+- Multi-route: `/api/v1/route-templates` (saved routes), `/api/v1/batches`
+  (batch expansion + progress, idempotent via `X-Idempotency-Key`), and
+  `POST /api/v1/locations/distance` (road distance/time).
 - /api/system/health, /ws/jobs/{client_id}, and /ws/admin/stream are not current
   contracts.
 - DELETE /api/v1/waybill-jobs/{job_id} is permanent deletion; it is not a POST
@@ -93,10 +96,12 @@ execution_id values are strings. Core operational models include:
 
 - Client, Driver, DriverPlate, DriverSchedule, WaybillJob, FuelInquiry;
 - UploadBatch, DispatchIntent, Execution, WorkerRegistry;
+- WaybillRouteTemplate (saved route + distance/duration) and WaybillBatch (multi-route batch);
 - ProxyEndpoint and UTCMSSystemObservation.
 
 WaybillJob stores payload_json, result_json, retry, mutation, and reconciliation
-fields. FuelInquiry stores quota JSON and a screenshot URL/Data URI and has no
+fields, plus multi-route linkage (batch_id, route_template_id, sequence_index,
+distance_km, duration_min). FuelInquiry stores quota JSON and a screenshot URL/Data URI and has no
 direct tracking-code column.
 
 ## Security and Monitoring Boundaries

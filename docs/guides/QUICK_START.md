@@ -63,7 +63,7 @@ bash manage.sh migrate
 Alembic head فعلی:
 
 ```text
-036_management_tables_and_activity_logs_fix
+038_add_multiroute_batch_distance
 ```
 
 ## تست و build سریع

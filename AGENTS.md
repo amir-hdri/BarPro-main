@@ -86,9 +86,9 @@ resource budget.
 
 ## Critical Warnings
 
-1. **NEVER hardcode credentials** — the repo already has leaked production SSH passwords (`PLACEHOLDER_SSH_PASSWORD`) committed in multiple files
-2. **NEVER commit `.env`** — currently tracked in git history; use `.env.example` as template
-3. **`.env` IS in `.gitignore`** but was committed before being added — do NOT commit new secrets
+1. **NEVER hardcode credentials** — production SSH passwords previously leaked; now placeholderized (`PLACEHOLDER_SSH_PASSWORD`) and must still be rotated on the server
+2. **NEVER commit `.env`** — verified not present in current git history (`git log --all -- .env` is empty); use `.env.example` as template
+3. **`.env` IS in `.gitignore`** — do NOT commit new secrets
 4. **Frontend Docker no longer requires prebuilt `.next/standalone`** — `apps/web/Dockerfile` builds inside Docker
 5. **Do not re-add `privileged: true`** — containers use `cap_add` + `no-new-privileges`
 6. **No HTTPS** — Nginx listens on port 80 only; all traffic is plaintext
@@ -289,7 +289,7 @@ BarPro/
 │   ├── squid/squid_*.conf
 │   ├── prometheus/prometheus.yml
 │   └── logging/logrotate.conf
-├── alembic/                # Database migrations; current head 036_management_tables_and_activity_logs_fix
+├── alembic/                # Database migrations; current head 038_add_multiroute_batch_distance
 ├── tests/                  # Pytest test suite
 ├── scripts/                # Utility and deploy scripts
 └── deploy/                 # Deployment configs
@@ -353,6 +353,17 @@ All current providers execute within the Worker process; Keras is lazy-loaded on
 
 ## Optimization Applied (2026-06-30 → 2026-08-22)
 
+### 2026-08-23 — v2.9.3 Multi-Route Waybill Registration (Route Templates, Batches & Distance/Time)
+| Change | File | Impact |
+|--------|------|--------|
+| Route Templates | `app/models/waybill_route_template.py` + `app/services/route_template_service.py` + `app/api/routes/route_templates.py` | Save reusable origin→destination routes with precomputed road distance/duration; CRUD + favorite under `/api/v1/route-templates` |
+| Multi-Route Batches | `app/models/waybill_batch.py` + `app/services/batch_service.py` + `app/api/routes/batches.py` | Expand N routes × target count into jobs (round-robin/random/sequential); idempotent via `X-Idempotency-Key`; `/api/v1/batches` |
+| Distance/Time Service | `app/core/distance.py` + `app/services/distance_service.py` + `POST /api/v1/locations/distance` | Neshan routing + Redis cache + local haversine fallback |
+| 100% Accuracy Gate | `app/services/batch_service.py` | Batch creation validates every merged payload against `validate_enhanced_waybill_payload` (422 with exact missing fields); driver national-code/plate enriched from `Driver`/`DriverPlate` |
+| Migration 038 | `alembic/versions/038_add_multiroute_batch_distance.py` | New tables + 5 `waybill_jobs` columns with FK `ondelete SET NULL` |
+| Interval Enforcement | `app/services/batch_service.py` | `submit_after` stagger so `plan_due_jobs` respects `interval_minutes` |
+| Config | `app/core/config.py` + `.env.example` | `NESHAN_*` settings; `JOB_TIMEOUT_SECONDS` 480→330 |
+
 ### 2026-08-22 — v2.9.3 Auth Session Cookie Synchronization, Fast 408 Outage Detection & Taxonomy Resilience
 | Change | File | Impact |
 |--------|------|--------|
@@ -379,7 +390,7 @@ All current providers execute within the Worker process; Keras is lazy-loaded on
 | Independent `vehicle_type` Plate Sync | `app/services/driver_service.py` | Allows updating `vehicle_type` on the driver's active plate without requiring `plate_number` in `DriverUpdateRequest` |
 | Driver Fleet Vehicle Type Chips & UI Integration | `apps/web/src/app/drivers/page.tsx` | Adds 12 vehicle type preset chips and custom input to create/edit modals; renders vehicle type badges on driver cards |
 | Fuel Quota Parsing Standardization & Canonical Tracking Code | `apps/web/src/app/fuel/page.tsx` | Eliminates raw `quota_data` property access by adopting canonical `parseQuotaData` and `formatFuelTrackingCode` across all cards, tables, and modal views |
-| Alembic Migration Documentation Sync | `AGENTS.md` + `.agents/skills/barpro-fullstack-sync/SKILL.md` | Standardizes current Alembic head reference to `036_management_tables_and_activity_logs_fix` |
+| Alembic Migration Documentation Sync | `AGENTS.md` + `.agents/skills/barpro-fullstack-sync/SKILL.md` | Standardizes current Alembic head reference to `038_add_multiroute_batch_distance` |
 
 ### 2026-08-19 — v2.9.0 Clean Iranian Proxy Pool (Zero IP Restriction)
 | Change | File | Impact |
@@ -821,4 +832,4 @@ current runtime evidence.*
 
 *Historical release snapshot dated 2026-08-20. Re-run tests and runtime
 verification for the current commit; Alembic head documented for this checkout:
-036_management_tables_and_activity_logs_fix.*
+038_add_multiroute_batch_distance.*

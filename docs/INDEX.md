@@ -3,6 +3,7 @@
 ## مراجع عملیاتی اصلی
 
 - [قرارداد و محدودیت‌های UTCMS](UTCMS_CONSTRAINTS.md) — فیلدهای اجباری، CAPTCHA، IP/WAF، زمان‌بندی، صف‌ها و معیار اثبات ثبت
+- [قابلیت چندمسیره + فاصله/زمان](MULTI_ROUTE_FEATURE.md) — قالب مسیر، دستهٔ چندمسیره و محاسبهٔ فاصله/زمان جاده‌ای
 - [Runbook قطعی/اختلال UTCMS](runbook_utcms_outage.md)
 - [Runbook استقرار Scale-out](runbook_scale_out.md)
 - [Runbook ثبت Worker](runbook_worker_registration.md)
@@ -49,7 +50,7 @@ bash manage.sh stop
 
 ## Important Current State
 
-- Alembic head is `036_management_tables_and_activity_logs_fix`
+- Alembic head is `038_add_multiroute_batch_distance`
 - Frontend Docker builds inside `apps/web/Dockerfile`
 - No prebuilt `.next/standalone` upload is required
 - JWT transport uses the `httpOnly` cookie `utcms_auth_token`
@@ -92,4 +93,4 @@ Files under `docs/architecture/` carrying a “Legacy design” banner are retai
 for design history only. They may contain obsolete routes, schema or TLS assumptions;
 the tracked knowledge graph and root `ARCHITECTURE.md` take precedence.
 
-Last updated: 2026-08-20 (v2.9.2)
+Last updated: 2026-08-23 (v2.9.3)

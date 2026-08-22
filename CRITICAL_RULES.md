@@ -148,7 +148,7 @@
 ```bash
 # قبل از هر PR/push این‌ها باید pass شوند:
 .venv/bin/pytest tests/ -q --tb=short
-# نتیجه مورد انتظار: ≥414 passed, 0 failed
+# نتیجه مورد انتظار: ≥989 tests, 0 failed
 ```
 
 - تست‌هایی که به DB/Redis نیاز دارند: `pytest -m integration` (در production server)
@@ -198,7 +198,7 @@ bash manage.sh migrate   # یا: alembic upgrade head
 - Migration ها با **PostgreSQL session-level advisory lock** اجرا می‌شوند؛
   کلید قفل `MIGRATION_ADVISORY_LOCK_ID` است و timeout از
   `MIGRATION_LOCK_TIMEOUT_SECONDS` خوانده می‌شود.
-- HEAD فعلی: `036_management_tables_and_activity_logs_fix`
+- HEAD فعلی: `038_add_multiroute_batch_distance`
 - هرگز migration را manually روی production DB اجرا نکنید — از `manage.sh migrate` استفاده کنید
 
 ### 15. محدودیت‌های منابع (16 GB RAM — Central Server)
@@ -299,7 +299,7 @@ ON waybill_jobs (status) INCLUDE (id);
 
 | معیار | وضعیت سالم | آستانه هشدار |
 |-------|------------|--------------|
-| تست‌ها | ≥414 passed, 0 failed | هر failed |
+| تست‌ها | ≥989 tests, 0 failed | هر failed |
 | RAM usage | <85% (10.2 GB) | >90% (10.8 GB) |
 | Disk | <85% | >90% |
 | Queue depth | <50 per worker | >100 per worker |
