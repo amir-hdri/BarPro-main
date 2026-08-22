@@ -304,6 +304,7 @@ class BrowserManager:
             "--no-sandbox",
             "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
+            "--max-old-space-size=1024",  # Cap Chromium V8 heap (CRITICAL_RULES §9)
             "--disable-gpu",
             "--disable-crashpad-for-testing",
             "--disable-crash-reporter",

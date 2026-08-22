@@ -304,6 +304,8 @@ class WaybillJob(SQLModel, table=True):
         Index("idx_waybill_jobs_status", "status"),
         Index("idx_waybill_jobs_created_at", "created_at"),
         Index("idx_waybill_jobs_celery_task_id", "celery_task_id"),
+        Index("idx_wj_batch_id", "batch_id"),
+        Index("idx_wj_route_template_id", "route_template_id"),
         # Composite index for queue ordering: status, priority DESC, created_at ASC
         # Note: For PostgreSQL, create via migration with:
         # CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wj_status_priority_created
@@ -341,6 +343,13 @@ class WaybillJob(SQLModel, table=True):
     # Schedule tracking
     schedule_id: int | None = Field(default=None, sa_column=Column(Integer, nullable=True))
     scheduled_by: str = Field(default="manual", max_length=20)
+
+    # Multi-route batch linkage (nullable for backward compatibility with existing jobs)
+    batch_id: int | None = Field(default=None, foreign_key="waybill_batch.id", ondelete="SET NULL")
+    route_template_id: int | None = Field(default=None, foreign_key="waybill_route_template.id", ondelete="SET NULL")
+    sequence_index: int | None = Field(default=None, sa_column=Column(Integer, nullable=True))
+    distance_km: float | None = Field(default=None)
+    duration_min: float | None = Field(default=None)
 
     # Error tracking
     last_error: str | None = Field(default=None, sa_column=Column(Text, nullable=True))

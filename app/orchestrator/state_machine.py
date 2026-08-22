@@ -14,6 +14,7 @@ class JobStatus(StrEnum):
     IN_PROGRESS = "in_progress"
     SUCCESS = "success"
     FAILED = "failed"
+    DAILY_LIMIT_REACHED = "daily_limit_reached"
     NEEDS_REVIEW = "needs_review"
     DEAD_LETTER = "dead_letter"
     CANCELLED = "cancelled"

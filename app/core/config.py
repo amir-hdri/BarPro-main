@@ -182,7 +182,7 @@ class UTCMSConfig:
             )
 
         self.ALLOW_LIVE_SUBMIT = _to_bool(os.getenv("ALLOW_LIVE_SUBMIT", "False"), default=False)
-        self.JOB_TIMEOUT_SECONDS = int(os.getenv("JOB_TIMEOUT_SECONDS", "480"))
+        self.JOB_TIMEOUT_SECONDS = int(os.getenv("JOB_TIMEOUT_SECONDS", "330"))  # must stay < CELERY_TASK_TIME_LIMIT (360) so asyncio.wait_for fires before Celery SIGKILL
         self.ITMBOL_SERVICE_URL = os.getenv("ITMBOL_SERVICE_URL", "https://services2.sipaad.ir/ITMBOL.asmx")
         self.ITMBOL_COMPANY_CODE = os.getenv("ITMBOL_COMPANY_CODE", "").strip()
         self.ITMBOL_SERVICE_PASSWORD = os.getenv("ITMBOL_SERVICE_PASSWORD", "").strip()
@@ -427,6 +427,14 @@ class UTCMSConfig:
         self.IRAN_PROXY_TIMEOUT_SECONDS = float(os.getenv("IRAN_PROXY_TIMEOUT_SECONDS", "7.5"))
         self.CLEAN_IP_SOURCE_URL = os.getenv("CLEAN_IP_SOURCE_URL", "").strip()
         self.CLEAN_IP_SOURCE_FILE = os.getenv("CLEAN_IP_SOURCE_FILE", "").strip()
+
+        # Neshan routing API for road distance/time (multi-route feature).
+        # Optional: when NESHAN_API_KEY is unset, the distance service falls back
+        # to the local haversine estimate. The endpoint is a fixed host, so there
+        # is no user-controlled URL and no SSRF surface.
+        self.NESHAN_API_KEY = os.getenv("NESHAN_API_KEY", "").strip()
+        self.NESHAN_TIMEOUT_SECONDS = float(os.getenv("NESHAN_TIMEOUT_SECONDS", "3.0"))
+        self.NESHAN_CACHE_TTL_SECONDS = int(os.getenv("NESHAN_CACHE_TTL_SECONDS", str(86400 * 7)))
 
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"

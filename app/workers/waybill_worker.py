@@ -1121,7 +1121,7 @@ async def _execute_job(
 
                 try:
                     bot = WaybillAutomationBot(page, context)
-                    job_timeout = getattr(utcms_config, "JOB_TIMEOUT_SECONDS", 480)
+                    job_timeout = getattr(utcms_config, "JOB_TIMEOUT_SECONDS", 330)
                     try:
                         result = await asyncio.wait_for(
                             bot.execute_waybill_job(

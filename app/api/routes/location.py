@@ -18,6 +18,8 @@ from app.core.iran_locations import (
     parse_smart_address,
 )
 from app.models.location_favorite import LocationFavorite
+from app.schemas.multiroute import DistanceRequest, DistanceResponse
+from app.services.distance_service import get_route_distance
 
 logger = logging.getLogger(__name__)
 
@@ -142,3 +144,23 @@ async def delete_favorite(
     await session.delete(fav)
     await session.commit()
     return None
+
+@router.post("/distance", response_model=DistanceResponse)
+async def calc_distance(
+    payload: DistanceRequest,
+    user_context: dict[str, Any] = Depends(get_current_user_or_admin),
+):
+    """محاسبه فاصله و زمان تقریبی بین دو مختصات جغرافیایی (Neshan + fallback هاورساین)."""
+    result = await get_route_distance(
+        payload.origin_lat, payload.origin_lng, payload.dest_lat, payload.dest_lng
+    )
+    distance_km = round(float(result["distance_km"]), 2)
+    duration_min = int(round(float(result["duration_min"])))
+    return {
+        "distance_km": distance_km,
+        "duration_min": duration_min,
+        "distance_text": f"{distance_km:.2f} کیلومتر",
+        "duration_text": f"{duration_min} دقیقه",
+        "source": result.get("source", "haversine_fallback"),
+    }
+

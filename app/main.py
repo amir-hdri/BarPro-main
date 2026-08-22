@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from app.api.routes import (
     admin_alerts,
     admin_reporting,
+    batches,
     itmb_ws,
     location,
     management,
@@ -22,6 +23,7 @@ from app.api.routes import (
     realtime,
     reports,
     rpa_phase1,
+    route_templates,
     system,
     user_reporting,
     waybill_entry,
@@ -245,7 +247,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="سیستم اتوماسیون UTCMS",
     description="ربات هوشمند صدور بارنامه با قابلیت انتخاب مسیر و گزارش‌گیری",
-    version="2.0.0",
+    version="2.9.3",
     lifespan=lifespan,
 )
 
@@ -403,6 +405,8 @@ async def request_context_middleware(request: Request, call_next):
 
 app.include_router(waybill_map.router)
 app.include_router(location.router)
+app.include_router(route_templates.router)
+app.include_router(batches.router)
 app.include_router(waybill_entry.router)
 app.include_router(management.router)
 app.include_router(itmb_ws.router)
