@@ -351,7 +351,16 @@ docker compose -f compose/monitoring.yml up  # Full monitoring stack
 Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhanced → Local in sequence.
 All current providers execute within the Worker process; Keras is lazy-loaded once and reused.
 
-## Optimization Applied (2026-06-30 → 2026-08-20)
+## Optimization Applied (2026-06-30 → 2026-08-22)
+
+### 2026-08-22 — v2.9.3 Auth Session Cookie Synchronization, Fast 408 Outage Detection & Taxonomy Resilience
+| Change | File | Impact |
+|--------|------|--------|
+| ASP.NET Auth Cookie Synchronization | `app/automation/auth_session.py` | Adds `Barname`, `ApplicationToken`, `cookiesession1` to `AUTH_KEYWORDS`, ensuring `SessionManager.has_auth_cookie()` instantly validates fast HTTP logins without falling back to WAF-blocked Chromium sessions |
+| Operator Direct Retry Unblocking | `app/core/error_taxonomy.py` + `app/services/waybill_job_service.py` | Moves `UNKNOWN_AUTOMATION_ERROR`, `AUTH_FAILURE`, `SELECTOR_CHANGED`, `BOT_DETECTED` to `RETRYABLE_TERMINAL_CATEGORIES`, resolving the 409 UI retry blockage while strictly preserving `SUBMISSION_UNCONFIRMED` safeguards |
+| Sub-Second Fast 408 Outage Detection | `app/automation/waybill_enhanced.py` + `app/core/error_taxonomy.py` | Detects upstream UTCMS portal downtime (`HTTP 408` / `قادر به پاسخگویی نمی باشد`) in <0.3s instead of 480s timeout, automatically classifying as `TARGET_SITE_TIMEOUT` and queuing exponential backoff retry |
+| Next.js History Page Build Fix | `apps/web/src/app/history/page.tsx` | Resolves `loadTimeline` hook declaration order that broke the Next.js production build and page rendering |
+| Multi-Server Fleet Deployment | Central + Worker 2 + Worker 3 | Synchronizes and restarts all backend, scheduler, and worker containers across the entire Model B cluster |
 
 ### 2026-08-20 — v2.9.2 Universal Mobile Anti-Zoom, UI/UX Hardening & Full-Stack Taxonomy Sync
 | Change | File | Impact |
