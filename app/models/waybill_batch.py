@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Column, DateTime, Index
+from sqlalchemy import JSON, Column, DateTime, Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -21,11 +21,14 @@ class WaybillBatch(SQLModel, table=True):
     __table_args__ = (
         Index("idx_batch_client_driver", "client_id", "driver_id"),
         Index("idx_batch_status", "status"),
+        # Idempotency is scoped per tenant: the same key may legitimately exist in
+        # different clients, so uniqueness must be composite, not global.
+        UniqueConstraint("client_id", "idempotency_key", name="uq_batch_client_idempotency"),
     )
 
     id: int | None = Field(default=None, primary_key=True)
     client_id: int = Field(foreign_key="clients.id")
-    idempotency_key: str | None = Field(default=None, max_length=128, index=True, unique=True)
+    idempotency_key: str | None = Field(default=None, max_length=128)
     driver_id: int | None = Field(default=None, foreign_key="drivers.id")
     name: str | None = Field(default=None, max_length=255)
 

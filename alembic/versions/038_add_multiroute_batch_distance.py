@@ -63,7 +63,7 @@ def upgrade() -> None:
     )
     op.create_index('idx_batch_client_driver', 'waybill_batch', ['client_id', 'driver_id'])
     op.create_index('idx_batch_status', 'waybill_batch', ['status'])
-    op.create_unique_constraint('uq_waybill_batch_idempotency_key', 'waybill_batch', ['idempotency_key'])
+    op.create_unique_constraint('uq_batch_client_idempotency', 'waybill_batch', ['client_id', 'idempotency_key'])
 
     op.add_column('waybill_jobs', sa.Column('batch_id', sa.Integer(), nullable=True))
     op.add_column('waybill_jobs', sa.Column('route_template_id', sa.Integer(), nullable=True))
@@ -88,7 +88,7 @@ def downgrade() -> None:
     op.drop_column('waybill_jobs', 'route_template_id')
     op.drop_column('waybill_jobs', 'batch_id')
 
-    op.drop_constraint('uq_waybill_batch_idempotency_key', 'waybill_batch', type_='unique')
+    op.drop_constraint('uq_batch_client_idempotency', 'waybill_batch', type_='unique')
     op.drop_index('idx_batch_status', table_name='waybill_batch')
     op.drop_index('idx_batch_client_driver', table_name='waybill_batch')
     op.drop_table('waybill_batch')

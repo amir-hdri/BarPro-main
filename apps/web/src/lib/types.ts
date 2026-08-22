@@ -240,6 +240,11 @@ export interface WaybillJob {
   next_retry_at?: string | null;
   submit_after?: string | null;
   terminal_reason?: string | null;
+  batch_id?: number | null;
+  route_template_id?: number | null;
+  sequence_index?: number | null;
+  distance_km?: number | null;
+  duration_min?: number | null;
   attempt_count: number;
   max_retries: number;
   created_at: string;

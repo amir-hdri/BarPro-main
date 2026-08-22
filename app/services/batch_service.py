@@ -10,6 +10,7 @@ them without modification. ``batch_id``/``route_template_id``/``sequence_index``
 from __future__ import annotations
 
 import random
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -17,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -31,6 +33,17 @@ from app.models_multitenant import Driver, DriverPlate, TaskStatus, WaybillJob
 REPEAT_MODES = {"round_robin", "random", "sequential"}
 
 _TEHRAN_TZ = ZoneInfo("Asia/Tehran")
+
+_PERSIAN_DIGITS = "۰۱۲۳۴۵۶۷۸۹"
+_ARABIC_DIGITS = "٠١٢٣٤٥٦٧٨٩"
+
+
+def _normalize_national_code(value: Any) -> str:
+    """Normalize Persian/Arabic digits and strip non-digits for code comparison."""
+    s = str(value or "")
+    for i in range(10):
+        s = s.replace(_PERSIAN_DIGITS[i], str(i)).replace(_ARABIC_DIGITS[i], str(i))
+    return re.sub(r"\D", "", s)
 
 
 def select_route_index(step: int, num_routes: int, repeat_mode: str) -> int:
@@ -171,17 +184,20 @@ class BatchService:
         # Enrich vehicle from the authoritative driver record (100% accuracy):
         # the driver's national code is authoritative; plate/vehicle_type come from
         # the driver's active DriverPlate when the base payload omits them.
-        vehicle = dict(base_payload.get("vehicle") or {})
-        code = str(vehicle.get("driver_national_code") or "").strip()
-        if code and code != driver.driver_national_code:
+        raw_vehicle = base_payload.get("vehicle")
+        vehicle = dict(raw_vehicle) if isinstance(raw_vehicle, dict) else {}
+        code = _normalize_national_code(vehicle.get("driver_national_code"))
+        if code and code != _normalize_national_code(driver.driver_national_code):
             raise HTTPException(status_code=422, detail="کد ملی راننده در payload با رانندهٔ انتخابی مطابقت ندارد")
         vehicle["driver_national_code"] = driver.driver_national_code
         if not str(vehicle.get("plate") or "").strip():
             plate = (
                 await session.exec(
-                    select(DriverPlate).where(
+                    select(DriverPlate)
+                    .where(
                         DriverPlate.driver_id == driver.id, DriverPlate.status == "active"
                     )
+                    .order_by(DriverPlate.id.desc())
                 )
             ).first()
             if plate is not None:
@@ -219,7 +235,23 @@ class BatchService:
             progress={"completed": 0, "failed": 0, "today": 0},
         )
         session.add(batch)
-        await session.flush()  # assign batch.id for FK linkage
+        try:
+            await session.flush()  # assign batch.id for FK linkage
+        except IntegrityError:
+            # A concurrent request with the same (client_id, idempotency_key) won the race.
+            await session.rollback()
+            if idempotency_key:
+                existing = (
+                    await session.exec(
+                        select(WaybillBatch).where(
+                            WaybillBatch.client_id == client_id,
+                            WaybillBatch.idempotency_key == idempotency_key,
+                        )
+                    )
+                ).first()
+                if existing is not None:
+                    return existing
+            raise
 
         now = _utcnow()
         priority = getattr(payload, "priority", 5)
@@ -291,7 +323,7 @@ class BatchService:
             "completed": completed,
             "failed": failed,
             "today": today,
-            "progress_percent": int(completed / target * 100) if target else 0,
+            "progress_percent": min(int(completed / target * 100), 100) if target else 0,
             "status": batch.status,
         }
 

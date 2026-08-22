@@ -112,12 +112,12 @@ export default function RouteTemplatesPage() {
       toast.error('نام مسیر الزامی است');
       return;
     }
-    if (!form.origin_province.trim() || !form.origin_city.trim()) {
-      toast.error('استان و شهر مبدأ الزامی است');
+    if (!form.origin_province.trim() || !form.origin_city.trim() || form.origin_address.trim().length < 2) {
+      toast.error('استان، شهر و آدرس مبدأ الزامی است');
       return;
     }
-    if (!form.dest_province.trim() || !form.dest_city.trim()) {
-      toast.error('استان و شهر مقصد الزامی است');
+    if (!form.dest_province.trim() || !form.dest_city.trim() || form.dest_address.trim().length < 2) {
+      toast.error('استان، شهر و آدرس مقصد الزامی است');
       return;
     }
 
@@ -228,7 +228,7 @@ export default function RouteTemplatesPage() {
                   />
                   <input
                     className="field"
-                    placeholder="آدرس مبدأ (اختیاری)"
+                    placeholder="آدرس مبدأ (خیابان، کوچه، پلاک) *"
                     value={form.origin_address}
                     onChange={(e) => setField('origin_address', e.target.value)}
                   />
@@ -251,7 +251,7 @@ export default function RouteTemplatesPage() {
                   />
                   <input
                     className="field"
-                    placeholder="آدرس مقصد (اختیاری)"
+                    placeholder="آدرس مقصد (خیابان، کوچه، پلاک) *"
                     value={form.dest_address}
                     onChange={(e) => setField('dest_address', e.target.value)}
                   />

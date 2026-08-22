@@ -120,6 +120,12 @@ pnpm-workspace.yaml
 # Deployment and audit artifacts
 audit.json
 memory_audit.json
+auth_sync.json
+migration_audit.json
+network_audit.json
+phase_audit.json
+progress.json
+schema_sync.json
 ssh.json
 topology.json
 versions.json

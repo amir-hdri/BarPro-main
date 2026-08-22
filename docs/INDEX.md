@@ -18,11 +18,9 @@ Use this index for current operational documentation. Older historical reports r
 | `ARCHITECTURE.md` | Canonical code-level architecture, API/state/schema/queue contracts, and runtime verification boundaries |
 | `docs/BARPRO_KNOWLEDGE_GRAPH.md` | Tracked full-system knowledge graph with CODE-VERIFIED / CONFIG-TARGET / RUNTIME-VERIFICATION labels |
 | `DEPLOYMENT_GUIDE.md` | Production deployment checklist |
-| `SERVER_STATUS.md` | Current server/runtime status summary |
 | `docs/guides/QUICK_START.md` | Local and Docker quick start |
-| `docs/guides/START_SYSTEM.md` | Day-to-day startup commands |
+| `scripts/start_system.sh` | Day-to-day startup commands |
 | `docs/operations/DEPLOYMENT_GUIDE.md` | Operations deployment checklist |
-| `docs/operations/production_deployment.md` | Production runtime notes |
 | `docs/CHANGELOG.md` | Release history |
 
 ## Current Architecture
@@ -69,10 +67,10 @@ from Compose or `.env.example`.
 | Category | Documents |
 |---|---|
 | Deployment | `DEPLOYMENT_GUIDE.md`, `docs/operations/DEPLOYMENT_GUIDE.md` |
-| Server status | `SERVER_STATUS.md` |
-| Development startup | `docs/guides/QUICK_START.md`, `docs/guides/START_SYSTEM.md` |
-| Security and issues | `ISSUES.md`, `FIXES_SUMMARY.md` |
-| Architecture | `docs/BARPRO_KNOWLEDGE_GRAPH.md`, `AGENTS.md`, `AI_AGENT_GUIDE.md`, `ARCHITECTURE.md` |
+| Server status | `docs/operations/TROUBLESHOOTING.md` |
+| Development startup | `docs/guides/QUICK_START.md`, `scripts/start_system.sh` |
+| Security and issues | `ISSUES.md` |
+| Architecture | `docs/BARPRO_KNOWLEDGE_GRAPH.md`, `AGENTS.md`, `ARCHITECTURE.md` |
 
 ## Verification Commands
 

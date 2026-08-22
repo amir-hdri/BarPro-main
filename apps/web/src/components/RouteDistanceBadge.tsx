@@ -28,19 +28,22 @@ export function RouteDistanceBadge({ originCoords, destinationCoords }: RouteDis
       return;
     }
 
-    let cancelled = false;
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
 
     api
-      .post<DistanceResponse>('/api/v1/locations/distance', {
-        origin_lat: originCoords.lat,
-        origin_lng: originCoords.lng,
-        dest_lat: destinationCoords.lat,
-        dest_lng: destinationCoords.lng,
-      })
+      .post<DistanceResponse>(
+        '/api/v1/locations/distance',
+        {
+          origin_lat: originCoords.lat,
+          origin_lng: originCoords.lng,
+          dest_lat: destinationCoords.lat,
+          dest_lng: destinationCoords.lng,
+        },
+        { signal: controller.signal }
+      )
       .then((res) => {
-        if (cancelled) return;
         if (res.success && res.data) {
           setDistance(res.data);
         } else {
@@ -48,14 +51,14 @@ export function RouteDistanceBadge({ originCoords, destinationCoords }: RouteDis
         }
       })
       .catch(() => {
-        if (!cancelled) setError('خطا در محاسبهٔ فاصله');
+        if (!controller.signal.aborted) setError('خطا در محاسبهٔ فاصله');
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       });
 
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [originCoords, destinationCoords]);
 
@@ -66,7 +69,7 @@ export function RouteDistanceBadge({ originCoords, destinationCoords }: RouteDis
   return (
     <div className="mt-4 flex items-center gap-3 rounded-2xl bg-cyan-500/5 border border-cyan-500/20 px-4 py-3 backdrop-blur-sm">
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-cyan-500/10 border border-cyan-500/20">
-        <RouteIcon className="h-4.5 w-4.5 text-cyan-400" />
+        <RouteIcon className="h-4 w-4 text-cyan-400" />
       </div>
 
       {loading && (

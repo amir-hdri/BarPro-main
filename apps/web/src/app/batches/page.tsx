@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CubeIcon, TruckIcon, PlayIcon, CheckCircleIcon, ExclamationCircleIcon, MapPinIcon } from '@heroicons/react/24/outline';
 import { Route as RouteIcon } from 'lucide-react';
@@ -8,7 +8,7 @@ import { toast } from 'react-hot-toast';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
-import { api, createBatch } from '@/lib/api';
+import { api, createBatch, generateIdempotencyKey } from '@/lib/api';
 import { formatDateTime, toPersianDigits } from '@/lib/format';
 import { useSession } from '@/hooks/useSession';
 import type { BatchProgressResponse, Driver, WaybillRouteTemplate } from '@/lib/types';
@@ -60,7 +60,9 @@ export default function BatchesPage() {
   const [cargoPackaging, setCargoPackaging] = useState('');
   const [cargoWeight, setCargoWeight] = useState('');
   const [cargoValue, setCargoValue] = useState('');
+  const [batchName, setBatchName] = useState('');
   const [saving, setSaving] = useState(false);
+  const pendingKeyRef = useRef<string | null>(null);
 
   // ── result/progress state ──
   const [activeBatchId, setActiveBatchId] = useState<number | null>(null);
@@ -95,18 +97,25 @@ export default function BatchesPage() {
   useEffect(() => {
     if (!activeBatchId) return;
     let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
 
     async function poll() {
       const res = await api.get<BatchProgressResponse>(`/api/v1/batches/${activeBatchId}/progress`);
       if (cancelled) return;
-      if (res.success && res.data) setProgress(res.data);
+      if (res.success && res.data) {
+        setProgress(res.data);
+        // Stop polling once every job has settled (no further progress possible).
+        if (res.data.target > 0 && res.data.completed + res.data.failed >= res.data.target && timer) {
+          clearInterval(timer);
+        }
+      }
     }
 
     poll();
-    const timer = setInterval(poll, 5000);
+    timer = setInterval(poll, 5000);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
     };
   }, [activeBatchId]);
 
@@ -156,20 +165,30 @@ export default function BatchesPage() {
       },
       vehicle: {
         driver_national_code: selectedDriver.driver_national_code,
-        ...(selectedDriver.active_plate ? { plate: selectedDriver.active_plate } : {}),
+        // plate/type intentionally omitted: the backend enriches them from the
+        // authoritative DriverPlate record (status=='active') to avoid divergence
+        // with the denormalized active_plate hint.
       },
     };
 
     setSaving(true);
-    const res = await createBatch({
-      driver_id: selectedDriver.id,
-      route_template_ids: selectedRoutes,
-      base_payload_json: basePayload,
-      target_count: targetCount,
-      repeat_mode: repeatMode,
-      interval_minutes: intervalMinutes,
-      priority: 5,
-    });
+    // Reuse the same idempotency key across retries of the same logical batch so a
+    // network timeout + resubmit does not create a duplicate batch. Cleared on success.
+    const idemKey = pendingKeyRef.current || generateIdempotencyKey();
+    pendingKeyRef.current = idemKey;
+    const res = await createBatch(
+      {
+        driver_id: selectedDriver.id,
+        name: batchName.trim() || undefined,
+        route_template_ids: selectedRoutes,
+        base_payload_json: basePayload,
+        target_count: targetCount,
+        repeat_mode: repeatMode,
+        interval_minutes: intervalMinutes,
+        priority: 5,
+      },
+      idemKey
+    );
     setSaving(false);
 
     if (!res.success || !res.data) {
@@ -177,6 +196,8 @@ export default function BatchesPage() {
       return;
     }
 
+    pendingKeyRef.current = null;
+    setBatchName('');
     const batch = res.data;
     toast.success(`دستهٔ #${batch.id} با ${batch.target_count} بارنامه ایجاد شد`);
     setActiveBatchId(batch.id);
@@ -200,6 +221,11 @@ export default function BatchesPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="mb-8 space-y-6 rounded-3xl bg-slate-950/60 border border-white/10 p-6 shadow-panel-lg backdrop-blur-xl">
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">نام دسته (اختیاری)</label>
+              <input className="field" placeholder="مثال: ارسال هفتگی تهران" value={batchName} onChange={(e) => setBatchName(e.target.value)} />
+            </div>
+
             {/* driver */}
             <div>
               <label className="mb-1.5 flex items-center gap-2 text-xs font-bold text-slate-300">
