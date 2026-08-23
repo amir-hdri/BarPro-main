@@ -27,6 +27,7 @@ from app.orchestrator.driver_slot import release_driver_execution_slot
 from app.orchestrator.state_machine import ALLOWED_TRANSITIONS, JobStateMachine
 from app.rpa.event_taxonomy import (
     JOB_RETRY_REQUESTED,
+    JOB_WAITING_SUBMISSION_WINDOW,
     timeline_phase_for,
     timeline_title_for,
 )
