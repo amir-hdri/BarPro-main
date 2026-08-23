@@ -351,7 +351,17 @@ docker compose -f compose/monitoring.yml up  # Full monitoring stack
 Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhanced → Local in sequence.
 All current providers execute within the Worker process; Keras is lazy-loaded once and reused.
 
-## Optimization Applied (2026-06-30 → 2026-08-22)
+## Optimization Applied (2026-06-30 → 2026-08-23)
+
+### 2026-08-23 — v2.9.4 Error Taxonomy Sync, State Machine Auto-Heal & Full-Stack UI Batch Integration
+| Change | File | Impact |
+|--------|------|--------|
+| Unified Worker Retry Classification | `app/workers/waybill_worker.py` | Binds `_is_retryable()` to `is_retryable_terminal_category(classify_error_string(...))` and exponential backoff calculations in `get_retry_delay()`, automatically retrying transient site timeouts (`target_site_timeout`), infra resets, and auth failures |
+| State Machine Resilient Recovery | `app/orchestrator/state_machine.py` | Expands `ALLOWED_TRANSITIONS` for `FAILED` and `NEEDS_REVIEW` to transition cleanly to `WAITING_SUBMISSION_WINDOW` and `WAITING_RETRY` during auto-heal and retry cycles |
+| Model Metadata Auto-Registration | `app/models_multitenant.py` | Explicitly imports `WaybillBatch` and `WaybillRouteTemplate` so SQLModel metadata registers all foreign key relationships (`waybill_jobs.batch_id`, `waybill_jobs.route_template_id`) across all worker and API runtimes |
+| Frontend Dashboard & Sidebar Navigation | `apps/web/src/app/page.tsx` + `apps/web/src/components/layout/Sidebar.tsx` | Adds quick action button for «ثبت دسته‌ای (چندمسیره)» on Dashboard hero banner and adds `/batches` & `/route-templates` to Client and Admin sidebar menus |
+| Full Test Suite Verification | `tests/test_auto_heal.py` + entire suite | Passes 996 automated unit/integration/contract tests (988 passed, 3 skipped, 0 failed) with 100% green status |
+| Multi-Server Fleet Sync | Central + Worker 2 + Worker 3 | Synchronizes, rebuilds, and restarts all frontend, backend, celery, and proxy containers across all cluster nodes |
 
 ### 2026-08-23 — v2.9.3 Multi-Route Waybill Registration (Route Templates, Batches & Distance/Time)
 | Change | File | Impact |

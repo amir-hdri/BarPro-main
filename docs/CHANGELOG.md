@@ -2,7 +2,18 @@
   
   All notable changes to the UTCMS Automation System.
 
-  ## [2.9.3] - 2026-08-23
+  ## [2.9.4] - 2026-08-23
+
+### Added & Fixed — Error Taxonomy Sync, State Machine Auto-Heal & Full-Stack UI Batch Integration
+- **Unified Worker Retry Classification**: `_is_retryable()` in `app/workers/waybill_worker.py` is now bound directly to `is_retryable_terminal_category(classify_error_string(...))` and exponential backoff calculations in `get_retry_delay()`. This ensures transient site timeouts (`target_site_timeout`), infra resets (`transient_infra_error`), and authentication hiccups (`auth_failure`) are automatically retried with exponential backoff instead of failing permanently.
+- **State Machine Resilient Recovery**: Expanded `ALLOWED_TRANSITIONS` in `app/orchestrator/state_machine.py` so jobs in `FAILED` or `NEEDS_REVIEW` can transition cleanly to `WAITING_SUBMISSION_WINDOW` or `WAITING_RETRY` during automated auto-heal cycles and admin retries.
+- **Model Metadata Auto-Registration**: Explicitly imported `WaybillBatch` and `WaybillRouteTemplate` into `app/models_multitenant.py`, ensuring all foreign key constraints (`waybill_jobs.batch_id`, `waybill_jobs.route_template_id`) resolve cleanly without `NoReferencedTableError` when models are loaded in isolation.
+- **Frontend Dashboard & Sidebar Integration**:
+  - Added direct quick action button for **«ثبت دسته‌ای (چندمسیره)»** on the main Dashboard hero banner (`apps/web/src/app/page.tsx`).
+  - Added **«ثبت دسته‌ای»** (`/batches`) and **«قالب‌های مسیر»** (`/route-templates`) to both Client and Admin navigation menus in `apps/web/src/components/layout/Sidebar.tsx`.
+- **Test Suite Verification**: Updated `test_get_retry_delay` in `tests/test_auto_heal.py` to assert exponential backoff for retryable errors. Full test suite passing at 100% (996 automated tests: 988 passed, 3 skipped, 0 failed).
+
+## [2.9.3] - 2026-08-23
 
 ### Added — Multi-Route Waybill Registration (Route Templates, Batches & Distance/Time)
 - **Route templates** (`waybill_route_template`): save reusable origin→destination routes with precomputed road distance and duration; CRUD + favorite endpoints under `/api/v1/route-templates`.

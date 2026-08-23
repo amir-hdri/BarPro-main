@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="https://img.shields.io/badge/Status-Hardened%20v2.9.3-success?style=for-the-badge" alt="Status" />
-  <img src="https://img.shields.io/badge/Version-2.9.3-blue?style=for-the-badge" alt="Version" />
-  <img src="https://img.shields.io/badge/Tests-989%20tests-brightgreen?style=for-the-badge" alt="Tests" />
+  <img src="https://img.shields.io/badge/Status-Hardened%20v2.9.4-success?style=for-the-badge" alt="Status" />
+  <img src="https://img.shields.io/badge/Version-2.9.4-blue?style=for-the-badge" alt="Version" />
+  <img src="https://img.shields.io/badge/Tests-996%20tests-brightgreen?style=for-the-badge" alt="Tests" />
   <img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge" alt="License" />
 </div>
 
