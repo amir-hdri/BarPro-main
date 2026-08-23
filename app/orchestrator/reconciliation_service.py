@@ -112,6 +112,51 @@ class ReconciliationService:
                 job_id=job.id,
                 reconciliation_fields=reconciliation_fields,
             )
+
+            # Auto-authenticate if session is expired
+            if (
+                res.outcome == ScraperOutcome.AMBIGUOUS
+                and res.details.get("error") == "session_expired_redirect_to_login"
+                and driver_obj
+            ):
+                enc_pass = driver_obj.utcms_password_encrypted or getattr(driver_obj, "encrypted_password", None)
+                if enc_pass:
+                    try:
+                        from app.auth_multitenant import decrypt_driver_password
+                        from app.automation.auth import UTCMSAuthenticator
+
+                        raw_password = decrypt_driver_password(enc_pass)
+                        authenticator = UTCMSAuthenticator(page=page, context=context)
+                        logged_in = await authenticator.login(
+                            username=driver_obj.utcms_username,
+                            password=raw_password,
+                        )
+                        if logged_in:
+                            logger.info(
+                                "Reconciliation auto-login successful for driver %s",
+                                driver_obj.utcms_username,
+                            )
+                            if job.client_id and job.driver_id:
+                                try:
+                                    await session_vault.save_driver_session(
+                                        client_id=job.client_id,
+                                        driver_id=job.driver_id,
+                                        username=driver_obj.utcms_username,
+                                        context=context,
+                                    )
+                                except Exception as sv_exc:
+                                    logger.warning("Failed saving refreshed session in reconciliation: %s", sv_exc)
+
+                            # Retry query with authenticated session
+                            res = await reconciliation_scraper.query_waybill_status(
+                                page=page,
+                                tracking_code=tracking_code,
+                                job_id=job.id,
+                                reconciliation_fields=reconciliation_fields,
+                            )
+                    except Exception as auth_exc:
+                        logger.warning("Reconciliation auto-login failed: %s", auth_exc)
+
             outcome = res.outcome
             details = res.details
         except Exception as exc:
