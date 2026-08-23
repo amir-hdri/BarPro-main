@@ -113,12 +113,8 @@ class ReconciliationService:
                 reconciliation_fields=reconciliation_fields,
             )
 
-            # Auto-authenticate if session is expired
-            if (
-                res.outcome == ScraperOutcome.AMBIGUOUS
-                and res.details.get("error") == "session_expired_redirect_to_login"
-                and driver_obj
-            ):
+            # Auto-authenticate if query was ambiguous / unauthenticated
+            if res.outcome == ScraperOutcome.AMBIGUOUS and driver_obj:
                 enc_pass = driver_obj.utcms_password_encrypted or getattr(driver_obj, "encrypted_password", None)
                 if enc_pass:
                     try:

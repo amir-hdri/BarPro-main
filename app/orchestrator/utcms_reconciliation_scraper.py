@@ -136,7 +136,16 @@ class UTCMSReconciliationScraper:
                 tracking_code = auxiliary_tracking_code
 
             # ── 2. Query History endpoint via History page context ──
-            await page.goto(self.HISTORY_URL, wait_until="domcontentloaded", timeout=15000)
+            for nav_attempt in range(2):
+                try:
+                    await page.goto(self.HISTORY_URL, wait_until="domcontentloaded", timeout=30000)
+                    break
+                except Exception as nav_err:
+                    if nav_attempt == 0:
+                        logger.debug("History page navigation retry on: %s", nav_err)
+                        await asyncio.sleep(2)
+                        continue
+                    raise nav_err
 
             if "login" in page.url.lower() or "account/login" in page.url.lower():
                 logger.warning("Reconciliation session expired; redirected to login")
