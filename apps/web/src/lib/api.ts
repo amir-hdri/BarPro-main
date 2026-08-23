@@ -1,7 +1,10 @@
 import axios, { AxiosInstance } from 'axios';
 import type { BatchCreateRequest, WaybillBatch } from './types';
 
-export const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || 'utcms_auth_token';
+// Cookie name must match the backend (AUTH_COOKIE_NAME in app/core/config.py).
+// NEXT_PUBLIC_ prefix is required so Next.js inlines it into the client bundle;
+// middleware.ts reads the same variable on the server side.
+export const AUTH_COOKIE_NAME = process.env.NEXT_PUBLIC_AUTH_COOKIE_NAME || 'utcms_auth_token';
 
 export const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL ||

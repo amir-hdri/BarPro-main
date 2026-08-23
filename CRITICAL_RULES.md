@@ -299,7 +299,7 @@ ON waybill_jobs (status) INCLUDE (id);
 
 | معیار | وضعیت سالم | آستانه هشدار |
 |-------|------------|--------------|
-| تست‌ها | ≥996 tests, 0 failed | هر failed |
+| تست‌ها | ≥998 tests, 0 failed | هر failed |
 | RAM usage | <85% (10.2 GB) | >90% (10.8 GB) |
 | Disk | <85% | >90% |
 | Queue depth | <50 per worker | >100 per worker |

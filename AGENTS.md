@@ -352,7 +352,23 @@ docker compose -f compose/monitoring.yml up  # Full monitoring stack
 Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhanced → Local in sequence.
 All current providers execute within the Worker process; Keras is lazy-loaded once and reused.
 
-## Optimization Applied (2026-06-30 → 2026-08-23)
+## Optimization Applied (2026-06-30 → 2026-08-24)
+
+### 2026-08-24 — v2.9.5 Security Hardening, Lock-Token Durability & Full-Stack Consistency Remediation
+| Change | File | Impact |
+|--------|------|--------|
+| Alert Webhook Fail-Closed | `app/api/routes/admin_alerts.py` + `infra/nginx/http-server.conf` | Without `ALERT_WEBHOOK_SECRET`, edge-proxied requests (nginx-stamped `X-Request-ID`) are rejected with 403; direct internal Alertmanager calls still work. Nginx `location = /api/v1/admin/alerts/webhook` now `allow 127.0.0.1/172.16.0.0/12 → deny all` (defence-in-depth) |
+| Metrics Access Guard | `app/api/routes/system.py` + `app/core/config.py` | `GET /metrics` serves only loopback/RFC1918 peers or callers presenting `METRICS_SCRAPE_TOKEN` (`X-Metrics-Token`); nginx allow/deny retained as the authoritative edge rule |
+| Tenant Isolation on Legacy Routes | `app/api/routes/waybill_map.py` + `waybill_entry.py` | Global `API_KEY` no longer silently attributes jobs to tenant 1 — returns `None`; production enforces explicit tenant context via `queue_manager` (400), dev falls back to 1 |
+| Durable Driver-Lock Tokens | `app/services/rpa_runtime_service.py` | `acquire_lock` writes token to `locktok:{key}` registry (TTL+60s); `release_lock` recalls it when the ContextVar is lost across task/thread boundaries — Lua compare-and-delete still proves ownership, eliminating the 360s `driver_submission_in_progress` stall. Registry cleanup runs OUTSIDE the non-reentrant `_get_lock()` (deadlock fix) |
+| Migration-038 Response Fields | `app/schemas/multitenant.py` | `WaybillJobResponse` now exposes `batch_id`, `route_template_id`, `sequence_index`, `distance_km`, `duration_min`, `submission_fingerprint` (previously stripped server-side while `types.ts` expected them) |
+| Cookie Name Single Source of Truth | `app/core/config.py` + all auth readers | `AUTH_COOKIE_NAME` env-driven in backend (`utcms_config.AUTH_COOKIE_NAME`) and `NEXT_PUBLIC_AUTH_COOKIE_NAME` in frontend (`api.ts`, `middleware.ts`, `compose/web.yml`) — no more hardcoded drift |
+| Rate-Limit Bucket Accuracy | `app/main.py` | `/reports` and `/api/system/*` moved to the `admin` bucket; `/api/v1/batches` + `/api/v1/route-templates` to the `waybill` bucket (bulk job creation) |
+| Priority Schema Alignment | `app/schemas/multiroute.py` | `BatchCreate.priority` clamped to `le=9` matching `WaybillJobUpdateRequest` and `CELERY_MAX_PRIORITY` (values of 10 were silently clipped by the broker) |
+| National Code Checksum (Zod) | `apps/web/src/schemas/waybillSchema.ts` | Client-side Iranian national-code checksum mirrors `WaybillPayload._validate_iran_national_code` — immediate feedback instead of a late 422 |
+| Complete Status Filter & URL Normalization | `apps/web/src/app/history/page.tsx` + `lib/api.ts` | History filter now covers all runtime statuses (`queued`, `waiting_auth`, `waiting_retry`, `otp_backoff`, `waiting_submission_window`, `unknown`, `reconciling`); `normalizeBaseUrl` strips trailing `/api/v1` too (no doubled prefixes); removed dead `dispatch_now` flag from manual retry |
+| Metadata Bundle Completion | `app/models_multitenant.py` | Registers `LocationFavorite` + `AdminAlert` so `SQLModel.metadata.create_all` (SQLite tests) sees every table |
+| Config Dedup & Docs Sync | `app/core/config.py` + docs | Removed duplicate `ALLOW_LIVE_SUBMIT` assignment; OTP prediction documented as configurable `17:30–08:00`; test-count references corrected to actual collection |
 
 ### 2026-08-23 — v2.9.4 Error Taxonomy Sync, State Machine Auto-Heal & Full-Stack UI Batch Integration
 | Change | File | Impact |

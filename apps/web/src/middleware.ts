@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
-const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || 'utcms_auth_token';
+// Must match apps/web/src/lib/api.ts and the backend AUTH_COOKIE_NAME.
+const AUTH_COOKIE_NAME = process.env.NEXT_PUBLIC_AUTH_COOKIE_NAME || 'utcms_auth_token';
 
 const publicPaths = ['/auth'];
 

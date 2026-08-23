@@ -790,6 +790,15 @@ class WaybillJobResponse(BaseModel):
     night_attempt_count: int = 0
     night_attempt_window: str | None = None
 
+    # Multi-route batch linkage (migration 038) — consumed by the batches
+    # progress dashboard and history filters in the frontend (types.ts).
+    batch_id: int | None = None
+    route_template_id: int | None = None
+    sequence_index: int | None = None
+    distance_km: float | None = None
+    duration_min: float | None = None
+    submission_fingerprint: str | None = None
+
     @field_validator("payload_json", "result_json", mode="before")
     @classmethod
     def coerce_json_fields(cls, v: Any) -> Any:

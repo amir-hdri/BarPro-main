@@ -95,7 +95,11 @@ class RPADistributedRuntime:
                 tokens = (self._lock_tokens.get() or {}).copy()
                 tokens[key] = token
                 self._lock_tokens.set(tokens)
+                await self._remember_lock_token(key, token, ttl_seconds)
             return acquired
+        # NOTE: _remember_lock_token must run OUTSIDE _get_lock(): it acquires
+        # the same non-reentrant threading.Lock internally.
+        acquired_in_memory = False
         with self._get_lock():
             current = self._memory.get(key)
             if current is not None:
@@ -103,10 +107,46 @@ class RPADistributedRuntime:
                 if expires_at is None or expires_at > time.time():
                     return False
             self._memory[key] = (token, time.time() + ttl_seconds)
+            acquired_in_memory = True
+        if acquired_in_memory:
             tokens = (self._lock_tokens.get() or {}).copy()
             tokens[key] = token
             self._lock_tokens.set(tokens)
+            await self._remember_lock_token(key, token, ttl_seconds)
             return True
+
+    @staticmethod
+    def _lock_token_registry_key(key: str) -> str:
+        return f"locktok:{key}"
+
+    async def _remember_lock_token(self, key: str, token: str, ttl_seconds: int) -> None:
+        """Durably remember the lock token for the lock's lifetime.
+
+        The release path compares the recalled token against the live lock value
+        via a compare-and-delete Lua script, so a stale/foreign token can never
+        delete someone else's lock — durability here does not weaken ownership.
+        """
+        try:
+            await self._set_value(
+                self._lock_token_registry_key(key),
+                token,
+                ttl_seconds=int(ttl_seconds) + 60,
+            )
+        except Exception:
+            logger.warning("rpa_lock_token_remember_failed_for_key_%s", key, exc_info=True)
+
+    async def _recall_lock_token(self, key: str) -> str | None:
+        try:
+            return await self._get_value(self._lock_token_registry_key(key))
+        except Exception:
+            logger.warning("rpa_lock_token_recall_failed_for_key_%s", key, exc_info=True)
+            return None
+
+    async def _forget_lock_token(self, key: str) -> None:
+        try:
+            await self._delete_value(self._lock_token_registry_key(key))
+        except Exception:
+            logger.warning("rpa_lock_token_forget_failed_for_key_%s", key, exc_info=True)
 
     async def release_lock(self, key: str, token: str | None = None) -> None:
         tokens = (self._lock_tokens.get() or {}).copy()
@@ -115,11 +155,16 @@ class RPADistributedRuntime:
         else:
             tokens.pop(key, None)
         self._lock_tokens.set(tokens)
+        if token is None:
+            # ContextVar lost across an asyncio task/thread boundary: recall the
+            # token from the durable registry written at acquire time. The Lua
+            # compare-and-delete below still proves ownership before deleting.
+            token = await self._recall_lock_token(key)
         redis = await self._get_redis()
         if redis is not None:
             if token is None:
-                # Token missing from ContextVar (e.g. across async task boundary).
-                # NEVER delete a lock without ownership proof. Log and let TTL expire.
+                # No token in ContextVar nor registry. NEVER delete without
+                # ownership proof — log and let the TTL expire.
                 logger.warning(
                     "rpa_lock_release_token_missing_for_key_%s — skipping delete; lock will expire via TTL",
                     key,
@@ -135,11 +180,19 @@ class RPADistributedRuntime:
                 await redis.eval(script, 1, key, token)
             except Exception:
                 logger.warning("rpa_lock_release_failed", exc_info=True)
+            finally:
+                await self._forget_lock_token(key)
             return
+        # NOTE: _forget_lock_token must run OUTSIDE _get_lock(): it acquires the
+        # same non-reentrant threading.Lock internally.
+        memory_released = False
         with self._get_lock():
             current = self._memory.get(key)
             if current is not None and token is not None and current[0] == token:
                 self._memory.pop(key, None)
+                memory_released = True
+        if memory_released:
+            await self._forget_lock_token(key)
 
     async def force_release_lock(self, key: str, token: str | None = None) -> None:
         """Administrative recovery only: remove a lock without ownership checks.
@@ -165,12 +218,18 @@ class RPADistributedRuntime:
                     await redis.eval(script, 1, key, token)
                 except Exception:
                     logger.warning("rpa_lock_force_release_failed", exc_info=True)
+                finally:
+                    await self._forget_lock_token(key)
                 return
-            await redis.delete(key)
+            try:
+                await redis.delete(key)
+            finally:
+                await self._forget_lock_token(key)
             return
         with self._get_lock():
             if token is None or (self._memory.get(key) is not None and self._memory[key][0] == token):
                 self._memory.pop(key, None)
+        await self._forget_lock_token(key)
 
     async def is_lock_held(self, key: str) -> bool:
         """Return True if the lock key currently exists (regardless of owner)."""

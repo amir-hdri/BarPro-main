@@ -247,7 +247,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="سیستم اتوماسیون UTCMS",
     description="ربات هوشمند صدور بارنامه با قابلیت انتخاب مسیر و گزارش‌گیری",
-    version="2.9.4",
+    version="2.9.5",
     lifespan=lifespan,
 )
 

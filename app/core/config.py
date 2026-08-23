@@ -189,7 +189,9 @@ class UTCMSConfig:
         # (e.g. Prometheus scraping from outside the Docker bridge). When empty,
         # only loopback/RFC1918 peers are served.
         self.METRICS_SCRAPE_TOKEN = os.getenv("METRICS_SCRAPE_TOKEN", "").strip()
-        self.JOB_TIMEOUT_SECONDS = int(os.getenv("JOB_TIMEOUT_SECONDS", "330"))  # must stay < CELERY_TASK_TIME_LIMIT (360) so asyncio.wait_for fires before Celery SIGKILL
+        self.JOB_TIMEOUT_SECONDS = int(
+            os.getenv("JOB_TIMEOUT_SECONDS", "330")
+        )  # must stay < CELERY_TASK_TIME_LIMIT (360) so asyncio.wait_for fires before Celery SIGKILL
         self.ITMBOL_SERVICE_URL = os.getenv("ITMBOL_SERVICE_URL", "https://services2.sipaad.ir/ITMBOL.asmx")
         self.ITMBOL_COMPANY_CODE = os.getenv("ITMBOL_COMPANY_CODE", "").strip()
         self.ITMBOL_SERVICE_PASSWORD = os.getenv("ITMBOL_SERVICE_PASSWORD", "").strip()
