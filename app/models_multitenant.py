@@ -11,6 +11,9 @@ from enum import StrEnum
 from sqlalchemy import JSON, Boolean, Column, DateTime, Index, Integer, Text, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
+from app.models.waybill_batch import WaybillBatch  # noqa: F401
+from app.models.waybill_route_template import WaybillRouteTemplate  # noqa: F401
+
 # ==================== ENUMS ====================
 
 
