@@ -346,7 +346,7 @@ async def check():
 
 asyncio.run(check())
 """
-    run_node_cmd(central["ip"], f'docker exec barpro-backend python -c "{db_test_script}"')
+    run_node_cmd(central["ip"], f"docker exec -i barpro-backend python3 << 'EOF'\n{db_test_script}\nEOF")
 
     print("\n--- [E] Redis Connectivity & Session Vault from Central Backend ---")
     redis_test_script = """
@@ -362,7 +362,7 @@ async def check():
 
 asyncio.run(check())
 """
-    run_node_cmd(central["ip"], f'docker exec barpro-backend python -c "{redis_test_script}"')
+    run_node_cmd(central["ip"], f"docker exec -i barpro-backend python3 << 'EOF'\n{redis_test_script}\nEOF")
 
     print("\n--- [F] Celery Active Workers Inspection (Cross-Cluster) ---")
     run_node_cmd(
@@ -389,7 +389,7 @@ async def check():
 
 asyncio.run(check())
 """
-    run_node_cmd(w2["ip"], f'docker exec barpro-celery-worker python -c "{w2_test_script}"')
+    run_node_cmd(w2["ip"], f"docker exec -i barpro-celery-worker python3 << 'EOF'\n{w2_test_script}\nEOF")
     run_node_cmd(
         w2["ip"],
         "docker exec barpro-celery-worker curl -fsS -o /dev/null -w 'WORKER 2 SQUID EGRESS: HTTP_%{http_code}\\n' -x http://squid:3128 https://api.ipify.org",
@@ -415,7 +415,7 @@ async def check():
 
 asyncio.run(check())
 """
-    run_node_cmd(w3["ip"], f'docker exec barpro-celery-worker python -c "{w3_test_script}"')
+    run_node_cmd(w3["ip"], f"docker exec -i barpro-celery-worker python3 << 'EOF'\n{w3_test_script}\nEOF")
     run_node_cmd(
         w3["ip"],
         "docker exec barpro-celery-worker curl -fsS -o /dev/null -w 'WORKER 3 SQUID EGRESS: HTTP_%{http_code}\\n' -x http://squid:3128 https://api.ipify.org",
