@@ -166,11 +166,7 @@ class BatchService:
 
         # Tenant isolation: the driver must belong to the requesting client.
         driver = (
-            await session.exec(
-                select(Driver).where(
-                    (Driver.client_id == client_id) & (Driver.id == payload.driver_id)
-                )
-            )
+            await session.exec(select(Driver).where((Driver.client_id == client_id) & (Driver.id == payload.driver_id)))
         ).first()
         if driver is None:
             raise HTTPException(status_code=404, detail="راننده یافت نشد یا متعلق به شما نیست")
@@ -194,9 +190,7 @@ class BatchService:
             plate = (
                 await session.exec(
                     select(DriverPlate)
-                    .where(
-                        DriverPlate.driver_id == driver.id, DriverPlate.status == "active"
-                    )
+                    .where(DriverPlate.driver_id == driver.id, DriverPlate.status == "active")
                     .order_by(DriverPlate.id.desc())
                 )
             ).first()
@@ -210,9 +204,7 @@ class BatchService:
         for route in routes:
             route_errors = _validate_route_location(route)
             if route_errors:
-                raise HTTPException(
-                    status_code=422, detail=f"مسیر «{route.name}» ناقص است: " + "، ".join(route_errors)
-                )
+                raise HTTPException(status_code=422, detail=f"مسیر «{route.name}» ناقص است: " + "، ".join(route_errors))
 
         # Validate the merged payload against the live worker contract so every
         # job passes preflight validation (no silent NEEDS_REVIEW at runtime).

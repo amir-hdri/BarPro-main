@@ -60,9 +60,7 @@ async def _fetch_neshan(origin_lat: float, origin_lng: float, dest_lat: float, d
         return None
 
 
-async def get_route_distance(
-    origin_lat: float, origin_lng: float, dest_lat: float, dest_lng: float
-) -> dict:
+async def get_route_distance(origin_lat: float, origin_lng: float, dest_lat: float, dest_lng: float) -> dict:
     """Return ``{"distance_km", "duration_min", "source"}`` for a route."""
     key = _cache_key(origin_lat, origin_lng, dest_lat, dest_lng)
     redis = await redis_manager.get()

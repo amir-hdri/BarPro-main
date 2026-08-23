@@ -61,9 +61,7 @@ class RouteTemplateService:
         )
         return list((await session.exec(statement)).all())
 
-    async def get(
-        self, session: AsyncSession, template_id: int, client_id: int
-    ) -> WaybillRouteTemplate | None:
+    async def get(self, session: AsyncSession, template_id: int, client_id: int) -> WaybillRouteTemplate | None:
         template = await session.get(WaybillRouteTemplate, template_id)
         if template is None or template.client_id != client_id:
             return None

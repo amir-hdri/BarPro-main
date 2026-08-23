@@ -40,9 +40,5 @@ class WaybillRouteTemplate(SQLModel, table=True):
 
     is_favorite: bool = Field(default=True)
 
-    created_at: datetime = Field(
-        default_factory=_utcnow, sa_column=Column(DateTime(timezone=False), nullable=False)
-    )
-    updated_at: datetime = Field(
-        default_factory=_utcnow, sa_column=Column(DateTime(timezone=False), nullable=False)
-    )
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=Column(DateTime(timezone=False), nullable=False))
+    updated_at: datetime = Field(default_factory=_utcnow, sa_column=Column(DateTime(timezone=False), nullable=False))

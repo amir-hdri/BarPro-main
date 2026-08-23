@@ -32,9 +32,7 @@ async def create_batch(
     user_context: dict[str, Any] = Depends(get_current_user_or_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    return await batch_service.create_batch(
-        session, _resolve_client_id(user_context), payload, idempotency_key
-    )
+    return await batch_service.create_batch(session, _resolve_client_id(user_context), payload, idempotency_key)
 
 
 @router.get("/{batch_id}/progress", response_model=BatchProgressResponse)

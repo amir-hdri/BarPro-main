@@ -40,9 +40,5 @@ class WaybillBatch(SQLModel, table=True):
     status: str = Field(default="active", max_length=20)  # active | paused | completed | cancelled
     progress: dict = Field(default_factory=_default_progress, sa_column=Column(JSON, nullable=False))
 
-    created_at: datetime = Field(
-        default_factory=_utcnow, sa_column=Column(DateTime(timezone=False), nullable=False)
-    )
-    updated_at: datetime = Field(
-        default_factory=_utcnow, sa_column=Column(DateTime(timezone=False), nullable=False)
-    )
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=Column(DateTime(timezone=False), nullable=False))
+    updated_at: datetime = Field(default_factory=_utcnow, sa_column=Column(DateTime(timezone=False), nullable=False))

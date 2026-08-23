@@ -21,12 +21,7 @@ def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Great-circle distance in kilometers between two coordinates."""
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(math.radians(lat1))
-        * math.cos(math.radians(lat2))
-        * math.sin(dlon / 2) ** 2
-    )
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
     return EARTH_RADIUS_KM * 2 * math.asin(math.sqrt(a))
 
 
