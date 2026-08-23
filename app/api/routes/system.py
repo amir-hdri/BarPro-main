@@ -1,10 +1,11 @@
 import asyncio
+import ipaddress
 import logging
 import time
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -411,8 +412,39 @@ async def admin_readyz():
     return _readyz_response(checks, details, include_internal_details=True)
 
 
+def _is_internal_metrics_peer(request: Request) -> bool:
+    """True when the direct TCP peer is loopback or RFC1918/private.
+
+    Prometheus scrapes ``/metrics`` over the internal Docker bridge, so its
+    peer address is always private. Requests proxied by nginx also appear as
+    private (the nginx container IP), but nginx already blocks public access
+    for this location — this guard is defence-in-depth against a misconfigured
+    deployment that publishes the backend port directly.
+    """
+    client = getattr(request, "client", None)
+    host = getattr(client, "host", None) if client else None
+    if not host:
+        return True
+    try:
+        addr = ipaddress.ip_address(host)
+        return addr.is_private or addr.is_loopback
+    except ValueError:
+        return False
+
+
 @router.get("/metrics")
-async def metrics():
+async def metrics(request: Request):
+    # Defence-in-depth: the app-layer counterpart of the nginx allow/deny rule.
+    # Private/internal peers (Prometheus on the Docker bridge) and callers with
+    # the configured scrape token pass; everyone else gets 403.
+    scrape_token = utcms_config.METRICS_SCRAPE_TOKEN
+    if scrape_token:
+        if request.headers.get("X-Metrics-Token") != scrape_token:
+            raise HTTPException(status_code=403, detail="metrics access denied")
+    elif not _is_internal_metrics_peer(request):
+        logger.warning("metrics_access_denied_non_internal_peer")
+        raise HTTPException(status_code=403, detail="metrics access denied")
+
     # 1. Update queue depth
     queue_snapshot = await _safe_queue_snapshot()
     if queue_snapshot is None:

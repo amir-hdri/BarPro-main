@@ -209,7 +209,8 @@ URL/Data URI and has no direct tracking-code column.
 
 ### OTP and CAPTCHA
 
-- The `18:00–08:00` window is a configurable **prediction** of
+- The `17:30–08:00` window (config defaults `PREDICTED_OTP_REQUIRED_START_HOUR=17`,
+  `START_MINUTE=30`) is a configurable **prediction** of
   `OTP_REQUIRED`, not a guaranteed UTCMS schedule. Only a current
   `OTP_FREE` observation permits submission; unknown/degraded states fail closed.
 - `CAPTCHA_PROVIDER=auto` uses CNN → PyTorch Fuel CRNN → Keras → Enhanced OCR →

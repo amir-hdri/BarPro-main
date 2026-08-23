@@ -262,7 +262,7 @@ def _get_tenant_id_from_request(request: Request) -> str | None:
         token = auth_header.split(" ")[1]
 
     if not token:
-        token = request.cookies.get("utcms_auth_token")
+        token = request.cookies.get(utcms_config.AUTH_COOKIE_NAME)
 
     if not token:
         return None

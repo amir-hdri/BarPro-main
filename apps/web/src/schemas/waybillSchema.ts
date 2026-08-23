@@ -16,12 +16,28 @@ const numericText = (requiredMessage: string, invalidMessage: string, max: numbe
     .max(max, maxMessage)
     .refine((value) => Number(normalizeDigits(value).replace(/,/g, "")) > 0, invalidMessage);
 
+// Iranian national code checksum — mirrors the backend validator
+// (WaybillPayload._validate_iran_national_code in app/schemas/multitenant.py)
+// so users get immediate client-side feedback instead of a late 422.
+const isValidIranNationalCode = (code: string): boolean => {
+  if (!/^\d{10}$/.test(code)) return false;
+  if (/^(\d)\1{9}$/.test(code)) return false;
+  const checksum = code
+    .slice(0, 9)
+    .split("")
+    .reduce((sum, digit, index) => sum + Number(digit) * (10 - index), 0);
+  const remainder = checksum % 11;
+  const control = Number(code[9]);
+  return remainder < 2 ? control === remainder : control === 11 - remainder;
+};
+
 export const waybillSchema = z.object({
   driver_national_code: z
     .string()
     .min(1, "انتخاب راننده الزامی است")
     .transform((value) => digitsOnly(value))
-    .refine((value) => /^\d{10}$/.test(value), "کد ملی باید دقیقاً ۱۰ رقم باشد"),
+    .refine((value) => /^\d{10}$/.test(value), "کد ملی باید دقیقاً ۱۰ رقم باشد")
+    .refine((value) => isValidIranNationalCode(value), "کد ملی معتبر نیست (رقم کنترل نامعتبر است)"),
   origin: requiredText(2, "شهر مبدأ باید حداقل ۲ حرف باشد", 500, "مبدأ حداکثر ۵۰۰ حرف مجاز است"),
   origin_province: requiredText(2, "استان مبدأ الزامی است", 120, "استان مبدأ حداکثر ۱۲۰ حرف مجاز است"),
   origin_address: requiredText(5, "آدرس مبدأ الزامی است", 500, "آدرس مبدأ حداکثر ۵۰۰ حرف مجاز است"),

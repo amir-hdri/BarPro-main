@@ -146,6 +146,28 @@ async def test_webhook_missing_signature(async_db: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_webhook_fail_closed_for_edge_proxied_request_without_secret(async_db: AsyncSession):
+    """Without ALERT_WEBHOOK_SECRET, requests that traversed nginx (X-Request-ID
+    stamped by the edge proxy) must be rejected; direct internal callers pass."""
+    from fastapi import HTTPException
+
+    from app.api.routes.admin_alerts import alertmanager_webhook
+    from app.core.config import utcms_config
+
+    proxied = MockRequest(headers={"X-Request-ID": "nginx_generated_id"}, body=b"{}", json_data={})
+    with patch.object(utcms_config, "ALERT_WEBHOOK_SECRET", ""):
+        with pytest.raises(HTTPException) as exc_info:
+            await alertmanager_webhook(proxied, session=async_db)
+        assert exc_info.value.status_code == 403
+
+        # Internal Alertmanager call: no X-Request-ID header → allowed through
+        internal = MockRequest(headers={}, body=b'{"alerts": []}', json_data={"alerts": []})
+        res = await alertmanager_webhook(internal, session=async_db)
+        assert res["status"] == "success"
+        assert res["processed_alerts"] == 0
+
+
+@pytest.mark.asyncio
 async def test_webhook_valid_signature_firing(async_db: AsyncSession):
     import hashlib
     import hmac

@@ -260,7 +260,7 @@ async def get_current_client(
     if credentials:
         token = credentials.credentials
     elif request is not None:
-        token = request.cookies.get("utcms_auth_token")
+        token = request.cookies.get(utcms_config.AUTH_COOKIE_NAME)
 
     if not token:
         raise credentials_exception
@@ -362,7 +362,7 @@ async def get_current_admin(
     if credentials:
         token = credentials.credentials
     elif request is not None:
-        token = request.cookies.get("utcms_auth_token")
+        token = request.cookies.get(utcms_config.AUTH_COOKIE_NAME)
 
     if not token:
         raise credentials_exception
@@ -438,7 +438,7 @@ async def get_current_user_or_admin(
     if credentials:
         token = credentials.credentials
     elif request is not None:
-        token = request.cookies.get("utcms_auth_token")
+        token = request.cookies.get(utcms_config.AUTH_COOKIE_NAME)
 
     if not token:
         raise credentials_exception

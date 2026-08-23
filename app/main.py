@@ -22,8 +22,8 @@ from app.api.routes import (
     multitenant,
     realtime,
     reports,
-    rpa_phase1,
     route_templates,
+    rpa_phase1,
     system,
     user_reporting,
     waybill_entry,
@@ -247,7 +247,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="سیستم اتوماسیون UTCMS",
     description="ربات هوشمند صدور بارنامه با قابلیت انتخاب مسیر و گزارش‌گیری",
-    version="2.9.3",
+    version="2.9.4",
     lifespan=lifespan,
 )
 
@@ -319,9 +319,15 @@ def _rate_limit_rule_for_path(path: str) -> str:
         for prefix in ("/api/v1/admin/login", "/admin/login", "/api/v1/auth/login", "/api/v1/auth/register")
     ):
         return "auth"
-    if any(_matches_route_prefix(path, prefix) for prefix in ("/api/v1/admin", "/admin", "/management")):
+    if any(
+        _matches_route_prefix(path, prefix)
+        for prefix in ("/api/v1/admin", "/admin", "/management", "/reports", "/api/system")
+    ):
         return "admin"
-    if any(_matches_route_prefix(path, prefix) for prefix in ("/waybill", "/api/v1/waybill-jobs")):
+    if any(
+        _matches_route_prefix(path, prefix)
+        for prefix in ("/waybill", "/api/v1/waybill-jobs", "/api/v1/batches", "/api/v1/route-templates")
+    ):
         return "waybill"
     if _matches_route_prefix(path, "/api/v1/drivers"):
         return "driver"

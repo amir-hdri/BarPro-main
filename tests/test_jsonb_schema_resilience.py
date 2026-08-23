@@ -69,6 +69,44 @@ def test_waybill_job_response_none_payload():
     assert job.result_json is None
 
 
+def test_waybill_job_response_multiroute_fields_from_orm():
+    """Migration-038 columns must survive ORM → response serialization.
+
+    Regression: the frontend batches progress dashboard and history filters
+    read batch_id / route_template_id / sequence_index / distance_km /
+    duration_min / submission_fingerprint; the Pydantic schema used to strip
+    them silently (always undefined client-side).
+    """
+    from app.models_multitenant import WaybillJob
+
+    orm_job = WaybillJob(
+        id=501,
+        job_id="job-mr-1",
+        idempotency_key="idem-mr-1",
+        client_id=1,
+        status="pending",
+        payload_json={},
+        batch_id=77,
+        route_template_id=12,
+        sequence_index=3,
+        distance_km=412.5,
+        duration_min=330.0,
+        submission_fingerprint="fp-abc123",
+    )
+    resp = WaybillJobResponse.model_validate(orm_job)
+    assert resp.batch_id == 77
+    assert resp.route_template_id == 12
+    assert resp.sequence_index == 3
+    assert resp.distance_km == 412.5
+    assert resp.duration_min == 330.0
+    assert resp.submission_fingerprint == "fp-abc123"
+
+    # Defaults stay optional for legacy jobs without batch linkage
+    legacy = WaybillJobResponse(**_waybill_job_base())
+    assert legacy.batch_id is None
+    assert legacy.submission_fingerprint is None
+
+
 # ==================== ClientResponse ====================
 
 

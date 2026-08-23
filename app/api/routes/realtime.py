@@ -19,7 +19,7 @@ async def waybill_events_socket(
     batch_id: str | None = None,
     correlation_id: str | None = None,
 ):
-    token = websocket.cookies.get("utcms_auth_token")
+    token = websocket.cookies.get(utcms_config.AUTH_COOKIE_NAME)
     if not token:
         await websocket.close(code=4401)
         return

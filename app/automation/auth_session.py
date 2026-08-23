@@ -30,6 +30,8 @@ AUTH_KEYWORDS = (
     "jwt",
 )
 
+SESSION_STATE_FILE = "utcms_state.json"
+
 
 class SessionManager:
     """Manages UTCMS authentication session persistence and validation.

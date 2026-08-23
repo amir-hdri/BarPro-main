@@ -72,7 +72,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["multi-tenant"])
 alias_router = APIRouter(tags=["multi-tenant-compat"])
 security = HTTPBearer()
-AUTH_COOKIE_NAME = "utcms_auth_token"
+AUTH_COOKIE_NAME = utcms_config.AUTH_COOKIE_NAME
 
 WAYBILL_SCREENSHOTS_DIR = Path(os.getenv("WAYBILL_SCREENSHOTS_DIR", "runtime/screenshots/waybill"))
 _SAFE_JOB_ID = re.compile(r"^[A-Za-z0-9_-]+$")

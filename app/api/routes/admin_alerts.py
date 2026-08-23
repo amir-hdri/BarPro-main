@@ -2,6 +2,7 @@
 API Routes for Admin Alerts, Manual Reconciliation, and Fencing-Protected Retries.
 """
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -19,6 +20,8 @@ from app.orchestrator.reconciliation_service import reconciliation_service
 from app.orchestrator.state_machine import JobStateMachine, JobStatus
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin-alerts"])
+
+logger = logging.getLogger(__name__)
 
 
 class RetryRequest(BaseModel):
@@ -236,8 +239,20 @@ async def alertmanager_webhook(
     from app.core.config import utcms_config
     from app.models.admin import AdminAlert
 
-    # 1. Signature validation
+    # 1. Access control (fail-closed)
+    #    - With ALERT_WEBHOOK_SECRET configured: HMAC signature is mandatory.
+    #    - Without a secret the endpoint MUST NOT be reachable through the public
+    #      edge. Nginx always stamps proxied requests with an X-Request-ID it
+    #      generates itself, while Alertmanager calls the backend directly over
+    #      the internal Docker network without that header. So a request that
+    #      carries X-Request-ID came through nginx → reject with 403.
     secret = utcms_config.ALERT_WEBHOOK_SECRET
+    if not secret and request.headers.get("X-Request-ID"):
+        logger.warning("alert_webhook_rejected_public_request_without_secret")
+        raise HTTPException(
+            status_code=403,
+            detail="Alert webhook requires ALERT_WEBHOOK_SECRET to accept edge-proxied requests",
+        )
     if secret:
         timestamp = request.headers.get("X-Barpro-Timestamp")
         signature = request.headers.get("X-Barpro-Signature")

@@ -12,7 +12,10 @@ export const API_BASE_URL = (
 
 function normalizeBaseUrl(baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/+$/, '');
-  return trimmed.endsWith('/api') ? trimmed.slice(0, -4) : trimmed;
+  // Strip a trailing "/api" or "/api/v1" so callers can pass either the bare
+  // origin, a proxy prefix ("/api"), or a full API root without producing
+  // doubled segments like "/api/v1/api/v1/...".
+  return trimmed.replace(/\/api(\/v1)?$/, '');
 }
 
 export function buildUrl(

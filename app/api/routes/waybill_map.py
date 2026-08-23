@@ -33,10 +33,17 @@ router = APIRouter(prefix="/waybill", tags=["waybill-map"])
 
 
 def _extract_client_id_from_request(request: Request) -> int | None:
+    # NOTE: The global API_KEY is an infrastructure credential (workers, health
+    # probes). It must never silently attribute jobs to tenant 1. Callers that
+    # only present the API_KEY get client_id=None here; queue_manager then
+    # rejects the request in production (400) and falls back to tenant 1 in dev.
     api_key = request.headers.get(utcms_config.API_KEY_HEADER)
     if api_key and _is_api_key_valid(api_key):
-        return 1
-    token = _extract_bearer_token(request.headers.get("Authorization")) or request.cookies.get("utcms_auth_token")
+        logger.warning("legacy_waybill_api_key_has_no_tenant_context")
+        return None
+    token = _extract_bearer_token(request.headers.get("Authorization")) or request.cookies.get(
+        utcms_config.AUTH_COOKIE_NAME
+    )
     if token:
         try:
             payload = _decode_jwt(token)

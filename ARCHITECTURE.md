@@ -131,7 +131,7 @@ POST /api/v1/waybill-jobs
 ## 5. Submission Gate و OTP
 
 UTCMS پنجره‌ی رسمی و تضمین‌شده‌ای برای OTP منتشر نکرده است. بازه پیش‌فرض
-`18:00–08:00` فقط **prediction قابل‌تنظیم** برای `OTP_REQUIRED` است، نه قانون
+`17:30–08:00` (پیش‌فرض config) فقط **prediction قابل‌تنظیم** برای `OTP_REQUIRED` است، نه قانون
 قطعی سامانه.
 
 - فقط observation معتبر `OTP_FREE` اجازه submit می‌دهد.

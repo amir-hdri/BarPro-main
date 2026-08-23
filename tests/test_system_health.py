@@ -110,8 +110,35 @@ def test_captcha_runtime_snapshot_includes_phase_and_latency_details():
 @patch("app.api.routes.system._safe_queue_snapshot", new_callable=AsyncMock)
 def test_metrics_endpoint_available(mock_snapshot):
     mock_snapshot.return_value = None
-    response = client.get("/metrics")
+    # TestClient peers are not private IPs, so the scrape token path must be
+    # exercised for the request to pass the /metrics access guard.
+    with patch("app.api.routes.system.utcms_config") as config_mock:
+        config_mock.METRICS_SCRAPE_TOKEN = "test_scrape_token"
+        response = client.get("/metrics", headers={"X-Metrics-Token": "test_scrape_token"})
     assert response.status_code in [200, 503]
+
+
+def test_metrics_peer_classification():
+    """Defence-in-depth guard: only private/loopback peers are internal."""
+    from app.api.routes.system import _is_internal_metrics_peer
+
+    assert _is_internal_metrics_peer(None) is True  # missing peer info -> allow (unix/test transports)
+
+    class _PublicPeer:
+        host = "8.8.8.8"  # public unicast
+
+    class _PublicReq:
+        client = _PublicPeer()
+
+    assert _is_internal_metrics_peer(_PublicReq()) is False
+
+    class _PrivatePeer:
+        host = "172.18.0.5"
+
+    class _InternalReq:
+        client = _PrivatePeer()
+
+    assert _is_internal_metrics_peer(_InternalReq()) is True
 
 
 def test_readyz_marks_itmb_checks_as_skipped_by_default():

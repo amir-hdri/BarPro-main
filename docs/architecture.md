@@ -86,7 +86,7 @@ reconciliation window.
   a subprocess in the current solver.
 - Login may use curl_cffi HTTP authentication, session transfer, and a limited
   document/xhr/fetch bridge before Playwright fallback.
-- 18:00-08:00 is a configurable OTP_REQUIRED prediction, not an official UTCMS
+- 17:30-08:00 (config default) is a configurable OTP_REQUIRED prediction, not an official UTCMS
   window. Only a current OTP_FREE observation permits submission.
 
 ## Data Model

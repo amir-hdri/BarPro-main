@@ -181,7 +181,14 @@ class UTCMSConfig:
                 status_code=500,
             )
 
-        self.ALLOW_LIVE_SUBMIT = _to_bool(os.getenv("ALLOW_LIVE_SUBMIT", "False"), default=False)
+        # NOTE: ALLOW_LIVE_SUBMIT is intentionally assigned ONCE below in the
+        # submission-safety block (Non-negotiable Rule #1). Do not re-read the
+        # env var here — duplicate assignment shadowed the canonical value.
+        # Defence-in-depth for GET /metrics: when set, the endpoint additionally
+        # accepts requests presenting this token in the X-Metrics-Token header
+        # (e.g. Prometheus scraping from outside the Docker bridge). When empty,
+        # only loopback/RFC1918 peers are served.
+        self.METRICS_SCRAPE_TOKEN = os.getenv("METRICS_SCRAPE_TOKEN", "").strip()
         self.JOB_TIMEOUT_SECONDS = int(os.getenv("JOB_TIMEOUT_SECONDS", "330"))  # must stay < CELERY_TASK_TIME_LIMIT (360) so asyncio.wait_for fires before Celery SIGKILL
         self.ITMBOL_SERVICE_URL = os.getenv("ITMBOL_SERVICE_URL", "https://services2.sipaad.ir/ITMBOL.asmx")
         self.ITMBOL_COMPANY_CODE = os.getenv("ITMBOL_COMPANY_CODE", "").strip()
@@ -270,6 +277,10 @@ class UTCMSConfig:
         self.FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").strip()
         self.FRONTEND_URLS = os.getenv("FRONTEND_URLS", "").strip()
         self.FRONTEND_URL_ALT = os.getenv("FRONTEND_URL_ALT", "").strip()
+        # httpOnly JWT cookie name (backend). The Next.js side reads the same
+        # value via NEXT_PUBLIC_AUTH_COOKIE_NAME — keep both in sync when
+        # customizing; default must stay "utcms_auth_token".
+        self.AUTH_COOKIE_NAME = os.getenv("AUTH_COOKIE_NAME", "utcms_auth_token").strip() or "utcms_auth_token"
         self.AUTH_COOKIE_SECURE = _to_bool(
             os.getenv("AUTH_COOKIE_SECURE"),
             default=self.FRONTEND_URL.lower().startswith("https://"),

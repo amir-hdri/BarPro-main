@@ -10,8 +10,8 @@ from app.auth_multitenant import _decode_jwt
 from app.core.config import utcms_config
 from app.core.security import _extract_bearer_token, _is_api_key_valid, require_sensitive_auth
 from app.schemas.waybill import OperationMode, WaybillMapRequest
-from app.services.excel_upload_service import LEGACY_EXCEL_UPLOAD_DISABLED_DETAIL
 from app.services.excel_template_service import ExcelTemplateService
+from app.services.excel_upload_service import LEGACY_EXCEL_UPLOAD_DISABLED_DETAIL
 from app.services.waybill_entry_service import excel_waybill_service, manual_waybill_service
 
 router = APIRouter(prefix="/waybill", tags=["waybill-entry"])

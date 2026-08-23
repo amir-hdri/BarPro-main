@@ -12,7 +12,7 @@ import logging
 import httpx
 
 from app.core.config import utcms_config
-from app.core.distance import estimate_time, haversine, road_estimate
+from app.core.distance import estimate_time, road_estimate
 from app.core.redis import redis_manager
 
 logger = logging.getLogger(__name__)

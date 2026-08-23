@@ -523,4 +523,9 @@ class FuelInquiry(SQLModel, table=True):
 
 
 # Ensure UTCMSSystemObservation table is included in SQLModel metadata
+# Register auxiliary tables in SQLModel.metadata so that
+# ``SQLModel.metadata.create_all`` (SQLite test harness) and Alembic
+# autogenerate see them without relying on incidental import order:
+from app.models.admin import AdminAlert  # noqa: E402, F401
+from app.models.location_favorite import LocationFavorite  # noqa: E402, F401
 from app.models_rpa import UTCMSSystemObservation  # noqa: E402, F401

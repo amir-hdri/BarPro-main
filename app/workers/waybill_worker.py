@@ -1596,7 +1596,7 @@ def _is_retryable(result: dict[str, Any]) -> bool:
     if status_hint == "captchafailed":
         return True
 
-    from app.core.error_taxonomy import is_retryable_terminal_category, classify_error_string
+    from app.core.error_taxonomy import classify_error_string, is_retryable_terminal_category
 
     cat = classify_error_string(
         error_msg=str(result.get("error", "")),

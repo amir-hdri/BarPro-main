@@ -108,7 +108,9 @@ async def require_sensitive_auth(request: Request) -> None:
     _ensure_auth_config(mode)
 
     api_key = request.headers.get(utcms_config.API_KEY_HEADER)
-    token = _extract_bearer_token(request.headers.get("Authorization")) or request.cookies.get("utcms_auth_token")
+    token = _extract_bearer_token(request.headers.get("Authorization")) or request.cookies.get(
+        utcms_config.AUTH_COOKIE_NAME
+    )
 
     has_api_key = _is_api_key_valid(api_key)
     decoded_jwt = _is_jwt_valid(token)
@@ -154,7 +156,7 @@ async def require_sensitive_admin(request: Request) -> None:
     api_key = request.headers.get(utcms_config.API_KEY_HEADER)
     token = _extract_bearer_token(request.headers.get("Authorization"))
     if not token:
-        token = request.cookies.get("utcms_auth_token")
+        token = request.cookies.get(utcms_config.AUTH_COOKIE_NAME)
 
     has_api_key = _is_api_key_valid(api_key)
     decoded = _is_jwt_valid(token)

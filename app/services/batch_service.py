@@ -12,7 +12,7 @@ from __future__ import annotations
 import random
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -112,14 +112,14 @@ def _validate_route_location(route: WaybillRouteTemplate) -> list[str]:
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def _tehran_today_start_utc() -> datetime:
     """Tehran-local midnight expressed as naive UTC (matches ``finished_at`` storage)."""
-    tehran_now = _utcnow().replace(tzinfo=timezone.utc).astimezone(_TEHRAN_TZ)
+    tehran_now = _utcnow().replace(tzinfo=UTC).astimezone(_TEHRAN_TZ)
     tehran_midnight = tehran_now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return tehran_midnight.astimezone(timezone.utc).replace(tzinfo=None)
+    return tehran_midnight.astimezone(UTC).replace(tzinfo=None)
 
 
 class BatchService:

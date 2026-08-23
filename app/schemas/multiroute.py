@@ -63,7 +63,9 @@ class BatchCreate(BaseModel):
     target_count: int = Field(default=15, ge=1, le=1000)
     repeat_mode: Literal["round_robin", "random", "sequential"] = "round_robin"
     interval_minutes: int = Field(default=40, ge=0, le=1440)
-    priority: int = Field(default=5, ge=0, le=10)
+    # 0-9: must match WaybillJobUpdateRequest and CELERY_MAX_PRIORITY —
+    # values above 9 were silently clipped by the broker, creating drift.
+    priority: int = Field(default=5, ge=0, le=9)
 
 
 class BatchProgressResponse(BaseModel):

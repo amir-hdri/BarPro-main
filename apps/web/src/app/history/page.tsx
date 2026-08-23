@@ -518,7 +518,9 @@ export default function HistoryPage() {
 
   const handleRetryJob = useCallback(async (jobId: string) => {
     setRetryingJobId(jobId);
-    const response = await api.post(`/api/v1/waybill-jobs/${jobId}/retry`, { dispatch_now: true });
+    // Manual retry resets the job to PENDING; the orchestrator scheduler picks
+    // it up on its next cycle (dispatch_now was removed server-side).
+    const response = await api.post(`/api/v1/waybill-jobs/${jobId}/retry`, {});
     setRetryingJobId(null);
     if (response.success) {
       toast.success('درخواست اجرای مجدد ثبت شد.');
@@ -743,7 +745,14 @@ export default function HistoryPage() {
                   <option value="">همه وضعیت‌ها</option>
                   <option value="success" className="bg-slate-950">موفق (Completed)</option>
                   <option value="pending" className="bg-slate-950">در صف (Pending)</option>
+                  <option value="queued" className="bg-slate-950">صف‌شده (Queued)</option>
                   <option value="in_progress" className="bg-slate-950">در حال اجرا (Running)</option>
+                  <option value="waiting_auth" className="bg-slate-950">در انتظار ورود (Waiting Auth)</option>
+                  <option value="waiting_retry" className="bg-slate-950">در انتظار تلاش مجدد (Waiting Retry)</option>
+                  <option value="otp_backoff" className="bg-slate-950">انتظار OTP (OTP Backoff)</option>
+                  <option value="waiting_submission_window" className="bg-slate-950">انتظار بازه ثبت (Submission Window)</option>
+                  <option value="unknown" className="bg-slate-950">نامشخص (Unknown)</option>
+                  <option value="reconciling" className="bg-slate-950">در حال تطبیق (Reconciling)</option>
                   <option value="failed" className="bg-slate-950">خطا (Failed)</option>
                   <option value="needs_review" className="bg-slate-950">نیازمند بررسی (Needs Review)</option>
                 </select>

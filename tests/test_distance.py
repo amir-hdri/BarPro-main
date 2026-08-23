@@ -1,6 +1,5 @@
 """Unit tests for pure distance/time helpers (no Postgres/Redis/Neshan needed)."""
 
-import math
 
 import pytest
 
