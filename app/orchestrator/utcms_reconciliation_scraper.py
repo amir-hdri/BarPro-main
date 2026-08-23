@@ -82,7 +82,7 @@ class ReconciliationResult:
 class UTCMSReconciliationScraper:
     """Scrapes and reconciles waybill status against official UTCMS endpoints."""
 
-    HISTORY_URL = "https://barname.utcms.ir/barname/History/History"
+    HISTORY_URL = "https://barname.utcms.ir/Barname/History/History"
     SEARCH_URL = "https://barname.utcms.ir/Barname/Document/HagigiHogugi"
     HISTORY_LIST_ENDPOINT = "/Barname/History/GetHistoryFirstList"
     ISSUED_DOCUMENTS_ENDPOINT = "/Barname/DocumentList/GetIssuedDocumentsNew"
