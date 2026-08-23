@@ -22,7 +22,7 @@ import {
   FireIcon,
   ChartBarIcon,
 } from "@heroicons/react/24/outline";
-import { XCircle, Zap, ShieldCheck } from "lucide-react";
+import { XCircle, Zap, ShieldCheck, Layers } from "lucide-react";
 
 export default function DashboardPage() {
   const { client } = useSession();
@@ -177,6 +177,14 @@ export default function DashboardPage() {
                  >
                    <span className="absolute inset-0 bg-gradient-to-r from-cyan-400 to-blue-400 opacity-0 transition-opacity duration-300 group-hover:opacity-20"></span>
                    <span className="relative z-10 flex items-center gap-2">ثبت بارنامه جدید</span>
+                 </Link>
+                 <Link
+                   href="/batches"
+                   className="inline-flex flex-1 sm:flex-none items-center justify-center gap-2 rounded-2xl border border-cyan-500/30 bg-cyan-500/10 backdrop-blur-sm px-6 lg:px-8 py-3.5 lg:py-4 text-sm font-bold text-cyan-300 transition-all hover:bg-cyan-500/20 hover:border-cyan-500/50 hover:shadow-lg active:scale-95 touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                   aria-label="ثبت دسته‌ای چندمسیره"
+                 >
+                   <Layers className="h-5 w-5" />
+                   ثبت دسته‌ای (چندمسیره)
                  </Link>
                  <Link
                    href="/fuel"

@@ -34,6 +34,8 @@ const clientNavigation = [
 
 const adminNavigation = [
   { href: '/admin', icon: Building2, label: 'مدیریت مشتری‌ها', badge: null },
+  { href: '/batches', icon: Layers, label: 'ثبت دسته‌ای', badge: 'چندمسیره' },
+  { href: '/route-templates', icon: Route, label: 'قالب‌های مسیر', badge: null },
   { href: '/fuel', icon: Flame, label: 'استعلام سوخت', badge: null },
   { href: '/history', icon: Clock, label: 'پیگیری کارها', badge: null },
 ];
