@@ -119,3 +119,92 @@ async def test_show_tracking_code_requires_history_confirmation():
     assert res.outcome == ScraperOutcome.REGISTERED
     assert res.tracking_code == "987654321"
     assert res.details["source"] == "GetHistoryFirstList"
+
+
+def test_scraper_plate_formatting_variations():
+    """Verify plate matching across different Persian spacing and format variations."""
+    scraper = UTCMSReconciliationScraper()
+    row = {
+        "docNo": "",
+        "driverNationalCode": "5720114726",
+        "car": "82 ع 338 - ایران 24",
+        "sourceAddress": "خوزستان - اهواز",
+        "destAddress": "خوزستان - اهواز",
+    }
+
+    assert (
+        scraper._match_row(
+            row=row,
+            tracking_code=None,
+            national_code="5720114726",
+            plate_number="82ع338ایران24",
+            origin_city="اهواز",
+            dest_city="اهواز",
+        )
+        is True
+    )
+
+
+def test_scraper_persian_digits_and_arabic_chars():
+    """Verify matching with Persian digits in national code and Arabic characters in city name."""
+    scraper = UTCMSReconciliationScraper()
+    row = {
+        "docNo": "",
+        "driverNationalCode": "۵۷۲۰۱۱۴۷۲۶",
+        "car": "۸۲ع۳۳۸۲۴",
+        "sourceAddress": "تهران",
+        "destAddress": "اصفهان",
+    }
+
+    assert (
+        scraper._match_row(
+            row=row,
+            tracking_code=None,
+            national_code="5720114726",
+            plate_number="82ع338ایران24",
+            origin_city="تهران",
+            dest_city="اصفهان",
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_supports_aadata_and_object_wrappers():
+    """Verify scraper handles legacy aaData and nested object DataTables formats."""
+    scraper = UTCMSReconciliationScraper()
+    mock_page = AsyncMock()
+    mock_page.goto = AsyncMock()
+    mock_page.url = scraper.HISTORY_URL
+    mock_page.evaluate = AsyncMock(
+        return_value={
+            "status": 200,
+            "json": {
+                "aaData": [
+                    {
+                        "docNo": "140308230001",
+                        "dateFarsi": "1405/06/01",
+                        "driverNationalCode": "5720114726",
+                        "car": "82ع338ایران24",
+                        "sourceAddress": "اهواز",
+                        "destAddress": "اهواز",
+                    }
+                ]
+            },
+        }
+    )
+
+    res = await scraper.query_waybill_status(
+        page=mock_page,
+        national_code="5720114726",
+        reconciliation_fields={
+            "plate_number": "82ع338ایران24",
+            "origin_city": "اهواز",
+            "dest_city": "اهواز",
+        },
+    )
+
+    assert res.outcome == ScraperOutcome.REGISTERED
+    assert res.tracking_code == "140308230001"
+
+

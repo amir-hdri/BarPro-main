@@ -17,6 +17,36 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 logger = logging.getLogger(__name__)
 
 
+def _canonical_plate(plate: str) -> str:
+    if not plate:
+        return ""
+    norm = str(plate).strip()
+    for index, digit in enumerate("۰۱۲۳۴۵۶۷۸۹"):
+        norm = norm.replace(digit, str(index))
+    for index, digit in enumerate("٠١٢٣٤٥٦٧٨٩"):
+        norm = norm.replace(digit, str(index))
+    norm = norm.replace("ایران", "")
+    return re.sub(r"[^\w\d]", "", norm)
+
+
+def _canonical_nat_code(code: Any) -> str:
+    if not code:
+        return ""
+    norm = str(code).strip()
+    for index, digit in enumerate("۰۱۲۳۴۵۶۷۸۹"):
+        norm = norm.replace(digit, str(index))
+    for index, digit in enumerate("٠١٢٣٤٥٦٧٨٩"):
+        norm = norm.replace(digit, str(index))
+    return re.sub(r"\D", "", norm)
+
+
+def _canonical_text(text: str) -> str:
+    if not text:
+        return ""
+    t = str(text).strip().replace("ي", "ی").replace("ك", "ک").replace("‌", "").replace(" ", "").replace("،", "").replace("-", "")
+    return t.lower()
+
+
 def _parse_iranian_plate_tags(plate_number: str) -> tuple[str, str, str, str]:
     if not plate_number:
         return "", "", "", ""
@@ -122,15 +152,15 @@ class UTCMSReconciliationScraper:
                 "senderName": sender_name or "",
                 "reciverName": receiver_name or "",
                 "driverName": driver_name or "",
-                "driverNationalCode": national_code or None,
+                "driverNationalCode": national_code or "",
                 "sourceAddress": origin_city or "",
                 "destAddress": dest_city or "",
                 "docNo": tracking_code or "",
                 "type": 0,
-                "irCarTag1": tag1,
-                "irCarTag2": tag2,
-                "irCarTag3": tag3,
-                "irCarTag4": tag4,
+                "irCarTag1": tag1 or "",
+                "irCarTag2": tag2 or "",
+                "irCarTag3": tag3 or "",
+                "irCarTag4": tag4 or "",
                 "freeZoneId": "",
                 "freeZoneTwoDigit": "",
                 "freeZoneNo": "",
@@ -205,15 +235,24 @@ class UTCMSReconciliationScraper:
                             details={"source": "GetHistoryFirstList", "message": "اطلاعات یافت نشد"},
                         )
 
-                    if isinstance(json_body, dict) and "data" in json_body and isinstance(json_body["data"], list):
-                        rows = json_body["data"]
-                        if len(rows) == 0:
-                            return ReconciliationResult(
-                                outcome=ScraperOutcome.NOT_FOUND,
-                                details={"source": "GetHistoryFirstList", "message": "empty_data_list"},
-                            )
+                    rows: list[dict[str, Any]] = []
+                    if isinstance(json_body, dict):
+                        if isinstance(json_body.get("data"), list):
+                            rows = json_body["data"]
+                        elif isinstance(json_body.get("aaData"), list):
+                            rows = json_body["aaData"]
+                        elif isinstance(json_body.get("Data"), list):
+                            rows = json_body["Data"]
+                        elif isinstance(json_body.get("obj"), dict) and isinstance(json_body["obj"].get("data"), list):
+                            rows = json_body["obj"]["data"]
+                        elif isinstance(json_body.get("obj"), list):
+                            rows = json_body["obj"]
+                    elif isinstance(json_body, list):
+                        rows = json_body
+
+                    if isinstance(rows, list) and len(rows) > 0:
                         for row in rows:
-                            if self._match_row(
+                            if isinstance(row, dict) and self._match_row(
                                 row=row,
                                 tracking_code=tracking_code,
                                 national_code=national_code,
@@ -222,14 +261,31 @@ class UTCMSReconciliationScraper:
                                 dest_city=dest_city,
                                 business_date=business_date,
                             ):
-                                found_code = str(row.get("docNo") or row.get("trackingCode") or "").strip()
+                                found_code = str(
+                                    row.get("docNo")
+                                    or row.get("DocNo")
+                                    or row.get("trackingCode")
+                                    or row.get("TrackingCode")
+                                    or row.get("doc_no")
+                                    or row.get("tracking_code")
+                                    or row.get("printId")
+                                    or row.get("PrintId")
+                                    or row.get("id")
+                                    or row.get("Id")
+                                    or ""
+                                ).strip()
                                 return ReconciliationResult(
                                     outcome=ScraperOutcome.REGISTERED,
                                     tracking_code=found_code if found_code else tracking_code,
-                                    issue_date=row.get("dateFarsi") or row.get("date"),
+                                    issue_date=row.get("dateFarsi") or row.get("DateFarsi") or row.get("date"),
                                     status_text=row.get("status", "ثبت شده"),
                                     details={"source": "GetHistoryFirstList", "matched_row": row},
                                 )
+                    elif status_code == 200 and isinstance(json_body, dict) and "data" in json_body and len(json_body["data"]) == 0:
+                        return ReconciliationResult(
+                            outcome=ScraperOutcome.NOT_FOUND,
+                            details={"source": "GetHistoryFirstList", "message": "empty_data_list"},
+                        )
 
             # ── 3. DOM Fallback Search (if AJAX evaluate did not return matched records) ──
             if tracking_code:
@@ -257,8 +313,8 @@ class UTCMSReconciliationScraper:
                 )
 
             for i in range(row_count):
-                row = table_rows.nth(i)
-                text = await row.inner_text()
+                row_elem = table_rows.nth(i)
+                text = await row_elem.inner_text()
 
                 if tracking_code and tracking_code in text:
                     return ReconciliationResult(
@@ -267,23 +323,27 @@ class UTCMSReconciliationScraper:
                         status_text=text[:100],
                         details={"row_text": text[:200], "row_index": i},
                     )
-                elif (
-                    not tracking_code
-                    and plate_number
-                    and plate_number in text
-                    and national_code
-                    and national_code in text
-                    and origin_city
-                    and origin_city in text
-                    and dest_city
-                    and dest_city in text
-                ):
-                    return ReconciliationResult(
-                        outcome=ScraperOutcome.REGISTERED,
-                        tracking_code=None,
-                        status_text=text[:100],
-                        details={"row_text": text[:200], "row_index": i},
-                    )
+                else:
+                    canon_plate = _canonical_plate(plate_number or "")
+                    canon_row_text = _canonical_plate(text)
+                    canon_nat = _canonical_nat_code(national_code or "")
+                    canon_row_nat = _canonical_nat_code(text)
+                    canon_src = _canonical_text(origin_city or "")
+                    canon_dst = _canonical_text(dest_city or "")
+                    canon_row_txt = _canonical_text(text)
+
+                    plate_ok = bool(canon_plate and (canon_plate in canon_row_text or canon_row_text in canon_plate))
+                    nat_ok = bool(canon_nat and (canon_nat in canon_row_nat))
+                    src_ok = bool(canon_src and (canon_src in canon_row_txt))
+                    dst_ok = bool(canon_dst and (canon_dst in canon_row_txt))
+
+                    if not tracking_code and plate_ok and nat_ok and src_ok and dst_ok:
+                        return ReconciliationResult(
+                            outcome=ScraperOutcome.REGISTERED,
+                            tracking_code=None,
+                            status_text=text[:100],
+                            details={"row_text": text[:200], "row_index": i},
+                        )
 
             return ReconciliationResult(
                 outcome=ScraperOutcome.NOT_FOUND,
@@ -318,21 +378,48 @@ class UTCMSReconciliationScraper:
         Rule: Never match on national_code alone. If tracking_code is missing or not matched,
         require a strict composite match of plate, driver national code, origin, and destination.
         """
-        row_doc_no = str(row.get("docNo") or row.get("trackingCode") or "").strip()
+        row_doc_no = str(
+            row.get("docNo")
+            or row.get("DocNo")
+            or row.get("trackingCode")
+            or row.get("TrackingCode")
+            or row.get("doc_no")
+            or row.get("tracking_code")
+            or ""
+        ).strip()
         if tracking_code and row_doc_no and row_doc_no == str(tracking_code).strip():
             return True
 
-        # Strict composite match of multiple key attributes
-        row_nat_code = str(row.get("driverNationalCode") or "").strip()
-        row_car = str(row.get("car") or row.get("PelakNumber") or "").strip()
-        row_src = str(row.get("sourceAddress") or "").strip()
-        row_dst = str(row.get("destAddress") or "").strip()
-        row_date = str(row.get("dateFarsi") or row.get("date") or "").strip()
+        row_nat_code = _canonical_nat_code(
+            row.get("driverNationalCode")
+            or row.get("DriverNationalCode")
+            or row.get("nationalCode")
+            or row.get("NationalCode")
+            or ""
+        )
+        target_nat_code = _canonical_nat_code(national_code)
 
-        plate_matched = bool(plate_number and (plate_number in row_car or row_car in plate_number))
-        nat_matched = bool(national_code and (national_code in row_nat_code))
-        origin_matched = bool(origin_city and (origin_city in row_src))
-        dest_matched = bool(dest_city and (dest_city in row_dst))
+        row_car = _canonical_plate(
+            row.get("car")
+            or row.get("Car")
+            or row.get("PelakNumber")
+            or row.get("pelakNumber")
+            or row.get("pelak")
+            or ""
+        )
+        target_plate = _canonical_plate(plate_number or "")
+
+        row_src = _canonical_text(row.get("sourceAddress") or row.get("SourceAddress") or row.get("sourceCity") or "")
+        row_dst = _canonical_text(row.get("destAddress") or row.get("DestAddress") or row.get("destCity") or "")
+        target_src = _canonical_text(origin_city or "")
+        target_dst = _canonical_text(dest_city or "")
+
+        row_date = str(row.get("dateFarsi") or row.get("DateFarsi") or row.get("date") or "").strip()
+
+        plate_matched = bool(target_plate and (target_plate in row_car or row_car in target_plate))
+        nat_matched = bool(target_nat_code and (target_nat_code in row_nat_code or row_nat_code in target_nat_code))
+        origin_matched = bool(target_src and (target_src in row_src or row_src in target_src))
+        dest_matched = bool(target_dst and (target_dst in row_dst or row_dst in target_dst))
         date_matched = bool(business_date and (business_date in row_date)) if business_date else True
 
         # Strict composite: Plate + Driver NatCode + Route (Origin + Destination)
@@ -343,3 +430,4 @@ class UTCMSReconciliationScraper:
 
 
 reconciliation_scraper = UTCMSReconciliationScraper()
+

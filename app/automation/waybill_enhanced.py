@@ -1536,17 +1536,19 @@ class EnhancedWaybillManager:
         otp_value = obj.get("isOtpNeeded", data.get("isOtpNeeded", payload.get("isOtpNeeded")))
         is_otp_needed = otp_value is True or (isinstance(otp_value, str) and otp_value.strip().lower() == "true")
 
+        # Success resolution:
         # A generic ``success=true`` flag is not sufficient evidence for a
-        # UTCMS mutation.  Some intermediary responses use that flag for a
-        # transport/UI operation while omitting the business result code.
-        # Require the endpoint's explicit success code so an incomplete or
-        # schema-drifted response fails closed and enters reconciliation rather
-        # than being treated as a confirmed submission.
-        resolved_success = result_code in (200, "200") and not explicit_failure
+        # UTCMS mutation. Require the endpoint's explicit success code (200)
+        # or an explicit, validated tracking code (>= 6 digits).
+        norm_tracking = str(tracking_code or "").strip()
+        has_valid_tracking = bool(re.fullmatch(r"\d{6,}", norm_tracking))
+        has_200_code = result_code in (200, "200")
+
+        resolved_success = (has_200_code or has_valid_tracking) and not explicit_failure
         return {
             "success": resolved_success,
             "document_id": document_id,
-            "tracking_code": str(tracking_code).strip() if tracking_code is not None else None,
+            "tracking_code": norm_tracking if has_valid_tracking else (str(tracking_code).strip() if tracking_code is not None else None),
             "is_otp_needed": is_otp_needed,
             "message": str(result_message or ""),
             "payload": payload,
@@ -1593,11 +1595,14 @@ class EnhancedWaybillManager:
             or success_value == 0
             or (isinstance(success_value, str) and success_value.strip().lower() == "false")
         )
-        success = result_code in (200, "200") and not explicit_failure
+        norm_tracking = str(tracking_code or "").strip()
+        has_valid_tracking = bool(re.fullmatch(r"\d{6,}", norm_tracking))
+        has_200_code = result_code in (200, "200")
+        success = (has_200_code or has_valid_tracking) and not explicit_failure
         return {
             "success": success,
             "document_id": document_id,
-            "tracking_code": str(tracking_code).strip() if tracking_code is not None else None,
+            "tracking_code": norm_tracking if has_valid_tracking else (str(tracking_code).strip() if tracking_code is not None else None),
             "message": str(result_message or ""),
             "payload": payload,
         }
