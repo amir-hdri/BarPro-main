@@ -1582,20 +1582,28 @@ def _is_retryable(result: dict[str, Any]) -> bool:
     if result.get("mutation_status") == "ambiguous" or result.get("mutation_attempted") is True:
         return False
     error_category = str(result.get("error_category", "")).strip().lower()
-    if error_category in ("submission_unconfirmed", "ambiguous_mutation", "duplicate_submission"):
+    if error_category in (
+        "submission_unconfirmed",
+        "ambiguous_mutation",
+        "duplicate_submission",
+        "payload_validation_failed",
+        "user_data_error",
+    ):
         return False
     status_hint = str(result.get("status", "")).strip().lower().replace("_", "").replace("-", "")
     if status_hint in ("unknown", "reconciling"):
         return False
-    retryable_categories = {
-        "login_failed",
-        "captcha_failed",
-        "network_error",
-        "system_error",
-    }
     if status_hint == "captchafailed":
         return True
-    return error_category in retryable_categories
+
+    from app.core.error_taxonomy import is_retryable_terminal_category, classify_error_string
+
+    cat = classify_error_string(
+        error_msg=str(result.get("error", "")),
+        error_category_hint=result.get("error_category"),
+        status_hint=result.get("status"),
+    )
+    return is_retryable_terminal_category(cat)
 
 
 async def _get_or_create_runtime_state(
@@ -1693,7 +1701,16 @@ async def _add_job_log(
 def get_retry_delay(result: dict[str, Any], attempt_count: int) -> int:
     """Calculate exponential backoff delay based on error category and attempt count."""
     error_category = str(result.get("error_category", "")).strip().lower()
-    if error_category in {"captcha_failed", "network_error", "login_failed", "system_error", "transient_infra_error"}:
+    if error_category in {
+        "captcha_failed",
+        "network_error",
+        "login_failed",
+        "system_error",
+        "transient_infra_error",
+        "target_site_timeout",
+        "auth_failure",
+        "worker_resource_error",
+    }:
         base = 60
         return min(base * (2 ** max(0, attempt_count - 1)), 1800)
     return utcms_config.DRIVER_RETRY_DELAY_SECONDS
