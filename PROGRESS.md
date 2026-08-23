@@ -165,4 +165,24 @@ This file tracks the completion status of the phases defined in [BarPro_Unified_
 - **Verification**:
   - Full-stack CLI audits (`check-schemas`, `check-auth-flow`, `check-websocket-events`, `audit-ui`) all passed with 0 warnings.
   - Clean TypeScript typecheck (`tsc --noEmit`) and 0 ESLint errors.
-  - Frontend unit tests and backend pytest suites (108 passed) fully verified.
+  - Frontend unit tests and backend pytest suites fully verified.
+
+### Multi-Route Waybill Registration, Route Templates & Distance Service (Completed: 2026-08-23 — v2.9.3)
+- **Route Templates (`WaybillRouteTemplate`)**: Save reusable origin→destination routes with precomputed road distance/duration; CRUD + favorite endpoints under `/api/v1/route-templates`.
+- **Multi-Route Batches (`WaybillBatch`)**: Expand N routes × target count into jobs with round-robin, random, or sequential repeat modes; endpoints under `/api/v1/batches`.
+- **Distance & Travel Time Engine**: `POST /api/v1/locations/distance` resolves road distance via Neshan Direction API + Redis cache + local Haversine fallback ($1.35$ factor).
+- **100% Accuracy Gate**: Batch creation validates every payload against `validate_enhanced_waybill_payload` (422 with exact missing fields) and enriches driver data from database.
+- **Migration 038**: `038_add_multiroute_batch_distance` adds batch tables and 5 foreign key columns to `waybill_jobs` (`ondelete SET NULL`).
+- **Interval Staggering**: Staggers `submit_after` to enforce `interval_minutes` anti-spam pacing.
+
+### Error Taxonomy Sync, State Machine Auto-Heal & Full-Stack UI Batch Integration (Completed: 2026-08-23 — v2.9.4)
+- **Unified Retry Classification**: `_is_retryable()` in `app/workers/waybill_worker.py` binds to `is_retryable_terminal_category` and exponential delay calculations in `get_retry_delay()`.
+- **State Machine Resilient Recovery**: Expanded `ALLOWED_TRANSITIONS` in `app/orchestrator/state_machine.py` for `FAILED` and `NEEDS_REVIEW` to transition cleanly to `WAITING_SUBMISSION_WINDOW` and `WAITING_RETRY`.
+- **Model Metadata Auto-Registration**: Explicitly imported `WaybillBatch` and `WaybillRouteTemplate` into `app/models_multitenant.py` so SQLModel metadata registers all foreign keys.
+- **Frontend Dashboard & Sidebar Integration**:
+  - Added direct quick action button for **«ثبت دسته‌ای (چندمسیره)»** on the main Dashboard hero banner (`apps/web/src/app/page.tsx`).
+  - Added **«ثبت دسته‌ای»** (`/batches`) and **«قالب‌های مسیر»** (`/route-templates`) to both Client and Admin navigation menus in `apps/web/src/components/layout/Sidebar.tsx`.
+- **Verification**:
+  - All 996 automated pytest tests passed (988 passed, 3 skipped, 0 failed).
+  - Next.js production build (`npm run build`) completed in 4.4s with 21/21 static pages generated.
+  - Multi-server cluster deployment verified across Central, Worker 2, and Worker 3 nodes.

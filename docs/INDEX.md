@@ -91,4 +91,4 @@ Files under `docs/architecture/` carrying a “Legacy design” banner are retai
 for design history only. They may contain obsolete routes, schema or TLS assumptions;
 the tracked knowledge graph and root `ARCHITECTURE.md` take precedence.
 
-Last updated: 2026-08-23 (v2.9.3)
+Last updated: 2026-08-23 (v2.9.4)

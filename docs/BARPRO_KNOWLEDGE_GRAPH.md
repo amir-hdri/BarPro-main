@@ -1,10 +1,10 @@
 # گراف دانش مرجع BarPro
 
-> نسخه سند: 2026-08-20
+> نسخه سند: 2026-08-23 (v2.9.4)
 >
 > commit مبنای audit اولیه: 9c472f1
 >
-> commit نهایی remediation: هنگام release باید جایگزین شود
+> commit نهایی remediation: 90accd3
 >
 > Alembic head مبنا: 038_add_multiroute_batch_distance
 >
@@ -204,6 +204,9 @@ prefix اصلی app/api/routes/multitenant.py برابر /api/v1 است:
 | Schedules | POST/GET /driver-schedules، PUT/DELETE by id، POST /driver-schedules/run-due |
 | Waybill jobs | POST/GET /waybill-jobs، GET/PATCH/DELETE by job_id |
 | Job actions | POST retry، POST requeue، GET timeline/logs/screenshot |
+| Route templates | GET/POST /route-templates، PUT/DELETE /route-templates/{id}، POST /route-templates/{id}/favorite |
+| Multi-route batches | POST/GET /batches، GET /batches/{id}/progress |
+| Locations & Distance | GET provinces/cities/favorites، POST /locations/distance (Neshan/Haversine) |
 | Upload | POST /upload/excel **deprecated/fail-closed (HTTP 410)**؛ GET /upload/batches/{batch_id} فقط برای مشاهده batchهای تاریخی |
 | Tenant reports | daily-summary، driver-performance |
 | Fuel | POST/GET /fuel-inquiries، options، detail، screenshot |
@@ -222,7 +225,8 @@ canonical، هر ردیف باید به‌صورت `WaybillJobCreateRequest` ک�
 
 ### 4.3. Routerهای تکمیلی
 
-- /api/v1/locations برای province/city/address/favorites؛
+- /api/v1/locations برای province/city/address/favorites و POST /locations/distance؛
+- /api/v1/route-templates و /api/v1/batches برای ثبت دسته‌ای و چندمسیره؛
 - /api/v1/rpa/phase1 برای overview/runtime/scheduler inspection؛
 - /management برای management tables و operator workflows، admin-only؛
 - /reports، /api/v1/admin/reports و /api/v1/user/reports؛
@@ -240,6 +244,9 @@ OpenAPI همان commit مرجع نهایی method، parameter و response schem
 | ClientService | tenant lifecycle، auth و quota |
 | DriverService و PlateService | driver credentials، fleet و plate ownership |
 | DriverScheduleService | schedule CRUD و due execution |
+| RouteTemplateService | مدیریت الگوهای مسیر و محاسبه پیش‌فرض مسافت/زمان |
+| BatchService | ساخت و توزیع دسته‌ای چندمسیره با گیت دقت ۱۰۰٪ و فاصله‌گذاری |
+| DistanceService | استعلام مسافت و زمان جاده‌ای با Neshan + Redis + Haversine fallback |
 | WaybillJobService | create/list/update/retry/delete و tenant isolation |
 | WaybillTaskService | queue depth، transitions و event emission |
 | SchedulerService | انتخاب Jobهای قابل برنامه‌ریزی و ساخت intent |
