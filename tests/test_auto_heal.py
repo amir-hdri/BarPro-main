@@ -115,9 +115,14 @@ def test_get_retry_delay():
     # Capped at 1800s
     assert get_retry_delay(res_network, 10) == 1800
 
-    # Permanent/non-transient errors should use default delay
+    # Transient/retryable categories should exponentially backoff
     res_auth = {"error_category": "auth_failure"}
-    assert get_retry_delay(res_auth, 1) == utcms_config.DRIVER_RETRY_DELAY_SECONDS
+    assert get_retry_delay(res_auth, 1) == 60
+    assert get_retry_delay(res_auth, 2) == 120
+
+    # Non-exponential/other errors should use default delay
+    res_other = {"error_category": "other_non_exponential"}
+    assert get_retry_delay(res_other, 1) == utcms_config.DRIVER_RETRY_DELAY_SECONDS
 
 
 @pytest.mark.asyncio
