@@ -38,7 +38,7 @@ jobs:
           cat dependencies.json
 
       - name: Upload Dependency Snapshot
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dependencies
           path: dependencies.json
@@ -56,7 +56,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom
           path: cyclonedx-bom.xml
