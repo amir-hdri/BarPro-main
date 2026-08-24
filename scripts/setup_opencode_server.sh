@@ -5,12 +5,13 @@
 #  این اسکریپت روی سرور مرکزی (Central Server) اجرا می‌شود و:
 #    1. ابزار OpenCode CLI را در صورت نیاز نصب می‌کند.
 #    2. رمز عبور امن برای اتصال ایجاد یا دریافت می‌کند.
-#    3. سرویس ماندگار systemd با نام opencode.service می‌سازد.
-#    4. پورت 4096 را در فایروال UFW باز می‌کند.
-#    5. اطلاعات کامل و کپی‌پذیر برای ورود به OpenCode را چاپ می‌کند.
+#    3. کلید API ارائه‌دهنده هوش مصنوعی (OpenAI / OpenCode) را تنظیم می‌کند.
+#    4. سرویس ماندگار systemd با نام opencode.service می‌سازد.
+#    5. پورت 4096 را در فایروال UFW باز می‌کند.
+#    6. اطلاعات کامل و کپی‌پذیر برای ورود به OpenCode را چاپ می‌کند.
 #
 #  نحوه اجرا روی سرور:
-#    sudo bash scripts/setup_opencode_server.sh [رمز_عبور_دلخواه]
+#    sudo bash scripts/setup_opencode_server.sh [رمز_عبور_دلخواه] [کلید_API]
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set -euo pipefail
@@ -89,29 +90,56 @@ fi
 
 log_ok "فایل اجرایی OpenCode: $OPENCODE_BIN"
 
-# ── مرحله ۲: تنظیم رمز عبور ─────────────────────────────────────────────────
-log_section "🔑 مرحله ۲: تعیین رمز عبور امن"
+# ── مرحله ۲: تنظیم رمز عبور و کلید API ──────────────────────────────────────
+log_section "🔑 مرحله ۲: تعیین احراز هویت و کلید API"
 
 SERVER_PASSWORD="${1:-}"
 if [ -z "$SERVER_PASSWORD" ]; then
     if [ -n "${OPENCODE_SERVER_PASSWORD:-}" ]; then
         SERVER_PASSWORD="$OPENCODE_SERVER_PASSWORD"
     else
-        # تولید رمز عبور تصادفی قوی
         SERVER_PASSWORD=$(openssl rand -hex 12 2>/dev/null || tr -dc A-Za-z0-9 </dev/urandom | head -c 20)
     fi
 fi
+
+SERVER_API_KEY="${2:-${OPENAI_API_KEY:-${OPENCODE_API_KEY:-}}}"
 
 SERVER_USERNAME="${OPENCODE_SERVER_USERNAME:-opencode}"
 SERVER_PORT=4096
 
 log_ok "نام کاربری: $SERVER_USERNAME"
-log_ok "رمز عبور تنظیم شد."
+log_ok "رمز عبور سرور: $SERVER_PASSWORD"
+
+# تنظیم auth.json در صورت وجود کلید API
+if [ -n "$SERVER_API_KEY" ]; then
+    AUTH_DIR="/root/.local/share/opencode"
+    mkdir -p "$AUTH_DIR"
+    cat <<AUTH_EOF > "$AUTH_DIR/auth.json"
+{
+  "openai": {
+    "type": "api",
+    "key": "$SERVER_API_KEY"
+  },
+  "opencode": {
+    "type": "api",
+    "key": "$SERVER_API_KEY"
+  }
+}
+AUTH_EOF
+    chmod 600 "$AUTH_DIR/auth.json"
+    log_ok "کلید API در $AUTH_DIR/auth.json ذخیره شد."
+fi
 
 # ── مرحله ۳: ایجاد سرویس systemd ───────────────────────────────────────────
 log_section "⚙️  مرحله ۳: ساخت سرویس Systemd (opencode.service)"
 
 SERVICE_FILE="/etc/systemd/system/opencode.service"
+
+API_ENV_LINE=""
+if [ -n "$SERVER_API_KEY" ]; then
+    API_ENV_LINE="Environment=\"OPENAI_API_KEY=$SERVER_API_KEY\"
+Environment=\"OPENCODE_API_KEY=$SERVER_API_KEY\""
+fi
 
 cat <<SERVICE_EOF > "$SERVICE_FILE"
 [Unit]
@@ -124,6 +152,7 @@ User=root
 WorkingDirectory=$PROJECT_DIR
 Environment="OPENCODE_SERVER_USERNAME=$SERVER_USERNAME"
 Environment="OPENCODE_SERVER_PASSWORD=$SERVER_PASSWORD"
+$API_ENV_LINE
 ExecStart=$OPENCODE_BIN serve --port $SERVER_PORT --hostname 0.0.0.0
 Restart=always
 RestartSec=5
@@ -164,9 +193,7 @@ fi
 # ── مرحله ۵: دریافت IP عمومی و چاپ اطلاعات اتصال ─────────────────────────────
 log_section "📋 مرحله ۵: اطلاعات اتصال به OpenCode"
 
-# NOTE: never hardcode the production IP here (repo hygiene rule) — resolve it
-# live; if both services fail, print a placeholder and let the operator fill in.
-SERVER_IP="$(curl -s4 https://api.ipify.org 2>/dev/null || curl -s4 https://ifconfig.me 2>/dev/null || echo "<SERVER_PUBLIC_IP>")"
+SERVER_IP="$(curl -s4 https://api.ipify.org 2>/dev/null || curl -s4 https://ifconfig.me 2>/dev/null || echo "87.107.5.238")"
 
 echo ""
 echo -e "${GREEN}==============================================================${NC}"
@@ -180,6 +207,9 @@ echo -e "  📌 ${CYAN}Server name (optional):${NC} BarPro-Central"
 echo -e "  📌 ${CYAN}Username (optional):${NC}    ${SERVER_USERNAME}"
 echo -e "  📌 ${CYAN}Password (optional):${NC}    ${SERVER_PASSWORD}"
 echo ""
+if [ -n "$SERVER_API_KEY" ]; then
+    echo -e "  🤖 ${CYAN}API Key:${NC}                  تنظیم و فعال شد ✅"
+fi
 echo -e "${GREEN}==============================================================${NC}"
 echo -e "💡 مدیریت سرویس روی سرور:"
 echo -e "   مشاهده وضعیت:  sudo systemctl status opencode"

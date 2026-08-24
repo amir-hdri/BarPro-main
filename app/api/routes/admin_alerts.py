@@ -190,11 +190,12 @@ async def retry_job_manually(
         JobStatus.WAITING_RETRY,
     }
     if job.status not in valid_retry_statuses:
-        guidance = (
-            "use POST /api/v1/admin/alerts/reconcile/{job_id} first"
-            if job.status == JobStatus.UNKNOWN
-            else "cancelled jobs are terminal; create a new job instead"
-        )
+        if job.status == JobStatus.UNKNOWN:
+            guidance = "use POST /api/v1/admin/alerts/reconcile/{job_id} first"
+        elif job.status == JobStatus.CANCELLED:
+            guidance = "cancelled jobs are terminal; create a new job instead"
+        else:
+            guidance = f"retry is only allowed from {[s.value for s in valid_retry_statuses]}; current status '{job.status}' requires manual intervention"
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(

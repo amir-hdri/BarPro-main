@@ -32,6 +32,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "cancelled",
         "in_progress",
         "daily_limit_reached",
+        "retrying",
     },
     "waiting_auth": {
         "queued",
@@ -41,6 +42,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "in_progress",
         "unknown",
         "daily_limit_reached",
+        "retrying",
     },
     "waiting_retry": {
         "pending",
@@ -51,6 +53,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "waiting_submission_window",
         "unknown",
         "daily_limit_reached",
+        "retrying",
     },
     # H2 fix: task_service.mark_retrying() writes the "retrying" status, but this
     # node was missing as a SOURCE key — ALLOWED_TRANSITIONS.get("retrying", set())
@@ -77,6 +80,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "cancelled",
         "in_progress",
         "daily_limit_reached",
+        "retrying",
     },
     "otp_backoff": {
         "pending",
@@ -87,6 +91,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "waiting_submission_window",
         "unknown",
         "daily_limit_reached",
+        "retrying",
     },
     "queued": {
         "claimed",
@@ -96,6 +101,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "in_progress",
         "unknown",
         "daily_limit_reached",
+        "retrying",
     },
     "claimed": {
         "running",
@@ -105,6 +111,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "cancelled",
         "unknown",
         "daily_limit_reached",
+        "retrying",
     },
     "running": {
         "success",
@@ -116,6 +123,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "unknown",
         "cancelled",
         "daily_limit_reached",
+        "retrying",
     },
     "in_progress": {
         "success",
@@ -127,6 +135,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "unknown",
         "cancelled",
         "daily_limit_reached",
+        "retrying",
     },
     "needs_review": {
         "pending",
@@ -135,6 +144,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "waiting_retry",
         "cancelled",
         "daily_limit_reached",
+        "retrying",
     },
     "failed": {
         "dead_letter",
@@ -143,6 +153,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "waiting_submission_window",
         "waiting_retry",
         "cancelled",
+        "retrying",
     },
     "unknown": {"reconciling", "cancelled", "failed", "needs_review"},
     "reconciling": {"success", "failed", "needs_review", "cancelled", "unknown"},
