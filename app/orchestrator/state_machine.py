@@ -12,6 +12,7 @@ class JobStatus(StrEnum):
     CLAIMED = "claimed"
     RUNNING = "running"
     IN_PROGRESS = "in_progress"
+    RETRYING = "retrying"
     SUCCESS = "success"
     FAILED = "failed"
     DAILY_LIMIT_REACHED = "daily_limit_reached"
@@ -49,6 +50,23 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "queued",
         "waiting_submission_window",
         "unknown",
+        "daily_limit_reached",
+    },
+    # H2 fix: task_service.mark_retrying() writes the "retrying" status, but this
+    # node was missing as a SOURCE key — ALLOWED_TRANSITIONS.get("retrying", set())
+    # returned an empty set, so ANY transition out of "retrying" raised
+    # StateTransitionError and the job was stuck forever. Outgoing edges mirror
+    # waiting_retry (same lifecycle semantics).
+    "retrying": {
+        "pending",
+        "dead_letter",
+        "cancelled",
+        "in_progress",
+        "queued",
+        "running",
+        "waiting_submission_window",
+        "unknown",
+        "needs_review",
         "daily_limit_reached",
     },
     "waiting_submission_window": {

@@ -176,18 +176,52 @@ async def retry_job_manually(
             detail=f"Job #{job_id} has an active running execution (ID: {active_execution.id}).",
         )
 
-    # Allow retry from FAILED, NEEDS_REVIEW, UNKNOWN, WAITING_RETRY, CANCELLED
+    # Allow retry from FAILED, NEEDS_REVIEW, WAITING_RETRY only.
+    # C4 fix: UNKNOWN and CANCELLED are NOT retryable here.
+    #  - UNKNOWN means the portal mutation outcome is unproven; the ONLY safe
+    #    path is reconciliation (POST /api/v1/admin/alerts/reconcile/{job_id}).
+    #    The state machine also forbids unknown → pending, so the old code was a
+    #    guaranteed HTTP 500.
+    #  - CANCELLED is terminal in the state machine (empty outgoing edges), so
+    #    the old code raised StateTransitionError → HTTP 500 as well.
     valid_retry_statuses = {
         JobStatus.FAILED,
         JobStatus.NEEDS_REVIEW,
-        JobStatus.UNKNOWN,
         JobStatus.WAITING_RETRY,
-        JobStatus.CANCELLED,
     }
     if job.status not in valid_retry_statuses:
+        guidance = (
+            "use POST /api/v1/admin/alerts/reconcile/{job_id} first"
+            if job.status == JobStatus.UNKNOWN
+            else "cancelled jobs are terminal; create a new job instead"
+        )
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot retry job in status '{job.status}'. Must be one of {valid_retry_statuses}",
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Cannot retry job #{job_id} in status '{job.status}'. "
+                f"{guidance[0].upper() + guidance[1:]}"
+            ),
+        )
+
+    # C4 fix: mirror the client endpoint's SUBMISSION_UNCONFIRMED guard. A job
+    # whose portal mutation may have landed MUST NOT be reset to PENDING and
+    # resubmitted without three-witness confirmation — that is exactly the
+    # duplicate-waybill scenario the project red line forbids.
+    unretryable_categories = {
+        "submission_unconfirmed",
+        "ambiguous_mutation",
+        "duplicate_submission",
+    }
+    current_category = (job.error_category or "").strip().lower()
+    if current_category in unretryable_categories:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Job #{job_id} has error_category '{current_category}' (unconfirmed portal mutation). "
+                f"Direct resubmission risks a DUPLICATE waybill. "
+                f"Run reconciliation first via POST /api/v1/admin/alerts/reconcile/{job_id}; "
+                f"only after it resolves to failed/needs_review with a safe category can this job be retried."
+            ),
         )
 
     # Transition job back to PENDING (or WAITING_RETRY)

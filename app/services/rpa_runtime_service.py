@@ -194,6 +194,50 @@ class RPADistributedRuntime:
         if memory_released:
             await self._forget_lock_token(key)
 
+    async def renew_lock(self, key: str, ttl_seconds: int, token: str | None = None) -> bool:
+        """Extend the TTL of an owned lock without releasing it (C3 fix).
+
+        The driver submit/auth locks are acquired BEFORE the browser launches and
+        must outlive a full bot window (browser start + up to JOB_TIMEOUT_SECONDS
+        of automation). A fixed TTL alone can expire mid-execution, letting a
+        second job for the same driver acquire the lock and submit in PARALLEL —
+        exactly what the lock exists to prevent. The worker calls this on its
+        lease-renewal schedule; ownership is proven by comparing the live lock
+        value against the caller's token (ContextVar → durable registry fallback,
+        same policy as release_lock), so a foreign execution can never extend a
+        lock it does not hold.
+
+        Returns True when the live lock was extended, False when the lock is
+        gone or owned by someone else.
+        """
+        if token is None:
+            tokens = self._lock_tokens.get() or {}
+            token = tokens.get(key)
+            if token is None:
+                token = await self._recall_lock_token(key)
+        if token is None:
+            return False
+        redis = await self._get_redis()
+        if redis is not None:
+            script = """
+            if redis.call('get', KEYS[1]) == ARGV[1] then
+                return redis.call('expire', KEYS[1], ARGV[2])
+            end
+            return 0
+            """
+            try:
+                renewed = await redis.eval(script, 1, key, token, int(ttl_seconds))
+                return bool(renewed)
+            except Exception:
+                logger.warning("rpa_lock_renew_failed", exc_info=True)
+                return False
+        with self._get_lock():
+            current = self._memory.get(key)
+            if current is not None and current[0] == token:
+                self._memory[key] = (current[0], time.time() + ttl_seconds)
+                return True
+        return False
+
     async def force_release_lock(self, key: str, token: str | None = None) -> None:
         """Administrative recovery only: remove a lock without ownership checks.
 

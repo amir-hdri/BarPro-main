@@ -2082,7 +2082,11 @@ class EnhancedWaybillManager:
 
         current_url = await self._current_url()
 
-        # 1. Direct navigation to canonical waybill form endpoints first
+        # 1. Direct navigation to canonical waybill form endpoints first.
+        # NOTE (2026-08): /Barname/RegisterWaybill/Index now returns HTTP 404 on
+        # the live portal (verified) — HagigiHogugi is the working route. Stale
+        # server .env files may still point WAYBILL_URL at the dead route, so
+        # recovery must never trust the configured URL alone.
         canonical_urls = (
             "https://barname.utcms.ir/barname/Document/HagigiHogugi",
             "https://barname.utcms.ir/Barname/Document/HagigiHogugi",
@@ -2229,6 +2233,48 @@ class EnhancedWaybillManager:
             except Exception:
                 continue
 
+        # Generic sidebar-link discovery (route-change resilience).
+        # The portal has changed routes before (RegisterWaybill/Index → 404,
+        # verified live 2026-08) and will change them again; hardcoded Persian
+        # menu labels and URL lists above cannot survive every restructure.
+        # Instead, sweep ALL internal anchors, prefer hrefs that hint at the
+        # waybill module, and probe each until the real form markers appear.
+        try:
+            base = await self._current_url()
+            anchors = await self.page.query_selector_all("a[href]")
+            hrefs: list[str] = []
+            for anchor in anchors[:200]:
+                try:
+                    href = await anchor.get_attribute("href")
+                except Exception:
+                    continue
+                if href:
+                    hrefs.append(href)
+            hinted, others = self._partition_internal_links(base, hrefs)
+            probe_order = (hinted + others)[:25]
+            logger.info(
+                "waybill_generic_link_sweep",
+                extra={"extra_fields": {"candidates": len(probe_order), "hinted": len(hinted)}},
+            )
+            for target in probe_order:
+                try:
+                    await self._goto_with_retry(target, wait_until="domcontentloaded")
+                    await asyncio.sleep(0.3)
+                    if await self._is_waybill_form_ready():
+                        logger.info(
+                            "waybill_form_reached_via_generic_link",
+                            extra={"extra_fields": {"url": self._redact_url(target)}},
+                        )
+                        return
+                except WaybillError:
+                    raise
+                except Exception:
+                    continue
+        except WaybillError:
+            raise
+        except Exception as sweep_err:
+            logger.debug("waybill_generic_link_sweep_failed", extra={"extra_fields": {"error": str(sweep_err)}})
+
         for candidate_url in self._waybill_url_candidates():
             try:
                 await self._goto_with_retry(candidate_url, wait_until="domcontentloaded")
@@ -2283,6 +2329,42 @@ class EnhancedWaybillManager:
                 logger.debug("waybill_form_diagnostics_failed", exc_info=True)
             raise WaybillError("فرم بارنامه پس از بازیابی در دسترس نیست")
 
+    @staticmethod
+    def _partition_internal_links(base_url: str, hrefs: list[str]) -> tuple[list[str], list[str]]:
+        """Split raw anchor hrefs into (waybill-hinted, other) same-origin URLs.
+
+        Used by the generic link sweep so navigation survives portal route/menu
+        changes. Never returns cross-origin, non-http(s), or auth/logout links.
+        Order is preserved; duplicates are removed.
+        """
+        from urllib.parse import urlparse
+
+        page_netloc = urlparse(base_url).netloc
+        base_lower = base_url.lower()
+        hinted: list[str] = []
+        others: list[str] = []
+        for href in hrefs:
+            trimmed = (href or "").strip()
+            if not trimmed or trimmed.startswith(("#", "javascript:", "mailto:", "tel:", "data:")):
+                continue
+            target = urljoin(base_url, trimmed)
+            parsed = urlparse(target)
+            if parsed.scheme not in ("http", "https") or parsed.netloc != page_netloc:
+                continue  # never leave the authenticated portal origin
+            lowered = target.lower()
+            if lowered.rstrip("/").endswith(("/login", "/account/login", "/account/logout", "/logout")):
+                continue
+            # Classify on PATH only — the portal DOMAIN itself contains
+            # "barname" (barname.utcms.ir), so matching the full URL would
+            # mark every link as hinted and make the priority useless.
+            path_lower = parsed.path.lower()
+            if any(marker in path_lower for marker in ("waybill", "/document", "hagigi", "transport")):
+                if target not in hinted:
+                    hinted.append(target)
+            elif target not in others and target.lower() != base_lower:
+                others.append(target)
+        return hinted, others
+
     def _waybill_url_candidates(self) -> list[str]:
         base_url = utcms_config.BASE_URL.rstrip("/")
         candidates = [
@@ -2293,6 +2375,10 @@ class EnhancedWaybillManager:
             f"{base_url}/transportation/waybill",
             f"{base_url}/Barname/Waybill/Create",
             f"{base_url}/Barname/Document/Create",
+            # Legacy route — 404 on the live portal since ~2026-08 but kept at
+            # the tail in case the portal restores it or an old .env points here.
+            f"{base_url}/Barname/RegisterWaybill/Index",
+            f"{base_url}/barname/RegisterWaybill/Index",
         ]
         unique: list[str] = []
         for item in candidates:

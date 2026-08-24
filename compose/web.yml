@@ -68,6 +68,8 @@ services:
     volumes:
       - ../infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ../infra/nginx/http-server.conf:/etc/nginx/http-server.conf:ro
+      # H6 fix: shared security-headers include used by http-server.conf
+      - ../infra/nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro
     # بعد از نصب گواهی HTTPS: خط زیر را uncomment کنید
     # - ../infra/nginx/ssl:/etc/nginx/ssl:ro
     # ✅ تنها پورتی که به اینترنت باز است

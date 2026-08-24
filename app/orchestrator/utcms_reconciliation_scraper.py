@@ -148,7 +148,11 @@ class UTCMSReconciliationScraper:
                         continue
                     raise nav_err
 
-            if "login" in page.url.lower() or "account/login" in page.url.lower():
+            # Path-based login detection (bug-class fix): a URL like
+            # "/History/Index?ref=LoginBanner" must not read as a session expiry.
+            from app.automation.auth_utils import is_login_url
+
+            if is_login_url(page.url):
                 logger.warning("Reconciliation session expired; redirected to login")
                 return ReconciliationResult(
                     outcome=ScraperOutcome.AMBIGUOUS,

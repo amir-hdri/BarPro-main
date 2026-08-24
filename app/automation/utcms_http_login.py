@@ -422,10 +422,27 @@ class UtcmsHttpLogin:
         except Exception:
             location = ""
         for candidate in (str(location or ""), str(getattr(resp, "url", "") or "")):
-            lowered = candidate.lower()
-            if "/account/login" in lowered or lowered.rstrip("/").endswith("/login"):
+            if UtcmsHttpLogin._is_login_redirect_target(candidate):
                 return True
         return False
+
+    @staticmethod
+    def _is_login_redirect_target(location: str) -> bool:
+        """True when a redirect Location points at the login page.
+
+        Bug-class fix: classify on the parsed PATH, not the raw string —
+        ``/Dashboard?next=/login-help`` must not read as a login redirect.
+        Handles both absolute URLs and bare paths (typical Location values).
+        """
+        if not location:
+            return False
+        from urllib.parse import urlparse
+
+        try:
+            path = urlparse(str(location).strip()).path.lower()
+        except Exception:
+            path = str(location).lower()
+        return "/account/login" in path or path.rstrip("/").endswith("/login")
 
     @staticmethod
     def _is_captcha_error(error: str | None) -> bool:
@@ -763,8 +780,9 @@ class UtcmsHttpLogin:
         #   2. 200 OK JSON body with success=true (AJAX-style login)
         #   3. 200 OK page that no longer contains the login form
         if status in (301, 302, 303, 307, 308) and location:
-            lowered_loc = location.lower()
-            if "/login" not in lowered_loc and "/account/login" not in lowered_loc:
+            # Path-based check: a Location like "/Dashboard?ref=LoginBanner"
+            # must NOT be misread as a bounce back to the login page.
+            if not self._is_login_redirect_target(location):
                 cookies = self._cookies_to_playwright_dicts(set_cookies, final_url)
                 if self._has_auth_cookie(cookies):
                     return HttpLoginResult(
@@ -900,7 +918,8 @@ class UtcmsHttpLogin:
     @staticmethod
     def _classify_html_response(body: str, final_url: str, status: int) -> str | None:
         # If the response is the same login page again, it's a credentials/captcha error.
-        if "/login" in final_url.lower():
+        # Path-based check (bug-class fix): ignore query strings such as "?ref=LoginBanner".
+        if UtcmsHttpLogin._is_login_redirect_target(final_url):
             if "عبارت امنیتی" in body or "کد امنیتی" in body:
                 return "کپچا اشتباه است."
             if "کد ملی یا رمز عبور" in body or "نام کاربری یا رمز عبور" in body:

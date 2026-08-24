@@ -121,4 +121,6 @@ CMD ["uvicorn", "app.main:app", \
      "--port", "8000", \
      "--workers", "2", \
      "--loop", "auto", \
-     "--timeout-keep-alive", "30"]
+     "--timeout-keep-alive", "30", \
+     "--proxy-headers", \
+     "--forwarded-allow-ips", "127.0.0.1,172.16.0.0/12,10.0.0.0/8"]

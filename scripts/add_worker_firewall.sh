@@ -48,8 +48,8 @@ if ! echo "$WORKER_IP" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
     exit 1
 fi
 
-# ── Step 1: UFW rules ────────────────────────────────────────────────────────
-log_step "Step 1: Adding UFW rules on Central server"
+# ── Step 1: UFW + DOCKER-USER rules ──────────────────────────────────────────
+log_step "Step 1: Adding UFW and DOCKER-USER rules on Central server"
 
 if ! command -v ufw &>/dev/null; then
     log_warn "ufw not found. Run setup_firewall_central.sh first."
@@ -58,6 +58,22 @@ fi
 
 ufw allow from "$WORKER_IP" to any port 5432 comment "PostgreSQL - $WORKER_ID ($WORKER_IP)"
 ufw allow from "$WORKER_IP" to any port 6379 comment "Redis - $WORKER_ID ($WORKER_IP)"
+
+# DOCKER-USER is the AUTHORITATIVE layer for Docker-published ports — UFW's
+# INPUT chain never sees container traffic (it traverses FORWARD/DOCKER).
+# Without this, the UFW allow above is a no-op for published 5432/6379.
+if command -v iptables &>/dev/null && iptables -L DOCKER-USER >/dev/null 2>&1; then
+    GUARD_COMMENT="barpro-guard"
+    if ! iptables -C DOCKER-USER -s "$WORKER_IP" -p tcp --dport 5432 -m comment --comment "$GUARD_COMMENT" -j ACCEPT 2>/dev/null; then
+        iptables -I DOCKER-USER 1 -s "$WORKER_IP" -p tcp --dport 5432 -m comment --comment "$GUARD_COMMENT" -j ACCEPT
+    fi
+    if ! iptables -C DOCKER-USER -s "$WORKER_IP" -p tcp --dport 6379 -m comment --comment "$GUARD_COMMENT" -j ACCEPT 2>/dev/null; then
+        iptables -I DOCKER-USER 1 -s "$WORKER_IP" -p tcp --dport 6379 -m comment --comment "$GUARD_COMMENT" -j ACCEPT
+    fi
+    log_info "DOCKER-USER accept rules added for $WORKER_IP (5432/6379)"
+else
+    log_warn "iptables/DOCKER-USER unavailable — run scripts/setup_firewall_central.sh to install the guard!"
+fi
 
 log_info "UFW rules added for $WORKER_ID ($WORKER_IP)"
 ufw status | grep "$WORKER_IP" || true

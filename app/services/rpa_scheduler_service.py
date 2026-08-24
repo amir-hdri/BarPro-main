@@ -214,6 +214,48 @@ class RPASchedulerService:
                         TaskStatus.WAITING_SUBMISSION_WINDOW.value,
                     }:
                         job.celery_task_id = None
+                    elif (
+                        job.status == TaskStatus.QUEUED.value
+                        and job.updated_at
+                        and job.updated_at < now - timedelta(minutes=15)
+                    ):
+                        # H3 fix: a QUEUED job whose Celery message was lost
+                        # (broker restart, worker crash before claim) kept its
+                        # celery_task_id forever and was skipped by every
+                        # planning cycle — the only recoverer for this state
+                        # lived behind the deprecated phase1 path. After 15
+                        # minutes without being claimed, the id is provably
+                        # stale: clear it so the job re-dispatches.
+                        logger.warning(
+                            "scheduler_clearing_stale_queued_celery_task_id",
+                            extra={
+                                "extra_fields": {
+                                    "job_id": job.job_id,
+                                    "celery_task_id": job.celery_task_id,
+                                    "last_updated": job.updated_at.isoformat(),
+                                }
+                            },
+                        )
+                        job.celery_task_id = None
+                    elif (
+                        job.status == TaskStatus.WAITING_AUTH.value
+                        and job.updated_at
+                        and job.updated_at < now - timedelta(hours=1)
+                    ):
+                        # H3 fix: same recovery for WAITING_AUTH — after an hour
+                        # the auth attempt tied to this id is gone; let the
+                        # normal auth-required flow re-run.
+                        logger.warning(
+                            "scheduler_clearing_stale_waiting_auth_celery_task_id",
+                            extra={
+                                "extra_fields": {
+                                    "job_id": job.job_id,
+                                    "celery_task_id": job.celery_task_id,
+                                    "last_updated": job.updated_at.isoformat(),
+                                }
+                            },
+                        )
+                        job.celery_task_id = None
                     else:
                         continue
 

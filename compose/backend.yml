@@ -92,7 +92,12 @@ services:
     environment:
       <<: *backend-env
       PORT: 8000
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--timeout-keep-alive", "30"]
+    # ✅ C2 fix: trust X-Forwarded-For ONLY from the internal Docker network so
+    # request.client.host is the REAL client IP (nginx is the sole trusted peer).
+    # Without --proxy-headers every request appears to come from the nginx
+    # container IP and per-IP rate-limit buckets collapse into ONE global
+    # bucket (5 logins/min for the whole system → systemic 429 lockout).
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--timeout-keep-alive", "30", "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1,172.16.0.0/12,10.0.0.0/8"]
     # ✅ امنیت: فقط از طریق nginx در دسترس است
     expose: ['8000']
     healthcheck:

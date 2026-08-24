@@ -142,8 +142,14 @@ class WaybillAutomationBot:
                 # ``Page.url`` is a property (str), not a coroutine — awaiting a
                 # call on it raises TypeError and would be swallowed by the
                 # broad handler below, masking the real submission error.
-                current_url = (self.page.url or "").strip().lower()
-                if "login" in current_url or "account/login" in current_url:
+                # Path-based login detection (bug-class fix): raw substring
+                # matching flagged URLs like "/Catalog?ref=LoginBanner" as a
+                # login bounce, triggering a needless fresh login AND a second
+                # create_waybill run — a duplicate-submission hazard.
+                from app.automation.auth_utils import is_login_url
+
+                current_url = self.page.url or ""
+                if is_login_url(current_url):
                     logger.warning("Reused session expired/logged out during execution. Retrying with fresh login...")
                     # Try a fresh login
                     login_success = await self.authenticator.login(username, password)

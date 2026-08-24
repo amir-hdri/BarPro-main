@@ -401,7 +401,11 @@ async def _claim_and_execute(task: Any, intent_id: str):
             )
             session.add(execution)
 
-            # Transition job status to running
+            # Transition job status to running.
+            # updated_at MUST be bumped here: orphan_detector sweeps RUNNING jobs
+            # with stale updated_at, and a job that waited in the queue can enter
+            # RUNNING with an hours-old timestamp. Without this bump the sweep
+            # kills the job seconds after it starts (C1).
             JobStateMachine.transition(
                 session,
                 job,
@@ -409,6 +413,7 @@ async def _claim_and_execute(task: Any, intent_id: str):
                 started_at=datetime.now(UTC).replace(tzinfo=None),
                 attempt_count=job.attempt_count + 1,
                 worker_id=worker_id,
+                updated_at=_utcnow_naive(),
             )
             await session.commit()
 
@@ -420,8 +425,11 @@ async def _claim_and_execute(task: Any, intent_id: str):
     # Lease renewal loop
     main_loop = asyncio.get_running_loop()
     stop_event = threading.Event()
+    driver_lock_holder = _DriverLockHolder()
     renewal_thread = threading.Thread(
-        target=_renew_lease_sync_loop, args=(execution_id, intent.fencing_token, stop_event, main_loop), daemon=True
+        target=_renew_lease_sync_loop,
+        args=(execution_id, intent.fencing_token, stop_event, main_loop, driver_lock_holder),
+        daemon=True,
     )
     renewal_thread.start()
 
@@ -433,6 +441,7 @@ async def _claim_and_execute(task: Any, intent_id: str):
             execution_id=execution_id,
             fencing_token=intent.fencing_token,
             stop_event=stop_event,
+            lock_holder=driver_lock_holder,
         )
         await _assert_still_valid(execution_id, intent.fencing_token)
         status_str = "completed"
@@ -602,7 +611,13 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
             # Transition job status to RECONCILING
             from app.orchestrator.state_machine import JobStatus
 
-            JobStateMachine.transition(session, job, JobStatus.RECONCILING.value, worker_id=worker_id)
+            JobStateMachine.transition(
+                session,
+                job,
+                JobStatus.RECONCILING.value,
+                worker_id=worker_id,
+                updated_at=_utcnow_naive(),
+            )
             await session.commit()
 
         except Exception as e:
@@ -700,44 +715,100 @@ async def _finalize_execution(execution_id: str, intent_id: str, status: str, re
             await session.rollback()
 
 
+class _DriverLockHolder:
+    """Thread-safe registry of driver-lock keys held by the current execution.
+
+    The lease-renewal thread runs in a separate OS thread and renews every key
+    registered here (C3): Redis driver locks are acquired BEFORE the browser
+    launches and must outlive the whole bot window, so they need periodic TTL
+    extension just like the Execution DB lease.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._keys: list[str] = []
+
+    def register(self, key: str) -> None:
+        with self._lock:
+            if key not in self._keys:
+                self._keys.append(key)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._keys.clear()
+
+    def snapshot(self) -> tuple[str, ...]:
+        with self._lock:
+            return tuple(self._keys)
+
+
 def _renew_lease_sync_loop(
     execution_id: str,
     fencing_token: int,
     stop_event: threading.Event,
     main_loop: asyncio.AbstractEventLoop | None = None,
+    lock_holder: _DriverLockHolder | None = None,
 ):
     """Runs in a separate thread, updates lease_expires_at using asyncio.run_coroutine_threadsafe on main_loop.
 
     Renew every WORKER_STALL_TIMEOUT_SECONDS/3 (min 10s) so a single missed
     renewal never exceeds the stall window and orphans an in-flight job
-    (X10).
+    (X10). Also re-extends the TTL of any driver lock registered in
+    ``lock_holder`` so the Redis submit/auth locks never expire mid-run (C3).
     """
     lease_duration = getattr(utcms_config, "WORKER_STALL_TIMEOUT_SECONDS", 90)
     renew_interval = max(10.0, lease_duration / 3.0)
+    lock_ttl = getattr(utcms_config, "RPA_LOCK_TTL_SECONDS", 360)
 
     while not stop_event.wait(timeout=renew_interval):
         try:
 
             async def _update():
-                async with async_session_factory() as session:
-                    stmt = select(Execution).where(Execution.execution_id == execution_id).with_for_update()
-                    res = await session.exec(stmt)
-                    exec_row = res.first()
-                    if exec_row:
-                        if exec_row.fencing_token != fencing_token or exec_row.status != "running":
-                            logger.warning(
-                                f"Fencing token/status mismatch or ownership lost for execution {execution_id}. "
-                                f"Fencing token: {exec_row.fencing_token} (expected {fencing_token}), status: {exec_row.status}. Stopping renewal."
+                # DB lease renewal is best-effort and MUST NOT abort driver-lock
+                # renewal below: a transient DB error would otherwise skip lock
+                # extension for that cycle (discovered by regression test).
+                try:
+                    async with async_session_factory() as session:
+                        stmt = select(Execution).where(Execution.execution_id == execution_id).with_for_update()
+                        res = await session.exec(stmt)
+                        exec_row = res.first()
+                        if exec_row:
+                            if exec_row.fencing_token != fencing_token or exec_row.status != "running":
+                                logger.warning(
+                                    f"Fencing token/status mismatch or ownership lost for execution {execution_id}. "
+                                    f"Fencing token: {exec_row.fencing_token} (expected {fencing_token}), status: {exec_row.status}. Stopping renewal."
+                                )
+                                stop_event.set()
+                                return
+                            exec_row.lease_expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(
+                                seconds=lease_duration
                             )
-                            stop_event.set()
-                            return
-                        exec_row.lease_expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(
-                            seconds=lease_duration
-                        )
-                        exec_row.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                        session.add(exec_row)
-                        await session.commit()
-                        logger.debug(f"Lease renewed for execution {execution_id}")
+                            exec_row.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                            session.add(exec_row)
+                            await session.commit()
+                            logger.debug(f"Lease renewed for execution {execution_id}")
+                except Exception as lease_err:
+                    logger.warning(f"Lease renewal DB error for execution {execution_id}: {lease_err}")
+
+                # C3: extend driver submit/auth locks owned by this execution.
+                # Ownership is proven inside renew_lock via compare-and-expire;
+                # a False return means the lock is gone/foreign — log loudly so
+                # parallel-submission risk is observable.
+                if lock_holder is not None:
+                    for lock_key in lock_holder.snapshot():
+                        try:
+                            renewed = await rpa_runtime.renew_lock(lock_key, lock_ttl)
+                            if not renewed:
+                                logger.warning(
+                                    "driver_lock_renew_missed",
+                                    extra={"extra_fields": {"key": lock_key, "execution_id": execution_id}},
+                                )
+                        except Exception:
+                            logger.warning(
+                                "driver_lock_renew_error",
+                                exc_info=True,
+                                extra={"extra_fields": {"key": lock_key, "execution_id": execution_id}},
+                            )
 
             if main_loop is not None and main_loop.is_running():
                 future = asyncio.run_coroutine_threadsafe(_update(), main_loop)
@@ -792,6 +863,7 @@ async def _execute_job(
     execution_id: str | None = None,
     fencing_token: int | None = None,
     stop_event: threading.Event | None = None,
+    lock_holder: "_DriverLockHolder | None" = None,
 ) -> dict[str, Any]:
     """Execute a waybill job with full lifecycle management."""
     job: WaybillJob | None = None
@@ -956,6 +1028,11 @@ async def _execute_job(
             runtime_state.auth_lock_ttl_seconds = utcms_config.RPA_LOCK_TTL_SECONDS
             await session.commit()
 
+            # C3: keep this lock alive for the whole bot window via the
+            # lease-renewal thread.
+            if lock_holder is not None:
+                lock_holder.register(auth_lock_key)
+
             driver_lock_key = rpa_runtime.submit_lock_key(job.client_id, driver.id)
             driver_lock_acquired = await rpa_runtime.acquire_lock(driver_lock_key, utcms_config.RPA_LOCK_TTL_SECONDS)
             if not driver_lock_acquired:
@@ -982,6 +1059,11 @@ async def _execute_job(
                 )
                 await session.commit()
                 return {"status": TaskStatus.WAITING_RETRY.value, "next_retry_at": retry_at.isoformat()}
+
+            # C3: submit lock acquired — register it for periodic TTL renewal.
+            if lock_holder is not None:
+                lock_holder.register(driver_lock_key)
+
             if isinstance(job.payload_json, dict):
                 payload = job.payload_json
             elif isinstance(job.payload_json, str):
@@ -1552,6 +1634,8 @@ async def _execute_job(
             raise
         finally:
             if job is not None and cached_client_id is not None and cached_driver_id is not None:
+                if lock_holder is not None:
+                    lock_holder.clear()
                 if auth_lock_acquired:
                     try:
                         statement = select(DriverRuntimeState).where(DriverRuntimeState.driver_id == cached_driver_id)

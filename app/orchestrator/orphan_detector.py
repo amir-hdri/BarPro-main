@@ -34,8 +34,11 @@ class OrphanDetector:
                 result = await session.exec(statement)
                 stale_executions = result.all()
 
-                if not stale_executions:
-                    return 0
+                # NOTE: no early return here — the WaybillJob sweep below must
+                # run on EVERY cycle. The previous `if not stale_executions:
+                # return 0` made the job sweep unreachable whenever there were
+                # no expired executions, leaving stale RUNNING/IN_PROGRESS jobs
+                # unrecoverable.
 
                 orphaned_count = 0
                 for exec_row in stale_executions:
@@ -114,7 +117,21 @@ class OrphanDetector:
                             },
                         )
 
-                # Sweep any orphaned WaybillJob in RUNNING/IN_PROGRESS that had no updates for > 10m
+                # Sweep any orphaned WaybillJob in RUNNING/IN_PROGRESS that had no updates for > 10m.
+                #
+                # SAFETY GUARD: a job whose Execution row still holds an unexpired,
+                # actively-renewed lease is ALIVE even if `updated_at` is stale
+                # (updated_at is only bumped on state transitions, so a long bot
+                # run or a queue backlog can leave it hours old). Killing such a
+                # job mid-flight releases the driver slot while the worker is
+                # still mutating the portal → duplicate-registration risk. Only
+                # jobs with NO live execution lease may be swept.
+                live_exec_stmt = select(Execution.job_id).where(
+                    Execution.status == "running",
+                    Execution.lease_expires_at >= now,
+                )
+                live_job_ids = set((await session.exec(live_exec_stmt)).all())
+
                 stale_cutoff = now - timedelta(minutes=10)
                 stale_jobs_stmt = (
                     select(WaybillJob)
@@ -124,6 +141,17 @@ class OrphanDetector:
                 )
                 stale_jobs = (await session.exec(stale_jobs_stmt)).all()
                 for stale_job in stale_jobs:
+                    if stale_job.job_id in live_job_ids:
+                        logger.info(
+                            "stale_job_sweep_skipped_live_execution",
+                            extra={
+                                "extra_fields": {
+                                    "job_id": stale_job.job_id,
+                                    "reason": "execution lease is alive; updated_at staleness is not liveness evidence",
+                                }
+                            },
+                        )
+                        continue
                     if stale_job.driver_id:
                         await release_driver_execution_slot(session, driver_id=stale_job.driver_id)
                     try:

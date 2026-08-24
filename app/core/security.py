@@ -92,6 +92,31 @@ def _ensure_auth_config(mode: str) -> None:
             )
 
 
+async def _reject_revoked_jwt(decoded: dict[str, Any] | None) -> None:
+    """Raise 401 when the JWT has been revoked via the logout blacklist (H5 fix).
+
+    Without this check, a token blacklisted at logout remained fully valid on
+    every sensitive endpoint until its natural expiry — while the client-facing
+    dependencies (auth_multitenant) DID enforce the blacklist, so revocation was
+    only half-enforced. Tokens without a ``jti`` (issued before the feature)
+    are skipped and expire naturally within their short window, mirroring
+    ``auth_multitenant._check_token_blacklist``.
+    """
+    if not decoded:
+        return
+    jti = decoded.get("jti")
+    if not jti:
+        return
+    from app.core.token_blacklist import is_blacklisted
+
+    if await is_blacklisted(jti):
+        raise HTTPException(
+            status_code=401,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 async def require_sensitive_auth(request: Request) -> None:
     """Protect sensitive endpoints with API Key / JWT.
 
@@ -130,6 +155,9 @@ async def require_sensitive_auth(request: Request) -> None:
             status_code=401,
             detail="دسترسی به endpoint حساس مجاز نیست (API Key/JWT نامتبر یا غایب)",
         )
+
+    # H5: reject blacklisted (logged-out) JWTs before role validation
+    await _reject_revoked_jwt(decoded_jwt)
 
     # If JWT is used, validate it has a valid role
     if decoded_jwt:
@@ -177,3 +205,6 @@ async def require_sensitive_admin(request: Request) -> None:
             status_code=401,
             detail="دسترسی به endpoint مدیریتی حساس مجاز نیست (نقش administator یا API Key معتبر لازم است)",
         )
+
+    # H5: reject blacklisted (logged-out) JWTs
+    await _reject_revoked_jwt(decoded)

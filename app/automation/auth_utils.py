@@ -40,32 +40,54 @@ CAPTCHA_HINT_MARKERS = (
 )
 
 
+def _url_path(url: str) -> str:
+    """Lowercased PATH component of *url* — query string and fragment excluded.
+
+    Bug-class fix: several classifiers used substring checks against the FULL
+    URL, so a query parameter such as ``?ReturnUrl=/Login`` (or any future
+    hostname containing a keyword like "login") flipped session-state
+    detection. Classifying on the parsed path makes them structural.
+    """
+    from urllib.parse import urlparse
+
+    try:
+        return urlparse((url or "").strip()).path.lower()
+    except Exception:
+        return (url or "").lower()
+
+
 def is_login_url(url: str) -> bool:
-    lowered = (url or "").lower()
-    return any(fragment in lowered for fragment in ("/login", "/account/login", "/signin", "/sign-in"))
+    path = _url_path(url)
+    return any(fragment in path for fragment in ("/login", "/account/login", "/signin", "/sign-in"))
 
 
 def is_authenticated_url(url: str) -> bool:
-    lowered = (url or "").lower()
+    path = _url_path(url)
     return any(
-        fragment in lowered
+        fragment in path
         for fragment in ("/notification/notification", "/barname/notification", "/dashboard", "/home/index")
     )
 
 
+_AJAX_LOGIN_PATHS = {
+    "/account/oldlogin",
+    "/barname/account/oldlogin",
+    "/account/login",
+    "/barname/account/login",
+    "/api/account/login",
+    "/api/login",
+}
+
+
 def is_ajax_login_response_url(url: str) -> bool:
-    lowered = (url or "").lower()
-    return any(
-        fragment in lowered
-        for fragment in (
-            "/account/oldlogin",
-            "/barname/account/oldlogin",
-            "/account/login",
-            "/barname/account/login",
-            "/api/account/login",
-            "/api/login",
-        )
-    )
+    """Exact-path match against the portal's known AJAX login endpoints.
+
+    Bug-class fix: the previous substring check matched look-alike paths such
+    as ``/Account/OldLoginHelp`` (prefix of a real fragment), causing the
+    response interceptor in auth.py to treat unrelated pages as login calls.
+    """
+    path = _url_path(url).rstrip("/")
+    return path in _AJAX_LOGIN_PATHS
 
 
 def is_captcha_related_error(text: str | None) -> bool:

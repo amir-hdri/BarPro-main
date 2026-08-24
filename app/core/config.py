@@ -191,7 +191,7 @@ class UTCMSConfig:
         self.METRICS_SCRAPE_TOKEN = os.getenv("METRICS_SCRAPE_TOKEN", "").strip()
         self.JOB_TIMEOUT_SECONDS = int(
             os.getenv("JOB_TIMEOUT_SECONDS", "330")
-        )  # must stay < CELERY_TASK_TIME_LIMIT (360) so asyncio.wait_for fires before Celery SIGKILL
+        )  # inner asyncio.wait_for bound; CELERY_TASK_SOFT/TIME_LIMIT derive from this (see H1 below)
         self.ITMBOL_SERVICE_URL = os.getenv("ITMBOL_SERVICE_URL", "https://services2.sipaad.ir/ITMBOL.asmx")
         self.ITMBOL_COMPANY_CODE = os.getenv("ITMBOL_COMPANY_CODE", "").strip()
         self.ITMBOL_SERVICE_PASSWORD = os.getenv("ITMBOL_SERVICE_PASSWORD", "").strip()
@@ -254,8 +254,21 @@ class UTCMSConfig:
         self.CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", self.REDIS_URL).strip()
         self.CELERY_TASK_QUEUE = os.getenv("CELERY_TASK_QUEUE", "waybill_tasks").strip()
         self.CELERY_DLQ_QUEUE = os.getenv("CELERY_DLQ_QUEUE", "waybill_dlq").strip()
-        self.CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", "300"))
-        self.CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", "360"))
+        # ── H1 fix: Celery soft/hard limits are DERIVED from JOB_TIMEOUT_SECONDS.
+        # The embedded `asyncio.wait_for(bot, JOB_TIMEOUT_SECONDS)` handler maps a
+        # full-length timeout to unknown → reconciliation (the mutation-safe path).
+        # If the Celery SOFT limit were smaller than JOB_TIMEOUT_SECONDS (e.g. the
+        # old default 300 < 330), SoftTimeLimitExceeded fired FIRST at an arbitrary
+        # await point and that safe handler never ran. Soft limit now sits above
+        # the bot window (+15s for result processing); hard limit gives the worker
+        # a bounded cleanup window after the soft signal, then SIGKILLs.
+        self.CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", str(self.JOB_TIMEOUT_SECONDS + 15)))
+        if self.CELERY_TASK_SOFT_TIME_LIMIT <= self.JOB_TIMEOUT_SECONDS:
+            # Env misconfiguration: never let the soft limit preempt the
+            # in-task timeout handler again.
+            self.CELERY_TASK_SOFT_TIME_LIMIT = self.JOB_TIMEOUT_SECONDS + 15
+        _default_hard_limit = self.CELERY_TASK_SOFT_TIME_LIMIT + 45
+        self.CELERY_TASK_TIME_LIMIT = max(int(os.getenv("CELERY_TASK_TIME_LIMIT", str(_default_hard_limit))), self.CELERY_TASK_SOFT_TIME_LIMIT + 5)
         self.CELERY_MAX_RETRIES = int(os.getenv("CELERY_MAX_RETRIES", "5"))
         self.CELERY_RETRY_BASE_SECONDS = float(os.getenv("CELERY_RETRY_BASE_SECONDS", "2.0"))
         self.CELERY_RETRY_JITTER_SECONDS = float(os.getenv("CELERY_RETRY_JITTER_SECONDS", "1.5"))
