@@ -2,6 +2,37 @@
   
   All notable changes to the UTCMS Automation System.
 
+  ## [2.9.6] - 2026-08-24
+
+### Fixed & Hardened — Full Audit Remediation: Duplicate-Registration Class, Firewall, Nginx, URL-Classification Sweep
+- **C1 — Orphan sweep live-lease guard**: the stale-job sweep skips any RUNNING/IN_PROGRESS job whose `Execution.lease_expires_at` is still alive (`app/orchestrator/orphan_detector.py`); killing an in-flight job previously released the driver slot mid-mutation (duplicate-submission risk). Claim-path transitions now bump `updated_at`.
+- **C2 — Real client IP behind nginx**: uvicorn runs with `--proxy-headers --forwarded-allow-ips=127.0.0.1,172.16.0.0/12,10.0.0.0/8` (`compose/backend.yml`, `Dockerfile`). Previously every request shared the nginx container IP, so the 5/min auth bucket was ONE global bucket (systemic login lockout).
+- **C3 — Renewable driver locks**: new `renew_lock()` (Lua compare-and-expire) plus a lease-renewal thread extending registered submit/auth locks every ~30s (`app/services/rpa_runtime_service.py`); `RPA_LOCK_TTL` can no longer expire mid-bot-window.
+- **C4 — Admin retry guards**: retry from UNKNOWN/CANCELLED returns descriptive HTTP 409 instead of a guaranteed 500; jobs categorized `submission_unconfirmed`/`ambiguous_mutation`/`duplicate_submission` are refused resubmission (`app/api/routes/admin_alerts.py`).
+- **H1 — Derived Celery limits**: `CELERY_TASK_SOFT_TIME_LIMIT` defaults to `JOB_TIMEOUT_SECONDS+15`, hard limit to soft+45, with auto-correction of env misconfiguration (`app/core/config.py`).
+- **H2 — `retrying` state node**: source set added and `retrying` accepted as an inbound target from 11 statuses in `ALLOWED_TRANSITIONS` (`app/orchestrator/state_machine.py`).
+- **H3 — Stale celery_task_id recovery**: QUEUED (>15m) / WAITING_AUTH (>1h) jobs with provably dead Celery ids are cleared inside `plan_due_jobs` (`app/services/rpa_scheduler_service.py`).
+- **H5 — Blacklist on sensitive deps**: `require_sensitive_auth/admin` reject JWTs whose jti is blacklisted (`app/core/security.py`).
+- **H6/H7 — Nginx header inheritance + missing routes**: shared `infra/nginx/security-headers.conf` include attached to every location declaring local `add_header`; `proxies|circuit-breaker` added to the backend regex.
+- **H8 — DOCKER-USER firewall guard** (`5441776`): UFW alone cannot block Docker-published ports; firewall scripts install comment-managed `DOCKER-USER` rules for 5432/6379 per Worker IP, enumerate all Docker subnets, and fix the UFW-enable self-DoS for host-network Squid 1.
+- **NEW-1 — Waybill navigation resilience**: live `/Barname/RegisterWaybill/Index` is 404; canonical candidates + generic sidebar-link sweep with path-only partitioning (`app/automation/waybill_enhanced.py`).
+- **NEW-2 — Wrong-captcha retry**: AJAX "لطفا کد امنیتی صحیح…" response confirmed flowing into `_is_captcha_error`; locked with regression tests.
+- **Bug-class fix — structural URL classification**: login/session classifiers are path-parsed instead of substring-on-full-URL in `auth_utils.py`, `utcms_http_login.py`, `utcms_reconciliation_scraper.py`, `waybill_bot_multitenant.py` (`?ReturnUrl=/Login` no longer flips session detection; duplicate-submission hazard removed).
+- **Chore — Dependabot version updates disabled** (`35bb5d2`): `.github/dependabot.yml` deleted (~24 stale branches cleaned). Dependabot alerts/security-updates remain governed by repo Settings.
+- **Regression suite**: `tests/test_audit_fixes.py` (28 tests); suite collects 1026 tests at this commit.
+
+  ## [2.9.5] - 2026-08-24
+
+### Security Hardening, Lock-Token Durability & Full-Stack Consistency Remediation
+- **Alert webhook fail-closed** without `ALERT_WEBHOOK_SECRET` for edge-proxied requests; nginx allow/deny defence-in-depth on the webhook location.
+- **Metrics access guard**: `GET /metrics` restricted to loopback/RFC1918 peers or `METRICS_SCRAPE_TOKEN` holders.
+- **Tenant isolation on legacy routes**: global `API_KEY` no longer silently attributes jobs to tenant 1.
+- **Durable driver-lock tokens**: `acquire_lock` persists tokens in a `locktok:{key}` registry so `release_lock` can prove ownership across task/thread boundaries (fixes the 360s `driver_submission_in_progress` stall); registry cleanup moved outside the non-reentrant `_get_lock()` (deadlock fix).
+- **Migration-038 response fields**: `WaybillJobResponse` exposes `batch_id`, `route_template_id`, `sequence_index`, `distance_km`, `duration_min`, `submission_fingerprint`.
+- **Cookie name single source of truth**: `AUTH_COOKIE_NAME` (backend) + `NEXT_PUBLIC_AUTH_COOKIE_NAME` (frontend) — no hardcoded drift.
+- **Rate-limit bucket accuracy**: `/reports`, `/api/system/*` → admin bucket; `/api/v1/batches`, `/api/v1/route-templates` → waybill bucket.
+- **Priority schema alignment**: `BatchCreate.priority` clamped to `le=9`; client-side Iranian national-code checksum mirrors the backend validator; `SQLModel.metadata` registers `LocationFavorite` + `AdminAlert`; config dedup and docs sync.
+
   ## [2.9.4] - 2026-08-23
 
 ### Added & Fixed — Error Taxonomy Sync, State Machine Auto-Heal & Full-Stack UI Batch Integration

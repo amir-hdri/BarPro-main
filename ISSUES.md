@@ -1,7 +1,28 @@
 # BarPro — وضعیت مشکلات (Issues)
-**آخرین بروزرسانی: 2026-08-23 (v2.9.4)**
+**آخرین بروزرسانی: 2026-08-24 (v2.9.6)**
 
 > مرجع وضعیت سامانه و محدودیت‌های مشاهده‌شده: [docs/UTCMS_CONSTRAINTS.md](./docs/UTCMS_CONSTRAINTS.md)
+
+## 🆕 2026-08-24 — امنیت، قفل‌های تجدیدپذیر و پاکسازی کامل ممیزی (v2.9.5 / v2.9.6)
+
+| # | مورد | وضعیت | نتیجه |
+|---|---|---|---|
+| C1 | orphan-sweep می‌توانست job در حال اجرا با lease زنده را بکشد (ریسک duplicate-submission) | ✅ | گارد lease زنده در `app/orchestrator/orphan_detector.py` + bump `updated_at` روی گذارهای claim |
+| C2 | تمام ریکوئست‌ها IP یکسان nginx داشتند → باکت نرخ 5/min لاگین «سراسری» و قفل‌شدن سیستمیک | ✅ | uvicorn `--proxy-headers --forwarded-allow-ips=…` (`compose/backend.yml` + `Dockerfile`) |
+| C3 | انقضای قفل راننده (`RPA_LOCK_TTL`) در میانه پنجره RPA → ثبت موازی دوبل | ✅ | `renew_lock()` با Lua compare-and-expire + تمدید دوره‌ای ~30s (`rpa_runtime_service.py`) |
+| C4 | retry ادمین از UNKNOWN/CANCELLED خطای HTTP 500 قطعی + پیام یکسان گمراه‌کننده | ✅ | 409 با راهنمای per-status + گارد دسته‌های `submission_unconfirmed` (`admin_alerts.py`) |
+| H1 | `SoftTimeLimitExceeded` پیش از هندلر `TimeoutError→unknown/reconcile` اجرا می‌شد | ✅ | حدود Celery از `JOB_TIMEOUT_SECONDS` مشتق می‌شوند: SOFT=+15، HARD=SOFT+45 (`config.py`) |
+| H2 | گره `retrying` بدون یال ورودی/خروجی → job برای همیشه گیر می‌کرد | ✅ | source set + ۱۱ یال ورودی در `state_machine.py` |
+| H3 | `celery_task_id` کهنه در QUEUED/WAITING_AUTH فقط از مسیر deprecated بازیابی می‌شد | ✅ | پاکسازی اثبات‌شده داخل `plan_due_jobs` (`rpa_scheduler_service.py`) |
+| H5 | JWT های blacklisted روی dependencyهای sensitive رد نمی‌شدند | ✅ | چک jti-blacklist در `require_sensitive_auth/admin` (`core/security.py`) |
+| H6/H7 | صفحات دارای `add_header` محلی بدون CSP/X-Frame سرو می‌شدند؛ 404 مسیرهای proxies/circuit-breaker | ✅ | include مشترک `infra/nginx/security-headers.conf` + افزودن مسیرها به regex بک‌اند |
+| H8 | UFW به‌تنهایی پورت Docker-publish شده را نمی‌بندد (اثبات عملی زنده) | ✅ | قوانین مدیریت‌شده `DOCKER-USER` در سه اسکریپت فایروال + رفع self-DoS اسکوئید host-network |
+| NEW-1 | روت منسوخ `/Barname/RegisterWaybill/Index` → 404 و Timeout سلکتورها | ✅ | کاندیدهای کانونی + sweep عمومی لینک‌ها با partition مسیری (`waybill_enhanced.py`) |
+| NEW-2 | retry کپچای غلط پس از پاسخ AJAX «لطفا کد امنیتی صحیح…» | ✅ | جریان موجود در `_is_captcha_error` با تست رگرسیون قفل شد |
+| BUG-class | classifierهای نشست/لاگین substring روی full-URL بودند → false positive و دومین submit | ✅ | path-parsing در `auth_utils` / `utcms_http_login` / `utcms_reconciliation_scraper` / `waybill_bot_multitenant` |
+| INFRA | ~۲۴ branch/PR کهنهٔ Dependabot انبار شده بود | ✅ | `.github/dependabot.yml` حذف شد؛ alert و security-updates از Settings ادامه دارد |
+
+---
 
 ## 🆕 2026-08-23 — ثبت چندمسیره، بازتلاش هوشمند خطاهای سامانه و یکپارچگی فول‌استک (v2.9.4)
 

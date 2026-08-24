@@ -104,7 +104,7 @@
 
 
 1. `git pull` + `docker compose -f compose/web.yml up -d --force-recreate nginx backend` تا mount جدید `security-headers.conf` و flagهای `proxy-headers` فعال شود (قبلاً در batch قبلی ابلاغ شده).
-2. `sudo bash scripts/setup_firewall_central.sh` با `WORKER_IPS="5.56.132.26 87.107.5.219"` از `.env` جدید؛ سپس از IP خارجی `nc -vz <CENTRAL_IP> 5432` باید **fail** شود و `iptables -L DOCKER-USER -n --line-numbers` باید `barpro-guard` را نشان دهد؛ `iptables-persistent` نصب و `netfilter-persistent save` کنید.
+2. `sudo bash scripts/setup_firewall_central.sh` با `WORKER_IPS` از `.env` (IPهای واقعی ورکرها — در مخزن درج نمی‌شود)؛ سپس از IP خارجی `nc -vz <CENTRAL_IP> 5432` باید **fail** شود و `iptables -L DOCKER-USER -n --line-numbers` باید `barpro-guard` را نشان دهد؛ `iptables-persistent` نصب و `netfilter-persistent save` کنید.
 3. `.env.example` جدید دیگر `CELERY_TASK_*` پین‌شده ندارد — نیازی به ویرایش دستی نیست؛ اگر روی ورکرها `.env` جداگانه دارید همان کامنت را اعمال کنید (توجه: `.env` در git نیست، پس روی سرور باید دستی بازبینی شود).
 
 

@@ -1,10 +1,10 @@
 # گراف دانش مرجع BarPro
 
-> نسخه سند: 2026-08-23 (v2.9.4)
+> نسخه سند: 2026-08-24 (v2.9.6)
 >
 > commit مبنای audit اولیه: 9c472f1
 >
-> commit نهایی remediation: 90accd3
+> commit نهایی remediation: 21c0516 (v2.9.5=`dd4c107`، v2.9.6=`ef7cb48`)
 >
 > Alembic head مبنا: 038_add_multiroute_batch_distance
 >
@@ -33,6 +33,26 @@
 
 این سند ادعای شمارش یا راستی‌آزمایی خودکار هزاران node/edge ندارد. هر رابطه‌ی
 حیاتی با مسیر فایل یا قرارداد قابل بازتولید توضیح داده می‌شود.
+
+## 0.5 دلتای v2.9.5 / v2.9.6 (CODE-VERIFIED در 21c0516)
+
+| مورد | اثر گرافی | فایل مرجع |
+|---|---|---|
+| C1 — گارد lease زنده در orphan-sweep | یال «sweep → kill RUNNING» فقط وقتی مجاز است که `Execution.lease_expires_at` منقضی شده باشد؛ bump `updated_at` روی گذارهای claim | `app/orchestrator/orphan_detector.py`, `app/workers/waybill_worker.py` |
+| C2 — IP واقعی کلاینت پشت nginx | uvicorn با `--proxy-headers --forwarded-allow-ips=127.0.0.1,172.16.0.0/12,10.0.0.0/8` اجرا می‌شود؛ باکت‌های rate-limit واقعاً per-client شدند | `compose/backend.yml`, `Dockerfile` |
+| C3 — قفل‌های تجدیدپذیر راننده | `renew_lock()` (Lua compare-and-expire) + تمدید دوره‌ای ~30s؛ توکن پایدار در registry `locktok:{key}` | `app/services/rpa_runtime_service.py` |
+| C4 — گاردهای retry ادمین | UNKNOWN/CANCELLED → 409 راهنمادار؛ دسته‌های `submission_unconfirmed/ambiguous_mutation/duplicate_submission` رد می‌شوند | `app/api/routes/admin_alerts.py` |
+| H1 — حدود Celery مشتق‌شده | SOFT=JOB_TIMEOUT+15، HARD=SOFT+45؛ misconfig پین‌شده auto-correct می‌شود | `app/core/config.py:257-271` |
+| H2 — گره `retrying` | source set + ۱۱ یال ورودی در ALLOWED_TRANSITIONS | `app/orchestrator/state_machine.py` |
+| H3 — بازیابی celery_task_id کهنه | QUEUED>15m / WAITING_AUTH>1h با Celery id اثباتاً مرده، داخل `plan_due_jobs` پاک می‌شوند | `app/services/rpa_scheduler_service.py` |
+| H5 — blacklist روی dependencyهای sensitive | JWT با jti سیاه‌شده در مسیرهای sensitive/admin رد می‌شود | `app/core/security.py` |
+| H6/H7 — include مشترک security headers | `infra/nginx/security-headers.conf` به همه locationهای دارای add_header محلی اضافه شد؛ مسیرهای proxies/circuit-breaker به regex بک‌اند افزوده شدند | `infra/nginx/http-server.conf`, `compose/web.yml` |
+| H8 — فایروال DOCKER-USER | UFW تنها کافی نیست؛ سه اسکریپت، قوانین مدیریت‌شده `barpro-guard` برای 5432/6379 per Worker IP نصب می‌کنند + کشف همه ساب‌نت‌های Docker + رفع self-DoS اسکوئید host-network | `scripts/setup_firewall_central.sh`, `scripts/add_worker_firewall.sh`, `scripts/secure_squid_ports.sh` |
+| NEW-1 — ناوبری waybill مقاوم | روت `/Barname/RegisterWaybill/Index` زنده 404 است؛ کاندیدهای کانونی HagigiHogugi/Document/Create + sweep عمومی لینک‌ها با partition مسیری (path-only) | `app/automation/waybill_enhanced.py:2085-2382` |
+| NEW-2 — retry کپچای غلط | پاسخ AJAX «لطفا کد امنیتی صحیح…» از قبل وارد `_is_captcha_error` می‌شد؛ با تست رگرسیون قفل شد | `tests/test_audit_fixes.py` |
+| BUG-class — classifierهای path-based | تشخیص نشست/لاگین روی parsed.path نه full-URL (`?ReturnUrl=/Login` دیگر session را flip نمی‌کند؛ hazard دومین submit حذف شد) | `auth_utils.py`, `utcms_http_login.py`, `utcms_reconciliation_scraper.py`, `waybill_bot_multitenant.py` |
+| Dependabot version updates خاموش | `.github/dependabot.yml` حذف شد (~۲۴ branch کهنه)؛ Dependabot alerts/security-updates از Settings ادامه دارد | `.github/dependabot.yml` (deleted) |
+| تست‌ها | ۱۰۲۶ test جمع‌آوری می‌شود؛ `test_audit_fixes.py` (۲۸) + `test_state_machine.py` (۳۴) = ۶۲ passed اجرای واقعی | `tests/` |
 
 ---
 
@@ -154,7 +174,9 @@ Model A استقرار تک‌ماشینه است و می‌تواند Worker 1/
 
 قرارداد احراز هویت:
 
-- JWT در cookie با نام utcms_auth_token حمل می‌شود.
+- JWT در httpOnly cookie حمل می‌شود؛ نام cookie از `AUTH_COOKIE_NAME` (بک‌اند)
+  و `NEXT_PUBLIC_AUTH_COOKIE_NAME` (فرانت‌اند) می‌آید و مقدار پیش‌فرض آن
+  `utcms_auth_token` است — هیچ نام hardcoded در کد کلاینت وجود ندارد.
 - localStorage نباید bearer token یا secret نگهداری کند.
 - AUTH_COOKIE_SECURE تابع وضعیت واقعی HTTPS است.
 - Master Admin و Client نقش‌های اصلی فعلی‌اند؛ مدل SQLModel مستقلی به نام
@@ -345,8 +367,11 @@ ManagedSyncLog زیرسیستم management را پشتیبانی می‌کنند
 JobStatus شامل:
 
 pending، waiting_auth، waiting_retry، waiting_submission_window، otp_backoff،
-queued، claimed، running، in_progress، success، failed، needs_review،
+queued، claimed، running، in_progress، retrying، success، failed، needs_review،
 dead_letter، cancelled، unknown و reconciling است.
+
+(از v2.9.6 گره `retrying` هم source set کامل دارد و هم ۱۱ یال ورودی؛
+`task_service.mark_retrying()` دیگر job را در گره بدون خروجی گیر نمی‌اندازد.)
 
 ### 7.2. جریان ایمن mutation
 
@@ -794,6 +819,7 @@ artifact یا knowledge graph ممنوع است.
 | queues | CELERY_*_QUEUE، RPA_SCHEDULER_QUEUE |
 | scheduler | RPA_SCHEDULER_INTERVAL_SECONDS، batch/slice values |
 | limits | DRIVER_DAILY_SUCCESS_CAP، DRIVER_DAILY_ATTEMPT_CAP، retry delay |
+| celery limits | SOFT/HARD از JOB_TIMEOUT_SECONDS مشتق می‌شوند (+15/+45)؛ پین کردن SOFT≤JOB اصلاح خودکار می‌شود (H1) |
 | web security | AUTH_COOKIE_SECURE، CORS/frontend URL values |
 | networking | POSTGRES_BIND، REDIS_BIND، Central/Worker IP values |
 
@@ -852,8 +878,9 @@ EXTERNAL-OBSERVATION و خطوط قرمز:
 1. git rev-parse HEAD روی Central و Worker 2/3؛
 2. alembic current و alembic heads؛
 3. full docker ps با comparison علیه allowlist؛
-4. ss -lntp و firewall status؛
-5. probe 5432، 6379 و 3128 تا 3130 از IP غیرمجاز؛
+4. ss -lntp، ufw status و `iptables -L DOCKER-USER -n --line-numbers`
+   (قوانین `barpro-guard` باید حاضر باشند — UFW به‌تنهایی Docker-publish را نمی‌بندد)؛
+5. probe 5432، 6379 و 3128 تا 3130 از IP غیرمجاز (باید fail شود)؛
 6. Celery active_queues، stats، ping و Worker Registry heartbeat؛
 7. egress IP check از داخل هر Worker؛
 8. GET /healthz و sanitized GET /readyz؛

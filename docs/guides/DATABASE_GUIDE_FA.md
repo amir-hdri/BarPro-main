@@ -31,5 +31,9 @@ alembic current
 - **محیط توسعه:** در محیط توسعه (Local)، اگر با خطای عجیبی مواجه شدید، ابتدا `reset_database.sh` را اجرا کرده و سپس مجدداً `upgrade head` بزنید.
 
 ---
-**آخرین بروزرسانی:** ۱ ژوئن ۲۰۲۶
-**وضعیت فعلی دیتابیس:** نسخه ۳ef63013cff9 (هماهنگ با آخرین تغییرات Multi-tenant)
+**آخرین بروزرسانی:** ۲۴ اوت ۲۰۲۶
+**وضعیت فعلی دیتابیس:** head = `038_add_multiroute_batch_distance`
+
+> ⚠️ اجرای migration فقط از طریق `bash manage.sh migrate` یا startup خودکار
+> (`run_migrations()` با advisory lock) انجام شود؛ هرگز Alembic خام را هم‌زمان
+> با ورکرها اجرا نکنید.

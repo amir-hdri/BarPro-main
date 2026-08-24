@@ -68,7 +68,7 @@ results = await session.exec(stmt)
    ```bash
    docker compose -f compose/worker-node.yml up -d
    ```
-3. مستندات گام‌به‌گام کامل در [docs/adding_new_worker.md](file:///Users/amirheidari/GitHub/BarPro-main/docs/adding_new_worker.md) و [docs/runbook_scale_out.md](file:///Users/amirheidari/GitHub/BarPro-main/docs/runbook_scale_out.md) موجود است.
+ 3. مستندات گام‌به‌گام کامل در [docs/adding_new_worker.md](docs/adding_new_worker.md) موجود است.
 
 ### مدل ب: افزودن چند IP عمومی روی یک سرور فیزیکی (Model A)
 در صورتی که چند IP عمومی روی یک سرور مرکزی ست شده باشد:

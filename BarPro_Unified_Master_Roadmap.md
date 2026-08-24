@@ -1,7 +1,9 @@
 # 🚀 BarPro — نقشه‌راه نهایی یکپارچه (Unified Master Roadmap v2.0)
 
+> ✅ **وضعیت اجرا: تکمیل‌شده.** فازهای این نقشه‌راه (Orchestrator، Dispatch Intent، State Machine، Worker Registry، Error Taxonomy، Reconciliation سه‌شاهدی، Submission Gate، CAPTCHA hardening و Model B networking) همگی در نسخه‌های v2.7 تا **v2.9.6** پیاده و راستی‌آزمایی شده‌اند. این سند اکنون سابقه طراحی است؛ قرارداد جاری: [`docs/BARPRO_KNOWLEDGE_GRAPH.md`](docs/BARPRO_KNOWLEDGE_GRAPH.md) و [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
 > **هدف سند:** ادغام دو پلان قبلی (`plan.rtf` و `MASTER_ROADMAP.md`)، رفع تناقض‌ها و باگ‌های شناسایی‌شده، و ارائه یک نقشه‌راه واحد، بدون تصادم Migration، آماده اجرا توسط یک ایجنت کدنویسی هوش مصنوعی (مثل Claude Code).
-> **نسخه:** 2.0 | **وضعیت:** Ready for Agent Execution — مشروط به تکمیل بخش «تصمیمات باز» در بخش ۵
+> **نسخه:** 2.0 | **وضعیت (تاریخی):** Ready for Agent Execution — مشروط به تکمیل بخش «تصمیمات باز» در بخش ۵
 > **معماری منتخب هسته:** الگوی **Dispatch Intent** (از `plan.rtf`) به‌عنوان معماری کانونیک، چون تنها الگویی است که مشکل ریشه‌ای «سه مسیر اجرای موازی» را واقعاً حل می‌کند.
 
 ---

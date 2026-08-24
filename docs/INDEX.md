@@ -5,8 +5,7 @@
 - [قرارداد و محدودیت‌های UTCMS](UTCMS_CONSTRAINTS.md) — فیلدهای اجباری، CAPTCHA، IP/WAF، زمان‌بندی، صف‌ها و معیار اثبات ثبت
 - [قابلیت چندمسیره + فاصله/زمان](MULTI_ROUTE_FEATURE.md) — قالب مسیر، دستهٔ چندمسیره و محاسبهٔ فاصله/زمان جاده‌ای
 - [Runbook قطعی/اختلال UTCMS](runbook_utcms_outage.md)
-- [Runbook استقرار Scale-out](runbook_scale_out.md)
-- [Runbook ثبت Worker](runbook_worker_registration.md)
+- [راهنمای افزودن Worker جدید](adding_new_worker.md) — مرجع واحد onboarding ورکر (فایروال، Squid، compose)
 
 Use this index for current operational documentation. Older historical reports remain under `docs/archive/` and should not be treated as deployment instructions.
 
@@ -42,7 +41,7 @@ bash manage.sh status
 bash manage.sh health
 bash manage.sh deploy
 bash manage.sh migrate
-bash manage.sh backup
+bash manage.sh backup-db
 bash manage.sh stop
 ```
 
@@ -85,10 +84,12 @@ alembic heads
 
 ## Archive Policy
 
-Files in `docs/archive/` are historical records. They may mention old local paths, old auth storage, or previous frontend versions. Do not use them for current deployment decisions.
+Files in `docs/archive/` are historical records (e.g. `UTCMS_RPA_BASELINE.md`,
+`UTCMS_RPA_IMPLEMENTATION_REPORT.md`). They may mention old local paths, old auth
+storage, or previous frontend versions. Do not use them for current deployment decisions.
 
-Files under `docs/architecture/` carrying a “Legacy design” banner are retained
-for design history only. They may contain obsolete routes, schema or TLS assumptions;
-the tracked knowledge graph and root `ARCHITECTURE.md` take precedence.
+Legacy design stubs that previously lived under `docs/architecture/` were removed
+in the v2.9.6 documentation cleanup — the tracked knowledge graph and root
+`ARCHITECTURE.md` are authoritative.
 
-Last updated: 2026-08-23 (v2.9.4)
+Last updated: 2026-08-24 (v2.9.6)

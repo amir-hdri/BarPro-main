@@ -186,3 +186,11 @@ This file tracks the completion status of the phases defined in [BarPro_Unified_
   - All 996 automated pytest tests passed (988 passed, 3 skipped, 0 failed).
   - Next.js production build (`npm run build`) completed in 4.4s with 21/21 static pages generated.
   - Multi-server cluster deployment verified across Central, Worker 2, and Worker 3 nodes.
+
+### Security Hardening, Renewable Locks & Full Audit Remediation (Completed: 2026-08-24 — v2.9.5 / v2.9.6)
+- **Duplicate-Registration Class Closed (C1–C4)**: orphan-sweep live-lease guard, real client IP behind nginx (`--proxy-headers`), renewable driver locks (`renew_lock()` + ~30s lease-renewal thread), admin-retry 409 guards with per-status guidance.
+- **State & Limits (H1–H3)**: derived Celery soft/hard limits from `JOB_TIMEOUT_SECONDS`, `retrying` state node with full inbound/outbound edges, stale `celery_task_id` recovery inside `plan_due_jobs`.
+- **Security (H5–H8)**: JWT blacklist enforced on sensitive deps, shared `infra/nginx/security-headers.conf` include on every nginx location, DOCKER-USER firewall rules (UFW alone proven insufficient for Docker-published ports), UFW-enable self-DoS fix for host-network Squid.
+- **RPA Resilience (NEW-1/NEW-2 + bug-class)**: RegisterWaybill 404 → canonical candidates + sidebar-link sweep with path-only partitioning; wrong-captcha retry locked with regression tests; all login/session URL classifiers converted to path-parsing (duplicate-submission hazard removed).
+- **Verification**: 1026 tests collected; `test_audit_fixes.py` (28) + `test_state_machine.py` (34) executed green (62 passed). Baseline commit `21c0516`; independent verification report at `docs/FULLSTACK_VERIFICATION_REPORT_2026-08-24.md`.
+- **Chore**: Dependabot version updates disabled (`.github/dependabot.yml` deleted); alerts/security-updates remain via repo Settings.

@@ -18,6 +18,7 @@ This checklist must be fully executed and signed off before deploying any change
 - [ ] **Restricted Port Exposure**: Verify that only ports `80` (and `443` after SSL setup) are exposed publicly.
 - [ ] **Squid Egress Port Block**: Run `sudo bash /opt/barpro/scripts/secure_squid_ports.sh` to restrict Squid ports `3129` and `3130` to localhost and internal Docker network only. Add it to `@reboot` crontab.
 - [ ] **UFW Allowlist**: Verify only registered worker IPs can access database port `5432` and Redis port `6379`.
+- [ ] **DOCKER-USER Chain**: UFW alone does NOT filter Docker-published ports. Verify `iptables -L DOCKER-USER -n --line-numbers` contains the managed `barpro-guard` rules (installed by `scripts/setup_firewall_central.sh`) and probe 5432/6379 from a non-worker external IP — it must fail.
 
 ---
 

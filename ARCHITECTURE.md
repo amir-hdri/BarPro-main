@@ -1,8 +1,8 @@
 # معماری فعلی BarPro
 
-> آخرین هم‌ترازی با کد: 2026-08-23 (v2.9.4)
+> آخرین هم‌ترازی با کد: 2026-08-24 (v2.9.6)
 >
-> commit مبنای audit: `90accd3`
+> commit مبنای audit: `21c0516`
 >
 > این سند قرارداد معماری checkout فعلی است، نه اثبات وضعیت لحظه‌ای سرورها. وضعیت
 > containerها، firewall، environment و IP خروجی باید در هر استقرار جداگانه بررسی شود.
@@ -104,7 +104,7 @@ POST /api/v1/waybill-jobs
   → pending / waiting_auth / waiting_submission_window
   → scheduler creates DispatchIntent
   → dispatcher selects healthy registered Worker/IP
-  → queued → claimed → running
+  → queued → claimed → running (چرخه‌های بازتلاش از گره `retrying` می‌گذرند)
   → at-most-once UTCMS submit
   → unknown (نتیجه mutation هنوز قطعی نیست)
   → reconciling (UTCMS History/Search)

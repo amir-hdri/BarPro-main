@@ -10,7 +10,6 @@
 | **Telemetry System** | `app/core/telemetry.py` | 33KB | Structured logging, evidence collection, client reports |
 | **Resource Optimizer** | `app/automation/resource_optimizer.py` | 23KB | Memory management, lifecycle tracking, leak prevention |
 | **Reporting Schema** | `app/schemas/enterprise_reporting.py` | 22KB | JSON schemas for all data structures |
-| **Documentation** | `docs/enterprise_optimizations.md` | 28KB | Complete guide with examples |
 | **Usage Examples** | `examples/enterprise_waybill_example.py` | 22KB | Production-ready code examples |
 
 **Total: 8 files, 204KB of enterprise-grade code**
@@ -256,7 +255,6 @@ ContextLifecycleManager(
 
 ## 📖 Documentation Links
 
-- **Full Guide**: `docs/enterprise_optimizations.md`
 - **Code Examples**: `examples/enterprise_waybill_example.py`
 - **JSON Schemas**: `app/schemas/enterprise_reporting.py`
 

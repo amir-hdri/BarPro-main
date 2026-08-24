@@ -70,8 +70,8 @@ subprocess فعال نیست. mode مؤثر هر node باید پس از deploy 
 4. compose/web.yml — Next.js و Nginx؛
 5. compose/monitoring.yml — Prometheus، Alertmanager، Grafana و exporterها.
 
-Workerهای remote با compose/worker-node.yml و runbookهای
-docs/runbook_scale_out.md و docs/runbook_worker_registration.md مستقر شوند.
+Workerهای remote با compose/worker-node.yml و راهنمای واحد
+docs/adding_new_worker.md مستقر شوند.
 
 ## 5. مهاجرت و دستورات عملیات
 
