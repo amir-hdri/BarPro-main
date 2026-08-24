@@ -354,6 +354,11 @@ All current providers execute within the Worker process; Keras is lazy-loaded on
 
 ## Optimization Applied (2026-06-30 → 2026-08-24)
 
+### 2026-08-24 — Dependabot Version Updates Disabled
+| Change | File | Impact |
+|--------|------|--------|
+| Dependabot version updates off | `.github/dependabot.yml` (deleted) | Weekly PRs from pip/npm/github-actions ecosystems had accumulated ~24 stale branches/PRs (all deleted in the v2.9.6 cleanup). Re-enable only deliberately: restore the file per github.com/docs/code-security/dependabot/working-with-dependabot. **Keep ON in repo Settings → Code security:** `Dependabot alerts` and `Dependabot security updates` are UI-level toggles unaffected by this deletion — CVE-driven PRs still work. Manual hygiene cadence: `pip-audit` + `npm audit --omit=dev` quarterly |
+
 ### 2026-08-24 — v2.9.6 Full Audit Remediation (Duplicate-Registration Class, Firewall, Nginx, URL-Classification Bug Sweep)
 > Deep audit verification + remediation batch. Every item below was re-verified against live code before fixing;
 > regression coverage in `tests/test_audit_fixes.py` (28 tests). Full suite at commit time: **1020 passed / 3 skipped**.
