@@ -8,8 +8,21 @@
 #   sudo bash scripts/setup_firewall_central.sh
 #
 # Environment variables (read from .env or export before running):
-#   WORKER_IPS  — space-separated list of Worker server IPs
+#   WORKER_IPS  — space- or comma-separated list of Worker server IPs
 #                 e.g. export WORKER_IPS="185.x.x.1 185.x.x.2"
+#
+# Design notes:
+#   - IPv4-ONLY by project policy (no ip6tables rules are installed).
+#   - Squid 1 runs with `network_mode: host` (compose/proxy.yml), so its port
+#     3128 is a REAL host socket: container→172.20.0.1:3128 traverses the
+#     INPUT chain, NOT FORWARD/DOCKER-USER. Therefore enabling UFW with
+#     default-deny would silently cut Worker 1 / backend healthcheck egress —
+#     this script auto-discovers every Docker subnet and allows them to 3128.
+#   - Postgres/Redis are published per POSTGRES_BIND/REDIS_BIND (.env).
+#     Model B requires 0.0.0.0 for remote workers → the DOCKER-USER layer
+#     below is what actually keeps them private. With the repo default
+#     127.0.0.1 (single-box Model A) they are never publicly exposed at all;
+#     the guard stays harmless belt-and-braces.
 #
 # What this script does:
 #   1. UFW: allows PostgreSQL (5432) and Redis (6379) ONLY from known Worker IPs
@@ -18,12 +31,17 @@
 #      traffic traverses the FORWARD/DOCKER chains, which bypass UFW's INPUT
 #      chain entirely (verified live: Postgres/Redis were reachable from a
 #      foreign network while `ufw deny 5432/6379` was active).
-#   3. Keeps port 80 (Nginx) and 22 (SSH) open
+#   3. Keeps port 80 (Nginx) and rate-limited SSH open; keeps Docker-subnet
+#      access to Squid-1 (3128) and host-gateway DB/Redis paths alive.
 #   4. Idempotent: safe to run multiple times (rules are comment-managed)
 #
 # Verification after running (from a NON-worker external IP):
 #   nc -vz <CENTRAL_IP> 5432   # must FAIL (timeout/refused)
 #   nc -vz <CENTRAL_IP> 6379   # must FAIL
+#   nc -vz <CENTRAL_IP> 3128   # must FAIL
+# And from inside a container (must still SUCCEED):
+#   docker exec barpro-worker-1 curl -sx http://172.20.0.1:3128 \
+#     -o /dev/null -w '%{http_code}\n' https://utcms.ir --max-time 10
 # =============================================================================
 
 set -euo pipefail
@@ -44,9 +62,11 @@ if [[ -z "${WORKER_IPS:-}" ]]; then
     ENV_FILE="$(dirname "$0")/../.env"
     if [[ -f "$ENV_FILE" ]]; then
         # shellcheck disable=SC1090
-        WORKER_IPS=$(grep -E '^WORKER_IPS=' "$ENV_FILE" | cut -d= -f2- | tr -d '"' || true)
+        WORKER_IPS=$(grep -E '^WORKER_IPS=' "$ENV_FILE" | cut -d= -f2- | tr -d '"' | tr ',' ' ' || true)
     fi
 fi
+# Normalize commas to spaces so "1.2.3.4,5.6.7.8" and "1.2.3.4 5.6.7.8" both work.
+WORKER_IPS="${WORKER_IPS//,/ }"
 
 if [[ -z "${WORKER_IPS:-}" ]]; then
     log_error "WORKER_IPS is not set. Example:"
@@ -117,13 +137,53 @@ log_info "Setting default policies..."
 ufw default deny incoming
 ufw default allow outgoing
 
-# ── Allow SSH (keep this FIRST to avoid lockout) ────────────────────────────
-log_info "Allowing SSH (port 22)..."
-ufw allow 22/tcp comment 'SSH'
+# ── Rate-limited SSH (keep FIRST to avoid lockout; throttles brute-force) ───
+log_info "Applying rate-limited SSH rule..."
+ufw limit 22/tcp comment 'SSH rate-limited' >/dev/null || ufw allow 22/tcp comment 'SSH'
 
 # ── Allow HTTP (Nginx) ───────────────────────────────────────────────────────
 log_info "Allowing HTTP (port 80)..."
 ufw allow 80/tcp comment 'Nginx HTTP'
+
+# ════════════════════════════════════════════════════════════════════════════
+# CRITICAL: keep INTERNAL container traffic alive once UFW goes default-deny.
+#
+# Squid 1 runs with network_mode: host (compose/proxy.yml) → port 3128 is a
+# real host socket reached through the INPUT chain, NOT FORWARD/DOCKER-USER.
+# Worker 1 and the backend healthcheck connect to it at the bridge gateway
+# (e.g. http://172.20.0.1:3128). Without explicit allows below, enabling UFW
+# here would DROP those packets and silently kill central RPA egress.
+# ════════════════════════════════════════════════════════════════════════════
+log_info "Discovering Docker network subnets (for internal INPUT allows)..."
+
+discover_docker_subnets() {
+    if command -v docker &>/dev/null; then
+        docker network ls --format '{{.Name}}' 2>/dev/null | while read -r net; do
+            docker network inspect "$net" --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' 2>/dev/null
+        done | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' | sort -u
+    fi
+}
+
+DOCKER_SUBNETS="$(discover_docker_subnets)"
+if [[ -z "$DOCKER_SUBNETS" ]]; then
+    log_warn "docker CLI/networks unavailable — falling back to 172.16.0.0/12."
+    DOCKER_SUBNETS="172.16.0.0/12"
+fi
+log_info "Internal Docker subnets: $(echo "$DOCKER_SUBNETS" | tr '\n' ' ')"
+
+log_info "Allowing localhost + Docker subnets → Squid-1 (3128)..."
+ufw allow from 127.0.0.1 to any port 3128 proto tcp comment 'Squid-1 loopback' >/dev/null || true
+while read -r subnet; do
+    [[ -z "$subnet" ]] && continue
+    ufw allow from "$subnet" to any port 3128 proto tcp comment "Squid-1 from $subnet" >/dev/null || true
+done <<< "$DOCKER_SUBNETS"
+
+log_info "Allowing Docker subnets → host-gateway PostgreSQL/Redis (INPUT-path parity)..."
+while read -r subnet; do
+    [[ -z "$subnet" ]] && continue
+    ufw allow from "$subnet" to any port 5432 proto tcp comment "PG host-gw $subnet" >/dev/null || true
+    ufw allow from "$subnet" to any port 6379 proto tcp comment "Redis host-gw $subnet" >/dev/null || true
+done <<< "$DOCKER_SUBNETS"
 
 # ── PostgreSQL and Redis: allow ONLY from Worker IPs ────────────────────────
 # NOTE: these UFW rules are defense-in-depth only. The authoritative block
@@ -157,6 +217,11 @@ echo ""
 log_warn "⚠️  MANDATORY VERIFICATION — from an EXTERNAL non-worker IP run:"
 log_warn "     nc -vz <CENTRAL_IP> 5432   # must fail"
 log_warn "     nc -vz <CENTRAL_IP> 6379   # must fail"
+log_warn "     nc -vz <CENTRAL_IP> 3128   # must fail"
+echo ""
+log_warn "⚠️  AND verify the INTERNAL path still works (Worker-1 → Squid-1):"
+log_warn "     docker exec barpro-worker-1 curl -sx http://172.20.0.1:3128 -o /dev/null \\"
+log_warn "       -w '%{http_code}\\n' https://utcms.ir --max-time 10   # expect 200"
 echo ""
 log_warn "To add a new Worker IP later, run:"
 log_warn "  sudo bash scripts/add_worker_firewall.sh <NEW_WORKER_IP> <WORKER_ID>"
