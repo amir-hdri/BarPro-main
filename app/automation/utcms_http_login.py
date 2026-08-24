@@ -546,6 +546,7 @@ class UtcmsHttpLogin:
         # post to that endpoint — NOT to the URL that served the GET.
         post_url = self._resolve_post_url(str(get_resp.url), ajax_url)
         payload = {
+            "UserName": username,
             "NationalCode": username,
             "Password": password,
             "DNTCaptchaInputText": captcha_value,
@@ -554,6 +555,12 @@ class UtcmsHttpLogin:
             "CapType": self._cap_type or "1",
             "RequestVerificationToken": self._antiforgery,
             "ruleExcepted": "true",
+        }
+        origin = f"{urlparse(str(get_resp.url)).scheme}://{urlparse(str(get_resp.url)).netloc}"
+        post_headers = {
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": str(get_resp.url),
+            "Origin": origin,
         }
         logger.info(
             "utcms_http_login_post_start",
@@ -570,6 +577,7 @@ class UtcmsHttpLogin:
                 self._session.post,
                 post_url,
                 data=payload,
+                headers=post_headers,
                 timeout=self._timeout,
                 allow_redirects=False,  # we'll inspect the redirect manually
             )
