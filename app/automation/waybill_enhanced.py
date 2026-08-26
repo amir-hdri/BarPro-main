@@ -2088,6 +2088,25 @@ class EnhancedWaybillManager:
         # same URL after the authenticated menu flow, but a direct first request
         # is answered with HTTP 408.  The menu click also preserves the portal's
         # referrer and any JavaScript state required by the form endpoint.
+        # A reused HTTP session can still be left on the stale configured URL
+        # (often RegisterWaybill/Index, whose 408 body is only 39 bytes), so
+        # warm the authenticated landing page before looking for menu anchors.
+        warmup_url = "https://barname.utcms.ir/Barname/Notification/Notification"
+        if current_url.rstrip("/").lower() != warmup_url.rstrip("/").lower():
+            try:
+                await self._goto_with_retry(warmup_url, wait_until="domcontentloaded")
+                await asyncio.sleep(0.3)
+                current_url = await self._current_url()
+                logger.info(
+                    "waybill_authenticated_landing_warmed",
+                    extra={"extra_fields": {"url": self._redact_url(current_url)}},
+                )
+            except Exception as warmup_err:
+                logger.warning(
+                    "waybill_authenticated_landing_warmup_failed",
+                    extra={"extra_fields": {"error": str(warmup_err)[:200]}},
+                )
+
         if await self._looks_like_not_found_page():
             # Do not dump the full authenticated DOM (cookies, names and
             # CSRF tokens) into the worker cwd.  The central failure-artifact
