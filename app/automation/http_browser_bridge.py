@@ -25,7 +25,6 @@ _REQUEST_DROP_HEADERS = {
     "content-length",
     "host",
     "proxy-connection",
-    "cookie",
     "user-agent",
     "sec-ch-ua",
     "sec-ch-ua-mobile",

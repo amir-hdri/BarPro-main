@@ -82,6 +82,38 @@ async def test_utcms_response_is_fulfilled_and_encoding_headers_are_removed() ->
 
 
 @pytest.mark.asyncio
+async def test_utcms_bridge_forwards_browser_auth_cookie() -> None:
+    """A reused Playwright session must stay authenticated in curl_cffi.
+
+    The bridge used to drop Cookie before forwarding the navigation request.
+    That made warm authenticated menu navigation look like a cold unauthenticated
+    request and UTCMS returned the 39-byte stale/408 shell.
+    """
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page, proxy_url="http://127.0.0.1:3128")
+    response = MagicMock(status_code=200, content=b"<html>ok</html>", headers={"Content-Type": "text/html"})
+    session = MagicMock()
+    session.request.return_value = response
+    bridge._session = session
+
+    request = MagicMock()
+    request.url = "https://barname.utcms.ir/Barname/Notification/Notification"
+    request.method = "GET"
+    request.resource_type = "document"
+    request.post_data_buffer = None
+    request.all_headers = AsyncMock(
+        return_value={"Cookie": "Barname=session-token", "Referer": "https://barname.utcms.ir/Barname/Notification/Notification"}
+    )
+    route = MagicMock(request=request)
+    route.fulfill = AsyncMock()
+
+    await bridge._fulfill_utcms(route, request)
+
+    forwarded_headers = session.request.call_args.kwargs["headers"]
+    assert forwarded_headers["Cookie"] == "Barname=session-token"
+
+
+@pytest.mark.asyncio
 async def test_seed_cookies_populates_bridge_session() -> None:
     page = MagicMock()
     bridge = UtcmsHttpBrowserBridge(page)
