@@ -1,0 +1,15 @@
+# BarPro WireGuard — Central Server (wg0)
+# Rendered by scripts/setup_wireguard_central.sh — DO NOT hand-edit keys here.
+[Interface]
+Address = 10.8.0.1/24
+ListenPort = 51820
+PrivateKey = {{SERVER_PRIVATE_KEY}}
+# Home/remote workers do NOT route their internet through us: only the
+# control-plane (Postgres/Redis/Celery broker) traverses this tunnel.
+# RPA egress stays on each node's own ISP line.
+
+[Peer]
+# worker4-home
+PublicKey = {{WORKER4_PUBLIC_KEY}}
+AllowedIPs = 10.8.0.2/32
+PersistentKeepalive = 25

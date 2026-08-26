@@ -1,0 +1,15 @@
+# BarPro WireGuard — Worker 4 (Home / mobile-class egress node)
+# Generated on Central at /root/barpro-worker4/worker4.conf — copy to the home
+# box as /etc/wireguard/wg0.conf (chmod 600). The PrivateKey below is the
+# WORKER's key; it never leaves the home box after this copy.
+[Interface]
+Address = 10.8.0.2/24
+PrivateKey = {{WORKER4_PRIVATE_KEY}}
+# No DNS needed; no default-route tunnel. Only 10.8.0.0/24 goes through WG.
+
+[Peer]
+PublicKey = {{SERVER_PUBLIC_KEY}}
+Endpoint = {{CENTRAL_IP}}:51820
+# ONLY control-plane subnets via tunnel — never DefaultRoute:
+AllowedIPs = 10.8.0.0/24
+PersistentKeepalive = 25
