@@ -59,6 +59,12 @@ class UtcmsHttpBrowserBridge:
         self._lock = asyncio.Lock()
         self._session: Any = None
         self._seeded_cookies: list[dict[str, Any]] = []
+        # Top-level documents are kept on Chromium until the HTTP login path
+        # has supplied an authenticated curl session.  UTCMS accepts the
+        # waybill form only when the request follows the authenticated menu
+        # flow; after cookie seeding, curl_cffi preserves that session and the
+        # browser request's Referer while avoiding Chromium TLS resets.
+        self._authenticated_document_bridge = False
 
     async def install(self) -> None:
         await self.page.route("**/*", self._handle_route)
@@ -75,6 +81,7 @@ class UtcmsHttpBrowserBridge:
         """Seed the curl session with cookies obtained by HTTP login."""
         async with self._lock:
             self._seeded_cookies = [dict(c) for c in cookies if isinstance(c, dict)]
+            self._authenticated_document_bridge = bool(self._seeded_cookies)
             if self._session is None:
                 self._session = self._new_session()
             else:
@@ -149,12 +156,12 @@ class UtcmsHttpBrowserBridge:
             await route.continue_()
             return
 
-        # Keep top-level HTML navigation in Chromium.  UTCMS permits the
-        # authenticated menu flow, while a curl-backed document navigation can
-        # lose the browser's referrer/navigation state and is prone to TLS
-        # resets (which used to leave the 39-byte 408 shell in Playwright).
-        # The bridge remains responsible for WAF-sensitive XHR/fetch calls.
-        if request.resource_type == "document":
+        # Before HTTP login succeeds, leave documents to Chromium so the
+        # Playwright-only fallback remains unchanged.  Once cookies from the
+        # successful HTTP login are seeded, route authenticated documents via
+        # the same curl session as XHR/fetch.  This preserves the menu
+        # navigation Referer and avoids Chromium's intermittent TLS reset.
+        if request.resource_type == "document" and not self._authenticated_document_bridge:
             await route.continue_()
             return
 

@@ -37,8 +37,8 @@ async def test_utcms_static_assets_continue_through_chromium() -> None:
 
 
 @pytest.mark.asyncio
-async def test_utcms_documents_continue_through_chromium_navigation() -> None:
-    """Top-level pages must preserve native authenticated menu navigation."""
+async def test_utcms_documents_continue_through_chromium_before_http_authentication() -> None:
+    """Playwright-only login fallback keeps its native document navigation."""
     page = MagicMock()
     bridge = UtcmsHttpBrowserBridge(page)
     route = MagicMock()
@@ -51,6 +51,43 @@ async def test_utcms_documents_continue_through_chromium_navigation() -> None:
 
     route.continue_.assert_awaited_once()
     route.abort.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_utcms_authenticated_documents_use_seeded_http_session() -> None:
+    """Menu navigation must use curl_cffi after HTTP login seeds the session."""
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page, proxy_url="http://127.0.0.1:3128")
+    bridge._authenticated_document_bridge = True
+    response = MagicMock(status_code=200, content=b"<form id='txtSenderFirstName'></form>", headers={"Content-Type": "text/html"})
+    session = MagicMock()
+    session.request.return_value = response
+    bridge._session = session
+
+    request = MagicMock()
+    request.url = "https://barname.utcms.ir/Barname/Document/HagigiHogugi"
+    request.method = "GET"
+    request.resource_type = "document"
+    request.post_data_buffer = None
+    request.all_headers = AsyncMock(
+        return_value={
+            "Cookie": "Barname=session-token",
+            "Referer": "https://barname.utcms.ir/Barname/Notification/Notification",
+        }
+    )
+    route = MagicMock(request=request)
+    route.continue_ = AsyncMock()
+    route.abort = AsyncMock()
+    route.fulfill = AsyncMock()
+
+    await bridge._handle_route(route)
+
+    route.continue_.assert_not_awaited()
+    route.abort.assert_not_awaited()
+    route.fulfill.assert_awaited_once()
+    forwarded_headers = session.request.call_args.kwargs["headers"]
+    assert forwarded_headers["Cookie"] == "Barname=session-token"
+    assert forwarded_headers["Referer"] == "https://barname.utcms.ir/Barname/Notification/Notification"
 
 
 @pytest.mark.asyncio
@@ -137,3 +174,4 @@ async def test_seed_cookies_populates_bridge_session() -> None:
     await bridge.seed_cookies([{"name": "Barname", "value": "session", "domain": "barname.utcms.ir"}])
     assert bridge._session is not None
     assert "Barname" in bridge._session.cookies
+    assert bridge._authenticated_document_bridge is True
