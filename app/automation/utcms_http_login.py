@@ -186,6 +186,7 @@ class UtcmsHttpLogin:
         # curl_cffi installed (the dependency is only required at the
         # worker runtime, not at API startup).
         self._session: Any = None  # curl_cffi.requests.Session
+        self._authenticated_session: Any = None
         self._antiforgery: str | None = None
         self._captcha_token: str | None = None
         self._captcha_text: str | None = None
@@ -251,6 +252,15 @@ class UtcmsHttpLogin:
             self._session = self._build_session(cc_requests)
             try:
                 result = await self._attempt_single_session(username, password)
+                if result.success:
+                    # Keep the exact curl session that completed login. UTCMS
+                    # binds the authenticated menu/form flow to more than the
+                    # four visible cookies; rebuilding a fresh session from
+                    # those cookies can redirect back to Login. Transfer
+                    # ownership to the browser bridge instead of closing it
+                    # in the finally block below.
+                    self._authenticated_session = self._session
+                    self._session = None
             finally:
                 try:
                     if self._session is not None:
@@ -299,6 +309,24 @@ class UtcmsHttpLogin:
             break
 
         return last_result or HttpLoginResult(success=False, error="لاگین ناموفق؛ بدون نتیجه")
+
+    def take_authenticated_session(self) -> Any:
+        """Transfer the successful curl session to a caller for reuse."""
+        session, self._authenticated_session = self._authenticated_session, None
+        return session
+
+    async def close(self) -> None:
+        """Close any session still owned by this login helper."""
+        sessions = [self._session, self._authenticated_session]
+        self._session = None
+        self._authenticated_session = None
+        for session in sessions:
+            if session is None:
+                continue
+            try:
+                await asyncio.to_thread(session.close)
+            except Exception:
+                logger.debug("utcms_http_login_close_failed", exc_info=True)
 
     async def fetch_authenticated(
         self,

@@ -99,6 +99,28 @@ class UtcmsHttpBrowserBridge:
                     except Exception:
                         logger.debug("http_browser_bridge_seed_cookie_failed", exc_info=True)
 
+    async def adopt_authenticated_session(self, session: Any, cookies: list[dict[str, Any]] | None = None) -> None:
+        """Adopt the exact curl session that completed HTTP login.
+
+        UTCMS may bind the authenticated menu flow to server-side session
+        state that is not reproducible from the visible cookie jar alone.
+        Keeping this session avoids a redirect back to Login before the menu
+        can open the waybill form.
+        """
+        if session is None:
+            if cookies:
+                await self.seed_cookies(cookies)
+            return
+        async with self._lock:
+            old, self._session = self._session, session
+            self._seeded_cookies = [dict(c) for c in (cookies or []) if isinstance(c, dict)]
+            self._authenticated_document_bridge = True
+        if old is not None and old is not session:
+            try:
+                await asyncio.to_thread(old.close)
+            except Exception:
+                logger.debug("http_browser_bridge_adopt_close_failed", exc_info=True)
+
     def _new_session(self) -> Any:
         from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
 

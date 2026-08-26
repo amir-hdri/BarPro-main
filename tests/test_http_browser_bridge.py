@@ -175,3 +175,21 @@ async def test_seed_cookies_populates_bridge_session() -> None:
     assert bridge._session is not None
     assert "Barname" in bridge._session.cookies
     assert bridge._authenticated_document_bridge is True
+
+
+@pytest.mark.asyncio
+async def test_adopt_authenticated_session_reuses_exact_session() -> None:
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page)
+    old = MagicMock()
+    bridge._session = old
+    authenticated = MagicMock()
+
+    await bridge.adopt_authenticated_session(
+        authenticated,
+        [{"name": "Barname", "value": "session", "domain": "barname.utcms.ir"}],
+    )
+
+    assert bridge._session is authenticated
+    assert bridge._authenticated_document_bridge is True
+    old.close.assert_called_once()

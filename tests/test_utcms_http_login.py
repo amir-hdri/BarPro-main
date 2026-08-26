@@ -286,6 +286,14 @@ class TestSessionBuilder:
     def test_default_impersonate_profile(self):
         assert UtcmsHttpLogin.DEFAULT_IMPERSONATE == "chrome120"
 
+    def test_take_authenticated_session_transfers_ownership(self):
+        login = _make_login()
+        session = object()
+        login._authenticated_session = session
+
+        assert login.take_authenticated_session() is session
+        assert login._authenticated_session is None
+
 
 # ---------------------------------------------------------------------------
 # fetch_authenticated() — session recovery loop

@@ -828,7 +828,10 @@ class UTCMSAuthenticator:
 
             bridge = await ensure_utcms_http_browser_bridge(self.page)
             if bridge is not None:
-                await bridge.seed_cookies(result.cookies)
+                authenticated_session = http_login.take_authenticated_session()
+                await bridge.adopt_authenticated_session(authenticated_session, result.cookies)
+            else:
+                await http_login.close()
         except Exception:
             logger.debug("auth_http_login_bridge_setup_failed", exc_info=True)
         logger.info(
