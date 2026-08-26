@@ -242,8 +242,10 @@ class UtcmsHttpLogin:
 
         captcha_attempts_left = max(1, getattr(utcms_config, "CAPTCHA_AUTO_MAX_ATTEMPTS", 3))
         last_result: HttpLoginResult | None = None
+        self._authenticated_session = None
         rate_limit_retries_left = 3
         transient_retries_left = self.TRANSIENT_MAX_RETRIES
+        transport_retries_left = self.TRANSIENT_MAX_RETRIES
         attempt = 0
 
         while captcha_attempts_left > 0:
@@ -300,6 +302,25 @@ class UtcmsHttpLogin:
                 )
                 await asyncio.sleep(self.TRANSIENT_BACKOFF_SECONDS)
                 continue
+            if result.status_code is None and transport_retries_left > 0:
+                from app.core.network import is_retryable_network_error
+
+                if is_retryable_network_error(error):
+                    transport_retries_left -= 1
+                    captcha_attempts_left += 1  # TLS/connect reset is not a captcha miss
+                    logger.warning(
+                        "utcms_http_login_transport_retry",
+                        extra={
+                            "extra_fields": {
+                                "attempt": attempt,
+                                "backoff": self.TRANSIENT_BACKOFF_SECONDS,
+                                "retries_left": transport_retries_left,
+                                "error": error[:160],
+                            }
+                        },
+                    )
+                    await asyncio.sleep(self.TRANSIENT_BACKOFF_SECONDS)
+                    continue
             if self._is_captcha_error(error):
                 logger.info(
                     "utcms_http_login_captcha_retry",
@@ -368,17 +389,22 @@ class UtcmsHttpLogin:
                 if not login_res.success:
                     raise RuntimeError(f"باز-لاگین UTCMS جهت بازیابی سشن ناموفق: {login_res.error}")
                 authenticated_cookies = login_res.cookies
-                session = self._build_session(cc_requests)
-                for cookie in authenticated_cookies:
-                    try:
-                        session.cookies.set(
-                            cookie["name"],
-                            cookie["value"],
-                            domain=cookie.get("domain") or "barname.utcms.ir",
-                            path=cookie.get("path") or "/",
-                        )
-                    except Exception:
-                        logger.debug("utcms_http_login_cookie_set_failed", exc_info=True)
+                # Reuse the exact session that completed authentication. A
+                # fresh curl session populated only with visible cookies can
+                # lose UTCMS's server-side session context and bounce to Login.
+                session = self.take_authenticated_session()
+                if session is None:
+                    session = self._build_session(cc_requests)
+                    for cookie in authenticated_cookies:
+                        try:
+                            session.cookies.set(
+                                cookie["name"],
+                                cookie["value"],
+                                domain=cookie.get("domain") or "barname.utcms.ir",
+                                path=cookie.get("path") or "/",
+                            )
+                        except Exception:
+                            logger.debug("utcms_http_login_cookie_set_failed", exc_info=True)
                 self._session = session
 
             try:

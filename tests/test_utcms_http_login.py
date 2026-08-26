@@ -8,6 +8,8 @@ builder. The actual network round-trip is intentionally NOT exercised
 (that is what the ``scripts/measure_curl_cffi_login.py`` diagnostic is for).
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from app.automation.utcms_http_login import UtcmsHttpLogin
@@ -451,3 +453,33 @@ class TestFetchAuthenticated:
         first, second = asyncio.run(run())
         assert first.status_code == 200 and second.status_code == 200
         assert auth_calls["n"] == 1  # second call reuses the live session
+
+
+@pytest.mark.asyncio
+async def test_authenticate_retries_transport_reset_without_spending_captcha_budget(monkeypatch):
+    from app.automation.utcms_http_login import HttpLoginResult
+
+    login = _make_login()
+    sessions = []
+
+    class _Session:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(login, "_build_session", lambda _cc: sessions.append(_Session()) or sessions[-1])
+    responses = [
+        HttpLoginResult(success=False, error="curl: (35) SSL_connect connection closed", status_code=None),
+        HttpLoginResult(success=True, cookies=[{"name": "Barname", "value": "v"}], status_code=200),
+    ]
+    monkeypatch.setattr(login, "_attempt_single_session", lambda _u, _p: _async_pop(responses))
+    monkeypatch.setattr("app.automation.utcms_http_login.asyncio.sleep", AsyncMock())
+
+    result = await login.authenticate("u", "p")
+
+    assert result.success is True
+    assert len(sessions) == 2
+    assert login.take_authenticated_session() is sessions[-1]
+
+
+async def _async_pop(items):
+    return items.pop(0)
