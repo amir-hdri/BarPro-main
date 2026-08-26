@@ -37,6 +37,23 @@ async def test_utcms_static_assets_continue_through_chromium() -> None:
 
 
 @pytest.mark.asyncio
+async def test_utcms_documents_continue_through_chromium_navigation() -> None:
+    """Top-level pages must preserve native authenticated menu navigation."""
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page)
+    route = MagicMock()
+    route.continue_ = AsyncMock()
+    route.abort = AsyncMock()
+    route.request.url = "https://barname.utcms.ir/Barname/Notification/Notification"
+    route.request.resource_type = "document"
+
+    await bridge._handle_route(route)
+
+    route.continue_.assert_awaited_once()
+    route.abort.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_install_is_idempotent_per_page() -> None:
     page = MagicMock()
     page.route = AsyncMock()

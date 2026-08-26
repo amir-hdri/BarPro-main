@@ -149,9 +149,18 @@ class UtcmsHttpBrowserBridge:
             await route.continue_()
             return
 
+        # Keep top-level HTML navigation in Chromium.  UTCMS permits the
+        # authenticated menu flow, while a curl-backed document navigation can
+        # lose the browser's referrer/navigation state and is prone to TLS
+        # resets (which used to leave the 39-byte 408 shell in Playwright).
+        # The bridge remains responsible for WAF-sensitive XHR/fetch calls.
+        if request.resource_type == "document":
+            await route.continue_()
+            return
+
         # Chromium's own request stack is the most reliable way to fetch the
         # portal's static JS/CSS/font assets through Squid.  The curl-cffi
-        # bridge exists only for the WAF-sensitive HTML/data requests; routing
+        # bridge exists only for the WAF-sensitive data requests; routing
         # every asset through a serialized curl session caused dozens of TLS
         # resets and turned a normal page load into a 480-second timeout.
         if request.resource_type not in _BRIDGED_RESOURCE_TYPES:
