@@ -59,6 +59,7 @@ class UtcmsHttpBrowserBridge:
         self._lock = asyncio.Lock()
         self._session: Any = None
         self._seeded_cookies: list[dict[str, Any]] = []
+        self._preserve_authenticated_session = False
         # Top-level documents are kept on Chromium until the HTTP login path
         # has supplied an authenticated curl session.  UTCMS accepts the
         # waybill form only when the request follows the authenticated menu
@@ -71,6 +72,7 @@ class UtcmsHttpBrowserBridge:
 
     async def close(self) -> None:
         session, self._session = self._session, None
+        self._preserve_authenticated_session = False
         if session is not None:
             try:
                 await asyncio.to_thread(session.close)
@@ -82,6 +84,7 @@ class UtcmsHttpBrowserBridge:
         async with self._lock:
             self._seeded_cookies = [dict(c) for c in cookies if isinstance(c, dict)]
             self._authenticated_document_bridge = bool(self._seeded_cookies)
+            self._preserve_authenticated_session = False
             if self._session is None:
                 self._session = self._new_session()
             else:
@@ -115,6 +118,7 @@ class UtcmsHttpBrowserBridge:
             old, self._session = self._session, session
             self._seeded_cookies = [dict(c) for c in (cookies or []) if isinstance(c, dict)]
             self._authenticated_document_bridge = True
+            self._preserve_authenticated_session = True
         if old is not None and old is not session:
             try:
                 await asyncio.to_thread(old.close)
@@ -257,12 +261,18 @@ class UtcmsHttpBrowserBridge:
                     )
                     if not is_safe_method or response.status_code not in (408, 429, 500, 502, 503, 504):
                         break
-                    await self._reset_session()
+                    # A session that completed HTTP login carries server-side
+                    # state not reproducible from cookies alone. Keep it for
+                    # transient retries; closing it here turns one TLS hiccup
+                    # into a guaranteed unauthenticated/408 follow-up.
+                    if not self._preserve_authenticated_session:
+                        await self._reset_session()
                     if attempt < max_attempts:
                         await asyncio.sleep(float(attempt))
                 except Exception as exc:
                     last_error = exc
-                    await self._reset_session()
+                    if not self._preserve_authenticated_session:
+                        await self._reset_session()
                     if not is_safe_method:
                         break
                     if attempt < max_attempts:

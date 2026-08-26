@@ -192,4 +192,5 @@ async def test_adopt_authenticated_session_reuses_exact_session() -> None:
 
     assert bridge._session is authenticated
     assert bridge._authenticated_document_bridge is True
+    assert bridge._preserve_authenticated_session is True
     old.close.assert_called_once()
