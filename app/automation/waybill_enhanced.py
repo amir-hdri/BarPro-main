@@ -2075,46 +2075,19 @@ class EnhancedWaybillManager:
     async def _ensure_waybill_form_page(self):
         """
         In some deployments, the configured create URL lands on a not-found shell page.
-        Try to discover and open the real "حمل بارنامه" page directly or from the side menu.
+        Discover and open the real "حمل بارنامه" page through the authenticated
+        side menu. UTCMS rejects a cold direct navigation with HTTP 408; direct
+        URL candidates are retained only as a last-resort recovery probe.
         """
         if await self._is_waybill_form_ready():
             return
 
         current_url = await self._current_url()
 
-        # 1. Direct navigation to canonical waybill form endpoints first.
-        # NOTE (2026-08): /Barname/RegisterWaybill/Index now returns HTTP 404 on
-        # the live portal (verified) — HagigiHogugi is the working route. Stale
-        # server .env files may still point WAYBILL_URL at the dead route, so
-        # recovery must never trust the configured URL alone.
-        canonical_urls = (
-            "https://barname.utcms.ir/barname/Document/HagigiHogugi",
-            "https://barname.utcms.ir/Barname/Document/HagigiHogugi",
-            "https://barname.utcms.ir/barname/Document/Create",
-            "https://barname.utcms.ir/Barname/Document/Create",
-        )
-        for cand_url in canonical_urls:
-            if cand_url.lower() != current_url.lower():
-                try:
-                    await self._goto_with_retry(cand_url, wait_until="domcontentloaded")
-                    await asyncio.sleep(0.3)
-                    if await self._is_waybill_form_ready():
-                        logger.info("waybill_form_reached_via_direct_url", extra={"extra_fields": {"url": cand_url}})
-                        return
-                    try:
-                        page_text = await self.page.text_content("body") or ""
-                        if "قادر به پاسخگویی نمی باشد" in page_text or "چند دقیقه دیگر مجدداً تلاش نمایید" in page_text:
-                            raise WaybillError("سامانه بارنامه موقتاً در حال به‌روزرسانی یا خارج از دسترس است (پاسخ سرور: سرور در حال حاضر قادر به پاسخگویی نمی باشد)")
-                    except WaybillError:
-                        raise
-                    except Exception:
-                        pass
-                except WaybillError:
-                    raise
-                except Exception:
-                    pass
-
-        current_url = await self._current_url()
+        # Do not cold-navigate to a canonical form URL here.  UTCMS accepts the
+        # same URL after the authenticated menu flow, but a direct first request
+        # is answered with HTTP 408.  The menu click also preserves the portal's
+        # referrer and any JavaScript state required by the form endpoint.
         if await self._looks_like_not_found_page():
             # Do not dump the full authenticated DOM (cookies, names and
             # CSRF tokens) into the worker cwd.  The central failure-artifact
@@ -2150,18 +2123,28 @@ class EnhancedWaybillManager:
 
         current_url = await self._current_url()
 
-        # Try fast direct query for HagigiHogugi link on the current page
+        # Try the authenticated page's own HagigiHogugi link first.  This must
+        # be a real click, not page.goto(href): UTCMS distinguishes the menu
+        # navigation from a cold direct request and the latter returns 408.
         try:
             hagigi_link = await self.page.query_selector("a[href*='HagigiHogugi' i], a:has-text('بارنامه حقیقی')")
             if hagigi_link:
-                href = await hagigi_link.get_attribute("href")
-                if href and not href.strip().startswith(("#", "javascript:")):
-                    target = urljoin(current_url, href)
-                    await self._goto_with_retry(target, wait_until="domcontentloaded")
-                    await asyncio.sleep(0.3)
-                    if await self._is_waybill_form_ready():
-                        logger.info("waybill_form_reached_via_page_link", extra={"extra_fields": {"url": target}})
-                        return
+                try:
+                    await hagigi_link.click(timeout=5000)
+                except Exception:
+                    await hagigi_link.dispatch_event("click")
+                try:
+                    await self.page.wait_for_load_state("domcontentloaded", timeout=6000)
+                except Exception:
+                    pass
+                await asyncio.sleep(0.3)
+                if await self._is_waybill_form_ready():
+                    target = await self._current_url()
+                    logger.info(
+                        "waybill_form_reached_via_page_link",
+                        extra={"extra_fields": {"url": self._redact_url(target)}},
+                    )
+                    return
         except Exception:
             pass
 
@@ -2216,11 +2199,9 @@ class EnhancedWaybillManager:
                     try:
                         await link.dispatch_event("click")
                     except Exception:
-                        href = await link.get_attribute("href")
-                        if href and href.strip() and not href.strip().startswith(("#", "javascript:")):
-                            await self._goto_with_retry(urljoin(current_url, href), wait_until="domcontentloaded")
-                        else:
-                            await self.page.evaluate("(el) => el.click()", link)
+                        # Keep the authenticated menu flow. Falling back to
+                        # page.goto(href) recreates UTCMS's cold-navigation 408.
+                        await self.page.evaluate("(el) => el.click()", link)
 
                 try:
                     await self.page.wait_for_load_state("domcontentloaded", timeout=6000)
@@ -2258,7 +2239,25 @@ class EnhancedWaybillManager:
             )
             for target in probe_order:
                 try:
-                    await self._goto_with_retry(target, wait_until="domcontentloaded")
+                    # Re-find and click the anchor from the authenticated page.
+                    # Navigating to ``target`` directly defeats the portal's
+                    # menu/referrer flow and recreates the 408 failure.
+                    clicked = False
+                    for anchor in await self.page.query_selector_all("a[href]"):
+                        try:
+                            href = await anchor.get_attribute("href")
+                            if href and urljoin(base, href) == target:
+                                await anchor.click(timeout=3000)
+                                clicked = True
+                                break
+                        except Exception:
+                            continue
+                    if not clicked:
+                        continue
+                    try:
+                        await self.page.wait_for_load_state("domcontentloaded", timeout=6000)
+                    except Exception:
+                        pass
                     await asyncio.sleep(0.3)
                     if await self._is_waybill_form_ready():
                         logger.info(

@@ -306,6 +306,22 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
         self.mock_page.remove_listener.assert_called_once()
         self.assertTrue(self.manager._closed)
 
+    async def test_waybill_recovery_uses_authenticated_menu_click_before_direct_urls(self):
+        """UTCMS accepts the form after menu navigation but returns 408 on a cold URL GET."""
+        link = AsyncMock()
+        self.mock_page.query_selector = AsyncMock(return_value=link)
+        self.mock_page.wait_for_load_state = AsyncMock()
+        self.manager._current_url = AsyncMock(return_value="https://barname.utcms.ir/Barname/Notification/Notification")
+        self.manager._looks_like_not_found_page = AsyncMock(return_value=False)
+        self.manager._is_waybill_form_ready = AsyncMock(side_effect=[False, True])
+        self.manager._waybill_url_candidates = Mock(return_value=[])
+        self.manager._partition_internal_links = Mock(return_value=([], []))
+
+        await self.manager._ensure_waybill_form_page()
+
+        link.click.assert_awaited_once_with(timeout=5000)
+        self.mock_page.goto.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
