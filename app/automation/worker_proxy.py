@@ -149,6 +149,7 @@ def _resolve_to_ip(url: str) -> str:
 
 
 _cached_proxy_url: str | None = None
+_cached_proxy_source: str | None = None
 _cached_proxy_timestamp: float = 0.0
 _PROXY_CACHE_TTL_SUCCESS: float = 60.0  # Cache valid proxy for 60s
 _PROXY_CACHE_TTL_FAILURE: float = 5.0  # Retry failed proxy lookup after 5s
@@ -162,15 +163,17 @@ def invalidate_worker_proxy_cache() -> None:
     it does NOT wipe the shared pool cache — blocking one address must not
     force a full pool re-read.
     """
-    global _cached_proxy_url, _cached_proxy_timestamp
+    global _cached_proxy_source, _cached_proxy_url, _cached_proxy_timestamp
     _cached_proxy_url = None
+    _cached_proxy_source = None
     _cached_proxy_timestamp = 0.0
 
 
 def clear_proxy_cache() -> None:
     """Clear cached worker proxy URL to force a fresh health check on next call."""
-    global _cached_proxy_url, _cached_proxy_timestamp
+    global _cached_proxy_source, _cached_proxy_url, _cached_proxy_timestamp
     _cached_proxy_url = None
+    _cached_proxy_source = None
     _cached_proxy_timestamp = 0.0
     try:
         from app.automation.clean_ip_pool import clean_ip_pool
@@ -191,7 +194,7 @@ def get_best_egress_proxy() -> str | None:
     Fail-closed: in production (see ``_proxy_fail_closed``), if both the worker proxy
     and the clean IP pool are unavailable, raises ``ProxyUnavailableError``.
     """
-    global _cached_proxy_url, _cached_proxy_timestamp
+    global _cached_proxy_source, _cached_proxy_url, _cached_proxy_timestamp
 
     now = time.time()
     ttl = _PROXY_CACHE_TTL_SUCCESS if _cached_proxy_url else _PROXY_CACHE_TTL_FAILURE
@@ -223,13 +226,16 @@ def get_best_egress_proxy() -> str | None:
             resolved = _resolve_to_ip(clean_url)
             logger.info("worker_proxy: using Clean IP Pool proxy %s (mode=clean_pool_only)", _safe_proxy_url(resolved))
             _cached_proxy_url = resolved
+            _cached_proxy_source = "clean_pool"
             _cached_proxy_timestamp = now
             return resolved
         if _proxy_fail_closed():
             _cached_proxy_url = None
+            _cached_proxy_source = None
             _cached_proxy_timestamp = now
             raise ProxyUnavailableError("worker_proxy: clean_pool_only requested but no clean Iranian proxy available")
         _cached_proxy_url = None
+        _cached_proxy_source = None
         _cached_proxy_timestamp = now
         return None
 
@@ -262,6 +268,7 @@ def get_best_egress_proxy() -> str | None:
                 resolved = _resolve_to_ip(clean_url)
                 logger.info("worker_proxy: using Clean IP Pool proxy %s (mode=hybrid)", _safe_proxy_url(resolved))
                 _cached_proxy_url = resolved
+                _cached_proxy_source = "clean_pool"
                 _cached_proxy_timestamp = now
                 return resolved
 
@@ -273,6 +280,7 @@ def get_best_egress_proxy() -> str | None:
             worker_id,
         )
         _cached_proxy_url = resolved_worker_squid
+        _cached_proxy_source = "worker_squid"
         _cached_proxy_timestamp = now
         return resolved_worker_squid
 
@@ -285,11 +293,13 @@ def get_best_egress_proxy() -> str | None:
             f"falling back to Clean IP Pool proxy {_safe_proxy_url(resolved_clean)}"
         )
         _cached_proxy_url = resolved_clean
+        _cached_proxy_source = "clean_pool"
         _cached_proxy_timestamp = now
         return resolved_clean
 
     if _proxy_fail_closed():
         _cached_proxy_url = None
+        _cached_proxy_source = None
         _cached_proxy_timestamp = now
         raise ProxyUnavailableError(
             f"worker_proxy: no usable proxy found for worker_id={worker_id} "
@@ -298,6 +308,7 @@ def get_best_egress_proxy() -> str | None:
 
     logger.warning("worker_proxy: no proxy available — running direct connection (development fail-open)")
     _cached_proxy_url = None
+    _cached_proxy_source = None
     _cached_proxy_timestamp = now
     return None
 
@@ -308,6 +319,11 @@ def get_worker_proxy_url() -> str | None:
     Result is cached per worker process with short TTL.
     """
     return get_best_egress_proxy()
+
+
+def get_current_egress_context() -> tuple[str | None, str | None]:
+    """Return the cached egress source and URL for failure attribution."""
+    return _cached_proxy_source, _cached_proxy_url
 
 
 def get_playwright_proxy() -> dict | None:

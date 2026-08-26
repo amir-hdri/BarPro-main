@@ -352,7 +352,18 @@ docker compose -f compose/monitoring.yml up  # Full monitoring stack
 Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhanced → Local in sequence.
 All current providers execute within the Worker process; Keras is lazy-loaded once and reused.
 
-## Optimization Applied (2026-06-30 → 2026-08-26)
+## Optimization Applied (2026-06-30 → 2026-08-27)
+
+### 2026-08-27 — Session-Aware 408 and Shared Clean Pool Hardening (v2.9.8)
+| Change | Impact |
+|---|---|
+| Anonymous Clean IP probe moved from `HagigiHogugi` to stable login surface | Cold deep-link 408 no longer rejects every healthy candidate |
+| Operational pool requires measured Iranian egress and fresh shared Redis state | Remote Workers consume the same verified pool; stale URL-only fallbacks are rejected |
+| Generic 408 removed from Worker-IP breaker evidence | UTCMS target outage/session behavior cannot drain the entire fleet |
+| Exact-selector location read-back | Origin/destination value, label and address evidence matches the actual DOM element used |
+
+> Local release verification: **1061 passed / 3 skipped**, plus successful codebase, RPA network,
+> proxy, memory, topology, schema, auth and WebSocket audits.
 
 ### 2026-08-26 — Clean IP Pool Pipeline Overhaul (v2.9.7)
 > Live-verified root causes on Central; all fixes regression-tested. Full suite at commit time: 1035 passed / 3 skipped / 2 pre-existing doc-file failures (`test_queue_routing_contract` → missing `docs/runbook_worker_registration.md`, unrelated).
@@ -371,7 +382,7 @@ All current providers execute within the Worker process; Keras is lazy-loaded on
 | Rotator clean-pool fallback uses full record metadata (`get_clean_record_sync`) instead of hardcoding `country="IR"` | `app/automation/proxy_rotator.py` | Geo decisions downstream use measured data |
 | Regression suite: rotation, verdict matrix, 403≠dead, WAF-challenge page, SOCKS skip, egress demotion, stale kick, cache invalidation, unidentified-failure isolation, from_dict validation (39 tests in file) | `tests/test_clean_ip_pool.py`, `tests/test_worker_proxy_and_rotator.py` | Locks the exact defect classes found live |
 
-> **Deploy status (2026-08-26 ~07:10 IRST): DEPLOYED & LIVE-VERIFIED** — Central rebuilt at `644ae79` (backend/worker-1/scheduler/beat recreated, images `--no-cache`); Workers 2 (`5.56.132.26`) & 3 (`87.107.5.219`) pulled `644ae79` + celery restarted (worker code is bind-mounted `../app:/app/app:ro`, so pull+restart suffices there). Post-deploy evidence: scheduler runs new-format cycles `harvested N candidates (M declared IR)` → `verified K ... (J with measured Iranian egress)` against `ISSUANCE_PROBE_URL`; consecutive honest **verified 0** cycles confirm the 2026-08-24 WAF soft-block era (proxy/hosting IPs get HTTP 408 on `/Barname/Document/*` while the portal home stays open). Clean-pool fallback is therefore legitimately empty; production stays worker-first (own Squid egress), matching the agreed architecture (Clean Pool = verified-fallback only). All registries healthy, healthz/readyz 200, zero tracebacks fleet-wide.
+> **Historical deploy note, superseded:** the 07:10 deployment at `644ae79` was healthy, but its conclusion that anonymous `ISSUANCE_PROBE_URL` 408 proved an IP soft-block was incorrect. Later same-session testing showed the form opens through Login → Notification → menu. v2.9.8 replaces that probe contract; current live status must be re-verified after deployment.
 
 ### 2026-08-24 — Dependabot Version Updates Disabled
 | Change | File | Impact |

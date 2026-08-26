@@ -724,8 +724,8 @@ class LocationSelector:
                 }
 
             # انتخاب استان
-            province_selected = await self._select_from_options(utcms["province"], province)
-            if not province_selected:
+            province_selector = await self._select_from_options_with_selector(utcms["province"], province)
+            if not province_selector:
                 return {
                     "success": False,
                     "method": "utcms_direct_text",
@@ -733,7 +733,7 @@ class LocationSelector:
                 }
 
             # Read-back استان
-            province_readback = await self._read_selected_option(utcms["province"][0])
+            province_readback = await self._read_selected_option(province_selector)
             norm_prov_target = self._normalize_text(province)
             norm_prov_read = self._normalize_text(province_readback.get("text", ""))
             if not province_readback.get("value") or (
@@ -759,8 +759,8 @@ class LocationSelector:
                 }
 
             # ۴. انتخاب شهر بر اساس تطابق یکتا (بدون حدس اولین گزینه)
-            city_selected = await self._select_from_options(utcms["city"], city)
-            if not city_selected:
+            city_selector = await self._select_from_options_with_selector(utcms["city"], city)
+            if not city_selector:
                 return {
                     "success": False,
                     "method": "utcms_direct_text",
@@ -768,7 +768,7 @@ class LocationSelector:
                 }
 
             # ۵. Read-back شهر (مقدار و برچسب)
-            city_readback = await self._read_selected_option(utcms["city"][0])
+            city_readback = await self._read_selected_option(city_selector)
             norm_city_target = self._normalize_text(city)
             norm_city_read = self._normalize_text(city_readback.get("text", ""))
             if not city_readback.get("value") or (
@@ -782,10 +782,12 @@ class LocationSelector:
 
             # ۶. پر کردن آدرس متنی در textarea
             addr_filled = False
+            address_selector = ""
             for sel in utcms["address"]:
                 filled = await self._fill_input_like(sel, address)
                 if filled:
                     addr_filled = True
+                    address_selector = sel
                     break
 
             if not addr_filled:
@@ -796,7 +798,7 @@ class LocationSelector:
                 }
 
             # ۷. Read-back آدرس متنی از DOM
-            addr_readback = await self._read_element_value(utcms["address"][0])
+            addr_readback = await self._read_element_value(address_selector)
             if not addr_readback or self._normalize_text(addr_readback) != self._normalize_text(address):
                 return {
                     "success": False,
@@ -1817,10 +1819,10 @@ class LocationSelector:
 
         return None
 
-    async def _select_from_options(self, selectors: list[str], value: str) -> bool:
-        """انتخاب گزینه از منوی کشویی بر اساس متن یا مقدار"""
+    async def _select_from_options_with_selector(self, selectors: list[str], value: str) -> str | None:
+        """انتخاب گزینه و بازگرداندن همان selector موفق برای read-back دقیق."""
         if not value:
-            return False
+            return None
 
         value_text = str(value).strip()
         normalized_target = self._normalize_text(value_text)
@@ -1863,7 +1865,7 @@ class LocationSelector:
                         )
                     except Exception:
                         logger.warning("location_selector_error", exc_info=True)
-                    return True
+                    return selector
 
                 logger.info(
                     "location_option_match_failed",
@@ -1878,7 +1880,11 @@ class LocationSelector:
             except Exception:
                 continue
 
-        return False
+        return None
+
+    async def _select_from_options(self, selectors: list[str], value: str) -> bool:
+        """انتخاب گزینه از منوی کشویی بر اساس متن یا مقدار."""
+        return bool(await self._select_from_options_with_selector(selectors, value))
 
     async def _find_map_search_input(self, prefix: str) -> str | None:
         """یافتن انتخابگر ورودی جستجوی نقشه"""

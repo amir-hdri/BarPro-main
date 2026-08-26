@@ -1,6 +1,6 @@
 # گراف دانش مرجع BarPro
 
-> نسخه سند: 2026-08-24 (v2.9.6)
+> نسخه سند: 2026-08-27 (v2.9.8)
 >
 > commit مبنای audit اولیه: 9c472f1
 >
@@ -635,9 +635,12 @@ clean_pool نام معتبر mode نیست. configuration loader باید مقد
 CleanIPPoolManager:
 
 - sourceهای proxy را aggregate می‌کند؛
-- HTTPS CONNECT/target reachability را probe می‌کند؛
+- login surface پایدار UTCMS را بدون session probe می‌کند؛ deep-link صدور probe عمومی نیست؛
 - latency و health را score می‌کند؛
+- فقط egress اندازه‌گیری‌شده‌ی ایران را operational می‌داند؛
 - state را با Redis بین processها هماهنگ می‌کند؛
+- Workerهای Remote snapshot تازه Redis را در مسیر sync می‌خوانند؛
+- نتیجه صفر، Redis و fallback file کهنه را invalidate می‌کند؛
 - block را per-proxy اعمال می‌کند؛
 - refresh دوره‌ای و admin-triggered دارد.
 
@@ -835,7 +838,9 @@ EXTERNAL-OBSERVATION و خطوط قرمز:
 
 - UTCMS از WAF، rate limit، reset و egress/IP filtering استفاده می‌کند.
 - 429 و 408/500/502/503/504 transient هستند و نباید captcha attempt را مصرف کنند.
-- reset/403/429/egress markers می‌توانند IP را به‌طور موقت از routing خارج کنند.
+- 408 سرد روی HagigiHogugi بدون session شاهد block IP نیست؛ navigation رسمی Login → Notification → menu است.
+- reset/403/429/egress markers می‌توانند IP را به‌طور موقت از routing خارج کنند، اما 408 عمومی Worker را block نمی‌کند.
+- origin/destination فقط پس از read-back value+label استان/شهر و آدرس از همان selector موفق پذیرفته می‌شوند.
 - ثبت موفق فقط با سه شاهد معتبر است.
 - ALLOW_LIVE_SUBMIT باید بدون approval و job کنترل‌شده فعال نشود.
 - retry تهاجمی، parallel submit یک راننده و resubmit نتیجه unknown ممنوع است.

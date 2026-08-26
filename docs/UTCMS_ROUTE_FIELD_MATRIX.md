@@ -67,4 +67,4 @@ flowchart TD
 | شهر مبدأ / مقصد | `page.select_option("#ddCitySource", value=...)` | `page.eval_on_selector("#ddCitySource", "el => ({ value: el.value, text: el.selectedOptions[0]?.text })")` | `value != ""` و `text` شامل نام شهر کاربر |
 | آدرس مبدأ / مقصد | `page.fill("#txtAddressSource", address)` | `page.eval_on_selector("#txtAddressSource", "el => el.value")` | `read_back.strip() == user_address.strip()` |
 
-> **قاعده قطعی:** هرگونه عدم تطابق میان مقدار بازخوانی‌شده از DOM با مقدار درخواستی کاربر، یا عدم لود شدن گزینه‌های شهر پس از انتخاب استان، بلافاصله منجر به توقف Job و گزارش خطای صریح می‌گردد.
+> **قاعده قطعی:** read-back باید از همان selectorای انجام شود که انتخاب/درج روی آن موفق شده است، نه اولین selector فهرست fallback. هرگونه عدم تطابق میان مقدار بازخوانی‌شده از DOM با مقدار درخواستی کاربر، یا عدم لود شدن گزینه‌های شهر پس از انتخاب استان، بلافاصله منجر به توقف Job و گزارش خطای صریح می‌گردد.

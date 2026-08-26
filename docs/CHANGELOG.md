@@ -2,6 +2,16 @@
   
   All notable changes to the UTCMS Automation System.
 
+  ## [2.9.8] - 2026-08-27
+
+### Fixed — Authenticated issuance navigation, Clean IP truth and route read-back
+- Clean IP screening no longer probes the session-protected `HagigiHogugi` deep-link anonymously. It probes the stable login surface with the production Chrome fingerprint and classifies 408/5xx as target-unavailable rather than IP rejection.
+- Only proxies with measured Iranian egress (`egress_verified=true`, `observed_country=IR`) are selectable. Remote Workers load the shared fresh Redis pool; stale/zero-result Redis and fallback files are invalidated.
+- Circuit Breaker infers the current egress source, isolates clean-pool failures to the exact third-party proxy, and no longer drains a Worker from a generic 408.
+- Origin/destination province, city and address read-back now uses the exact selector that accepted the value, preventing hidden/fallback DOM mismatches.
+- Added canonical Worker registration and scale-out runbooks; updated UTCMS, outage, route and critical-rule documentation.
+- Verification: `1061 passed, 3 skipped`; codebase, RPA network, proxy, memory, topology and full-stack contract audits passed.
+
   ## [2.9.6] - 2026-08-24
 
 ### Fixed & Hardened — Full Audit Remediation: Duplicate-Registration Class, Firewall, Nginx, URL-Classification Sweep

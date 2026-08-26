@@ -6,7 +6,7 @@ from 11+ online sources, local files, and external feeds.
 
 Features:
 1. Multi-source scraping from 11+ global proxy lists and mirrors.
-2. Concurrent HTTPS CONNECT probing against https://utcms.ir and LOGIN_URL.
+2. Concurrent HTTPS probing against the stable UTCMS portal/login surface.
 3. Strict SSRF validation (_is_safe_proxy_url) to block private/internal subnets.
 4. Redis-backed shared cache (utcms:clean_ips:pool, utcms:clean_ips:best) with
    atomic file fallback in runtime/proxies/.
@@ -44,11 +44,14 @@ logger = logging.getLogger(__name__)
 # --- Default Parameters ---
 UTCMS_HOST = "utcms.ir"
 UTCMS_TARGET_URL = f"https://{UTCMS_HOST}"
-# Issuance-module probe: the WAF (since 2026-08-24) blocks hosting/proxy IPs on
-# /Barname/Document/* with HTTP 408 while the portal home stays open. A proxy
-# that only passes the portal home is USELESS for waybill issuance, so the
-# screening engine certifies candidates against this path instead
-# (live-verified hotfix found on Central, now canonical here).
+# Stable unauthenticated entry point. Clean-pool harvesting has no driver
+# credentials, so it cannot reproduce the required Login -> Notification ->
+# menu-click flow. Probing the issuance deep-link without that session produces
+# UTCMS's 39-byte HTTP 408 shell even for a healthy IP and must not be used to
+# classify the proxy.
+LOGIN_PROBE_URL = "https://barname.utcms.ir/Barname/Account/Login"
+# Diagnostic-only. This route may be tested only after a real authenticated
+# session has followed the portal menu flow.
 ISSUANCE_PROBE_URL = "https://barname.utcms.ir/Barname/Document/HagigiHogugi"
 DEFAULT_TIMEOUT_SECONDS = 7.5
 MAX_PROBE_WORKERS = 35
@@ -144,6 +147,11 @@ class CleanIPRecord:
         if self.score < 20.0:
             return False
         return True
+
+    @property
+    def is_operational_iranian_egress(self) -> bool:
+        """True only when the tunnel is healthy and its egress was measured in Iran."""
+        return self.is_usable and self.egress_verified and self.observed_country == "IR"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -730,18 +738,20 @@ WAF_CHALLENGE_MARKERS = (
     "checking your browser",
     "access denied",
     "denied access",
-    "captcha",
+    "captcha required",
+    "verify you are human",
     "bot detection",
     "are you a robot",
     "attention required",
     "request unsuccessful",  # Cloudflare-style 200-body block
 )
 
-# Statuses meaning THE TARGET refused this client/IP: proxy tunnel is fine.
-# 408 is included deliberately: since 2026-08-24 the UTCMS WAF answers
-# hosting/proxy IPs with 408 on /Barname/Document/* while the portal home
-# stays open — a soft IP block, not a slow client.
-TARGET_REJECTION_STATUSES = {403, 408, 429}
+# Statuses that are strong per-client rejection evidence on the stable login
+# surface. HTTP 408 is deliberately excluded: UTCMS also emits it for a cold
+# issuance deep-link without an authenticated menu flow, so it is target
+# availability/session evidence, not proof that an IP is blocked.
+TARGET_REJECTION_STATUSES = {403, 429}
+TARGET_UNAVAILABLE_STATUSES = {408, 500, 502, 503, 504}
 
 
 def classify_probe_response(status_code: int | None, body_snippet: str) -> str:
@@ -752,12 +762,16 @@ def classify_probe_response(status_code: int | None, body_snippet: str) -> str:
       - "waf_challenge":   HTTP 2xx/3xx but body is a WAF/challenge/block page
       - "target_rejected": transport OK but target answered 403/429 → THIS IP is
                            not acceptable to UTCMS even though the proxy is alive
+      - "target_unavailable": UTCMS answered a transient 408/5xx; do not certify
+                              this cycle and do not label the proxy IP as blocked
       - "unacceptable":    any other HTTP status
     Transport-level exceptions never reach here (they mean "dead").
     """
     body = (body_snippet or "").lower()
     if status_code in TARGET_REJECTION_STATUSES:
         return "target_rejected"
+    if status_code in TARGET_UNAVAILABLE_STATUSES:
+        return "target_unavailable"
     if status_code in (200, 301, 302):
         if any(marker in body for marker in WAF_CHALLENGE_MARKERS):
             return "waf_challenge"
@@ -767,19 +781,20 @@ def classify_probe_response(status_code: int | None, body_snippet: str) -> str:
 
 def probe_single_proxy(
     candidate: CleanIPRecord,
-    target_url: str = ISSUANCE_PROBE_URL,
+    target_url: str = LOGIN_PROBE_URL,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> CleanIPRecord | None:
     """
-    Certify the candidate against the ISSUANCE module path (not the portal
-    home) using the SAME Chrome fingerprint as production traffic. Returns the
-    updated CleanIPRecord if verified healthy, or None.
+    Certify the candidate against the stable login surface using the SAME
+    Chrome fingerprint as production traffic. Returns the updated
+    CleanIPRecord if verified healthy, or None.
 
-    The portal home stays open for proxy IPs; only /Barname/Document/* reveals
-    the WAF's 408 soft-block — screening anywhere else is a false positive.
+    The issuance deep-link is intentionally not used here. UTCMS requires an
+    authenticated menu flow and answers a cold request with HTTP 408, which is
+    not evidence that the proxy IP is blocked.
 
     Verdicts are independent — "proxy dead" (transport), "UTCMS rejected this
-    IP" (403/408/429) and "WAF challenge page" (2xx block body) get different
+    IP" (403/429), "target unavailable" (408/5xx) and "WAF challenge page" get different
     penalties; a target-rejected IP must never enter the pool as "working".
 
     Falls back to a plain urllib opener only when curl_cffi is unavailable;
@@ -792,14 +807,20 @@ def probe_single_proxy(
             status_code, elapsed_ms, snippet = _probe_via_curl_cffi(candidate, target_url, timeout)
             verdict = classify_probe_response(status_code, snippet)
             if verdict == "healthy":
-                candidate.tags = [t for t in candidate.tags if t != "utcms_rejected"]
+                candidate.tags = [
+                    tag
+                    for tag in candidate.tags
+                    if tag not in {"utcms_rejected", "waf_challenge", "target_unavailable"}
+                ]
                 return _mark_probe_healthy(candidate, elapsed_ms)
-            penalty = 50.0 if verdict in ("target_rejected", "waf_challenge") else 25.0
+            penalty = 50.0 if verdict in ("target_rejected", "waf_challenge") else 5.0
             _mark_probe_failed(candidate, f"{verdict} status={status_code}", penalty=penalty)
             if verdict in ("target_rejected", "waf_challenge"):
                 tag = "utcms_rejected" if verdict == "target_rejected" else "waf_challenge"
                 if tag not in candidate.tags:
                     candidate.tags.append(tag)
+            elif verdict == "target_unavailable" and "target_unavailable" not in candidate.tags:
+                candidate.tags.append("target_unavailable")
             return None
         except Exception as exc:
             return _mark_probe_failed(candidate, str(exc))
@@ -829,8 +850,21 @@ def probe_single_proxy(
             verdict = classify_probe_response(resp.status, "")
             if verdict == "healthy":
                 return _mark_probe_healthy(candidate, elapsed_ms)
-            penalty = 50.0 if verdict == "target_rejected" else 25.0
+            penalty = 50.0 if verdict in ("target_rejected", "waf_challenge") else 5.0
             return _mark_probe_failed(candidate, f"{verdict} status={resp.status}", penalty=penalty)
+    except urllib.error.HTTPError as exc:
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        snippet = ""
+        try:
+            snippet = exc.read(400).decode("utf-8", errors="ignore").lower()
+        except Exception:
+            logger.debug("CleanIPPool: urllib HTTP error body read failed", exc_info=True)
+        verdict = classify_probe_response(exc.code, snippet)
+        if verdict == "healthy":
+            return _mark_probe_healthy(candidate, elapsed_ms)
+        penalty = 50.0 if verdict in ("target_rejected", "waf_challenge") else 5.0
+        _mark_probe_failed(candidate, f"{verdict} status={exc.code}", penalty=penalty)
+        return None
     except Exception as exc:
         return _mark_probe_failed(candidate, str(exc))
 
@@ -899,8 +933,8 @@ def run_screening_cycle(
     Perform a complete aggregation → probe → egress-verify → rank cycle.
 
     Pipeline per candidate:
-      syntax/SSRF validation → Chrome-fingerprint UTCMS probe (dead vs
-      target-rejected vs WAF-challenge vs healthy) → observed-egress GeoIP
+      syntax/SSRF validation → Chrome-fingerprint UTCMS login probe (dead vs
+      target-rejected vs target-unavailable vs WAF-challenge vs healthy) → observed-egress GeoIP
       verification (declared IR is NOT trusted; measured IR is) → ranked pool.
 
     Updates runtime files and returns sorted verified proxies.
@@ -936,7 +970,7 @@ def run_screening_cycle(
         return rec
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(max_workers, 64))) as executor:
-        futures = {executor.submit(probe_single_proxy, c, ISSUANCE_PROBE_URL, probe_timeout): c for c in candidates}
+        futures = {executor.submit(probe_single_proxy, c, LOGIN_PROBE_URL, probe_timeout): c for c in candidates}
         for fut in concurrent.futures.as_completed(futures):
             try:
                 res = fut.result()
@@ -958,8 +992,8 @@ def run_screening_cycle(
                     checked.append(fut.result())
                 except Exception:
                     pass
-            verified = [r for r in checked if r.is_usable and "non_iranian_egress" not in r.tags]
-            verified.sort(key=lambda x: (not x.egress_verified, x.latency_ms))
+            verified = [r for r in checked if r.is_operational_iranian_egress]
+            verified.sort(key=lambda x: x.latency_ms)
 
     verified = verified[: max(1, max_pool_size)]
 
@@ -979,6 +1013,13 @@ def run_screening_cycle(
             FILE_WORKING_JSON,
             json.dumps([p.to_dict() for p in verified], indent=2, ensure_ascii=False) + "\n",
         )
+    else:
+        # A completed zero-result cycle must invalidate stale fallback files.
+        # Serving yesterday's proxy after every candidate failed today's checks
+        # defeats the entire pool and can pin workers to a rejected address.
+        atomic_write(FILE_BEST_TXT, "")
+        atomic_write(FILE_WORKING_TXT, "")
+        atomic_write(FILE_WORKING_JSON, "[]\n")
 
     return verified
 
@@ -1038,21 +1079,38 @@ class CleanIPPoolManager:
             r = await redis_manager.get()
             if r is not None:
                 raw_data = await r.get(self.REDIS_KEY_POOL)
-                if raw_data:
+                raw_refresh = await r.get(self.REDIS_KEY_LAST_REFRESH)
+                max_age = getattr(utcms_config, "CLEAN_IP_POOL_MAX_AGE_SECONDS", 1800)
+                try:
+                    redis_is_fresh = bool(raw_refresh) and (now - float(raw_refresh)) <= max_age
+                except (TypeError, ValueError):
+                    redis_is_fresh = False
+                if raw_data and redis_is_fresh:
                     items = json.loads(raw_data)
-                    records = [rec for rec in (CleanIPRecord.from_dict(item) for item in items) if rec is not None]
+                    records = [
+                        record
+                        for record in (CleanIPRecord.from_dict(item) for item in items)
+                        if record is not None and record.is_operational_iranian_egress
+                    ]
                     self._local_cache = records
                     self._local_cache_time = now
                     return records
         except Exception as exc:
             logger.debug(f"Redis get clean IP pool failed: {exc}")
 
-        # Fallback to local runtime file if Redis is unavailable or empty
-        if os.path.exists(FILE_WORKING_JSON):
+        # Fallback is allowed only while the structured snapshot is fresh.
+        # Remote workers normally consume the shared Redis state; if Redis is
+        # unavailable, an old local file must not silently resurrect a proxy
+        # that a later zero-result screening cycle already invalidated.
+        if not self._pool_is_stale() and os.path.exists(FILE_WORKING_JSON):
             try:
                 with open(FILE_WORKING_JSON, encoding="utf-8") as f:
                     items = json.load(f)
-                    records = [rec for rec in (CleanIPRecord.from_dict(item) for item in items) if rec is not None]
+                    records = [
+                        record
+                        for record in (CleanIPRecord.from_dict(item) for item in items)
+                        if record is not None and record.is_operational_iranian_egress
+                    ]
                     self._local_cache = records
                     self._local_cache_time = now
                     return records
@@ -1078,7 +1136,7 @@ class CleanIPPoolManager:
         is. Round-robin distributes load over ALL verified records; blocked or
         dead entries are skipped.
         """
-        ips = [record for record in await self.get_all_clean_ips() if record.is_usable]
+        ips = [record for record in await self.get_all_clean_ips() if record.is_operational_iranian_egress]
         if not ips:
             return None
 
@@ -1139,6 +1197,35 @@ class CleanIPPoolManager:
             pass
         return True
 
+    def _load_verified_pool_from_redis_sync(self) -> list[CleanIPRecord]:
+        """Load the shared pool for remote workers through the sync Redis client."""
+        try:
+            from app.core.circuit_breaker import _get_redis_sync
+
+            redis_client = _get_redis_sync()
+            raw_refresh = redis_client.get(self.REDIS_KEY_LAST_REFRESH)
+            max_age = getattr(utcms_config, "CLEAN_IP_POOL_MAX_AGE_SECONDS", 1800)
+            if not raw_refresh or (time.time() - float(raw_refresh)) > max_age:
+                return []
+            raw_pool = redis_client.get(self.REDIS_KEY_POOL)
+            if not raw_pool:
+                return []
+            items = json.loads(raw_pool)
+            records = [
+                record
+                for record in (CleanIPRecord.from_dict(item) for item in items)
+                if record is not None and record.is_operational_iranian_egress
+            ]
+            self._local_cache = records
+            self._local_cache_time = time.time()
+            return records
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            logger.debug("CleanIPPool: sync Redis pool read failed: %s", exc)
+            return []
+        except Exception as exc:
+            logger.debug("CleanIPPool: sync Redis unavailable: %s", exc)
+            return []
+
     def _kick_background_refresh(self) -> None:
         """Best-effort non-blocking refresh trigger for SYNC callers.
 
@@ -1174,24 +1261,25 @@ class CleanIPPoolManager:
         file forever.
         """
         candidates: list[str] = []
-        if self._local_cache:
-            candidates = [p.url for p in self._local_cache if p.is_usable]
+        max_age = getattr(utcms_config, "CLEAN_IP_POOL_MAX_AGE_SECONDS", 1800)
+        local_cache_is_fresh = bool(self._local_cache) and (time.time() - self._local_cache_time) <= max_age
+        if not local_cache_is_fresh:
+            self._local_cache = self._load_verified_pool_from_redis_sync()
+            local_cache_is_fresh = bool(self._local_cache)
 
-        if not candidates and os.path.exists(FILE_BEST_TXT):
-            try:
-                with open(FILE_BEST_TXT, encoding="utf-8") as f:
-                    content = f.read().strip()
-                    if content:
-                        candidates = [content]
-            except OSError as exc:
-                logger.debug(f"Could not read {FILE_BEST_TXT}: {exc}")
+        if local_cache_is_fresh:
+            candidates = [p.url for p in self._local_cache if p.is_operational_iranian_egress]
 
-        if not candidates and os.path.exists(FILE_WORKING_TXT):
+        if not candidates and not self._pool_is_stale() and os.path.exists(FILE_WORKING_JSON):
             try:
-                with open(FILE_WORKING_TXT, encoding="utf-8") as f:
-                    candidates = [line.strip() for line in f if line.strip()]
-            except OSError as exc:
-                logger.debug(f"Could not read {FILE_WORKING_TXT}: {exc}")
+                with open(FILE_WORKING_JSON, encoding="utf-8") as f:
+                    items = json.load(f)
+                records = [record for record in (CleanIPRecord.from_dict(item) for item in items) if record is not None]
+                self._local_cache = [record for record in records if record.is_operational_iranian_egress]
+                self._local_cache_time = time.time()
+                candidates = [record.url for record in self._local_cache]
+            except (OSError, ValueError, TypeError) as exc:
+                logger.debug(f"Could not read {FILE_WORKING_JSON}: {exc}")
 
         if not candidates:
             if self._pool_is_stale():
@@ -1297,6 +1385,12 @@ class CleanIPPoolManager:
                 await r.set(self.REDIS_KEY_BEST, verified[0].url, ex=3600)
                 await r.set(self.REDIS_KEY_LAST_REFRESH, str(time.time()), ex=3600)
                 logger.info(f"CleanIPPool: Redis updated with {len(verified)} verified Iranian proxies.")
+            elif r is not None:
+                # Empty is meaningful: prevent other processes from consuming a
+                # stale Redis pool after a completed zero-result screening cycle.
+                await r.set(self.REDIS_KEY_POOL, "[]", ex=3600)
+                await r.delete(self.REDIS_KEY_BEST)
+                await r.set(self.REDIS_KEY_LAST_REFRESH, str(time.time()), ex=3600)
 
             self._local_cache = verified
             self._local_cache_time = time.time()

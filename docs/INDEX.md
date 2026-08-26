@@ -92,4 +92,4 @@ Legacy design stubs that previously lived under `docs/architecture/` were remove
 in the v2.9.6 documentation cleanup — the tracked knowledge graph and root
 `ARCHITECTURE.md` are authoritative.
 
-Last updated: 2026-08-24 (v2.9.6)
+Last updated: 2026-08-27 (v2.9.8)

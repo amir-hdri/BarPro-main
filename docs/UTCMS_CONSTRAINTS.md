@@ -12,10 +12,11 @@ UTCMS» نیستند؛ بر اساس فرم زنده، پاسخ‌های شبک�
 
 - ورود HTTP با `curl_cffi` و CAPTCHA محلی در IPهای سالم موفق مشاهده شده است.
 - صفحه‌ی post-login و لینک‌های منوی بارنامه قابل کشف‌اند.
-- در آزمون کنترل‌شده‌ی 2026-08-13، navigation به
-  `/barname/DocumentList/Index` از Worker 2 با TLS reset تکراری مواجه شد و
-  اجرای 480 ثانیه‌ای با `TARGET_SITE_TIMEOUT` پایان یافت.
-- برای این آزمون tracking code تولید نشد؛ بنابراین ثبت موفق اعلام نمی‌شود.
+- آزمون میدانی 2026-08-26 نشان داد درخواست مستقیم و بدون session به
+  `/Barname/Document/HagigiHogugi` می‌تواند HTTP 408 و body کوتاه برگرداند، در حالی که
+  همان صفحه پس از `Login -> Notification -> menu click` سالم باز می‌شود.
+- بنابراین 408 روی deep-link سرد، به‌تنهایی شاهد outage یا block بودن IP نیست.
+- برای آزمون‌های این سند tracking code سه‌شاهدی جدید تولید نشده است؛ بنابراین ثبت موفق جدید اعلام نمی‌شود.
 - `ALLOW_LIVE_SUBMIT` باید پیش‌فرض `false` بماند. فعال‌سازی آن فقط برای یک Job
   ازپیش‌اعتبارسنجی‌شده و با نظارت اپراتور مجاز است.
 
@@ -50,6 +51,15 @@ BarPro فقط فیلدهای زیر را از کاربر می‌گیرد و payl
 روش پرداخت و مهلت زمانی در فرم مشاهده‌شده برای ثبت پایه اجباری نبودند و از UI
 اصلی حذف شده‌اند. این فیلدها نباید با مقدار ساختگی پر شوند.
 
+قرارداد اعمال مبدا و مقصد:
+
+1. تب درست فعال شود؛
+2. استان با تطبیق نام انتخاب و value+label همان selector بازخوانی شود؛
+3. بارگذاری AJAX شهرها کامل شود؛
+4. شهر فقط با تطبیق یکتا انتخاب و value+label بازخوانی شود؛
+5. آدرس در textarea درج و از همان selector موفق read-back شود؛
+6. در صورت هر mismatch یا پیام validation، transition به مرحله بعد ممنوع است.
+
 ## 3. CAPTCHA
 
 | صفحه | ساختار مشاهده‌شده | Provider اصلی |
@@ -75,13 +85,21 @@ BarPro فقط فیلدهای زیر را از کاربر می‌گیرد و payl
   نمی‌باشد» دریافت کند.
 - HTTP 429 و پاسخ‌های 408/500/502/503/504 transient هستند و نباید بودجه‌ی
   CAPTCHA را مصرف کنند.
-- reset TLS، connection closed، 403/429 و علائم block/egress باعث خروج IP از
-  routing pool برای 30 دقیقه می‌شوند.
+- 408 عمومی یا متن «قادر به پاسخگویی» فقط retry/backoff را فعال می‌کند و به‌تنهایی
+  `WORKER_IP_INDEX` را block نمی‌کند.
+- reset TLS، connection closed، `X-Squid-Error`، 403/429 و علائم صریح block/egress
+  می‌توانند IP مربوطه را موقتاً از routing خارج کنند.
 - وقتی registry Worker دارد ولی هیچ Worker تازه، فعال و unblocked نیست، routing
   باید fail-closed باشد؛ dispatch به queue خیالی یا IP blocked ممنوع است.
 - health check پروکسی باید «سلامت tunnel» را از «سلامت لحظه‌ای UTCMS» جدا کند.
   پاسخ واقعی HTTP بدون `X-Squid-Error` اثبات می‌کند Squid در دسترس است؛ یک reset
   upstream به‌تنهایی نباید Worker را دائماً drain کند.
+- Clean IP screening بدون credential فقط login surface پایدار را probe می‌کند.
+  `HagigiHogugi` فقط بعد از session معتبر و menu flow قابل ارزیابی است.
+- ورود به pool عملیاتی نیازمند `egress_verified=true` و `observed_country=IR` است؛
+  metadata اعلامی source یا فایل متنی URL به‌تنهایی کافی نیست.
+- pool مشترک در Redis نگهداری می‌شود تا Workerهای Remote همان snapshot تازه را ببینند.
+  نتیجه صفر، pool/file قدیمی را invalidate می‌کند.
 
 ## 5. Bridge مرورگر
 
@@ -89,8 +107,10 @@ BarPro فقط فیلدهای زیر را از کاربر می‌گیرد و payl
   `curl_cffi` عبور می‌دهد.
 - JS/CSS/font/image باید توسط Chromium از Squid دریافت شوند. Bridge کردن همه‌ی
   assetها باعث serialization، resetهای TLS و timeout 480 ثانیه‌ای شد.
-- در وضعیت فعلی، خود document صفحه‌ی `DocumentList` نیز ممکن است reset شود؛
-  تا حل و اثبات نهایی، retry تهاجمی یا ثبت گروهی مجاز نیست.
+- session دقیق `curl_cffi` که login را کامل کرده به Bridge منتقل می‌شود. بازسازی session
+  صرفاً از cookieها ممکن است context سرور را از دست بدهد.
+- document صدور ابتدا از landing احرازشده‌ی Notification و لینک منوی داخلی باز می‌شود؛
+  direct goto فقط recovery انتهایی است.
 
 ## 6. صف، Worker و جلوگیری از تداخل
 

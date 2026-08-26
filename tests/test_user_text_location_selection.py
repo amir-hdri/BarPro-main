@@ -2,7 +2,7 @@
 Tests for user_text location selection in location_selector.py (Phase 1.7).
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
@@ -169,6 +169,39 @@ async def test_user_text_fails_when_address_readback_mismatches(mock_page):
         await selector.select_location(location_data, origin=True)
 
     assert "عدم تطابق Read-back آدرس" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_direct_fill_reads_back_the_exact_successful_selectors(mock_page):
+    selector = LocationSelector(mock_page)
+    selector._ensure_location_tab_active = AsyncMock()
+    selector._wait_for_select_options = AsyncMock(return_value=True)
+    selector._get_utcms_selectors = MagicMock(
+        return_value={
+            "province": ["#hiddenState", "#actualState"],
+            "city": ["#hiddenCity", "#actualCity"],
+            "address": ["#hiddenAddress", "#actualAddress"],
+        }
+    )
+    selector._select_from_options_with_selector = AsyncMock(side_effect=["#actualState", "#actualCity"])
+    selector._read_selected_option = AsyncMock(
+        side_effect=[
+            {"value": "1", "text": "تهران"},
+            {"value": "101", "text": "تهران"},
+        ]
+    )
+    selector._fill_input_like = AsyncMock(side_effect=[False, True])
+    selector._read_element_value = AsyncMock(return_value="خیابان آزادی پلاک ۱۰")
+    mock_page.eval_on_selector = AsyncMock(return_value=None)
+
+    result = await selector._try_utcms_direct_fill(
+        {"province": "تهران", "city": "تهران", "address": "خیابان آزادی پلاک ۱۰"},
+        "Origin",
+    )
+
+    assert result["success"] is True
+    assert selector._read_selected_option.await_args_list == [call("#actualState"), call("#actualCity")]
+    selector._read_element_value.assert_awaited_once_with("#actualAddress")
 
 
 @pytest.mark.asyncio

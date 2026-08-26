@@ -1,9 +1,8 @@
 # Worker 4 — خروجی خانگی/موبایل‌کلاس (Home Egress)
 
-> هدف: عبور از محدودیت انتخابی ماژول صدور UTCMS که از 2026-08-24 به رنج‌های
-> دیتاسنتر/VPS روی `/Barname/Document/*` پاسخ HTTP 408 می‌دهد، در حالی که
-> خانه/موبایل همان مسیر را عادی باز می‌کند. (اثبات زنده: ماتریس 2026-08-26 —
-> خانه=200، History=302 زنده، فقط Document/* =408 از IP سرورها)
+> هدف: افزودن یک egress خانگی/موبایل‌کلاس به fleet. توجه: HTTP 408 روی درخواست
+> مستقیم `/Barname/Document/*` بدون session، معیار معتبر تشخیص دیتاسنتری یا خانگی
+> بودن IP نیست؛ آمادگی صدور فقط با flow احرازشده سنجیده می‌شود.
 
 ## معماری
 
@@ -62,10 +61,12 @@ Worker-Registry خودکار است).
 
 1. `wg show wg0` روی مرکزی → latest handshake برای peer کارگر ۴
 2. `SELECT * FROM worker_registry WHERE worker_id='4';` → active
-3. تست تعیین‌کننده روی جعبه‌ی خانگی:
-   `curl -m 15 -x http://127.0.0.1:3128 -o /dev/null -w '%{http_code}' "https://barname.utcms.ir/Barname/Document/HagigiHogugi"`
-   → اگر **200/302** شد (به‌جای 408)، ماژول صدور این IP را پذیرفته و ثبت
-   بارنامه از صف `waybill_tasks_4` جاری می‌شود.
+3. تست tunnel روی جعبه‌ی خانگی:
+   `curl -m 15 -x http://127.0.0.1:3128 -o /dev/null -w '%{http_code}' "https://barname.utcms.ir/Barname/Account/Login"`
+   → پاسخ واقعی HTTP بدون `X-Squid-Error` سلامت tunnel را ثابت می‌کند.
+4. تست تعیین‌کننده: یک dry-run کنترل‌شده باید Login → Notification → منوی ثبت
+   بارنامه را طی کند و DOM فرم + read-back مبدا/مقصد را ثبت کند. فقط این flow
+   آمادگی صدور را ثابت می‌کند؛ curl مستقیم به HagigiHogugi معتبر نیست.
 
 ## امنیت
 

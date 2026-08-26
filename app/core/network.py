@@ -40,6 +40,7 @@ EGRESS_FAILURE_MARKERS = (
     "econnreset",
     "econnrefused",
     "etimedout",
+    "connection timed out",
     # Chrome net errors. The bare forms are used on purpose: Playwright emits
     # "net::ERR_CONNECTION_CLOSED" but the same condition reaches us as a plain
     # "ERR_CONNECTION_CLOSED" once another layer stringifies it, and only the

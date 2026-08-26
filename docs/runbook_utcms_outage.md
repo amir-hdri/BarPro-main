@@ -2,7 +2,7 @@
 
 This runbook guides operators on how to detect, manage, and recover from partial or complete outages of Iran's national transportation portal (barname.utcms.ir).
 
-> **Updated: 2026-08-13** — Added WAF block detection, transient HTTP retry diagnostics, and log events for v2.7.0.
+> **Updated: 2026-08-27** — Corrected the anonymous deep-link 408 diagnosis and Clean IP/Circuit Breaker behavior.
 
 > Contract reference: [UTCMS_CONSTRAINTS.md](UTCMS_CONSTRAINTS.md). The 2026-08-13
 > controlled run confirmed successful HTTP login but repeated TLS resets on
@@ -18,6 +18,10 @@ An outage is suspected if:
 - Admin dashboard reports high number of jobs in `waiting_retry` or `failed` status with error category `network_error`.
 - Logs contain **`auth_playwright_waf_blocked`** — means the WAF is blocking headless Chromium (HTTP 444 / «درخواست مجاز نمی‌باشد»).
 - Logs contain **`utcms_http_login_transient_status_retry`** with `status: 503` repeatedly — means Squid or UTCMS upstream is returning 5xx.
+
+Do not diagnose an outage from a cold request to
+`/Barname/Document/HagigiHogugi`. That endpoint requires the authenticated
+Notification/menu flow and may return 408 to an otherwise healthy IP.
 
 ---
 
@@ -50,7 +54,7 @@ docker exec barpro-celery-worker curl -x http://localhost:3128 -I https://barnam
 
 | Result | Diagnosis |
 |--------|-----------|
-| `HTTP/2 200` | Portal reachable via proxy → credential/captcha issue |
+| `HTTP/2 200` | Login surface reachable via proxy; issuance still requires authenticated menu flow |
 | `HTTP/1.1 503 Service Unavailable` + `X-Squid-Error` | Squid cannot reach portal → portal outage or egress IP banned |
 | Connection refused / timeout | Squid container is down |
 
@@ -108,6 +112,15 @@ TRANSIENT_MAX_RETRIES  = 3
 TRANSIENT_BACKOFF_SECONDS = 6.0
 ```
 Monitor logs for `utcms_http_login_transient_status_retry`. If retries persist beyond 20 minutes, open the circuit breaker (Scenario C).
+
+### Scenario B2: HTTP 408 on issuance deep-link
+
+1. Confirm `/Barname/Account/Login` returns a real HTTP response through the same proxy.
+2. Run the authenticated flow: Login → Notification → click the waybill menu.
+3. If the form opens, the IP/tunnel is healthy and the cold 408 is expected portal behavior.
+4. If the authenticated flow also returns 408, classify it as `TARGET_SITE_TIMEOUT`, apply backoff,
+   and compare timestamped results across more than one worker before declaring an IP-specific block.
+5. Never block every Worker index from one generic 408 message.
 
 ### Scenario C: Extended portal outage (> 30 minutes)
 

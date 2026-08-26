@@ -18,6 +18,8 @@
 - ثبت نهایی فقط با تطبیق tracking code در پاسخ RPA، دیتابیس BarPro و History/Search UTCMS اثبات می‌شود.
 - payload ناقص باید پیش از proxy/browser/driver-slot به `needs_review` برود.
 - قرارداد زنده و محدودیت‌های سامانه در `docs/UTCMS_CONSTRAINTS.md` نگهداری می‌شود.
+- navigation صدور باید `Login -> Notification -> menu click -> HagigiHogugi` را طی کند. درخواست مستقیم
+  و بدون session به `HagigiHogugi` ممکن است 408 بدهد و شاهد block بودن IP نیست.
 
 ### 1. امنیت اعتبارنامه‌ها
 
@@ -58,11 +60,12 @@
 
 ```
 ❌ هرگز privileged: true به container اضافه نکنید
-❌ هرگز network_mode: host را حذف نکنید (تا وقتی dual-IP routing نیاز دارد)
+❌ هرگز network_mode: host را به backend یا Worker اضافه نکنید
 ❌ هرگز security_opt: [no-new-privileges:true] را حذف نکنید
 ```
 
-- Container ها از `cap_add: [SYS_ADMIN, NET_ADMIN]` به جای `privileged: true` استفاده می‌کنند
+- فقط Squid مستندشده می‌تواند برای bind خروجی host از `network_mode: host` استفاده کند؛ Workerها روی bridge می‌مانند.
+- Container های مرورگر فقط capabilityهای صریح موردنیاز را می‌گیرند؛ `privileged: true` ممنوع است.
 - Squid ports 3129/3130 باید با `iptables` به localhost محدود شوند (`scripts/secure_squid_ports.sh`)
 
 ### 5. Database و ORM
@@ -112,6 +115,22 @@
 ---
 
 ## 🟠 قوانین معماری حیاتی
+
+### UTCMS 408، Clean IP و Circuit Breaker
+
+- probe عمومی Clean IP فقط روی surface بدون‌احراز و پایدار login انجام می‌شود؛ deep-link صدور probe عمومی نیست.
+- فقط رکورد دارای `egress_verified=true` و `observed_country=IR` وارد pool عملیاتی می‌شود.
+- refresh با نتیجه صفر باید Redis و fallbackهای قدیمی را خالی کند؛ stale proxy نباید دوباره سرو شود.
+- `408/500/502/503/504` target-transient هستند. یک 408 به‌تنهایی Worker/IP را 30 دقیقه block نمی‌کند.
+- block IP فقط با شواهد transport/egress یا rejection صریح مانند WAF/403/429 انجام می‌شود.
+- خطای clean-pool باید همان proxy ثالث را block کند، نه `WORKER_IP_INDEX` اختصاصی را.
+
+### مبدا و مقصد
+
+- استان، شهر و آدرس مبدا و مقصد اجباری و مستقل‌اند.
+- شهر فقط پس از بارگذاری AJAX استان و با تطبیق یکتا انتخاب می‌شود؛ انتخاب اولین گزینه به‌عنوان حدس ممنوع است.
+- read-back باید از همان selector موفق انجام شود و value+label استان/شهر و متن آدرس را تایید کند.
+- عدم تطابق DOM یا خطای validation باید قبل از رفتن به مرحله بعد Job را متوقف کند.
 
 ### 6. Celery و Async
 
@@ -215,7 +234,7 @@ bash manage.sh migrate   # یا: alembic upgrade head
 | Celery Beat | **256 MB** | 128 MB | — | ↑ از 128 MB (OOM fix) |
 | Frontend (Next.js) | **1 GB** | 512 MB | — | ↑ از 512 MB |
 | Nginx | **512 MB** | 256 MB | — | ↑ از 256 MB |
-| Squid ×3 | 128 MB each | 64 MB each | — | — |
+| Squid ×1 روی Central | 128 MB | 64 MB | — | Workerهای Remote اسکوئید محلی خود را دارند |
 | Prometheus | 256 MB | 128 MB | — | — |
 | Alertmanager | 128 MB | 64 MB | — | — |
 | Grafana | 256 MB | 128 MB | — | — |
@@ -260,6 +279,8 @@ GET /api/v1/system/proxies/health
 
 - Worker ها قبل از session, Squid proxy را health check می‌کنند
 - در صورت ناموجود بودن proxy، task باید fail شود نه hang
+- هر پاسخ واقعی HTTP بدون `X-Squid-Error` فقط سلامت tunnel را ثابت می‌کند، نه آمادگی صدور بارنامه.
+- اثبات آمادگی صدور فقط داخل session واقعی و پس از کلیک منوی بارنامه انجام می‌شود.
 
 ### 19. Captcha Providers (ترتیب auto)
 
@@ -325,6 +346,8 @@ ON waybill_jobs (status) INCLUDE (id);
 
 | تاریخ | اصلاح |
 |-------|-------|
+| 2026-08-26 | اصلاح ریشه‌ای 408: حذف deep-link بدون session از Clean IP probe، الزام GeoIP ایران، پاک‌سازی pool کهنه، و جلوگیری از block شدن Worker با 408 عمومی |
+| 2026-08-26 | read-back مبدا/مقصد از selector واقعی انتخاب‌شده و الزام value+label+address |
 | 2026-08-23 | یکپارچه‌سازی تاکسونومی بازتلاش ورکر با خطایابی سریع ۴۰۸، بازیابی خودکار ماشین وضعیت و اتصال فرانت‌اند |
 | 2026-08-23 | سیستم ثبت دسته‌ای چندمسیره، قالب‌های مسیر و استعلام مسافت/زمان با گیت دقت ۱۰۰٪ (Migration 038) |
 | 2026-08-20 | بهینه‌سازی ارگونومی موبایل، عدم زوم خودکار (Anti-Zoom) و اصلاح دسته‌بندی خطاهای فارسی |

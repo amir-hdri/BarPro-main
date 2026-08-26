@@ -388,9 +388,13 @@ EGRESS_ERRORS_THAT_MUST_TRIP = [
     "net::ERR_CONNECTION_CLOSED",
     "TLS handshake: EOF",
     "SSL: UNEXPECTED_EOF_WHILE_READING",
-    "408 Request Timeout",
     "net::ERR_CONNECTION_RESET",
     "ERR_CONNECTION_CLOSED",
+]
+
+TARGET_TRANSIENT_ERRORS_THAT_MUST_NOT_TRIP = [
+    "408 Request Timeout",
+    "سامانه بارنامه موقتاً در حال به‌روزرسانی یا خارج از دسترس است",
 ]
 
 # Worker-local faults. These are retryable but say nothing about the egress
@@ -420,6 +424,66 @@ async def test_worker_local_failures_do_not_trip_the_breaker(mock_redis_manager,
         await check_and_report_failure(error_msg)
 
     mock_redis_manager.set.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_msg", TARGET_TRANSIENT_ERRORS_THAT_MUST_NOT_TRIP)
+async def test_target_transient_failures_do_not_trip_worker_breaker(mock_redis_manager, error_msg):
+    with patch.dict(os.environ, {"WORKER_IP_INDEX": "2"}, clear=False):
+        await check_and_report_failure(error_msg)
+
+    mock_redis_manager.set.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_breaker_infers_clean_pool_context_and_blocks_only_that_proxy(mock_redis_manager):
+    with (
+        patch.dict(os.environ, {"WORKER_IP_INDEX": "2"}, clear=False),
+        patch(
+            "app.automation.worker_proxy.get_current_egress_context",
+            return_value=("clean_pool", "http://185.100.47.106:8080"),
+        ),
+        patch("app.automation.clean_ip_pool.clean_ip_pool.mark_blocked", new_callable=AsyncMock) as mark,
+    ):
+        await check_and_report_failure("net::ERR_CONNECTION_RESET")
+
+    mark.assert_awaited_once_with("http://185.100.47.106:8080", duration_seconds=1800)
+    mock_redis_manager.set.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_breaker_remote_worker_squid_context_blocks_worker_not_proxy(mock_redis_manager):
+    with (
+        patch.dict(os.environ, {"WORKER_IP_INDEX": "3"}, clear=False),
+        patch(
+            "app.automation.worker_proxy.get_current_egress_context",
+            return_value=("worker_squid", "http://172.18.0.1:3128"),
+        ),
+        patch("app.automation.clean_ip_pool.clean_ip_pool.mark_blocked", new_callable=AsyncMock) as mark,
+    ):
+        await check_and_report_failure("net::ERR_CONNECTION_RESET")
+
+    mark.assert_not_awaited()
+    mock_redis_manager.set.assert_called_once_with("utcms:circuit_breaker:blocked:3", "1", ex=1800)
+
+
+@pytest.mark.asyncio
+async def test_breaker_explicit_remote_worker_proxy_is_not_clean_pool(mock_redis_manager):
+    with (
+        patch.dict(
+            os.environ,
+            {"WORKER_IP_INDEX": "3", "WORKER_3_PROXY": "http://87.107.5.219:3128"},
+            clear=False,
+        ),
+        patch("app.automation.clean_ip_pool.clean_ip_pool.mark_blocked", new_callable=AsyncMock) as mark,
+    ):
+        await check_and_report_failure(
+            "net::ERR_CONNECTION_RESET",
+            proxy_url="http://87.107.5.219:3128",
+        )
+
+    mark.assert_not_awaited()
+    mock_redis_manager.set.assert_called_once_with("utcms:circuit_breaker:blocked:3", "1", ex=1800)
 
 
 @pytest.mark.asyncio

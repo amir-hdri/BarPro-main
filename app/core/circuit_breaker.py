@@ -176,8 +176,6 @@ _IP_INDEX_CACHE_TTL = 5.0  # seconds
 # refusing or throttling THIS IP, so the index must leave the pool.
 IP_BLOCK_PATTERNS = [
     "blocked",
-    "timeout",
-    "timed out",
     "403",
     "429",
     "denied",
@@ -187,7 +185,8 @@ IP_BLOCK_PATTERNS = [
     "ip restricted",
     "limiting",
     "rate limit",
-    "gateway",
+    "ip banned",
+    "waf blocked",
 ]
 
 # The patterns above only cover 13 generic phrases, so real transport failures
@@ -218,9 +217,29 @@ async def check_and_report_failure(
     if not error_msg:
         return
 
+    if egress_source is None and proxy_url is None:
+        try:
+            from app.automation.worker_proxy import get_current_egress_context
+
+            egress_source, proxy_url = get_current_egress_context()
+        except Exception:
+            logger.debug("Circuit Breaker: could not resolve current egress context", exc_info=True)
+
     error_msg_lower = error_msg.lower()
     if any(pattern in error_msg_lower for pattern in BLOCK_OR_EGRESS_PATTERNS):
-        if egress_source == "clean_pool" or (proxy_url and not ("squid" in proxy_url or "172.20.0.1" in proxy_url)):
+        dedicated_proxy_urls = {
+            value.strip()
+            for key, value in os.environ.items()
+            if key.startswith("WORKER_") and key.endswith("_PROXY") and value.strip()
+        }
+        inferred_third_party_proxy = (
+            egress_source is None
+            and proxy_url
+            and proxy_url not in dedicated_proxy_urls
+            and "squid" not in proxy_url.lower()
+            and "172.20.0.1" not in proxy_url
+        )
+        if egress_source == "clean_pool" or inferred_third_party_proxy:
             target_url = proxy_url or ""
             if target_url:
                 try:
