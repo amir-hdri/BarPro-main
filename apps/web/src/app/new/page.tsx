@@ -55,7 +55,9 @@ const initialForm: WaybillFormValues = {
   cargo_weight: "",
   cargo_value: "",
   sender_name: "",
+  sender_phone: "",
   receiver_name: "",
+  receiver_phone: "",
 };
 
 const STEPS = [
@@ -63,7 +65,7 @@ const STEPS = [
   { id: 2, label: "مبدا", icon: MapPinIcon, fields: ["origin_province", "origin", "origin_address", "origin_district"] },
   { id: 3, label: "مقصد", icon: MapPinIcon, fields: ["destination_province", "destination", "destination_address", "destination_district"] },
   { id: 4, label: "بار", icon: CubeIcon, fields: ["cargo_type", "cargo_packaging", "cargo_weight", "cargo_value"] },
-  { id: 5, label: "فرستنده و گیرنده", icon: UserIcon, fields: ["sender_name", "receiver_name"] },
+  { id: 5, label: "فرستنده و گیرنده", icon: UserIcon, fields: ["sender_name", "sender_phone", "receiver_name", "receiver_phone"] },
   { id: 6, label: "ثبت و زمان‌بندی", icon: BanknotesIcon, fields: [] },
 ];
 
@@ -434,6 +436,8 @@ export default function NewWaybillPage() {
       vehicle_type: vehicleTypeVal,
       plate_number: parsed.data.plate_number,
       driver_phone: driverPhoneVal,
+      sender_phone: parsed.data.sender_phone,
+      receiver_phone: parsed.data.receiver_phone,
       metadata_json: {
         origin_province: parsed.data.origin_province,
         origin_address: parsed.data.origin_address,
@@ -447,8 +451,10 @@ export default function NewWaybillPage() {
         driver_phone: driverPhoneVal,
         sender_name: parsed.data.sender_name,
         receiver_name: parsed.data.receiver_name,
-        sender: { name: parsed.data.sender_name },
-        receiver: { name: parsed.data.receiver_name },
+        sender_phone: parsed.data.sender_phone,
+        receiver_phone: parsed.data.receiver_phone,
+        sender: { name: parsed.data.sender_name, phone: parsed.data.sender_phone },
+        receiver: { name: parsed.data.receiver_name, phone: parsed.data.receiver_phone },
         origin: { province: parsed.data.origin_province, city: parsed.data.origin, district: parsed.data.origin_district || undefined, address: parsed.data.origin_address, coordinates: originCoords || undefined },
         destination: { province: parsed.data.destination_province, city: parsed.data.destination, district: parsed.data.destination_district || undefined, address: parsed.data.destination_address, coordinates: destinationCoords || undefined },
         cargo: { type: parsed.data.cargo_type, packaging: parsed.data.cargo_packaging, weight: parsed.data.cargo_weight, value: parsed.data.cargo_value },
@@ -1077,6 +1083,17 @@ export default function NewWaybillPage() {
                       <Field label="نام و نام خانوادگی" error={errors.sender_name} required>
                         <input className={`field ${errors.sender_name ? "error" : ""}`} value={form.sender_name} onChange={(e) => handleChange("sender_name", e.target.value)} />
                       </Field>
+                      <Field label="موبایل" error={errors.sender_phone} required>
+                        <input
+                          dir="ltr"
+                          inputMode="tel"
+                          autoComplete="tel"
+                          className={`field ${errors.sender_phone ? "error" : ""}`}
+                          placeholder="۰۹۱۲۳۴۵۶۷۸۹"
+                          value={form.sender_phone}
+                          onChange={(e) => handleChange("sender_phone", e.target.value)}
+                        />
+                      </Field>
                     </div>
                   </div>
 
@@ -1085,6 +1102,17 @@ export default function NewWaybillPage() {
                     <div className="grid gap-4 sm:grid-cols-2">
                       <Field label="نام و نام خانوادگی" error={errors.receiver_name} required>
                         <input className={`field ${errors.receiver_name ? "error" : ""}`} value={form.receiver_name} onChange={(e) => handleChange("receiver_name", e.target.value)} />
+                      </Field>
+                      <Field label="موبایل" error={errors.receiver_phone} required>
+                        <input
+                          dir="ltr"
+                          inputMode="tel"
+                          autoComplete="tel"
+                          className={`field ${errors.receiver_phone ? "error" : ""}`}
+                          placeholder="۰۹۱۲۳۴۵۶۷۸۹"
+                          value={form.receiver_phone}
+                          onChange={(e) => handleChange("receiver_phone", e.target.value)}
+                        />
                       </Field>
                     </div>
                   </div>
@@ -1447,4 +1475,3 @@ export default function NewWaybillPage() {
     </AuthGuard>
   );
 }
-

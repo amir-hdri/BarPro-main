@@ -205,7 +205,9 @@ export interface WaybillPayload {
   cargo_weight?: string;
   cargo_value?: string;
   sender_name: string;
+  sender_phone: string;
   receiver_name: string;
+  receiver_phone: string;
 }
 
 export interface WaybillJobCreateRequest {

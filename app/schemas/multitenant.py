@@ -590,6 +590,8 @@ class WaybillPayload(BaseModel):
     vehicle_type: str = Field(default="کامیون", min_length=1, max_length=100)
     plate_number: str = Field(..., min_length=1, max_length=20)
     driver_phone: str | None = Field(default=None, max_length=20)
+    sender_phone: str | None = Field(default=None, max_length=20)
+    receiver_phone: str | None = Field(default=None, max_length=20)
 
     # Metadata
     notes: str | None = Field(default=None, max_length=500)
@@ -662,6 +664,13 @@ class WaybillPayload(BaseModel):
         if not re.fullmatch(r"09\d{9}", normalized):
             raise ValueError("تلفن راننده باید با ۰۹ شروع شود و ۱۱ رقم باشد")
         return normalized
+
+    @field_validator("sender_phone", "receiver_phone", mode="before")
+    @classmethod
+    def normalize_party_phone(cls, value: str | None) -> str | None:
+        if value is None or not str(value).strip():
+            return None
+        return _normalize_phone(str(value))
 
     @field_validator("plate_number", mode="before")
     @classmethod

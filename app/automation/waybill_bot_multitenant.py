@@ -73,7 +73,7 @@ class WaybillAutomationBot:
 
         try:
             normalized_payload = build_enhanced_waybill_payload(payload)
-            validation_errors = validate_enhanced_waybill_payload(normalized_payload)
+            validation_errors = validate_enhanced_waybill_payload(normalized_payload, enforce_live_party_phones=True)
             if validation_errors:
                 result["status"] = TaskStatus.NEEDS_REVIEW.value
                 result["error"] = "اطلاعات اجباری UTCMS ناقص است: " + "، ".join(validation_errors)

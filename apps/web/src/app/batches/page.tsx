@@ -8,6 +8,7 @@ import { toast } from 'react-hot-toast';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
+import { ProgressBar } from '@/components/ProgressBar';
 import { api, createBatch, generateIdempotencyKey } from '@/lib/api';
 import { formatDateTime, toPersianDigits } from '@/lib/format';
 import { useSession } from '@/hooks/useSession';
@@ -381,9 +382,14 @@ export default function BatchesPage() {
               </div>
 
               <div className="mt-4 h-3 w-full overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-700"
-                  style={{ width: `${completedPercent}%` }}
+                <ProgressBar
+                  value={completedPercent}
+                  max={100}
+                  segments={40}
+                  tone="cyan"
+                  size="md"
+                  label="پیشرفت دستهٔ بارنامه"
+                  className="h-full border-0 bg-transparent p-0"
                 />
               </div>
 

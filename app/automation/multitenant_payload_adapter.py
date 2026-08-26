@@ -108,11 +108,22 @@ def _validate_iranian_national_code(code: str) -> bool:
     return control == remainder if remainder < 2 else control == (11 - remainder)
 
 
-def validate_enhanced_waybill_payload(payload: dict[str, Any]) -> list[str]:
+def _normalize_mobile(value: Any) -> str:
+    text = str(value or "")
+    for index, digit in enumerate("۰۱۲۳۴۵۶۷۸۹"):
+        text = text.replace(digit, str(index))
+    for index, digit in enumerate("٠١٢٣٤٥٦٧٨٩"):
+        text = text.replace(digit, str(index))
+    return re.sub(r"\D", "", text)
+
+
+def validate_enhanced_waybill_payload(payload: dict[str, Any], *, enforce_live_party_phones: bool = False) -> list[str]:
     """Return missing/invalid fields that block a real UTCMS submission.
 
     This mirrors the live HagigiHogugi form instead of the older API schema.
-    Optional contact identifiers are deliberately not required, but if present must be valid.
+    The live form requires a real Iranian mobile number for both parties.  The
+    stricter check is opt-in so historical/read-only payload tooling can still
+    inspect older records without pretending they are submit-ready.
     """
     errors: list[str] = []
     for party_key, label in (("sender", "فرستنده"), ("receiver", "گیرنده")):
@@ -147,6 +158,13 @@ def validate_enhanced_waybill_payload(payload: dict[str, Any]) -> list[str]:
         if nat_code:
             if not _validate_iranian_national_code(nat_code):
                 errors.append(f"کد ملی {label} نامعتبر است")
+
+        if enforce_live_party_phones:
+            mobile = _normalize_mobile(party.get("phone"))
+            if not mobile:
+                errors.append(f"موبایل {label}")
+            elif not re.fullmatch(r"09\d{9}", mobile):
+                errors.append(f"موبایل {label} باید با ۰۹ شروع شود و ۱۱ رقم باشد")
 
     for location_key, label in (("origin", "مبدا"), ("destination", "مقصد")):
         location = payload.get(location_key)
@@ -267,14 +285,16 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "location_mode": "user_text",
         "sender": {
             "name": default_sender_name,
-            "phone": _first_value(sender_meta.get("phone"), metadata.get("sender_phone")),
+            "phone": _first_value(payload.get("sender_phone"), sender_meta.get("phone"), metadata.get("sender_phone")),
             "address": _first_value(sender_meta.get("address"), metadata.get("sender_address")),
             "national_code": _first_value(sender_meta.get("national_code"), metadata.get("sender_national_code")),
             "entity_type": _first_value(sender_meta.get("entity_type"), sender_meta.get("type")) or "individual",
         },
         "receiver": {
             "name": default_receiver_name,
-            "phone": _first_value(receiver_meta.get("phone"), metadata.get("receiver_phone")),
+            "phone": _first_value(
+                payload.get("receiver_phone"), receiver_meta.get("phone"), metadata.get("receiver_phone")
+            ),
             "address": _first_value(receiver_meta.get("address"), metadata.get("receiver_address")),
             "national_code": _first_value(receiver_meta.get("national_code"), metadata.get("receiver_national_code")),
             "entity_type": _first_value(receiver_meta.get("entity_type"), receiver_meta.get("type")) or "individual",

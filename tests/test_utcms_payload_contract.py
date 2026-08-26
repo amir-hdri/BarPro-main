@@ -5,7 +5,7 @@ from app.automation.multitenant_payload_adapter import (
 from app.schemas.waybill import CargoModel, ReceiverModel, SenderModel
 
 
-def test_optional_party_fields_match_live_utcms_contract() -> None:
+def test_legacy_model_allows_missing_party_fields_but_live_preflight_does_not() -> None:
     sender = SenderModel(name="علی فلاح")
     receiver = ReceiverModel(name="احمد مومنی")
 
@@ -64,6 +64,7 @@ def test_preflight_accepts_only_live_required_fields() -> None:
     }
 
     assert validate_enhanced_waybill_payload(payload) == []
+    assert validate_enhanced_waybill_payload(payload, enforce_live_party_phones=True)
 
 
 def test_preflight_rejects_missing_live_required_fields() -> None:

@@ -725,7 +725,7 @@ class RPAHttpSubmitService:
         from app.automation.multitenant_payload_adapter import validate_enhanced_waybill_payload
 
         normalized_payload = build_enhanced_waybill_payload(payload)
-        validation_errors = validate_enhanced_waybill_payload(normalized_payload)
+        validation_errors = validate_enhanced_waybill_payload(normalized_payload, enforce_live_party_phones=True)
         if validation_errors:
             return SubmitExecutionResult(
                 classification=SubmitClassification(

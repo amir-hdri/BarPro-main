@@ -209,7 +209,9 @@ class BatchService:
         # Validate the merged payload against the live worker contract so every
         # job passes preflight validation (no silent NEEDS_REVIEW at runtime).
         sample_payload = build_job_payload(routes[0], base_payload)
-        base_errors = validate_enhanced_waybill_payload(build_enhanced_waybill_payload(sample_payload))
+        base_errors = validate_enhanced_waybill_payload(
+            build_enhanced_waybill_payload(sample_payload), enforce_live_party_phones=True
+        )
         if base_errors:
             raise HTTPException(status_code=422, detail="بارنامه پایه ناقص است: " + "، ".join(base_errors))
 

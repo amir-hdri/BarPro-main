@@ -37,7 +37,7 @@ class LocationModel(BaseModel):
 
 class SenderModel(BaseModel):
     name: str = Field(..., description="نام فرستنده")
-    phone: str | None = Field(None, description="تلفن فرستنده (اختیاری در UTCMS)")
+    phone: str | None = Field(None, description="موبایل فرستنده (در ثبت زنده UTCMS الزامی است)")
     address: str | None = Field(None, description="آدرس فرستنده (در مرحله مبدا ثبت می‌شود)")
     national_code: str | None = Field(None, description="کد ملی فرستنده (اختیاری در UTCMS)")
     entity_type: str = Field(default="individual", description="individual یا company")
@@ -55,7 +55,7 @@ class SenderModel(BaseModel):
 
 class ReceiverModel(BaseModel):
     name: str = Field(..., description="نام گیرنده")
-    phone: str | None = Field(None, description="تلفن گیرنده (اختیاری در UTCMS)")
+    phone: str | None = Field(None, description="موبایل گیرنده (در ثبت زنده UTCMS الزامی است)")
     address: str | None = Field(None, description="آدرس گیرنده (در مرحله مقصد ثبت می‌شود)")
     national_code: str | None = Field(None, description="کد ملی گیرنده")
     entity_type: str = Field(default="individual", description="individual یا company")

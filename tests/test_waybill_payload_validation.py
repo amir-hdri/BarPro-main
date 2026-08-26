@@ -39,6 +39,26 @@ def test_valid_payload_passes():
     assert errors == []
 
 
+def test_live_preflight_requires_real_party_mobiles():
+    payload = valid_payload_sample()
+    errors = validate_enhanced_waybill_payload(payload, enforce_live_party_phones=True)
+    assert "موبایل فرستنده" in errors
+    assert "موبایل گیرنده" in errors
+
+    payload["sender"]["phone"] = "۰۹۱۲۳۴۵۶۷۸۹"
+    payload["receiver"]["phone"] = "09129876543"
+    assert validate_enhanced_waybill_payload(payload, enforce_live_party_phones=True) == []
+
+
+def test_live_preflight_rejects_invalid_party_mobile():
+    payload = valid_payload_sample()
+    payload["sender"]["phone"] = "0912"
+    payload["receiver"]["phone"] = "12345678901"
+    errors = validate_enhanced_waybill_payload(payload, enforce_live_party_phones=True)
+    assert any("موبایل فرستنده" in err for err in errors)
+    assert any("موبایل گیرنده" in err for err in errors)
+
+
 def test_duplicate_single_word_name_fails():
     payload = valid_payload_sample()
     payload["sender"]["name"] = "علی علی"

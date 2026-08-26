@@ -241,7 +241,7 @@ async def _claim_and_execute(task: Any, intent_id: str):
             )
 
             normalized_payload = build_enhanced_waybill_payload(_safe_json(job.payload_json))
-            payload_errors = validate_enhanced_waybill_payload(normalized_payload)
+            payload_errors = validate_enhanced_waybill_payload(normalized_payload, enforce_live_party_phones=True)
             if payload_errors:
                 error_message = "اطلاعات اجباری بارنامه ناقص است: " + "، ".join(payload_errors)
                 intent.status = "failed"
@@ -1171,7 +1171,11 @@ async def _execute_job(
                 from app.services.night_submission_policy import is_in_night_window, next_reopen_at_utc_naive
 
                 in_night = is_in_night_window()
-                retry_at = next_reopen_at_utc_naive() if in_night else (_utcnow_naive() + timedelta(seconds=utcms_config.GATE_PROBE_INTERVAL_SECONDS))
+                retry_at = (
+                    next_reopen_at_utc_naive()
+                    if in_night
+                    else (_utcnow_naive() + timedelta(seconds=utcms_config.GATE_PROBE_INTERVAL_SECONDS))
+                )
                 gate_err_msg = (
                     "در صف آماده‌باش شبانه قرار گرفت؛ ثبت خودکار از ساعت ۰۸:۰۰ صبح فردا انجام می‌شود"
                     if in_night

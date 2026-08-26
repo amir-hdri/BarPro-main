@@ -8,8 +8,8 @@ from app.services.rpa_submit_service import RPAHttpSubmitService
 
 def _valid_payload() -> dict:
     return {
-        "sender": {"name": "علی رضایی", "national_code": "0084575948"},
-        "receiver": {"name": "حسن محمدی", "national_code": "0084575948"},
+        "sender": {"name": "علی رضایی", "phone": "09121234567", "national_code": "0084575948"},
+        "receiver": {"name": "حسن محمدی", "phone": "09129876543", "national_code": "0084575948"},
         "origin": {"province": "تهران", "city": "تهران", "address": "خیابان آزادی"},
         "destination": {"province": "البرز", "city": "کرج", "address": "بلوار جمهوری"},
         "cargo": {"type": "آهن", "packaging": "فله", "weight": 1000, "value": 1000000},

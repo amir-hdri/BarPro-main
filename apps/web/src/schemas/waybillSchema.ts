@@ -8,6 +8,16 @@ const requiredText = (min: number, minMessage: string, max: number, maxMessage: 
   z.string().trim().min(min, minMessage).max(max, maxMessage);
 
 const digitsOnly = (value: string) => normalizeDigits(value).replace(/\D/g, "");
+const requiredMobile = (label: string) =>
+  z
+    .string()
+    .trim()
+    .min(1, `موبایل ${label} الزامی است`)
+    .transform((value) => digitsOnly(value))
+    .refine(
+      (value) => /^09\d{9}$/.test(value),
+      `موبایل ${label} باید ۱۱ رقم و با ۰۹ شروع شود (مثال: ۰۹۱۲۳۴۵۶۷۸۹)`
+    );
 const numericText = (requiredMessage: string, invalidMessage: string, max: number, maxMessage: string) =>
   z
     .string()
@@ -65,7 +75,9 @@ export const waybillSchema = z.object({
   cargo_weight: numericText("وزن بار الزامی است", "وزن بار باید عددی بزرگ‌تر از صفر باشد", 20, "وزن بار حداکثر ۲۰ کاراکتر مجاز است"),
   cargo_value: numericText("ارزش بار الزامی است", "ارزش بار باید عددی بزرگ‌تر از صفر باشد", 50, "ارزش بار حداکثر ۵۰ حرف مجاز است"),
   sender_name: requiredText(2, "نام فرستنده الزامی است", 255, "نام فرستنده حداکثر ۲۵۵ حرف مجاز است"),
+  sender_phone: requiredMobile("فرستنده"),
   receiver_name: requiredText(2, "نام گیرنده الزامی است", 255, "نام گیرنده حداکثر ۲۵۵ حرف مجاز است"),
+  receiver_phone: requiredMobile("گیرنده"),
 });
 
 export type WaybillFormValues = z.input<typeof waybillSchema>;

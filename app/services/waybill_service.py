@@ -367,7 +367,9 @@ class WaybillService:
 
         shipping_options = request.shipping_options
         request_auth = request.utcms_auth
-        payload_errors = validate_enhanced_waybill_payload(WaybillService._build_waybill_payload(request))
+        payload_errors = validate_enhanced_waybill_payload(
+            WaybillService._build_waybill_payload(request), enforce_live_party_phones=True
+        )
 
         has_request_auth = bool(
             request_auth and (request_auth.username or "").strip() and (request_auth.password or "").strip()

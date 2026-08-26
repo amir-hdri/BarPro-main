@@ -1548,7 +1548,11 @@ class EnhancedWaybillManager:
         return {
             "success": resolved_success,
             "document_id": document_id,
-            "tracking_code": norm_tracking if has_valid_tracking else (str(tracking_code).strip() if tracking_code is not None else None),
+            "tracking_code": (
+                norm_tracking
+                if has_valid_tracking
+                else (str(tracking_code).strip() if tracking_code is not None else None)
+            ),
             "is_otp_needed": is_otp_needed,
             "message": str(result_message or ""),
             "payload": payload,
@@ -1602,7 +1606,11 @@ class EnhancedWaybillManager:
         return {
             "success": success,
             "document_id": document_id,
-            "tracking_code": norm_tracking if has_valid_tracking else (str(tracking_code).strip() if tracking_code is not None else None),
+            "tracking_code": (
+                norm_tracking
+                if has_valid_tracking
+                else (str(tracking_code).strip() if tracking_code is not None else None)
+            ),
             "message": str(result_message or ""),
             "payload": payload,
         }
@@ -2340,7 +2348,9 @@ class EnhancedWaybillManager:
                     len(page_html),
                 )
                 if "قادر به پاسخگویی نمی باشد" in page_html or "چند دقیقه دیگر مجدداً تلاش نمایید" in page_html:
-                    raise WaybillError("سامانه بارنامه موقتاً در حال به‌روزرسانی یا خارج از دسترس است (پاسخ سرور: قادر به پاسخگویی نمی باشد)")
+                    raise WaybillError(
+                        "سامانه بارنامه موقتاً در حال به‌روزرسانی یا خارج از دسترس است (پاسخ سرور: قادر به پاسخگویی نمی باشد)"
+                    )
             except WaybillError:
                 raise
             except Exception:
@@ -2620,18 +2630,17 @@ class EnhancedWaybillManager:
             )
 
         sender_phone = sender.get("phone", "")
-        if sender_phone:
-            await self._fill_verified_text_field(
-                [
-                    'input[name="txtSenderMobile"]',
-                    'input[id="txtSenderMobile"]',
-                ],
-                self._normalize_mobile(sender_phone),
-                "تلفن فرستنده",
-                required=False,
-                normalizer=self._normalize_mobile,
-                prefer_type=True,
-            )
+        await self._fill_verified_text_field(
+            [
+                'input[name="txtSenderMobile"]',
+                'input[id="txtSenderMobile"]',
+            ],
+            self._normalize_mobile(sender_phone),
+            "موبایل فرستنده",
+            required=True,
+            normalizer=self._normalize_mobile,
+            prefer_type=True,
+        )
 
         # Click Next and check for validation errors
         sender_next = await self._click_step_next(
@@ -2751,18 +2760,17 @@ class EnhancedWaybillManager:
             )
 
         receiver_phone = receiver.get("phone", "")
-        if receiver_phone:
-            await self._fill_verified_text_field(
-                [
-                    'input[name="txtReceiverMobile"]',
-                    'input[id="txtReceiverMobile"]',
-                ],
-                self._normalize_mobile(receiver_phone),
-                "تلفن گیرنده",
-                required=False,
-                normalizer=self._normalize_mobile,
-                prefer_type=True,
-            )
+        await self._fill_verified_text_field(
+            [
+                'input[name="txtReceiverMobile"]',
+                'input[id="txtReceiverMobile"]',
+            ],
+            self._normalize_mobile(receiver_phone),
+            "موبایل گیرنده",
+            required=True,
+            normalizer=self._normalize_mobile,
+            prefer_type=True,
+        )
 
         receiver_next = await self._click_step_next(
             2,

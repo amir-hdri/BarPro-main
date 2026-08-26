@@ -26,8 +26,8 @@ from app.workers.waybill_worker import _claim_and_execute
 _created_engines = []
 
 COMPLETE_PAYLOAD = {
-    "sender": {"name": "علی فلاح"},
-    "receiver": {"name": "احمد مومنی"},
+    "sender": {"name": "علی فلاح", "phone": "09121234567"},
+    "receiver": {"name": "احمد مومنی", "phone": "09129876543"},
     "origin": {"province": "هرمزگان", "city": "میناب", "address": "بلوار خلیج فارس"},
     "destination": {"province": "هرمزگان", "city": "میناب", "address": "طالوار"},
     "cargo": {"type": "مصالح", "packaging": "فله", "weight": "15", "value": "35000000"},
