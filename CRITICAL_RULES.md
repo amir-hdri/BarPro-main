@@ -274,7 +274,7 @@ sudo bash scripts/secure_squid_ports.sh
 
 ```bash
 # قبل از شروع هر browser session:
-GET /api/v1/system/proxies/health
+GET /proxies/health  # admin-only; via Nginx or directly on backend
 ```
 
 - Worker ها قبل از session, Squid proxy را health check می‌کنند

@@ -157,7 +157,7 @@ docker exec -it barpro-postgres psql -U postgres -d utcms_rpa -c \
 
 یا از طریق API (با توکن ادمین):
 ```bash
-curl -s http://<YOUR_CENTRAL_SERVER_IP>/api/system/proxies/health \
+curl -s http://<YOUR_CENTRAL_SERVER_IP>/proxies/health \
   -H "Authorization: Bearer <ADMIN_TOKEN>" | python3 -m json.tool
 ```
 
