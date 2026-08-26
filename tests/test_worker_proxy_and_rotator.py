@@ -90,14 +90,19 @@ async def test_proxy_empty_or_malformed_url():
 @pytest.mark.asyncio
 async def test_get_next_require_iran_ip_does_not_grow_pool():
     """Clean IP Pool fallback proxies must be ephemeral — never appended to the persistent rotator pool."""
+    from app.automation.clean_ip_pool import CleanIPRecord
     from app.automation.proxy_rotator import ProxyRotator
 
     rotator = ProxyRotator(require_iran_ip=True)
     assert rotator.proxies == []
 
+    verified_record = CleanIPRecord(
+        url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080, observed_country="IR", egress_verified=True
+    )
+
     with patch(
-        "app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync",
-        return_value="http://185.100.47.106:8080",
+        "app.automation.clean_ip_pool.clean_ip_pool.get_clean_record_sync",
+        return_value=verified_record,
     ):
         result = await rotator.get_next(require_iran_ip=True)
 
@@ -106,7 +111,7 @@ async def test_get_next_require_iran_ip_does_not_grow_pool():
     assert rotator.proxies == []  # pool must not grow with ephemeral clean-pool entries
 
     with patch(
-        "app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync",
+        "app.automation.clean_ip_pool.clean_ip_pool.get_clean_record_sync",
         return_value=None,
     ):
         result = await rotator.get_next(require_iran_ip=True)

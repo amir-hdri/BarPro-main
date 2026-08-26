@@ -262,13 +262,17 @@ class UTCMSConfig:
         # await point and that safe handler never ran. Soft limit now sits above
         # the bot window (+15s for result processing); hard limit gives the worker
         # a bounded cleanup window after the soft signal, then SIGKILLs.
-        self.CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", str(self.JOB_TIMEOUT_SECONDS + 15)))
+        self.CELERY_TASK_SOFT_TIME_LIMIT = int(
+            os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", str(self.JOB_TIMEOUT_SECONDS + 15))
+        )
         if self.CELERY_TASK_SOFT_TIME_LIMIT <= self.JOB_TIMEOUT_SECONDS:
             # Env misconfiguration: never let the soft limit preempt the
             # in-task timeout handler again.
             self.CELERY_TASK_SOFT_TIME_LIMIT = self.JOB_TIMEOUT_SECONDS + 15
         _default_hard_limit = self.CELERY_TASK_SOFT_TIME_LIMIT + 45
-        self.CELERY_TASK_TIME_LIMIT = max(int(os.getenv("CELERY_TASK_TIME_LIMIT", str(_default_hard_limit))), self.CELERY_TASK_SOFT_TIME_LIMIT + 5)
+        self.CELERY_TASK_TIME_LIMIT = max(
+            int(os.getenv("CELERY_TASK_TIME_LIMIT", str(_default_hard_limit))), self.CELERY_TASK_SOFT_TIME_LIMIT + 5
+        )
         self.CELERY_MAX_RETRIES = int(os.getenv("CELERY_MAX_RETRIES", "5"))
         self.CELERY_RETRY_BASE_SECONDS = float(os.getenv("CELERY_RETRY_BASE_SECONDS", "2.0"))
         self.CELERY_RETRY_JITTER_SECONDS = float(os.getenv("CELERY_RETRY_JITTER_SECONDS", "1.5"))
@@ -450,6 +454,9 @@ class UTCMSConfig:
         self.CLEAN_IP_MAX_PROBE_WORKERS = int(os.getenv("CLEAN_IP_MAX_PROBE_WORKERS", "35"))
         self.CLEAN_IP_BLOCK_TTL_SECONDS = int(os.getenv("CLEAN_IP_BLOCK_TTL_SECONDS", "1800"))
         self.CLEAN_IP_REFRESH_LOCK_TTL_SECONDS = int(os.getenv("CLEAN_IP_REFRESH_LOCK_TTL_SECONDS", "900"))
+        # Max age of the persisted pool before the SYNC selection path kicks a
+        # background screening cycle (sync path must never serve a dead file forever).
+        self.CLEAN_IP_POOL_MAX_AGE_SECONDS = int(os.getenv("CLEAN_IP_POOL_MAX_AGE_SECONDS", "1800"))
         self.IRAN_PROXY_TIMEOUT_SECONDS = float(os.getenv("IRAN_PROXY_TIMEOUT_SECONDS", "7.5"))
         self.CLEAN_IP_SOURCE_URL = os.getenv("CLEAN_IP_SOURCE_URL", "").strip()
         self.CLEAN_IP_SOURCE_FILE = os.getenv("CLEAN_IP_SOURCE_FILE", "").strip()

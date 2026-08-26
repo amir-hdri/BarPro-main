@@ -221,19 +221,28 @@ async def check_and_report_failure(
     error_msg_lower = error_msg.lower()
     if any(pattern in error_msg_lower for pattern in BLOCK_OR_EGRESS_PATTERNS):
         if egress_source == "clean_pool" or (proxy_url and not ("squid" in proxy_url or "172.20.0.1" in proxy_url)):
-            try:
-                from app.automation.clean_ip_pool import clean_ip_pool
+            target_url = proxy_url or ""
+            if target_url:
+                try:
+                    from app.automation.clean_ip_pool import clean_ip_pool
 
-                target_url = proxy_url or ""
-                if target_url:
                     await clean_ip_pool.mark_blocked(target_url, duration_seconds=1800)
                     logger.warning(
                         f"Circuit Breaker: Clean IP Pool proxy {target_url} marked as BLOCKED "
                         f"due to error: {error_msg}. Worker IP index remains healthy."
                     )
-                    return
-            except Exception as exc:
-                logger.error(f"Failed to mark clean proxy blocked: {exc}")
+                except Exception as exc:
+                    logger.error(f"Failed to mark clean proxy blocked: {exc}")
+            else:
+                # Clean-pool egress failed but the specific proxy identity was
+                # lost upstream. Punishing the worker's OWN IP index for a
+                # third-party proxy problem would drain a healthy worker for
+                # 30 minutes — log and move on instead.
+                logger.warning(
+                    "Circuit Breaker: clean-pool egress failure without proxy identity "
+                    f"({error_msg}); worker IP index left untouched."
+                )
+            return
 
         ip_index = os.getenv("WORKER_IP_INDEX")
         if ip_index:

@@ -1,7 +1,30 @@
 # BarPro — وضعیت مشکلات (Issues)
-**آخرین بروزرسانی: 2026-08-24 (v2.9.6)**
+**آخرین بروزرسانی: 2026-08-26 (v2.9.7 — بازسازی Pipeline استخر IP پاک)**
 
 > مرجع وضعیت سامانه و محدودیت‌های مشاهده‌شده: [docs/UTCMS_CONSTRAINTS.md](./docs/UTCMS_CONSTRAINTS.md)
+
+## 🆕 2026-08-26 — ریشه‌یابی زنده: چرا Clean IP Extractor جواب نمی‌داد (v2.9.7)
+
+> راستی‌آزمایی روی سرور مرکزی انجام شد؛ یافته‌ها با کد تطبیق داده شد. مشکل «یک Bug» نبود — ترکیبی از
+> selection concentration + probe غیرنماینده + نبود حقیقت جغرافیایی + cache کهنه بود.
+
+| # | یافته (تأیید زنده/کد) | وضعیت | اصلاح |
+|---|---|---|---|
+| P0-1 | انتخاب همیشه `ips[0]` بود → کل ناوگان از «یک» پروکسی عبور می‌کرد؛ الگویی که کاربر موبایل هرگز تولید نمی‌کند و WAF آن را جریمه می‌کند | ✅ | Round-robin روی کل استخر در `get_clean_ip`/`get_clean_ip_sync` |
+| P0-2 | لاگ زنده‌ی Beat: سیکل‌های «verified 0» متناوب با «verified 5»؛ TTL ردیس 3600s → بین سیکل‌های موفق، مسیر Sync به فایل best قدیمی برمی‌گشت | ✅ | `_pool_is_stale` + kick پس‌زمینه‌ی refresh از مسیر Sync (`CLEAN_IP_POOL_MAX_AGE_SECONDS=1800`) |
+| P0-3 | پروب با urllib (JA3 پایتون) + UA جعلی Chrome = امضای ناسازگار؛ نتیجه‌اش نماینده ترافیک واقعی (curl_cffi/chromium) نبود | ✅ | پروب با همان `chrome120` مسیر Login/Health-check |
+| P0-4 | HTTP 403/429 (ردِ IP توسط UTCMS) با «پروکسی مرده» یکی گرفته می‌شد؛ صفحه‌ی چالش WAF با 200 «سالم» شمرده می‌شد | ✅ | `classify_probe_response`: healthy / waf_challenge / target_rejected / unacceptable با جریمه‌های مجزا |
+| P0-5 | کشور از metadata منبع فرض می‌شد (حتی لیست‌های global → `country="IR"` پیش‌فرض!)؛ egress واقعی اندازه گرفته نمی‌شد | ✅ | حذف پیش‌فرض IR + `_verify_egress_country` (اندازه‌گیری GeoIP از داخل تونل) + demote غیرایرانی |
+| P1-6 | Dedup روی `ip:port` بود → http و socks5 همان آدرس یکی می‌شدند | ✅ | کلید `protocol://ip:port` |
+| P1-7 | SOCKS با urllib قابل verify نبود → حذف کاندیداهای خوب | ✅ | curl_cffi socks4/5 native؛ fallback فقط برای http(s) |
+| P1-8 | Block شدن پروکسی، کش 60s ورکر را باطل نمی‌کرد → ورکر به IP بلاک‌شده ادامه می‌داد | ✅ | `mark_blocked` → `invalidate_worker_proxy_cache()` فوری |
+| P1-9 | خطای clean-pool بدون شناسه‌ی پروکسی، WORKER_IP_INDEX سالم را 30 دقیقه بلاک می‌کرد | ✅ | گارد early-return در circuit breaker |
+| P1-10 | `from_dict` بدون اعتبارسنجی state خراب ردیس/فایل را به runtime برمی‌گرداند | ✅ | validate→normalize→accept |
+| LIVE | آمار ۷ روزه: 19 waiting(otp)، 10 needs_review(unconfirmed)، 9 failed(TARGET_SITE_TIMEOUT)، 0 success | ⚠️ | نیازمند deploy این نسخه + پایش |
+
+> ⚠️ **Deploy لازم است:** اصلاحات فوق هنوز فقط روی مخزن محلی است. رمز SSH سرورها در چت به‌صورت plaintext رد و بدل شده — **تغییر رمز** پس از پایان کار توصیه می‌شود.
+
+---
 
 ## 🆕 2026-08-24 — امنیت، قفل‌های تجدیدپذیر و پاکسازی کامل ممیزی (v2.9.5 / v2.9.6)
 

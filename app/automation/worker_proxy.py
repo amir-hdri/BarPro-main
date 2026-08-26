@@ -154,6 +154,19 @@ _PROXY_CACHE_TTL_SUCCESS: float = 60.0  # Cache valid proxy for 60s
 _PROXY_CACHE_TTL_FAILURE: float = 5.0  # Retry failed proxy lookup after 5s
 
 
+def invalidate_worker_proxy_cache() -> None:
+    """Drop ONLY this process's cached proxy choice (cheap, targeted).
+
+    Called by CleanIPPoolManager.mark_blocked so a just-blocked clean proxy can
+    never be served again from the 60s success cache. Unlike clear_proxy_cache
+    it does NOT wipe the shared pool cache — blocking one address must not
+    force a full pool re-read.
+    """
+    global _cached_proxy_url, _cached_proxy_timestamp
+    _cached_proxy_url = None
+    _cached_proxy_timestamp = 0.0
+
+
 def clear_proxy_cache() -> None:
     """Clear cached worker proxy URL to force a fresh health check on next call."""
     global _cached_proxy_url, _cached_proxy_timestamp

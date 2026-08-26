@@ -524,9 +524,15 @@ class ProxyRotator:
                         try:
                             from app.automation.clean_ip_pool import clean_ip_pool
 
-                            clean_url = clean_ip_pool.get_clean_ip_sync()
-                            if clean_url:
-                                clean_p = ProxyInfo(url=clean_url, country="IR", tags=["clean_pool"])
+                            clean_rec = clean_ip_pool.get_clean_record_sync()
+                            if clean_rec is not None:
+                                # Trust the record's measured/declared metadata —
+                                # never blanket-label a bare URL as Iranian.
+                                clean_p = ProxyInfo(
+                                    url=clean_rec.url,
+                                    country=clean_rec.observed_country or clean_rec.country or None,
+                                    tags=["clean_pool", *clean_rec.tags],
+                                )
                                 available.append(clean_p)
                         except Exception as exc:
                             logger.debug(f"ProxyRotator clean IP fallback error: {exc}")

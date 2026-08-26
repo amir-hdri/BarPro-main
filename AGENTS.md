@@ -352,7 +352,26 @@ docker compose -f compose/monitoring.yml up  # Full monitoring stack
 Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhanced → Local in sequence.
 All current providers execute within the Worker process; Keras is lazy-loaded once and reused.
 
-## Optimization Applied (2026-06-30 → 2026-08-24)
+## Optimization Applied (2026-06-30 → 2026-08-26)
+
+### 2026-08-26 — Clean IP Pool Pipeline Overhaul (v2.9.7)
+> Live-verified root causes on Central; all fixes regression-tested. Full suite at commit time: 1035 passed / 3 skipped / 2 pre-existing doc-file failures (`test_queue_routing_contract` → missing `docs/runbook_worker_registration.md`, unrelated).
+
+| Change | File | Impact |
+|--------|------|--------|
+| Round-robin selection over the ENTIRE verified pool (async + sync) instead of always returning the single lowest-latency record | `app/automation/clean_ip_pool.py` | Stops funneling every worker's UTCMS traffic through one address — the per-IP concentration pattern WAFs punish regardless of pool "cleanliness" |
+| Probe rewritten to curl_cffi `impersonate="chrome120"` with login-path header set (urllib fallback only for http/https when curl_cffi missing) | `app/automation/clean_ip_pool.py` | Screening fingerprint now matches production login/health-check traffic; SOCKS4/5 candidates verifiable natively |
+| 4-way probe verdict: `healthy / waf_challenge / target_rejected(403,429) / unacceptable` with differentiated score penalties (-25 dead, -50 rejected/challenge) and `utcms_rejected`/`waf_challenge` tags | `app/automation/clean_ip_pool.py` (`classify_probe_response`) | A target-rejected IP can no longer be stored as "working"; a 200 WAF-challenge page is no longer "healthy" |
+| Measured egress truth: `_verify_egress_country()` (GeoIP through the tunnel) on the shortlist; non-Iranian measured egress demoted (`non_iranian_egress` tag); `observed_country`/`egress_verified` persisted on records | `app/automation/clean_ip_pool.py` | Source-declared country is no longer trusted — global-mirror entries default to UNKNOWN, never to IR |
+| Dedup identity `protocol://ip:port` via pure `_dedupe_candidates`; harvesters run in parallel then dedupe | `app/automation/clean_ip_pool.py` | Same ip:port offering HTTP and SOCKS5 stays two candidates; first-responder protocol hijack removed |
+| Sync path staleness guard: `_pool_is_stale()` vs `CLEAN_IP_POOL_MAX_AGE_SECONDS` (default 1800) kicks a daemon background `refresh_pool()` from sync callers | `app/automation/clean_ip_pool.py`, `app/core/config.py` | Worker hot loop can no longer serve the same dead `best_iran_proxy.txt` forever between successful Beat cycles (live logs showed alternating "verified 0" cycles) |
+| `mark_blocked()` now calls `invalidate_worker_proxy_cache()` immediately | `app/automation/clean_ip_pool.py`, `app/automation/worker_proxy.py` | Just-blocked clean proxies can't ride out the 60s worker success-cache TTL |
+| Circuit breaker: clean-pool failure WITHOUT proxy identity logs and returns — never blocks the healthy worker's own IP index | `app/core/circuit_breaker.py` | Prevents 30-minute worker drain from third-party-proxy problems |
+| `CleanIPRecord.from_dict` validates url/protocol/ip/port before accepting Redis/file state | `app/automation/clean_ip_pool.py` | Malformed/stale state can't re-enter the runtime pool |
+| Rotator clean-pool fallback uses full record metadata (`get_clean_record_sync`) instead of hardcoding `country="IR"` | `app/automation/proxy_rotator.py` | Geo decisions downstream use measured data |
+| Regression suite: rotation, verdict matrix, 403≠dead, WAF-challenge page, SOCKS skip, egress demotion, stale kick, cache invalidation, unidentified-failure isolation, from_dict validation (39 tests in file) | `tests/test_clean_ip_pool.py`, `tests/test_worker_proxy_and_rotator.py` | Locks the exact defect classes found live |
+
+> **Deploy note:** fixes are repository-side only until pulled/rebuilt on Central + Workers. After deploy, watch scheduler logs for `verified N ... (M with measured Iranian egress)`.
 
 ### 2026-08-24 — Dependabot Version Updates Disabled
 | Change | File | Impact |

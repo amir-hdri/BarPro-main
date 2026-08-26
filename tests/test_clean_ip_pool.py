@@ -5,11 +5,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.automation import clean_ip_pool as cip
 from app.automation.clean_ip_pool import (
     CleanIPPoolManager,
     CleanIPRecord,
+    _dedupe_candidates,
     _is_safe_source_url,
     atomic_write,
+    classify_probe_response,
     is_valid_port,
     is_valid_public_ip,
     probe_single_proxy,
@@ -21,6 +24,7 @@ from app.automation.worker_proxy import (
     get_best_egress_proxy,
     get_playwright_proxy,
     get_worker_proxy_url,
+    invalidate_worker_proxy_cache,
 )
 from app.core.circuit_breaker import check_and_report_failure
 
@@ -47,11 +51,39 @@ def test_clean_ip_record_basics():
     rec.blocked_until = time.time() + 1000
     assert rec.is_usable is False
 
-    # Serialization
+    # Serialization round-trip (incl. new egress fields)
+    rec.observed_country = "IR"
+    rec.egress_verified = True
     data = rec.to_dict()
     restored = CleanIPRecord.from_dict(data)
+    assert restored is not None
     assert restored.url == rec.url
     assert restored.latency_ms == 120.5
+    assert restored.observed_country == "IR"
+    assert restored.egress_verified is True
+
+
+def test_from_dict_validates_and_rejects_malformed_state():
+    """Malformed Redis/file state must never re-enter the runtime pool."""
+    assert CleanIPRecord.from_dict(None) is None
+    assert CleanIPRecord.from_dict("garbage") is None  # type: ignore[arg-type]
+    assert CleanIPRecord.from_dict({"url": "", "ip": "1.2.3.4", "port": 80}) is None
+    assert CleanIPRecord.from_dict({"url": "ftp://x:1", "protocol": "ftp", "ip": "1.2.3.4", "port": 21}) is None
+    assert (
+        CleanIPRecord.from_dict({"url": "http://127.0.0.1:8080", "protocol": "http", "ip": "127.0.0.1", "port": 8080})
+        is None
+    )
+    assert (
+        CleanIPRecord.from_dict({"url": "http://1.2.3.4:99999", "protocol": "http", "ip": "1.2.3.4", "port": "bad"})
+        is None
+    )
+
+    ok = CleanIPRecord.from_dict(
+        {"url": "socks5://5.56.132.26:1080", "protocol": "SOCKS5", "ip": "5.56.132.26", "port": "1080"}
+    )
+    assert ok is not None
+    assert ok.protocol == "socks5"
+    assert ok.port == 1080
 
 
 def test_is_valid_public_ip_and_port():
@@ -88,49 +120,205 @@ def test_atomic_write_uses_owner_only_permissions(tmp_path):
     assert target.stat().st_mode & 0o777 == 0o600
 
 
-def test_probe_single_proxy_success():
-    candidate = CleanIPRecord(
-        url="http://185.100.47.106:8080",
-        ip="185.100.47.106",
-        port=8080,
-    )
+# ---------------------------------------------------------------------------
+# Dedup: identity is protocol + ip + port; country is NEVER defaulted to IR
+# ---------------------------------------------------------------------------
+
+
+def test_dedupe_keeps_http_and_socks_as_independent_candidates():
+    items = [
+        {"protocol": "http", "ip": "185.100.47.106", "port": 8080, "source": "a"},
+        {"protocol": "socks5", "ip": "185.100.47.106", "port": 8080, "source": "b"},
+    ]
+    deduped = _dedupe_candidates(items)
+    assert set(deduped.keys()) == {"http://185.100.47.106:8080", "socks5://185.100.47.106:8080"}
+
+
+def test_dedupe_does_not_default_country_to_ir():
+    """Global-mirror entries without country metadata must stay UNKNOWN."""
+    items = [
+        {"protocol": "http", "ip": "185.100.47.106", "port": 8080, "source": "global_mirror"},
+    ]
+    rec = _dedupe_candidates(items)["http://185.100.47.106:8080"]
+    assert rec.country == ""
+    assert rec.city is None
+
+    declared = _dedupe_candidates(
+        [{"protocol": "http", "ip": "5.56.132.26", "port": 3128, "country": "IR", "city": "Tehran"}]
+    )["http://5.56.132.26:3128"]
+    assert declared.country == "IR"
+
+
+def test_dedupe_drops_invalid_entries():
+    items = [
+        {"protocol": "http", "ip": "10.0.0.5", "port": 80},  # private
+        {"protocol": "gopher", "ip": "1.2.3.4", "port": 70},  # unsupported proto
+        {"protocol": "http", "ip": "1.2.3.4", "port": 0},  # invalid port
+    ]
+    assert _dedupe_candidates(items) == {}
+
+
+# ---------------------------------------------------------------------------
+# Probe classification: dead vs UTCMS-rejected vs WAF challenge vs healthy
+# ---------------------------------------------------------------------------
+
+
+def test_classify_probe_response_matrix():
+    assert classify_probe_response(200, "<html>utcms portal</html>") == "healthy"
+    assert classify_probe_response(301, "") == "healthy"
+    assert classify_probe_response(200, "Just a moment... enabling JavaScript") == "waf_challenge"
+    assert classify_probe_response(200, "Access Denied — captcha required") == "waf_challenge"
+    assert classify_probe_response(403, "") == "target_rejected"
+    assert classify_probe_response(429, "rate limit") == "target_rejected"
+    assert classify_probe_response(500, "") == "unacceptable"
+    assert classify_probe_response(None, "") == "unacceptable"
+
+
+def test_probe_single_proxy_success_via_chrome_fingerprint():
+    candidate = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080)
+
+    with (
+        patch("app.automation.clean_ip_pool._CURL_CFFI_IMPORT_ERROR", None),
+        patch("app.automation.clean_ip_pool._probe_via_curl_cffi", return_value=(200, 142.0, "<html>ok</html>")),
+    ):
+        res = probe_single_proxy(candidate, target_url="https://utcms.ir", timeout=2.0)
+
+    assert res is candidate
+    assert res.fail_count == 0
+    assert res.latency_ms == 142.0
+    assert res.score >= 20.0
+
+
+def test_probe_single_proxy_403_is_target_rejection_not_dead_proxy():
+    """HTTP 403 from UTCMS means the TARGET refused this IP — the strongest
+    possible signal that the address must NOT be stored as working."""
+    candidate = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080, score=100.0)
+
+    with (
+        patch("app.automation.clean_ip_pool._CURL_CFFI_IMPORT_ERROR", None),
+        patch("app.automation.clean_ip_pool._probe_via_curl_cffi", return_value=(403, 88.0, "")),
+    ):
+        res = probe_single_proxy(candidate, target_url="https://utcms.ir", timeout=2.0)
+
+    assert res is None
+    assert candidate.fail_count == 1
+    assert candidate.score == 50.0  # -50 penalty for target rejection
+    assert "utcms_rejected" in candidate.tags
+
+
+def test_probe_single_proxy_waf_challenge_200_page_not_operational():
+    """HTTP 200 whose body is a WAF/block page is NOT an operational proxy."""
+    candidate = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080, score=100.0)
+
+    with (
+        patch("app.automation.clean_ip_pool._CURL_CFFI_IMPORT_ERROR", None),
+        patch(
+            "app.automation.clean_ip_pool._probe_via_curl_cffi",
+            return_value=(200, 120.0, "just a moment... checking your browser"),
+        ),
+    ):
+        res = probe_single_proxy(candidate, target_url="https://utcms.ir", timeout=2.0)
+
+    assert res is None
+    assert "waf_challenge" in candidate.tags
+    assert candidate.score == 50.0
+
+
+def test_probe_single_proxy_transport_failure_counts_as_dead():
+    candidate = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080)
+
+    with (
+        patch("app.automation.clean_ip_pool._CURL_CFFI_IMPORT_ERROR", None),
+        patch("app.automation.clean_ip_pool._probe_via_curl_cffi", side_effect=TimeoutError("timed out")),
+    ):
+        res = probe_single_proxy(candidate, target_url="https://utcms.ir", timeout=2.0)
+
+    assert res is None
+    assert candidate.fail_count == 1
+
+
+def test_probe_urllib_fallback_only_for_http_and_skips_socks():
+    candidate_socks = CleanIPRecord(url="socks5://5.56.132.26:1080", protocol="socks5", ip="5.56.132.26", port=1080)
+    candidate_http = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080)
 
     mock_resp = MagicMock()
     mock_resp.status = 200
     mock_resp.__enter__.return_value = mock_resp
 
-    with patch("urllib.request.build_opener") as mock_opener:
+    with (
+        patch("app.automation.clean_ip_pool._CURL_CFFI_IMPORT_ERROR", "unavailable"),
+        patch("urllib.request.build_opener") as mock_opener,
+    ):
         mock_instance = MagicMock()
         mock_instance.open.return_value = mock_resp
         mock_opener.return_value = mock_instance
 
-        res = probe_single_proxy(candidate, target_url="https://utcms.ir", timeout=2.0)
-        assert res is not None
+        # SOCKS cannot be probed by urllib — skipped instead of misjudged dead-by-timeout
+        assert probe_single_proxy(candidate_socks, timeout=2.0) is None
+        mock_instance.open.assert_not_called()
+
+        res = probe_single_proxy(candidate_http, target_url="https://utcms.ir", timeout=2.0)
+        assert res is candidate_http
         assert res.fail_count == 0
-        assert res.latency_ms > 0
-        assert res.score >= 20.0
 
 
-def test_probe_single_proxy_failure():
-    candidate = CleanIPRecord(
-        url="http://185.100.47.106:8080",
-        ip="185.100.47.106",
-        port=8080,
-    )
+def test_probe_success_clears_previous_rejection_tag():
+    candidate = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080, tags=["utcms_rejected"])
+    with (
+        patch("app.automation.clean_ip_pool._CURL_CFFI_IMPORT_ERROR", None),
+        patch("app.automation.clean_ip_pool._probe_via_curl_cffi", return_value=(200, 90.0, "fine")),
+    ):
+        res = probe_single_proxy(candidate, timeout=2.0)
+    assert res is not None
+    assert "utcms_rejected" not in candidate.tags
 
-    with patch("urllib.request.build_opener") as mock_opener:
-        mock_instance = MagicMock()
-        mock_instance.open.side_effect = TimeoutError("Connection timed out")
-        mock_opener.return_value = mock_instance
 
-        res = probe_single_proxy(candidate, target_url="https://utcms.ir", timeout=2.0)
-        assert res is None
-        assert candidate.fail_count == 1
+# ---------------------------------------------------------------------------
+# Egress verification: measured country beats declared country
+# ---------------------------------------------------------------------------
+
+
+def test_screening_demotes_measured_non_iranian_egress():
+    """A source-declared 'IR' proxy whose REAL egress measures as US must be dropped."""
+    rec = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080, country="IR")
+    rec.latency_ms = 100.0
+
+    with (
+        patch.object(cip, "aggregate_all_candidates", return_value=[rec]),
+        patch.object(cip, "probe_single_proxy", return_value=rec),
+        patch.object(cip, "_verify_egress_country", return_value="US"),
+    ):
+        verified = cip.run_screening_cycle(max_pool_size=10)
+
+    assert verified == []
+    assert "non_iranian_egress" in rec.tags
+
+
+def test_screening_keeps_measured_iranian_egress_and_marks_verified():
+    rec = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080, country="")
+    rec.latency_ms = 100.0
+
+    with (
+        patch.object(cip, "aggregate_all_candidates", return_value=[rec]),
+        patch.object(cip, "probe_single_proxy", return_value=rec),
+        patch.object(cip, "_verify_egress_country", return_value="IR"),
+    ):
+        verified = cip.run_screening_cycle(max_pool_size=10)
+
+    assert len(verified) == 1
+    assert rec.egress_verified is True
+    assert rec.observed_country == "IR"
+
+
+# ---------------------------------------------------------------------------
+# Manager: rotation, blocked-skip, staleness kick, cache invalidation
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_clean_ip_pool_manager_redis_and_fallback():
     pool_mgr = CleanIPPoolManager()
+    pool_mgr.clear_local_cache()
 
     mock_redis = AsyncMock()
     sample_records = [
@@ -159,7 +347,6 @@ async def test_clean_ip_pool_manager_redis_and_fallback():
     mock_redis.exists.return_value = False
 
     with patch("app.core.redis_client.redis_manager.get", return_value=mock_redis):
-        # Force cache expire
         pool_mgr._local_cache = []
         pool_mgr._local_cache_time = 0.0
 
@@ -173,14 +360,41 @@ async def test_clean_ip_pool_manager_redis_and_fallback():
 
 
 @pytest.mark.asyncio
-async def test_clean_ip_pool_manager_mark_blocked():
+async def test_get_clean_ip_rotates_across_whole_pool():
+    """Selection must NOT funnel every call into the single lowest-latency proxy."""
+    pool_mgr = CleanIPPoolManager()
+    pool_mgr.clear_local_cache()
+    pool_mgr._local_cache = [
+        CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080),
+        CleanIPRecord(url="http://5.56.132.26:3128", ip="5.56.132.26", port=3128),
+    ]
+    pool_mgr._local_cache_time = time.time()
+
+    mock_redis = AsyncMock()
+    mock_redis.exists.return_value = False
+    with patch("app.core.redis_client.redis_manager.get", return_value=mock_redis):
+        picks = [await pool_mgr.get_clean_ip() for _ in range(4)]
+
+    assert picks[0] != picks[1]
+    assert picks[0] == picks[2]
+    assert picks[1] == picks[3]
+    pool_mgr.clear_local_cache()
+
+
+@pytest.mark.asyncio
+async def test_clean_ip_pool_manager_mark_blocked_invalidates_worker_cache():
     pool_mgr = CleanIPPoolManager()
     pool_mgr.clear_local_cache()
     mock_redis = AsyncMock()
 
-    with patch("app.core.redis_client.redis_manager.get", return_value=mock_redis):
+    with (
+        patch("app.core.redis_client.redis_manager.get", return_value=mock_redis),
+        patch("app.automation.worker_proxy.invalidate_worker_proxy_cache") as mock_invalidate,
+    ):
         await pool_mgr.mark_blocked("http://185.100.47.106:8080", duration_seconds=600)
         assert mock_redis.set.called
+        # The 60s worker-side success cache must drop the just-blocked proxy NOW
+        mock_invalidate.assert_called_once()
         pool_mgr.clear_local_cache()
 
 
@@ -247,6 +461,27 @@ def test_get_clean_ip_sync_skips_redis_blocked_proxy_in_cache():
     pool_mgr.clear_local_cache()
 
 
+def test_get_clean_ip_sync_rotates_across_cache():
+    pool_mgr = CleanIPPoolManager()
+    pool_mgr.clear_local_cache()
+    pool_mgr._local_cache = [
+        CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080),
+        CleanIPRecord(url="http://5.56.132.26:3128", ip="5.56.132.26", port=3128),
+    ]
+
+    mock_redis = MagicMock()
+    mock_redis.exists.return_value = False
+
+    with patch("app.core.circuit_breaker._get_redis_sync", return_value=mock_redis):
+        first = pool_mgr.get_clean_ip_sync()
+        second = pool_mgr.get_clean_ip_sync()
+        third = pool_mgr.get_clean_ip_sync()
+
+    assert first != second
+    assert first == third
+    pool_mgr.clear_local_cache()
+
+
 def test_get_clean_ip_sync_file_fallback_respects_blocked(tmp_path):
     """File fallback must not return a proxy that is marked blocked in Redis."""
     pool_mgr = CleanIPPoolManager()
@@ -265,6 +500,29 @@ def test_get_clean_ip_sync_file_fallback_respects_blocked(tmp_path):
             mock_redis.exists.return_value = False  # free
             assert pool_mgr.get_clean_ip_sync() == "http://185.100.47.106:8080"
     pool_mgr.clear_local_cache()
+
+
+def test_get_clean_ip_sync_kicks_background_refresh_when_stale(tmp_path):
+    """Sync path must trigger screening when it has nothing usable and state is stale —
+    historically it consumed the same dead best_iran_proxy.txt forever."""
+    pool_mgr = CleanIPPoolManager()
+    pool_mgr.clear_local_cache()
+
+    missing = tmp_path / "missing"
+    with (
+        patch("app.automation.clean_ip_pool.FILE_WORKING_JSON", str(missing)),
+        patch("app.automation.clean_ip_pool.FILE_BEST_TXT", str(missing)),
+        patch("app.automation.clean_ip_pool.FILE_WORKING_TXT", str(missing)),
+        patch.object(pool_mgr, "_kick_background_refresh") as kick,
+    ):
+        assert pool_mgr.get_clean_ip_sync() is None
+        kick.assert_called_once()
+    pool_mgr.clear_local_cache()
+
+
+# ---------------------------------------------------------------------------
+# worker_proxy integration
+# ---------------------------------------------------------------------------
 
 
 def test_worker_proxy_fallback_to_clean_pool():
@@ -306,6 +564,20 @@ def test_worker_proxy_clean_pool_only_mode():
             assert url == "http://5.56.132.26:3128"
 
 
+def test_invalidate_worker_proxy_cache_drops_choice_without_touching_pool():
+    import app.automation.worker_proxy as wp
+
+    with patch("app.automation.clean_ip_pool.clean_ip_pool.clear_local_cache") as pool_clear:
+        wp._cached_proxy_url = "http://185.100.47.106:8080"
+        wp._cached_proxy_timestamp = time.time()
+
+        invalidate_worker_proxy_cache()
+
+        assert wp._cached_proxy_url is None
+        assert wp._cached_proxy_timestamp == 0.0
+        pool_clear.assert_not_called()
+
+
 def test_proxy_resolution_preserves_credentials_and_playwright_separates_them():
     clear_proxy_cache()
     raw_url = "http://proxy-user:proxy-pass@proxy.example:8080"
@@ -339,6 +611,11 @@ def test_worker_proxy_fail_closed_in_production_when_all_empty():
                     get_best_egress_proxy()
 
 
+# ---------------------------------------------------------------------------
+# Circuit breaker isolation
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
 async def test_circuit_breaker_clean_pool_per_ip_isolation():
     """Verify that an error on a clean pool proxy marks only that proxy blocked, not WORKER_IP_INDEX."""
@@ -359,5 +636,25 @@ async def test_circuit_breaker_clean_pool_per_ip_isolation():
                 assert mock_mark.call_args[0][0] == "http://185.100.47.106:8080"
 
                 # WORKER_IP_INDEX key was NOT set in Redis
+                for call in mock_redis.set.call_args_list:
+                    assert "utcms:circuit_breaker:blocked:2" not in str(call)
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_unidentified_clean_pool_failure_spares_worker_index():
+    """Clean-pool egress failed but identity was lost upstream: blocking the healthy
+    worker's own IP index for 30 minutes would drain it — it must stay untouched."""
+    mock_redis = AsyncMock()
+
+    with patch("app.core.redis_client.redis_manager.get", return_value=mock_redis):
+        with patch("app.automation.clean_ip_pool.clean_ip_pool.mark_blocked", new_callable=AsyncMock) as mock_mark:
+            with patch.dict(os.environ, {"WORKER_IP_INDEX": "2"}):
+                await check_and_report_failure(
+                    error_msg="connection timed out during clean pool request",
+                    egress_source="clean_pool",
+                    proxy_url=None,
+                )
+
+                mock_mark.assert_not_called()
                 for call in mock_redis.set.call_args_list:
                     assert "utcms:circuit_breaker:blocked:2" not in str(call)
