@@ -44,6 +44,12 @@ logger = logging.getLogger(__name__)
 # --- Default Parameters ---
 UTCMS_HOST = "utcms.ir"
 UTCMS_TARGET_URL = f"https://{UTCMS_HOST}"
+# Issuance-module probe: the WAF (since 2026-08-24) blocks hosting/proxy IPs on
+# /Barname/Document/* with HTTP 408 while the portal home stays open. A proxy
+# that only passes the portal home is USELESS for waybill issuance, so the
+# screening engine certifies candidates against this path instead
+# (live-verified hotfix found on Central, now canonical here).
+ISSUANCE_PROBE_URL = "https://barname.utcms.ir/Barname/Document/HagigiHogugi"
 DEFAULT_TIMEOUT_SECONDS = 7.5
 MAX_PROBE_WORKERS = 35
 
@@ -732,7 +738,10 @@ WAF_CHALLENGE_MARKERS = (
 )
 
 # Statuses meaning THE TARGET refused this client/IP: proxy tunnel is fine.
-TARGET_REJECTION_STATUSES = {403, 429}
+# 408 is included deliberately: since 2026-08-24 the UTCMS WAF answers
+# hosting/proxy IPs with 408 on /Barname/Document/* while the portal home
+# stays open — a soft IP block, not a slow client.
+TARGET_REJECTION_STATUSES = {403, 408, 429}
 
 
 def classify_probe_response(status_code: int | None, body_snippet: str) -> str:
@@ -758,16 +767,19 @@ def classify_probe_response(status_code: int | None, body_snippet: str) -> str:
 
 def probe_single_proxy(
     candidate: CleanIPRecord,
-    target_url: str = UTCMS_TARGET_URL,
+    target_url: str = ISSUANCE_PROBE_URL,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> CleanIPRecord | None:
     """
-    Test HTTPS CONNECT handshake against the target URL using the SAME Chrome
-    fingerprint as production traffic. Returns the updated CleanIPRecord if
-    verified healthy, or None.
+    Certify the candidate against the ISSUANCE module path (not the portal
+    home) using the SAME Chrome fingerprint as production traffic. Returns the
+    updated CleanIPRecord if verified healthy, or None.
+
+    The portal home stays open for proxy IPs; only /Barname/Document/* reveals
+    the WAF's 408 soft-block — screening anywhere else is a false positive.
 
     Verdicts are independent — "proxy dead" (transport), "UTCMS rejected this
-    IP" (403/429) and "WAF challenge page" (2xx block body) get different
+    IP" (403/408/429) and "WAF challenge page" (2xx block body) get different
     penalties; a target-rejected IP must never enter the pool as "working".
 
     Falls back to a plain urllib opener only when curl_cffi is unavailable;
@@ -924,7 +936,7 @@ def run_screening_cycle(
         return rec
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(max_workers, 64))) as executor:
-        futures = {executor.submit(probe_single_proxy, c, UTCMS_TARGET_URL, probe_timeout): c for c in candidates}
+        futures = {executor.submit(probe_single_proxy, c, ISSUANCE_PROBE_URL, probe_timeout): c for c in candidates}
         for fut in concurrent.futures.as_completed(futures):
             try:
                 res = fut.result()

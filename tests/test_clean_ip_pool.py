@@ -170,8 +170,25 @@ def test_classify_probe_response_matrix():
     assert classify_probe_response(200, "Access Denied — captcha required") == "waf_challenge"
     assert classify_probe_response(403, "") == "target_rejected"
     assert classify_probe_response(429, "rate limit") == "target_rejected"
+    # WAF soft-block on the issuance module (live behavior since 2026-08-24)
+    assert classify_probe_response(408, "") == "target_rejected"
     assert classify_probe_response(500, "") == "unacceptable"
     assert classify_probe_response(None, "") == "unacceptable"
+
+
+def test_probe_defaults_to_issuance_path_not_portal_home():
+    """The portal home stays open for proxy IPs; screening MUST certify against
+    /Barname/Document/* or every hosting IP becomes a false positive."""
+    candidate = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080)
+
+    with (
+        patch("app.automation.clean_ip_pool._CURL_CFFI_IMPORT_ERROR", None),
+        patch("app.automation.clean_ip_pool._probe_via_curl_cffi", return_value=(200, 90.0, "ok")) as probe,
+    ):
+        probe_single_proxy(candidate)
+
+    assert probe.call_args[0][1] == cip.ISSUANCE_PROBE_URL
+    assert "/Barname/Document/" in probe.call_args[0][1]
 
 
 def test_probe_single_proxy_success_via_chrome_fingerprint():
