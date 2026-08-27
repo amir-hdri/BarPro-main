@@ -54,15 +54,18 @@ async def test_utcms_documents_continue_through_chromium_before_http_authenticat
 
 
 @pytest.mark.asyncio
-async def test_utcms_authenticated_documents_use_seeded_http_session() -> None:
-    """Menu navigation must use curl_cffi after HTTP login seeds the session."""
+async def test_utcms_authenticated_documents_use_dedicated_login_session() -> None:
+    """Menu documents must not share the landing page's XHR session."""
     page = MagicMock()
     bridge = UtcmsHttpBrowserBridge(page, proxy_url="http://127.0.0.1:3128")
     bridge._authenticated_document_bridge = True
-    response = MagicMock(status_code=200, content=b"<form id='txtSenderFirstName'></form>", headers={"Content-Type": "text/html"})
-    session = MagicMock()
-    session.request.return_value = response
-    bridge._session = session
+    response = MagicMock(status_code=200, content=b"<form id='txtSenderFirstName'></form>", headers={})
+    warmup_response = MagicMock(status_code=200, content=b"<html>landing</html>", headers={})
+    document_session = MagicMock()
+    document_session.request.side_effect = [warmup_response, response]
+    xhr_session = MagicMock()
+    bridge._document_session = document_session
+    bridge._session = xhr_session
 
     request = MagicMock()
     request.url = "https://barname.utcms.ir/Barname/Document/HagigiHogugi"
@@ -85,9 +88,30 @@ async def test_utcms_authenticated_documents_use_seeded_http_session() -> None:
     route.continue_.assert_not_awaited()
     route.abort.assert_not_awaited()
     route.fulfill.assert_awaited_once()
-    forwarded_headers = session.request.call_args.kwargs["headers"]
-    assert forwarded_headers["Cookie"] == "Barname=session-token"
-    assert forwarded_headers["Referer"] == "https://barname.utcms.ir/Barname/Notification/Notification"
+    assert document_session.request.call_count == 2
+    assert document_session.request.call_args_list[0].args[1].endswith("/Barname/Notification/Notification")
+    assert document_session.request.call_args_list[1].args[1].endswith("/Barname/Document/HagigiHogugi")
+    xhr_session.request.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_utcms_authenticated_landing_document_stays_native() -> None:
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page, proxy_url="http://127.0.0.1:3128")
+    bridge._authenticated_document_bridge = True
+    bridge._document_session = MagicMock()
+    route = MagicMock()
+    route.continue_ = AsyncMock()
+    route.abort = AsyncMock()
+    route.request.url = "https://barname.utcms.ir/Barname/Notification/Notification"
+    route.request.method = "GET"
+    route.request.resource_type = "document"
+
+    await bridge._handle_route(route)
+
+    route.continue_.assert_awaited_once()
+    route.abort.assert_not_awaited()
+    bridge._document_session.request.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -185,12 +209,228 @@ async def test_adopt_authenticated_session_reuses_exact_session() -> None:
     bridge._session = old
     authenticated = MagicMock()
 
-    await bridge.adopt_authenticated_session(
-        authenticated,
-        [{"name": "Barname", "value": "session", "domain": "barname.utcms.ir"}],
+    with patch.object(bridge, "_prefetch_issuance_document", new=AsyncMock()) as prefetch:
+        await bridge.adopt_authenticated_session(
+            authenticated,
+            [{"name": "Barname", "value": "session", "domain": "barname.utcms.ir"}],
+        )
+
+    assert bridge._document_session is authenticated
+    assert bridge._session is not authenticated
+    assert bridge._authenticated_document_bridge is True
+    assert bridge._preserve_authenticated_session is False
+    prefetch.assert_awaited_once_with(authenticated)
+    old.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_prefetched_issuance_document_is_fulfilled_without_second_network_call() -> None:
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page)
+    bridge._authenticated_document_bridge = True
+    bridge._document_session = MagicMock()
+    path = "/barname/document/hagigihogugi"
+    bridge._prefetched_documents[path] = (200, {"Content-Type": "text/html"}, b"txtSenderFirstName")
+
+    request = MagicMock()
+    request.url = "https://barname.utcms.ir/barname/Document/HagigiHogugi"
+    request.method = "GET"
+    request.resource_type = "document"
+    request.post_data_buffer = None
+    request.all_headers = AsyncMock(return_value={})
+    route = MagicMock(request=request)
+    route.continue_ = AsyncMock()
+    route.abort = AsyncMock()
+    route.fulfill = AsyncMock()
+
+    await bridge._handle_route(route)
+
+    route.fulfill.assert_awaited_once_with(
+        status=200,
+        headers={"Content-Type": "text/html"},
+        body=b"txtSenderFirstName",
+    )
+    bridge._document_session.request.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_consuming_prefetch_promotes_document_session_for_form_xhr() -> None:
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page)
+    bridge._authenticated_document_bridge = True
+    document_session = MagicMock()
+    xhr_session = MagicMock()
+    bridge._document_session = document_session
+    bridge._session = xhr_session
+    bridge._prefetched_documents["/barname/document/hagigihogugi"] = (
+        200,
+        {"Content-Type": "text/html"},
+        b"txtSenderFirstName",
     )
 
-    assert bridge._session is authenticated
-    assert bridge._authenticated_document_bridge is True
+    request = MagicMock()
+    request.url = "https://barname.utcms.ir/Barname/Document/HagigiHogugi"
+    request.method = "GET"
+    request.resource_type = "document"
+    request.post_data_buffer = None
+    request.all_headers = AsyncMock(return_value={})
+    route = MagicMock(request=request)
+    route.continue_ = AsyncMock()
+    route.abort = AsyncMock()
+    route.fulfill = AsyncMock()
+
+    await bridge._handle_route(route)
+
+    assert bridge._session is document_session
     assert bridge._preserve_authenticated_session is True
-    old.close.assert_called_once()
+    assert bridge._form_assets_bridge_enabled is True
+    xhr_session.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_authenticated_landing_assets_stay_native_until_form_is_consumed() -> None:
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page)
+    bridge._authenticated_document_bridge = True
+    route = MagicMock()
+    route.continue_ = AsyncMock()
+    route.abort = AsyncMock()
+    route.request.url = "https://barname.utcms.ir/assets/js/main.js"
+    route.request.method = "GET"
+    route.request.resource_type = "script"
+
+    await bridge._handle_route(route)
+
+    route.continue_.assert_awaited_once()
+    route.abort.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_form_assets_use_authenticated_curl_session_with_retry() -> None:
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page, proxy_url="http://127.0.0.1:3128")
+    bridge._authenticated_document_bridge = True
+    bridge._form_assets_bridge_enabled = True
+    response = MagicMock(status_code=200, content=b"window.formReady=true;", headers={"Content-Type": "text/javascript"})
+    session = MagicMock()
+    session.request.side_effect = [RuntimeError("tls reset"), response]
+    bridge._document_session = session
+    bridge._document_session_warmed = True
+    bridge._new_session = MagicMock(return_value=session)
+
+    request = MagicMock()
+    request.url = "https://barname.utcms.ir/assets/jspage/Barname/hagigihogugi.js"
+    request.method = "GET"
+    request.resource_type = "script"
+    request.post_data_buffer = None
+    request.all_headers = AsyncMock(return_value={})
+    route = MagicMock(request=request)
+    route.continue_ = AsyncMock()
+    route.abort = AsyncMock()
+    route.fulfill = AsyncMock()
+
+    await bridge._handle_route(route)
+
+    assert session.request.call_count == 2
+    route.fulfill.assert_awaited_once_with(
+        status=200,
+        headers={"Content-Type": "text/javascript"},
+        body=b"window.formReady=true;",
+    )
+
+
+@pytest.mark.asyncio
+async def test_prefetched_form_asset_is_fulfilled_without_network() -> None:
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page)
+    bridge._authenticated_document_bridge = True
+    bridge._form_assets_bridge_enabled = True
+    key = "/assets/jspage/barname/hagigihogugi.js?v=abc"
+    bridge._prefetched_assets[key] = (
+        200,
+        {"Content-Type": "text/javascript"},
+        b"window.formReady=true;",
+    )
+    bridge._document_session = MagicMock()
+
+    request = MagicMock()
+    request.url = "https://barname.utcms.ir/assets/jspage/Barname/hagigihogugi.js?v=abc"
+    request.method = "GET"
+    request.resource_type = "script"
+    request.post_data_buffer = None
+    request.all_headers = AsyncMock(return_value={})
+    route = MagicMock(request=request)
+    route.continue_ = AsyncMock()
+    route.abort = AsyncMock()
+    route.fulfill = AsyncMock()
+
+    await bridge._handle_route(route)
+
+    route.fulfill.assert_awaited_once_with(
+        status=200,
+        headers={"Content-Type": "text/javascript"},
+        body=b"window.formReady=true;",
+    )
+    bridge._document_session.request.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_script_prefetch_is_limited_to_critical_form_files() -> None:
+    """Prefetching every script wore the authenticated connection out live."""
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page)
+    bridge._session = MagicMock()
+    html = (
+        b"<html><head>"
+        b"<script src='/assets/js/analytics.js'></script>"
+        b"<script src='/assets/plugins/jquery/jquery.js'></script>"
+        b"<script src='/assets/plugins/jqury-ui/jquery-ui.js'></script>"
+        b"<script src='/assets/jspage/Barname/hagigihogugi.js?v=1'></script>"
+        b"<script src='https://cdn.example.com/other.js'></script>"
+        b"</head></html>"
+    )
+    session = MagicMock()
+    session.request.return_value = MagicMock(
+        status_code=200,
+        content=b"//js",
+        headers={"Content-Type": "text/javascript"},
+    )
+
+    await bridge._prefetch_document_scripts(
+        session, "https://barname.utcms.ir/barname/Document/HagigiHogugi", html
+    )
+
+    fetched = [call.args[1] for call in session.request.call_args_list]
+    assert fetched == [
+        "https://barname.utcms.ir/assets/plugins/jquery/jquery.js",
+        "https://barname.utcms.ir/assets/plugins/jqury-ui/jquery-ui.js",
+        "https://barname.utcms.ir/assets/jspage/Barname/hagigihogugi.js?v=1",
+    ]
+    assert set(bridge._prefetched_assets) == {
+        "/assets/plugins/jquery/jquery.js",
+        "/assets/plugins/jqury-ui/jquery-ui.js",
+        "/assets/jspage/barname/hagigihogugi.js?v=1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_failed_script_prefetch_does_not_abort_the_document() -> None:
+    """One reset static file must not fail the whole authenticated handoff."""
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page)
+    bridge._session = MagicMock()
+    html = (
+        b"<script src='/assets/plugins/jquery/jquery.js'></script>"
+        b"<script src='/assets/jspage/Barname/hagigihogugi.js'></script>"
+    )
+    session = MagicMock()
+    session.request.side_effect = [
+        RuntimeError("connection reset"),
+        MagicMock(status_code=200, content=b"//js", headers={"Content-Type": "text/javascript"}),
+    ]
+
+    await bridge._prefetch_document_scripts(
+        session, "https://barname.utcms.ir/barname/Document/HagigiHogugi", html
+    )
+
+    assert set(bridge._prefetched_assets) == {"/assets/jspage/barname/hagigihogugi.js"}

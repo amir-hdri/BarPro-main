@@ -4,6 +4,8 @@
 >
 > **UTCMS live contract:** [docs/UTCMS_CONSTRAINTS.md](./docs/UTCMS_CONSTRAINTS.md) — فیلدهای اجباری، WAF/IP، CAPTCHA، زمان‌بندی و معیار اثبات ثبت
 >
+> **UTCMS bot behavior contract:** [docs/UTCMS_BOT_BEHAVIOR_CONTRACT.md](./docs/UTCMS_BOT_BEHAVIOR_CONTRACT.md) — خطوط قرمز، تفکیک session/transport، ترتیب ناوبری، گیت زنده بودن فرم، read-back فیلدها و پروتکل dry-run
+>
 > **Canonical tracked knowledge graph:** [docs/BARPRO_KNOWLEDGE_GRAPH.md](./docs/BARPRO_KNOWLEDGE_GRAPH.md) — API, schema, queues, RPA, deployment, evidence labels
 
 ## Project Identity

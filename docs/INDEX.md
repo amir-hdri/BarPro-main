@@ -2,6 +2,7 @@
 
 ## مراجع عملیاتی اصلی
 
+- [قوانین و رفتار الزامی ربات در مواجهه با UTCMS](UTCMS_BOT_BEHAVIOR_CONTRACT.md) — مرجع واحد خطوط قرمز، قرارداد session/transport، گیت زنده بودن فرم، read-back فیلدها و پروتکل dry-run
 - [قرارداد و محدودیت‌های UTCMS](UTCMS_CONSTRAINTS.md) — فیلدهای اجباری، CAPTCHA، IP/WAF، زمان‌بندی، صف‌ها و معیار اثبات ثبت
 - [قابلیت چندمسیره + فاصله/زمان](MULTI_ROUTE_FEATURE.md) — قالب مسیر، دستهٔ چندمسیره و محاسبهٔ فاصله/زمان جاده‌ای
 - [Runbook قطعی/اختلال UTCMS](runbook_utcms_outage.md)
@@ -55,6 +56,7 @@ bash manage.sh stop
 - Required captcha assets include CNN, PyTorch fuel CRNN, fuel vocab, and Keras fallback model
 - Keras runs in-process; the `17:30–08:00` OTP interval is predictive, not a guaranteed UTCMS window
 - Waybill `success` requires three-witness reconciliation; browser success alone is not final
+- The issuance form must pass a JavaScript-liveness gate (jQuery, jQuery UI autocomplete, validator, step handler) before any field is filled; DOM markers alone are not readiness
 - Universal mobile anti-zoom enforced across iOS and Android
 
 Server/container/firewall/environment claims are runtime facts. When direct evidence is
@@ -92,4 +94,4 @@ Legacy design stubs that previously lived under `docs/architecture/` were remove
 in the v2.9.6 documentation cleanup — the tracked knowledge graph and root
 `ARCHITECTURE.md` are authoritative.
 
-Last updated: 2026-08-27 (v2.9.8)
+Last updated: 2026-08-27 (v2.9.9)

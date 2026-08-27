@@ -1,6 +1,6 @@
 # قرارداد و محدودیت‌های عملیاتی UTCMS
 
-**آخرین بازبینی میدانی: 2026-08-26**
+**آخرین بازبینی میدانی: 2026-08-27**
 
 این سند مرجع واحد رفتار مشاهده‌شده‌ی `barname.utcms.ir` و
 `utcms.ir/ShowFuelQuota.aspx` است. مقادیر این سند «قرارداد رسمی منتشرشده‌ی
@@ -16,6 +16,9 @@ UTCMS» نیستند؛ بر اساس فرم زنده، پاسخ‌های شبک�
   `/Barname/Document/HagigiHogugi` می‌تواند HTTP 408 و body کوتاه برگرداند، در حالی که
   همان صفحه پس از `Login -> Notification -> menu click` سالم باز می‌شود.
 - بنابراین 408 روی deep-link سرد، به‌تنهایی شاهد outage یا block بودن IP نیست.
+- آزمون 2026-08-27 نشان داد فرم می‌تواند از نظر HTML کامل تحویل شود اما
+  اسکریپت‌های آن reset شده باشند؛ در این وضعیت تکمیل فیلد یا ثبت مجاز نیست و
+  گیت «زنده بودن فرم» باید مسیر را متوقف کند.
 - برای آزمون‌های این سند tracking code سه‌شاهدی جدید تولید نشده است؛ بنابراین ثبت موفق جدید اعلام نمی‌شود.
 - `ALLOW_LIVE_SUBMIT` باید پیش‌فرض `false` بماند. فعال‌سازی آن فقط برای یک Job
   ازپیش‌اعتبارسنجی‌شده و با نظارت اپراتور مجاز است.
@@ -103,14 +106,32 @@ BarPro فقط فیلدهای زیر را از کاربر می‌گیرد و payl
 
 ## 5. Bridge مرورگر
 
-- Bridge فقط requestهای UTCMS از نوع `document`, `xhr`, `fetch` را با
-  `curl_cffi` عبور می‌دهد.
-- JS/CSS/font/image باید توسط Chromium از Squid دریافت شوند. Bridge کردن همه‌ی
-  assetها باعث serialization، resetهای TLS و timeout 480 ثانیه‌ای شد.
-- session دقیق `curl_cffi` که login را کامل کرده به Bridge منتقل می‌شود. بازسازی session
-  صرفاً از cookieها ممکن است context سرور را از دست بدهد.
+- Bridge requestهای UTCMS از نوع `document`, `xhr`, `fetch` را با `curl_cffi`
+  عبور می‌دهد. علاوه بر آن، فقط اسکریپت‌های حیاتی فرم صدور (jquery، jquery-ui،
+  jquery.validate، formvalidation.popular، formhelper، hagigihogugitemplate و
+  hagigihogugi) از همان session احرازشده پیش‌واکشی و از cache به Chromium تحویل
+  می‌شوند.
+- سایر JS/CSS/font/image باید توسط Chromium از Squid دریافت شوند. Bridge کردن
+  همه‌ی assetها باعث serialization، resetهای TLS و timeout 480 ثانیه‌ای شد.
+- آزمون 2026-08-27 نشان داد Chromium روی همین اسکریپت‌های حیاتی
+  `ERR_CONNECTION_CLOSED/RESET` می‌گیرد؛ در آن حالت DOM فرم کامل است ولی فرم
+  «زنده» نیست (انتخاب نوع شخص فیلد نام را باز نمی‌کند و `KalaSearch` خالی است).
+  بنابراین حاضر بودن markerهای DOM شرط کافی برای تکمیل فرم نیست.
+- session جدا و سرد برای assetها همان TLS reset را می‌گیرد؛ پیش‌واکشی باید در
+  ادامه‌ی همان session موفق `Login → Notification → HagigiHogugi` انجام شود.
+- پیش‌واکشی «همه‌ی» اسکریپت‌های صفحه رد شد: اتصال پیش از رسیدن به
+  `hagigihogugi*.js` فرسود. فهرست حیاتی حداقلی الزامی است و شکست یک فایل نباید
+  تحویل فرم را باطل کند.
+- session دقیق `curl_cffi` که login را کامل کرده به Bridge منتقل می‌شود و برای
+  documentهای صدور رزرو می‌ماند؛ ترافیک AJAX صفحه‌ی landing روی session جداگانه
+  می‌رود، وگرنه اتصال مشترک می‌سوزد و navigation بعدی خطا می‌دهد. پس از مصرف فرم،
+  XHRهای فرم روی همان session ارتقا می‌یابند. بازسازی session صرفاً از cookieها
+  ممکن است context سرور را از دست بدهد.
+- reset یا خطای asset/document نباید session احرازشده را reset کند.
 - document صدور ابتدا از landing احرازشده‌ی Notification و لینک منوی داخلی باز می‌شود؛
   direct goto فقط recovery انتهایی است.
+
+مرجع کامل رفتار الزامی ربات: [قوانین و رفتار ربات در مواجهه با UTCMS](UTCMS_BOT_BEHAVIOR_CONTRACT.md)
 
 ## 6. صف، Worker و جلوگیری از تداخل
 

@@ -186,6 +186,13 @@ solver فعلی نیست و نباید معماری subprocess Python 3.12 از 
 انتقال cookie/session و bridge محدود `document/xhr/fetch` داشته باشد و در صورت نیاز
 به Playwright fallback کند. 429 و 408/5xx transient نباید بودجه CAPTCHA را بسوزانند.
 
+تفکیک session در همین مسیر بخشی از قرارداد است: session دقیق login برای
+documentهای صدور و اسکریپت‌های حیاتی فرم رزرو می‌شود، ترافیک AJAX صفحهٔ landing
+روی session جدا می‌رود، و پس از تحویل فرم، XHRهای فرم روی همان session احرازشده
+ارتقا می‌یابند. تکمیل فیلدها تنها بعد از عبور گیت «زنده بودن JavaScript فرم» مجاز
+است؛ حاضر بودن markerهای DOM کافی نیست. مرجع:
+[docs/UTCMS_BOT_BEHAVIOR_CONTRACT.md](docs/UTCMS_BOT_BEHAVIOR_CONTRACT.md).
+
 ## 8. proxy، circuit breaker و IP isolation
 
 modeهای معتبر egress عبارت‌اند از `worker_first`، `clean_pool_only` و `hybrid`.

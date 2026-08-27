@@ -322,6 +322,57 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
         link.click.assert_awaited_once_with(timeout=5000)
         self.mock_page.goto.assert_not_called()
 
+    async def test_dom_only_form_without_javascript_is_rejected(self):
+        """A DOM-complete form whose scripts were reset must never be filled."""
+        self.manager._open_waybill_form_page = AsyncMock()
+        self.mock_page.evaluate = AsyncMock(
+            return_value={
+                "jquery": False,
+                "jquery_ui": False,
+                "validator": False,
+                "handler": "GoLVL2",
+                "handler_ready": False,
+            }
+        )
+
+        with self.assertRaises(WaybillError) as ctx:
+            await self.manager._require_live_form_javascript(timeout_ms=0)
+
+        self.assertIn("اسکریپت", str(ctx.exception))
+
+    async def test_live_form_javascript_passes_the_gate(self):
+        self.manager._open_waybill_form_page = AsyncMock()
+        self.mock_page.evaluate = AsyncMock(
+            return_value={
+                "jquery": True,
+                "jquery_ui": True,
+                "validator": True,
+                "handler": "GoLVL2",
+                "handler_ready": True,
+            }
+        )
+
+        await self.manager._ensure_waybill_form_page()
+
+        self.mock_page.evaluate.assert_awaited()
+
+    async def test_unavailable_javascript_probe_does_not_fail_closed(self):
+        """Other gates own page-level failures; the probe must stay diagnostic."""
+        self.manager._open_waybill_form_page = AsyncMock()
+        self.mock_page.evaluate = AsyncMock(side_effect=RuntimeError("no execution context"))
+
+        await self.manager._ensure_waybill_form_page()
+
+
+class TestFormJavascriptGate(unittest.TestCase):
+    def test_liveness_requires_every_critical_layer(self):
+        base = {"jquery": True, "jquery_ui": True, "validator": True, "handler_ready": True}
+        self.assertTrue(EnhancedWaybillManager._form_javascript_is_live(base))
+        for key in ("jquery", "jquery_ui", "validator", "handler_ready"):
+            broken = dict(base)
+            broken[key] = False
+            self.assertFalse(EnhancedWaybillManager._form_javascript_is_live(broken))
+
 
 if __name__ == "__main__":
     unittest.main()

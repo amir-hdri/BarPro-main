@@ -9,6 +9,7 @@ import logging
 import os
 import random
 import re
+import time
 from datetime import datetime
 from typing import Any
 from urllib.parse import urljoin, urlsplit, urlunsplit
@@ -2081,6 +2082,16 @@ class EnhancedWaybillManager:
             raise WaybillError(f"ایجاد بارنامه با شکست مواجه شد: {str(e)}") from e
 
     async def _ensure_waybill_form_page(self):
+        """Open the issuance form and prove it is usable, not merely present.
+
+        The navigation itself lives in :meth:`_open_waybill_form_page`; this
+        wrapper adds the JavaScript-liveness gate so no exit path can hand back
+        a form whose scripts failed to load.
+        """
+        await self._open_waybill_form_page()
+        await self._require_live_form_javascript()
+
+    async def _open_waybill_form_page(self):
         """
         In some deployments, the configured create URL lands on a not-found shell page.
         Discover and open the real "حمل بارنامه" page through the authenticated
@@ -2494,6 +2505,93 @@ class EnhancedWaybillManager:
             except Exception:
                 continue
         return False
+
+    async def _probe_form_javascript(self) -> dict[str, Any] | None:
+        """Report whether the issuance form's JavaScript actually initialised.
+
+        Live UTCMS testing showed the form HTML can be delivered intact while
+        its scripts fail with ``ERR_CONNECTION_CLOSED``/``RESET``.  The DOM then
+        contains every marker used by :meth:`_is_waybill_form_ready`, yet the
+        person-type selector never reveals the name fields and the cargo
+        autocomplete (``KalaSearch``) returns nothing.  Filling or submitting
+        such a page produces an invalid, unverifiable record, so readiness must
+        be proven at the JavaScript layer as well.
+
+        Returns ``None`` when the probe itself could not run; callers must treat
+        that as "unknown", not as a failure.
+        """
+        script = """
+            () => {
+                const jq = window.jQuery;
+                const report = {
+                    jquery: typeof jq === 'function',
+                    jquery_ui: !!(jq && jq.ui && jq.ui.autocomplete),
+                    validator: !!(jq && jq.validator),
+                    handler: null,
+                    handler_ready: true,
+                };
+                const button = document.querySelector(
+                    "#btnGoLVL2, #GoLVL2, button[onclick*='GoLVL2'], input[onclick*='GoLVL2']"
+                );
+                const onclick = button ? (button.getAttribute('onclick') || '') : '';
+                const match = onclick.match(/([A-Za-z_$][A-Za-z0-9_$]*)\\s*\\(/);
+                if (match) {
+                    report.handler = match[1];
+                    report.handler_ready = typeof window[match[1]] === 'function';
+                }
+                return report;
+            }
+        """
+        try:
+            report = await self.page.evaluate(script)
+        except Exception:
+            logger.debug("waybill_form_javascript_probe_failed", exc_info=True)
+            return None
+        if not isinstance(report, dict):
+            return None
+        return report
+
+    @staticmethod
+    def _form_javascript_is_live(report: dict[str, Any]) -> bool:
+        return bool(
+            report.get("jquery")
+            and report.get("jquery_ui")
+            and report.get("validator")
+            and report.get("handler_ready", True)
+        )
+
+    async def _require_live_form_javascript(self, timeout_ms: int = 20000) -> None:
+        """Block progress until the form's JavaScript is initialised.
+
+        Raises:
+            WaybillError: the scripts never initialised within ``timeout_ms``.
+        """
+        deadline = time.monotonic() + max(float(timeout_ms), 0.0) / 1000.0
+        report: dict[str, Any] | None = None
+        while True:
+            report = await self._probe_form_javascript()
+            if report is None:
+                # The probe could not run (non-Chromium page double or a page
+                # level error surfaced by other gates); do not fail-closed here.
+                return
+            if self._form_javascript_is_live(report):
+                logger.info(
+                    "waybill_form_javascript_ready",
+                    extra={"extra_fields": {"handler": report.get("handler")}},
+                )
+                return
+            if time.monotonic() >= deadline:
+                break
+            await asyncio.sleep(0.5)
+
+        logger.error(
+            "waybill_form_javascript_not_initialized",
+            extra={"extra_fields": {k: report.get(k) for k in ("jquery", "jquery_ui", "validator", "handler_ready")}},
+        )
+        raise WaybillError(
+            "اسکریپت‌های فرم بارنامه بارگذاری نشدند (فرم فقط در سطح HTML حاضر است). "
+            "ادامهٔ تکمیل یا ثبت در این وضعیت مجاز نیست."
+        )
 
     async def _looks_like_not_found_page(self) -> bool:
         title = await self._safe_page_title()

@@ -506,11 +506,16 @@ route readiness مبتنی بر city/address text است و GPS شرط اجبا�
 3. retry statusهای transient بدون مصرف captcha budget؛
 4. تشخیص silent unauthenticated redirect/final URL؛
 5. انتقال cookie/session به browser؛
-6. bridge محدود document/xhr/fetch؛
+6. bridge محدود document/xhr/fetch به‌علاوهٔ اسکریپت‌های حیاتی فرم صدور؛
 7. Playwright fallback در صورت نیاز.
 
 Bridge کردن همه assetهای JS/CSS/font/image ممنوع است و می‌تواند serialization،
-TLS reset و timeout ایجاد کند.
+TLS reset و timeout ایجاد کند. استثنای مستند: اسکریپت‌های حیاتی فرم صدور
+(jquery، jquery-ui، jquery.validate، formvalidation.popular، formhelper،
+hagigihogugitemplate، hagigihogugi) که روی همان session احرازشدهٔ
+`Login → Notification → HagigiHogugi` پیش‌واکشی و از cache به Chromium تحویل
+می‌شوند؛ بدون آن، DOM فرم کامل ولی JavaScript آن مرده است. جزئیات و خطوط قرمز در
+[UTCMS_BOT_BEHAVIOR_CONTRACT.md](UTCMS_BOT_BEHAVIOR_CONTRACT.md).
 
 ### 9.3. Error taxonomy
 

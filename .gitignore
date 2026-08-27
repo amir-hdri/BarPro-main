@@ -133,3 +133,6 @@ versions.json
 status.json
 graphify-out/
 
+# Local live-diagnostic probe scripts (never part of the deployed system)
+.tmp_*.py
+

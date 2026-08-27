@@ -158,6 +158,18 @@
 - Chromium V8 heap باید `--max-old-space-size=1024` (1 GB) محدود باشد
 - هر browser session از یک Squid proxy اختصاصی استفاده می‌کند
 
+### 9.1 فرم صدور UTCMS (از 2026-08-27)
+
+- حاضر بودن markerهای DOM فرم «آماده بودن» نیست. پیش از پر کردن هر فیلد باید
+  گیت زنده بودن JavaScript (jQuery، jQuery UI autocomplete، validator و handler
+  دکمهٔ مرحلهٔ بعد) عبور کند؛ در غیر این صورت خطای کنترل‌شده صادر می‌شود.
+- session دقیق login برای documentهای صدور و اسکریپت‌های حیاتی فرم رزرو است؛
+  AJAX صفحهٔ landing روی همان session اجرا نمی‌شود.
+- reset یا خطای asset/document هرگز session احرازشده را reset نمی‌کند.
+- prefetch اسکریپت‌ها محدود به فهرست حیاتی است؛ واکشی همهٔ اسکریپت‌های صفحه
+  اتصال را می‌سوزاند.
+- مرجع کامل: `docs/UTCMS_BOT_BEHAVIOR_CONTRACT.md`
+
 ---
 
 ## 🟡 الزامات تست و کیفیت
@@ -334,6 +346,7 @@ ON waybill_jobs (status) INCLUDE (id);
 | فایل | محتوا |
 |------|-------|
 | [AGENTS.md](./AGENTS.md) | راهنمای جامع برای AI agents |
+| [docs/UTCMS_BOT_BEHAVIOR_CONTRACT.md](./docs/UTCMS_BOT_BEHAVIOR_CONTRACT.md) | قوانین و رفتار الزامی ربات در مواجهه با UTCMS |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | معماری کامل سیستم |
 | [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) | راهنمای deployment |
 | [ISSUES.md](./ISSUES.md) | مشکلات شناخته‌شده |
@@ -346,6 +359,7 @@ ON waybill_jobs (status) INCLUDE (id);
 
 | تاریخ | اصلاح |
 |-------|-------|
+| 2026-08-27 | تفکیک session ثبت/asset، prefetch اسکریپت‌های حیاتی فرم صدور و گیت اجباری «زنده بودن JavaScript فرم» پیش از تکمیل فیلدها |
 | 2026-08-26 | اصلاح ریشه‌ای 408: حذف deep-link بدون session از Clean IP probe، الزام GeoIP ایران، پاک‌سازی pool کهنه، و جلوگیری از block شدن Worker با 408 عمومی |
 | 2026-08-26 | read-back مبدا/مقصد از selector واقعی انتخاب‌شده و الزام value+label+address |
 | 2026-08-23 | یکپارچه‌سازی تاکسونومی بازتلاش ورکر با خطایابی سریع ۴۰۸، بازیابی خودکار ماشین وضعیت و اتصال فرانت‌اند |

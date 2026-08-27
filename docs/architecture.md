@@ -85,7 +85,9 @@ reconciliation window.
 - Keras is lazy-loaded and reused in-process; KERAS_PYTHON_PATH does not select
   a subprocess in the current solver.
 - Login may use curl_cffi HTTP authentication, session transfer, and a limited
-  document/xhr/fetch bridge before Playwright fallback.
+  document/xhr/fetch bridge (plus the issuance form's critical scripts) before
+  Playwright fallback. See `docs/UTCMS_BOT_BEHAVIOR_CONTRACT.md` for the session
+  split and the form JavaScript-liveness gate.
 - 17:30-08:00 (config default) is a configurable OTP_REQUIRED prediction, not an official UTCMS
   window. Only a current OTP_FREE observation permits submission.
 

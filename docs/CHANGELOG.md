@@ -2,6 +2,18 @@
   
   All notable changes to the UTCMS Automation System.
 
+  ## [2.9.9] - 2026-08-27
+
+### Fixed — Issuance form transport (asset session) and JavaScript-liveness gate
+- The exact curl session that completes HTTP login is now reserved for issuance documents; landing-page AJAX runs on a separate session because live testing showed shared use burns the TLS connection for the following form navigation. Form XHR/fetch is promoted onto the authenticated session once the prefetched form document is consumed (`app/automation/http_browser_bridge.py`).
+- The issuance form's critical scripts (jquery, jquery-ui, jquery.validate, formvalidation.popular, formhelper, hagigihogugitemplate, hagigihogugi) are prefetched in HTML order on that same authenticated session and served to Chromium from cache. Chromium's own TLS handshake resets these files, and a fresh cold curl session gets the identical reset. Prefetching *every* script on the page was rejected: the connection wore out before reaching `hagigihogugi*.js`. A single failed script no longer aborts the document handoff.
+- Asset/document transport failures never reset the authenticated session; POST submission is still attempted exactly once with no retry or fallback path.
+- New JavaScript-liveness gate before any field is filled (`_probe_form_javascript`/`_require_live_form_javascript` in `app/automation/waybill_enhanced.py`): jQuery, jQuery UI autocomplete, jQuery validator and the step-2 inline handler must all be initialised. Live testing produced a DOM-complete form (all markers present, ~258 KB) whose scripts had been reset — the person-type selector never revealed the name fields and `KalaSearch` returned nothing. DOM markers alone are no longer treated as readiness.
+- `build_enhanced_waybill_payload` normalizes mixed-shape historical payloads (nested parties with compact origin/destination strings) instead of raising `ValueError` before the browser opens (`app/automation/multitenant_payload_adapter.py`).
+- Documentation: new single reference `docs/UTCMS_BOT_BEHAVIOR_CONTRACT.md` (red lines, session/transport contract, navigation order, liveness gate, field read-back rules, dry-run protocol, deploy checklist); `docs/UTCMS_CONSTRAINTS.md` and `docs/INDEX.md` updated.
+- No live waybill was submitted in this change: three-witness registration remains unproven for the new transport and requires an isolated dry-run followed by operator-supervised live submission.
+- Verification: `ruff` clean on touched modules; `tests/test_http_browser_bridge.py` (17), `tests/test_waybill_enhanced_fast.py` (26) and the UTCMS/waybill suites (`119 + 54 passed`) pass locally.
+
   ## [2.9.8] - 2026-08-27
 
 ### Fixed — Authenticated issuance navigation, Clean IP truth and route read-back

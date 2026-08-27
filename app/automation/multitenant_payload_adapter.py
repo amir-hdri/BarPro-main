@@ -221,10 +221,53 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
     This adapter ensures we always return the richer `WaybillMapRequest`-style structure
     strictly adhering to user_text mode.
     """
-    # If it's already a nested payload (from the new manual form), use it as base
-    if "sender" in payload and isinstance(payload["sender"], dict):
-        origin_dict = dict(payload.get("origin", {}))
-        dest_dict = dict(payload.get("destination", {}))
+    # If at least one party is already nested (from the new manual form), use
+    # the richer shape as the base.  Older records can still contain compact
+    # string locations alongside nested parties, so never call ``dict()`` on a
+    # non-mapping value here (that used to raise ``ValueError`` before the
+    # browser even opened).
+    if isinstance(payload.get("sender"), dict) or isinstance(payload.get("receiver"), dict):
+        raw_metadata = payload.get("metadata_json")
+        metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+
+        raw_origin = payload.get("origin")
+        origin_meta = _metadata_section(metadata, "origin")
+        if isinstance(raw_origin, dict):
+            origin_dict = dict(raw_origin)
+        else:
+            province, city, address = _location_parts(raw_origin, origin_meta, metadata)
+            origin_dict = {"province": province, "city": city, "address": address}
+
+        raw_destination = payload.get("destination")
+        destination_meta = _metadata_section(metadata, "destination")
+        if isinstance(raw_destination, dict):
+            dest_dict = dict(raw_destination)
+        else:
+            province, city, address = _location_parts(raw_destination, destination_meta, metadata)
+            dest_dict = {"province": province, "city": city, "address": address}
+
+        sender = dict(payload.get("sender")) if isinstance(payload.get("sender"), dict) else dict(_metadata_section(metadata, "sender"))
+        receiver = (
+            dict(payload.get("receiver"))
+            if isinstance(payload.get("receiver"), dict)
+            else dict(_metadata_section(metadata, "receiver"))
+        )
+        cargo = dict(payload.get("cargo")) if isinstance(payload.get("cargo"), dict) else dict(_metadata_section(metadata, "cargo"))
+        vehicle = (
+            dict(payload.get("vehicle"))
+            if isinstance(payload.get("vehicle"), dict)
+            else dict(_metadata_section(metadata, "vehicle"))
+        )
+        financial = (
+            dict(payload.get("financial"))
+            if isinstance(payload.get("financial"), dict)
+            else dict(_metadata_section(metadata, "financial"))
+        )
+        shipping_options = (
+            dict(payload.get("shipping_options"))
+            if isinstance(payload.get("shipping_options"), dict)
+            else dict(_metadata_section(metadata, "shipping_options"))
+        )
 
         # Enforce user_text mode: coordinates are nullified
         origin_dict["coordinates"] = None
@@ -238,14 +281,14 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
         base = {
             "route_source": "user_text",
             "location_mode": "user_text",
-            "sender": payload.get("sender", {}),
-            "receiver": payload.get("receiver", {}),
+            "sender": sender,
+            "receiver": receiver,
             "origin": origin_dict,
             "destination": dest_dict,
-            "cargo": payload.get("cargo", {}),
-            "vehicle": payload.get("vehicle", {}),
-            "financial": payload.get("financial", {}),
-            "shipping_options": payload.get("shipping_options", {}),
+            "cargo": cargo,
+            "vehicle": vehicle,
+            "financial": financial,
+            "shipping_options": shipping_options,
         }
         # If there's an outer driver_national_code, sync it to vehicle
         if payload.get("driver_national_code") and not base["vehicle"].get("driver_national_code"):

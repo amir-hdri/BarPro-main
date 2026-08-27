@@ -84,3 +84,24 @@ def test_preflight_rejects_missing_live_required_fields() -> None:
     assert "نوع بسته‌بندی" in errors
     assert "ارزش تقریبی بار" in errors
     assert "پلاک خودرو" in errors
+
+
+def test_mixed_shape_payload_normalizes_compact_locations_without_value_error() -> None:
+    """Historical jobs may mix nested parties with compact route strings."""
+    normalized = build_enhanced_waybill_payload(
+        {
+            "sender": {"name": "امید صالحی", "phone": "09121234567"},
+            "receiver": {"name": "حامد حسین زاده", "phone": "09129876543"},
+            "origin": "کردستان، سقز، بزرگراه سقز-دیواندره",
+            "destination": "کردستان، بانه، خیابان امام",
+            "metadata_json": {
+                "cargo": {"type": "مصالح", "packaging": "فله", "weight": 15, "value": "35000000"},
+                "vehicle": {"driver_national_code": "3720285359", "plate": "86ع335ایران51"},
+            },
+        }
+    )
+
+    assert normalized["origin"]["province"] == "کردستان"
+    assert normalized["origin"]["city"] == "سقز"
+    assert normalized["destination"]["city"] == "بانه"
+    assert normalized["sender"]["phone"] == "09121234567"
