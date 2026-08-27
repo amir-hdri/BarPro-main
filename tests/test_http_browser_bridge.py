@@ -2,7 +2,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.automation import http_browser_bridge as bridge_module
 from app.automation.http_browser_bridge import UtcmsHttpBrowserBridge, ensure_utcms_http_browser_bridge
+
+
+@pytest.fixture(autouse=True)
+def isolated_asset_cache(tmp_path, monkeypatch):
+    """Keep the persistent UTCMS asset cache out of the developer's filesystem."""
+    monkeypatch.setattr(bridge_module, "_ASSET_CACHE_DIR", tmp_path / "utcms_asset_cache")
+    return tmp_path / "utcms_asset_cache"
 
 
 @pytest.mark.asyncio
@@ -306,20 +314,20 @@ async def test_authenticated_landing_assets_stay_native_until_form_is_consumed()
 
 
 @pytest.mark.asyncio
-async def test_form_assets_use_authenticated_curl_session_with_retry() -> None:
+async def test_form_asset_failure_is_stubbed_without_retry() -> None:
+    """A stalled optional asset must not block the parser or retry the transport."""
     page = MagicMock()
     bridge = UtcmsHttpBrowserBridge(page, proxy_url="http://127.0.0.1:3128")
     bridge._authenticated_document_bridge = True
     bridge._form_assets_bridge_enabled = True
-    response = MagicMock(status_code=200, content=b"window.formReady=true;", headers={"Content-Type": "text/javascript"})
     session = MagicMock()
-    session.request.side_effect = [RuntimeError("tls reset"), response]
+    session.request.side_effect = RuntimeError("tls reset")
     bridge._document_session = session
     bridge._document_session_warmed = True
     bridge._new_session = MagicMock(return_value=session)
 
     request = MagicMock()
-    request.url = "https://barname.utcms.ir/assets/jspage/Barname/hagigihogugi.js"
+    request.url = "https://barname.utcms.ir/assets/vendor/libs/swiper/swiper.js"
     request.method = "GET"
     request.resource_type = "script"
     request.post_data_buffer = None
@@ -331,12 +339,116 @@ async def test_form_assets_use_authenticated_curl_session_with_retry() -> None:
 
     await bridge._handle_route(route)
 
-    assert session.request.call_count == 2
+    assert session.request.call_count == 1
+    route.continue_.assert_not_awaited()
     route.fulfill.assert_awaited_once_with(
+        status=200,
+        headers={"content-type": "application/javascript"},
+        body=b"",
+    )
+
+
+@pytest.mark.asyncio
+async def test_critical_form_script_failure_is_never_stubbed() -> None:
+    """A missing critical file must surface, not be hidden behind an empty body."""
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page)
+    bridge._authenticated_document_bridge = True
+    bridge._form_assets_bridge_enabled = True
+    session = MagicMock()
+    session.request.side_effect = RuntimeError("tls reset")
+    bridge._document_session = session
+    bridge._document_session_warmed = True
+
+    request = MagicMock()
+    request.url = "https://barname.utcms.ir/assets/js/jqury-ui/jquery-ui.js"
+    request.method = "GET"
+    request.resource_type = "script"
+    request.post_data_buffer = None
+    request.all_headers = AsyncMock(return_value={})
+    route = MagicMock(request=request)
+    route.continue_ = AsyncMock()
+    route.abort = AsyncMock()
+    route.fulfill = AsyncMock()
+
+    await bridge._handle_route(route)
+
+    route.fulfill.assert_not_awaited()
+    route.continue_.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_successful_form_asset_is_persisted_and_reused_from_disk() -> None:
+    """The on-disk cache removes the next run's dependency on UTCMS statics."""
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page)
+    bridge._authenticated_document_bridge = True
+    bridge._form_assets_bridge_enabled = True
+    session = MagicMock()
+    session.request.return_value = MagicMock(
+        status_code=200,
+        content=b"window.formReady=true;",
+        headers={"Content-Type": "text/javascript"},
+    )
+    bridge._document_session = session
+    bridge._document_session_warmed = True
+
+    def make_route() -> MagicMock:
+        request = MagicMock()
+        request.url = "https://barname.utcms.ir/assets/jspage/Barname/hagigihogugi.js?v=1"
+        request.method = "GET"
+        request.resource_type = "script"
+        request.post_data_buffer = None
+        request.all_headers = AsyncMock(return_value={})
+        route = MagicMock(request=request)
+        route.continue_ = AsyncMock()
+        route.abort = AsyncMock()
+        route.fulfill = AsyncMock()
+        return route
+
+    first = make_route()
+    await bridge._handle_route(first)
+    assert session.request.call_count == 1
+
+    # A brand-new bridge (i.e. the next job) must not touch the network at all.
+    fresh = UtcmsHttpBrowserBridge(MagicMock())
+    fresh._authenticated_document_bridge = True
+    fresh._form_assets_bridge_enabled = True
+    fresh._document_session = MagicMock()
+    second = make_route()
+    await fresh._handle_route(second)
+
+    fresh._document_session.request.assert_not_called()
+    second.fulfill.assert_awaited_once_with(
         status=200,
         headers={"Content-Type": "text/javascript"},
         body=b"window.formReady=true;",
     )
+
+
+@pytest.mark.asyncio
+async def test_form_fonts_are_dropped_instead_of_stalling_the_page() -> None:
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page)
+    bridge._authenticated_document_bridge = True
+    bridge._form_assets_bridge_enabled = True
+
+    request = MagicMock()
+    request.url = "https://barname.utcms.ir/assets/vendor/fonts/feather/feather.woff"
+    request.method = "GET"
+    request.resource_type = "font"
+    request.post_data_buffer = None
+    request.all_headers = AsyncMock(return_value={})
+    route = MagicMock(request=request)
+    route.continue_ = AsyncMock()
+    route.abort = AsyncMock()
+    route.fulfill = AsyncMock()
+
+    await bridge._handle_route(route)
+
+    route.abort.assert_awaited_once_with("blockedbyclient")
+    route.continue_.assert_not_awaited()
+    route.fulfill.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -375,8 +487,8 @@ async def test_prefetched_form_asset_is_fulfilled_without_network() -> None:
 
 
 @pytest.mark.asyncio
-async def test_script_prefetch_is_limited_to_critical_form_files() -> None:
-    """Prefetching every script wore the authenticated connection out live."""
+async def test_script_prefetch_warms_critical_form_files_first() -> None:
+    """Critical files must be secured before optional vendor bundles."""
     page = MagicMock()
     bridge = UtcmsHttpBrowserBridge(page)
     bridge._session = MagicMock()
@@ -405,12 +517,43 @@ async def test_script_prefetch_is_limited_to_critical_form_files() -> None:
         "https://barname.utcms.ir/assets/plugins/jquery/jquery.js",
         "https://barname.utcms.ir/assets/plugins/jqury-ui/jquery-ui.js",
         "https://barname.utcms.ir/assets/jspage/Barname/hagigihogugi.js?v=1",
+        "https://barname.utcms.ir/assets/js/analytics.js",
     ]
     assert set(bridge._prefetched_assets) == {
         "/assets/plugins/jquery/jquery.js",
         "/assets/plugins/jqury-ui/jquery-ui.js",
         "/assets/jspage/barname/hagigihogugi.js?v=1",
+        "/assets/js/analytics.js",
     }
+
+
+@pytest.mark.asyncio
+async def test_script_prefetch_stops_optional_files_after_repeated_failures() -> None:
+    """A dead connection must not be dragged through the optional tail."""
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page)
+    bridge._session = MagicMock()
+    html = (
+        b"<script src='/assets/plugins/jquery/jquery.js'></script>"
+        b"<script src='/assets/js/a.js'></script>"
+        b"<script src='/assets/js/b.js'></script>"
+        b"<script src='/assets/js/c.js'></script>"
+        b"<script src='/assets/js/d.js'></script>"
+    )
+    session = MagicMock()
+    session.request.side_effect = RuntimeError("connection reset")
+
+    await bridge._prefetch_document_scripts(
+        session, "https://barname.utcms.ir/barname/Document/HagigiHogugi", html
+    )
+
+    fetched = [call.args[1] for call in session.request.call_args_list]
+    assert fetched == [
+        "https://barname.utcms.ir/assets/plugins/jquery/jquery.js",
+        "https://barname.utcms.ir/assets/js/a.js",
+        "https://barname.utcms.ir/assets/js/b.js",
+    ]
+    assert bridge._prefetched_assets == {}
 
 
 @pytest.mark.asyncio

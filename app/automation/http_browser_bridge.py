@@ -10,8 +10,12 @@ Playwright route with the returned response.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
+import os
 import re
+from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -45,7 +49,11 @@ _RESPONSE_DROP_HEADERS = {
     "transfer-encoding",
 }
 _BRIDGED_RESOURCE_TYPES = frozenset({"document", "xhr", "fetch"})
-_ASSET_RESOURCE_TYPES = frozenset({"script"})
+_ASSET_RESOURCE_TYPES = frozenset({"script", "stylesheet"})
+# Web fonts are cosmetic, are served from the same slow static surface, and each
+# failed request costs seconds of page time.  They are dropped on the issuance
+# page only; images are never dropped because CAPTCHA images are images.
+_DISCARDED_RESOURCE_TYPES = frozenset({"font"})
 
 
 _SAFE_IDEMPOTENT_METHODS = frozenset({"GET", "HEAD"})
@@ -69,6 +77,65 @@ _CRITICAL_FORM_SCRIPT_MARKERS = (
     "hagigihogugitemplate.js",
     "hagigihogugi.js",
 )
+
+# UTCMS static assets are versioned through a ``?v=<hash>`` query, so a response
+# body is valid for as long as that URL is referenced.  Caching them on disk
+# makes the issuance form independent of UTCMS's unreliable static surface:
+# every asset a previous run managed to download is served locally, so the HTML
+# parser never blocks on a synchronous <script> that will not arrive.
+_ASSET_CACHE_DIR = Path(os.environ.get("UTCMS_ASSET_CACHE_DIR", "/tmp/utcms_asset_cache"))
+_ASSET_CACHE_MAX_BYTES = 8 * 1024 * 1024
+
+
+def _asset_cache_files(cache_key: str) -> tuple[Path, Path]:
+    digest = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()
+    return _ASSET_CACHE_DIR / f"{digest}.meta", _ASSET_CACHE_DIR / f"{digest}.body"
+
+
+def _read_asset_cache(cache_key: str) -> tuple[int, dict[str, str], bytes] | None:
+    meta_path, body_path = _asset_cache_files(cache_key)
+    try:
+        if not meta_path.is_file() or not body_path.is_file():
+            return None
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        body = body_path.read_bytes()
+    except Exception:
+        logger.warning("http_browser_bridge_asset_cache_read_failed key=%s", cache_key, exc_info=True)
+        return None
+    status = int(meta.get("status") or 0)
+    headers = {str(k): str(v) for k, v in (meta.get("headers") or {}).items()}
+    if status != 200 or not body:
+        return None
+    return status, headers, body
+
+
+def _write_asset_cache(cache_key: str, status: int, headers: dict[str, str], body: bytes) -> None:
+    if int(status) != 200 or not body or len(body) > _ASSET_CACHE_MAX_BYTES:
+        return
+    meta_path, body_path = _asset_cache_files(cache_key)
+    try:
+        _ASSET_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_body = body_path.with_suffix(".body.tmp")
+        tmp_meta = meta_path.with_suffix(".meta.tmp")
+        tmp_body.write_bytes(body)
+        tmp_meta.write_text(
+            json.dumps({"status": int(status), "headers": headers, "url_key": cache_key}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        tmp_body.replace(body_path)
+        tmp_meta.replace(meta_path)
+    except Exception:
+        logger.warning("http_browser_bridge_asset_cache_write_failed key=%s", cache_key, exc_info=True)
+
+
+def _is_critical_form_script(url: str) -> bool:
+    lowered = url.lower()
+    return any(marker in lowered for marker in _CRITICAL_FORM_SCRIPT_MARKERS)
+
+
+def _asset_stub_content_type(url: str) -> str:
+    return "text/css; charset=utf-8" if urlparse(url).path.lower().endswith(".css") else "application/javascript"
+
 
 
 class UtcmsHttpBrowserBridge:
@@ -307,31 +374,46 @@ class UtcmsHttpBrowserBridge:
         return f"{parsed.path.lower()}?{parsed.query}" if parsed.query else parsed.path.lower()
 
     async def _prefetch_document_scripts(self, session: Any, form_url: str, body: bytes) -> None:
-        """Prefetch the form's critical scripts in HTML order.
+        """Warm the issuance form's scripts, critical files first.
 
-        Only the files the form genuinely needs in order to initialise are
-        fetched.  Live testing showed that walking every ``<script src>`` on the
-        page wore the authenticated connection out before reaching
-        ``hagigihogugi*.js`` — the exact files whose absence leaves a
-        DOM-complete but non-functional form.  Everything else keeps using
-        Chromium/Squid, which is reliable for ordinary static assets.
+        UTCMS's static surface is slow and frequently resets connections, and
+        every synchronous ``<script src>`` that does not arrive blocks the HTML
+        parser — which is why the form used to stall long before reaching
+        ``jquery-ui``/``hagigihogugi*.js`` and stayed DOM-complete but dead.
 
-        A single failed script is logged and skipped rather than aborting the
-        document: the asset route retries it on this same session, and the
-        form's JavaScript-liveness gate is what blocks unsafe progress.
+        Scripts are therefore fetched in HTML order with the critical files
+        first and stored in the on-disk cache, which survives across jobs
+        because every URL is versioned.  Anything already cached is skipped, and
+        a failure is logged and skipped rather than aborting the document: the
+        JavaScript-liveness gate is what blocks unsafe progress.
         """
         html = body.decode("utf-8", errors="ignore")
-        script_urls = [
-            urljoin(form_url, src)
-            for src in re.findall(r'<script[^>]+src=["\']([^"\']+)', html, flags=re.IGNORECASE)
-        ]
-        prefetched = 0
-        for script_url in script_urls:
+        candidates: list[str] = []
+        for src in re.findall(r'<script[^>]+src=["\']([^"\']+)', html, flags=re.IGNORECASE):
+            script_url = urljoin(form_url, src)
             parsed = urlparse(script_url)
             if parsed.scheme not in {"http", "https"} or parsed.hostname != _UTCMS_HOST:
                 continue
-            lowered = script_url.lower()
-            if not any(marker in lowered for marker in _CRITICAL_FORM_SCRIPT_MARKERS):
+            if script_url not in candidates:
+                candidates.append(script_url)
+        # Critical files first: if the connection dies mid-warmup, the form must
+        # still have everything it needs to initialise.
+        ordered = [url for url in candidates if _is_critical_form_script(url)]
+        ordered += [url for url in candidates if not _is_critical_form_script(url)]
+
+        prefetched = 0
+        cached = 0
+        failures = 0
+        for script_url in ordered:
+            parsed = urlparse(script_url)
+            cache_key = self._request_cache_key(script_url)
+            critical = _is_critical_form_script(script_url)
+            if await asyncio.to_thread(_read_asset_cache, cache_key) is not None:
+                cached += 1
+                continue
+            # A dead connection is not worth dragging through the whole tail of
+            # optional vendor bundles; the route handler stubs whatever is left.
+            if failures >= 3 and not critical:
                 continue
             try:
                 response = await asyncio.to_thread(
@@ -349,14 +431,17 @@ class UtcmsHttpBrowserBridge:
                     timeout=self.timeout,
                 )
             except Exception:
+                failures += 1
                 logger.warning(
-                    "http_browser_bridge_script_prefetch_error path=%s",
+                    "http_browser_bridge_script_prefetch_error path=%s critical=%s",
                     parsed.path,
+                    critical,
                     exc_info=True,
                 )
                 continue
             body_bytes = bytes(response.content or b"")
             if int(response.status_code) != 200 or not body_bytes:
+                failures += 1
                 logger.warning(
                     "http_browser_bridge_script_prefetch_rejected path=%s status=%s body_len=%d",
                     parsed.path,
@@ -369,16 +454,17 @@ class UtcmsHttpBrowserBridge:
                 for k, v in response.headers.items()
                 if str(k).lower() not in _RESPONSE_DROP_HEADERS
             }
-            self._prefetched_assets[self._request_cache_key(script_url)] = (
-                int(response.status_code),
-                headers,
-                body_bytes,
+            self._prefetched_assets[cache_key] = (int(response.status_code), headers, body_bytes)
+            await asyncio.to_thread(
+                _write_asset_cache, cache_key, int(response.status_code), headers, body_bytes
             )
             prefetched += 1
         logger.info(
-            "http_browser_bridge_form_scripts_prefetched count=%d of_candidates=%d",
+            "http_browser_bridge_form_scripts_warmed fetched=%d already_cached=%d failed=%d candidates=%d",
             prefetched,
-            len(script_urls),
+            cached,
+            failures,
+            len(ordered),
         )
 
     async def _handle_route(self, route: Any) -> None:
@@ -414,6 +500,14 @@ class UtcmsHttpBrowserBridge:
         # page assets: the flag is enabled only after the issuance document
         # has been consumed, so Notification remains native.
         is_asset = request.resource_type in _ASSET_RESOURCE_TYPES and self._form_assets_bridge_enabled
+        if request.resource_type in _DISCARDED_RESOURCE_TYPES and self._form_assets_bridge_enabled:
+            # Fonts never affect issuance correctness, and each stalled request
+            # costs seconds on an already slow static surface.
+            try:
+                await route.abort("blockedbyclient")
+            except Exception:
+                logger.debug("http_browser_bridge_font_abort_failed", exc_info=True)
+            return
         if request.resource_type not in _BRIDGED_RESOURCE_TYPES and not is_asset:
             await route.continue_()
             return
@@ -444,6 +538,22 @@ class UtcmsHttpBrowserBridge:
             )
             # Only safe/idempotent requests (GET, HEAD) may fall back to Chromium's native stack.
             # For mutating methods (POST, PUT, DELETE, PATCH), fallback is forbidden to prevent duplicate submit!
+            if is_asset and not _is_critical_form_script(request.url):
+                # A synchronous <script>/<link> that never arrives blocks the HTML
+                # parser, so the rest of the form — including the critical files
+                # further down the document — is never even requested.  Optional
+                # vendor bundles are therefore answered with an empty body.
+                # Critical files are never stubbed: their absence must surface
+                # through the JavaScript-liveness gate instead of being hidden.
+                try:
+                    await route.fulfill(
+                        status=200,
+                        headers={"content-type": _asset_stub_content_type(request.url)},
+                        body=b"",
+                    )
+                    return
+                except Exception:
+                    logger.debug("http_browser_bridge_asset_stub_failed", exc_info=True)
             if is_safe_method:
                 try:
                     await route.continue_()
@@ -471,17 +581,25 @@ class UtcmsHttpBrowserBridge:
         body = request.post_data_buffer
 
         is_safe_method = request.method.upper() in _SAFE_IDEMPOTENT_METHODS
-        max_attempts = 3 if is_safe_method else 1
+        # Assets get a single attempt: retries hold the page's parser hostage and
+        # the on-disk cache is what makes the form deterministic instead.
+        max_attempts = 1 if asset or not is_safe_method else 3
+
+        if asset:
+            # Served outside the transport lock so static files never queue
+            # behind the form's document/XHR traffic.
+            asset_cache_key = self._request_cache_key(request.url)
+            cached_asset = self._prefetched_assets.pop(asset_cache_key, None)
+            if cached_asset is None:
+                cached_asset = await asyncio.to_thread(_read_asset_cache, asset_cache_key)
+            if cached_asset is not None:
+                status, cached_headers, cached_body = cached_asset
+                await route.fulfill(status=status, headers=cached_headers, body=cached_body)
+                return
 
         async with self._lock:
             response = None
             last_error: Exception | None = None
-            if asset:
-                cached_asset = self._prefetched_assets.pop(self._request_cache_key(request.url), None)
-                if cached_asset is not None:
-                    status, cached_headers, cached_body = cached_asset
-                    await route.fulfill(status=status, headers=cached_headers, body=cached_body)
-                    return
             if document:
                 cached = self._prefetched_documents.pop(urlparse(request.url).path.lower(), None)
                 if cached is not None:
@@ -560,6 +678,16 @@ class UtcmsHttpBrowserBridge:
             response_headers = {
                 str(k): str(v) for k, v in response.headers.items() if str(k).lower() not in _RESPONSE_DROP_HEADERS
             }
+            if asset:
+                # Every asset this run manages to download makes the next run
+                # faster and less dependent on UTCMS's static surface.
+                await asyncio.to_thread(
+                    _write_asset_cache,
+                    self._request_cache_key(request.url),
+                    int(response.status_code),
+                    response_headers,
+                    bytes(response.content or b""),
+                )
             await route.fulfill(
                 status=int(response.status_code),
                 headers=response_headers,

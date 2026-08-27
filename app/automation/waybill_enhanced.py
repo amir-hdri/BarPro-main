@@ -2560,7 +2560,7 @@ class EnhancedWaybillManager:
             and report.get("handler_ready", True)
         )
 
-    async def _require_live_form_javascript(self, timeout_ms: int = 20000) -> None:
+    async def _require_live_form_javascript(self, timeout_ms: int = 45000) -> None:
         """Block progress until the form's JavaScript is initialised.
 
         Raises:
