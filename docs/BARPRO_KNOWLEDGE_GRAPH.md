@@ -1,16 +1,25 @@
 # گراف دانش مرجع BarPro
 
-> نسخه سند: 2026-08-27 (v2.9.8)
+> نسخه سند: 2026-08-29 (Unreleased)
 >
 > commit مبنای audit اولیه: 9c472f1
 >
-> commit نهایی remediation: 21c0516 (v2.9.5=`dd4c107`، v2.9.6=`ef7cb48`)
+> آخرین commit کد/رابط کاربری: `5d583a1` (`fix(ui): harden multi-route form flows`)
 >
 > Alembic head مبنا: 039_add_route_chain_scheduling
 >
 > جایگزین tracked برای knowledge graph خارجی قبلی
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
+
+## 0.6 snapshot این بازبینی (2026-08-29)
+
+- CODE-VERIFIED: گیت محلی با `origin/main` همگام است؛ commit جاری `5d583a1` است.
+- CODE-VERIFIED: suite backend برابر `1149 passed, 3 skipped` و suite frontend شامل ۵ تست موفق است؛ Next.js build، typecheck و lint نیز موفق‌اند.
+- CODE-VERIFIED: graphify پس از تغییرات frontend به‌صورت incremental بازسازی شد: `7,695` node، `17,124` edge و `456` community. `graphify-out/` عمداً ignored است و artifact تولیدی محسوب می‌شود.
+- RUNTIME-VERIFICATION: هر سه host و همهٔ containerهای allowlist پاسخ می‌دهند؛ imageهای در حال اجرا stale نیستند.
+- RUNTIME-VERIFICATION: در زمان snapshot، HEAD سرورها هنوز `62c5b0c` بود و deploy commit `5d583a1` در حال اجراست؛ تا اجرای check-versions موفق، production را همگام اعلام نکنید.
+- RUNTIME-VERIFICATION: از شبکهٔ بیرونی پورت‌های `5432` و `6379` مرکز قابل اتصال مشاهده شد؛ DOCKER-USER/UFW باید پیش از live submit دوباره اعمال و از یک IP غیر-worker ردگیری شود.
 
 ## 0. روش خواندن و سطح اطمینان
 
@@ -52,7 +61,7 @@
 | NEW-2 — retry کپچای غلط | پاسخ AJAX «لطفا کد امنیتی صحیح…» از قبل وارد `_is_captcha_error` می‌شد؛ با تست رگرسیون قفل شد | `tests/test_audit_fixes.py` |
 | BUG-class — classifierهای path-based | تشخیص نشست/لاگین روی parsed.path نه full-URL (`?ReturnUrl=/Login` دیگر session را flip نمی‌کند؛ hazard دومین submit حذف شد) | `auth_utils.py`, `utcms_http_login.py`, `utcms_reconciliation_scraper.py`, `waybill_bot_multitenant.py` |
 | Dependabot version updates خاموش | `.github/dependabot.yml` حذف شد (~۲۴ branch کهنه)؛ Dependabot alerts/security-updates از Settings ادامه دارد | `.github/dependabot.yml` (deleted) |
-| تست‌ها | ۱۰۲۶ test جمع‌آوری می‌شود؛ `test_audit_fixes.py` (۲۸) + `test_state_machine.py` (۳۴) = ۶۲ passed اجرای واقعی | `tests/` |
+| تست‌ها | snapshot این checkout: `1149 passed, 3 skipped`؛ تعداد collect برابر ۱۱۵۲ است | `tests/` |
 
 ---
 

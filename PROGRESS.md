@@ -23,6 +23,15 @@ This file tracks the completion status of the phases defined in [BarPro_Unified_
 
 ## Detailed Notes & Timestamps
 
+### UI multi-route hardening and live-fleet preflight (2026-08-29)
+- **Commit**: `5d583a1` (`fix(ui): harden multi-route form flows`) pushed to `origin/main`.
+- **Frontend changes**: real sender/receiver mobile validation, ریال value labeling, abort-safe data fetching, shared favorite-location cache, keyboard/ARIA favorite selection, stale-coordinate clearing and unmount-safe polling.
+- **Route-chain contract**: ordered independent waybills; each successor waits for predecessor reconciliation success, estimated duration and configured spacing. Route geography need not be contiguous.
+- **Verification**: `npm run typecheck`, `npm run lint`, `npm run build`, ۵ frontend tests and backend `1149 passed, 3 skipped`.
+- **Graph**: graphify incremental rebuild completed with `7,695` nodes, `17,124` edges and `456` communities; generated output remains local/ignored.
+- **Fleet preflight**: SSH reached Central, Worker 2 and Worker 3; expected containers were running and image IDs were current. The servers were still on `62c5b0c` when deployment started, so post-deploy `check-versions` is mandatory.
+- **Open runtime gate**: Central `5432`/`6379` were externally reachable during the probe. Apply and verify the documented DOCKER-USER/UFW rules before any live submission.
+
 ### Phase 5 — UTCMS Health Probe (Completed: 2026-07-31)
 - **Investigation Output**: Created [utcms_list_search_investigation.md](file:///Users/amirheidari/GitHub/BarPro-main/docs/utcms_list_search_investigation.md) addressing questions H.1 to H.4.
 - **Verification Status**: Verified successfully using the upgrade CLI tool.

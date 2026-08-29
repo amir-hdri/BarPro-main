@@ -2,6 +2,18 @@
   
   All notable changes to the UTCMS Automation System.
 
+  ## [Unreleased] - 2026-08-29
+
+### Frontend multi-route hardening and release verification
+- Added real sender/receiver mobile fields to the batch wizard and validate Iranian `09xxxxxxxxx` numbers before creating a batch.
+- Corrected cargo value labeling to ریال and kept the value in the canonical batch payload.
+- Added abort-safe province/city, driver, plate, schedule, distance, reverse-geocode and batch-progress requests so stale responses cannot overwrite current UI state.
+- Shared location favorites through React Query, added keyboard/ARIA support, and cleared stale coordinates whenever text/location selectors change.
+- Verified route-chain semantics: each selected leg creates an independent waybill, `route_chain=true` preserves the requested order, releases the next leg only after reconciled success plus estimated duration and configured spacing, and does not require geographic continuity.
+- Release commit: `5d583a1` (`fix(ui): harden multi-route form flows`).
+- Verification: frontend typecheck/lint/build and 5 frontend tests passed; backend suite `1149 passed, 3 skipped`.
+- Runtime verification reached all three servers and found expected containers/images healthy, but the fleet still required deployment of commit `5d583a1` at the time of this entry. No live waybill submission was performed without operator-supplied payload data and an `OTP_FREE` gate observation.
+
   ## [2.9.9] - 2026-08-27
 
 ### Fixed — Issuance form transport (asset session) and JavaScript-liveness gate

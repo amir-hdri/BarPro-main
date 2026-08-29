@@ -207,7 +207,7 @@ docker compose -f compose/monitoring.yml up -d  # Prometheus
 
 ### Tests
 ```
-Latest validated development gate: 0 failed; environment-dependent tests may skip without PostgreSQL/Redis/Keras.
+Latest validated development gate: backend `1149 passed, 3 skipped`; frontend typecheck, lint, build and 5 unit tests passed.
 ```
 
 ### Alembic Migration Head
@@ -226,6 +226,8 @@ Latest validated development gate: 0 failed; environment-dependent tests may ski
 - [ ] Run `bash manage.sh migrate` on production DB (applies all migrations through 039)
 - [ ] Run `sudo bash scripts/secure_squid_ports.sh` (lock down Squid 3129/3130)
 - [ ] Add to crontab: `@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh`
+- [ ] Apply and externally verify Central DOCKER-USER/UFW restrictions for PostgreSQL/Redis before live registration
+- [ ] Run fleet `check-versions` after deploying commit `5d583a1`
 
 ### UTCMS operating contract
 
@@ -310,7 +312,7 @@ BarPro/
 - JWT در کوکی httpOnly — امنیت بالا در برابر XSS
 - Rate Limiter fail-closed — بسته شدن در صورت قطع Redis
 - بازیابی خودکار jobهای stuck
-- هدف: 0 شکست (989 تست collect می‌شود)
+- هدف: 0 شکست (آخرین snapshot: ۱۱۵۲ تست collect، ۱۱۴۹ موفق و ۳ skip)
 
 ### راه‌اندازی سریع
 ```bash

@@ -255,3 +255,10 @@ echo "@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh" | crontab -
 
 *وضعیت نهایی: 646+ تست collect، 0 failed — آماده production deployment*
 *آخرین بروزرسانی: 2026-08-13 — ورژن 2.7.0 deploy شد*
+# Runtime findings — 2026-08-29
+
+| # | مورد | وضعیت | شاهد / اقدام لازم |
+|---|---|---|---|
+| RUNTIME-20260829-1 | پورت‌های PostgreSQL (`5432`) و Redis (`6379`) روی Central از شبکهٔ بیرونی قابل اتصال‌اند | 🔴 باز | probe خارجی TCP موفق بود؛ پس از deploy، `scripts/setup_firewall_central.sh` و قوانین `DOCKER-USER` را اجرا کنید و denial از یک IP غیر-worker را ثبت کنید |
+| RUNTIME-20260829-2 | سه سرور روی commit قدیمی بودند | 🟠 در حال رفع | `check-versions` قبل از deploy، `62c5b0c` را نشان داد؛ commit هدف `5d583a1` است و باید post-deploy تأیید شود |
+| RUNTIME-20260829-3 | gate live در `/readyz` به‌صورت `itmb_live_probe=skipped` گزارش شد | 🟠 نیازمند runtime | پیش از POST نهایی، probe کنترل‌شدهٔ UTCMS باید observation معتبر `OTP_FREE` تولید کند |
