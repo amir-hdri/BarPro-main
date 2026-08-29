@@ -2051,19 +2051,40 @@ class EnhancedWaybillManager:
             otp_val = shipping_opts.get("otp") if isinstance(shipping_opts, dict) else None
 
             if dry_run:
+                # The button visible in step 9 only opens the print/OTP stage;
+                # it is not the final mutation.  Enter that stage explicitly so
+                # a dry-run proves the real final controls without clicking any
+                # submit or SMS control.
+                final_stage_navigation_clicked = await self._click_with_fallback(
+                    ["#btnregisterbarname", "#GoFinalStep"],
+                    "مرحله نهایی (فقط مشاهده)",
+                    required=False,
+                    wait_after_seconds=0.5,
+                )
+                final_stage_evidence = await self._inspect_final_submission_stage()
+                final_stage_evidence["final_stage_navigation_clicked"] = bool(final_stage_navigation_clicked)
+                otp_required_observed = bool(final_stage_evidence.get("otp_challenge_visible")) or bool(otp_val)
+                final_submit_visible = bool(final_stage_evidence.get("submit_control_visible"))
                 result = {
-                    "success": True,
-                    "status": "validated",
+                    "success": final_submit_visible,
+                    "status": "validated" if final_submit_visible else "needs_review",
                     "validation_summary": {
-                        "ready_for_submit": True,
+                        "ready_for_submit": final_submit_visible,
                         "route_calculated": route_info is not None,
                         "two_way": bool(shipping_opts.get("two_way")) if isinstance(shipping_opts, dict) else False,
                         "end_shipping": shipping_opts.get("end_shipping") if isinstance(shipping_opts, dict) else None,
                         "time_limit": shipping_opts.get("time_limit") if isinstance(shipping_opts, dict) else None,
-                        "otp_required": otp_val is not None,
+                        "otp_required": otp_required_observed,
+                        "captcha_required": bool(final_stage_evidence.get("captcha_present")),
+                        "final_stage": final_stage_evidence,
+                        "mutation_dispatched": False,
+                        "otp_sms_dispatch": "not_attempted",
                     },
                     "url": await self._current_url(),
                 }
+                if not final_submit_visible:
+                    result["error_category"] = "final_stage_not_ready"
+                    result["message"] = "کنترل ثبت نهایی در مرحله آخر مشاهده نشد؛ هیچ mutation یا پیامکی ارسال نشد"
             else:
                 # ثبت و دریافت کد رهگیری
                 result = await self._submit_waybill(otp_value=otp_val, job_id=job_id)
@@ -4694,6 +4715,10 @@ class EnhancedWaybillManager:
             "input[name*='verification' i]",
             "input[placeholder*='کد']",
             "input[placeholder*='پیامک']",
+            "#FormSendOtpCode",
+            "#FormSendOtpCode input[name='otp']",
+            "#FormSendOtpCode input[id='otp']",
+            "#FormSendOtpCode .otp-box",
             ".otp-box",
             "#modalOtp",
             "#divOtp",
@@ -4710,7 +4735,7 @@ class EnhancedWaybillManager:
         # 3. بررسی متن‌های فارسی در مدال‌ها و پیام‌های باز روی صفحه
         try:
             modal_text = await self.page.evaluate("""() => {
-                    const elements = Array.from(document.querySelectorAll('.modal.show, .swal2-container, .toast, .alert, #divOtp, #modalOtp, .modal-open'));
+            const elements = Array.from(document.querySelectorAll('.modal.show, .swal2-container, .toast, .alert, #divOtp, #modalOtp, #FormSendOtpCode, .modal-open'));
                     return elements.map(el => el.innerText || el.textContent || '').join(' ');
                 }""")
             if modal_text:
@@ -5277,7 +5302,7 @@ class EnhancedWaybillManager:
             if not detected:
                 # Wait briefly (up to 3s) for modal animation if not immediately detected
                 otp_selectors = (
-                    "input#sms-code, div.otp-challenge, #submitOtp, input[name='otp'], .otp-box, #modalOtp, #divOtp"
+                    "input#sms-code, div.otp-challenge, #submitOtp, input[name='otp'], .otp-box, #modalOtp, #divOtp, #FormSendOtpCode"
                 )
                 try:
                     candidate = await self.page.wait_for_selector(otp_selectors, timeout=3000)
@@ -5309,6 +5334,149 @@ class EnhancedWaybillManager:
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
             return None
+
+    async def _read_passive_otp_settings(self) -> dict[str, Any]:
+        """Read UTCMS OTP-related settings without opening a mutation path.
+
+        ``GetCostSettings`` is useful diagnostic evidence (for example, OTP
+        validity and SMS flags), but it is not authoritative proof that the
+        next submit will be OTP-free.  The submission gate therefore remains
+        closed unless a concrete OTP_FREE observation exists.
+        """
+        try:
+            result = await self.page.evaluate(
+                """async () => {
+                    try {
+                        const response = await fetch('/Barname/Document/GetCostSettings', {
+                            method: 'GET',
+                            credentials: 'include',
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        });
+                        const raw = await response.text();
+                        let payload = null;
+                        try { payload = raw ? JSON.parse(raw) : null; } catch (_) { payload = null; }
+                        const data = payload && typeof payload.data === 'object' ? payload.data : (payload || {});
+                        const obj = data && typeof data.obj === 'object' ? data.obj : data;
+                        const pick = (...keys) => {
+                            for (const key of keys) {
+                                if (obj && obj[key] !== undefined && obj[key] !== null) return obj[key];
+                                if (data && data[key] !== undefined && data[key] !== null) return data[key];
+                                if (payload && payload[key] !== undefined && payload[key] !== null) return payload[key];
+                            }
+                            return null;
+                        };
+                        return {
+                            request_ok: response.ok,
+                            status_code: response.status,
+                            result_code: pick('resultCode', 'result_code'),
+                            otp_validity_period: pick('otpValidityPeriod', 'otpValidityPeriodMinutes', 'otp_validity_period'),
+                            sender_sms_flag: pick('senderSmsFlag', 'sender_sms_flag'),
+                            tajmi_flag: pick('tajmiiFlag', 'tajmiFlag', 'tajmi_flag'),
+                            map_flag: pick('mapFlag', 'map_flag'),
+                            authoritative_for_otp_free: false,
+                        };
+                    } catch (error) {
+                        return {
+                            request_ok: false,
+                            status_code: null,
+                            error: String(error || 'passive OTP settings request failed').slice(0, 240),
+                            authoritative_for_otp_free: false,
+                        };
+                    }
+                }"""
+            )
+        except Exception as exc:
+            logger.debug("passive_otp_settings_probe_failed", extra={"extra_fields": {"error": str(exc)}})
+            return {
+                "request_ok": False,
+                "status_code": None,
+                "error": str(exc)[:240],
+                "authoritative_for_otp_free": False,
+            }
+        return result if isinstance(result, dict) else {
+            "request_ok": False,
+            "status_code": None,
+            "error": "passive OTP settings response was not an object",
+            "authoritative_for_otp_free": False,
+        }
+
+    async def _inspect_final_submission_stage(self) -> dict[str, Any]:
+        """Read final-stage readiness without submitting or requesting an SMS.
+
+        Dry-run must reach the final form boundary far enough to prove that the
+        submit control, CAPTCHA surface, and any OTP challenge can be observed.
+        This method is intentionally read-only: it never clicks a submit/SMS
+        control and never invokes a CAPTCHA solver.
+        """
+        submit_selectors = (
+            "#btnRegisterFinished",
+            "#btnFinalSubmit",
+            "#btnSubmit",
+            "button:has-text('ثبت نهایی')",
+        )
+        captcha_selectors = (
+            "input[name='DNTCaptchaInputText']",
+            "input[id='DNTCaptchaInputText']",
+            "input[name*='captcha' i][type='text']",
+            "input[id*='captcha' i][type='text']",
+            "img[id*='captcha' i]",
+            "img[src*='captcha' i]",
+            ".captcha-image",
+            "#DNTCaptchaImg",
+        )
+        sms_selectors = (
+            "#sendOtp",
+            "#sendSms",
+            "#btnSendOtp",
+            "#btnGetOtp",
+            "button[id*='sms' i]",
+            "button[id*='otp' i]",
+            "button:has-text('ارسال پیامک')",
+            "button:has-text('دریافت کد')",
+            "input[value*='ارسال پیامک']",
+        )
+        sms_notification_selectors = (
+            "#sendsmsvalue",
+            "input[name='sendsmsvalue']",
+        )
+
+        async def any_visible(selectors: tuple[str, ...]) -> tuple[bool, str | None]:
+            for selector in selectors:
+                try:
+                    locator = self.page.locator(selector).first
+                    if await locator.is_visible(timeout=700):
+                        return True, selector
+                except Exception as exc:
+                    logger.debug(
+                        "final_stage_selector_probe_failed",
+                        extra={"extra_fields": {"selector": selector, "error": str(exc)}},
+                    )
+                    continue
+            return False, None
+
+        submit_visible, submit_selector = await any_visible(submit_selectors)
+        captcha_visible, captcha_selector = await any_visible(captcha_selectors)
+        sms_visible, sms_selector = await any_visible(sms_selectors)
+        sms_notification_visible, sms_notification_selector = await any_visible(sms_notification_selectors)
+        otp_detected, otp_evidence = await self._detect_otp_required_with_evidence()
+        passive_otp_settings = await self._read_passive_otp_settings()
+
+        return {
+            "submit_control_visible": submit_visible,
+            "submit_selector": submit_selector,
+            "captcha_present": captcha_visible,
+            "captcha_selector": captcha_selector,
+            "otp_challenge_visible": otp_detected,
+            "otp_evidence": otp_evidence,
+            "sms_dispatch_control_visible": sms_visible,
+            "sms_dispatch_selector": sms_selector,
+            "sms_notification_control_visible": sms_notification_visible,
+            "sms_notification_selector": sms_notification_selector,
+            "captcha_solver_invoked": False,
+            "passive_otp_settings": passive_otp_settings,
+            "mutation_dispatched": False,
+            "sms_requested": False,
+        }
 
     def _normalize_captcha_solution(self, value: str | None) -> str | None:
         if value is None:

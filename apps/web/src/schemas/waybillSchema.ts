@@ -7,6 +7,15 @@ const optionalText = (max: number, message: string) =>
 const requiredText = (min: number, minMessage: string, max: number, maxMessage: string) =>
   z.string().trim().min(min, minMessage).max(max, maxMessage);
 
+const requiredPersonName = (label: string) =>
+  requiredText(2, `نام ${label} الزامی است`, 255, `نام ${label} حداکثر ۲۵۵ حرف مجاز است`).refine(
+    (value) => {
+      const parts = value.split(/\s+/).filter(Boolean);
+      return parts.length >= 2 && parts[0] !== parts[1];
+    },
+    `نام و نام خانوادگی ${label} را کامل وارد کنید`
+  );
+
 const digitsOnly = (value: string) => normalizeDigits(value).replace(/\D/g, "");
 const requiredMobile = (label: string) =>
   z
@@ -74,9 +83,9 @@ export const waybillSchema = z.object({
   cargo_packaging: requiredText(1, "نوع بسته‌بندی الزامی است", 100, "نوع بسته‌بندی حداکثر ۱۰۰ حرف مجاز است"),
   cargo_weight: numericText("وزن بار الزامی است", "وزن بار باید عددی بزرگ‌تر از صفر باشد", 20, "وزن بار حداکثر ۲۰ کاراکتر مجاز است"),
   cargo_value: numericText("ارزش بار الزامی است", "ارزش بار باید عددی بزرگ‌تر از صفر باشد", 50, "ارزش بار حداکثر ۵۰ حرف مجاز است"),
-  sender_name: requiredText(2, "نام فرستنده الزامی است", 255, "نام فرستنده حداکثر ۲۵۵ حرف مجاز است"),
+  sender_name: requiredPersonName("فرستنده"),
   sender_phone: requiredMobile("فرستنده"),
-  receiver_name: requiredText(2, "نام گیرنده الزامی است", 255, "نام گیرنده حداکثر ۲۵۵ حرف مجاز است"),
+  receiver_name: requiredPersonName("گیرنده"),
   receiver_phone: requiredMobile("گیرنده"),
 });
 

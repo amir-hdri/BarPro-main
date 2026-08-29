@@ -24,9 +24,9 @@ def create_request(operation_mode: OperationMode = OperationMode.SAFE) -> Waybil
         session_id="svc-test",
         operation_mode=operation_mode,
         sender=SenderModel(
-            name="علی رضایی", phone="09120000000", address="تهران خیابان کارگر", national_code="0084575948"
+            name="علی رضایی", phone="09121111111", address="تهران خیابان کارگر", national_code="0084575948"
         ),
-        receiver=ReceiverModel(name="حسن محمدی", phone="09120000000", address="کرج میدان شهدا"),
+        receiver=ReceiverModel(name="حسن محمدی", phone="09122222222", address="کرج میدان شهدا"),
         origin=LocationModel(
             province="تهران",
             city="تهران",
@@ -41,6 +41,7 @@ def create_request(operation_mode: OperationMode = OperationMode.SAFE) -> Waybil
             driver_national_code="0084575948", driver_phone="09120000000", plate="12ب345ایران11", type="کامیون"
         ),
         financial=FinancialModel(cost=1000, payment_method="Cash"),
+        utcms_auth=UTCMSLoginModel(username="test-user", password="test-password"),
     )
 
 
@@ -76,6 +77,25 @@ async def test_service_returns_safe_mode_response():
     assert "request_id" in response
     assert response["validation_summary"]["has_driver_data"] is True
     manager_instance.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_service_rejects_incomplete_safe_payload_before_browser():
+    service = WaybillService()
+    request = create_request(OperationMode.SAFE)
+    request.origin.address = ""
+    initialize = AsyncMock()
+
+    with patch("app.services.waybill_service.browser_manager.initialize", initialize):
+        with pytest.raises(HTTPException) as exc:
+            await service.create_waybill_with_map(request)
+
+    assert exc.value.status_code == 422
+    assert exc.value.detail["error"] == "WAYBILL_PAYLOAD_INCOMPLETE"
+    assert "آدرس مبدا" in exc.value.detail["errors"]
+    assert exc.value.detail["mutation_dispatched"] is False
+    assert exc.value.detail["browser_started"] is False
+    initialize.assert_not_awaited()
 
 
 @pytest.mark.asyncio

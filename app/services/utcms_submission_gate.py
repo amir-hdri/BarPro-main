@@ -146,16 +146,21 @@ class UTCMSSubmissionGate:
         except Exception:
             logger.debug("failed_to_query_utcms_system_observations_db", exc_info=True)
 
-        # 4. Fallback to adaptive evaluation
+        # 4. Fallback to adaptive evaluation. A daytime prediction must never
+        # open the mutation gate when Redis/DB evidence is unavailable: only a
+        # current, explicit OTP_FREE observation is authoritative.
         tehran_now = self.get_tehran_now()
         # If in predicted OTP required window -> OTP_REQUIRED
         if self.is_in_predicted_otp_required_window(tehran_now):
             set_gate_state_metric(GateStateValue.OTP_REQUIRED.value)
             return GateStateValue.OTP_REQUIRED
 
-        # Outside predicted window (daytime 08:00 - 18:00 Tehran) without active block -> OTP_FREE
-        set_gate_state_metric(GateStateValue.OTP_FREE.value)
-        return GateStateValue.OTP_FREE
+        logger.warning(
+            "utcms_gate_evidence_unavailable_fail_closed",
+            extra={"extra_fields": {"reason": "redis_and_db_observation_unavailable"}},
+        )
+        set_gate_state_metric(GateStateValue.UNKNOWN.value)
+        return GateStateValue.UNKNOWN
 
     async def is_submission_allowed(self) -> bool:
         """Check if submitting a waybill is currently permitted.

@@ -10,6 +10,7 @@
 | روش | مسیر / اندپوینت | نحوه ارزیابی | سطح ریسک |
 |---|---|---|:---:|
 | **Passive Probe** | `GET /Barname/Document/GetCostSettings` | بررسی فیلدهای پیکربندی زنده (`otpValidityPeriod`, `senderSmsFlag`) | **صفر** (بدون ارسال پیامک یا تغییر دیتابیس) |
+| **Final-stage dry-run** | navigation به مرحلهٔ نهایی + DOM read-back | مشاهدهٔ submit/CAPTCHA، مودال `#FormSendOtpCode` و کنترل SMS؛ `GetCostSettings` فقط evidence است و به‌تنهایی `OTP_FREE` را ثابت نمی‌کند | **صفر** (solver، SMS و mutation اجرا نمی‌شوند) |
 | **Response Interception** | `POST /Barname/PrintReport/printbarnameNew` | پایش پاسخ سرور و جستجوی سلکتور مودال `#FormSendOtpCode` یا هدرهای WAF | **صفر** (در حین ثبت استاندارد) |
 | **Controlled Active Probe** | ثبت فرم آزمایشی با قفل توزیع‌شده تک‌کارگر | اجرای یک پروب کنترل‌شده در مرزهای زمانی (مثلاً ۰۸:۰۰ صبح) | **کنترل‌شده** (حداکثر ۱ بار در ۵ دقیقه زیر قفل Redis) |
 

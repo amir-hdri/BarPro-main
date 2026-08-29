@@ -15,7 +15,7 @@ from sqlmodel import select
 
 from app.automation.auth import UTCMSAuthenticator
 from app.automation.browser import browser_manager
-from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload
+from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload, validate_live_waybill_payload
 from app.automation.proxy_rotator import get_proxy_rotator
 from app.automation.waybill_enhanced import EnhancedWaybillManager
 from app.core.config import utcms_config
@@ -722,10 +722,12 @@ class RPAHttpSubmitService:
                     latency_ms=int((time.perf_counter() - start) * 1000),
                 )
 
-        from app.automation.multitenant_payload_adapter import validate_enhanced_waybill_payload
-
         normalized_payload = build_enhanced_waybill_payload(payload)
-        validation_errors = validate_enhanced_waybill_payload(normalized_payload, enforce_live_party_phones=True)
+        vehicle = normalized_payload.get("vehicle") if isinstance(normalized_payload.get("vehicle"), dict) else {}
+        validation_errors = validate_live_waybill_payload(
+            normalized_payload,
+            expected_driver_mobile=vehicle.get("driver_phone"),
+        )
         if validation_errors:
             return SubmitExecutionResult(
                 classification=SubmitClassification(

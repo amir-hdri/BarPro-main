@@ -7,6 +7,7 @@ import pytest
 from app.automation.multitenant_payload_adapter import (
     _validate_iranian_national_code,
     validate_enhanced_waybill_payload,
+    validate_live_waybill_payload,
 )
 
 
@@ -101,6 +102,50 @@ def test_location_missing_fields_fails():
     errors = validate_enhanced_waybill_payload(payload)
     assert any("شهر مبدا" in err for err in errors)
     assert any("آدرس مقصد" in err for err in errors)
+
+
+def test_live_gate_rejects_short_addresses_non_finite_numbers_and_bad_plate():
+    payload = valid_payload_sample()
+    payload["sender"]["phone"] = "09123456789"
+    payload["receiver"]["phone"] = "09129876543"
+    payload["origin"]["address"] = "آدرس"
+    payload["cargo"]["weight"] = "nan"
+    payload["cargo"]["value"] = "۰"
+    payload["vehicle"]["plate"] = "BAD"
+
+    errors = validate_live_waybill_payload(payload)
+
+    assert "آدرس مبدا" in errors
+    assert any("وزن کالا" in err for err in errors)
+    assert any("ارزش تقریبی بار" in err for err in errors)
+    assert "فرمت پلاک خودرو نامعتبر است" in errors
+
+
+def test_live_gate_requires_matching_driver_and_active_plate_identity():
+    payload = valid_payload_sample()
+    payload["sender"]["phone"] = "09123456789"
+    payload["receiver"]["phone"] = "09129876543"
+
+    errors = validate_live_waybill_payload(
+        payload,
+        expected_driver_national_code="0012345679",
+        expected_plate="12ب345ایران67",
+    )
+
+    assert "کد ملی راننده با رانندهٔ انتخاب‌شده مطابقت ندارد" in errors
+    assert "پلاک خودرو با پلاک فعال راننده مطابقت ندارد" in errors
+
+
+def test_live_gate_accepts_complete_user_payload():
+    payload = valid_payload_sample()
+    payload["sender"]["phone"] = "۰۹۱۲۳۴۵۶۷۸۹"
+    payload["receiver"]["phone"] = "09129876543"
+
+    assert validate_live_waybill_payload(
+        payload,
+        expected_driver_national_code="0084575948",
+        expected_plate="12ب345ایران11",
+    ) == []
 
 
 def test_waybill_job_create_request_strict_union_rejection():

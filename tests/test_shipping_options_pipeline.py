@@ -22,6 +22,7 @@ from app.schemas.waybill import (
     ReceiverModel,
     SenderModel,
     ShippingOptionsModel,
+    UTCMSLoginModel,
     VehicleModel,
     WaybillMapRequest,
 )
@@ -37,23 +38,24 @@ def _base_request(**kwargs) -> WaybillMapRequest:
     defaults = {
         "session_id": "shipping-opts-test",
         "operation_mode": OperationMode.SAFE,
-        "sender": SenderModel(name="Alice", phone="09121111111", address="Addr A", national_code="1234567890"),
-        "receiver": ReceiverModel(name="Bob", phone="09122222222", address="Addr B"),
+        "utcms_auth": UTCMSLoginModel(username="test-user", password="test-password"),
+        "sender": SenderModel(name="علی رضایی", phone="09121111111", address="خیابان آزادی پلاک ۱", national_code="0084575948"),
+        "receiver": ReceiverModel(name="رضا کرمی", phone="09122222222", address="بلوار جمهوری پلاک ۲"),
         "origin": LocationModel(
             province="تهران",
             city="تهران",
-            address="خ آزادی",
+            address="خیابان آزادی پلاک ۱",
             coordinates=GeoCoordinateModel(lat=35.6892, lng=51.3890),
         ),
         "destination": LocationModel(
             province="مشهد",
             city="مشهد",
-            address="خ امام رضا",
+            address="خیابان امام رضا پلاک ۲",
             coordinates=GeoCoordinateModel(lat=36.2972, lng=59.6067),
         ),
-        "cargo": CargoModel(type="General", weight=1000, count=1, description="test"),
+        "cargo": CargoModel(type="General", packaging="کیسه", weight=1000, count=1, value=1000000, description="test"),
         "vehicle": VehicleModel(
-            driver_national_code="1234567890", driver_phone="09121111111", plate="12A34567", type="Truck"
+            driver_national_code="0084575948", driver_phone="09123333333", plate="12ب345ایران67", type="کامیون"
         ),
         "financial": FinancialModel(cost=1000, payment_method="Cash"),
     }
@@ -385,6 +387,16 @@ class TestDryRunValidationSummary:
         mgr._fill_origin_info = AsyncMock(return_value={"success": True, "method": "map"})
         mgr._fill_destination_info = AsyncMock(return_value={"success": True, "method": "map"})
         mgr._fill_financial_info = AsyncMock()
+        mgr._inspect_final_submission_stage = AsyncMock(
+            return_value={
+                "submit_control_visible": True,
+                "captcha_present": True,
+                "otp_challenge_visible": False,
+                "sms_dispatch_control_visible": True,
+                "mutation_dispatched": False,
+                "sms_requested": False,
+            }
+        )
         mgr._goto_with_retry = AsyncMock()
         mgr._click_with_fallback = AsyncMock()
         mgr._check_checkbox_with_fallback = AsyncMock(return_value=True)
@@ -403,6 +415,10 @@ class TestDryRunValidationSummary:
         assert vs["end_shipping"] == "1402-05-20"
         assert vs["time_limit"] == 60
         assert vs["otp_required"] is True
+        assert any(
+            call.args[:2] == (["#btnregisterbarname", "#GoFinalStep"], "مرحله نهایی (فقط مشاهده)")
+            for call in mgr._click_with_fallback.await_args_list
+        )
 
     @pytest.mark.asyncio
     async def test_dry_run_without_shipping_options(self):
@@ -418,6 +434,16 @@ class TestDryRunValidationSummary:
         mgr._fill_origin_info = AsyncMock(return_value={"success": True, "method": "dropdown"})
         mgr._fill_destination_info = AsyncMock(return_value={"success": True, "method": "dropdown"})
         mgr._fill_financial_info = AsyncMock()
+        mgr._inspect_final_submission_stage = AsyncMock(
+            return_value={
+                "submit_control_visible": True,
+                "captcha_present": False,
+                "otp_challenge_visible": False,
+                "sms_dispatch_control_visible": False,
+                "mutation_dispatched": False,
+                "sms_requested": False,
+            }
+        )
         mgr._goto_with_retry = AsyncMock()
         mgr._click_with_fallback = AsyncMock()
         mgr._check_checkbox_with_fallback = AsyncMock(return_value=False)
@@ -434,6 +460,68 @@ class TestDryRunValidationSummary:
         assert vs["end_shipping"] is None
         assert vs["time_limit"] is None
         assert vs["otp_required"] is False
+
+    @pytest.mark.asyncio
+    async def test_final_stage_probe_does_not_treat_navigation_button_as_submit(self):
+        mgr = self._make_manager()
+
+        class FakeLocator:
+            def __init__(self, selector: str, visible: set[str]):
+                self.selector = selector
+                self.visible = visible
+                self.first = self
+
+            async def is_visible(self, timeout=0):
+                return self.selector in self.visible
+
+        visible = {"#btnregisterbarname"}
+        mgr.page.locator = lambda selector: FakeLocator(selector, visible)
+        mgr._detect_otp_required_with_evidence = AsyncMock(return_value=(False, {}))
+
+        evidence = await mgr._inspect_final_submission_stage()
+
+        assert evidence["submit_control_visible"] is False
+        assert evidence["submit_selector"] is None
+        assert evidence["mutation_dispatched"] is False
+        assert evidence["sms_requested"] is False
+
+    @pytest.mark.asyncio
+    async def test_final_stage_probe_records_otp_modal_and_passive_settings_without_mutation(self):
+        mgr = self._make_manager()
+
+        class FakeLocator:
+            def __init__(self, selector: str, visible: set[str]):
+                self.selector = selector
+                self.visible = visible
+                self.first = self
+
+            async def is_visible(self, timeout=0):
+                return self.selector in self.visible
+
+        mgr.page.locator = lambda selector: FakeLocator(selector, {"#FormSendOtpCode"})
+        mgr.page.evaluate = AsyncMock(
+            return_value={
+                "request_ok": True,
+                "status_code": 200,
+                "result_code": 200,
+                "otp_validity_period": 5,
+                "sender_sms_flag": False,
+                "authoritative_for_otp_free": False,
+            }
+        )
+        mgr._detect_otp_required_with_evidence = AsyncMock(
+            return_value=(True, {"source": "dom_selector", "selector": "#FormSendOtpCode"})
+        )
+
+        evidence = await mgr._inspect_final_submission_stage()
+
+        assert evidence["otp_challenge_visible"] is True
+        assert evidence["otp_evidence"]["selector"] == "#FormSendOtpCode"
+        assert evidence["passive_otp_settings"]["otp_validity_period"] == 5
+        assert evidence["passive_otp_settings"]["authoritative_for_otp_free"] is False
+        assert evidence["captcha_solver_invoked"] is False
+        assert evidence["sms_requested"] is False
+        assert evidence["mutation_dispatched"] is False
 
 
 # ---------------------------------------------------------------------------

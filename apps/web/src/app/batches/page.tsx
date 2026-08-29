@@ -33,6 +33,11 @@ function normalizeMobile(value: string): string {
   return normalizeDigits(value).replace(/\D/g, '').slice(0, 11);
 }
 
+function normalizePositiveNumber(value: string): number {
+  const normalized = normalizeDigits(value).replace(/[,٬]/g, '').trim();
+  return Number(normalized);
+}
+
 function loadRecent(): RecentBatch[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -152,6 +157,10 @@ export default function BatchesPage() {
       toast.error('انتخاب راننده الزامی است');
       return;
     }
+    if (selectedDriver.status && selectedDriver.status.toLowerCase() !== 'active') {
+      toast.error('رانندهٔ انتخاب‌شده فعال نیست');
+      return;
+    }
     if (selectedRoutes.length === 0) {
       toast.error('حداقل یک مسیر را انتخاب کنید');
       return;
@@ -159,6 +168,16 @@ export default function BatchesPage() {
     if (routeChain && targetCount !== selectedRoutes.length) {
       toast.error('در حالت زنجیره‌ای، تعداد بارنامه باید برابر تعداد مسیرها باشد');
       return;
+    }
+    if (routeChain) {
+      const routesWithoutTiming = selectedRoutes
+        .map((id) => templates.find((route) => route.id === id))
+        .filter((route): route is WaybillRouteTemplate => Boolean(route))
+        .filter((route) => !(Number(route.duration_min || 0) > 0 || Number(route.distance_km || 0) > 0));
+      if (routesWithoutTiming.length > 0) {
+        toast.error('برای هر مسیر زنجیره‌ای فاصله یا زمان تخمینی معتبر لازم است');
+        return;
+      }
     }
     if (senderName.trim().split(/\s+/).length < 2) {
       toast.error('نام و نام خانوادگی فرستنده (دو کلمه) الزامی است');
@@ -178,13 +197,23 @@ export default function BatchesPage() {
       toast.error('موبایل گیرنده باید ۱۱ رقم و با ۰۹ شروع شود');
       return;
     }
-    if (!cargoType.trim() || !cargoPackaging.trim() || !cargoValue.trim()) {
-      toast.error('نوع، بسته‌بندی و ارزش کالا الزامی است');
+    const normalizedDriverPhone = normalizeMobile(selectedDriver.phone || '');
+    if (normalizedDriverPhone && (normalizedSenderPhone === normalizedDriverPhone || normalizedReceiverPhone === normalizedDriverPhone)) {
+      toast.error('موبایل فرستنده و گیرنده نباید با موبایل راننده یکسان باشد');
       return;
     }
-    const weight = Number(cargoWeight);
+    if (cargoType.trim().length < 2 || !cargoPackaging.trim() || !cargoValue.trim()) {
+      toast.error('نوع کالا، بسته‌بندی و ارزش کالا را کامل وارد کنید');
+      return;
+    }
+    const weight = normalizePositiveNumber(cargoWeight);
     if (!Number.isFinite(weight) || weight <= 0) {
       toast.error('وزن کالا باید عددی بزرگ‌تر از صفر باشد');
+      return;
+    }
+    const cargoValueNumber = normalizePositiveNumber(cargoValue);
+    if (!Number.isFinite(cargoValueNumber) || cargoValueNumber <= 0) {
+      toast.error('ارزش کالا باید عددی بزرگ‌تر از صفر و به ریال باشد');
       return;
     }
 

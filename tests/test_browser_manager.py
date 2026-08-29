@@ -135,6 +135,29 @@ class TestBrowserManager(unittest.IsolatedAsyncioTestCase):
         self.mock_context.new_page.assert_awaited_once()
         self.assertEqual(page, self.mock_page)
 
+    async def test_cleanup_page_instrumentation_removes_owned_callbacks_and_route(self):
+        page = MagicMock()
+        callback_console = MagicMock()
+        callback_request = MagicMock()
+        callback_response = MagicMock()
+        route_handler = AsyncMock()
+        page._barpro_listener_callbacks = {
+            "console": callback_console,
+            "request": callback_request,
+            "response": callback_response,
+        }
+        page._barpro_route_handler = route_handler
+        page.unroute = AsyncMock()
+
+        await BrowserManager._cleanup_page_instrumentation(page)
+
+        assert page.remove_listener.call_count == 3
+        page.remove_listener.assert_any_call("console", callback_console)
+        page.remove_listener.assert_any_call("request", callback_request)
+        page.remove_listener.assert_any_call("response", callback_response)
+        page.unroute.assert_awaited_once_with("**/*", route_handler)
+        assert page._barpro_listener_callbacks == {}
+
     async def test_create_context_loads_saved_auth_state(self):
         self.browser_manager.browser = self.mock_browser
         self.mock_vault_exists.return_value = True

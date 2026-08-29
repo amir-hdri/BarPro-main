@@ -20,17 +20,17 @@ from app.api.routes.waybill_map import (
 def create_mock_request():
     return WaybillMapRequest(
         session_id="test_session",
-        sender=SenderModel(name="Sender", phone="09121234567", address="Addr", national_code="1234567890"),
-        receiver=ReceiverModel(name="Receiver", phone="09121234567", address="Addr"),
+        sender=SenderModel(name="علی رضایی", phone="09121234567", address="خیابان آزادی پلاک ۱", national_code="0084575948"),
+        receiver=ReceiverModel(name="رضا کرمی", phone="09129876543", address="بلوار جمهوری پلاک ۲"),
         origin=LocationModel(
-            province="Test", city="City", address="Addr", coordinates=GeoCoordinateModel(lat=1.0, lng=1.0)
+            province="تهران", city="تهران", address="خیابان آزادی پلاک ۱", coordinates=GeoCoordinateModel(lat=1.0, lng=1.0)
         ),
         destination=LocationModel(
-            province="Test", city="City", address="Addr", coordinates=GeoCoordinateModel(lat=2.0, lng=2.0)
+            province="البرز", city="کرج", address="بلوار جمهوری پلاک ۲", coordinates=GeoCoordinateModel(lat=2.0, lng=2.0)
         ),
-        cargo=CargoModel(type="Type", weight=1000, count=1, description="Desc"),
+        cargo=CargoModel(type="مصالح", packaging="فله", weight=1000, count=1, value=1000000, description="Desc"),
         vehicle=VehicleModel(
-            driver_national_code="1234567890", driver_phone="09121234567", plate="12A34567", type="Truck"
+            driver_national_code="0084575948", driver_phone="09123333333", plate="12ب345ایران67", type="کامیون"
         ),
         financial=FinancialModel(cost=1000000, payment_method="Cash"),
     )
@@ -184,6 +184,7 @@ async def test_waybill_login_failure():
 async def test_waybill_already_logged_in():
     # Mock dependencies
     mock_request = create_mock_request()
+    mock_request.utcms_auth = UTCMSLoginModel(username="testuser", password="testpass")
 
     with (
         patch("app.automation.browser.browser_manager.initialize", new_callable=AsyncMock),
@@ -250,5 +251,6 @@ async def test_waybill_missing_credentials():
         with pytest.raises(HTTPException) as excinfo:
             await create_waybill_with_map(mock_request)
 
-        assert excinfo.value.status_code == 401
-        assert "اطلاعات ورود UTCMS" in excinfo.value.detail
+        assert excinfo.value.status_code == 422
+        assert excinfo.value.detail["error"] == "WAYBILL_PAYLOAD_INCOMPLETE"
+        assert "has_auth_credentials" in excinfo.value.detail["missing_requirements"]

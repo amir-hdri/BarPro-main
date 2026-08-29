@@ -24,12 +24,13 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.automation.multitenant_payload_adapter import (
     build_enhanced_waybill_payload,
-    validate_enhanced_waybill_payload,
+    validate_live_waybill_payload,
 )
 from app.core.distance import estimate_time
 from app.models.waybill_batch import WaybillBatch
 from app.models.waybill_route_template import WaybillRouteTemplate
 from app.models_multitenant import Driver, DriverPlate, TaskStatus, WaybillJob
+from app.schemas.multitenant import _normalize_plate
 
 REPEAT_MODES = {"round_robin", "random", "sequential"}
 
@@ -107,7 +108,7 @@ def _validate_route_location(route: WaybillRouteTemplate) -> list[str]:
             errors.append(f"استان {label}")
         if not (city or "").strip() or len((city or "").strip()) < 2:
             errors.append(f"شهر {label}")
-        if not (address or "").strip() or len((address or "").strip()) < 2:
+        if not (address or "").strip() or len((address or "").strip()) < 5:
             errors.append(f"آدرس {label}")
     return errors
 
@@ -141,6 +142,13 @@ def estimate_route_duration_minutes(route: WaybillRouteTemplate) -> float:
         and str(route.origin_city).strip() == str(route.dest_city).strip()
     )
     return max(1.0, estimate_time(distance, is_urban=is_urban))
+
+
+def route_schedule_metric_error(route: WaybillRouteTemplate) -> str | None:
+    """Explain why a route cannot drive distance-based chain scheduling."""
+    if estimate_route_duration_minutes(route) > 0:
+        return None
+    return f"مسیر «{route.name}» فاصله یا زمان تخمینی معتبر ندارد"
 
 
 def build_route_chain_schedule(
@@ -224,6 +232,9 @@ class BatchService:
         ).first()
         if driver is None:
             raise HTTPException(status_code=404, detail="راننده یافت نشد یا متعلق به شما نیست")
+        driver_status = getattr(driver.status, "value", driver.status)
+        if str(driver_status).lower() != "active":
+            raise HTTPException(status_code=409, detail="رانندهٔ انتخاب‌شده فعال نیست و امکان ایجاد دسته ندارد")
 
         routes = await self._load_owned_routes(session, client_id, payload.route_template_ids)
 
@@ -240,18 +251,33 @@ class BatchService:
         if code and code != _normalize_national_code(driver.driver_national_code):
             raise HTTPException(status_code=422, detail="کد ملی راننده در payload با رانندهٔ انتخابی مطابقت ندارد")
         vehicle["driver_national_code"] = driver.driver_national_code
-        if not str(vehicle.get("plate") or "").strip():
-            plate = (
-                await session.exec(
-                    select(DriverPlate)
-                    .where(DriverPlate.driver_id == driver.id, DriverPlate.status == "active")
-                    .order_by(DriverPlate.id.desc())
-                )
-            ).first()
-            if plate is not None:
-                vehicle["plate"] = plate.plate_number
-                if not str(vehicle.get("type") or "").strip():
-                    vehicle["type"] = plate.vehicle_type
+        provided_plate = str(vehicle.get("plate") or "").strip()
+        normalized_provided_plate: str | None = None
+        if provided_plate:
+            try:
+                normalized_provided_plate = _normalize_plate(provided_plate)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        plate_query = select(DriverPlate).where(
+            DriverPlate.driver_id == driver.id,
+            DriverPlate.status == "active",
+        )
+        if normalized_provided_plate:
+            plate_query = plate_query.where(DriverPlate.plate_number == normalized_provided_plate)
+        plate = (await session.exec(plate_query.order_by(DriverPlate.id.desc()))).first()
+        if plate is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "پلاک ارسالی فعال نیست یا به این راننده تعلق ندارد"
+                    if normalized_provided_plate
+                    else "برای رانندهٔ انتخاب‌شده پلاک فعال ثبت نشده است"
+                ),
+            )
+        vehicle["plate"] = plate.plate_number
+        if not str(vehicle.get("type") or "").strip() and plate.vehicle_type:
+            vehicle["type"] = plate.vehicle_type
         base_payload["vehicle"] = vehicle
 
         # 100%-accuracy gate: reject incomplete routes up front.
@@ -269,14 +295,32 @@ class BatchService:
                 ),
             )
 
+        if payload.route_chain:
+            metric_errors = [error for route in routes if (error := route_schedule_metric_error(route))]
+            if metric_errors:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "برای زمان‌بندی زنجیره‌ای، فاصله یا زمان تخمینی مثبت برای همه مسیرها لازم است: "
+                        + "، ".join(metric_errors)
+                    ),
+                )
+
         # Validate the merged payload against the live worker contract so every
         # job passes preflight validation (no silent NEEDS_REVIEW at runtime).
-        sample_payload = build_job_payload(routes[0], base_payload)
-        base_errors = validate_enhanced_waybill_payload(
-            build_enhanced_waybill_payload(sample_payload), enforce_live_party_phones=True
-        )
-        if base_errors:
-            raise HTTPException(status_code=422, detail="بارنامه پایه ناقص است: " + "، ".join(base_errors))
+        for route in routes:
+            route_payload = build_job_payload(route, base_payload)
+            base_errors = validate_live_waybill_payload(
+                build_enhanced_waybill_payload(route_payload),
+                expected_driver_national_code=driver.driver_national_code,
+                expected_plate=plate.plate_number,
+                expected_driver_mobile=driver.phone,
+            )
+            if base_errors:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"بارنامهٔ مسیر «{route.name}» ناقص است: " + "، ".join(base_errors),
+                )
 
         batch = WaybillBatch(
             client_id=client_id,

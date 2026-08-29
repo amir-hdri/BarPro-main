@@ -9,6 +9,7 @@ from app.services.batch_service import (
     build_job_payload,
     build_route_chain_schedule,
     estimate_route_duration_minutes,
+    route_schedule_metric_error,
     select_route_index,
 )
 
@@ -53,6 +54,16 @@ def test_route_duration_prefers_persisted_duration_then_distance_estimate():
 
     route.distance_km = None
     assert estimate_route_duration_minutes(route) == 0
+
+
+def test_route_schedule_metric_error_requires_positive_distance_or_duration():
+    route = _complete_route()
+    route.distance_km = 0
+    route.duration_min = 0
+    assert route_schedule_metric_error(route) == "مسیر «route-1» فاصله یا زمان تخمینی معتبر ندارد"
+
+    route.duration_min = 10
+    assert route_schedule_metric_error(route) is None
 
 
 def test_route_chain_schedule_is_cumulative_and_ordered():

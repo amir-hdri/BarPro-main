@@ -8,7 +8,7 @@ from playwright.async_api import BrowserContext, Page
 from app.automation.auth import UTCMSAuthenticator
 from app.automation.multitenant_payload_adapter import (
     build_enhanced_waybill_payload,
-    validate_enhanced_waybill_payload,
+    validate_live_waybill_payload,
 )
 from app.automation.waybill_enhanced import EnhancedWaybillManager
 from app.core.config import utcms_config
@@ -73,7 +73,11 @@ class WaybillAutomationBot:
 
         try:
             normalized_payload = build_enhanced_waybill_payload(payload)
-            validation_errors = validate_enhanced_waybill_payload(normalized_payload, enforce_live_party_phones=True)
+            vehicle = normalized_payload.get("vehicle") if isinstance(normalized_payload.get("vehicle"), dict) else {}
+            validation_errors = validate_live_waybill_payload(
+                normalized_payload,
+                expected_driver_mobile=vehicle.get("driver_phone"),
+            )
             if validation_errors:
                 result["status"] = TaskStatus.NEEDS_REVIEW.value
                 result["error"] = "اطلاعات اجباری UTCMS ناقص است: " + "، ".join(validation_errors)

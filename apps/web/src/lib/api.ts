@@ -54,8 +54,14 @@ export function extractErrorMessage(payload: unknown): string {
   if (!payload || typeof payload !== 'object') return 'خطا در ارتباط با سرور';
 
   const record = payload as Record<string, unknown>;
-
-  const details = record.details || record.detail || record.errors;
+  // FastAPI may put our structured contract inside `detail`, while Pydantic
+  // validation errors arrive directly as `detail: []`. Normalize both shapes
+  // so missing-field warnings remain visible instead of degrading to a generic
+  // network error in the UI.
+  const detailRecord = record.detail && typeof record.detail === 'object' && !Array.isArray(record.detail)
+    ? (record.detail as Record<string, unknown>)
+    : null;
+  const details = record.details || record.errors || detailRecord?.errors || record.detail;
   if (Array.isArray(details) && details.length > 0) {
     const parts = details
       .map((item) => {
@@ -69,13 +75,17 @@ export function extractErrorMessage(payload: unknown): string {
       .filter(Boolean) as string[];
 
     if (parts.length) {
-      const prefix = normalizeToString(record.message) || 'خطای اعتبارسنجی';
+      const prefix =
+        normalizeToString(record.message) ||
+        normalizeToString(detailRecord?.message) ||
+        'خطای اعتبارسنجی';
       return `${prefix}: ${parts.join('، ')}`;
     }
   }
 
   const directMessage =
     normalizeToString(record.message) ||
+    normalizeToString(detailRecord?.message) ||
     normalizeToString(record.detail) ||
     normalizeToString(record.msg);
   if (directMessage) return directMessage;

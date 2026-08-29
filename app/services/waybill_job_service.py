@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import String, func
-from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -43,7 +42,6 @@ from app.schemas.multitenant import (
     WaybillJobResponse,
     WaybillJobUpdateRequest,
     WaybillRetryRequest,
-    _normalize_national_code,
     _normalize_plate,
 )
 from app.services._helpers import (
@@ -80,20 +78,17 @@ class WaybillJobService:
                 detail="Driver not found",
             )
 
-        payload_dict = request.payload.model_dump() if hasattr(request.payload, "model_dump") else dict(request.payload)
-        from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload
-
-        enhanced_payload = build_enhanced_waybill_payload(payload_dict)
-        payload_driver_code = _normalize_national_code(
-            str((enhanced_payload.get("vehicle") or {}).get("driver_national_code") or "")
-        )
-        if payload_driver_code and payload_driver_code != request.driver_national_code:
+        driver_status = getattr(driver.status, "value", driver.status)
+        if str(driver_status).lower() != DriverStatus.ACTIVE.value:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Payload driver_national_code does not match the selected driver",
+                status_code=status.HTTP_409_CONFLICT,
+                detail="رانندهٔ انتخاب‌شده فعال نیست و امکان ثبت بارنامه ندارد",
             )
 
-        # Auto-register / activate plate in DriverPlate for driver if provided
+        payload_dict = request.payload.model_dump() if hasattr(request.payload, "model_dump") else dict(request.payload)
+
+        # A real submission must use an already-active plate owned by this driver.
+        # Never create or reactivate a plate as a side effect of job creation.
         plate_str = getattr(request.payload, "plate_number", None)
         if not plate_str and hasattr(request.payload, "vehicle") and request.payload.vehicle:
             plate_str = getattr(request.payload.vehicle, "plate", None)
@@ -105,51 +100,77 @@ class WaybillJobService:
             vehicle_type_str = getattr(request.payload.vehicle, "type", None)
         elif not vehicle_type_str and isinstance(request.payload, dict):
             vehicle_type_str = request.payload.get("vehicle_type") or (request.payload.get("vehicle") or {}).get("type")
-        if not vehicle_type_str:
-            vehicle_type_str = "کامیون"
-
-        if plate_str and driver.id and client.id:
-            norm_plate = _normalize_plate(str(plate_str).strip())
-            existing_plate_stmt = select(DriverPlate).where(
-                (DriverPlate.client_id == client.id) & (DriverPlate.plate_number == norm_plate)
-            )
-            existing_plate = (await session.exec(existing_plate_stmt)).first()
-            if existing_plate and existing_plate.driver_id != driver.id:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Plate is already assigned to another driver in this tenant",
-                )
-            if not existing_plate:
-                plate_count = (
-                    await session.exec(select(func.count(DriverPlate.id)).where(DriverPlate.client_id == client.id))
-                ).one()
-                if plate_count >= client.max_plates:
-                    raise HTTPException(
-                        status_code=status.HTTP_409_CONFLICT,
-                        detail=f"Plate limit ({client.max_plates}) reached for this client",
-                    )
-                existing_plate = DriverPlate(
-                    client_id=client.id,
-                    driver_id=driver.id,
-                    plate_number=norm_plate,
-                    vehicle_type=str(vehicle_type_str),
-                    status="active",
-                )
-                session.add(existing_plate)
-            else:
-                if existing_plate.status != "active":
-                    existing_plate.status = "active"
-                if vehicle_type_str and existing_plate.vehicle_type != vehicle_type_str:
-                    existing_plate.vehicle_type = vehicle_type_str
-                session.add(existing_plate)
+        norm_plate: str | None = None
+        if plate_str:
             try:
-                await session.commit()
-            except IntegrityError as exc:
-                await session.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Plate registration conflicted with another concurrent request",
-                ) from exc
+                norm_plate = _normalize_plate(str(plate_str).strip())
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+        plate_query = select(DriverPlate).where(
+            (DriverPlate.client_id == client.id)
+            & (DriverPlate.driver_id == driver.id)
+            & (DriverPlate.status == "active")
+        )
+        if norm_plate:
+            plate_query = plate_query.where(DriverPlate.plate_number == norm_plate)
+        plate_query = plate_query.order_by(DriverPlate.id.desc())
+        active_plate = (await session.exec(plate_query)).first()
+        if active_plate is None:
+            detail = (
+                "پلاک ارسالی فعال نیست یا به این راننده تعلق ندارد"
+                if norm_plate
+                else "برای رانندهٔ انتخاب‌شده پلاک فعال ثبت نشده است"
+            )
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail)
+
+        norm_plate = active_plate.plate_number
+        if not vehicle_type_str:
+            vehicle_type_str = active_plate.vehicle_type
+
+        # Persist the authoritative driver/plate enrichment in the job payload.
+        if isinstance(payload_dict.get("vehicle"), dict):
+            payload_dict["vehicle"]["driver_national_code"] = driver.driver_national_code
+            payload_dict["vehicle"]["plate"] = norm_plate
+            if vehicle_type_str:
+                payload_dict["vehicle"]["type"] = vehicle_type_str
+        else:
+            payload_dict["driver_national_code"] = driver.driver_national_code
+            payload_dict["plate_number"] = norm_plate
+            if vehicle_type_str:
+                payload_dict["vehicle_type"] = vehicle_type_str
+            metadata = payload_dict.get("metadata_json")
+            metadata = dict(metadata) if isinstance(metadata, dict) else {}
+            metadata_vehicle = dict(metadata.get("vehicle")) if isinstance(metadata.get("vehicle"), dict) else {}
+            metadata_vehicle.update(
+                {"driver_national_code": driver.driver_national_code, "plate": norm_plate}
+            )
+            if vehicle_type_str:
+                metadata_vehicle["type"] = vehicle_type_str
+            metadata["vehicle"] = metadata_vehicle
+            payload_dict["metadata_json"] = metadata
+
+        from app.automation.multitenant_payload_adapter import (
+            build_enhanced_waybill_payload,
+            validate_live_waybill_payload,
+        )
+
+        enhanced_payload = build_enhanced_waybill_payload(payload_dict)
+        payload_errors = validate_live_waybill_payload(
+            enhanced_payload,
+            expected_driver_national_code=driver.driver_national_code,
+            expected_plate=norm_plate,
+            expected_driver_mobile=driver.phone,
+        )
+        if payload_errors:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error": "WAYBILL_PAYLOAD_INCOMPLETE",
+                    "message": "اطلاعات اجباری بارنامه کامل یا معتبر نیست",
+                    "errors": payload_errors,
+                },
+            )
 
         job = await rpa_scheduler_service.create_job(
             client_id=client.id or 0,

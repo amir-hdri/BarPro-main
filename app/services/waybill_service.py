@@ -106,6 +106,23 @@ class WaybillService:
                     },
                 )
 
+            # Safe mode is still a real form exercise, so an incomplete payload
+            # must be reported before consuming a proxy/browser.  The caller can
+            # correct the listed fields and retry with a fresh request; no job,
+            # navigation, CAPTCHA attempt, or SMS action is started here.
+            if not preflight["ready_for_live_submit"]:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "WAYBILL_PAYLOAD_INCOMPLETE",
+                        "message": "اطلاعات اجباری بارنامه کامل یا معتبر نیست",
+                        "errors": preflight["payload_errors"],
+                        "missing_requirements": preflight["missing_requirements"],
+                        "mutation_dispatched": False,
+                        "browser_started": False,
+                    },
+                )
+
             await report_service.record_request(mode=mode)
 
             max_attempts = max(1, utcms_config.WAYBILL_MAX_RETRIES + 1)
@@ -363,12 +380,16 @@ class WaybillService:
 
     @staticmethod
     def _build_preflight_summary(request: WaybillMapRequest) -> dict[str, Any]:
-        from app.automation.multitenant_payload_adapter import validate_enhanced_waybill_payload
+        from app.automation.multitenant_payload_adapter import validate_live_waybill_payload
 
         shipping_options = request.shipping_options
         request_auth = request.utcms_auth
-        payload_errors = validate_enhanced_waybill_payload(
-            WaybillService._build_waybill_payload(request), enforce_live_party_phones=True
+        waybill_payload = WaybillService._build_waybill_payload(request)
+        payload_errors = validate_live_waybill_payload(
+            waybill_payload,
+            expected_driver_national_code=request.vehicle.driver_national_code,
+            expected_plate=request.vehicle.plate,
+            expected_driver_mobile=request.vehicle.driver_phone,
         )
 
         has_request_auth = bool(

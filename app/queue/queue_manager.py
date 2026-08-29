@@ -34,6 +34,22 @@ class WaybillQueueManager:
                 )
             client_id = 1
         payload = request.model_dump()
+        from app.automation.multitenant_payload_adapter import (
+            build_enhanced_waybill_payload,
+            validate_live_waybill_payload,
+        )
+
+        payload_errors = validate_live_waybill_payload(build_enhanced_waybill_payload(payload))
+        if payload_errors:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "WAYBILL_PAYLOAD_INCOMPLETE",
+                    "message": "اطلاعات اجباری بارنامه کامل یا معتبر نیست",
+                    "errors": payload_errors,
+                },
+            )
+
         payload["correlation_id"] = (payload.get("correlation_id") or generate_correlation_id()).strip()
         payload["batch_id"] = (
             payload.get("batch_id") or payload.get("session_id") or payload["correlation_id"]

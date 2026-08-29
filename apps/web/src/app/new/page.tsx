@@ -428,6 +428,8 @@ export default function NewWaybillPage() {
         nextErrors[key] = issue.message;
       }
       setErrors(nextErrors);
+      const firstErrorMessage = Object.values(nextErrors)[0];
+      toast.error(firstErrorMessage || "لطفاً همهٔ فیلدهای اجباری را کامل کنید");
       return;
     }
 
@@ -552,7 +554,9 @@ export default function NewWaybillPage() {
       setSubmitting(false);
 
       if (!response.success) {
-        setServerError(response.error || "ثبت زمان‌بندی ناموفق بود");
+        const message = response.error || "ثبت زمان‌بندی ناموفق بود";
+        setServerError(message);
+        toast.error(message);
         return;
       }
 
@@ -571,7 +575,9 @@ export default function NewWaybillPage() {
     setSubmitting(false);
 
     if (!response.success || !response.data) {
-      setServerError(response.error || "ثبت کار ناموفق بود");
+      const message = response.error || "ثبت کار ناموفق بود";
+      setServerError(message);
+      toast.error(message);
       return;
     }
 

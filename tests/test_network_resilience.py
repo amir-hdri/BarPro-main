@@ -22,18 +22,19 @@ from app.services.waybill_service import WaybillService
 def _request() -> WaybillMapRequest:
     return WaybillMapRequest(
         session_id="network-test",
+        utcms_auth={"username": "test-user", "password": "test-password"},
         operation_mode=OperationMode.SAFE,
-        sender=SenderModel(name="S", phone="0912", address="A", national_code="1234567890"),
-        receiver=ReceiverModel(name="R", phone="0912", address="B"),
-        origin=LocationModel(province="P1", city="C1", address="O", coordinates=GeoCoordinateModel(lat=1.0, lng=1.0)),
+        sender=SenderModel(name="علی رضایی", phone="09121111111", address="خیابان آزادی پلاک ۱", national_code="0084575948"),
+        receiver=ReceiverModel(name="رضا کرمی", phone="09122222222", address="بلوار جمهوری پلاک ۲"),
+        origin=LocationModel(province="تهران", city="تهران", address="خیابان آزادی پلاک ۱", coordinates=GeoCoordinateModel(lat=1.0, lng=1.0)),
         destination=LocationModel(
-            province="P2",
-            city="C2",
-            address="D",
+            province="البرز",
+            city="کرج",
+            address="بلوار جمهوری پلاک ۲",
             coordinates=GeoCoordinateModel(lat=2.0, lng=2.0),
         ),
-        cargo=CargoModel(type="General", weight=1000, count=1, description="x"),
-        vehicle=VehicleModel(driver_national_code="123", driver_phone="0912", plate="12A34567", type="Truck"),
+        cargo=CargoModel(type="General", packaging="کیسه", weight=1000, count=1, value=1000000, description="x"),
+        vehicle=VehicleModel(driver_national_code="0084575948", driver_phone="09123333333", plate="12ب345ایران67", type="کامیون"),
         financial=FinancialModel(cost=1000, payment_method="Cash"),
     )
 

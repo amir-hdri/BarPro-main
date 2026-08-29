@@ -102,6 +102,16 @@ async def test_fullstack_e2e_driver_waybill_fuel_lifecycle():
             vehicle_type="کامیون کشنده",
             plate_number="12الف345ایران67",
             driver_phone="09123456789",
+            sender_phone="09121111111",
+            receiver_phone="09122222222",
+            metadata_json={
+                "sender": {"name": "علی رضایی", "phone": "09121111111"},
+                "receiver": {"name": "حسن محمدی", "phone": "09122222222"},
+                "origin": {"province": "تهران", "city": "تهران", "address": "خیابان آزادی پلاک ۱"},
+                "destination": {"province": "خراسان رضوی", "city": "مشهد", "address": "بلوار وکیل آباد پلاک ۵"},
+                "cargo": {"type": "آهن آلات", "packaging": "بندیل", "weight": 15000, "value": "100000000"},
+                "vehicle": {"driver_national_code": "1810364371", "plate": "12الف345ایران67", "type": "کامیون کشنده"},
+            },
         )
         waybill_req = WaybillJobCreateRequest(
             driver_national_code="1810364371",
@@ -275,6 +285,17 @@ async def test_waybill_payload_flexibility_and_vehicle_type_auto_sync():
         await session.commit()
         await session.refresh(driver)
 
+        session.add(
+            DriverPlate(
+                client_id=client.id,
+                driver_id=driver.id,
+                plate_number="12ب345ایران67",
+                vehicle_type="جفت (۱۵ تن)",
+                status="active",
+            )
+        )
+        await session.commit()
+
         # 1. Test frontend-like hybrid payload (with vehicle_type, cargo_packaging, metadata_json)
         from app.schemas.multitenant import WaybillJobCreateRequest
 
@@ -298,8 +319,10 @@ async def test_waybill_payload_flexibility_and_vehicle_type_auto_sync():
                 "vehicle_type": "جفت (۱۵ تن)",
                 "sender_name": "جواد سمیرات",
                 "receiver_name": "علی معماری",
-                "sender": {"name": "جواد سمیرات"},
-                "receiver": {"name": "علی معماری"},
+                "sender_phone": "09161112244",
+                "receiver_phone": "09161112255",
+                "sender": {"name": "جواد سمیرات", "phone": "09161112244"},
+                "receiver": {"name": "علی معماری", "phone": "09161112255"},
                 "origin": {"province": "خوزستان", "city": "اهواز", "address": "اهواز، جاده ساحلی"},
                 "destination": {"province": "خوزستان", "city": "خرمشهر", "address": "خرمشهر، بندر"},
                 "cargo": {"type": "مطالح", "packaging": "فله", "weight": "15", "value": "100000000"},
@@ -334,7 +357,7 @@ async def test_waybill_payload_flexibility_and_vehicle_type_auto_sync():
             )
             assert resp.job_id == "job-payload-test-1"
 
-        # Verify DriverPlate was registered with vehicle_type="جفت (۱۵ تن)"
+        # Verify the pre-existing active DriverPlate remains authoritative.
         plate_stmt = select(DriverPlate).where(
             (DriverPlate.driver_id == driver.id) & (DriverPlate.plate_number == "12ب345ایران67")
         )

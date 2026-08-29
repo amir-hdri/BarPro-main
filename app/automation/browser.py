@@ -147,6 +147,15 @@ class BrowserManager:
             for session_id in list(self._contexts.keys()):
                 try:
                     context = self._contexts[session_id]
+                    for page in list(context.pages):
+                        await self._cleanup_page_instrumentation(page)
+                        try:
+                            await asyncio.wait_for(page.close(), timeout=5)
+                        except Exception as page_exc:
+                            logger.warning(
+                                "recycle_page_close_failed",
+                                extra={"extra_fields": {"session_id": session_id, "error": str(page_exc)}},
+                            )
                     await context.close()
                 except Exception:
                     logger.warning("browser_operation_failed", exc_info=True)
@@ -472,11 +481,12 @@ class BrowserManager:
         context = self._contexts[session_id]
         try:
             # Close all pages within the context explicitly before closing the context itself
-            for page in context.pages:
+            for page in list(context.pages):
                 try:
                     bridge = getattr(page, "_barpro_http_browser_bridge", None)
                     if bridge is not None:
                         await bridge.close()
+                    await self._cleanup_page_instrumentation(page)
                     await asyncio.wait_for(page.close(), timeout=5)
                 except Exception as page_exc:
                     logger.warning(
@@ -562,6 +572,13 @@ class BrowserManager:
         await self._register_page_listener(page, "console", _capture_console)
         await self._register_page_listener(page, "request", _capture_request)
         await self._register_page_listener(page, "response", _capture_response)
+        # Keep only BrowserManager-owned callbacks so teardown can remove its
+        # instrumentation without disturbing application listeners.
+        page._barpro_listener_callbacks = {  # type: ignore[attr-defined]
+            "console": _capture_console,
+            "request": _capture_request,
+            "response": _capture_response,
+        }
 
         # Route interceptor to prevent downloading heavy map tiles and slow trackers
         async def block_map_tiles_and_trackers(route):
@@ -619,6 +636,7 @@ class BrowserManager:
         if getattr(utcms_config, "BLOCK_MAP_TILES", True):
             try:
                 await page.route("**/*", block_map_tiles_and_trackers)
+                page._barpro_route_handler = block_map_tiles_and_trackers  # type: ignore[attr-defined]
             except Exception as route_exc:
                 logger.warning(f"Failed to register route interceptor: {route_exc}")
         else:
@@ -695,6 +713,35 @@ class BrowserManager:
         del events[:-max_events]
 
     @staticmethod
+    async def _cleanup_page_instrumentation(page: Page) -> None:
+        """Remove BrowserManager-owned listeners and routes before close."""
+        callbacks = getattr(page, "_barpro_listener_callbacks", {})
+        if isinstance(callbacks, dict):
+            for event_name, callback in callbacks.items():
+                try:
+                    page.remove_listener(event_name, callback)
+                except Exception as exc:
+                    logger.debug(
+                        "page_listener_cleanup_failed",
+                        extra={"extra_fields": {"event": event_name, "error": str(exc)}},
+                    )
+            callbacks.clear()
+
+        route_handler = getattr(page, "_barpro_route_handler", None)
+        if route_handler is not None:
+            try:
+                await page.unroute("**/*", route_handler)
+            except Exception as exc:
+                logger.debug(
+                    "page_route_cleanup_failed",
+                    extra={"extra_fields": {"error": str(exc)}},
+                )
+            try:
+                del page._barpro_route_handler  # type: ignore[attr-defined]
+            except AttributeError:
+                pass
+
+    @staticmethod
     async def _register_page_listener(page: Page, event_name: str, callback) -> None:
         try:
             page.on(event_name, callback)
@@ -723,6 +770,8 @@ class BrowserManager:
 
         for context in list(self._contexts.values()):
             try:
+                for page in list(context.pages):
+                    await self._cleanup_page_instrumentation(page)
                 await context.close()
             except Exception as exc:
                 logger.warning(
@@ -828,6 +877,7 @@ async def managed_page(auth_state_path: str | None = None):
             yield page
         finally:
             try:
+                await browser_manager._cleanup_page_instrumentation(page)
                 await page.close()
             except Exception as exc:
                 logger.warning(

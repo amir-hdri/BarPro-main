@@ -109,6 +109,18 @@ async def test_probe_lock_fail_closed_when_redis_none(gate):
 
 
 @pytest.mark.asyncio
+async def test_daytime_state_fails_closed_without_redis_or_observation(gate):
+    daytime = datetime(2026, 8, 15, 12, 0, tzinfo=TEHRAN_TZ)
+    with (
+        patch("app.services.utcms_submission_gate.redis_manager.get", return_value=None),
+        patch("app.services.utcms_submission_gate.async_session_factory", side_effect=RuntimeError("db unavailable")),
+        patch.object(gate, "get_tehran_now", return_value=daytime),
+    ):
+        assert await gate.get_state() == GateStateValue.UNKNOWN
+        assert await gate.is_submission_allowed() is False
+
+
+@pytest.mark.asyncio
 async def test_cost_settings_alone_does_not_open_gate(gate):
     mock_redis = AsyncMock()
     mock_redis.set = AsyncMock(return_value=True)

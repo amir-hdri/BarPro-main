@@ -130,6 +130,10 @@ async def _load_credentials() -> tuple[str, str, dict[str, str]]:
 
 async def run(live: bool, job_id: str) -> dict:
     from app.automation.browser import browser_manager
+    from app.automation.multitenant_payload_adapter import (
+        build_enhanced_waybill_payload,
+        validate_live_waybill_payload,
+    )
     from app.automation.utcms_http_login import UtcmsHttpLogin
     from app.automation.waybill_enhanced import EnhancedWaybillManager
     from app.automation.worker_proxy import get_worker_proxy_url
@@ -146,6 +150,26 @@ async def run(live: bool, job_id: str) -> dict:
         PAYLOAD["vehicle"][key] = value
     if not PAYLOAD["vehicle"]["driver_national_code"]:
         raise RuntimeError("driver national code is unknown; the tajmi driver list cannot be matched")
+
+    # Reject incomplete operator data before proxy selection, login, or browser
+    # startup. This entry point must obey the same no-invention contract as the
+    # API and the final-stage probe.
+    normalized_payload = build_enhanced_waybill_payload(PAYLOAD)
+    payload_errors = validate_live_waybill_payload(
+        normalized_payload,
+        expected_driver_national_code=PAYLOAD["vehicle"].get("driver_national_code"),
+        expected_plate=identity.get("plate") or PAYLOAD["vehicle"].get("plate"),
+        expected_driver_mobile=identity.get("driver_phone") or PAYLOAD["vehicle"].get("driver_phone"),
+    )
+    if payload_errors:
+        return {
+            "success": False,
+            "status": "needs_review",
+            "error_category": "payload_validation_failed",
+            "errors": payload_errors,
+            "mutation_dispatched": False,
+            "sms_requested": False,
+        }
     logger.info("proxy=%s user=***%s live=%s", proxy_url, username[-4:], live)
 
     login = UtcmsHttpLogin(proxy_url=proxy_url)
@@ -158,7 +182,7 @@ async def run(live: bool, job_id: str) -> dict:
     try:
         if not await login.inject_cookies_into_context_async(res, ctx):
             raise RuntimeError("cookie injection into Playwright failed")
-        page = await ctx.new_page()
+        page = await browser_manager.new_page(ctx)
 
         # Every symptom so far -- no cargo autocomplete, no fillBoxType, no
         # GETUserFleetListTajmi, no plate change handler -- points at the form's
@@ -221,7 +245,7 @@ def main() -> int:
         return 1
     print("=== WAYBILL RESULT ===")
     print(json.dumps(result, ensure_ascii=False, indent=2)[:6000])
-    return 0
+    return 2 if result.get("status") == "needs_review" else 0
 
 
 if __name__ == "__main__":

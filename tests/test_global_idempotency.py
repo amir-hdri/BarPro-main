@@ -104,14 +104,14 @@ async def test_queue_manager_reused_job_returns_existing_state() -> None:
         "sender": {
             "name": "علی محمدی",
             "phone": "09121111111",
-            "address": "خیابان آزادی",
-            "national_code": "1234567890",
+            "address": "خیابان آزادی پلاک ۱",
+            "national_code": "0084575948",
         },
-        "receiver": {"name": "رضا کرمی", "phone": "09122222222", "address": "بلوار جمهوری"},
-        "origin": {"province": "تهران", "city": "تهران", "address": "خیابان آزادی"},
-        "destination": {"province": "البرز", "city": "کرج", "address": "بلوار جمهوری"},
+        "receiver": {"name": "رضا کرمی", "phone": "09122222222", "address": "بلوار جمهوری پلاک ۲"},
+        "origin": {"province": "تهران", "city": "تهران", "address": "خیابان آزادی پلاک ۱"},
+        "destination": {"province": "البرز", "city": "کرج", "address": "بلوار جمهوری پلاک ۲"},
         "cargo": {"type": "مصالح", "packaging": "فله", "weight": 1000, "value": 1000000},
-        "vehicle": {"driver_national_code": "1234567890", "plate": "79ع989ایران84"},
+        "vehicle": {"driver_national_code": "0084575948", "driver_phone": "09123333333", "plate": "79ع989ایران84"},
         "financial": {},
     }
     request = WaybillMapRequest.model_validate(request_data)

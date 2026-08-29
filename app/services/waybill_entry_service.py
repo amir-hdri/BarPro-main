@@ -314,44 +314,19 @@ class ManualWaybillService:
     @staticmethod
     def validate_manual_entry(request: WaybillMapRequest) -> dict[str, Any]:
         """Validate manual entry and return validation summary."""
-        errors = []
-        warnings = []
+        from app.automation.multitenant_payload_adapter import (
+            build_enhanced_waybill_payload,
+            validate_live_waybill_payload,
+        )
 
-        # Validate sender
-        if not request.sender.name.strip():
-            errors.append("نام فرستنده الزامی است")
-        if not request.sender.phone.strip():
-            errors.append("تلفن فرستنده الزامی است")
-        if not request.sender.national_code.strip():
-            errors.append("کد ملی فرستنده الزامی است")
-        elif len(normalize_digits(request.sender.national_code)) != 10:
-            warnings.append("کد ملی فرستنده ممکن است نامعتبر باشد")
-
-        # Validate receiver
-        if not request.receiver.name.strip():
-            errors.append("نام گیرنده الزامی است")
-        if not request.receiver.phone.strip():
-            errors.append("تلفن گیرنده الزامی است")
-
-        # Validate origin
-        if not request.origin.province.strip():
-            errors.append("استان مبدأ الزامی است")
-        if not request.origin.city.strip():
-            errors.append("شهر مبدأ الزامی است")
-
-        # Validate destination
-        if not request.destination.province.strip():
-            errors.append("استان مقصد الزامی است")
-        if not request.destination.city.strip():
-            errors.append("شهر مقصد الزامی است")
-
-        # Validate cargo
-        if not request.cargo.weight or request.cargo.weight <= 0:
-            errors.append("وزن کالا باید مثبت باشد")
+        errors = validate_live_waybill_payload(build_enhanced_waybill_payload(request.model_dump()))
+        warnings: list[str] = []
 
         # Validate auth
         has_request_auth = (
-            request.utcms_auth and request.utcms_auth.username.strip() and request.utcms_auth.password.strip()
+            request.utcms_auth
+            and request.utcms_auth.username.strip()
+            and request.utcms_auth.password.strip()
         )
         if not has_request_auth:
             errors.append("اطلاعات ورود UTCMS باید برای هر راننده یا هر درخواست به صورت صریح ارسال شود")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from typing import Any
 
@@ -86,7 +87,7 @@ def _location_parts(raw_text: Any, section: dict[str, Any], metadata: dict[str, 
 
 def _validate_iranian_national_code(code: str) -> bool:
     """Validate Iranian 10-digit national code checksum."""
-    clean_code = re.sub(r"\D", "", str(code or "")).strip()
+    clean_code = re.sub(r"\D", "", _normalize_numeric(code)).strip()
     if len(clean_code) != 10:
         return False
     if clean_code in {
@@ -115,6 +116,26 @@ def _normalize_mobile(value: Any) -> str:
     for index, digit in enumerate("٠١٢٣٤٥٦٧٨٩"):
         text = text.replace(digit, str(index))
     return re.sub(r"\D", "", text)
+
+
+def _normalize_numeric(value: Any) -> str:
+    """Normalize Persian/Arabic digits and common thousands separators."""
+    text = str(value or "")
+    for index, digit in enumerate("۰۱۲۳۴۵۶۷۸۹"):
+        text = text.replace(digit, str(index))
+    for index, digit in enumerate("٠١٢٣٤٥٦٧٨٩"):
+        text = text.replace(digit, str(index))
+    return text.replace(",", "").replace("٬", "").strip()
+
+
+def _canonical_plate(value: Any) -> str | None:
+    """Return the canonical Iranian plate or ``None`` for an invalid value."""
+    try:
+        from app.schemas.multitenant import _normalize_plate
+
+        return _normalize_plate(str(value or ""))
+    except (TypeError, ValueError):
+        return None
 
 
 def validate_enhanced_waybill_payload(payload: dict[str, Any], *, enforce_live_party_phones: bool = False) -> list[str]:
@@ -173,7 +194,8 @@ def validate_enhanced_waybill_payload(payload: dict[str, Any], *, enforce_live_p
             continue
         for field, field_label in (("province", "استان"), ("city", "شهر"), ("address", "آدرس")):
             val = str(location.get(field) or "").strip()
-            if not val or val in PLACEHOLDER_VALUES or len(val) < 2:
+            minimum = 5 if field == "address" else 2
+            if not val or val in PLACEHOLDER_VALUES or len(val) < minimum:
                 errors.append(f"{field_label} {label}")
 
     cargo = payload.get("cargo")
@@ -192,10 +214,19 @@ def validate_enhanced_waybill_payload(payload: dict[str, Any], *, enforce_live_p
 
         weight_val = cargo.get("weight")
         try:
-            if weight_val is not None and float(str(weight_val).strip()) <= 0:
+            parsed_weight = float(_normalize_numeric(weight_val))
+            if not math.isfinite(parsed_weight) or parsed_weight <= 0:
                 errors.append("وزن کالا باید مثبت و بزرگتر از صفر باشد")
         except (ValueError, TypeError):
             errors.append("وزن کالا عددی نامعتبر است")
+
+        value_val = cargo.get("value")
+        try:
+            parsed_value = float(_normalize_numeric(value_val))
+            if not math.isfinite(parsed_value) or parsed_value <= 0:
+                errors.append("ارزش تقریبی بار باید مثبت و بزرگتر از صفر باشد")
+        except (ValueError, TypeError):
+            errors.append("ارزش تقریبی بار عددی نامعتبر است")
 
     vehicle = payload.get("vehicle")
     if not isinstance(vehicle, dict):
@@ -210,8 +241,50 @@ def validate_enhanced_waybill_payload(payload: dict[str, Any], *, enforce_live_p
         plate_str = str(vehicle.get("plate") or "").strip()
         if not plate_str or plate_str in PLACEHOLDER_VALUES:
             errors.append("پلاک خودرو")
+        elif enforce_live_party_phones and _canonical_plate(plate_str) is None:
+            errors.append("فرمت پلاک خودرو نامعتبر است")
 
     return errors
+
+
+def validate_live_waybill_payload(
+    payload: dict[str, Any],
+    *,
+    expected_driver_national_code: str | None = None,
+    expected_plate: str | None = None,
+    expected_driver_mobile: str | None = None,
+) -> list[str]:
+    """Validate the complete user-supplied contract required before UTCMS mutation.
+
+    This is the single strict gate used by API/job creation, batches, and workers.
+    It deliberately does not invent missing values and it keeps account credentials
+    outside the business payload; driver account readiness is checked by the caller.
+    """
+    errors = validate_enhanced_waybill_payload(payload, enforce_live_party_phones=True)
+    vehicle = payload.get("vehicle") if isinstance(payload.get("vehicle"), dict) else {}
+
+    driver_mobile = _normalize_mobile(expected_driver_mobile or vehicle.get("driver_phone"))
+    if re.fullmatch(r"09\d{9}", driver_mobile):
+        for party_key, label in (("sender", "فرستنده"), ("receiver", "گیرنده")):
+            party = payload.get(party_key)
+            party_mobile = _normalize_mobile(party.get("phone")) if isinstance(party, dict) else ""
+            if party_mobile and party_mobile == driver_mobile:
+                errors.append(f"موبایل {label} نباید با موبایل راننده یکسان باشد")
+
+    if expected_driver_national_code:
+        actual = _normalize_numeric(vehicle.get("driver_national_code"))
+        expected = _normalize_numeric(expected_driver_national_code)
+        if actual != expected:
+            errors.append("کد ملی راننده با رانندهٔ انتخاب‌شده مطابقت ندارد")
+
+    if expected_plate:
+        actual_plate = _canonical_plate(vehicle.get("plate"))
+        expected_canonical = _canonical_plate(expected_plate)
+        if actual_plate is None or expected_canonical is None or actual_plate != expected_canonical:
+            errors.append("پلاک خودرو با پلاک فعال راننده مطابقت ندارد")
+
+    # Keep error output deterministic for API clients and UI rendering.
+    return list(dict.fromkeys(errors))
 
 
 def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -408,5 +481,6 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
 __all__ = [
     "build_enhanced_waybill_payload",
     "validate_enhanced_waybill_payload",
+    "validate_live_waybill_payload",
     "compute_canonical_route_key",
 ]

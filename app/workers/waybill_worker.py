@@ -237,11 +237,15 @@ async def _claim_and_execute(task: Any, intent_id: str):
 
             from app.automation.multitenant_payload_adapter import (
                 build_enhanced_waybill_payload,
-                validate_enhanced_waybill_payload,
+                validate_live_waybill_payload,
             )
 
             normalized_payload = build_enhanced_waybill_payload(_safe_json(job.payload_json))
-            payload_errors = validate_enhanced_waybill_payload(normalized_payload, enforce_live_party_phones=True)
+            vehicle = normalized_payload.get("vehicle") if isinstance(normalized_payload.get("vehicle"), dict) else {}
+            payload_errors = validate_live_waybill_payload(
+                normalized_payload,
+                expected_driver_mobile=vehicle.get("driver_phone"),
+            )
             if payload_errors:
                 error_message = "اطلاعات اجباری بارنامه ناقص است: " + "، ".join(payload_errors)
                 intent.status = "failed"
