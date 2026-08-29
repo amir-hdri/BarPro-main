@@ -36,6 +36,10 @@ class WaybillBatch(SQLModel, table=True):
     base_payload_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     target_count: int = Field(default=15)
     repeat_mode: str = Field(default="round_robin", max_length=20)  # round_robin | random | sequential
+    # When enabled, route_template_ids are an ordered chain of independent
+    # waybills. The scheduler releases leg N+1 only after leg N reaches the
+    # reconciled SUCCESS state.
+    route_chain: bool = Field(default=False)
     interval_minutes: int = Field(default=40)
     status: str = Field(default="active", max_length=20)  # active | paused | completed | cancelled
     progress: dict = Field(default_factory=_default_progress, sa_column=Column(JSON, nullable=False))

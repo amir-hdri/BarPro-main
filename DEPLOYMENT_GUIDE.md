@@ -85,7 +85,7 @@ docs/adding_new_worker.md مستقر شوند.
 
 Alembic head مورد انتظار این checkout:
 
-    038_add_multiroute_batch_distance
+    039_add_route_chain_scheduling
 
 مهاجرت‌ها زیر PostgreSQL session-level advisory lock اجرا می‌شوند. تمام مسیرهای
 deploy باید `app.core.database.run_migrations()` را فراخوانی کنند و از Alembic خام

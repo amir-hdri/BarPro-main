@@ -54,6 +54,7 @@ export default function BatchesPage() {
   const [selectedRoutes, setSelectedRoutes] = useState<number[]>([]);
   const [targetCount, setTargetCount] = useState(15);
   const [repeatMode, setRepeatMode] = useState<'round_robin' | 'random' | 'sequential'>('round_robin');
+  const [routeChain, setRouteChain] = useState(true);
   const [intervalMinutes, setIntervalMinutes] = useState(40);
   const [senderName, setSenderName] = useState('');
   const [receiverName, setReceiverName] = useState('');
@@ -122,6 +123,13 @@ export default function BatchesPage() {
 
   const selectedDriver = drivers.find((d) => d.id === driverId) || null;
 
+  useEffect(() => {
+    if (routeChain && selectedRoutes.length > 0) {
+      setTargetCount(selectedRoutes.length);
+      setRepeatMode('sequential');
+    }
+  }, [routeChain, selectedRoutes.length]);
+
   function toggleRoute(id: number) {
     setSelectedRoutes((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
@@ -135,6 +143,10 @@ export default function BatchesPage() {
     }
     if (selectedRoutes.length === 0) {
       toast.error('حداقل یک مسیر را انتخاب کنید');
+      return;
+    }
+    if (routeChain && targetCount !== selectedRoutes.length) {
+      toast.error('در حالت زنجیره‌ای، تعداد بارنامه باید برابر تعداد مسیرها باشد');
       return;
     }
     if (senderName.trim().split(/\s+/).length < 2) {
@@ -185,6 +197,7 @@ export default function BatchesPage() {
         base_payload_json: basePayload,
         target_count: targetCount,
         repeat_mode: repeatMode,
+        route_chain: routeChain,
         interval_minutes: intervalMinutes,
         priority: 5,
       },
@@ -217,7 +230,7 @@ export default function BatchesPage() {
           <div className="mb-8">
             <h1 className="text-2xl font-black text-white">ثبت دسته‌ای بارنامه</h1>
             <p className="mt-1 text-sm text-slate-400">
-              چند مسیر ذخیره‌شده را به تعداد دلخواه گسترش دهید؛ سیستم بارنامه‌ها را با فاصلهٔ زمانی مشخص ثبت می‌کند.
+              هر مسیر یک بارنامهٔ مستقل است؛ در حالت زنجیره‌ای، مسیر بعدی پس از موفقیت قبلی و زمان تخمینی آن ثبت می‌شود.
             </p>
           </div>
 
@@ -335,7 +348,12 @@ export default function BatchesPage() {
               </div>
               <div>
                 <label className="mb-1.5 block text-xs font-bold text-slate-300">الگوی توزیع مسیر</label>
-                <select className="field" value={repeatMode} onChange={(e) => setRepeatMode(e.target.value as typeof repeatMode)}>
+                <select
+                  className="field disabled:cursor-not-allowed disabled:opacity-60"
+                  value={repeatMode}
+                  disabled={routeChain}
+                  onChange={(e) => setRepeatMode(e.target.value as typeof repeatMode)}
+                >
                   {REPEAT_MODES.map((m) => (
                     <option key={m.value} value={m.value}>
                       {m.label}
@@ -355,6 +373,21 @@ export default function BatchesPage() {
                 />
               </div>
             </div>
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3">
+              <input
+                type="checkbox"
+                checked={routeChain}
+                onChange={(e) => setRouteChain(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-cyan-500"
+              />
+              <span>
+                <span className="block text-xs font-black text-cyan-200">زنجیرهٔ مسیر برای همین راننده</span>
+                <span className="mt-1 block text-[11px] text-slate-400">
+                  بارنامه‌ها هم‌زمان ارسال نمی‌شوند؛ هر leg بعد از موفقیت و زمان تقریبی leg قبل آزاد می‌شود و گیت ساعات مجاز UTCMS نیز اعمال می‌گردد.
+                </span>
+              </span>
+            </label>
 
             <button
               type="submit"
@@ -416,6 +449,14 @@ export default function BatchesPage() {
                     <p className="mt-1 text-sm font-black text-cyan-300">{toPersianDigits(progress.progress_percent)}٪</p>
                   </div>
                 </div>
+              )}
+              {progress?.route_chain && progress.next_sequence != null && (
+                <p className="mt-4 text-xs text-slate-400">
+                  leg بعدی: {toPersianDigits(progress.next_sequence + 1)}
+                  {progress.blocked_by_sequence != null
+                    ? `؛ منتظر رسیدگی به leg ${toPersianDigits(progress.blocked_by_sequence + 1)} است`
+                    : '؛ پس از پایان leg قبلی و زمان تخمینی آزاد می‌شود'}
+                </p>
               )}
             </div>
           )}

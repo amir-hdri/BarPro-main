@@ -192,7 +192,10 @@ def get_best_egress_proxy() -> str | None:
     - 'hybrid': Alternates between local worker Squid and the Clean IP Pool.
 
     Fail-closed: in production (see ``_proxy_fail_closed``), if both the worker proxy
-    and the clean IP pool are unavailable, raises ``ProxyUnavailableError``.
+    and the clean IP pool are unavailable, raises ``ProxyUnavailableError``. One
+    exception: a worker Squid that is UP but whose egress index is marked blocked is
+    still used (degraded) when the pool is empty, so marking an egress blocked can
+    never take waybill processing offline.
     """
     global _cached_proxy_source, _cached_proxy_url, _cached_proxy_timestamp
 
@@ -244,19 +247,28 @@ def get_best_egress_proxy() -> str | None:
         os.environ.get("RPA_PROXIES", "").split(",")[0].strip() or None
     )
 
+    worker_squid_reachable = False
+    worker_index_blocked = _is_worker_index_blocked()
     worker_squid_healthy = False
     resolved_worker_squid = None
 
-    if url and not _is_worker_index_blocked():
+    # Reachability is probed even when the index is blocked, because a blocked
+    # Squid is still the degraded last resort below. Note what this TCP connect
+    # does NOT prove: Squid is local and always answers, and it happily reports
+    # ``TCP_TUNNEL/200`` while UTCMS is refusing the TLS handshake behind it. So
+    # "reachable" means "the proxy process is up", never "this egress IP is
+    # accepted" -- the latter can only come from the blocked-index signal that
+    # request-level failures set.
+    if url:
         resolved_worker_squid = _resolve_to_ip(url)
         parsed = urlparse(resolved_worker_squid)
         if parsed.hostname and parsed.port:
             try:
                 with socket.create_connection((parsed.hostname, parsed.port), timeout=1.0):
-                    worker_squid_healthy = True
+                    worker_squid_reachable = True
             except (OSError, TimeoutError):
-                worker_squid_healthy = False
                 logger.debug("worker_proxy: worker proxy %s unreachable", _safe_proxy_url(resolved_worker_squid))
+    worker_squid_healthy = worker_squid_reachable and not worker_index_blocked
 
     # Mode: hybrid
     if mode == "hybrid":
@@ -296,6 +308,28 @@ def get_best_egress_proxy() -> str | None:
         _cached_proxy_source = "clean_pool"
         _cached_proxy_timestamp = now
         return resolved_clean
+
+    # Last resort: the worker Squid is up but its egress index was marked blocked
+    # and the pool had nothing to move to. Use it anyway, degraded.
+    #
+    # This branch is what makes marking an egress blocked SAFE to do at all.
+    # Without it, "blocked" plus an empty pool reaches ``_proxy_fail_closed()``
+    # below and raises, i.e. an IP the WAF is throttling would take waybill
+    # processing fully OFFLINE instead of degrading it -- strictly worse than
+    # continuing to try the throttled address, which does still succeed between
+    # throttle windows. Failover remains preferred; this only fires when there is
+    # genuinely nowhere else to go.
+    if worker_squid_reachable and resolved_worker_squid:
+        logger.warning(
+            "worker_proxy: egress index %s is marked blocked but the Clean IP Pool is empty; "
+            "continuing on the blocked worker Squid %s (degraded, NOT failing closed)",
+            worker_ip_index,
+            _safe_proxy_url(resolved_worker_squid),
+        )
+        _cached_proxy_url = resolved_worker_squid
+        _cached_proxy_source = "worker_squid_degraded"
+        _cached_proxy_timestamp = now
+        return resolved_worker_squid
 
     if _proxy_fail_closed():
         _cached_proxy_url = None
@@ -369,7 +403,10 @@ async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> b
             session = cc_requests.Session(
                 impersonate="chrome120",
                 proxies={"http": proxy_url, "https": proxy_url},
-                verify=False,
+                # Verify certificates: a health check that accepts a MITM'd
+                # session would green-light exactly the egress we must reject,
+                # since the same proxy then carries UTCMS credentials.
+                verify=True,
             )
             response = await asyncio.to_thread(session.get, effective_target, timeout=12.0)
             squid_error = response.headers.get("X-Squid-Error") or response.headers.get("x-squid-error")

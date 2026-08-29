@@ -374,5 +374,347 @@ class TestFormJavascriptGate(unittest.TestCase):
             self.assertFalse(EnhancedWaybillManager._form_javascript_is_live(broken))
 
 
+class TestDriverFieldSelectors(unittest.IsolatedAsyncioTestCase):
+    """The driver step used to die on a field id UTCMS never had."""
+
+    def setUp(self):
+        self.mock_page = AsyncMock()
+        self.mock_page.on = Mock()
+        self.mock_page.remove_listener = Mock()
+        self.patchers = [
+            patch("app.automation.waybill_enhanced.PageInteractor"),
+            patch("app.automation.waybill_enhanced.MapController"),
+            patch("app.automation.waybill_enhanced.LocationSelector"),
+            patch("app.automation.waybill_enhanced.RouteCalculator"),
+            patch("app.automation.waybill_enhanced.SmartLocator"),
+        ]
+        for patcher in self.patchers:
+            patcher.start()
+        self.manager = EnhancedWaybillManager(self.mock_page, AsyncMock())
+        self.manager._wait_for_loading_overlays_to_disappear = AsyncMock()
+        self.manager._is_element_visible = AsyncMock(return_value=False)
+        self.manager._fill_verified_text_field = AsyncMock(return_value=True)
+
+    def tearDown(self):
+        for patcher in self.patchers:
+            patcher.stop()
+
+    async def test_mobile_is_filled_through_the_real_utcms_field_ids(self):
+        self.manager._wait_for_non_empty_value = AsyncMock(return_value=None)
+
+        await self.manager._fill_fallback_driver_info("", "09160652050")
+
+        selectors = self.manager._fill_verified_text_field.await_args.args[0]
+        self.assertIn('input[id="DriverMobile"]', selectors)
+        self.assertIn('input[id="DriverMobileTajmi"]', selectors)
+        self.assertNotIn('input[id="DriverPhone"]', selectors)
+        self.assertNotIn('input[name="DriverPhone"]', selectors)
+
+    async def test_tajmi_mode_prefers_the_tajmi_mobile_field(self):
+        self.manager._wait_for_non_empty_value = AsyncMock(return_value=None)
+
+        await self.manager._fill_fallback_driver_info("", "09160652050", tajmi_mode=True)
+
+        selectors = self.manager._fill_verified_text_field.await_args.args[0]
+        self.assertEqual(selectors[0], 'input[id="DriverMobileTajmi"]')
+
+    async def test_a_mobile_utcms_already_filled_is_never_overwritten(self):
+        """UTCMS fills the registered number itself; that value is authoritative."""
+        self.manager._wait_for_non_empty_value = AsyncMock(return_value="09160652050")
+
+        await self.manager._fill_fallback_driver_info("", "09160652050", tajmi_mode=True)
+
+        self.manager._fill_verified_text_field.assert_not_awaited()
+
+    async def test_tajmi_driver_is_matched_by_mobile_when_no_national_code(self):
+        self.manager._element_exists = AsyncMock(return_value=True)
+        self.manager._wait_for_select_options_count = AsyncMock()
+        self.manager._log_select_options = AsyncMock()
+        self.manager._wait_for_non_empty_value = AsyncMock(return_value="09160652050")
+        self.manager._set_select_value_with_js = AsyncMock(return_value=True)
+        self.mock_page.eval_on_selector_all = AsyncMock(
+            return_value=[
+                {"text": "", "value": "", "mobile": ""},
+                {"text": "بهروز بغلانی", "value": "77", "mobile": "09160652050"},
+            ]
+        )
+
+        selected = await self.manager._handle_tajmi_driver_selection("", driver_name="", driver_phone="09160652050")
+
+        self.assertTrue(selected)
+        self.manager._set_select_value_with_js.assert_awaited_once_with("#DriverListTajmi", "77")
+
+    async def test_tajmi_driver_is_matched_by_name_as_a_last_resort(self):
+        self.manager._element_exists = AsyncMock(return_value=True)
+        self.manager._wait_for_select_options_count = AsyncMock()
+        self.manager._log_select_options = AsyncMock()
+        self.manager._wait_for_non_empty_value = AsyncMock(return_value="09160652050")
+        self.manager._set_select_value_with_js = AsyncMock(return_value=True)
+        self.mock_page.eval_on_selector_all = AsyncMock(
+            return_value=[{"text": "بهروز بغلانی - ۱۲۳", "value": "77", "mobile": ""}]
+        )
+
+        selected = await self.manager._handle_tajmi_driver_selection("", driver_name="بهروز بغلانی", driver_phone="")
+
+        self.assertTrue(selected)
+        self.manager._set_select_value_with_js.assert_awaited_once_with("#DriverListTajmi", "77")
+
+    async def test_a_blank_placeholder_option_is_never_selected(self):
+        self.manager._element_exists = AsyncMock(return_value=True)
+        self.manager._wait_for_select_options_count = AsyncMock()
+        self.manager._log_select_options = AsyncMock()
+        self.manager._wait_for_non_empty_value = AsyncMock(return_value=None)
+        self.manager._set_select_value_with_js = AsyncMock(return_value=True)
+        self.mock_page.eval_on_selector_all = AsyncMock(
+            return_value=[{"text": "انتخاب کنید", "value": "", "mobile": ""}]
+        )
+
+        selected = await self.manager._handle_tajmi_driver_selection("", driver_name="انتخاب کنید", driver_phone="")
+
+        self.assertFalse(selected)
+        self.manager._set_select_value_with_js.assert_not_awaited()
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCargoCatalogueLookup(unittest.IsolatedAsyncioTestCase):
+    """Run 4 (2026-08-28) failed with "نوع کالا 'سیمان' در فهرست UTCMS پیدا نشد"
+    while a direct authenticated session got an exact ``سیمان`` (id 15122) from
+    the same endpoint: the page-side jQuery autocomplete never initialised
+    because its script is one of the stubbed non-critical assets.  The lookup
+    must therefore not depend on page JS."""
+
+    def setUp(self):
+        self.mock_page = AsyncMock()
+        self.mock_page.on = Mock()
+        self.mock_page.remove_listener = Mock()
+        self.mock_page.url = "https://barname.utcms.ir/Barname/Document/HagigiHogugi"
+        self.patchers = [
+            patch("app.automation.waybill_enhanced.PageInteractor"),
+            patch("app.automation.waybill_enhanced.MapController"),
+            patch("app.automation.waybill_enhanced.LocationSelector"),
+            patch("app.automation.waybill_enhanced.RouteCalculator"),
+            patch("app.automation.waybill_enhanced.SmartLocator"),
+        ]
+        for patcher in self.patchers:
+            patcher.start()
+        self.manager = EnhancedWaybillManager(self.mock_page, AsyncMock())
+
+    def tearDown(self):
+        for patcher in self.patchers:
+            patcher.stop()
+
+    def _bridge(self, **kwargs):
+        bridge = Mock()
+        bridge.fetch_json = AsyncMock(**kwargs)
+        return patch(
+            "app.automation.http_browser_bridge.get_utcms_http_browser_bridge",
+            return_value=bridge,
+        ), bridge
+
+    async def test_bridge_result_is_preferred_and_page_js_is_not_touched(self):
+        catalogue = [{"id": 15122, "label": "سیمان", "value": "سیمان"}]
+        patcher, bridge = self._bridge(return_value=catalogue)
+        with patcher:
+            results = await self.manager._lookup_cargo_catalogue("سیمان")
+
+        self.assertEqual(results, catalogue)
+        bridge.fetch_json.assert_awaited_once()
+        args, kwargs = bridge.fetch_json.await_args
+        self.assertEqual(args[0], "https://barname.utcms.ir/Barname/Document/KalaSearch")
+        self.assertEqual(args[1], {"txtkala": "سیمان"})
+        self.assertEqual(kwargs["referer"], self.mock_page.url)
+        self.mock_page.evaluate.assert_not_awaited()
+
+    async def test_falls_back_to_page_ajax_when_the_bridge_lookup_is_empty(self):
+        catalogue = [{"id": 15122, "label": "سیمان", "value": "سیمان"}]
+        self.mock_page.evaluate = AsyncMock(return_value=catalogue)
+        patcher, bridge = self._bridge(return_value=None)
+        with patcher:
+            results = await self.manager._lookup_cargo_catalogue("سیمان")
+
+        self.assertEqual(results, catalogue)
+        self.mock_page.evaluate.assert_awaited_once()
+
+    async def test_no_bridge_installed_still_uses_page_ajax(self):
+        self.mock_page.evaluate = AsyncMock(return_value=[])
+        with patch(
+            "app.automation.http_browser_bridge.get_utcms_http_browser_bridge",
+            return_value=None,
+        ):
+            self.assertEqual(await self.manager._lookup_cargo_catalogue("سیمان"), [])
+        self.mock_page.evaluate.assert_awaited_once()
+
+    async def test_a_page_ajax_error_returns_an_empty_list(self):
+        self.mock_page.evaluate = AsyncMock(side_effect=RuntimeError("no jQuery"))
+        patcher, _ = self._bridge(return_value=None)
+        with patcher:
+            self.assertEqual(await self.manager._lookup_cargo_catalogue("سیمان"), [])
+
+
+class TestBoxTypeCatalogue(unittest.IsolatedAsyncioTestCase):
+    """``نوع بسته‌بندی`` is required by UTCMS's own validation and UTCMS never
+    defaults it, so the ids must come from ``fillBoxType`` -- never invented."""
+
+    def setUp(self):
+        self.mock_page = AsyncMock()
+        self.mock_page.on = Mock()
+        self.mock_page.remove_listener = Mock()
+        self.mock_page.url = "https://barname.utcms.ir/Barname/Document/HagigiHogugi"
+        self.patchers = [
+            patch("app.automation.waybill_enhanced.PageInteractor"),
+            patch("app.automation.waybill_enhanced.MapController"),
+            patch("app.automation.waybill_enhanced.LocationSelector"),
+            patch("app.automation.waybill_enhanced.RouteCalculator"),
+            patch("app.automation.waybill_enhanced.SmartLocator"),
+        ]
+        for patcher in self.patchers:
+            patcher.start()
+        self.manager = EnhancedWaybillManager(self.mock_page, AsyncMock())
+
+    def tearDown(self):
+        for patcher in self.patchers:
+            patcher.stop()
+
+    def _bridge(self, payload):
+        bridge = Mock()
+        bridge.fetch_json = AsyncMock(return_value=payload)
+        return patch(
+            "app.automation.http_browser_bridge.get_utcms_http_browser_bridge",
+            return_value=bridge,
+        ), bridge
+
+    async def test_options_are_rebuilt_from_the_fillboxtype_envelope(self):
+        payload = {
+            "resultCode": 200,
+            "obj": [{"id": 10, "type": 5, "name": "کیسه"}, {"id": 18074, "type": 5, "name": "فله"}],
+        }
+        patcher, bridge = self._bridge(payload)
+        with patcher:
+            self.assertTrue(await self.manager._populate_box_type_options_via_bridge())
+
+        bridge.fetch_json.assert_awaited_once()
+        self.assertEqual(
+            bridge.fetch_json.await_args.args[0],
+            "https://barname.utcms.ir/Barname/Document/fillBoxType",
+        )
+        options = self.mock_page.eval_on_selector_all.await_args.args[2]
+        self.assertEqual(options, [{"id": "10", "name": "کیسه"}, {"id": "18074", "name": "فله"}])
+
+    async def test_an_empty_catalogue_is_not_treated_as_success(self):
+        patcher, _ = self._bridge({"resultCode": 200, "obj": []})
+        with patcher:
+            self.assertFalse(await self.manager._populate_box_type_options_via_bridge())
+        self.mock_page.eval_on_selector_all.assert_not_awaited()
+
+    async def test_no_bridge_means_no_invented_options(self):
+        with patch(
+            "app.automation.http_browser_bridge.get_utcms_http_browser_bridge",
+            return_value=None,
+        ):
+            self.assertFalse(await self.manager._populate_box_type_options_via_bridge())
+        self.mock_page.eval_on_selector_all.assert_not_awaited()
+
+    async def test_the_placeholder_is_not_reported_as_an_available_choice(self):
+        self.mock_page.eval_on_selector_all = AsyncMock(return_value=["کیسه", "فله"])
+        self.assertEqual(await self.manager._read_box_type_option_labels(), ["کیسه", "فله"])
+
+
+class TestTajmiFleetBackfill(unittest.IsolatedAsyncioTestCase):
+    """Dry-run 6: ``#PelakComboTajmi`` held only its placeholder, so no plate was
+    chosen, so UTCMS never called ``GetFleetDriverList`` and the driver list stayed
+    empty.  The fleet has to come from the endpoint, not from page JS."""
+
+    FLEET = [
+        {
+            "ncarTag": 248221338,
+            "hasFreeZoneCarTag": False,
+            "irTagPart1": 24,
+            "irTagPart2": 82,
+            "irTagPart3": 21,
+            "irTagPart4": 338,
+        },
+        {
+            "ncarTag": 111111111,
+            "hasFreeZoneCarTag": False,
+            "irTagPart1": 24,
+            "irTagPart2": 11,
+            "irTagPart3": 21,
+            "irTagPart4": 999,
+        },
+    ]
+    PLATE = {"iran": "24", "first": "82", "center": "338", "letter": "ع"}
+
+    def setUp(self):
+        self.mock_page = AsyncMock()
+        self.mock_page.on = Mock()
+        self.mock_page.remove_listener = Mock()
+        self.mock_page.url = "https://barname.utcms.ir/Barname/Document/HagigiHogugi"
+        self.patchers = [
+            patch("app.automation.waybill_enhanced.PageInteractor"),
+            patch("app.automation.waybill_enhanced.MapController"),
+            patch("app.automation.waybill_enhanced.LocationSelector"),
+            patch("app.automation.waybill_enhanced.RouteCalculator"),
+            patch("app.automation.waybill_enhanced.SmartLocator"),
+        ]
+        for patcher in self.patchers:
+            patcher.start()
+        self.manager = EnhancedWaybillManager(self.mock_page, AsyncMock())
+
+    def tearDown(self):
+        for patcher in self.patchers:
+            patcher.stop()
+
+    def test_plate_is_matched_on_digits_never_on_the_letter(self):
+        """``GetPelakChar`` is a page-side table; guessing it could pick another car."""
+        matches = [
+            record
+            for record in self.FLEET
+            if EnhancedWaybillManager._fleet_record_matches_plate(record, self.PLATE, None)
+        ]
+        self.assertEqual([record["ncarTag"] for record in matches], [248221338])
+
+    def test_a_free_zone_plate_never_matches_a_national_record(self):
+        self.assertFalse(
+            EnhancedWaybillManager._fleet_record_matches_plate(
+                self.FLEET[0], None, {"number": "338", "zone_name": "اروند"}
+            )
+        )
+
+    def test_envelope_unwrapping_ignores_non_objects(self):
+        self.assertEqual(
+            EnhancedWaybillManager._unwrap_utcms_envelope({"resultCode": 200, "obj": [{"a": 1}, "junk"]}),
+            [{"a": 1}],
+        )
+        self.assertEqual(EnhancedWaybillManager._unwrap_utcms_envelope(None), [])
+
+    async def test_the_chosen_fleet_record_is_returned_for_the_driver_lookup(self):
+        self.manager._fetch_via_bridge = AsyncMock(return_value={"resultCode": 200, "obj": self.FLEET})
+        chosen = await self.manager._select_tajmi_plate_via_bridge(self.PLATE, None)
+        self.assertEqual(chosen["ncarTag"], 248221338)
+        # selectedIndex is offset by one for the placeholder option.
+        self.assertEqual(self.mock_page.evaluate.await_args.args[1]["chosenIndex"], 0)
+
+    async def test_an_ambiguous_plate_is_never_guessed(self):
+        self.manager._fetch_via_bridge = AsyncMock(
+            return_value={"resultCode": 200, "obj": [self.FLEET[0], dict(self.FLEET[0])]}
+        )
+        self.assertIsNone(await self.manager._select_tajmi_plate_via_bridge(self.PLATE, None))
+        self.mock_page.evaluate.assert_not_awaited()
+
+    async def test_driver_list_is_fetched_with_the_plates_ncartag(self):
+        self.manager._fetch_via_bridge = AsyncMock(
+            return_value={"resultCode": 200, "obj": [{"driverNationalCode": "1810364371"}]}
+        )
+        self.assertEqual(await self.manager._populate_tajmi_driver_options_via_bridge(248221338), 1)
+        self.assertEqual(
+            self.manager._fetch_via_bridge.await_args.args,
+            ("https://barname.utcms.ir/Barname/Document/GetFleetDriverList", {"carTag": "248221338"}),
+        )
+
+    async def test_no_plate_means_no_driver_request(self):
+        self.manager._fetch_via_bridge = AsyncMock()
+        self.assertEqual(await self.manager._populate_tajmi_driver_options_via_bridge(None), 0)
+        self.manager._fetch_via_bridge.assert_not_awaited()

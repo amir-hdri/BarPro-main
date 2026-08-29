@@ -288,6 +288,15 @@ class TestSessionBuilder:
     def test_default_impersonate_profile(self):
         assert UtcmsHttpLogin.DEFAULT_IMPERSONATE == "chrome120"
 
+    def test_build_session_binds_curl_handle_to_the_session_not_the_thread(self):
+        """curl_cffi's default puts the libcurl handle -- and with it the
+        connection cache -- in thread-local storage.  This session is handed to
+        the browser bridge, which drives it from a different pinned thread, so
+        the default silently costs a fresh TLS handshake per request."""
+        login = _make_login()
+        session = login._build_session(_FakeRequests)
+        assert session.kwargs.get("use_thread_local_curl") is False
+
     def test_take_authenticated_session_transfers_ownership(self):
         login = _make_login()
         session = object()
@@ -295,6 +304,27 @@ class TestSessionBuilder:
 
         assert login.take_authenticated_session() is session
         assert login._authenticated_session is None
+
+    def test_take_authenticated_session_also_releases_the_session_alias(self):
+        """``authenticate`` leaves ``_session`` pointing at the same object.  If
+        the handoff does not release it too, a later ``close()`` closes the
+        connection the new owner is depending on."""
+        login = _make_login()
+        session = object()
+        login._session = session
+        login._authenticated_session = session
+
+        assert login.take_authenticated_session() is session
+        assert login._session is None
+
+    def test_take_authenticated_session_keeps_an_unrelated_live_session(self):
+        login = _make_login()
+        live = object()
+        login._session = live
+        login._authenticated_session = None
+
+        assert login.take_authenticated_session() is None
+        assert login._session is live
 
 
 # ---------------------------------------------------------------------------

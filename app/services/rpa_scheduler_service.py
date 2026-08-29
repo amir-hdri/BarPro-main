@@ -16,7 +16,9 @@ from sqlmodel import col, select
 from app.core.business_time import business_date_str
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
+from app.core.distance import estimate_time
 from app.core.error_taxonomy import ErrorCategory
+from app.models.waybill_batch import WaybillBatch
 from app.models_multitenant import Driver, DriverStatus, TaskSource, TaskStatus, WaybillJob, WaybillTaskLog
 from app.models_rpa import DomainEvent, DriverDailyCounter, DriverRuntimeState, DriverRuntimeStateValue
 from app.orchestrator.state_machine import JobStateMachine
@@ -48,6 +50,29 @@ def _as_utc(value: datetime | None) -> datetime | None:
     if value.tzinfo is not None:
         return value.astimezone(UTC).replace(tzinfo=None)
     return value
+
+
+def _estimate_job_duration_minutes(job: WaybillJob) -> float:
+    """Use persisted route metrics, with the same deterministic distance fallback."""
+    try:
+        duration = float(job.duration_min or 0)
+    except (TypeError, ValueError):
+        duration = 0.0
+    if duration > 0:
+        return duration
+
+    try:
+        distance = float(job.distance_km or 0)
+    except (TypeError, ValueError):
+        distance = 0.0
+    if distance <= 0:
+        return 0.0
+
+    payload = job.payload_json if isinstance(job.payload_json, dict) else {}
+    origin = payload.get("origin") if isinstance(payload.get("origin"), dict) else {}
+    destination = payload.get("destination") if isinstance(payload.get("destination"), dict) else {}
+    is_urban = bool(origin.get("city") and origin.get("city") == destination.get("city"))
+    return max(1.0, estimate_time(distance, is_urban=is_urban))
 
 
 class RPASchedulerService:
@@ -172,8 +197,9 @@ class RPASchedulerService:
             # This ensures only one scheduler can pick up each job atomically.
             jobs = (
                 await session.exec(
-                    select(WaybillJob, Driver)
+                    select(WaybillJob, Driver, WaybillBatch)
                     .join(Driver, Driver.id == WaybillJob.driver_id)
+                    .outerjoin(WaybillBatch, WaybillBatch.id == WaybillJob.batch_id)
                     .where(
                         WaybillJob.schedule_id.is_(None),
                         col(WaybillJob.status).in_(
@@ -201,11 +227,70 @@ class RPASchedulerService:
             # Check UTCMS Submission Gate state once per planning cycle
             is_gate_open = await utcms_submission_gate.is_submission_allowed()
 
-            for job, driver in jobs:
+            for job, driver, batch in jobs:
                 if len(decisions) >= batch_limit:
                     break
                 if tenant_counts[job.client_id] >= tenant_limit:
                     continue
+
+                # A route chain is an ordered sequence of independent UTCMS
+                # waybills. Do not release leg N+1 until leg N is reconciled
+                # SUCCESS. The static submit_after below is only the earliest
+                # release time (travel estimate + anti-spam spacing); this
+                # dependency check protects against early dispatch when a
+                # previous browser run is still in flight or unresolved.
+                if batch is not None and batch.route_chain and (job.sequence_index or 0) > 0:
+                    predecessor = (
+                        await session.exec(
+                            select(WaybillJob)
+                            .where(
+                                WaybillJob.batch_id == job.batch_id,
+                                WaybillJob.sequence_index == (job.sequence_index or 0) - 1,
+                            )
+                            .limit(1)
+                        )
+                    ).first()
+                    if predecessor is None:
+                        logger.warning(
+                            "route_chain_predecessor_missing",
+                            extra={"extra_fields": {"job_id": job.job_id, "sequence_index": job.sequence_index}},
+                        )
+                        continue
+                    if predecessor.status != TaskStatus.SUCCESS.value:
+                        logger.info(
+                            "route_chain_waiting_for_predecessor",
+                            extra={
+                                "extra_fields": {
+                                    "job_id": job.job_id,
+                                    "sequence_index": job.sequence_index,
+                                    "predecessor_job_id": predecessor.job_id,
+                                    "predecessor_status": predecessor.status,
+                                }
+                            },
+                        )
+                        continue
+
+                    # The persisted chain schedule is the earliest possible
+                    # release. If the predecessor completed late, move this
+                    # leg's lower bound forward from the actual reconciled
+                    # completion so legs cannot collapse together.
+                    predecessor_finished_at = _as_utc(predecessor.reconciled_at or predecessor.updated_at)
+                    if predecessor_finished_at is not None:
+                        minimum_after = predecessor_finished_at + timedelta(
+                            minutes=_estimate_job_duration_minutes(predecessor)
+                            + max(0, int(batch.interval_minutes or 0))
+                        )
+                        current_after = _as_utc(job.submit_after)
+                        if current_after is None or current_after < minimum_after:
+                            if persist:
+                                job.submit_after = minimum_after
+                            effective_submit_after = minimum_after
+                        else:
+                            effective_submit_after = current_after
+                    else:
+                        effective_submit_after = _as_utc(job.submit_after)
+                else:
+                    effective_submit_after = _as_utc(job.submit_after)
                 if job.celery_task_id:
                     if job.status in {
                         TaskStatus.PENDING.value,
@@ -267,8 +352,7 @@ class RPASchedulerService:
                             if retry_at > now:
                                 continue  # not yet due
 
-                    submit_after = _as_utc(job.submit_after)
-                    if submit_after and submit_after > now:
+                    if effective_submit_after and effective_submit_after > now:
                         continue
                     if persist:
                         clear_expired_night_attempts(job)

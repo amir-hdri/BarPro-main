@@ -4,11 +4,37 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastapi import HTTPException
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.models.waybill_route_template import WaybillRouteTemplate
 from app.services.distance_service import get_route_distance
+
+
+def _validate_route_fields(
+    *,
+    origin_province: Any,
+    origin_city: Any,
+    origin_address: Any,
+    dest_province: Any,
+    dest_city: Any,
+    dest_address: Any,
+) -> None:
+    """Reject incomplete route templates before they can enter a batch."""
+    missing: list[str] = []
+    for label, value in (
+        ("استان مبدأ", origin_province),
+        ("شهر مبدأ", origin_city),
+        ("آدرس مبدأ", origin_address),
+        ("استان مقصد", dest_province),
+        ("شهر مقصد", dest_city),
+        ("آدرس مقصد", dest_address),
+    ):
+        if len(str(value or "").strip()) < 2:
+            missing.append(label)
+    if missing:
+        raise HTTPException(status_code=422, detail="فیلدهای مسیر الزامی هستند: " + "، ".join(missing))
 
 
 async def _compute_distance(
@@ -28,6 +54,14 @@ async def _compute_distance(
 
 class RouteTemplateService:
     async def create(self, session: AsyncSession, client_id: int, payload: Any) -> WaybillRouteTemplate:
+        _validate_route_fields(
+            origin_province=payload.origin_province,
+            origin_city=payload.origin_city,
+            origin_address=payload.origin_address,
+            dest_province=payload.dest_province,
+            dest_city=payload.dest_city,
+            dest_address=payload.dest_address,
+        )
         distance_km, duration_min = await _compute_distance(
             payload.origin_lat, payload.origin_lng, payload.dest_lat, payload.dest_lng
         )
@@ -82,6 +116,14 @@ class RouteTemplateService:
             if value is None and field_name in _non_nullable:
                 continue  # non-nullable columns must not be nulled
             setattr(template, field_name, value)
+        _validate_route_fields(
+            origin_province=template.origin_province,
+            origin_city=template.origin_city,
+            origin_address=template.origin_address,
+            dest_province=template.dest_province,
+            dest_city=template.dest_city,
+            dest_address=template.dest_address,
+        )
         # Recompute distance/duration when either endpoint's coordinates changed.
         if any(k in data for k in ("origin_lat", "origin_lng", "dest_lat", "dest_lng")):
             distance_km, duration_min = await _compute_distance(

@@ -212,7 +212,7 @@ Latest validated development gate: 0 failed; environment-dependent tests may ski
 
 ### Alembic Migration Head
 ```
-038_add_multiroute_batch_distance
+039_add_route_chain_scheduling
 ```
 
 ### Required ML Assets
@@ -223,7 +223,7 @@ Latest validated development gate: 0 failed; environment-dependent tests may ski
 
 ### Remaining Server-Side Actions
 - [ ] Install Let's Encrypt cert → uncomment `listen 443` in nginx.conf → set `AUTH_COOKIE_SECURE=true`
-- [ ] Run `bash manage.sh migrate` on production DB (applies all migrations through 038)
+- [ ] Run `bash manage.sh migrate` on production DB (applies all migrations through 039)
 - [ ] Run `sudo bash scripts/secure_squid_ports.sh` (lock down Squid 3129/3130)
 - [ ] Add to crontab: `@reboot sudo bash /opt/barpro/scripts/secure_squid_ports.sh`
 

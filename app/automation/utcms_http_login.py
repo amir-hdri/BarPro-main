@@ -24,10 +24,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import functools
 import hashlib
 import logging
+import random
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC
 from typing import Any
@@ -187,12 +190,26 @@ class UtcmsHttpLogin:
         # worker runtime, not at API startup).
         self._session: Any = None  # curl_cffi.requests.Session
         self._authenticated_session: Any = None
+        # libcurl handles must not be driven from alternating threads.  Pin all
+        # curl operations for this login to a single worker thread so the shared
+        # asyncio pool can't scatter the handshake across threads (which UTCMS
+        # answers with an intermittent TLS reset on the login GET).
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="utcms-login"
+        )
         self._antiforgery: str | None = None
         self._captcha_token: str | None = None
         self._captcha_text: str | None = None
         self._cap_type: str | None = None
         self._captcha_image_bytes: bytes | None = None
         self._captcha_image_url: str | None = None
+
+    async def _call(self, func: Any, /, *args: Any, **kwargs: Any) -> Any:
+        """Run a curl_cffi session operation on this login's pinned thread."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor, functools.partial(func, *args, **kwargs)
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -211,6 +228,15 @@ class UtcmsHttpLogin:
     TRANSIENT_STATUS_CODES = (408, 500, 502, 503, 504)
     TRANSIENT_BACKOFF_SECONDS = 6.0
     TRANSIENT_MAX_RETRIES = 3
+    # A TLS handshake reset ("Connection closed abruptly") on the login GET is
+    # the WAF throttling *new* handshakes from this egress IP after a burst of
+    # logins.  The throttle window lasts minutes, so a fixed short backoff just
+    # keeps the IP hot and never escapes it.  Retry the transport-level failure
+    # more times with exponential backoff + jitter so the wait can straddle the
+    # cool-down window instead of hammering inside it.
+    TRANSPORT_MAX_RETRIES = 5
+    TRANSPORT_BACKOFF_BASE = 8.0
+    TRANSPORT_BACKOFF_CAP = 90.0
 
     async def authenticate(self, username: str, password: str) -> HttpLoginResult:
         """Run the full HTTP login flow with transparent retries.
@@ -245,7 +271,7 @@ class UtcmsHttpLogin:
         self._authenticated_session = None
         rate_limit_retries_left = 3
         transient_retries_left = self.TRANSIENT_MAX_RETRIES
-        transport_retries_left = self.TRANSIENT_MAX_RETRIES
+        transport_retries_left = self.TRANSPORT_MAX_RETRIES
         attempt = 0
 
         while captcha_attempts_left > 0:
@@ -266,7 +292,7 @@ class UtcmsHttpLogin:
             finally:
                 try:
                     if self._session is not None:
-                        await asyncio.to_thread(self._session.close)
+                        await self._call(self._session.close)
                 except Exception:
                     logger.debug("utcms_http_login_session_close_failed", exc_info=True)
                 self._session = None
@@ -306,20 +332,26 @@ class UtcmsHttpLogin:
                 from app.core.network import is_retryable_network_error
 
                 if is_retryable_network_error(error):
+                    consumed = self.TRANSPORT_MAX_RETRIES - transport_retries_left
                     transport_retries_left -= 1
                     captcha_attempts_left += 1  # TLS/connect reset is not a captcha miss
+                    backoff = min(
+                        self.TRANSPORT_BACKOFF_CAP,
+                        self.TRANSPORT_BACKOFF_BASE * (2 ** consumed),
+                    )
+                    backoff *= 1.0 + random.uniform(-0.2, 0.2)  # de-synchronise workers
                     logger.warning(
                         "utcms_http_login_transport_retry",
                         extra={
                             "extra_fields": {
                                 "attempt": attempt,
-                                "backoff": self.TRANSIENT_BACKOFF_SECONDS,
+                                "backoff": round(backoff, 1),
                                 "retries_left": transport_retries_left,
                                 "error": error[:160],
                             }
                         },
                     )
-                    await asyncio.sleep(self.TRANSIENT_BACKOFF_SECONDS)
+                    await asyncio.sleep(backoff)
                     continue
             if self._is_captcha_error(error):
                 logger.info(
@@ -332,8 +364,17 @@ class UtcmsHttpLogin:
         return last_result or HttpLoginResult(success=False, error="لاگین ناموفق؛ بدون نتیجه")
 
     def take_authenticated_session(self) -> Any:
-        """Transfer the successful curl session to a caller for reuse."""
+        """Transfer the successful curl session to a caller for reuse.
+
+        Ownership moves with it: ``_session`` points at the same object (see
+        ``authenticate``), so it is released too. Otherwise a later ``close()``
+        on this helper would close the connection the new owner is using --
+        which, now that the handle travels with the session, would drop the
+        very warm TLS connection the handoff exists to preserve.
+        """
         session, self._authenticated_session = self._authenticated_session, None
+        if session is not None and self._session is session:
+            self._session = None
         return session
 
     async def close(self) -> None:
@@ -345,9 +386,10 @@ class UtcmsHttpLogin:
             if session is None:
                 continue
             try:
-                await asyncio.to_thread(session.close)
+                await self._call(session.close)
             except Exception:
                 logger.debug("utcms_http_login_close_failed", exc_info=True)
+        self._executor.shutdown(wait=False)
 
     async def fetch_authenticated(
         self,
@@ -408,7 +450,7 @@ class UtcmsHttpLogin:
                 self._session = session
 
             try:
-                resp = await asyncio.to_thread(session.get, url, timeout=self._timeout)
+                resp = await self._call(session.get, url, timeout=self._timeout)
             except Exception as exc:
                 last_exc = exc
                 # Transport-level reset → the session is burned; drop it so the
@@ -513,7 +555,7 @@ class UtcmsHttpLogin:
             extra={"extra_fields": {"login_url": self._login_url, "proxy": self._proxy_url}},
         )
         try:
-            get_resp = await asyncio.to_thread(self._session.get, self._login_url, timeout=self._timeout)
+            get_resp = await self._call(self._session.get, self._login_url, timeout=self._timeout)
         except Exception as exc:
             logger.warning(
                 "utcms_http_login_get_failed",
@@ -573,7 +615,7 @@ class UtcmsHttpLogin:
         # 3) Download captcha image
         try:
             self._captcha_image_url = captcha_img_url
-            img_resp = await asyncio.to_thread(self._session.get, captcha_img_url, timeout=self._timeout)
+            img_resp = await self._call(self._session.get, captcha_img_url, timeout=self._timeout)
             if img_resp.status_code != 200 or len(img_resp.content) < 16:
                 return HttpLoginResult(
                     success=False,
@@ -644,7 +686,7 @@ class UtcmsHttpLogin:
             },
         )
         try:
-            post_resp = await asyncio.to_thread(
+            post_resp = await self._call(
                 self._session.post,
                 post_url,
                 data=payload,
@@ -691,6 +733,19 @@ class UtcmsHttpLogin:
             impersonate=self._impersonate,
             proxies=proxies,
             timeout=self._timeout,
+            # curl_cffi defaults to a THREAD-LOCAL libcurl handle, and the
+            # connection cache lives on the handle, not on the Session.  This
+            # session is handed to the browser bridge via
+            # ``take_authenticated_session()``, which then drives it from its own
+            # pinned thread -- so with the default the bridge silently got a
+            # brand-new handle and had to open a brand-new TLS connection for
+            # every XHR, which UTCMS's per-IP handshake throttle rejects
+            # ("SSL_connect: Connection closed abruptly").  Binding the handle to
+            # the session instead makes the warm connection survive the handoff.
+            # Safe here because every call is serialised onto one thread at a
+            # time (this class's ``_call``, then the bridge's), and libcurl only
+            # forbids *simultaneous* use of a handle from two threads.
+            use_thread_local_curl=False,
         )
         # Mirror a real Chrome User-Agent + headers so WAF sees a
         # consistent fingerprint end-to-end.

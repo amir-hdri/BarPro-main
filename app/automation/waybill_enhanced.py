@@ -84,6 +84,9 @@ class EnhancedWaybillManager:
         self._dialog_handler: Any = None
         self._closed = False
         self._allow_dom_tab_activation = False
+        # The fleet record behind the chosen tajmi plate.  ``GetFleetDriverList``
+        # keys on its ``ncarTag``, so the driver step needs the plate step's pick.
+        self._tajmi_fleet_record: dict[str, Any] | None = None
         self.last_error: str | None = None
         self._setup_dialog_listener()
 
@@ -928,7 +931,10 @@ class EnhancedWaybillManager:
                 "els => els.map(el => ({text: (el.textContent || '').trim(), value: (el.getAttribute('value') || '').trim()}))",
             )
             logger.info(
-                "select_options_snapshot",
+                "select_options_snapshot selector=%s label=%s count=%s",
+                selector,
+                label,
+                len(options),
                 extra={
                     "extra_fields": {
                         "selector": selector,
@@ -2891,6 +2897,160 @@ class EnhancedWaybillManager:
             logger.error("receiver_form_validation_blocked", extra={"extra_fields": {"errors": error_msg}})
             raise WaybillError(f"گذر از مرحله گیرنده ناموفق بود: {error_msg}")
 
+    async def _lookup_cargo_catalogue(self, cargo_query: str) -> list:
+        """Ask UTCMS's cargo catalogue for a term, preferring the HTTP bridge.
+
+        Two layers, in order of reliability:
+
+        1. The bridge's reserved authenticated curl session.  Verified live on
+           2026-08-28: ``KalaSearch?txtkala=سیمان`` answers 200 with five entries
+           including an exact ``سیمان`` (id 15122) there.
+        2. The page's own jQuery AJAX, for the case where no bridge is installed
+           (a plain Playwright session with no HTTP login in front of it).
+
+        The same run showed why the order matters: routed through the page, the
+        request burned all three bridge attempts on retryable statuses and jQuery
+        reported nothing but a bare ``error``, so the stage failed with
+        "نوع کالا 'سیمان' در فهرست UTCMS پیدا نشد" while the catalogue did in fact
+        contain it.
+        """
+        bridge = None
+        try:
+            from app.automation.http_browser_bridge import get_utcms_http_browser_bridge
+
+            bridge = get_utcms_http_browser_bridge(self.page)
+        except Exception:
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
+
+        if bridge is not None:
+            results = await bridge.fetch_json(
+                "https://barname.utcms.ir/Barname/Document/KalaSearch",
+                {"txtkala": cargo_query},
+                referer=str(getattr(self.page, "url", "") or ""),
+            )
+            if isinstance(results, list) and results:
+                logger.info(
+                    "cargo_catalogue_resolved_via_bridge",
+                    extra={"extra_fields": {"query": cargo_query, "results": len(results)}},
+                )
+                return results
+            logger.warning("cargo_catalogue_bridge_lookup_empty", extra={"extra_fields": {"query": cargo_query}})
+
+        try:
+            results = await self.page.evaluate(
+                """async (term) => {
+                    return new Promise((resolve) => {
+                        if (!window.jQuery) {
+                            resolve([]);
+                            return;
+                        }
+                        window.jQuery.ajax({
+                            url: "/Barname/Document/KalaSearch",
+                            data: { txtkala: term },
+                            success: function(doc) {
+                                try {
+                                    const parsed = typeof doc === 'string' ? JSON.parse(doc) : doc;
+                                    resolve(parsed || []);
+                                } catch(e) {
+                                    resolve([]);
+                                }
+                            },
+                            error: function() {
+                                resolve([]);
+                            }
+                        });
+                    });
+                }""",
+                cargo_query,
+            )
+        except Exception as ex:
+            logger.warning(f"cargo_api_lookup_failed: {ex}")
+            return []
+        return results if isinstance(results, list) else []
+
+    async def _read_box_type_option_labels(self) -> list[str]:
+        """The real ``نوع بسته‌بندی`` choices, so an error can name them.
+
+        The placeholder is filtered on its EMPTY VALUE, not on its text: the
+        server-rendered one reads ``انتخاب کنید...`` while ``fillBoxType``
+        appends ``انتخاب کنید``, and matching the text let the placeholder pass
+        as a real choice in dry-run 6.
+        """
+        try:
+            labels = await self.page.eval_on_selector_all(
+                "#ddBoxType option",
+                "els => els.filter(el => (el.getAttribute('value') || '').trim())"
+                ".map(el => (el.textContent || '').trim()).filter(text => text)",
+            )
+        except Exception:
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
+            return []
+        deduplicated: list[str] = []
+        for label in labels or []:
+            text = str(label)
+            if text not in deduplicated:
+                deduplicated.append(text)
+        return deduplicated
+
+    async def _populate_box_type_options_via_bridge(self) -> bool:
+        """Fill ``#ddBoxType`` from ``fillBoxType`` when the page script did not.
+
+        Like the cargo autocomplete, ``fillBoxType`` lives in page JS that the
+        bridge's asset stubbing can leave uninitialised.  Fetching the same
+        catalogue over the authenticated session keeps the option ids identical
+        to what UTCMS itself would have rendered -- they are never invented.
+        """
+        try:
+            from app.automation.http_browser_bridge import get_utcms_http_browser_bridge
+
+            bridge = get_utcms_http_browser_bridge(self.page)
+        except Exception:
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
+            return False
+        if bridge is None:
+            return False
+        payload = await bridge.fetch_json(
+            "https://barname.utcms.ir/Barname/Document/fillBoxType",
+            referer=str(getattr(self.page, "url", "") or ""),
+        )
+        options = payload.get("obj") if isinstance(payload, dict) else payload
+        options = [
+            {"id": str(item.get("id") or ""), "name": str(item.get("name") or "").strip()}
+            for item in (options or [])
+            if isinstance(item, dict) and str(item.get("id") or "").strip() and str(item.get("name") or "").strip()
+        ]
+        if not options:
+            logger.warning("box_type_catalogue_bridge_lookup_empty")
+            return False
+        try:
+            await self.page.eval_on_selector_all(
+                "#ddBoxType, #ddBoxTypeModal",
+                """(els, options) => {
+                    els.forEach(el => {
+                        el.innerHTML = '';
+                        const placeholder = document.createElement('option');
+                        placeholder.value = '';
+                        placeholder.textContent = 'انتخاب کنید';
+                        el.appendChild(placeholder);
+                        options.forEach(option => {
+                            const node = document.createElement('option');
+                            node.value = option.id;
+                            node.textContent = option.name;
+                            el.appendChild(node);
+                        });
+                    });
+                }""",
+                options,
+            )
+        except Exception:
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
+            return False
+        logger.info(
+            "box_type_catalogue_populated_via_bridge",
+            extra={"extra_fields": {"count": len(options)}},
+        )
+        return True
+
     async def _fill_cargo_info(self, cargo: dict[str, Any]):
         """پر کردن اطلاعات کالا"""
         # Validate input data first
@@ -2955,36 +3115,7 @@ class EnhancedWaybillManager:
             # If UI selection didn't work/happen, fall back to API-based lookup and manual JS set
             if not dropdown_selected:
                 logger.info("cargo_autocomplete_ui_failed_trying_api_lookup")
-                try:
-                    search_results = await self.page.evaluate(
-                        """async (term) => {
-                            return new Promise((resolve) => {
-                                if (!window.jQuery) {
-                                    resolve([]);
-                                    return;
-                                }
-                                window.jQuery.ajax({
-                                    url: "/Barname/Document/KalaSearch",
-                                    data: { txtkala: term },
-                                    success: function(doc) {
-                                        try {
-                                            const parsed = typeof doc === 'string' ? JSON.parse(doc) : doc;
-                                            resolve(parsed || []);
-                                        } catch(e) {
-                                            resolve([]);
-                                        }
-                                    },
-                                    error: function() {
-                                        resolve([]);
-                                    }
-                                });
-                            });
-                        }""",
-                        cargo_query,
-                    )
-                except Exception as ex:
-                    logger.warning(f"cargo_api_lookup_failed: {ex}")
-                    search_results = []
+                search_results = await self._lookup_cargo_catalogue(cargo_query)
 
                 selected_id = None
                 selected_name = cargo_query
@@ -3062,11 +3193,17 @@ class EnhancedWaybillManager:
                 except Exception as ex:
                     logger.error(f"failed_setting_cargo_fields_via_js: {ex}")
 
-        # Wait for dynamic box type options to load
-        try:
-            await self._wait_for_select_options_count("#ddBoxType", min_count=1, timeout_ms=6000)
-        except Exception as ex:
-            logger.warning(f"failed_waiting_for_ddBoxType_options: {ex}")
+        # ``fillBoxType`` populates ``#ddBoxType`` with a leading empty
+        # ``انتخاب کنید`` placeholder.  An option COUNT can never prove the
+        # catalogue arrived: dry-run 6 saw count=2 from two placeholder-only
+        # selects (the step's and the modal's) and happily went on to fail.  So
+        # require an option that carries a real value, and otherwise fetch the
+        # catalogue over the bridge -- ``fillBoxType`` lives in page JS that the
+        # asset stubbing can leave uninitialised, exactly like the cargo
+        # autocomplete.
+        if not await self._read_box_type_option_labels():
+            logger.info("box_type_options_absent_fetching_via_bridge")
+            await self._populate_box_type_options_via_bridge()
 
         packaging_value = packaging_hint or cargo.get("packaging") or cargo.get("description")
         selected_packaging = False
@@ -3082,9 +3219,23 @@ class EnhancedWaybillManager:
             )
 
         if not selected_packaging:
+            # UTCMS never defaults this field (``$("#ddBoxType").val('')`` runs on
+            # every reset) and it is required by the form's own validation, so the
+            # value has to come from the job.  Name the real options in the error:
+            # the operator can then pick one instead of us inventing it.
+            available = await self._read_box_type_option_labels()
+            logger.warning(
+                "cargo_packaging_missing_or_unmatched",
+                extra={"extra_fields": {"requested": str(packaging_value or ""), "available": available}},
+            )
+            choices = "، ".join(available) if available else "(فهرست بارگذاری نشد)"
             if packaging_value:
-                raise WaybillError(f"نوع بسته‌بندی '{packaging_value}' در فهرست UTCMS پیدا نشد")
-            raise WaybillError("نوع بسته‌بندی اجباری است و باید دقیقاً از فهرست UTCMS انتخاب شود")
+                raise WaybillError(
+                    f"نوع بسته‌بندی '{packaging_value}' در فهرست UTCMS پیدا نشد. گزینه‌های مجاز: {choices}"
+                )
+            raise WaybillError(
+                f"نوع بسته‌بندی اجباری است و باید دقیقاً از فهرست UTCMS انتخاب شود. گزینه‌های مجاز: {choices}"
+            )
 
         weight_val = cargo.get("weight")
         await self._fill_verified_text_field(
@@ -3276,6 +3427,194 @@ class EnhancedWaybillManager:
 
         return dest_result
 
+    async def _fetch_via_bridge(self, url: str, params: dict[str, Any] | None = None) -> Any | None:
+        """GET an authenticated UTCMS JSON endpoint without relying on page JS."""
+        try:
+            from app.automation.http_browser_bridge import get_utcms_http_browser_bridge
+
+            bridge = get_utcms_http_browser_bridge(self.page)
+        except Exception:
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
+            return None
+        if bridge is None:
+            return None
+        return await bridge.fetch_json(url, params, referer=str(getattr(self.page, "url", "") or ""))
+
+    @staticmethod
+    def _unwrap_utcms_envelope(payload: Any) -> list[dict[str, Any]]:
+        """UTCMS wraps list endpoints as ``{resultCode, resultMessage, obj: [...]}``."""
+        items = payload.get("obj") if isinstance(payload, dict) else payload
+        return [item for item in (items or []) if isinstance(item, dict)]
+
+    async def _count_valued_options(self, selector: str) -> int:
+        """Options that carry a real value -- placeholders never count."""
+        try:
+            return int(
+                await self.page.eval_on_selector_all(
+                    f"{selector} option",
+                    "els => els.filter(el => (el.getAttribute('value') || '').trim()).length",
+                )
+                or 0
+            )
+        except Exception:
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
+            return 0
+
+    async def _fetch_tajmi_fleet(self) -> list[dict[str, Any]]:
+        """The account's own fleet, straight from ``GetCarAndDriverFulList``.
+
+        ``GETUserFleetListTajmi`` is the page function that normally fills
+        ``#PelakComboTajmi``.  Dry-run 6 proved it never runs here -- the plate
+        select stayed empty, so no plate could be chosen, so UTCMS never called
+        ``GetFleetDriverList`` and the driver list stayed at its placeholder.
+        Reading the same endpoint over the authenticated session keeps every
+        value byte-identical to what UTCMS itself would have rendered.
+        """
+        payload = await self._fetch_via_bridge("https://barname.utcms.ir/Barname/Document/GetCarAndDriverFulList")
+        fleet = self._unwrap_utcms_envelope(payload)
+        logger.info("tajmi_fleet_fetched_via_bridge count=%s", len(fleet))
+        return fleet
+
+    @staticmethod
+    def _fleet_record_matches_plate(
+        record: dict[str, Any],
+        plate_parts: dict[str, str] | None,
+        free_zone_parts: dict[str, str] | None,
+    ) -> bool:
+        """Match on the plate's DIGITS only.
+
+        The option text UTCMS builds runs the letter through
+        ``generalJS.GetPelakChar``, a page-side table this code must not
+        reimplement -- guessing the letter for ``irTagPart3`` would risk picking
+        another vehicle.  ``irTagPart1/2/4`` identify the plate on their own.
+        """
+
+        def _digits(value: Any) -> str:
+            return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+        if plate_parts and not record.get("hasFreeZoneCarTag"):
+            return (
+                _digits(record.get("irTagPart1")) == _digits(plate_parts.get("iran"))
+                and _digits(record.get("irTagPart2")) == _digits(plate_parts.get("first"))
+                and _digits(record.get("irTagPart4")) == _digits(plate_parts.get("center"))
+            )
+        if free_zone_parts and record.get("hasFreeZoneCarTag"):
+            return _digits(record.get("freeZoneCarTag")) == _digits(free_zone_parts.get("number"))
+        return False
+
+    async def _select_tajmi_plate_via_bridge(
+        self,
+        plate_parts: dict[str, str] | None,
+        free_zone_parts: dict[str, str] | None,
+    ) -> dict[str, Any] | None:
+        """Populate ``#PelakComboTajmi`` from the fleet endpoint and pick the plate.
+
+        The option ``value`` is ``JSON.stringify(record)`` exactly as UTCMS
+        writes it, because ``changeComboPelaktajmi`` does ``JSON.parse`` on it.
+        Returns the chosen fleet record (its ``ncarTag`` is what
+        ``GetFleetDriverList`` keys on) or ``None``.
+        """
+        fleet = await self._fetch_tajmi_fleet()
+        if not fleet:
+            return None
+        matches = [record for record in fleet if self._fleet_record_matches_plate(record, plate_parts, free_zone_parts)]
+        if len(matches) != 1:
+            logger.warning(
+                "tajmi_plate_not_uniquely_in_fleet fleet=%s matches=%s",
+                len(fleet),
+                len(matches),
+            )
+            return None
+        chosen = matches[0]
+        try:
+            await self.page.evaluate(
+                """({fleet, chosenIndex}) => {
+                    const select = document.querySelector('#PelakComboTajmi');
+                    if (!select) return false;
+                    const label = record => {
+                        const char = (window.generalJS && window.generalJS.GetPelakChar)
+                            ? window.generalJS.GetPelakChar(record.irTagPart3)
+                            : record.irTagPart3;
+                        if (record.hasFreeZoneCarTag === true) {
+                            const city = (window.generalJS && window.generalJS.getFreeZoneCityName)
+                                ? window.generalJS.getFreeZoneCityName(record.freeZoneId)
+                                : record.freeZoneId;
+                            return ` ${record.freeZoneCarTag}-${record.freeZoneTwoDigit}- ${city}`;
+                        }
+                        return ` ${record.irTagPart1}-${char}- ${record.irTagPart2}-${record.irTagPart4}`;
+                    };
+                    select.innerHTML = '';
+                    const placeholder = document.createElement('option');
+                    placeholder.value = '';
+                    placeholder.textContent = ' انتخاب کنید ';
+                    select.appendChild(placeholder);
+                    fleet.forEach(record => {
+                        const option = document.createElement('option');
+                        option.value = JSON.stringify(record);
+                        option.textContent = label(record);
+                        select.appendChild(option);
+                    });
+                    select.selectedIndex = chosenIndex + 1;
+                    select.dispatchEvent(new Event('change', { bubbles: true }));
+                    if (window.jQuery) { window.jQuery(select).trigger('change'); }
+                    return true;
+                }""",
+                {"fleet": fleet, "chosenIndex": fleet.index(chosen)},
+            )
+        except Exception:
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
+            return None
+        logger.info("tajmi_plate_selected_via_bridge ncar_tag_present=%s", bool(chosen.get("ncarTag")))
+        return chosen
+
+    async def _populate_tajmi_driver_options_via_bridge(self, car_tag: Any) -> int:
+        """Fill ``#DriverListTajmi`` from ``GetFleetDriverList`` for this plate.
+
+        Mirrors UTCMS's own option template: ``value`` is the driver record as
+        JSON (``changeComboDriverClick`` parses it), ``data-attr1/2/3`` carry the
+        name, licence tracking code and mobile, and the text is
+        ``name lastname (nationalCode)``.
+        """
+        if not str(car_tag or "").strip():
+            return 0
+        payload = await self._fetch_via_bridge(
+            "https://barname.utcms.ir/Barname/Document/GetFleetDriverList",
+            {"carTag": str(car_tag)},
+        )
+        drivers = self._unwrap_utcms_envelope(payload)
+        logger.info("tajmi_driver_list_fetched_via_bridge count=%s", len(drivers))
+        if not drivers:
+            return 0
+        try:
+            await self.page.evaluate(
+                """(drivers) => {
+                    const select = document.querySelector('#DriverListTajmi');
+                    if (!select) return 0;
+                    select.innerHTML = '';
+                    const placeholder = document.createElement('option');
+                    placeholder.value = '';
+                    placeholder.textContent = 'انتخاب کنید...';
+                    select.appendChild(placeholder);
+                    drivers.forEach(driver => {
+                        const option = document.createElement('option');
+                        option.value = JSON.stringify(driver);
+                        option.setAttribute('data-attr3', driver.driverMobileNo ?? '');
+                        option.setAttribute('data-attr2', driver.driverLicenceTrackingCode ?? '');
+                        option.setAttribute('data-attr1', `${driver.driverName} ${driver.driverLastName}`);
+                        option.textContent =
+                            ` ${driver.driverName ?? ''}  ${driver.driverLastName ?? ''}`
+                            + ` (${driver.driverNationalCode ?? ''})`;
+                        select.appendChild(option);
+                    });
+                    return drivers.length;
+                }""",
+                drivers,
+            )
+        except Exception:
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
+            return 0
+        return len(drivers)
+
     async def _handle_tajmi_initialization(self) -> None:
         """آماده‌سازی حالت تجمیعی برای ثبت ناوگان"""
         if await self._element_exists("#DriverListTajmi"):
@@ -3304,7 +3643,13 @@ class EnhancedWaybillManager:
         if plate_parts or free_zone_parts:
             selected_tajmi = False
             if tajmi_mode:
-                if plate_parts:
+                # ``GETUserFleetListTajmi`` may never have run, leaving the select
+                # with nothing but its placeholder -- fill it from the fleet
+                # endpoint first so there is something to match against.
+                if await self._count_valued_options("#PelakComboTajmi") == 0:
+                    self._tajmi_fleet_record = await self._select_tajmi_plate_via_bridge(plate_parts, free_zone_parts)
+                    selected_tajmi = self._tajmi_fleet_record is not None
+                if not selected_tajmi and plate_parts:
                     selected_tajmi = await self._select_option_by_fragments(
                         "#PelakComboTajmi",
                         [
@@ -3314,7 +3659,7 @@ class EnhancedWaybillManager:
                             plate_parts["center"],
                         ],
                     )
-                elif free_zone_parts:
+                elif not selected_tajmi and free_zone_parts:
                     selected_tajmi = await self._select_option_by_fragments(
                         "#PelakComboTajmi",
                         [
@@ -3322,6 +3667,15 @@ class EnhancedWaybillManager:
                             free_zone_parts["zone_name"],
                         ],
                     )
+                # ``#PelakComboTajmi`` is the gate for the whole tajmi driver
+                # path: UTCMS only calls ``GetFleetDriverList?carTag=...`` from
+                # this select's change handler, so if the plate is not chosen
+                # here the driver list never gets more than its placeholder.
+                logger.info(
+                    "vehicle_tajmi_plate_select_result selected=%s kind=%s",
+                    selected_tajmi,
+                    "national" if plate_parts else ("free_zone" if free_zone_parts else "none"),
+                )
             if selected_tajmi:
                 try:
                     selected_plate_value = await self.page.eval_on_selector(
@@ -3407,13 +3761,20 @@ class EnhancedWaybillManager:
                     "مشاهده مشخصات پلاک",
                     required=True,
                 )
+                # UTCMS has commented the whole ``$.ajax`` to
+                # ``/Barname/Document/PlaqueSearch`` out of
+                # ``hagigihogugitemplate.js`` (read from the live asset on
+                # 2026-08-28): ``PlaqueSearch`` now only validates the plate
+                # inputs and hides ``#loading``.  So these fields stay empty BY
+                # DESIGN and no amount of waiting fills them -- probe briefly in
+                # case UTCMS restores the lookup, and never treat it as a fault.
                 plate_lookup_value = await self._wait_for_non_empty_value(
                     ["#TypeofLoader", "#CapacityFrom", "#TypeofLoaderTajmi", "#CapacityTajmi"],
-                    timeout_ms=8000,
+                    timeout_ms=2500,
                 )
                 if plate_lookup_value is None:
-                    logger.warning(
-                        "plate_details_not_loaded_after_fill",
+                    logger.info(
+                        "plate_details_lookup_disabled_upstream",
                         extra={"extra_fields": {"plate": vehicle.get("plate", "")}},
                     )
         else:
@@ -3428,7 +3789,9 @@ class EnhancedWaybillManager:
                 required=True,
             )
 
-    async def _handle_tajmi_driver_selection(self, driver_code: str) -> bool:
+    async def _handle_tajmi_driver_selection(
+        self, driver_code: str, driver_name: str = "", driver_phone: str = ""
+    ) -> bool:
         """انتخاب راننده در حالت تجمیعی"""
         if not await self._element_exists("#DriverListTajmi"):
             return False
@@ -3439,11 +3802,32 @@ class EnhancedWaybillManager:
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
-        # Fetch all options first
+        # UTCMS fills this list from its ``#PelakComboTajmi`` change handler.  When
+        # that page script has not run the list holds only its placeholder, so
+        # fetch the same ``GetFleetDriverList`` the handler would have called --
+        # otherwise no identity key can ever match and the run falls back to the
+        # normal-mode driver fields, which do not exist in the tajmi form.
+        #
+        # "Has a value" is not enough of a test: dry-run 7 found one valued option
+        # that still matched nothing.  A usable option's value is the driver
+        # record as JSON (``changeComboDriverClick`` does ``JSON.parse`` on it),
+        # so require that shape before trusting the list.
+        usable_options = await self._count_tajmi_driver_records()
+        if usable_options == 0:
+            fetched = await self._populate_tajmi_driver_options_via_bridge(
+                (self._tajmi_fleet_record or {}).get("ncarTag")
+            )
+            logger.info("tajmi_driver_options_backfilled count=%s", fetched)
+
+        # Fetch all options first.  ``data-attr3`` carries the driver's registered
+        # mobile: UTCMS's own ``changeComboDriverClick`` handler copies it into
+        # ``#DriverMobileTajmi``, so it is also a reliable identity key here.
         try:
             options = await self.page.eval_on_selector_all(
                 "#DriverListTajmi option",
-                "els => els.map(el => ({text: (el.textContent || '').trim(), value: (el.getAttribute('value') || '').trim()}))",
+                "els => els.map(el => ({text: (el.textContent || '').trim(),"
+                " value: (el.getAttribute('value') || '').trim(),"
+                " mobile: (el.getAttribute('data-attr3') || '').trim()}))",
             )
         except Exception:
             options = []
@@ -3467,18 +3851,164 @@ class EnhancedWaybillManager:
                         )
                         break
 
+        # 2. The national code is not always available on the job (older records
+        #    and manual runs carry only the driver's name and mobile), and the
+        #    tajmi list is the ONLY place the driver can be chosen -- there is no
+        #    national-code input in the tajmi form.  Falling straight through to
+        #    the normal-mode fallback in that case used to end the whole run with
+        #    "پر کردن یا تایید فیلد `تلفن راننده` ناموفق بود", so match on the
+        #    other two identity keys the option itself exposes before giving up.
+        if not selected_driver and driver_phone:
+            normalized_phone = self._normalize_mobile(driver_phone)
+            for option in options:
+                if not (option.get("value") or "").strip():
+                    continue
+                if self._normalize_mobile(option.get("mobile") or "") == normalized_phone:
+                    selected_driver = await self._set_select_value_with_js(
+                        "#DriverListTajmi", option.get("value") or ""
+                    )
+                    if selected_driver:
+                        logger.info("vehicle_tajmi_driver_selected_by_mobile")
+                        break
+
+        if not selected_driver and driver_name:
+            normalized_name = self._normalize_text(driver_name)
+            for option in options:
+                if not (option.get("value") or "").strip():
+                    continue
+                opt_text = self._normalize_text(option.get("text") or "")
+                if normalized_name and normalized_name in opt_text:
+                    selected_driver = await self._set_select_value_with_js(
+                        "#DriverListTajmi", option.get("value") or ""
+                    )
+                    if selected_driver:
+                        logger.info(
+                            "vehicle_tajmi_driver_selected_by_name",
+                            extra={"extra_fields": {"driver_name": driver_name}},
+                        )
+                        break
+
         logger.info(
-            "vehicle_tajmi_driver_select_attempt",
-            extra={"extra_fields": {"selected": selected_driver, "driver_code": driver_code}},
+            # Counts only: option labels carry the fleet's driver names, mobiles
+            # and national codes, and the plain server-side formatter drops
+            # ``extra_fields`` -- so the structural facts have to be in the
+            # message or a failed match is undebuggable on the worker.
+            "vehicle_tajmi_driver_select_attempt selected=%s options=%s selectable=%s"
+            " have_code=%s have_mobile=%s have_name=%s",
+            selected_driver,
+            len(options),
+            sum(1 for option in options if (option.get("value") or "").strip()),
+            bool(driver_code),
+            bool(driver_phone),
+            bool(driver_name),
+            extra={
+                "extra_fields": {
+                    "selected": selected_driver,
+                    "driver_code": driver_code,
+                    "options": len(options),
+                }
+            },
         )
 
         await self._wait_for_non_empty_value(
             ["#DriverFullNameTajmi", "#DriverMobileTajmi"],
             timeout_ms=8000,
         )
+        if selected_driver:
+            await self._apply_tajmi_driver_record_to_form()
         return selected_driver
 
-    async def _fill_fallback_driver_info(self, driver_code: str, driver_phone: str) -> None:
+    async def _count_tajmi_driver_records(self) -> int:
+        """Options whose value is a driver record, the shape UTCMS's handler needs.
+
+        Also logs the value SHAPES (lengths and whether they parse) so a list that
+        looks populated but matches nothing is debuggable without ever logging a
+        driver's name, mobile or national code.
+        """
+        try:
+            summary = await self.page.evaluate(
+                """() => {
+                    const select = document.querySelector('#DriverListTajmi');
+                    if (!select) return {records: 0, shapes: []};
+                    let records = 0;
+                    const shapes = [];
+                    Array.from(select.options).forEach(el => {
+                        const raw = (el.getAttribute('value') || '').trim();
+                        if (!raw) { shapes.push('empty'); return; }
+                        let parsed = null;
+                        try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
+                        if (parsed && typeof parsed === 'object') {
+                            records += 1;
+                            shapes.push('record:' + Object.keys(parsed).length + 'keys');
+                        } else {
+                            shapes.push('opaque:' + raw.length + 'chars');
+                        }
+                    });
+                    return {records, shapes};
+                }"""
+            )
+        except Exception:
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
+            return 0
+        if not isinstance(summary, dict):
+            return 0
+        logger.info(
+            "tajmi_driver_option_shapes records=%s shapes=%s",
+            summary.get("records", 0),
+            summary.get("shapes", []),
+        )
+        try:
+            return int(summary.get("records") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    async def _apply_tajmi_driver_record_to_form(self) -> None:
+        """Mirror ``changeComboDriverClick`` when its jQuery binding never ran.
+
+        Every value comes from the option UTCMS itself produced -- the selected
+        fleet-driver record -- so nothing here is invented.  Fields that already
+        hold a value are left alone: UTCMS's own handler wins when it did run.
+        """
+        try:
+            await self.page.evaluate(
+                """() => {
+                    const select = document.querySelector('#DriverListTajmi');
+                    if (!select || !select.value) return false;
+                    let driver;
+                    try { driver = JSON.parse(select.value); } catch (e) { return false; }
+                    const setIfEmpty = (id, value) => {
+                        const el = document.querySelector(id);
+                        if (!el || (el.value || '').trim() || !String(value ?? '').trim()) return;
+                        el.value = String(value);
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        if (window.jQuery) { window.jQuery(el).trigger('change'); }
+                    };
+                    const option = select.options[select.selectedIndex];
+                    setIfEmpty('#txtDriverSearch', select.value);
+                    setIfEmpty(
+                        '#DriverFullNameTajmi',
+                        `${driver.driverName ?? ' '}  ${driver.driverLastName ?? ''}`,
+                    );
+                    setIfEmpty(
+                        '#DriverMobileTajmi',
+                        (option && option.getAttribute('data-attr3')) || driver.driverMobileNo,
+                    );
+                    setIfEmpty(
+                        '#DriverNumberDriverLicenseTajmi',
+                        (option && option.getAttribute('data-attr2')) || driver.certificateNo,
+                    );
+                    return true;
+                }"""
+            )
+        except Exception:
+            logger.warning("waybill_enhanced_silent_error", exc_info=True)
+            return
+        logger.info("tajmi_driver_dependent_fields_ensured")
+
+    async def _fill_fallback_driver_info(
+        self, driver_code: str, driver_phone: str, *, tajmi_mode: bool = False
+    ) -> None:
         """ثبت اطلاعات راننده در حالت عادی یا در صورت شکست حالت تجمیعی"""
         await self._wait_for_loading_overlays_to_disappear()
         if driver_code:
@@ -3510,11 +4040,40 @@ class EnhancedWaybillManager:
                 await self._wait_for_loading_overlays_to_disappear()
 
         if driver_phone:
+            # UTCMS has no ``DriverPhone`` field and never had one: the issuance
+            # form calls it ``#DriverMobile`` in normal mode and
+            # ``#DriverMobileTajmi`` in tajmi mode (verified against the live
+            # ``hagigihogugitemplate.js`` on 2026-08-28, which fills exactly those
+            # two ids).  The old selectors could therefore never match, and every
+            # run that reached the driver step died here with
+            # "پر کردن یا تایید فیلد `تلفن راننده` ناموفق بود".
+            mobile_selectors = [
+                'input[id="DriverMobileTajmi"]',
+                'input[name="DriverMobileTajmi"]',
+                'input[id="DriverMobile"]',
+                'input[name="DriverMobile"]',
+            ]
+            if not tajmi_mode:
+                mobile_selectors = mobile_selectors[2:] + mobile_selectors[:2]
+
+            # The form populates the mobile itself -- from the selected fleet
+            # driver's ``data-attr3`` in tajmi mode, or from the driver-search
+            # response in normal mode.  That value is the driver's registered
+            # number, so it wins: overwriting it would put a number UTCMS did not
+            # issue into the waybill.  Only an empty field is typed into.
+            existing = await self._wait_for_non_empty_value(mobile_selectors, timeout_ms=2000)
+            if existing:
+                if self._normalize_mobile(existing) != self._normalize_mobile(driver_phone):
+                    logger.warning(
+                        "driver_mobile_prefilled_by_utcms_differs_from_job",
+                        extra={"extra_fields": {"field": "تلفن راننده"}},
+                    )
+                else:
+                    logger.info("driver_mobile_prefilled_by_utcms")
+                return
+
             await self._fill_verified_text_field(
-                [
-                    'input[name="DriverPhone"]',
-                    'input[id="DriverPhone"]',
-                ],
+                mobile_selectors,
                 driver_phone,
                 "تلفن راننده",
                 required=True,
@@ -3564,10 +4123,14 @@ class EnhancedWaybillManager:
         )
 
         if tajmi_mode:
-            selected_driver = await self._handle_tajmi_driver_selection(driver_code)
+            selected_driver = await self._handle_tajmi_driver_selection(
+                driver_code,
+                driver_name=vehicle.get("driver_name", ""),
+                driver_phone=driver_phone,
+            )
             if not selected_driver:
                 logger.warning("vehicle_tajmi_driver_selection_failed_trying_normal")
-                await self._fill_fallback_driver_info(driver_code, driver_phone)
+                await self._fill_fallback_driver_info(driver_code, driver_phone, tajmi_mode=True)
         else:
             await self._fill_fallback_driver_info(driver_code, driver_phone)
 

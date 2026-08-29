@@ -11,8 +11,10 @@ from app.automation.clean_ip_pool import (
     CleanIPRecord,
     _dedupe_candidates,
     _is_safe_source_url,
+    _parse_proxy_line,
     atomic_write,
     classify_probe_response,
+    fetch_file_or_env_sources,
     is_valid_port,
     is_valid_public_ip,
     probe_single_proxy,
@@ -345,7 +347,16 @@ def test_screening_keeps_measured_iranian_egress_and_marks_verified():
     assert rec.observed_country == "IR"
 
 
-def test_screening_drops_geo_unverified_candidate():
+def test_screening_admits_geo_unverified_candidate_but_marks_it():
+    """An unrunnable GeoIP check is missing evidence, not negative evidence.
+
+    Measured 2026-08-28: of the harvested candidates that actually reached
+    ``barname.utcms.ir``, NONE could reach ``api.country.is``/``ip-api.com``,
+    while the only ones that answered GeoIP could not reach the target. Dropping
+    ``geo_unverified`` records therefore emptied the pool every single cycle,
+    which is why workers never failed over to it. The record is admitted, tagged,
+    and ranked below any measured-IR record.
+    """
     rec = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080, country="IR")
 
     with (
@@ -356,9 +367,31 @@ def test_screening_drops_geo_unverified_candidate():
     ):
         verified = cip.run_screening_cycle(max_pool_size=10)
 
-    assert verified == []
+    assert verified == [rec]
     assert rec.egress_verified is False
+    assert rec.has_measured_iranian_egress is False
     assert "geo_unverified" in rec.tags
+
+
+def test_screening_ranks_measured_iranian_egress_above_unverified():
+    """Proof still wins: a slower measured-IR proxy outranks a faster unmeasured one."""
+    measured = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080)
+    measured.latency_ms = 900.0
+    unmeasured = CleanIPRecord(url="http://46.209.30.11:8080", ip="46.209.30.11", port=8080)
+    unmeasured.latency_ms = 50.0
+
+    def _geo(candidate, timeout=8.0):
+        return "IR" if candidate.url == measured.url else None
+
+    with (
+        patch.object(cip, "aggregate_all_candidates", return_value=[measured, unmeasured]),
+        patch.object(cip, "probe_single_proxy", side_effect=lambda c, *a, **k: c),
+        patch.object(cip, "_verify_egress_country", side_effect=_geo),
+        patch.object(cip, "atomic_write"),
+    ):
+        verified = cip.run_screening_cycle(max_pool_size=10)
+
+    assert [r.url for r in verified] == [measured.url, unmeasured.url]
 
 
 def test_zero_result_screening_invalidates_all_runtime_fallbacks():
@@ -812,6 +845,71 @@ def test_worker_proxy_fail_closed_in_production_when_all_empty():
                     get_best_egress_proxy()
 
 
+def test_blocked_egress_index_prefers_clean_pool():
+    """A blocked egress index must actually move the worker to the pool."""
+    import app.automation.worker_proxy as wp
+
+    clear_proxy_cache()
+
+    with patch.dict(
+        os.environ,
+        {
+            "WORKER_ID": "1",
+            "WORKER_IP_INDEX": "1",
+            "WORKER_1_PROXY": "http://172.20.0.1:3128",
+            "EGRESS_PROXY_MODE": "worker_first",
+            "ENVIRONMENT": "production",
+            "PROXY_FAIL_CLOSED": "true",
+        },
+    ):
+        with (
+            patch("socket.create_connection"),
+            patch("app.automation.worker_proxy._resolve_to_ip", side_effect=lambda u: u),
+            patch("app.core.circuit_breaker._get_redis_sync") as redis_sync,
+            patch(
+                "app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync",
+                return_value="http://46.209.30.11:8080",
+            ),
+        ):
+            redis_sync.return_value.exists.return_value = True
+            assert get_best_egress_proxy() == "http://46.209.30.11:8080"
+            assert wp._cached_proxy_source == "clean_pool"
+
+
+def test_blocked_egress_index_with_empty_pool_degrades_instead_of_failing_closed():
+    """Marking an egress blocked must never take waybill processing offline.
+
+    Previously "blocked index" + empty pool fell through to ``_proxy_fail_closed``
+    and raised, so enabling automatic egress blocking would have stopped all
+    processing rather than degrading it. A reachable-but-blocked Squid still
+    succeeds between WAF throttle windows, so it is strictly better than nothing.
+    """
+    import app.automation.worker_proxy as wp
+
+    clear_proxy_cache()
+
+    with patch.dict(
+        os.environ,
+        {
+            "WORKER_ID": "1",
+            "WORKER_IP_INDEX": "1",
+            "WORKER_1_PROXY": "http://172.20.0.1:3128",
+            "EGRESS_PROXY_MODE": "worker_first",
+            "ENVIRONMENT": "production",
+            "PROXY_FAIL_CLOSED": "true",
+        },
+    ):
+        with (
+            patch("socket.create_connection"),
+            patch("app.automation.worker_proxy._resolve_to_ip", side_effect=lambda u: u),
+            patch("app.core.circuit_breaker._get_redis_sync") as redis_sync,
+            patch("app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync", return_value=None),
+        ):
+            redis_sync.return_value.exists.return_value = True
+            assert get_best_egress_proxy() == "http://172.20.0.1:3128"
+            assert wp._cached_proxy_source == "worker_squid_degraded"
+
+
 # ---------------------------------------------------------------------------
 # Circuit breaker isolation
 # ---------------------------------------------------------------------------
@@ -859,3 +957,156 @@ async def test_circuit_breaker_unidentified_clean_pool_failure_spares_worker_ind
                 mock_mark.assert_not_called()
                 for call in mock_redis.set.call_args_list:
                     assert "utcms:circuit_breaker:blocked:2" not in str(call)
+
+
+# ── Source-list parsing ───────────────────────────────────────────────────────
+# The harvester that populates these files runs OUTSIDE Iran (the JSON feeds
+# resolve to the 10.10.34.36 filtering sinkhole from a worker), so a generated
+# feed carrying provenance comments is the normal case, not an edge case.
+
+
+@pytest.mark.parametrize(
+    "line,expected",
+    [
+        ("http://185.100.47.106:8080", ("http", "185.100.47.106", 8080)),
+        # No scheme → default http.
+        ("185.100.47.106:8080", ("http", "185.100.47.106", 8080)),
+        ("socks5://185.100.47.106:1080", ("socks5", "185.100.47.106", 1080)),
+        # Credentials are stripped from the candidate identity.
+        ("http://user:pass@185.100.47.106:8080", ("http", "185.100.47.106", 8080)),
+        # Inline comment + padding must not leak into the port.
+        ("http://185.100.47.106:8080    # 120ms  MCI", ("http", "185.100.47.106", 8080)),
+        ("  185.100.47.106:8080  ", ("http", "185.100.47.106", 8080)),
+    ],
+)
+def test_parse_proxy_line_accepts_real_feed_shapes(line, expected):
+    parsed = _parse_proxy_line(line)
+    assert parsed is not None, line
+    assert (parsed["protocol"], parsed["ip"], parsed["port"]) == expected
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "",
+        "   ",
+        "# full-line comment",
+        "http://185.100.47.106",  # no port
+        "http://185.100.47.106:0",  # port out of range
+        "http://185.100.47.106:99999",
+        "http://10.10.34.36:8080",  # RFC1918 — the Iranian filtering sinkhole
+        "http://127.0.0.1:8080",
+        "http://not-an-ip:8080",
+    ],
+)
+def test_parse_proxy_line_rejects_unusable(line):
+    assert _parse_proxy_line(line) is None
+
+
+def test_fetch_file_source_skips_comments_and_keeps_provenance(tmp_path):
+    """A trailing comment used to fold into the port and silently drop the row."""
+    source = tmp_path / "verified_iran_proxies.txt"
+    source.write_text(
+        "\n".join(
+            [
+                "# BarPro Clean IP Pool source",
+                "# generated_at_epoch: 1756382400",
+                "",
+                "http://185.100.47.106:8080",
+                "socks5://46.249.124.244:1080    # 6257ms",
+                "http://10.10.34.36:3128",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with patch.dict(os.environ, {"CLEAN_IP_SOURCE_FILE": str(source)}, clear=False):
+        os.environ.pop("CLEAN_IP_SOURCE_URL", None)
+        results = fetch_file_or_env_sources()
+
+    assert [(r["protocol"], r["ip"], r["port"]) for r in results] == [
+        ("http", "185.100.47.106", 8080),
+        ("socks5", "46.249.124.244", 1080),
+    ]
+    assert {r["source"] for r in results} == {"file_source"}
+
+
+# ── Probe retry semantics ─────────────────────────────────────────────────────
+# Free Iranian egress is flaky in a way one attempt cannot tell from death, but
+# a UTCMS rejection is a verdict about the IP that retrying cannot change — and
+# every extra attempt is another handshake against the per-IP WAF throttle.
+
+
+def test_probe_retries_transport_failure_then_certifies():
+    candidate = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080)
+
+    with (
+        patch("app.automation.clean_ip_pool._CURL_CFFI_IMPORT_ERROR", None),
+        patch(
+            "app.automation.clean_ip_pool._probe_via_curl_cffi",
+            side_effect=[TimeoutError("timed out"), (200, 1700.0, "<html>txtusername</html>")],
+        ) as probe,
+    ):
+        result = probe_single_proxy(candidate)
+
+    assert probe.call_count == 2
+    assert result is not None
+    assert result.latency_ms == 1700.0
+    assert result.fail_count == 0
+
+
+def test_probe_does_not_retry_a_utcms_rejection():
+    candidate = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080)
+
+    with (
+        patch("app.automation.clean_ip_pool._CURL_CFFI_IMPORT_ERROR", None),
+        patch("app.automation.clean_ip_pool._probe_via_curl_cffi", return_value=(403, 10.0, "")) as probe,
+    ):
+        result = probe_single_proxy(candidate)
+
+    assert probe.call_count == 1
+    assert result is None
+    assert "utcms_rejected" in candidate.tags
+
+
+def test_probe_gives_up_after_exhausting_transport_attempts():
+    candidate = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080)
+
+    with (
+        patch("app.automation.clean_ip_pool._CURL_CFFI_IMPORT_ERROR", None),
+        patch(
+            "app.automation.clean_ip_pool._probe_via_curl_cffi",
+            side_effect=TimeoutError("timed out"),
+        ) as probe,
+    ):
+        result = probe_single_proxy(candidate)
+
+    assert probe.call_count == cip.PROBE_TRANSPORT_ATTEMPTS
+    assert result is None
+    assert candidate.fail_count >= 1
+
+
+def test_probe_sessions_verify_tls_certificates():
+    """A probe that accepts a MITM'd session would certify the one egress we
+    must reject — the pool decides where UTCMS credentials are sent."""
+    captured = {}
+
+    class _FakeSession:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.headers = {}
+
+        def get(self, url):
+            return MagicMock(status_code=200, text="<html>txtusername</html>")
+
+        def close(self):
+            return None
+
+    fake_module = MagicMock()
+    fake_module.requests.Session = _FakeSession
+
+    candidate = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080)
+    with patch.dict("sys.modules", {"curl_cffi": fake_module, "curl_cffi.requests": fake_module.requests}):
+        cip._probe_via_curl_cffi(candidate, cip.LOGIN_PROBE_URL, 20.0)
+
+    assert captured["verify"] is True

@@ -26,6 +26,7 @@ from app.automation.multitenant_payload_adapter import (
     build_enhanced_waybill_payload,
     validate_enhanced_waybill_payload,
 )
+from app.core.distance import estimate_time
 from app.models.waybill_batch import WaybillBatch
 from app.models.waybill_route_template import WaybillRouteTemplate
 from app.models_multitenant import Driver, DriverPlate, TaskStatus, WaybillJob
@@ -111,6 +112,59 @@ def _validate_route_location(route: WaybillRouteTemplate) -> list[str]:
     return errors
 
 
+def estimate_route_duration_minutes(route: WaybillRouteTemplate) -> float:
+    """Return the best available travel-time estimate for one route.
+
+    A persisted UTCMS/Neshan duration is authoritative. When only a measured
+    distance exists, use the project's deterministic road estimate. Missing
+    distance data is represented as zero: the chain still remains ordered and
+    the configured anti-spam interval is preserved, but no address or GPS is
+    invented.
+    """
+    try:
+        duration = float(route.duration_min or 0)
+    except (TypeError, ValueError):
+        duration = 0.0
+    if duration > 0:
+        return duration
+
+    try:
+        distance = float(route.distance_km or 0)
+    except (TypeError, ValueError):
+        distance = 0.0
+    if distance <= 0:
+        return 0.0
+
+    is_urban = bool(
+        route.origin_city
+        and route.dest_city
+        and str(route.origin_city).strip() == str(route.dest_city).strip()
+    )
+    return max(1.0, estimate_time(distance, is_urban=is_urban))
+
+
+def build_route_chain_schedule(
+    routes: list[WaybillRouteTemplate],
+    interval_minutes: int,
+    start_at: datetime,
+) -> list[datetime]:
+    """Compute release times for an ordered chain without mutating state.
+
+    The first leg is eligible immediately. Each following leg is released no
+    earlier than the previous leg's estimated travel time plus the configured
+    spacing. The scheduler also checks the previous job's actual SUCCESS state,
+    so a late completion can never cause an early submission.
+    """
+    spacing = max(0, int(interval_minutes or 0))
+    release_times: list[datetime] = []
+    cursor = start_at
+    for index, _route in enumerate(routes):
+        if index:
+            cursor += timedelta(minutes=estimate_route_duration_minutes(routes[index - 1]) + spacing)
+        release_times.append(cursor)
+    return release_times
+
+
 def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
@@ -173,7 +227,7 @@ class BatchService:
 
         routes = await self._load_owned_routes(session, client_id, payload.route_template_ids)
 
-        base_payload = getattr(payload, "base_payload_json", None) or {}
+        base_payload = dict(getattr(payload, "base_payload_json", None) or {})
         if not base_payload:
             raise HTTPException(status_code=422, detail="base_payload_json الزامی است")
 
@@ -206,6 +260,15 @@ class BatchService:
             if route_errors:
                 raise HTTPException(status_code=422, detail=f"مسیر «{route.name}» ناقص است: " + "، ".join(route_errors))
 
+        if payload.route_chain and payload.target_count != len(routes):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "در حالت زنجیره‌ای، تعداد بارنامه‌ها باید دقیقاً برابر تعداد مسیرهای انتخاب‌شده باشد "
+                    f"(مسیرها={len(routes)}، target_count={payload.target_count})"
+                ),
+            )
+
         # Validate the merged payload against the live worker contract so every
         # job passes preflight validation (no silent NEEDS_REVIEW at runtime).
         sample_payload = build_job_payload(routes[0], base_payload)
@@ -224,6 +287,7 @@ class BatchService:
             base_payload_json=base_payload,
             target_count=payload.target_count,
             repeat_mode=mode,
+            route_chain=bool(payload.route_chain),
             interval_minutes=payload.interval_minutes,
             status="active",
             progress={"completed": 0, "failed": 0, "today": 0},
@@ -249,9 +313,13 @@ class BatchService:
 
         now = _utcnow()
         priority = getattr(payload, "priority", 5)
+        chain_schedule = (
+            build_route_chain_schedule(routes, payload.interval_minutes, now) if payload.route_chain else None
+        )
         jobs: list[WaybillJob] = []
         for step in range(payload.target_count):
-            route = routes[select_route_index(step, len(routes), mode)]
+            route_index = step if payload.route_chain else select_route_index(step, len(routes), mode)
+            route = routes[route_index]
             jobs.append(
                 WaybillJob(
                     job_id=str(uuid.uuid4()),
@@ -266,9 +334,14 @@ class BatchService:
                     sequence_index=step,
                     distance_km=route.distance_km,
                     duration_min=route.duration_min,
-                    # Stagger dispatch: plan_due_jobs gates PENDING jobs on submit_after,
-                    # so registrations respect interval_minutes (anti-spam).
-                    submit_after=now + timedelta(minutes=step * payload.interval_minutes),
+                    # In a route chain, release times are cumulative travel-time
+                    # estimates. The scheduler additionally requires the prior
+                    # leg to be reconciled SUCCESS before dispatching this job.
+                    submit_after=(
+                        chain_schedule[step]
+                        if chain_schedule is not None
+                        else now + timedelta(minutes=step * payload.interval_minutes)
+                    ),
                 )
             )
         session.add_all(jobs)
@@ -311,6 +384,36 @@ class BatchService:
         ).one()
 
         target = batch.target_count or 0
+        route_chain = bool(getattr(batch, "route_chain", False))
+        next_sequence: int | None = None
+        blocked_by_sequence: int | None = None
+        if route_chain:
+            chain_jobs = list(
+                (
+                    await session.exec(
+                        select(WaybillJob)
+                        .where(WaybillJob.batch_id == batch_id)
+                        .order_by(WaybillJob.sequence_index.asc())
+                    )
+                ).all()
+            )
+            for chain_job in chain_jobs:
+                if chain_job.status == TaskStatus.SUCCESS.value:
+                    continue
+                next_sequence = chain_job.sequence_index
+                if next_sequence and next_sequence > 0:
+                    previous = next(
+                        (item for item in chain_jobs if item.sequence_index == next_sequence - 1),
+                        None,
+                    )
+                    if previous is not None and previous.status in {
+                        TaskStatus.FAILED.value,
+                        TaskStatus.NEEDS_REVIEW.value,
+                        TaskStatus.DEAD_LETTER.value,
+                        TaskStatus.CANCELLED.value,
+                    }:
+                        blocked_by_sequence = previous.sequence_index
+                break
         return {
             "batch_id": batch.id,
             "target": target,
@@ -319,6 +422,9 @@ class BatchService:
             "today": today,
             "progress_percent": min(int(completed / target * 100), 100) if target else 0,
             "status": batch.status,
+            "route_chain": route_chain,
+            "next_sequence": next_sequence,
+            "blocked_by_sequence": blocked_by_sequence,
         }
 
 

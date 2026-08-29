@@ -216,6 +216,19 @@ class LocationSelector:
         return "".join(normalized.split())
 
     @staticmethod
+    def _build_manual_address(location_data: dict[str, Any]) -> str | None:
+        """Build fallback text only from a caller-provided, non-placeholder address."""
+        address = str(location_data.get("address") or "").strip()
+        if len(address) < 2 or address.lower() in {"-", "null", "none", "x", ":x:", ":x"}:
+            return None
+        parts = [
+            str(location_data.get(key) or "").strip()
+            for key in ("province", "city", "address")
+            if str(location_data.get(key) or "").strip()
+        ]
+        return "، ".join(parts) or None
+
+    @staticmethod
     def _unique_preserve_order(items: list[str]) -> list[str]:
         seen = set()
         output: list[str] = []
@@ -699,7 +712,15 @@ class LocationSelector:
         district = (location_data.get("district") or "").strip()
         address = (location_data.get("address") or "").strip()
 
-        if not province or not city or not address:
+        placeholder_values = {"-", "null", "none", "x", ":x:", ":x"}
+        if (
+            len(province) < 2
+            or len(city) < 2
+            or len(address) < 2
+            or province.lower() in placeholder_values
+            or city.lower() in placeholder_values
+            or address.lower() in placeholder_values
+        ):
             return {
                 "success": False,
                 "method": "utcms_direct_text",
@@ -1083,6 +1104,12 @@ class LocationSelector:
         coordinates = location_data.get("coordinates")
         if not coordinates:
             return {"success": False, "method": "explicit_coords", "error": "مختصات موجود نیست"}
+        if self._build_manual_address(location_data) is None:
+            return {
+                "success": False,
+                "method": "explicit_coords",
+                "error": "آدرس متنی واقعی برای fallback مختصات وارد نشده است",
+            }
 
         try:
             lat = coordinates.get("lat")
@@ -1165,8 +1192,13 @@ class LocationSelector:
                     await asyncio.sleep(0.05)
 
             # 4. اگر فیلدها پر نشدند (مثلا به خاطر خطای سرویس نقشه سایت)، به صورت دستی آدرس را پر می‌کنیم
-            parts = [p for p in [province, city, address] if p]
-            full_address = "، ".join(parts) or "تهران"
+            full_address = self._build_manual_address(location_data)
+            if full_address is None:
+                return {
+                    "success": False,
+                    "method": "explicit_coords",
+                    "error": "آدرس متنی واقعی برای fallback مختصات وارد نشده است",
+                }
             addr_selector = "#txtAddressSource" if prefix == "Origin" else "#txtAddressDest"
 
             logger.warning(
@@ -1294,6 +1326,13 @@ class LocationSelector:
         selectors: dict[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """تلاش برای انتخاب مکان با استفاده از نقشه و تزریق مختصات به متغیرهای بومی"""
+        if self._build_manual_address(location_data) is None:
+            return {
+                "success": False,
+                "method": "map",
+                "error": "آدرس متنی واقعی برای انتخاب مکان وارد نشده است",
+            }
+
         # اول پنل صحیح را فعال کنیم، سپس نقشه را تشخیص دهیم
         await self._ensure_location_tab_active(prefix)
 
@@ -1316,7 +1355,6 @@ class LocationSelector:
         coordinates = location_data.get("coordinates")
         if not coordinates:
             return {"success": False, "method": "map", "error": "مختصات صریح کاربر ارسال نشده است"}
-
         lat = coordinates.get("lat")
         lng = coordinates.get("lng")
         if lat is None or lng is None:
@@ -1379,16 +1417,13 @@ class LocationSelector:
                             extra={"extra_fields": {"prefix": prefix}},
                         )
                         # Fallback: پر کردن فیلد آدرس متنی
-                        parts = [
-                            p
-                            for p in [
-                                location_data.get("province"),
-                                location_data.get("city"),
-                                location_data.get("address"),
-                            ]
-                            if p
-                        ]
-                        full_address = "، ".join(parts) or "تهران"
+                        full_address = self._build_manual_address(location_data)
+                        if full_address is None:
+                            return {
+                                "success": False,
+                                "method": "map",
+                                "error": "آدرس متنی واقعی برای fallback نقشه وارد نشده است",
+                            }
 
                         addr_filled = False
                         for sel in utcms["address"] + self._build_formatted_selectors(
@@ -1417,16 +1452,13 @@ class LocationSelector:
                             "map_click_missing_address_falling_back",
                             extra={"extra_fields": {"prefix": prefix, "after_state": after_state}},
                         )
-                        parts = [
-                            p
-                            for p in [
-                                location_data.get("province"),
-                                location_data.get("city"),
-                                location_data.get("address"),
-                            ]
-                            if p
-                        ]
-                        full_address = "، ".join(parts) or "تهران"
+                        full_address = self._build_manual_address(location_data)
+                        if full_address is None:
+                            return {
+                                "success": False,
+                                "method": "map",
+                                "error": "آدرس متنی واقعی برای fallback نقشه وارد نشده است",
+                            }
 
                         addr_filled = False
                         for sel in utcms["address"] + self._build_formatted_selectors(
@@ -1527,14 +1559,15 @@ class LocationSelector:
                 utcms["address"] + self._build_formatted_selectors(LocationSelectors.ADDRESS_TEMPLATES, prefix=prefix)
             )
             address = location_data.get("address", "")
-            if address:
-                for selector in address_selectors:
-                    try:
-                        filled = await self._fill_input_like(selector, address)
-                        if filled:
-                            break
-                    except Exception:
-                        continue
+            if not str(address or "").strip() or len(str(address).strip()) < 2:
+                return {"success": False, "method": "dropdown", "error": "آدرس واقعی وارد نشده است"}
+            for selector in address_selectors:
+                try:
+                    filled = await self._fill_input_like(selector, address)
+                    if filled:
+                        break
+                except Exception:
+                    continue
 
             return {
                 "success": True,

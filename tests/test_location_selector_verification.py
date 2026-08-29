@@ -58,3 +58,51 @@ async def test_try_map_selection_verification_success():
     assert result["success"] is True
     assert result["method"] == "map"
     assert result["map_type"] == "google_maps"
+
+
+@pytest.mark.asyncio
+async def test_direct_fill_rejects_blank_address_before_dom_work():
+    page = AsyncMock()
+    selector = LocationSelector(page)
+
+    result = await selector._try_utcms_direct_fill(
+        {"province": "خوزستان", "city": "ماهشهر", "address": "  "},
+        "Origin",
+    )
+
+    assert result["success"] is False
+    assert "اطلاعات مسیر ناقص است" in result["error"]
+    page.select_option.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_map_rejects_missing_address_instead_of_fabricating_default_city():
+    page = AsyncMock()
+    selector = LocationSelector(page)
+    selector.map_controller.detect_map_type = AsyncMock()
+
+    result = await selector._try_map_selection(
+        {"province": "خوزستان", "city": "ماهشهر", "address": "", "coordinates": {"lat": 30.5, "lng": 49.2}},
+        prefix="Origin",
+    )
+
+    assert result["success"] is False
+    assert "آدرس متنی واقعی" in result["error"]
+    selector.map_controller.detect_map_type.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_dropdown_rejects_missing_address_after_location_selection():
+    page = AsyncMock()
+    selector = LocationSelector(page)
+    selector._select_from_options = AsyncMock(return_value=True)
+    selector._wait_for_select_options = AsyncMock(return_value=True)
+    selector._log_select_diagnostics = AsyncMock()
+
+    result = await selector._try_dropdown_selection(
+        {"province": "خوزستان", "city": "ماهشهر", "address": ""},
+        prefix="Origin",
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "آدرس واقعی وارد نشده است"

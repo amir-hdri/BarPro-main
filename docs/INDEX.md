@@ -48,7 +48,7 @@ bash manage.sh stop
 
 ## Important Current State
 
-- Alembic head is `038_add_multiroute_batch_distance`
+- Alembic head is `039_add_route_chain_scheduling`
 - Frontend Docker builds inside `apps/web/Dockerfile`
 - No prebuilt `.next/standalone` upload is required
 - JWT transport uses the `httpOnly` cookie `utcms_auth_token`

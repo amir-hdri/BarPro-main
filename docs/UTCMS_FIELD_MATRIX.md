@@ -77,6 +77,25 @@
 |---|---|---|---|---|---|---|---|---|---|---|
 | انتخاب پلاک تجمیعی | `PelakComboTajmi` | `PelakComboTajmi` | select | مشروط | گزینه‌های لودشده ناوگان | بررسی عدم مقدار خالی/صفر | `change` | `#PelakComboTajmi` | `select[name="PelakComboTajmi"]` | `value` و `selectedOptions[0].text` |
 | انتخاب راننده تجمیعی | `DriverListTajmi` | `DriverListTajmi` | select | مشروط | گزینه‌های لودشده رانندگان | بررسی عدم مقدار 0 | `change` | `#DriverListTajmi` | `select[name="DriverListTajmi"]` | `value` و `selectedOptions[0].text` |
+| موبایل راننده تجمیعی | `DriverMobileTajmi` | `DriverMobileTajmi` | text (پرشده توسط فرم) | فقط خواندنی در عمل | موبایل ثبت‌شده راننده | خود UTCMS از `data-attr3` گزینه انتخاب‌شده پر می‌کند | ندارد (نتیجه `change` روی `DriverListTajmi`) | `#DriverMobileTajmi` | `input[name="DriverMobileTajmi"]` | `element.value.trim()` |
+| نام راننده تجمیعی | `DriverFullNameTajmi` | `DriverFullNameTajmi` | text (پرشده توسط فرم) | فقط خواندنی در عمل | نام راننده ناوگان | همراه موبایل توسط فرم پر می‌شود | ندارد | `#DriverFullNameTajmi` | `input[name="DriverFullNameTajmi"]` | `element.value.trim()` |
+
+> نکته‌ی تأییدشده روی نسخه‌ی زنده‌ی `hagigihogugitemplate.js` در ۱۴۰۵/۰۶/۰۶ (2026-08-28): گزینه‌های `DriverListTajmi` هویت راننده را در `data-attr3` (موبایل) حمل می‌کنند و هندلر `changeComboDriverClick` همان مقدار را در `DriverMobileTajmi` می‌نویسد. بنابراین موبایل راننده هرگز نباید تایپ شود؛ اگر فرم آن را پر کرده است، همان مقدار معتبر است.
+
+---
+
+### ۲.۴.۱ فرم راننده در حالت عادی (`frmDriver`)
+| نام فارسی | id | name | نوع کنترل | Required | مقدار قابل قبول | اعتبارسنجی | Eventهای لازم | سلکتور اصلی | سلکتور جایگزین | روش Read-Back |
+|---|---|---|---|---|---|---|---|---|---|---|
+| کد ملی راننده (جستجو) | `txtDriverSearch` | `txtDriverSearch` | text | بله | ۱۰ رقم کد ملی | ارقام انگلیسی | `input`, `change` | `#txtDriverSearch` | `input[name="txtDriverSearch"]` | `element.value.trim()` |
+| دکمه مشاهده مشخصات راننده | `btnShowDetailsDriver` | - | button | بله | - | - | `click` | `#btnShowDetailsDriver` | `#driversearch` | فعال‌شدن فیلدهای زیر |
+| نام راننده | `DriverFullName` | `DriverFullName` | text (پرشده توسط فرم) | فقط خواندنی در عمل | نام راننده بازگشتی از جستجو | - | ندارد | `#DriverFullName` | `input[name="DriverFullName"]` | `element.value.trim()` |
+| موبایل راننده | `DriverMobile` | `DriverMobile` | text (پرشده توسط فرم) | فقط خواندنی در عمل | `result.obj.mobileNumber` پاسخ جستجو | - | ندارد | `#DriverMobile` | `input[name="DriverMobile"]` | `element.value.trim()` |
+| شماره گواهی‌نامه | `DriverNumberDriverLicense` | `DriverNumberDriverLicense` | text (پرشده توسط فرم) | فقط خواندنی در عمل | `result.obj.driverLicenseId` | - | ندارد | `#DriverNumberDriverLicense` | `input[name="DriverNumberDriverLicense"]` | `element.value.trim()` |
+
+> **هیچ فیلدی با شناسه `DriverPhone` در UTCMS وجود ندارد.** نام درست فیلد موبایل راننده `DriverMobile` (حالت عادی) و `DriverMobileTajmi` (حالت تجمیعی) است.
+>
+> **جستجوی مشخصات پلاک غیرفعال است:** در نسخه‌ی زنده‌ی `hagigihogugitemplate.js` کل فراخوانی `$.ajax` به `/Barname/Document/PlaqueSearch` کامنت شده است و تابع `PlaqueSearch` تنها ورودی‌های پلاک را اعتبارسنجی می‌کند. پس `TypeofLoader`، `CapacityFrom`، `CapacityTo`، `Activitylicense` و `ThirdPartyInsurance` طبق طراحیِ فعلیِ سامانه خالی می‌مانند و خالی‌بودن آن‌ها خطا نیست.
 
 ---
 

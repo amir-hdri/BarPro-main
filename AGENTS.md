@@ -292,7 +292,7 @@ BarPro/
 │   ├── squid/squid_*.conf
 │   ├── prometheus/prometheus.yml
 │   └── logging/logrotate.conf
-├── alembic/                # Database migrations; current head 038_add_multiroute_batch_distance
+├── alembic/                # Database migrations; current head 039_add_route_chain_scheduling
 ├── tests/                  # Pytest test suite
 ├── scripts/                # Utility and deploy scripts
 └── deploy/                 # Deployment configs

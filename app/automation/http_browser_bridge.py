@@ -10,11 +10,14 @@ Playwright route with the returned response.
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import json
 import logging
 import os
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -49,15 +52,39 @@ _RESPONSE_DROP_HEADERS = {
     "transfer-encoding",
 }
 _BRIDGED_RESOURCE_TYPES = frozenset({"document", "xhr", "fetch"})
-_ASSET_RESOURCE_TYPES = frozenset({"script", "stylesheet"})
+# Images are bridged too, not because they matter visually but because every
+# resource Chromium fetches itself is a NEW TLS handshake from this egress IP.
+# Measured from Squid's tunnel log on 2026-08-28: while Chromium loaded the
+# authenticated landing page natively it opened 13 connections inside 60ms, and
+# UTCMS refused every one of them ("TCP_TUNNEL/200 39" at 2ms).  Seven seconds
+# later the bridge's own healthy 48s tunnel was gone as well, so the next XHR had
+# to handshake and was throttled.  The run was poisoning its own IP from the
+# inside -- which is why cooling the IP between runs never helped.
+_ASSET_RESOURCE_TYPES = frozenset({"script", "stylesheet", "image"})
 # Web fonts are cosmetic, are served from the same slow static surface, and each
-# failed request costs seconds of page time.  They are dropped on the issuance
-# page only; images are never dropped because CAPTCHA images are images.
+# failed request costs seconds of page time.
 _DISCARDED_RESOURCE_TYPES = frozenset({"font"})
 
 
 _SAFE_IDEMPOTENT_METHODS = frozenset({"GET", "HEAD"})
 _AUTHENTICATED_LANDING_URL = "https://barname.utcms.ir/Barname/Notification/Notification"
+# Two numbers measured from Squid's own tunnel log on 2026-08-28:
+#  * tunnels to UTCMS die after a hard ~30s idle (repeated "30004 ms" durations),
+#    so the reserved connection cannot survive Chromium's render/fill gaps; and
+#  * fresh handshakes spaced ~7s apart are ALL rejected instantly (a run of
+#    "TCP_TUNNEL/200 39" entries — 39 bytes is a killed ClientHello), while the
+#    tunnels spaced 37s/45s/101s apart in the same log all carried real data.
+# Pinging every 20s therefore keeps the connection established (so no handshake
+# is needed at all) without ever entering the handshake-rejection window.  An
+# earlier 7s ping was actively harmful: it only fired once the connection was
+# already dead, turning recovery into a handshake storm that held the throttle
+# permanently engaged and killed KalaSearch/Captcha for the rest of the run.
+_KEEPALIVE_INTERVAL_SECONDS = 20.0
+# Minimum gap between two runtime XHR on the reserved session.  UTCMS's upstream
+# refuses a burst (see ``_last_xhr_dispatch_at``); ~20 init calls therefore cost
+# a few seconds of pacing, which is far cheaper than the retries the burst used
+# to trigger -- each of which also spent a throttled TLS handshake.
+_XHR_MIN_SPACING_SECONDS = 0.4
 _ISSUANCE_DOCUMENT_MARKERS = (
     "/document/hagigihogugi",
     "/document/create",
@@ -133,6 +160,25 @@ def _is_critical_form_script(url: str) -> bool:
     return any(marker in lowered for marker in _CRITICAL_FORM_SCRIPT_MARKERS)
 
 
+def _is_script_asset(url: str, resource_type: Any = None) -> bool:
+    """Is this asset a script?
+
+    Live diagnosis on 2026-08-28 killed the assumption that non-critical
+    scripts are cosmetic: the issuance template's document-ready handler calls
+    ``FormDocumenDetailsRegister`` and instantiates
+    ``FormValidation.Framework.Bootstrap``, and neither is defined in the eight
+    hand-listed critical files.  Stubbing their defining bundles with an empty
+    body made the ready handler throw, and because it throws NOTHING after it
+    runs: no cargo autocomplete, no ``fillBoxType``, no
+    ``GETUserFleetListTajmi``, no plate/driver change handlers, no cargo modal.
+    So every same-origin script is now fetched and cached; only stylesheets,
+    fonts and images -- which genuinely cannot break behaviour -- are stubbed.
+    """
+    if isinstance(resource_type, str) and resource_type == "script":
+        return True
+    return urlparse(url).path.lower().endswith(".js")
+
+
 def _asset_stub_content_type(url: str) -> str:
     return "text/css; charset=utf-8" if urlparse(url).path.lower().endswith(".css") else "application/javascript"
 
@@ -146,8 +192,56 @@ class UtcmsHttpBrowserBridge:
         self.proxy_url = (proxy_url or get_worker_proxy_url() or "").strip() or None
         self.timeout = timeout
         self._lock = asyncio.Lock()
+        # curl_cffi/libcurl handles are not safe to use across threads.  A busy
+        # worker event loop spreads asyncio.to_thread() calls over the default
+        # multi-thread pool, so the same session gets driven from alternating
+        # threads and UTCMS tears the TLS connection down ("Connection closed
+        # abruptly").  Pin every curl operation for this bridge to ONE thread.
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="utcms-bridge"
+        )
         self._session: Any = None
         self._document_session: Any = None
+        # Static /assets traffic gets its OWN disposable session.  UTCMS's
+        # static surface answers scripts with connection teardowns, and when
+        # those fetches shared the reserved login session the teardown killed
+        # the very keep-alive the runtime XHR depend on: the next KalaSearch /
+        # Captcha / fillStates had to open a fresh handshake, which UTCMS's edge
+        # rejects when several arrive at once.  A pure-transport probe on the
+        # same egress at the same moment answered 200 for all three XHR on a
+        # session that had NOT been used for scripts, which is what isolated
+        # asset churn to this session.
+        self._asset_session: Any = None
+        self._asset_session_warmed = False
+        # While Chromium renders the form and the operator-visible fill runs, the
+        # reserved session sits idle long enough for UTCMS to drop the keep-alive.
+        # The next runtime XHR then needs a brand-new TLS handshake, and UTCMS's
+        # edge rejects new handshakes from a warm egress IP ("SSL_connect:
+        # Connection closed abruptly") — proven concurrently on 2026-08-28, when a
+        # second process on the same container could not even complete login while
+        # these XHR were failing.  A low-frequency keep-alive ping holds the
+        # established connection open so KalaSearch/Captcha/fillStates reuse it
+        # instead of gambling on a fresh handshake.
+        self._keepalive_task: asyncio.Task[None] | None = None
+        self._last_transport_at = 0.0
+        # Idleness has to be tracked PER SESSION.  A single global timestamp was
+        # bumped by asset and XHR traffic on the *other* two sessions, so while
+        # Chromium streamed scripts the keepalive kept concluding "the transport
+        # is busy" and skipped its ping -- and the reserved document session,
+        # which is the one whose connection the runtime XHR inherit, sat idle
+        # past UTCMS's ~30s tunnel timeout and died.  Measured 2026-08-28: the
+        # loop reported ``pings=0 consecutive_failures=2`` for exactly this
+        # reason, then Captcha/Generate needed a fresh (throttled) handshake.
+        self._last_document_transport_at = 0.0
+        # The issuance form's initialiser fires ~20 XHR within ~2.5s (fillBoxType,
+        # FillProvinces, fillgrid*, GetCostSettings, GetFleetDriverList, ...).
+        # Measured on 2026-08-28: in that burst UTCMS answers 408
+        # "سرور در حال حاضر قادر به پاسخگویی نمی باشد" / 500
+        # "ارتباط با سرویس‌ها برقرار نیست" / bare 400, while the very same
+        # requests answer 200 when issued alone on the same session.  The burst
+        # itself is the trigger, so runtime XHR are spaced out.
+        self._last_xhr_dispatch_at = 0.0
+        self._cookie_divergence_logged = False
         self._document_session_warmed = False
         self._prefetched_documents: dict[str, tuple[int, dict[str, str], bytes]] = {}
         self._prefetched_assets: dict[str, tuple[int, dict[str, str], bytes]] = {}
@@ -164,10 +258,20 @@ class UtcmsHttpBrowserBridge:
     async def install(self) -> None:
         await self.page.route("**/*", self._handle_route)
 
+    async def _call(self, func: Any, /, *args: Any, **kwargs: Any) -> Any:
+        """Run a curl_cffi session operation on this bridge's pinned thread."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor, functools.partial(func, *args, **kwargs)
+        )
+
     async def close(self) -> None:
-        sessions = [self._session, self._document_session]
+        await self._stop_keepalive()
+        sessions = [self._session, self._document_session, self._asset_session]
         self._session = None
         self._document_session = None
+        self._asset_session = None
+        self._asset_session_warmed = False
         self._document_session_warmed = False
         self._prefetched_documents.clear()
         self._prefetched_assets.clear()
@@ -179,9 +283,10 @@ class UtcmsHttpBrowserBridge:
                 continue
             closed.add(id(session))
             try:
-                await asyncio.to_thread(session.close)
+                await self._call(session.close)
             except Exception:
                 logger.debug("http_browser_bridge_close_failed", exc_info=True)
+        self._executor.shutdown(wait=False)
 
     async def seed_cookies(self, cookies: list[dict[str, Any]]) -> None:
         """Seed the curl session with cookies obtained by HTTP login."""
@@ -205,6 +310,65 @@ class UtcmsHttpBrowserBridge:
                         )
                     except Exception:
                         logger.debug("http_browser_bridge_seed_cookie_failed", exc_info=True)
+
+    async def fetch_json(self, url: str, params: dict[str, Any] | None = None, *, referer: str = "") -> Any | None:
+        """GET a UTCMS JSON endpoint on the reserved authenticated session.
+
+        The form's own jQuery AJAX is not a reliable way to reach these lookups:
+        jQuery UI only initialises its autocomplete when the optional scripts the
+        route handler stubs are present, and when the page-side call fails all the
+        caller sees is an empty ``error`` callback.  Run 4 (2026-08-28) lost the
+        cargo stage exactly that way -- three retryable statuses on
+        ``KalaSearch`` -- while the identical request answered 200 on a direct
+        authenticated session.  Callers that need a catalogue lookup (cargo,
+        cities) should ask here first and treat the page as a rendering surface
+        only.  Read-only by construction: GET, no redirects followed.
+        """
+        async with self._lock:
+            session = self._document_session or self._session
+            if session is None:
+                session = self._session = self._new_session()
+            headers = {
+                "accept": "application/json, text/javascript, */*; q=0.01",
+                "accept-encoding": "identity",
+                "x-requested-with": "XMLHttpRequest",
+            }
+            if referer:
+                headers["referer"] = referer
+            try:
+                response = await self._call(
+                    session.get,
+                    url,
+                    params=dict(params or {}),
+                    headers=headers,
+                    allow_redirects=False,
+                    timeout=self.timeout,
+                )
+            except Exception:
+                logger.warning("http_browser_bridge_fetch_json_failed url=%s", url[:120], exc_info=True)
+                return None
+            self._last_transport_at = time.monotonic()
+            if session is self._document_session:
+                self._last_document_transport_at = self._last_transport_at
+            if int(response.status_code) != 200:
+                logger.warning(
+                    "http_browser_bridge_fetch_json_status url=%s status=%s",
+                    url[:120],
+                    int(response.status_code),
+                )
+                return None
+            try:
+                parsed = json.loads(response.text)
+            except Exception:
+                logger.warning("http_browser_bridge_fetch_json_unparsable url=%s", url[:120])
+                return None
+            # UTCMS sometimes returns a JSON *string* containing the JSON payload.
+            if isinstance(parsed, str):
+                try:
+                    parsed = json.loads(parsed)
+                except Exception:
+                    return None
+            return parsed
 
     async def adopt_authenticated_session(self, session: Any, cookies: list[dict[str, Any]] | None = None) -> None:
         """Adopt the exact curl session that completed HTTP login.
@@ -240,7 +404,7 @@ class UtcmsHttpBrowserBridge:
             if old is None or old is session or old is self._session:
                 continue
             try:
-                await asyncio.to_thread(old.close)
+                await self._call(old.close)
             except Exception:
                 logger.debug("http_browser_bridge_adopt_close_failed", exc_info=True)
 
@@ -251,8 +415,22 @@ class UtcmsHttpBrowserBridge:
         session = cc_requests.Session(
             impersonate="chrome120",
             proxies=proxies,
-            verify=False,
+            # This session carries the UTCMS username/password and waybill PII.
+            # With the Clean IP Pool active the egress is a third-party proxy we
+            # do not control, so verify=False would let its operator terminate
+            # TLS and read the login in clear text. Measured 2026-08-28: a
+            # cert-verified chrome120 session through a free Iranian proxy
+            # returns the real login page, so verification is not what was
+            # breaking the handshake — the per-IP WAF throttle was.
+            verify=True,
             timeout=self.timeout,
+            # See the same flag in ``utcms_http_login._build_session``: curl_cffi
+            # keeps the libcurl handle -- and therefore the connection cache --
+            # in thread-local storage by default.  Every session here is driven
+            # from ``self._executor``, but ``close()`` and the adopted login
+            # session are not always touched from that same thread, and a
+            # per-thread handle silently means a per-thread TLS connection.
+            use_thread_local_curl=False,
         )
         session.headers.update(
             {
@@ -290,9 +468,133 @@ class UtcmsHttpBrowserBridge:
         old, self._session = self._session, None
         if old is not None:
             try:
-                await asyncio.to_thread(old.close)
+                await self._call(old.close)
             except Exception:
                 logger.debug("http_browser_bridge_reset_close_failed", exc_info=True)
+
+    async def _ensure_asset_session(self) -> Any:
+        """Return the disposable session used for static /assets fetches.
+
+        It is cookie-seeded and warmed through the authenticated landing page so
+        UTCMS treats it as a logged-in client, but it is deliberately NOT the
+        reserved login session: script responses that close the connection may
+        only ever cost this session its keep-alive, never the one carrying the
+        runtime XHR.
+        """
+        if self._asset_session is None:
+            self._asset_session = self._new_session()
+            self._asset_session_warmed = False
+        if not self._asset_session_warmed:
+            try:
+                await self._call(
+                    self._asset_session.request,
+                    "GET",
+                    _AUTHENTICATED_LANDING_URL,
+                    headers={
+                        "Referer": "https://barname.utcms.ir/Barname/Account/OldLogin",
+                        "accept-encoding": "identity",
+                    },
+                    allow_redirects=False,
+                    timeout=self.timeout,
+                )
+            except Exception:
+                # A failed warmup is not fatal: static files usually serve
+                # without it, and the caller already tolerates asset misses.
+                logger.debug("http_browser_bridge_asset_warm_failed", exc_info=True)
+            self._asset_session_warmed = True
+        return self._asset_session
+
+    def _start_keepalive(self) -> None:
+        """Hold the reserved session's connection open for the browser's XHR."""
+        if self._keepalive_task is not None and not self._keepalive_task.done():
+            return
+        self._last_transport_at = time.monotonic()
+        self._last_document_transport_at = self._last_transport_at
+        self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+
+    async def _stop_keepalive(self) -> None:
+        task, self._keepalive_task = self._keepalive_task, None
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    async def _keepalive_loop(self) -> None:
+        # If the connection is already gone, every ping is a fresh handshake, and
+        # a stream of rejected handshakes is what keeps UTCMS's edge hostile.
+        # Give up quickly rather than adding pressure.
+        consecutive_failures = 0
+        pings = 0
+        while consecutive_failures < 2:
+            await asyncio.sleep(_KEEPALIVE_INTERVAL_SECONDS)
+            # Real traffic is itself a keep-alive; only ping into a quiet gap, and
+            # never contend for the transport lock with a request in flight.
+            # This must look at the DOCUMENT session's own last use: traffic on
+            # the asset or XHR sessions says nothing about whether the reserved
+            # connection is still warm, and treating it as proof is what let the
+            # connection die under a stream of script fetches.
+            if time.monotonic() - self._last_document_transport_at < _KEEPALIVE_INTERVAL_SECONDS:
+                continue
+            if self._lock.locked():
+                continue
+            async with self._lock:
+                # Ping the reserved session itself: it owns the connection the
+                # runtime XHR inherit at the swap, and it must not go idle even
+                # before the swap happens (Chromium's navigate+render gap alone
+                # exceeds UTCMS's ~30s tunnel idle timeout).
+                session = self._document_session
+                if session is None:
+                    continue
+                try:
+                    await self._call(
+                        session.request,
+                        "GET",
+                        _AUTHENTICATED_LANDING_URL,
+                        headers={
+                            "Referer": _AUTHENTICATED_LANDING_URL,
+                            "accept-encoding": "identity",
+                        },
+                        allow_redirects=False,
+                        timeout=self.timeout,
+                    )
+                    self._last_transport_at = time.monotonic()
+                    self._last_document_transport_at = self._last_transport_at
+                    consecutive_failures = 0
+                    pings += 1
+                except Exception:
+                    consecutive_failures += 1
+                    logger.debug("http_browser_bridge_keepalive_failed", exc_info=True)
+        logger.info(
+            "http_browser_bridge_keepalive_stopped pings=%d consecutive_failures=%d",
+            pings,
+            consecutive_failures,
+        )
+
+    async def _rewarm_preserved_session(self) -> None:
+        """Re-establish a live keep-alive on the reserved authenticated session.
+
+        Proven live on 2026-08-28: the exact login session performs every
+        runtime XHR (GetCostSettings/fillStates/KalaSearch) with HTTP 200 when
+        its connection is warm — a pure-transport probe on the same egress at
+        the same moment returned 200 for all three even after a 12s idle.  The
+        browser path fails instead with ``SSL_connect: Connection closed
+        abruptly`` because curl reuses a pooled connection that UTCMS silently
+        drops during the browser's form-render/fill gap, and the stale reuse is
+        surfaced as a fresh-handshake reset.  Revisiting the Notification
+        landing forces a fresh, accepted TLS connection before the XHR is
+        retried, reproducing the working sequence.
+        """
+        session = self._session
+        if session is None or session is not self._document_session:
+            return
+        self._document_session_warmed = False
+        try:
+            await self._warm_authenticated_document_session(session)
+        except Exception:
+            logger.debug("http_browser_bridge_preserved_rewarm_failed", exc_info=True)
 
     async def _warm_authenticated_document_session(self, session: Any) -> None:
         """Reproduce UTCMS's required post-login landing transition.
@@ -304,7 +606,7 @@ class UtcmsHttpBrowserBridge:
         """
         if self._document_session_warmed:
             return
-        response = await asyncio.to_thread(
+        response = await self._call(
             session.request,
             "GET",
             _AUTHENTICATED_LANDING_URL,
@@ -323,7 +625,7 @@ class UtcmsHttpBrowserBridge:
         """Fetch the form before Chromium starts concurrent landing traffic."""
         await self._warm_authenticated_document_session(session)
         form_url = "https://barname.utcms.ir/barname/Document/HagigiHogugi"
-        response = await asyncio.to_thread(
+        response = await self._call(
             session.request,
             "GET",
             form_url,
@@ -366,15 +668,27 @@ class UtcmsHttpBrowserBridge:
             response_headers,
             body,
         )
-        await self._prefetch_document_scripts(session, form_url, body)
+        await self._prefetch_document_scripts(form_url, body)
+        # The connection is alive right now.  Chromium's navigate+render gap on
+        # its own exceeds UTCMS's ~30s tunnel idle timeout, so start holding the
+        # connection open here rather than waiting for the XHR swap — by then it
+        # would already be dead and only a (throttled) handshake could recover.
+        self._start_keepalive()
 
     @staticmethod
     def _request_cache_key(url: str) -> str:
         parsed = urlparse(url)
         return f"{parsed.path.lower()}?{parsed.query}" if parsed.query else parsed.path.lower()
 
-    async def _prefetch_document_scripts(self, session: Any, form_url: str, body: bytes) -> None:
+    async def _prefetch_document_scripts(self, form_url: str, body: bytes) -> None:
         """Warm the issuance form's scripts, critical files first.
+
+        Fetches always go on the disposable asset session (see
+        ``_ensure_asset_session``), never on a caller-supplied one -- the whole
+        point is to keep script traffic off the reserved login session. The
+        ``session`` parameter this used to take was silently ignored after that
+        change, which made the call site read as if the login session were still
+        being used; it is gone rather than left as a lie.
 
         UTCMS's static surface is slow and frequently resets connections, and
         every synchronous ``<script src>`` that does not arrive blocks the HTML
@@ -397,13 +711,23 @@ class UtcmsHttpBrowserBridge:
             if script_url not in candidates:
                 candidates.append(script_url)
         # Critical files first: if the connection dies mid-warmup, the form must
-        # still have everything it needs to initialise.
+        # still have everything it needs to initialise.  The rest follow in HTML
+        # order — they are no longer optional.  Treating them as cosmetic and
+        # stubbing them is what left FormDocumenDetailsRegister and
+        # FormValidation.Framework.Bootstrap undefined, which aborted the
+        # template's document-ready handler and with it every runtime behaviour
+        # the automation was reimplementing in Python.
         ordered = [url for url in candidates if _is_critical_form_script(url)]
         ordered += [url for url in candidates if not _is_critical_form_script(url)]
 
         prefetched = 0
         cached = 0
         failures = 0
+        # The asset session is created lazily, only when a script actually has to
+        # be fetched.  Creating it up-front cost a pointless extra TLS handshake
+        # on every run whose cache was already complete, and spare handshakes are
+        # exactly what UTCMS's edge punishes.
+        asset_session: Any = None
         for script_url in ordered:
             parsed = urlparse(script_url)
             cache_key = self._request_cache_key(script_url)
@@ -415,28 +739,49 @@ class UtcmsHttpBrowserBridge:
             # optional vendor bundles; the route handler stubs whatever is left.
             if failures >= 3 and not critical:
                 continue
-            try:
-                response = await asyncio.to_thread(
-                    session.request,
-                    "GET",
-                    script_url,
-                    headers={
-                        "Referer": form_url,
-                        "Sec-Fetch-Dest": "script",
-                        "Sec-Fetch-Mode": "no-cors",
-                        "Sec-Fetch-Site": "same-origin",
-                        "accept-encoding": "identity",
-                    },
-                    allow_redirects=False,
-                    timeout=self.timeout,
-                )
-            except Exception:
+            # Critical scripts get a couple of retries with a short backoff:
+            # a single WAF handshake reset must not leave the form missing its
+            # validators.  A brief pace between fetches keeps the burst of new
+            # requests off the reserved connection gentle enough to avoid the
+            # throttle in the first place.
+            response = None
+            fetch_error: Exception | None = None
+            attempts = 3 if critical else 1
+            for attempt in range(attempts):
+                try:
+                    if asset_session is None:
+                        # Scripts never ride the reserved login session: UTCMS's
+                        # static surface closes connections, and that teardown
+                        # would strand the runtime XHR on a dead keep-alive.
+                        asset_session = await self._ensure_asset_session()
+                    response = await self._call(
+                        asset_session.request,
+                        "GET",
+                        script_url,
+                        headers={
+                            "Referer": form_url,
+                            "Sec-Fetch-Dest": "script",
+                            "Sec-Fetch-Mode": "no-cors",
+                            "Sec-Fetch-Site": "same-origin",
+                            "accept-encoding": "identity",
+                        },
+                        allow_redirects=False,
+                        timeout=self.timeout,
+                    )
+                    fetch_error = None
+                    break
+                except Exception as exc:  # noqa: BLE001 - retried below
+                    fetch_error = exc
+                    response = None
+                    if attempt + 1 < attempts:
+                        await asyncio.sleep(0.6 * (attempt + 1))
+            if fetch_error is not None or response is None:
                 failures += 1
                 logger.warning(
                     "http_browser_bridge_script_prefetch_error path=%s critical=%s",
                     parsed.path,
                     critical,
-                    exc_info=True,
+                    exc_info=fetch_error,
                 )
                 continue
             body_bytes = bytes(response.content or b"")
@@ -459,6 +804,9 @@ class UtcmsHttpBrowserBridge:
                 _write_asset_cache, cache_key, int(response.status_code), headers, body_bytes
             )
             prefetched += 1
+            # Gentle pace so the reserved connection serves scripts one at a
+            # time instead of triggering a burst of parallel-looking handshakes.
+            await asyncio.sleep(0.15)
         logger.info(
             "http_browser_bridge_form_scripts_warmed fetched=%d already_cached=%d failed=%d candidates=%d",
             prefetched,
@@ -499,8 +847,13 @@ class UtcmsHttpBrowserBridge:
         # visually complete but non-functional form.  Do not bridge landing
         # page assets: the flag is enabled only after the issuance document
         # has been consumed, so Notification remains native.
-        is_asset = request.resource_type in _ASSET_RESOURCE_TYPES and self._form_assets_bridge_enabled
-        if request.resource_type in _DISCARDED_RESOURCE_TYPES and self._form_assets_bridge_enabled:
+        # Static resources are bridged for the WHOLE authenticated session, not
+        # just the issuance page.  Gating this on the issuance document meant the
+        # landing page's assets were fetched by Chromium itself, and that burst
+        # of refused handshakes is what made the egress IP hostile before the
+        # form was even open (see _ASSET_RESOURCE_TYPES).
+        is_asset = request.resource_type in _ASSET_RESOURCE_TYPES and self._authenticated_document_bridge
+        if request.resource_type in _DISCARDED_RESOURCE_TYPES and self._authenticated_document_bridge:
             # Fonts never affect issuance correctness, and each stalled request
             # costs seconds on an already slow static surface.
             try:
@@ -565,6 +918,39 @@ class UtcmsHttpBrowserBridge:
                 except Exception:
                     pass
 
+    def _log_cookie_divergence(self, browser_cookie: str) -> None:
+        """Report, once, which cookie NAMES the page and the session disagree on.
+
+        Values are never logged -- only the names, and only the first time, so a
+        token mismatch is visible without putting a session token in a log file.
+        """
+        if self._cookie_divergence_logged:
+            return
+        session = self._document_session or self._session
+        jar = getattr(session, "cookies", None)
+        if jar is None:
+            return
+        differing: list[str] = []
+        missing: list[str] = []
+        for chunk in browser_cookie.split(";"):
+            name, _, value = chunk.strip().partition("=")
+            if not name:
+                continue
+            try:
+                mine = jar.get(name)
+            except Exception:
+                mine = None
+            if mine is None:
+                missing.append(name)
+            elif str(mine) != value:
+                differing.append(name)
+        self._cookie_divergence_logged = True
+        logger.info(
+            "http_browser_bridge_cookie_header_dropped differing=%s absent_from_jar=%s",
+            differing,
+            missing,
+        )
+
     async def _fulfill_utcms(
         self,
         route: Any,
@@ -575,6 +961,25 @@ class UtcmsHttpBrowserBridge:
     ) -> None:
         headers = dict(await request.all_headers())
         headers = {k: v for k, v in headers.items() if k.lower() not in _REQUEST_DROP_HEADERS}
+        browser_cookie = ""
+        if not asset and not document:
+            # Document navigation keeps the page's Cookie header: dropping it once
+            # made warm authenticated navigation look cold and UTCMS answered with
+            # its 408 shell (see test_utcms_bridge_forwards_browser_auth_cookie).
+            # Runtime XHR are the opposite case.  The bridge session IS the
+            # authentication -- its jar comes straight from the HTTP login, which
+            # returns TWO ApplicationToken cookies, and Playwright can only keep
+            # one per (name, domain, path).  Whatever the page echoes back can
+            # therefore override the jar with the other token on exactly the
+            # requests whose backend validates it.  Measured 2026-08-28:
+            # fillBoxType and FillProvinces answered 408 "سرور ... قادر به
+            # پاسخگویی نمی باشد" and ShowNotification 500 "ارتباط با سرویس‌ها
+            # برقرار نیست" from the page, while a bare probe on the same session
+            # answered 200.
+            for key in [k for k in headers if k.lower() == "cookie"]:
+                browser_cookie = headers.pop(key)
+        if browser_cookie:
+            self._log_cookie_divergence(browser_cookie)
         # curl_cffi transparently decompresses responses. Asking for identity
         # avoids forwarding a stale Content-Encoding header to Chromium.
         headers["accept-encoding"] = "identity"
@@ -596,6 +1001,26 @@ class UtcmsHttpBrowserBridge:
                 status, cached_headers, cached_body = cached_asset
                 await route.fulfill(status=status, headers=cached_headers, body=cached_body)
                 return
+            # Stylesheets, fonts and images are answered from the stub: the
+            # issuance page pulls ~40 of them, routing that flood through curl
+            # forces dozens of fresh TLS handshakes that UTCMS's static surface
+            # resets, and none of them can change form behaviour.
+            #
+            # Scripts are NOT stubbed any more.  Empty-bodying the "optional"
+            # ones is what broke the form: the template's ready handler calls
+            # FormDocumenDetailsRegister and constructs
+            # FormValidation.Framework.Bootstrap, both defined outside the
+            # hand-listed critical files, so the handler threw and every
+            # runtime behaviour that depends on it silently vanished.  A script
+            # cache miss therefore goes to the network on the disposable asset
+            # session, and only a real fetch failure leaves it empty.
+            if not _is_script_asset(request.url, getattr(request, "resource_type", None)):
+                await route.fulfill(
+                    status=200,
+                    headers={"content-type": _asset_stub_content_type(request.url)},
+                    body=b"",
+                )
+                return
 
         async with self._lock:
             response = None
@@ -613,9 +1038,17 @@ class UtcmsHttpBrowserBridge:
                     if self._document_session is not None and self._session is not self._document_session:
                         stale_xhr_session, self._session = self._session, self._document_session
                         self._preserve_authenticated_session = True
+                        # From here the browser owns the pace, and its gaps are
+                        # long enough to lose the connection.  Hold it open.
+                        self._start_keepalive()
+                        logger.info(
+                            "http_browser_bridge_xhr_promoted_to_auth_session doc_session=%s xhr_session=%s",
+                            id(self._document_session),
+                            id(self._session),
+                        )
                         if stale_xhr_session is not None:
                             try:
-                                await asyncio.to_thread(stale_xhr_session.close)
+                                await self._call(stale_xhr_session.close)
                             except Exception:
                                 logger.debug("http_browser_bridge_xhr_session_close_failed", exc_info=True)
                     self._form_assets_bridge_enabled = True
@@ -630,21 +1063,32 @@ class UtcmsHttpBrowserBridge:
                     session = self._document_session
                     await self._warm_authenticated_document_session(session)
                 elif asset:
-                    # JavaScript required by the issuance form must use the
-                    # same authenticated transport that fetched the HTML.
-                    # A fresh curl session gets the same TLS reset as
-                    # Chromium and cannot reproduce UTCMS server-side state.
-                    if self._document_session is None:
-                        self._document_session = self._new_session()
-                        self._document_session_warmed = False
-                    session = self._document_session
-                    await self._warm_authenticated_document_session(session)
+                    # Static scripts run on the disposable asset session so a
+                    # connection teardown from UTCMS's static surface cannot
+                    # invalidate the keep-alive the runtime XHR ride on.
+                    session = await self._ensure_asset_session()
                 else:
                     if self._session is None:
                         self._session = self._new_session()
                     session = self._session
+                    # Pace the form's init burst: back-to-back XHR are what UTCMS
+                    # answers with 408/500/400 instead of data.
+                    gap = time.monotonic() - self._last_xhr_dispatch_at
+                    if gap < _XHR_MIN_SPACING_SECONDS:
+                        await asyncio.sleep(_XHR_MIN_SPACING_SECONDS - gap)
+                    self._last_xhr_dispatch_at = time.monotonic()
+                    logger.info(
+                        "http_browser_bridge_xhr_dispatch url=%s method=%s req_bytes=%s ct=%s session=%s is_auth=%s preserve=%s",
+                        request.url[:80],
+                        request.method,
+                        len(body or b""),
+                        headers.get("content-type", ""),
+                        id(session),
+                        session is self._document_session,
+                        self._preserve_authenticated_session,
+                    )
                 try:
-                    response = await asyncio.to_thread(
+                    response = await self._call(
                         session.request,
                         request.method,
                         request.url,
@@ -653,24 +1097,58 @@ class UtcmsHttpBrowserBridge:
                         allow_redirects=False,
                         timeout=self.timeout,
                     )
+                    self._last_transport_at = time.monotonic()
+                    # Only the reserved document session's own traffic proves the
+                    # connection the runtime XHR will inherit is still warm.
+                    if session is self._document_session:
+                        self._last_document_transport_at = self._last_transport_at
                     if not is_safe_method or response.status_code not in (408, 429, 500, 502, 503, 504):
                         break
+                    # A retryable status on a runtime XHR is invisible from the
+                    # page side -- jQuery only sees its ``error`` callback, so the
+                    # form reports "not found" and the real cause never reaches a
+                    # log.  Run 4 (2026-08-28) burned all three attempts on
+                    # KalaSearch this way while the very same request answered 200
+                    # on a direct authenticated session, so the status itself is
+                    # the diagnostic that matters here.
+                    logger.warning(
+                        "http_browser_bridge_xhr_retryable_status url=%s status=%s attempt=%s/%s",
+                        request.url[:120],
+                        int(response.status_code),
+                        attempt,
+                        max_attempts,
+                    )
                     # A session that completed HTTP login carries server-side
                     # state not reproducible from cookies alone. Keep it for
                     # transient retries; closing it here turns one TLS hiccup
                     # into a guaranteed unauthenticated/408 follow-up.
-                    if not document and not asset and not self._preserve_authenticated_session:
-                        await self._reset_session()
+                    if not document and not asset:
+                        if self._preserve_authenticated_session:
+                            await self._rewarm_preserved_session()
+                        else:
+                            await self._reset_session()
                     if attempt < max_attempts:
                         await asyncio.sleep(float(attempt))
                 except Exception as exc:
                     last_error = exc
-                    if not document and not asset and not self._preserve_authenticated_session:
-                        await self._reset_session()
                     if not is_safe_method:
                         break
+                    # Space the retry BEFORE touching the transport again.  Each
+                    # recovery attempt costs a fresh TLS handshake, and UTCMS's
+                    # edge rejects handshakes that arrive back-to-back — retrying
+                    # instantly turned one dropped keep-alive into a burst that
+                    # failed every remaining XHR of the form.
                     if attempt < max_attempts:
-                        await asyncio.sleep(float(attempt))
+                        await asyncio.sleep(1.5 * attempt)
+                    if not document and not asset:
+                        # The reserved auth session works for every runtime XHR
+                        # when its connection is live (proven pure-transport);
+                        # a reset here is a dropped keep-alive, so re-establish
+                        # the connection instead of discarding the session.
+                        if self._preserve_authenticated_session:
+                            await self._rewarm_preserved_session()
+                        else:
+                            await self._reset_session()
 
             if response is None:
                 raise RuntimeError(f"UTCMS bridge transport failed: {last_error}")
@@ -678,6 +1156,37 @@ class UtcmsHttpBrowserBridge:
             response_headers = {
                 str(k): str(v) for k, v in response.headers.items() if str(k).lower() not in _RESPONSE_DROP_HEADERS
             }
+            if not asset and int(response.status_code) >= 400:
+                # Classified, never echoed: an error body can carry an
+                # antiforgery token or a re-login form, so only its shape is
+                # logged -- enough to tell "UTCMS rejected this" from "our
+                # session lost its authentication".
+                body_text = ""
+                try:
+                    body_text = (response.text or "")[:4000]
+                except Exception:
+                    body_text = ""
+                # A short text/plain error body is a server-generated message
+                # (Kestrel/ASP.NET), not user data, and it is the only thing that
+                # distinguishes "UTCMS rejected the request shape" from "the
+                # request never arrived intact".  HTML bodies stay unlogged: those
+                # are the ones that can carry an antiforgery token or a form.
+                content_type = response_headers.get("content-type", "")
+                detail = ""
+                if content_type.startswith("text/plain") and len(body_text) <= 300 and "<" not in body_text:
+                    detail = body_text.replace("\n", " | ")
+                logger.warning(
+                    "http_browser_bridge_response_error url=%s method=%s req_bytes=%s status=%s "
+                    "type=%s bytes=%s looks_like_login=%s detail=%s",
+                    request.url[:120],
+                    request.method,
+                    len(body or b""),
+                    int(response.status_code),
+                    content_type,
+                    len(response.content or b""),
+                    any(marker in body_text for marker in ("Account/Login", 'name="Username"', "ورود به سامانه")),
+                    detail,
+                )
             if asset:
                 # Every asset this run manages to download makes the next run
                 # faster and less dependent on UTCMS's static surface.
@@ -708,4 +1217,19 @@ async def ensure_utcms_http_browser_bridge(page: Any) -> UtcmsHttpBrowserBridge 
     return bridge
 
 
-__all__ = ["UtcmsHttpBrowserBridge", "ensure_utcms_http_browser_bridge"]
+def get_utcms_http_browser_bridge(page: Any) -> UtcmsHttpBrowserBridge | None:
+    """Return the bridge already installed on a page, without creating one.
+
+    Callers inside the form (cargo and city lookups) need the authenticated
+    transport but must never *install* a bridge mid-run: a bridge created after
+    the form is open has no adopted login session and would route the page's
+    traffic through an unauthenticated curl session.
+    """
+    return getattr(page, "_barpro_http_browser_bridge", None)
+
+
+__all__ = [
+    "UtcmsHttpBrowserBridge",
+    "ensure_utcms_http_browser_bridge",
+    "get_utcms_http_browser_bridge",
+]

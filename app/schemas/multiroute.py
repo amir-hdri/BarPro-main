@@ -24,14 +24,14 @@ class DistanceResponse(BaseModel):
 
 class RouteTemplateCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    origin_province: str | None = None
-    origin_city: str | None = None
-    origin_address: str | None = None
+    origin_province: str = Field(..., min_length=2)
+    origin_city: str = Field(..., min_length=2)
+    origin_address: str = Field(..., min_length=2)
     origin_lat: float | None = Field(default=None, ge=-90, le=90)
     origin_lng: float | None = Field(default=None, ge=-180, le=180)
-    dest_province: str | None = None
-    dest_city: str | None = None
-    dest_address: str | None = None
+    dest_province: str = Field(..., min_length=2)
+    dest_city: str = Field(..., min_length=2)
+    dest_address: str = Field(..., min_length=2)
     dest_lat: float | None = Field(default=None, ge=-90, le=90)
     dest_lng: float | None = Field(default=None, ge=-180, le=180)
     is_favorite: bool = True
@@ -39,14 +39,14 @@ class RouteTemplateCreate(BaseModel):
 
 class RouteTemplateUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    origin_province: str | None = None
-    origin_city: str | None = None
-    origin_address: str | None = None
+    origin_province: str | None = Field(default=None, min_length=2)
+    origin_city: str | None = Field(default=None, min_length=2)
+    origin_address: str | None = Field(default=None, min_length=2)
     origin_lat: float | None = Field(default=None, ge=-90, le=90)
     origin_lng: float | None = Field(default=None, ge=-180, le=180)
-    dest_province: str | None = None
-    dest_city: str | None = None
-    dest_address: str | None = None
+    dest_province: str | None = Field(default=None, min_length=2)
+    dest_city: str | None = Field(default=None, min_length=2)
+    dest_address: str | None = Field(default=None, min_length=2)
     dest_lat: float | None = Field(default=None, ge=-90, le=90)
     dest_lng: float | None = Field(default=None, ge=-180, le=180)
     is_favorite: bool | None = None
@@ -62,6 +62,13 @@ class BatchCreate(BaseModel):
     )
     target_count: int = Field(default=15, ge=1, le=1000)
     repeat_mode: Literal["round_robin", "random", "sequential"] = "round_robin"
+    route_chain: bool = Field(
+        default=False,
+        description=(
+            "مسیرها را به‌صورت زنجیره‌ای از بارنامه‌های مستقل اجرا می‌کند؛ "
+            "بارنامه بعدی پس از موفقیت و زمان تخمینی قبلی آزاد می‌شود"
+        ),
+    )
     interval_minutes: int = Field(default=40, ge=0, le=1440)
     # 0-9: must match WaybillJobUpdateRequest and CELERY_MAX_PRIORITY —
     # values above 9 were silently clipped by the broker, creating drift.
@@ -76,3 +83,6 @@ class BatchProgressResponse(BaseModel):
     today: int
     progress_percent: int
     status: str
+    route_chain: bool = False
+    next_sequence: int | None = None
+    blocked_by_sequence: int | None = None

@@ -32,7 +32,7 @@ alembic current
 
 ---
 **آخرین بروزرسانی:** ۲۴ اوت ۲۰۲۶
-**وضعیت فعلی دیتابیس:** head = `038_add_multiroute_batch_distance`
+**وضعیت فعلی دیتابیس:** head = `039_add_route_chain_scheduling`
 
 > ⚠️ اجرای migration فقط از طریق `bash manage.sh migrate` یا startup خودکار
 > (`run_migrations()` با advisory lock) انجام شود؛ هرگز Alembic خام را هم‌زمان

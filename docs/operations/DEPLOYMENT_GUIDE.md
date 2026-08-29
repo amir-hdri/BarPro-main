@@ -16,7 +16,7 @@ short operations checklist and must not diverge from that guide.
 - Keras CAPTCHA inference is lazy-loaded in-process. KERAS_PYTHON_PATH does
   not select a subprocess in the current solver.
 - Alembic head expected by this checkout is
-  038_add_multiroute_batch_distance.
+  039_add_route_chain_scheduling.
 
 ## Start or Update
 

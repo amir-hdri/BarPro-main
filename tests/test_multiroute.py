@@ -5,7 +5,12 @@ import pytest
 from app.models.waybill_batch import WaybillBatch
 from app.models.waybill_route_template import WaybillRouteTemplate
 from app.models_multitenant import WaybillJob
-from app.services.batch_service import build_job_payload, select_route_index
+from app.services.batch_service import (
+    build_job_payload,
+    build_route_chain_schedule,
+    estimate_route_duration_minutes,
+    select_route_index,
+)
 
 
 def _route(rid: int) -> WaybillRouteTemplate:
@@ -35,6 +40,34 @@ def test_sequential_sticks_to_last_route():
     assert select_route_index(1, 3, "sequential") == 1
     assert select_route_index(2, 3, "sequential") == 2
     assert select_route_index(5, 3, "sequential") == 2
+
+
+def test_route_duration_prefers_persisted_duration_then_distance_estimate():
+    route = _complete_route()
+    route.duration_min = 90
+    assert estimate_route_duration_minutes(route) == 90
+
+    route.duration_min = None
+    # 100 km uses the deterministic intercity estimate plus its loading buffer.
+    assert estimate_route_duration_minutes(route) > 100
+
+    route.distance_km = None
+    assert estimate_route_duration_minutes(route) == 0
+
+
+def test_route_chain_schedule_is_cumulative_and_ordered():
+    from datetime import UTC, datetime
+
+    first = _complete_route(1)
+    first.duration_min = 60
+    second = _complete_route(2)
+    second.duration_min = 30
+    start = datetime(2026, 1, 1, tzinfo=UTC).replace(tzinfo=None)
+
+    release_times = build_route_chain_schedule([first, second], interval_minutes=15, start_at=start)
+
+    assert release_times[0] == start
+    assert (release_times[1] - release_times[0]).total_seconds() == 75 * 60
 
 
 def test_random_always_in_range():
@@ -133,6 +166,23 @@ def test_route_location_validation_detects_missing():
 
     complete = _complete_route()
     assert _validate_route_location(complete) == []
+
+
+def test_route_template_schema_requires_both_addresses():
+    from pydantic import ValidationError
+
+    from app.schemas.multiroute import RouteTemplateCreate
+
+    with pytest.raises(ValidationError):
+        RouteTemplateCreate(
+            name="incomplete",
+            origin_province="خوزستان",
+            origin_city="ماهشهر",
+            origin_address="",
+            dest_province="خوزستان",
+            dest_city="ماهشهر",
+            dest_address="مقصد",
+        )
 
 
 def test_complete_payload_passes_worker_validation():

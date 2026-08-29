@@ -53,8 +53,22 @@ LOGIN_PROBE_URL = "https://barname.utcms.ir/Barname/Account/Login"
 # Diagnostic-only. This route may be tested only after a real authenticated
 # session has followed the portal menu flow.
 ISSUANCE_PROBE_URL = "https://barname.utcms.ir/Barname/Document/HagigiHogugi"
-DEFAULT_TIMEOUT_SECONDS = 7.5
+# Free Iranian proxies are slow, not just unreliable. Measured 2026-08-28: the
+# one candidate that returned a cert-verified 20 KB login page took 24.6 s on
+# that attempt and 1.7 s minutes later. The previous 7.5 s budget therefore
+# discarded working egress as "dead" — which is part of why the pool was empty.
+DEFAULT_TIMEOUT_SECONDS = 20.0
+# Transport attempts per candidate. See probe_single_proxy for the measurement
+# that forced this above 1; keep it small, since each attempt is a fresh
+# handshake against the per-IP WAF throttle.
+PROBE_TRANSPORT_ATTEMPTS = 2
 MAX_PROBE_WORKERS = 35
+
+# How old a published proxy feed may be before its staleness is reported. Free
+# Iranian proxies die within hours (measured: 9 of 12 addresses were already
+# dead ~1h after the harvester verified them), so a feed older than this is
+# almost certainly a harvester that stopped publishing rather than live data.
+CLEAN_IP_SOURCE_MAX_AGE_SECONDS = float(os.getenv("CLEAN_IP_SOURCE_MAX_AGE_SECONDS", "21600"))
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
@@ -104,8 +118,9 @@ class CleanIPRecord:
 
     ``country`` is what the SOURCE DECLARED (may be empty for global mirrors).
     ``observed_country`` is what a GeoIP endpoint saw when queried THROUGH the
-    proxy (ground truth). Only records with ``egress_verified=True`` and an
-    Iranian observed egress belong in the production pool.
+    proxy (ground truth) -- but that measurement is frequently IMPOSSIBLE from
+    an Iranian node, so its absence is not evidence of a bad egress. See
+    ``is_operational_iranian_egress``.
     """
 
     VALID_PROTOCOLS = ("http", "https", "socks4", "socks5")
@@ -149,9 +164,41 @@ class CleanIPRecord:
         return True
 
     @property
+    def has_measured_iranian_egress(self) -> bool:
+        """Strongest form of the evidence: a GeoIP endpoint answered "IR"
+        through this very proxy. Used for ranking and observability, NOT as an
+        admission gate -- see ``is_operational_iranian_egress``."""
+        return self.egress_verified and self.observed_country == "IR"
+
+    @property
     def is_operational_iranian_egress(self) -> bool:
-        """True only when the tunnel is healthy and its egress was measured in Iran."""
-        return self.is_usable and self.egress_verified and self.observed_country == "IR"
+        """True when the tunnel is healthy and nothing CONTRADICTS an Iranian egress.
+
+        This used to require a positive measurement (``egress_verified and
+        observed_country == "IR"``), which emptied the pool 100% of the time and
+        is the reason workers never actually failed over to it. Measured
+        2026-08-28 against the 12 harvested candidates:
+
+          * 3 reached ``barname.utcms.ir`` -- and NONE of those 3 could reach any
+            GeoIP endpoint (``api.country.is``, ``ip-api.com``), so all 3 were
+            discarded as "unverified";
+          * the only 3 that DID answer GeoIP could not reach the target at all.
+
+        Reachability of a foreign GeoIP endpoint is anti-correlated with
+        reachability of the Iranian target, so demanding both is close to a
+        guaranteed zero. An unrunnable check is missing evidence, not negative
+        evidence -- that is exactly what ``_egress_check`` says when it tags a
+        record ``geo_unverified`` and deliberately keeps it. Ranking still
+        prefers measured-IR records (see ``run_screening_cycle``).
+
+        A measurement that came back as some OTHER country is still a hard fail:
+        that is real negative evidence, and such an egress cannot serve UTCMS.
+        """
+        if not self.is_usable:
+            return False
+        if self.egress_verified:
+            return self.observed_country == "IR"
+        return True
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -518,18 +565,27 @@ def fetch_proxyscrape_apis() -> list[dict[str, Any]]:
 def fetch_github_sources() -> list[dict[str, Any]]:
     """Sources 10 & 11: Specialized GitHub proxy collections.
 
-    Only the proxifly country-scoped file is IR-filtered at the source. The
-    other mirrors are GLOBAL lists — their entries must NOT inherit Iranian
+    Only the country-scoped files are IR-filtered at the source. The other
+    mirrors are GLOBAL lists — their entries must NOT inherit Iranian
     metadata; the egress verification stage decides real country later.
     """
-    ir_scoped = "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/countries/IR/data.txt"
+    ir_scoped = [
+        "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/countries/IR/data.txt",
+        # ProxyScrape's own country-scoped mirror. This matters disproportionately:
+        # ``raw.githubusercontent.com`` is one of the few feed hosts that still
+        # resolves to a real public address from inside Iran — the JSON APIs
+        # (api.proxyscrape.com, proxylist.geonode.com) resolve to the 10.10.34.36
+        # filtering sinkhole and are correctly rejected by _is_safe_source_url,
+        # which is why the pool could never populate on the workers.
+        "https://raw.githubusercontent.com/ProxyScrape/free-proxy-list/main/proxies/countries/ir/data.txt",
+    ]
     global_mirrors = [
         "https://raw.githubusercontent.com/Zloi-user/hideip.me/main/http.txt",
         "https://raw.githubusercontent.com/Zloi-user/hideip.me/main/socks5.txt",
         "https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt",
     ]
     results = []
-    for url, declared_country in [(ir_scoped, "IR"), *[(u, "") for u in global_mirrors]]:
+    for url, declared_country in [*[(u, "IR") for u in ir_scoped], *[(u, "") for u in global_mirrors]]:
         raw = _safe_fetch(url, timeout=5.0)
         if not raw:
             continue
@@ -556,36 +612,99 @@ def fetch_github_sources() -> list[dict[str, Any]]:
     return results
 
 
+def _parse_proxy_line(line: str) -> dict[str, Any] | None:
+    """Parse one ``[scheme://][user:pass@]host:port`` line from a source list.
+
+    Tolerates inline ``#`` comments and surrounding whitespace. Both matter: a
+    generated feed naturally carries provenance comments, and the previous
+    inline parsing split on the first ``:`` and folded everything after the port
+    into it, so ``http://1.2.3.4:8080  # 120ms`` failed ``is_valid_port`` and the
+    record was dropped without a trace.
+    """
+    line = line.split("#", 1)[0].strip()
+    if not line:
+        return None
+    proto = "http"
+    if "://" in line:
+        proto, line = line.split("://", 1)
+    # Credentials are intentionally discarded for the candidate identity; the
+    # probe stage reconstructs the full URL from configuration when needed.
+    if "@" in line:
+        line = line.rsplit("@", 1)[-1]
+    if ":" not in line:
+        return None
+    ip, port = line.rsplit(":", 1)
+    ip, port = ip.strip(), port.strip()
+    if not is_valid_public_ip(ip) or not is_valid_port(port):
+        return None
+    return {
+        "protocol": proto.strip().lower(),
+        "ip": ip,
+        "port": int(port),
+        "city": "Iran",
+    }
+
+
+def _source_feed_age_seconds(raw: str) -> float | None:
+    """Read the ``# generated_at_epoch: <unix>`` provenance header a published
+    feed carries, and return how old it is in seconds.
+
+    The external harvester (free-proxy-list/barpro_proxy_selector.py) writes this
+    header deliberately -- free Iranian proxies die within hours, so a feed that
+    stopped being refreshed silently degrades into a list of dead addresses that
+    still *looks* authoritative. Until now the consumer discarded the header
+    entirely, so a harvester that had been down for days was indistinguishable
+    from one publishing live results. Returns None when no header is present.
+    """
+    for line in raw.splitlines()[:12]:
+        stripped = line.strip()
+        if not stripped.startswith("#") or "generated_at_epoch" not in stripped:
+            continue
+        try:
+            return max(0.0, time.time() - float(stripped.split(":", 1)[1].strip()))
+        except (IndexError, ValueError):
+            return None
+    return None
+
+
+def _parse_source_feed(raw: str, origin: str, isp: str, source: str) -> list[dict[str, Any]]:
+    """Parse one published feed, logging its provenance age.
+
+    Staleness is reported but NOT used to reject candidates: every entry is
+    re-probed against the real target anyway, so a stale feed costs probe budget
+    at worst, whereas dropping it could leave an Iranian node with no candidates
+    at all. The warning is what turns "pool mysteriously empty" into "harvester
+    has not published for N hours".
+    """
+    age = _source_feed_age_seconds(raw)
+    if age is not None and age > CLEAN_IP_SOURCE_MAX_AGE_SECONDS:
+        logger.warning(
+            f"CleanIPPool: {origin} feed is stale -- generated {age / 3600.0:.1f}h ago "
+            f"(threshold {CLEAN_IP_SOURCE_MAX_AGE_SECONDS / 3600.0:.1f}h). "
+            "Candidates are still probed, but the harvester may have stopped publishing."
+        )
+    results = []
+    for line in raw.splitlines():
+        parsed = _parse_proxy_line(line)
+        if parsed is not None:
+            results.append({**parsed, "isp": isp, "source": source})
+    return results
+
+
 def fetch_file_or_env_sources() -> list[dict[str, Any]]:
-    """Load proxies from configured local file (RPA_PROXY_LIST_FILE / CLEAN_IP_SOURCE_FILE)."""
+    """Load proxies from configured local file (RPA_PROXY_LIST_FILE / CLEAN_IP_SOURCE_FILE).
+
+    On an Iranian node this is the ONLY harvester that can actually produce
+    candidates: every JSON feed host resolves to the 10.10.34.36 filtering
+    sinkhole and is rejected upstream by ``_is_safe_source_url``. See
+    ``.env.example`` for the harvester-publishes / worker-consumes wiring.
+    """
     results = []
     source_file = os.getenv("CLEAN_IP_SOURCE_FILE") or os.getenv("RPA_PROXY_LIST_FILE")
     if source_file and os.path.isfile(source_file):
         try:
             with open(source_file, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    proto = "http"
-                    clean_line = line
-                    if "://" in line:
-                        proto, clean_line = line.split("://", 1)
-                    if "@" in clean_line:
-                        clean_line = clean_line.split("@")[-1]
-                    if ":" in clean_line:
-                        ip, port = clean_line.split(":", 1)
-                        if is_valid_public_ip(ip) and is_valid_port(port):
-                            results.append(
-                                {
-                                    "protocol": proto.lower(),
-                                    "ip": ip,
-                                    "port": int(port),
-                                    "isp": "Configured File",
-                                    "city": "Iran",
-                                    "source": "file_source",
-                                }
-                            )
+                results.extend(_parse_source_feed(f.read(), source_file, "Configured File", "file_source"))
         except Exception as exc:
             logger.debug(f"Could not read clean proxy source file {source_file}: {exc}")
 
@@ -594,24 +713,7 @@ def fetch_file_or_env_sources() -> list[dict[str, Any]]:
     if custom_url:
         raw = _safe_fetch(custom_url, timeout=6.0)
         if raw:
-            for line in raw.splitlines():
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                proto, addr = ("http", line) if "://" not in line else line.split("://", 1)
-                if ":" in addr:
-                    ip, port = addr.split(":", 1)
-                    if is_valid_public_ip(ip) and is_valid_port(port):
-                        results.append(
-                            {
-                                "protocol": proto.lower(),
-                                "ip": ip,
-                                "port": int(port),
-                                "isp": "Custom URL Source",
-                                "city": "Iran",
-                                "source": "custom_url",
-                            }
-                        )
+            results.extend(_parse_source_feed(raw, custom_url, "Custom URL Source", "custom_url"))
     return results
 
 
@@ -707,9 +809,14 @@ def _probe_via_curl_cffi(candidate: CleanIPRecord, target_url: str, timeout: flo
         impersonate="chrome120",
         proxies={"http": candidate.url, "https": candidate.url},
         timeout=max(1.0, timeout),
-        # Matches worker_proxy.check_proxy_health: free proxies sometimes
-        # MITM TLS; only tunnel + WAF acceptance are under test here.
-        verify=False,
+        # Certificates MUST be verified here. Measured 2026-08-28: a cert-verified
+        # chrome120 session through a free Iranian proxy returns the real 20 KB
+        # login page, so verification costs us nothing. With verify=False a
+        # hostile proxy can terminate the TLS session itself and forge a healthy
+        # 200, ranking itself #1 in the pool — and the pool decides where
+        # production sends UTCMS credentials. A proxy that cannot carry a
+        # verifiable session to UTCMS is not a usable egress, by definition.
+        verify=True,
     )
     try:
         session.headers.update(PROBE_HEADERS)
@@ -803,8 +910,29 @@ def probe_single_proxy(
     """
     if _CURL_CFFI_IMPORT_ERROR is None:
         # curl_cffi speaks http/https/socks4/socks5 natively via libcurl.
-        try:
-            status_code, elapsed_ms, snippet = _probe_via_curl_cffi(candidate, target_url, timeout)
+        #
+        # Transport failures are retried because free Iranian egress is flaky in
+        # a way a single attempt cannot distinguish from death: measured
+        # 2026-08-28, one candidate answered in 1.7 s, timed out past 30 s
+        # minutes later, then answered again. Probing once discarded most of the
+        # working pool (1 certified out of 90 candidates, against 12 out of 155
+        # for the same feeds probed twice).
+        #
+        # Only transport errors and "target_unavailable" are retried. A
+        # "target_rejected" or "waf_challenge" verdict is UTCMS's decision about
+        # this IP — retrying cannot change it and would only spend handshakes
+        # against the per-IP throttle.
+        last_exc: Exception | None = None
+        for attempt in range(1, PROBE_TRANSPORT_ATTEMPTS + 1):
+            final_attempt = attempt == PROBE_TRANSPORT_ATTEMPTS
+            try:
+                status_code, elapsed_ms, snippet = _probe_via_curl_cffi(candidate, target_url, timeout)
+            except Exception as exc:
+                last_exc = exc
+                if final_attempt:
+                    return _mark_probe_failed(candidate, str(exc))
+                continue
+
             verdict = classify_probe_response(status_code, snippet)
             if verdict == "healthy":
                 candidate.tags = [
@@ -813,6 +941,8 @@ def probe_single_proxy(
                     if tag not in {"utcms_rejected", "waf_challenge", "target_unavailable"}
                 ]
                 return _mark_probe_healthy(candidate, elapsed_ms)
+            if verdict == "target_unavailable" and not final_attempt:
+                continue
             penalty = 50.0 if verdict in ("target_rejected", "waf_challenge") else 5.0
             _mark_probe_failed(candidate, f"{verdict} status={status_code}", penalty=penalty)
             if verdict in ("target_rejected", "waf_challenge"):
@@ -822,8 +952,7 @@ def probe_single_proxy(
             elif verdict == "target_unavailable" and "target_unavailable" not in candidate.tags:
                 candidate.tags.append("target_unavailable")
             return None
-        except Exception as exc:
-            return _mark_probe_failed(candidate, str(exc))
+        return _mark_probe_failed(candidate, str(last_exc) if last_exc else "probe exhausted")
 
     if candidate.protocol not in ("http", "https"):
         logger.debug(f"Proxy probe skipped (no SOCKS-capable client): {candidate.safe_url}")
@@ -905,14 +1034,30 @@ def _verify_egress_country(candidate: CleanIPRecord, timeout: float = 8.0) -> st
             impersonate="chrome120",
             proxies={"http": candidate.url, "https": candidate.url},
             timeout=max(1.0, timeout),
-            verify=False,
+            verify=True,
         )
         try:
             session.headers.update({"User-Agent": USER_AGENT, "Accept": "application/json"})
-            response = session.get("http://ip-api.com/json/?fields=countryCode,status")
-            data = response.json()
-            if isinstance(data, dict):
-                return str(data.get("countryCode") or "").upper()
+            # HTTPS + certificate verification is the whole point of this check.
+            # The previous endpoint was plain-HTTP ``http://ip-api.com/json/``,
+            # which the proxy under test could trivially rewrite — letting a
+            # non-Iranian (or hostile) egress declare itself "IR" and defeat the
+            # only country evidence we have. ``api.country.is`` is HTTPS, free
+            # and key-less; the HTTP endpoint stays as a last-resort fallback
+            # for the case where the TLS one is filtered, and its answer is
+            # therefore treated as weaker evidence by the caller's ranking.
+            for endpoint, field in (
+                ("https://api.country.is/", "country"),
+                ("http://ip-api.com/json/?fields=countryCode,status", "countryCode"),
+            ):
+                try:
+                    response = session.get(endpoint)
+                    data = response.json()
+                except Exception:
+                    continue
+                if isinstance(data, dict) and data.get(field):
+                    return str(data.get(field) or "").upper()
+            return None
         finally:
             try:
                 session.close()
@@ -980,8 +1125,9 @@ def run_screening_cycle(
                 pass
 
         # Sort fastest first, then measure the real egress of only the head of
-        # the list (bounded cost): declared-IR records must OBSERVE as IR;
-        # global-mirror records must observe as IR too, else they are demoted.
+        # the list (bounded cost). A measured non-Iranian egress is dropped; an
+        # UNMEASURABLE one is kept but ranked below every measured-IR record, so
+        # proof still wins without a missing measurement emptying the pool.
         verified.sort(key=lambda x: x.latency_ms)
         shortlist = verified[: max_pool_size * 3]
         if shortlist:
@@ -993,15 +1139,17 @@ def run_screening_cycle(
                 except Exception:
                     pass
             verified = [r for r in checked if r.is_operational_iranian_egress]
-            verified.sort(key=lambda x: x.latency_ms)
+            verified.sort(key=lambda x: (not x.has_measured_iranian_egress, x.latency_ms))
 
     verified = verified[: max(1, max_pool_size)]
 
     duration = round(time.time() - start_time, 2)
-    ir_measured = sum(1 for r in verified if r.observed_country == "IR")
+    ir_measured = sum(1 for r in verified if r.has_measured_iranian_egress)
+    geo_unverified = sum(1 for r in verified if not r.egress_verified)
     logger.info(
         f"CleanIPPool: verified {len(verified)} working proxies in {duration}s "
-        f"({ir_measured} with measured Iranian egress)."
+        f"({ir_measured} with measured Iranian egress, "
+        f"{geo_unverified} admitted with GeoIP unreachable)."
     )
 
     # Write atomic runtime fallback files
