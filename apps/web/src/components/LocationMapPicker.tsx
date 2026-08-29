@@ -31,6 +31,8 @@ export const LocationMapPicker = memo(function LocationMapPicker({
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMap = useRef<LType.Map | null>(null);
   const markerRef = useRef<LType.Marker | null>(null);
+  const geocodeControllerRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(false);
 
   const [loadingGeocode, setLoadingGeocode] = useState(false);
   const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lng: number }>({
@@ -41,6 +43,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
 
   useEffect(() => {
     let isMounted = true;
+    mountedRef.current = true;
 
     async function initLeaflet() {
       if (typeof window === "undefined" || !mapRef.current || leafletMap.current) return;
@@ -60,7 +63,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
 
         const pinIcon = L.divIcon({
           className: "custom-leaflet-marker",
-          html: `<div style="background:#06b6d4;width:24px;height:24px;border-radius:50%;border:3px solid white;box-shadow:0 0 10px rgba(0,0,0,0.5);"></div>`,
+          html: '<div class="custom-leaflet-marker-dot"></div>',
           iconSize: [24, 24],
           iconAnchor: [12, 12],
         });
@@ -93,16 +96,23 @@ export const LocationMapPicker = memo(function LocationMapPicker({
 
     return () => {
       isMounted = false;
+      mountedRef.current = false;
+      geocodeControllerRef.current?.abort();
       if (leafletMap.current) {
         leafletMap.current.remove();
         leafletMap.current = null;
       }
+      markerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleGeocode = async (lat: number, lng: number) => {
+    geocodeControllerRef.current?.abort();
+    const controller = new AbortController();
+    geocodeControllerRef.current = controller;
     setSelectedCoords({ lat, lng });
+    setResolvedAddress("");
     setLoadingGeocode(true);
 
     const res = await api.get<{
@@ -110,8 +120,9 @@ export const LocationMapPicker = memo(function LocationMapPicker({
       city: string;
       district: string;
       address: string;
-    }>(`/api/v1/locations/reverse-geocode?lat=${lat}&lng=${lng}`);
+    }>(`/api/v1/locations/reverse-geocode?lat=${lat}&lng=${lng}`, undefined, { signal: controller.signal });
 
+    if (controller.signal.aborted || !mountedRef.current || geocodeControllerRef.current !== controller) return;
     setLoadingGeocode(false);
 
     if (res.success && res.data) {
@@ -134,7 +145,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
         (pos) => {
           const lat = pos.coords.latitude;
           const lng = pos.coords.longitude;
-          if (leafletMap.current && markerRef.current) {
+          if (mountedRef.current && leafletMap.current && markerRef.current) {
             leafletMap.current.setView([lat, lng], 14);
             markerRef.current.setLatLng([lat, lng]);
             handleGeocode(lat, lng);
@@ -144,6 +155,8 @@ export const LocationMapPicker = memo(function LocationMapPicker({
           toast.error("دسترسی به موقعیت جغرافیایی یافت نشد");
         }
       );
+    } else {
+      toast.error("مرورگر از موقعیت جغرافیایی پشتیبانی نمی‌کند");
     }
   };
 

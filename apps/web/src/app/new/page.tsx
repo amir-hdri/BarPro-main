@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckIcon,
@@ -152,6 +152,7 @@ export default function NewWaybillPage() {
   const [form, setForm] = useState<WaybillFormValues>(initialForm);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loadingDrivers, setLoadingDrivers] = useState(true);
+  const driverLoadControllerRef = useRef<AbortController | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [serverMessage, setServerMessage] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -233,12 +234,17 @@ export default function NewWaybillPage() {
       setLoadingDrivers(false);
       return;
     }
+    driverLoadControllerRef.current?.abort();
+    const controller = new AbortController();
+    driverLoadControllerRef.current = controller;
     setLoadingDrivers(true);
     try {
       const [driversRes, platesRes] = await Promise.all([
-        api.get<Driver[]>("/api/v1/drivers?page_size=1000"),
-        api.get<Plate[]>("/api/v1/plates?page_size=1000"),
+        api.get<Driver[]>("/api/v1/drivers?page_size=1000", undefined, { signal: controller.signal }),
+        api.get<Plate[]>("/api/v1/plates?page_size=1000", undefined, { signal: controller.signal }),
       ]);
+
+      if (controller.signal.aborted || driverLoadControllerRef.current !== controller) return;
 
       const driverList = driversRes.success && Array.isArray(driversRes.data) ? driversRes.data : [];
       const plateList = platesRes.success && Array.isArray(platesRes.data) ? platesRes.data : [];
@@ -260,14 +266,18 @@ export default function NewWaybillPage() {
         });
       }
     } catch (err) {
-      console.error("Failed to load drivers and plates:", err);
+      if (!controller.signal.aborted) console.error("Failed to load drivers and plates:", err);
     } finally {
-      setLoadingDrivers(false);
+      if (driverLoadControllerRef.current === controller) {
+        driverLoadControllerRef.current = null;
+        setLoadingDrivers(false);
+      }
     }
   }, [role]);
 
   useEffect(() => {
     void loadDriversAndPlates();
+    return () => driverLoadControllerRef.current?.abort();
   }, [loadDriversAndPlates]);
 
 
@@ -819,7 +829,7 @@ export default function NewWaybillPage() {
                       if (parsed.city) handleChange("origin", parsed.city);
                       if (parsed.district) handleChange("origin_district", parsed.district);
                       if (parsed.address) handleChange("origin_address", parsed.address);
-                      if (parsed.coordinates) setOriginCoords(parsed.coordinates);
+                      setOriginCoords(parsed.coordinates ?? null);
                     }}
                   />
 
@@ -837,9 +847,11 @@ export default function NewWaybillPage() {
                       handleChange("origin", fav.city);
                       if (fav.district) handleChange("origin_district", fav.district);
                       handleChange("origin_address", fav.address);
-                      if (fav.latitude && fav.longitude) {
-                        setOriginCoords({ lat: fav.latitude, lng: fav.longitude });
-                      }
+                      setOriginCoords(
+                        fav.latitude != null && fav.longitude != null
+                          ? { lat: fav.latitude, lng: fav.longitude }
+                          : null
+                      );
                     }}
                   />
 
@@ -880,7 +892,7 @@ export default function NewWaybillPage() {
                     onProvinceChange={(prov) => handleChange("origin_province", prov)}
                     onCityChange={(city, coords) => {
                       handleChange("origin", city);
-                      if (coords) setOriginCoords(coords);
+                      setOriginCoords(coords ?? null);
                     }}
                     provinceError={errors.origin_province}
                     cityError={errors.origin}
@@ -923,7 +935,7 @@ export default function NewWaybillPage() {
                       if (parsed.city) handleChange("destination", parsed.city);
                       if (parsed.district) handleChange("destination_district", parsed.district);
                       if (parsed.address) handleChange("destination_address", parsed.address);
-                      if (parsed.coordinates) setDestinationCoords(parsed.coordinates);
+                      setDestinationCoords(parsed.coordinates ?? null);
                     }}
                   />
 
@@ -941,9 +953,11 @@ export default function NewWaybillPage() {
                       handleChange("destination", fav.city);
                       if (fav.district) handleChange("destination_district", fav.district);
                       handleChange("destination_address", fav.address);
-                      if (fav.latitude && fav.longitude) {
-                        setDestinationCoords({ lat: fav.latitude, lng: fav.longitude });
-                      }
+                      setDestinationCoords(
+                        fav.latitude != null && fav.longitude != null
+                          ? { lat: fav.latitude, lng: fav.longitude }
+                          : null
+                      );
                     }}
                   />
 
@@ -984,7 +998,7 @@ export default function NewWaybillPage() {
                     onProvinceChange={(prov) => handleChange("destination_province", prov)}
                     onCityChange={(city, coords) => {
                       handleChange("destination", city);
-                      if (coords) setDestinationCoords(coords);
+                      setDestinationCoords(coords ?? null);
                     }}
                     provinceError={errors.destination_province}
                     cityError={errors.destination}

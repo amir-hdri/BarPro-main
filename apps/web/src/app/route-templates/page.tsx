@@ -219,11 +219,9 @@ export default function RouteTemplatesPage() {
                     onProvinceChange={(p) => setField('origin_province', p)}
                     onCityChange={(c, coords) => {
                       setField('origin_city', c);
-                      if (coords) {
-                        setOriginCoords(coords);
-                        setField('origin_lat', String(coords.lat));
-                        setField('origin_lng', String(coords.lng));
-                      }
+                      setOriginCoords(coords ?? null);
+                      setField('origin_lat', coords ? String(coords.lat) : '');
+                      setField('origin_lng', coords ? String(coords.lng) : '');
                     }}
                   />
                   <input
@@ -242,11 +240,9 @@ export default function RouteTemplatesPage() {
                     onProvinceChange={(p) => setField('dest_province', p)}
                     onCityChange={(c, coords) => {
                       setField('dest_city', c);
-                      if (coords) {
-                        setDestCoords(coords);
-                        setField('dest_lat', String(coords.lat));
-                        setField('dest_lng', String(coords.lng));
-                      }
+                      setDestCoords(coords ?? null);
+                      setField('dest_lat', coords ? String(coords.lat) : '');
+                      setField('dest_lng', coords ? String(coords.lng) : '');
                     }}
                   />
                   <input

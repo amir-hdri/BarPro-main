@@ -100,6 +100,15 @@ select.field {
   padding-left: 3rem;
 }
 
+.custom-leaflet-marker-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  border: 3px solid #fff;
+  background: #06b6d4;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
 /* ─── Step indicator ─────────────────────────────────────────── */
 .step-indicator {
   display: flex;

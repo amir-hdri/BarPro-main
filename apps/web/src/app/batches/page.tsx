@@ -11,6 +11,7 @@ import { AuthGuard } from '@/components/layout/AuthGuard';
 import { ProgressBar } from '@/components/ProgressBar';
 import { api, createBatch, generateIdempotencyKey } from '@/lib/api';
 import { formatDateTime, toPersianDigits } from '@/lib/format';
+import { normalizeDigits } from '@/lib/plate';
 import { useSession } from '@/hooks/useSession';
 import type { BatchProgressResponse, Driver, WaybillRouteTemplate } from '@/lib/types';
 
@@ -27,6 +28,10 @@ interface RecentBatch {
 }
 
 const RECENT_KEY = 'barpro_recent_batches';
+
+function normalizeMobile(value: string): string {
+  return normalizeDigits(value).replace(/\D/g, '').slice(0, 11);
+}
 
 function loadRecent(): RecentBatch[] {
   if (typeof window === 'undefined') return [];
@@ -57,7 +62,9 @@ export default function BatchesPage() {
   const [routeChain, setRouteChain] = useState(true);
   const [intervalMinutes, setIntervalMinutes] = useState(40);
   const [senderName, setSenderName] = useState('');
+  const [senderPhone, setSenderPhone] = useState('');
   const [receiverName, setReceiverName] = useState('');
+  const [receiverPhone, setReceiverPhone] = useState('');
   const [cargoType, setCargoType] = useState('');
   const [cargoPackaging, setCargoPackaging] = useState('');
   const [cargoWeight, setCargoWeight] = useState('');
@@ -100,10 +107,13 @@ export default function BatchesPage() {
     if (!activeBatchId) return;
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
+    const controller = new AbortController();
 
     async function poll() {
-      const res = await api.get<BatchProgressResponse>(`/api/v1/batches/${activeBatchId}/progress`);
-      if (cancelled) return;
+      const res = await api.get<BatchProgressResponse>(`/api/v1/batches/${activeBatchId}/progress`, undefined, {
+        signal: controller.signal,
+      });
+      if (cancelled || controller.signal.aborted) return;
       if (res.success && res.data) {
         setProgress(res.data);
         // Stop polling once every job has settled (no further progress possible).
@@ -117,6 +127,7 @@ export default function BatchesPage() {
     timer = setInterval(poll, 5000);
     return () => {
       cancelled = true;
+      controller.abort();
       if (timer) clearInterval(timer);
     };
   }, [activeBatchId]);
@@ -157,6 +168,16 @@ export default function BatchesPage() {
       toast.error('نام و نام خانوادگی گیرنده (دو کلمه) الزامی است');
       return;
     }
+    const normalizedSenderPhone = normalizeMobile(senderPhone);
+    const normalizedReceiverPhone = normalizeMobile(receiverPhone);
+    if (!/^09\d{9}$/.test(normalizedSenderPhone)) {
+      toast.error('موبایل فرستنده باید ۱۱ رقم و با ۰۹ شروع شود');
+      return;
+    }
+    if (!/^09\d{9}$/.test(normalizedReceiverPhone)) {
+      toast.error('موبایل گیرنده باید ۱۱ رقم و با ۰۹ شروع شود');
+      return;
+    }
     if (!cargoType.trim() || !cargoPackaging.trim() || !cargoValue.trim()) {
       toast.error('نوع، بسته‌بندی و ارزش کالا الزامی است');
       return;
@@ -168,8 +189,8 @@ export default function BatchesPage() {
     }
 
     const basePayload: Record<string, unknown> = {
-      sender: { name: senderName.trim() },
-      receiver: { name: receiverName.trim() },
+      sender: { name: senderName.trim(), phone: normalizedSenderPhone },
+      receiver: { name: receiverName.trim(), phone: normalizedReceiverPhone },
       cargo: {
         type: cargoType.trim(),
         packaging: cargoPackaging.trim(),
@@ -312,6 +333,30 @@ export default function BatchesPage() {
                 <label className="mb-1.5 block text-xs font-bold text-slate-300">نام و نام خانوادگی گیرنده *</label>
                 <input className="field" placeholder="مثال: محمد احمدی" value={receiverName} onChange={(e) => setReceiverName(e.target.value)} />
               </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">موبایل فرستنده *</label>
+                <input
+                  className="field"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  maxLength={11}
+                  placeholder="مثال: 09123456789"
+                  value={senderPhone}
+                  onChange={(e) => setSenderPhone(normalizeMobile(e.target.value))}
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">موبایل گیرنده *</label>
+                <input
+                  className="field"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  maxLength={11}
+                  placeholder="مثال: 09129876543"
+                  value={receiverPhone}
+                  onChange={(e) => setReceiverPhone(normalizeMobile(e.target.value))}
+                />
+              </div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -328,8 +373,8 @@ export default function BatchesPage() {
                 <input className="field" inputMode="decimal" placeholder="مثال: 20" value={cargoWeight} onChange={(e) => setCargoWeight(e.target.value)} />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-bold text-slate-300">ارزش بار (تومان) *</label>
-                <input className="field" inputMode="numeric" placeholder="مثال: 50000000" value={cargoValue} onChange={(e) => setCargoValue(e.target.value)} />
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">ارزش بار (ریال) *</label>
+                <input className="field" inputMode="numeric" placeholder="مثال: 500000000" value={cargoValue} onChange={(e) => setCargoValue(e.target.value)} />
               </div>
             </div>
 

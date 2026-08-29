@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { ChevronDownIcon } from "@heroicons/react/24/outline";
 
@@ -41,13 +41,21 @@ export const ProvinceCitySelect = memo(function ProvinceCitySelect({
   const [loadingCities, setLoadingCities] = useState(false);
   const [provinceFetchError, setProvinceFetchError] = useState(false);
   const [cityFetchError, setCityFetchError] = useState(false);
+  const provinceRequestRef = useRef<AbortController | null>(null);
+  const cityRequestRef = useRef<AbortController | null>(null);
 
   // لود اولیه استان‌ها
   const fetchProvinces = useCallback(async () => {
+    provinceRequestRef.current?.abort();
+    const controller = new AbortController();
+    provinceRequestRef.current = controller;
     setLoadingProvinces(true);
     setProvinceFetchError(false);
     try {
-      const res = await api.get<Province[] | { data?: Province[] }>("/api/v1/locations/provinces");
+      const res = await api.get<Province[] | { data?: Province[] }>("/api/v1/locations/provinces", undefined, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
       let list: Province[] = [];
       if (res.success && res.data) {
         if (Array.isArray(res.data)) {
@@ -63,27 +71,39 @@ export const ProvinceCitySelect = memo(function ProvinceCitySelect({
         setProvinceFetchError(true);
       }
     } catch {
-      setProvinceFetchError(true);
+      if (!controller.signal.aborted) setProvinceFetchError(true);
     } finally {
-      setLoadingProvinces(false);
+      if (!controller.signal.aborted && provinceRequestRef.current === controller) {
+        setLoadingProvinces(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     void fetchProvinces();
+    return () => provinceRequestRef.current?.abort();
   }, [fetchProvinces]);
 
   // لود شهرهای استان انتخاب شده
   const fetchCities = useCallback(async () => {
+    cityRequestRef.current?.abort();
     if (!provinceValue) {
       setCities([]);
       setCityFetchError(false);
+      setLoadingCities(false);
       return;
     }
+    const controller = new AbortController();
+    cityRequestRef.current = controller;
     setLoadingCities(true);
     setCityFetchError(false);
     try {
-      const res = await api.get<City[] | { data?: City[] }>(`/api/v1/locations/cities?province=${encodeURIComponent(provinceValue)}`);
+      const res = await api.get<City[] | { data?: City[] }>(
+        `/api/v1/locations/cities?province=${encodeURIComponent(provinceValue)}`,
+        undefined,
+        { signal: controller.signal }
+      );
+      if (controller.signal.aborted) return;
       let list: City[] = [];
       if (res.success && res.data) {
         if (Array.isArray(res.data)) {
@@ -99,14 +119,17 @@ export const ProvinceCitySelect = memo(function ProvinceCitySelect({
         setCityFetchError(true);
       }
     } catch {
-      setCityFetchError(true);
+      if (!controller.signal.aborted) setCityFetchError(true);
     } finally {
-      setLoadingCities(false);
+      if (!controller.signal.aborted && cityRequestRef.current === controller) {
+        setLoadingCities(false);
+      }
     }
   }, [provinceValue]);
 
   useEffect(() => {
     void fetchCities();
+    return () => cityRequestRef.current?.abort();
   }, [fetchCities]);
 
   const handleProvinceSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {

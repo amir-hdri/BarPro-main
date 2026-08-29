@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { PlusIcon, TruckIcon, UserCircleIcon } from '@heroicons/react/24/outline';
 
@@ -73,6 +73,7 @@ export default function DriversPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'list' | 'add' | 'plates_schedules'>('list');
+  const dataLoadControllerRef = useRef<AbortController | null>(null);
 
   const { data: drivers = [], isLoading: driversLoading, refetch: refetchDrivers } = useQuery({
     queryKey: ['drivers'],
@@ -90,18 +91,24 @@ export default function DriversPage() {
   const loadPlatesAndSchedules = useCallback(async () => {
     if (role !== "client" && role !== "master_admin") return;
 
+    dataLoadControllerRef.current?.abort();
+    const controller = new AbortController();
+    dataLoadControllerRef.current = controller;
     try {
       const [platesResponse, schedulesResponse] = await Promise.all([
-        api.get<Plate[]>('/api/v1/plates?page_size=1000'),
-        api.get<DriverSchedule[]>('/api/v1/driver-schedules?page_size=1000'),
+        api.get<Plate[]>('/api/v1/plates?page_size=1000', undefined, { signal: controller.signal }),
+        api.get<DriverSchedule[]>('/api/v1/driver-schedules?page_size=1000', undefined, { signal: controller.signal }),
       ]);
+
+      if (controller.signal.aborted) return;
 
       setPlates(Array.isArray(platesResponse.data) ? platesResponse.data : []);
       setSchedules(Array.isArray(schedulesResponse.data) ? schedulesResponse.data : []);
       setError(null);
     } catch (err) {
-      console.error("Failed to load plates and schedules:", err);
+      if (!controller.signal.aborted) console.error("Failed to load plates and schedules:", err);
     }
+    if (dataLoadControllerRef.current === controller) dataLoadControllerRef.current = null;
   }, [role]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -321,6 +328,7 @@ export default function DriversPage() {
   useEffect(() => {
     void loadPlatesAndSchedules();
     void refetchDrivers();
+    return () => dataLoadControllerRef.current?.abort();
   }, [role, loadPlatesAndSchedules, refetchDrivers]);
 
   return (
@@ -901,5 +909,3 @@ const Input = memo(function Input({ label, onChange, required, type = 'text', va
     </label>
   );
 });
-
-

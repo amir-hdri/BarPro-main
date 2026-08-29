@@ -44,6 +44,7 @@ export function RouteDistanceBadge({ originCoords, destinationCoords }: RouteDis
         { signal: controller.signal }
       )
       .then((res) => {
+        if (controller.signal.aborted) return;
         if (res.success && res.data) {
           setDistance(res.data);
         } else {

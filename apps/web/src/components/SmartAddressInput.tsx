@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { SparklesIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
 import { api } from "@/lib/api";
 
@@ -20,16 +20,23 @@ export const SmartAddressInput = memo(function SmartAddressInput({ onParsed }: S
   const [rawText, setRawText] = useState("");
   const [parsing, setParsing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const requestControllerRef = useRef<AbortController | null>(null);
 
   const handleParse = async () => {
     if (!rawText.trim()) return;
+    requestControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
     setParsing(true);
     setMessage(null);
 
-    const res = await api.post<ParsedAddressResult | { data?: ParsedAddressResult }>("/api/v1/locations/parse-address", {
-      address_text: rawText,
-    });
+    const res = await api.post<ParsedAddressResult | { data?: ParsedAddressResult }>(
+      "/api/v1/locations/parse-address",
+      { address_text: rawText },
+      { signal: controller.signal }
+    );
 
+    if (controller.signal.aborted || requestControllerRef.current !== controller) return;
     setParsing(false);
 
     if (res.success && res.data) {
@@ -52,6 +59,8 @@ export const SmartAddressInput = memo(function SmartAddressInput({ onParsed }: S
       setMessage("خطا در تفکیک هوشمند آدرس");
     }
   };
+
+  useEffect(() => () => requestControllerRef.current?.abort(), []);
 
   return (
     <div className="rounded-2xl bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 p-4 border border-cyan-500/20 shadow-lg shadow-cyan-950/20 mb-5">

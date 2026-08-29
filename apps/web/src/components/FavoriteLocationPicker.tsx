@@ -1,6 +1,7 @@
 "use client";
 
-import { memo, useEffect, useState } from "react";
+import { memo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookmarkIcon, PlusIcon, TrashIcon, CheckIcon } from "@heroicons/react/24/outline";
 import toast from "react-hot-toast";
 import { api } from "@/lib/api";
@@ -39,38 +40,27 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
   currentLng,
   onSelectFavorite,
 }: FavoriteLocationPickerProps) {
-  const [favorites, setFavorites] = useState<FavoriteLocation[]>([]);
-  const [_loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: favorites = [], isLoading, isError, refetch } = useQuery({
+    queryKey: ["location-favorites"],
+    queryFn: async ({ signal }) => {
+      const res = await api.get<FavoriteLocation[] | { data?: FavoriteLocation[] }>(
+        "/api/v1/locations/favorites",
+        undefined,
+        { signal }
+      );
+      if (signal.aborted) return [];
+      if (!res.success) throw new Error(res.error || "خطا در دریافت مکان‌های منتخب");
+      if (!res.data) return [];
+      if (Array.isArray(res.data)) return res.data;
+      return Array.isArray(res.data.data) ? res.data.data : [];
+    },
+    staleTime: 60_000,
+  });
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-
-  const fetchFavorites = async () => {
-    setLoading(true);
-    try {
-      const res = await api.get<FavoriteLocation[] | { data?: FavoriteLocation[] }>("/api/v1/locations/favorites");
-      if (res.success && res.data) {
-        if (Array.isArray(res.data)) {
-          setFavorites(res.data);
-        } else if (Array.isArray((res.data as { data?: FavoriteLocation[] }).data)) {
-          setFavorites((res.data as { data?: FavoriteLocation[] }).data || []);
-        } else {
-          setFavorites([]);
-        }
-      } else {
-        setFavorites([]);
-      }
-    } catch {
-      setFavorites([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void fetchFavorites();
-  }, []);
 
   const handleSaveCurrent = async () => {
     if (!newTitle.trim() || !currentProvince || !currentCity || !currentAddress) {
@@ -84,8 +74,8 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
       city: currentCity,
       district: currentDistrict || undefined,
       address: currentAddress,
-      latitude: currentLat || undefined,
-      longitude: currentLng || undefined,
+      latitude: currentLat ?? undefined,
+      longitude: currentLng ?? undefined,
       is_origin: mode === "origin",
       is_destination: mode === "destination",
     });
@@ -95,7 +85,7 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
       toast.success("مکان منتخب با موفقیت ذخیره شد");
       setShowSaveModal(false);
       setNewTitle("");
-      fetchFavorites();
+      await queryClient.invalidateQueries({ queryKey: ["location-favorites"] });
     } else {
       toast.error(res.error || "خطا در ذخیره مکان منتخب");
     }
@@ -107,7 +97,7 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
     setDeletingId(null);
     if (res.success) {
       toast.success("مکان منتخب حذف شد");
-      fetchFavorites();
+      await queryClient.invalidateQueries({ queryKey: ["location-favorites"] });
     } else {
       toast.error(res.error || "خطا در حذف مکان منتخب");
     }
@@ -133,6 +123,13 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
           <span>ذخیره مکان فعلی</span>
         </button>
       </div>
+
+      {isLoading && <p className="text-[11px] text-slate-500">در حال بارگذاری مکان‌های منتخب...</p>}
+      {isError && (
+        <button type="button" onClick={() => void refetch()} className="text-[11px] font-bold text-amber-400 hover:text-amber-300">
+          دریافت مکان‌های منتخب ناموفق بود؛ تلاش مجدد
+        </button>
+      )}
 
       {showSaveModal && (
         <div className="p-3 mb-3 rounded-xl bg-slate-900 border border-cyan-500/30 space-y-2">
@@ -164,6 +161,15 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
             <div
               key={fav.id}
               onClick={() => onSelectFavorite(fav)}
+              onKeyDown={(e) => {
+                if ((e.key === "Enter" || e.key === " ") && deletingId !== fav.id) {
+                  e.preventDefault();
+                  onSelectFavorite(fav);
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label={`انتخاب مکان ${fav.title} در ${fav.city}`}
               className="group relative cursor-pointer px-3 py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/5 hover:border-cyan-500/40 text-xs font-medium text-slate-200 transition-all flex items-center gap-2"
             >
               <span>{fav.title}</span>
@@ -196,6 +202,8 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
                     e.stopPropagation();
                     setDeletingId(fav.id);
                   }}
+                  aria-label={`حذف مکان ${fav.title}`}
+                  title="حذف مکان منتخب"
                   className="opacity-0 group-hover:opacity-100 text-rose-400 hover:text-rose-300 transition-opacity p-0.5"
                 >
                   <TrashIcon className="h-3 w-3" />
