@@ -33,6 +33,10 @@ from app.monitoring.event_bridge import monitoring_bridge
 
 logger = logging.getLogger(__name__)
 
+# Captcha inputs carry OTP-like wording ("کد امنیتی"), so every placeholder-based
+# OTP probe has to exclude them or it reports a challenge on every run.
+_NOT_CAPTCHA = ":not([name*='captcha' i]):not([id*='captcha' i])"
+
 
 class EnhancedWaybillManager:
     """مدیریت بارنامه با پشتیبانی کامل از نقشه و مکان‌یابی"""
@@ -1443,6 +1447,45 @@ class EnhancedWaybillManager:
         except Exception:
             return False
 
+    async def _is_inside_closed_modal(self, selector: str) -> bool:
+        """Does ``selector`` live in a Bootstrap modal that is currently closed?
+
+        Geometric visibility is not enough for the OTP/SMS surfaces.  UTCMS ships
+        ``#submitOtp`` and the whole ``FormSendOtpCode`` form inside a modal that
+        is present in the markup from the first paint, and it is CSS
+        (``.modal { display: none }``) that keeps it hidden.  Any run whose
+        stylesheets are missing — a stubbed or failed ``<link>`` — therefore sees
+        a fully laid-out OTP dialog and reports an OTP challenge that UTCMS never
+        raised, which closes the submission gate for every job.  The open state
+        is read from the class/attribute contract instead, so the answer no
+        longer depends on a stylesheet arriving.
+        """
+        try:
+            return bool(
+                await self.page.evaluate(
+                    """(sel) => {
+                        const el = document.querySelector(sel);
+                        if (!el) return false;
+                        const modal = el.closest('.modal, .modal-dialog, [role="dialog"]');
+                        if (!modal) return false;
+                        const host = modal.closest('.modal') || modal;
+                        if (host.classList.contains('show')) return false;
+                        if (host.getAttribute('aria-hidden') === 'false') return false;
+                        return true;
+                    }""",
+                    selector,
+                )
+            )
+        except Exception:
+            logger.debug("modal_state_probe_failed", exc_info=True)
+            return False
+
+    async def _is_active_selector_visible(self, selector: str) -> bool:
+        """Visible *and* not parked inside a closed modal."""
+        if not await self._is_selector_visible(selector):
+            return False
+        return not await self._is_inside_closed_modal(selector)
+
     async def _wait_for_response_match(self, matcher, timeout_ms: int = 15000):
         if not hasattr(self.page, "wait_for_response"):
             return None
@@ -2051,16 +2094,13 @@ class EnhancedWaybillManager:
             otp_val = shipping_opts.get("otp") if isinstance(shipping_opts, dict) else None
 
             if dry_run:
-                # The button visible in step 9 only opens the print/OTP stage;
-                # it is not the final mutation.  Enter that stage explicitly so
-                # a dry-run proves the real final controls without clicking any
-                # submit or SMS control.
-                final_stage_navigation_clicked = await self._click_with_fallback(
-                    ["#btnregisterbarname", "#GoFinalStep"],
-                    "مرحله نهایی (فقط مشاهده)",
-                    required=False,
-                    wait_after_seconds=0.5,
-                )
+                # ``#GoFinalStep``/``#btnregisterbarname`` is UTCMS's *own*
+                # post-save navigation -- the page clicks it after a successful
+                # save to reveal the tracking-code step -- so it is hidden
+                # before submission and clicking it here is meaningless.  The
+                # final controls (``#btnRegisterFinished``, captcha, OTP modal)
+                # are already reachable in step 9.
+                final_stage_navigation_clicked = False
                 final_stage_evidence = await self._inspect_final_submission_stage()
                 final_stage_evidence["final_stage_navigation_clicked"] = bool(final_stage_navigation_clicked)
                 otp_required_observed = bool(final_stage_evidence.get("otp_challenge_visible")) or bool(otp_val)
@@ -4240,6 +4280,42 @@ class EnhancedWaybillManager:
                     required=False,
                 )
 
+    async def _any_selector_attached(self, selectors: list[str]) -> bool:
+        """Is at least one of ``selectors`` present in the current document?
+
+        Cheap guard for optional controls.  ``_fill_with_fallback`` spends a 5s
+        ``SmartLocator`` timeout plus one ``safe_fill`` retry *per selector*, so
+        probing five selectors for a control UTCMS does not ship costs 25s of
+        every run and ends in a warning that reads like a regression.  A live
+        inventory of the issuance form on 2026-08-30 listed 123 fields and the
+        only time-related one is ``loadingTime``: there is no ``TimeLimit`` and
+        no ``EndShipping`` control at all.
+        """
+        for selector in selectors:
+            try:
+                if await self.page.query_selector(selector) is not None:
+                    return True
+            except Exception:
+                continue
+        return False
+
+    async def _fill_optional_shipping_field(
+        self, selectors: list[str], value: Any, field_label: str
+    ) -> None:
+        if not await self._any_selector_attached(selectors):
+            self._record_selector_inventory(
+                field_label=field_label,
+                selectors=list(selectors),
+                status="absent-in-utcms",
+                value=str(value),
+            )
+            logger.info(
+                "shipping_option_absent_in_utcms",
+                extra={"extra_fields": {"field": field_label, "selectors": list(selectors)}},
+            )
+            return
+        await self._fill_with_fallback(selectors, str(value), field_label, required=False)
+
     async def _fill_shipping_options(self, shipping_opts: dict[str, Any]):
         """مدیریت گزینه‌های حمل (two_way، end_shipping، time_limit)"""
         if not isinstance(shipping_opts, dict):
@@ -4256,7 +4332,7 @@ class EnhancedWaybillManager:
                 "ثبت دو طرفه",
             )
         if shipping_opts.get("end_shipping"):
-            await self._fill_with_fallback(
+            await self._fill_optional_shipping_field(
                 [
                     "input[name='EndShipping']",
                     "input[id='EndShipping']",
@@ -4264,12 +4340,11 @@ class EnhancedWaybillManager:
                     "input[name='txtEndShipping']",
                     "input[id='txtEndShipping']",
                 ],
-                str(shipping_opts["end_shipping"]),
+                shipping_opts["end_shipping"],
                 "تاریخ پایان حمل",
-                required=False,
             )
         if shipping_opts.get("time_limit"):
-            await self._fill_with_fallback(
+            await self._fill_optional_shipping_field(
                 [
                     "input[name='TimeLimit']",
                     "input[id='TimeLimit']",
@@ -4277,9 +4352,8 @@ class EnhancedWaybillManager:
                     "input[name='txtTimeLimit']",
                     "input[id='txtTimeLimit']",
                 ],
-                str(shipping_opts["time_limit"]),
+                shipping_opts["time_limit"],
                 "محدودیت زمانی",
-                required=False,
             )
 
     async def _check_checkbox_with_fallback(
@@ -4701,6 +4775,12 @@ class EnhancedWaybillManager:
 
         # 2. بررسی سلکتورهای DOM
         otp_selectors = [
+            # UTCMS's real challenge: the save response carries
+            # ``obj.isOtpNeeded`` and the page then shows ``#GetOptCodeModal``
+            # with ``#otp`` inside it.  Match the *open* modal only.
+            "#GetOptCodeModal.show",
+            "#GetOptCodeModal[aria-hidden='false']",
+            "#GetOptCodeModal.show #otp",
             "input#sms-code",
             "div.otp-challenge",
             "#submitOtp",
@@ -4713,8 +4793,16 @@ class EnhancedWaybillManager:
             "input[name*='otp' i]",
             "input[id*='verification' i]",
             "input[name*='verification' i]",
-            "input[placeholder*='کد']",
-            "input[placeholder*='پیامک']",
+            # ``input[placeholder*='کد']`` used to live here, but the DNT captcha
+            # box ("کد امنیتی") matches it, so every run with a captcha reported
+            # an OTP challenge.  Only SMS/verification wording counts now, and
+            # captcha inputs are excluded explicitly.
+            f"input[placeholder*='کد پیامک']{_NOT_CAPTCHA}",
+            f"input[placeholder*='کد تایید']{_NOT_CAPTCHA}",
+            f"input[placeholder*='کد تأیید']{_NOT_CAPTCHA}",
+            f"input[placeholder*='کد یکبار']{_NOT_CAPTCHA}",
+            f"input[placeholder*='کد ارسال']{_NOT_CAPTCHA}",
+            f"input[placeholder*='پیامک']{_NOT_CAPTCHA}",
             "#FormSendOtpCode",
             "#FormSendOtpCode input[name='otp']",
             "#FormSendOtpCode input[id='otp']",
@@ -4727,16 +4815,23 @@ class EnhancedWaybillManager:
         ]
         for selector in otp_selectors:
             try:
-                if await self._is_selector_visible(selector):
+                if await self._is_active_selector_visible(selector):
                     return True, {"source": "dom_selector", "selector": selector}
             except Exception:
                 continue
 
         # 3. بررسی متن‌های فارسی در مدال‌ها و پیام‌های باز روی صفحه
         try:
+            # Only *open* dialogs count.  ``#FormSendOtpCode`` and ``#modalOtp``
+            # ship with the page and their own copy carries the OTP wording, so
+            # reading them unconditionally reported an OTP challenge on every
+            # single run.  ``.modal.show`` / ``aria-hidden="false"`` is the state
+            # UTCMS actually toggles when it raises the challenge.
             modal_text = await self.page.evaluate("""() => {
-            const elements = Array.from(document.querySelectorAll('.modal.show, .swal2-container, .toast, .alert, #divOtp, #modalOtp, #FormSendOtpCode, .modal-open'));
-                    return elements.map(el => el.innerText || el.textContent || '').join(' ');
+                    const open = Array.from(document.querySelectorAll(
+                        '.modal.show, .modal[aria-hidden="false"], .swal2-container, .toast.show, .alert:not(.d-none)'
+                    ));
+                    return open.map(el => el.innerText || el.textContent || '').join(' ');
                 }""")
             if modal_text:
                 for kw in self._otp_persian_keywords:
@@ -4994,6 +5089,11 @@ class EnhancedWaybillManager:
             return False
 
         # ── Step 1: Click "مرحله نهایی" ──
+        # ── Step 1: Enter the final stage ──
+        # ``#GoFinalStep`` is *UTCMS's own* post-save navigation: the page clicks
+        # it after a successful save to reveal the tracking-code step, so it is
+        # hidden before submission and must not gate the run.  The authoritative
+        # readiness signal is the final submit control below.
         final_stage_clicked = await resilient_click(
             [
                 "#btnregisterbarname",
@@ -5003,8 +5103,6 @@ class EnhancedWaybillManager:
             wait_after=0.5,
             max_retries=1,
         )
-        if not final_stage_clicked:
-            raise WaybillError("ورود به مرحله نهایی ثبت بارنامه تایید نشد")
 
         # ── Step 1.5: Wait for final stage loading ──
         final_submit_ready = False
@@ -5018,6 +5116,10 @@ class EnhancedWaybillManager:
                     break
         if not final_submit_ready:
             raise WaybillError("مرحله نهایی UTCMS آماده نشد؛ ثبت ارسال نشد")
+        logger.info(
+            "final_stage_ready",
+            extra={"extra_fields": {"navigation_clicked": bool(final_stage_clicked)}},
+        )
 
         # ── Step 2: Solve captcha (if present) ──
         await self._handle_submit_captcha_if_present()
@@ -5440,12 +5542,15 @@ class EnhancedWaybillManager:
             "input[name='sendsmsvalue']",
         )
 
-        async def any_visible(selectors: tuple[str, ...]) -> tuple[bool, str | None]:
+        async def any_visible(selectors: tuple[str, ...], skip_closed_modals: bool = False) -> tuple[bool, str | None]:
             for selector in selectors:
                 try:
                     locator = self.page.locator(selector).first
-                    if await locator.is_visible(timeout=700):
-                        return True, selector
+                    if not await locator.is_visible(timeout=700):
+                        continue
+                    if skip_closed_modals and await self._is_inside_closed_modal(selector):
+                        continue
+                    return True, selector
                 except Exception as exc:
                     logger.debug(
                         "final_stage_selector_probe_failed",
@@ -5456,7 +5561,9 @@ class EnhancedWaybillManager:
 
         submit_visible, submit_selector = await any_visible(submit_selectors)
         captcha_visible, captcha_selector = await any_visible(captcha_selectors)
-        sms_visible, sms_selector = await any_visible(sms_selectors)
+        # The SMS-dispatch control lives inside the OTP modal, so a closed modal
+        # must not be reported as an available dispatch surface.
+        sms_visible, sms_selector = await any_visible(sms_selectors, skip_closed_modals=True)
         sms_notification_visible, sms_notification_selector = await any_visible(sms_notification_selectors)
         otp_detected, otp_evidence = await self._detect_otp_required_with_evidence()
         passive_otp_settings = await self._read_passive_otp_settings()

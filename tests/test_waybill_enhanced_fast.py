@@ -718,3 +718,109 @@ class TestTajmiFleetBackfill(unittest.IsolatedAsyncioTestCase):
         self.manager._fetch_via_bridge = AsyncMock()
         self.assertEqual(await self.manager._populate_tajmi_driver_options_via_bridge(None), 0)
         self.manager._fetch_via_bridge.assert_not_awaited()
+
+
+class TestOtpFalsePositiveGuards(unittest.IsolatedAsyncioTestCase):
+    """A closed OTP modal must never read as an OTP challenge.
+
+    UTCMS ships ``#submitOtp`` and the whole ``FormSendOtpCode`` form inside a
+    Bootstrap modal that is present from the first paint; only
+    ``.modal { display: none }`` keeps it hidden.  Any run whose stylesheets are
+    missing sees a fully laid-out dialog, so geometric visibility alone reported
+    an OTP challenge on every job and closed the submission gate.
+    """
+
+    def setUp(self):
+        self.mock_page = AsyncMock()
+        self.mock_page.on = Mock()
+        self.mock_page.remove_listener = Mock()
+        self.patchers = [
+            patch("app.automation.waybill_enhanced.PageInteractor"),
+            patch("app.automation.waybill_enhanced.MapController"),
+            patch("app.automation.waybill_enhanced.LocationSelector"),
+            patch("app.automation.waybill_enhanced.RouteCalculator"),
+            patch("app.automation.waybill_enhanced.SmartLocator"),
+        ]
+        for patcher in self.patchers:
+            patcher.start()
+        self.manager = EnhancedWaybillManager(self.mock_page, AsyncMock())
+
+    def tearDown(self):
+        for patcher in self.patchers:
+            patcher.stop()
+
+    async def test_a_visible_control_in_a_closed_modal_is_not_an_otp_challenge(self):
+        self.manager._is_selector_visible = AsyncMock(return_value=True)
+        self.manager._is_inside_closed_modal = AsyncMock(return_value=True)
+        self.mock_page.evaluate = AsyncMock(return_value="")
+
+        detected, evidence = await self.manager._detect_otp_required_with_evidence()
+
+        self.assertFalse(detected)
+        self.assertEqual(evidence, {})
+
+    async def test_a_control_in_an_open_modal_is_an_otp_challenge(self):
+        self.manager._is_selector_visible = AsyncMock(return_value=True)
+        self.manager._is_inside_closed_modal = AsyncMock(return_value=False)
+
+        detected, evidence = await self.manager._detect_otp_required_with_evidence()
+
+        self.assertTrue(detected)
+        self.assertEqual(evidence.get("source"), "dom_selector")
+
+    async def test_only_open_dialogs_are_scanned_for_otp_wording(self):
+        self.manager._is_selector_visible = AsyncMock(return_value=False)
+        self.mock_page.evaluate = AsyncMock(return_value="")
+
+        await self.manager._detect_otp_required_with_evidence()
+
+        script = self.mock_page.evaluate.await_args_list[0].args[0]
+        self.assertIn(".modal.show", script)
+        self.assertNotIn("#FormSendOtpCode", script)
+
+
+class TestOptionalShippingFields(unittest.IsolatedAsyncioTestCase):
+    """UTCMS has no time-limit or end-of-shipping control.
+
+    A live inventory of the issuance form on 2026-08-30 listed 123 fields whose
+    only time-related one is ``loadingTime``.  Probing five selectors for a
+    control that does not exist cost a 5s SmartLocator timeout each -- 25s per
+    run -- and ended in a warning that read like a regression.
+    """
+
+    def setUp(self):
+        self.mock_page = AsyncMock()
+        self.mock_page.on = Mock()
+        self.mock_page.remove_listener = Mock()
+        self.patchers = [
+            patch("app.automation.waybill_enhanced.PageInteractor"),
+            patch("app.automation.waybill_enhanced.MapController"),
+            patch("app.automation.waybill_enhanced.LocationSelector"),
+            patch("app.automation.waybill_enhanced.RouteCalculator"),
+            patch("app.automation.waybill_enhanced.SmartLocator"),
+        ]
+        for patcher in self.patchers:
+            patcher.start()
+        self.manager = EnhancedWaybillManager(self.mock_page, AsyncMock())
+        self.manager._fill_with_fallback = AsyncMock()
+
+    def tearDown(self):
+        for patcher in self.patchers:
+            patcher.stop()
+
+    async def test_an_absent_control_is_never_probed_selector_by_selector(self):
+        self.mock_page.query_selector = AsyncMock(return_value=None)
+
+        await self.manager._fill_shipping_options({"time_limit": 60})
+
+        self.manager._fill_with_fallback.assert_not_awaited()
+        key = "bootstrap:محدودیت زمانی"
+        self.assertEqual(self.manager._selector_inventory[key]["status"], "absent-in-utcms")
+
+    async def test_a_present_control_is_still_filled(self):
+        self.mock_page.query_selector = AsyncMock(return_value=object())
+
+        await self.manager._fill_shipping_options({"time_limit": 60})
+
+        self.manager._fill_with_fallback.assert_awaited_once()
+        self.assertEqual(self.manager._fill_with_fallback.await_args.args[1], "60")

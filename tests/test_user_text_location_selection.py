@@ -192,6 +192,9 @@ async def test_direct_fill_reads_back_the_exact_successful_selectors(mock_page):
     )
     selector._fill_input_like = AsyncMock(side_effect=[False, True])
     selector._read_element_value = AsyncMock(return_value="خیابان آزادی پلاک ۱۰")
+    # Holding the selection is covered separately; here only the read-back
+    # selectors are under test.
+    selector._hold_select_value = AsyncMock(return_value=True)
     mock_page.eval_on_selector = AsyncMock(return_value=None)
 
     result = await selector._try_utcms_direct_fill(
@@ -232,3 +235,164 @@ async def test_find_best_option_match_unique_substring_only():
         or selector._find_best_option_match(multi_options, "تهر") is None
     )
     assert selector._find_best_option_match(multi_options, "تهر") is None
+
+
+class TestHiddenSelectAndBackfill:
+    """The collapsed pill pane and UTCMS's broken ``fillStates`` handler.
+
+    UTCMS serves ``fillStates`` as ``application/json``, so its own handler
+    iterates the ``{resultCode, resultMessage, obj}`` envelope and leaves three
+    ``undefined`` options behind, and the origin/destination selects live in a
+    ``display:none`` pill pane until the tab is activated.  Both states used to
+    surface as «گزینه‌های استان بارگذاری نشدند».
+    """
+
+    @pytest.mark.asyncio
+    async def test_resolve_selector_falls_back_to_hidden_element(self):
+        page = MagicMock()
+        page.query_selector = AsyncMock(side_effect=[None, MagicMock()])
+        selector = LocationSelector(page)
+
+        assert await selector._resolve_selector("#ddStateSource") == "#ddStateSource"
+        assert page.query_selector.await_args_list == [
+            call("#ddStateSource:visible"),
+            call("#ddStateSource"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_resolve_selector_prefers_visible_match(self):
+        page = MagicMock()
+        page.query_selector = AsyncMock(return_value=MagicMock())
+        selector = LocationSelector(page)
+
+        assert await selector._resolve_selector("#ddStateSource") == "#ddStateSource:visible"
+
+    @pytest.mark.asyncio
+    async def test_resolve_selector_returns_none_when_detached(self):
+        page = MagicMock()
+        page.query_selector = AsyncMock(return_value=None)
+        selector = LocationSelector(MagicMock())
+        selector.page = page
+
+        assert await selector._resolve_selector("#missing") is None
+
+    @pytest.mark.asyncio
+    async def test_undefined_only_options_trigger_backfill_from_utcms(self):
+        page = MagicMock()
+        page.query_selector = AsyncMock(return_value=MagicMock())
+        page.evaluate = AsyncMock(
+            return_value={
+                "resultCode": 200,
+                "obj": [
+                    {"id": 4, "name": "آذربایجان شرقى"},
+                    {"id": 8, "name": "خراسان رضوى"},
+                ],
+            }
+        )
+        page.eval_on_selector = AsyncMock(return_value=2)
+        selector = LocationSelector(page)
+        # What the page's own fillStates handler leaves behind.
+        selector._read_select_options = AsyncMock(
+            return_value=[
+                {"value": "", "text": "انتخاب کنید..."},
+                {"value": "undefined", "text": "undefined"},
+                {"value": "undefined", "text": "undefined"},
+                {"value": "undefined", "text": "undefined"},
+            ]
+        )
+
+        assert await selector._ensure_province_options(["#ddStateSource"]) is True
+
+        page.evaluate.assert_awaited_once()
+        assert "/Barname/Document/FillProvinces" in page.evaluate.await_args.args[1]
+        applied = page.eval_on_selector.await_args.args[2]
+        assert applied == [
+            {"value": "4", "text": "آذربایجان شرقى"},
+            {"value": "8", "text": "خراسان رضوى"},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_city_backfill_uses_the_selected_state_id(self):
+        page = MagicMock()
+        page.query_selector = AsyncMock(return_value=MagicMock())
+        page.evaluate = AsyncMock(return_value={"resultCode": 200, "obj": [{"id": 91, "name": "کاشمر"}]})
+        page.eval_on_selector = AsyncMock(return_value=1)
+        selector = LocationSelector(page)
+        selector._read_select_options = AsyncMock(return_value=[{"value": "", "text": "انتخاب کنید..."}])
+
+        assert await selector._ensure_city_options(["#ddCitySource"], "8") is True
+        assert "/Barname/Document/FillCities?StateId=8" in page.evaluate.await_args.args[1]
+
+    @pytest.mark.asyncio
+    async def test_backfill_is_skipped_when_utcms_rejects_the_request(self):
+        page = MagicMock()
+        page.query_selector = AsyncMock(return_value=MagicMock())
+        page.evaluate = AsyncMock(return_value={"error": "HTTP 500"})
+        page.eval_on_selector = AsyncMock(return_value=0)
+        selector = LocationSelector(page)
+        selector._read_select_options = AsyncMock(return_value=[{"value": "", "text": "انتخاب کنید..."}])
+
+        assert await selector._ensure_province_options(["#ddStateSource"]) is False
+        page.eval_on_selector.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_arabic_alef_maksura_normalizes_to_persian_yeh(self):
+        selector = LocationSelector(MagicMock())
+        assert selector._normalize_text("خراسان رضوى") == selector._normalize_text("خراسان رضوی")
+        options = [{"value": "8", "text": "خراسان رضوى"}]
+        assert selector._find_best_option_match(options, selector._normalize_text("خراسان رضوی")) == "8"
+
+
+class TestSelectionSurvivesLateAjax:
+    """``FillCities`` answers seconds after the province change and empties the
+    city select, wiping a selection that read back correctly a moment earlier."""
+
+    @pytest.mark.asyncio
+    async def test_city_selection_is_reasserted_after_the_list_is_rebuilt(self):
+        page = MagicMock()
+        page.query_selector = AsyncMock(return_value=MagicMock())
+        selector = LocationSelector(page)
+        # First poll: the page has just cleared the selection. Then it holds.
+        selector._read_selected_option = AsyncMock(
+            side_effect=[
+                {"value": "", "text": "انتخاب کنید"},
+                {"value": "1200", "text": "کاشمر"},
+                {"value": "1200", "text": "کاشمر"},
+                {"value": "1200", "text": "کاشمر"},
+                {"value": "1200", "text": "کاشمر"},
+                {"value": "1200", "text": "کاشمر"},
+                {"value": "1200", "text": "کاشمر"},
+                {"value": "1200", "text": "کاشمر"},
+                {"value": "1200", "text": "کاشمر"},
+                {"value": "1200", "text": "کاشمر"},
+                {"value": "1200", "text": "کاشمر"},
+                {"value": "1200", "text": "کاشمر"},
+                {"value": "1200", "text": "کاشمر"},
+                {"value": "1200", "text": "کاشمر"},
+            ]
+        )
+        selector._reapply_option_value = AsyncMock(return_value="ok")
+
+        assert await selector._hold_select_value("#ddCitySource", "1200", settle_ms=600) is True
+        selector._reapply_option_value.assert_awaited_once_with("#ddCitySource", "1200")
+
+    @pytest.mark.asyncio
+    async def test_hold_refills_options_when_the_value_disappeared(self):
+        page = MagicMock()
+        selector = LocationSelector(page)
+        selector._read_selected_option = AsyncMock(return_value={"value": "", "text": ""})
+        selector._reapply_option_value = AsyncMock(side_effect=["missing", "ok", "ok", "ok", "ok", "ok", "ok"])
+        refill = AsyncMock(return_value=True)
+
+        await selector._hold_select_value("#ddCitySource", "1200", settle_ms=600, refill=refill)
+
+        refill.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_hold_fails_loudly_when_the_value_cannot_be_restored(self):
+        page = MagicMock()
+        selector = LocationSelector(page)
+        selector._read_selected_option = AsyncMock(return_value={"value": "", "text": ""})
+        selector._reapply_option_value = AsyncMock(return_value="missing")
+
+        assert await selector._hold_select_value("#ddCitySource", "1200", settle_ms=600) is False

@@ -495,21 +495,30 @@ async def test_authenticated_landing_assets_stay_native_until_form_is_consumed()
 
 
 @pytest.mark.asyncio
-async def test_stylesheet_is_stubbed_without_touching_the_network() -> None:
-    """A stalled stylesheet must not block the parser or spend a handshake."""
+async def test_stylesheet_is_fetched_not_stubbed() -> None:
+    """CSS is behaviour here, not decoration.
+
+    ``#submitOtp`` and the whole ``FormSendOtpCode`` form ship inside a Bootstrap
+    modal that only ``.modal { display: none }`` keeps hidden.  With an empty CSS
+    stub the closed OTP dialog is fully laid out, Playwright reports it visible,
+    and the bot records an OTP challenge UTCMS never raised -- which closes the
+    submission gate for every job.
+    """
     page = MagicMock()
     bridge = UtcmsHttpBrowserBridge(page, proxy_url="http://127.0.0.1:3128")
     bridge._authenticated_document_bridge = True
     bridge._form_assets_bridge_enabled = True
-    session = MagicMock()
-    session.request.side_effect = RuntimeError("tls reset")
-    bridge._document_session = session
+    login_session = MagicMock()
+    bridge._document_session = login_session
     bridge._document_session_warmed = True
-    bridge._new_session = MagicMock(return_value=session)
-    # Asset traffic runs on the disposable asset session, so that is the seam the
-    # route handler actually reaches for -- patching _new_session alone let a REAL
-    # curl session through to the configured proxy.
-    bridge._ensure_asset_session = AsyncMock(return_value=session)
+    asset_session = MagicMock()
+    asset_session.request.return_value = MagicMock(
+        status_code=200,
+        content=b".modal{display:none}",
+        headers={"Content-Type": "text/css"},
+    )
+    bridge._new_session = MagicMock(return_value=asset_session)
+    bridge._ensure_asset_session = AsyncMock(return_value=asset_session)
 
     request = MagicMock()
     request.url = "https://barname.utcms.ir/assets/vendor/css/core.css"
@@ -524,13 +533,41 @@ async def test_stylesheet_is_stubbed_without_touching_the_network() -> None:
 
     await bridge._handle_route(route)
 
-    assert session.request.call_count == 0
+    assert asset_session.request.call_count == 1
+    login_session.request.assert_not_called()
     route.continue_.assert_not_awaited()
-    route.fulfill.assert_awaited_once_with(
-        status=200,
-        headers={"content-type": "text/css; charset=utf-8"},
-        body=b"",
-    )
+    fulfilled = route.fulfill.await_args.kwargs
+    assert fulfilled["status"] == 200
+    assert fulfilled["body"] == b".modal{display:none}"
+
+
+@pytest.mark.asyncio
+async def test_font_is_stubbed_without_touching_the_network() -> None:
+    """Fonts stay stubbed: they cost handshakes and cannot change visibility."""
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page, proxy_url="http://127.0.0.1:3128")
+    bridge._authenticated_document_bridge = True
+    bridge._form_assets_bridge_enabled = True
+    session = MagicMock()
+    bridge._document_session = session
+    bridge._document_session_warmed = True
+    bridge._new_session = MagicMock(return_value=session)
+    bridge._ensure_asset_session = AsyncMock(return_value=session)
+
+    request = MagicMock()
+    request.url = "https://barname.utcms.ir/assets/vendor/fonts/iran.woff2"
+    request.method = "GET"
+    request.resource_type = "font"
+    request.post_data_buffer = None
+    request.all_headers = AsyncMock(return_value={})
+    route = MagicMock(request=request)
+    route.continue_ = AsyncMock()
+    route.abort = AsyncMock()
+    route.fulfill = AsyncMock()
+
+    await bridge._handle_route(route)
+
+    assert session.request.call_count == 0
 
 
 @pytest.mark.asyncio
@@ -754,7 +791,7 @@ async def test_script_prefetch_warms_every_same_origin_script_critical_first() -
     )
     bridge._ensure_asset_session = AsyncMock(return_value=asset_session)
 
-    await bridge._prefetch_document_scripts(
+    await bridge._prefetch_document_assets(
         "https://barname.utcms.ir/barname/Document/HagigiHogugi", html
     )
 
@@ -777,6 +814,54 @@ async def test_script_prefetch_warms_every_same_origin_script_critical_first() -
 
 
 @pytest.mark.asyncio
+async def test_asset_prefetch_warms_stylesheets_after_scripts() -> None:
+    """Stylesheets are warmed too, last, and only from the same origin.
+
+    Scripts still come first because the form initialises from them, but the CSS
+    has to be on disk as well: it is what keeps the closed OTP modal hidden, and
+    an empty stylesheet turns that modal into a false OTP-required reading.
+    """
+    page = MagicMock()
+    bridge = UtcmsHttpBrowserBridge(page)
+    bridge._session = MagicMock()
+    html = (
+        b"<html><head>"
+        b"<link rel='stylesheet' href='/assets/vendor/css/core.css'>"
+        b"<script src='/assets/plugins/jquery/jquery.js'></script>"
+        b"<link rel=stylesheet href='/assets/vendor/css/bootstrap.css?v=2'>"
+        b"<link rel='icon' href='/assets/img/favicon.ico'>"
+        b"<link rel='stylesheet' href='https://cdn.example.com/x.css'>"
+        b"</head></html>"
+    )
+    asset_session = MagicMock()
+    asset_session.request.return_value = MagicMock(
+        status_code=200,
+        content=b"body{}",
+        headers={"Content-Type": "text/css"},
+    )
+    bridge._ensure_asset_session = AsyncMock(return_value=asset_session)
+
+    await bridge._prefetch_document_assets(
+        "https://barname.utcms.ir/barname/Document/HagigiHogugi", html
+    )
+
+    fetched = [call.args[1] for call in asset_session.request.call_args_list]
+    assert fetched == [
+        "https://barname.utcms.ir/assets/plugins/jquery/jquery.js",
+        "https://barname.utcms.ir/assets/vendor/css/core.css",
+        "https://barname.utcms.ir/assets/vendor/css/bootstrap.css?v=2",
+    ]
+    # A non-stylesheet <link> and an off-host stylesheet are both left alone.
+    assert "https://barname.utcms.ir/assets/img/favicon.ico" not in fetched
+    assert "https://cdn.example.com/x.css" not in fetched
+    dests = [
+        call.kwargs["headers"]["Sec-Fetch-Dest"]
+        for call in asset_session.request.call_args_list
+    ]
+    assert dests == ["script", "style", "style"]
+
+
+@pytest.mark.asyncio
 async def test_script_prefetch_survives_a_dead_asset_connection() -> None:
     """Every critical file is still attempted, and nothing is recorded as cached."""
     page = MagicMock()
@@ -791,7 +876,7 @@ async def test_script_prefetch_survives_a_dead_asset_connection() -> None:
     asset_session.request.side_effect = RuntimeError("connection reset")
     bridge._ensure_asset_session = AsyncMock(return_value=asset_session)
 
-    await bridge._prefetch_document_scripts(
+    await bridge._prefetch_document_assets(
         "https://barname.utcms.ir/barname/Document/HagigiHogugi", html
     )
 
@@ -832,7 +917,7 @@ async def test_failed_script_prefetch_does_not_abort_the_document() -> None:
     session.request.side_effect = _respond
     bridge._ensure_asset_session = AsyncMock(return_value=session)
 
-    await bridge._prefetch_document_scripts(
+    await bridge._prefetch_document_assets(
         "https://barname.utcms.ir/barname/Document/HagigiHogugi", html
     )
 

@@ -160,23 +160,29 @@ def _is_critical_form_script(url: str) -> bool:
     return any(marker in lowered for marker in _CRITICAL_FORM_SCRIPT_MARKERS)
 
 
-def _is_script_asset(url: str, resource_type: Any = None) -> bool:
-    """Is this asset a script?
+def _is_behavioural_asset(url: str, resource_type: Any = None) -> bool:
+    """Does this asset change what the automation can observe or do?
 
-    Live diagnosis on 2026-08-28 killed the assumption that non-critical
-    scripts are cosmetic: the issuance template's document-ready handler calls
-    ``FormDocumenDetailsRegister`` and instantiates
+    Scripts: live diagnosis on 2026-08-28 killed the assumption that
+    non-critical scripts are cosmetic.  The issuance template's document-ready
+    handler calls ``FormDocumenDetailsRegister`` and instantiates
     ``FormValidation.Framework.Bootstrap``, and neither is defined in the eight
     hand-listed critical files.  Stubbing their defining bundles with an empty
     body made the ready handler throw, and because it throws NOTHING after it
     runs: no cargo autocomplete, no ``fillBoxType``, no
     ``GETUserFleetListTajmi``, no plate/driver change handlers, no cargo modal.
-    So every same-origin script is now fetched and cached; only stylesheets,
-    fonts and images -- which genuinely cannot break behaviour -- are stubbed.
+
+    Stylesheets: on 2026-08-30 an empty CSS stub was traced to a false
+    ``otp_challenge_visible`` reading.  ``#submitOtp`` lives in the closed
+    ``FormSendOtpCode`` Bootstrap modal, and ``.modal { display: none }`` comes
+    from the stubbed stylesheet -- so with CSS empty-bodied, every hidden modal
+    has a real box and Playwright reports it visible.  The bot's OTP/CAPTCHA
+    gate decisions are visibility decisions, so CSS is behaviour here, not
+    decoration.  Only fonts and images are stubbed now.
     """
-    if isinstance(resource_type, str) and resource_type == "script":
+    if isinstance(resource_type, str) and resource_type in {"script", "stylesheet"}:
         return True
-    return urlparse(url).path.lower().endswith(".js")
+    return urlparse(url).path.lower().endswith((".js", ".css"))
 
 
 def _asset_stub_content_type(url: str) -> str:
@@ -668,7 +674,7 @@ class UtcmsHttpBrowserBridge:
             response_headers,
             body,
         )
-        await self._prefetch_document_scripts(form_url, body)
+        await self._prefetch_document_assets(form_url, body)
         # The connection is alive right now.  Chromium's navigate+render gap on
         # its own exceeds UTCMS's ~30s tunnel idle timeout, so start holding the
         # connection open here rather than waiting for the XHR swap — by then it
@@ -680,8 +686,8 @@ class UtcmsHttpBrowserBridge:
         parsed = urlparse(url)
         return f"{parsed.path.lower()}?{parsed.query}" if parsed.query else parsed.path.lower()
 
-    async def _prefetch_document_scripts(self, form_url: str, body: bytes) -> None:
-        """Warm the issuance form's scripts, critical files first.
+    async def _prefetch_document_assets(self, form_url: str, body: bytes) -> None:
+        """Warm the issuance form's scripts and stylesheets, critical files first.
 
         Fetches always go on the disposable asset session (see
         ``_ensure_asset_session``), never on a caller-supplied one -- the whole
@@ -703,13 +709,30 @@ class UtcmsHttpBrowserBridge:
         """
         html = body.decode("utf-8", errors="ignore")
         candidates: list[str] = []
-        for src in re.findall(r'<script[^>]+src=["\']([^"\']+)', html, flags=re.IGNORECASE):
-            script_url = urljoin(form_url, src)
-            parsed = urlparse(script_url)
+
+        def _add(raw: str) -> None:
+            asset_url = urljoin(form_url, raw)
+            parsed = urlparse(asset_url)
             if parsed.scheme not in {"http", "https"} or parsed.hostname != _UTCMS_HOST:
+                return
+            if asset_url not in candidates:
+                candidates.append(asset_url)
+
+        for src in re.findall(r'<script[^>]+src=["\']([^"\']+)', html, flags=re.IGNORECASE):
+            _add(src)
+        # Stylesheets are warmed for a different reason than scripts: the bot's
+        # OTP/CAPTCHA decisions are visibility decisions, and Bootstrap's
+        # ``.modal { display: none }`` is what keeps a closed modal invisible.
+        # They go last because nothing initialises from them.
+        stylesheet_start = len(candidates)
+        for tag in re.findall(r"<link\b[^>]*>", html, flags=re.IGNORECASE):
+            if not re.search(r'rel\s*=\s*["\']?stylesheet', tag, flags=re.IGNORECASE):
                 continue
-            if script_url not in candidates:
-                candidates.append(script_url)
+            href = re.search(r'href\s*=\s*["\']([^"\']+)', tag, flags=re.IGNORECASE)
+            if href:
+                _add(href.group(1))
+        scripts = candidates[:stylesheet_start]
+        stylesheets = candidates[stylesheet_start:]
         # Critical files first: if the connection dies mid-warmup, the form must
         # still have everything it needs to initialise.  The rest follow in HTML
         # order — they are no longer optional.  Treating them as cosmetic and
@@ -717,8 +740,9 @@ class UtcmsHttpBrowserBridge:
         # FormValidation.Framework.Bootstrap undefined, which aborted the
         # template's document-ready handler and with it every runtime behaviour
         # the automation was reimplementing in Python.
-        ordered = [url for url in candidates if _is_critical_form_script(url)]
-        ordered += [url for url in candidates if not _is_critical_form_script(url)]
+        ordered = [url for url in scripts if _is_critical_form_script(url)]
+        ordered += [url for url in scripts if not _is_critical_form_script(url)]
+        ordered += stylesheets
 
         prefetched = 0
         cached = 0
@@ -728,10 +752,11 @@ class UtcmsHttpBrowserBridge:
         # on every run whose cache was already complete, and spare handshakes are
         # exactly what UTCMS's edge punishes.
         asset_session: Any = None
-        for script_url in ordered:
-            parsed = urlparse(script_url)
-            cache_key = self._request_cache_key(script_url)
-            critical = _is_critical_form_script(script_url)
+        for asset_url in ordered:
+            parsed = urlparse(asset_url)
+            cache_key = self._request_cache_key(asset_url)
+            critical = _is_critical_form_script(asset_url)
+            is_stylesheet = parsed.path.lower().endswith(".css")
             if await asyncio.to_thread(_read_asset_cache, cache_key) is not None:
                 cached += 1
                 continue
@@ -757,10 +782,10 @@ class UtcmsHttpBrowserBridge:
                     response = await self._call(
                         asset_session.request,
                         "GET",
-                        script_url,
+                        asset_url,
                         headers={
                             "Referer": form_url,
-                            "Sec-Fetch-Dest": "script",
+                            "Sec-Fetch-Dest": "style" if is_stylesheet else "script",
                             "Sec-Fetch-Mode": "no-cors",
                             "Sec-Fetch-Site": "same-origin",
                             "accept-encoding": "identity",
@@ -808,11 +833,12 @@ class UtcmsHttpBrowserBridge:
             # time instead of triggering a burst of parallel-looking handshakes.
             await asyncio.sleep(0.15)
         logger.info(
-            "http_browser_bridge_form_scripts_warmed fetched=%d already_cached=%d failed=%d candidates=%d",
+            "http_browser_bridge_form_assets_warmed fetched=%d already_cached=%d failed=%d candidates=%d stylesheets=%d",
             prefetched,
             cached,
             failures,
             len(ordered),
+            len(stylesheets),
         )
 
     async def _handle_route(self, route: Any) -> None:
@@ -1001,20 +1027,24 @@ class UtcmsHttpBrowserBridge:
                 status, cached_headers, cached_body = cached_asset
                 await route.fulfill(status=status, headers=cached_headers, body=cached_body)
                 return
-            # Stylesheets, fonts and images are answered from the stub: the
-            # issuance page pulls ~40 of them, routing that flood through curl
-            # forces dozens of fresh TLS handshakes that UTCMS's static surface
-            # resets, and none of them can change form behaviour.
+            # Fonts and images are answered from the stub: the issuance page
+            # pulls dozens of them, routing that flood through curl forces
+            # fresh TLS handshakes that UTCMS's static surface resets, and
+            # neither can change form behaviour or visibility.
             #
-            # Scripts are NOT stubbed any more.  Empty-bodying the "optional"
-            # ones is what broke the form: the template's ready handler calls
-            # FormDocumenDetailsRegister and constructs
+            # Scripts and stylesheets are NOT stubbed.  Empty-bodying the
+            # "optional" scripts is what broke the form: the template's ready
+            # handler calls FormDocumenDetailsRegister and constructs
             # FormValidation.Framework.Bootstrap, both defined outside the
             # hand-listed critical files, so the handler threw and every
-            # runtime behaviour that depends on it silently vanished.  A script
-            # cache miss therefore goes to the network on the disposable asset
-            # session, and only a real fetch failure leaves it empty.
-            if not _is_script_asset(request.url, getattr(request, "resource_type", None)):
+            # runtime behaviour that depends on it silently vanished.  Empty
+            # CSS was just as harmful in the other direction: without
+            # ``.modal { display: none }`` every closed modal -- including the
+            # OTP modal that owns #submitOtp -- reads as visible, so the bot
+            # mis-detected an OTP challenge that was never shown.  A cache miss
+            # therefore goes to the network on the disposable asset session, and
+            # only a real fetch failure leaves it empty.
+            if not _is_behavioural_asset(request.url, getattr(request, "resource_type", None)):
                 await route.fulfill(
                     status=200,
                     headers={"content-type": _asset_stub_content_type(request.url)},

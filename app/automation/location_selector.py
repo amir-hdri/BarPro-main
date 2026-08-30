@@ -4,6 +4,7 @@
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from playwright.async_api import Page
@@ -194,6 +195,8 @@ class LocationSelector:
     def __init__(self, page: Page):
         self.page = page
         self.map_controller = MapController(page)
+        # Selectors that only resolved once the ``:visible`` filter was dropped.
+        self._hidden_selector_fallbacks: set[str] = set()
 
     @staticmethod
     def _normalize_text(value: str | None) -> str:
@@ -202,6 +205,9 @@ class LocationSelector:
         normalized = str(value).strip().lower()
         replacements = {
             "ي": "ی",
+            # UTCMS returns province names with the Arabic alef maksura, e.g.
+            # "خراسان رضوى" / "آذربایجان شرقى", while operators type "رضوی".
+            "ى": "ی",
             "ك": "ک",
             "‌": "",
             "\u200f": "",
@@ -302,11 +308,51 @@ class LocationSelector:
 
         return self._unique_preserve_order(selectors)
 
+    async def _resolve_selector(self, selector: str) -> str | None:
+        """بازگرداندن شکل قابل‌کوئری یک selector با اولویت نسخه visible.
+
+        UTCMS چند مسیر مشروع برای پنهان کردن کنترل‌ها دارد: پنل pill غیرفعال،
+        جایگزینی select2 و wrapper های قالب.  یک ``select`` پنهان اما attached
+        همچنان فهرست گزینه‌های معتبر را نگه می‌دارد و همچنان رویداد ``change``
+        را منتشر می‌کند؛ پس اگر هیچ تطابق visible نبود، بازگشت به selector خام
+        جریان متنی را حفظ می‌کند -- جایی که فیلتر ``:visible`` تنها یک dropdown
+        خالی گزارش می‌کرد (ریشه شکست «گزینه‌های استان بارگذاری نشدند»).
+        """
+        if not selector:
+            return None
+
+        visible_selector = self._make_visible_selector(selector)
+        try:
+            if await self.page.query_selector(visible_selector):
+                return visible_selector
+        except Exception:
+            logger.debug("selector_visible_probe_failed", exc_info=True)
+
+        try:
+            if await self.page.query_selector(selector):
+                if selector not in self._hidden_selector_fallbacks:
+                    self._hidden_selector_fallbacks.add(selector)
+                    logger.info(
+                        "location_selector_hidden_fallback",
+                        extra={"extra_fields": {"selector": selector}},
+                    )
+                return selector
+        except Exception:
+            logger.debug("selector_attached_probe_failed", exc_info=True)
+
+        return None
+
     async def _fill_input_like(self, selector: str, value: str, visible: bool = True) -> bool:
         if not value:
             return False
 
-        target_selector = self._make_visible_selector(selector) if visible else selector
+        if visible:
+            resolved = await self._resolve_selector(selector)
+            if resolved is None:
+                return False
+            target_selector = resolved
+        else:
+            target_selector = selector
 
         # 1. Try native prototype setter bypass first (React/Vue/jQuery robust handling)
         try:
@@ -350,7 +396,7 @@ class LocationSelector:
         except Exception:
             logger.warning("location_selector_error", exc_info=True)
 
-        if not visible:
+        if not visible or target_selector == selector:
             # For hidden inputs, do not call page.fill (it will hang waiting for visibility)
             return False
 
@@ -448,7 +494,7 @@ class LocationSelector:
         # Force activate via JS if click didn't work
         try:
             await self.page.evaluate(
-                """(tabId, paneId) => {
+                """([tabId, paneId]) => {
                     const tab = document.getElementById(tabId);
                     const pane = document.getElementById(paneId);
                     if (!tab || !pane) return;
@@ -462,8 +508,7 @@ class LocationSelector:
                     pane.classList.add('active', 'show');
                     pane.scrollIntoView({ block: 'start', behavior: 'instant' });
                 }""",
-                tab_id,
-                pane_id,
+                [tab_id, pane_id],
             )
             await asyncio.sleep(0.06)
         except Exception:
@@ -471,8 +516,10 @@ class LocationSelector:
 
     async def _read_select_options(self, selector: str) -> list[dict[str, str]]:
         try:
-            visible_selector = self._make_visible_selector(selector)
-            option_parts = [f"{part.strip()} option" for part in visible_selector.split(",") if part.strip()]
+            resolved = await self._resolve_selector(selector)
+            if resolved is None:
+                return []
+            option_parts = [f"{part.strip()} option" for part in resolved.split(",") if part.strip()]
             option_selector = ", ".join(option_parts)
             options = await self.page.eval_on_selector_all(
                 option_selector,
@@ -514,6 +561,214 @@ class LocationSelector:
                     return True
             await asyncio.sleep(0.05)
         return False
+
+    async def _fetch_utcms_records(self, url: str) -> list[dict[str, Any]]:
+        """واکشی مستقیم رکوردهای مرجع UTCMS از همان endpoint خود سامانه.
+
+        درخواست از داخل صفحه (same-origin fetch) اجرا می‌شود تا از همان نشست
+        احراز هویت و همان مسیر bridge استفاده کند.  هیچ داده‌ای ساخته نمی‌شود؛
+        فقط پاسخ خود UTCMS خوانده می‌شود.
+        """
+        try:
+            payload = await self.page.evaluate(
+                """async (url) => {
+                    try {
+                        const response = await fetch(url, {
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                            credentials: 'same-origin',
+                        });
+                        if (!response.ok) return { error: 'HTTP ' + response.status };
+                        const text = await response.text();
+                        try {
+                            return JSON.parse(text);
+                        } catch (parseError) {
+                            return { error: 'unparsable' };
+                        }
+                    } catch (fetchError) {
+                        return { error: String(fetchError).slice(0, 160) };
+                    }
+                }""",
+                url,
+            )
+        except Exception:
+            logger.warning("utcms_reference_fetch_failed", extra={"extra_fields": {"url": url}}, exc_info=True)
+            return []
+
+        if not isinstance(payload, dict):
+            return []
+        if payload.get("error"):
+            logger.warning(
+                "utcms_reference_fetch_rejected",
+                extra={"extra_fields": {"url": url, "error": payload.get("error")}},
+            )
+            return []
+        if payload.get("resultCode") not in {0, 200, "0", "200"}:
+            logger.warning(
+                "utcms_reference_fetch_result_code",
+                extra={"extra_fields": {"url": url, "result_code": payload.get("resultCode")}},
+            )
+            return []
+
+        records = payload.get("obj")
+        if not isinstance(records, list):
+            return []
+        return [record for record in records if isinstance(record, dict)]
+
+    async def _backfill_select_options(self, selector: str, records: list[dict[str, Any]]) -> int:
+        """بازسازی گزینه‌های یک select از رکوردهای واقعی UTCMS.
+
+        هندلر خود سامانه (``fillStates``) پاسخ ``application/json`` را روی
+        envelope پیمایش می‌کند و سه گزینه ``undefined`` می‌سازد و گزینه‌های
+        واقعی را هم پاک می‌کند.  این متد همان select را با ``id``/``name``
+        واقعی بازنویسی می‌کند تا مقدار ارسالی به سامانه معتبر باشد.
+        """
+        pairs = [
+            {"value": str(record.get("id") or "").strip(), "text": str(record.get("name") or "").strip()}
+            for record in records
+        ]
+        pairs = [pair for pair in pairs if pair["value"] and pair["text"]]
+        if not pairs:
+            return 0
+
+        resolved = await self._resolve_selector(selector)
+        if resolved is None:
+            return 0
+
+        try:
+            applied = await self.page.eval_on_selector(
+                resolved,
+                """(el, options) => {
+                    const previous = el.value;
+                    el.innerHTML = '';
+                    const placeholder = document.createElement('option');
+                    placeholder.value = '';
+                    placeholder.textContent = 'انتخاب کنید';
+                    el.appendChild(placeholder);
+                    for (const option of options) {
+                        const node = document.createElement('option');
+                        node.value = option.value;
+                        node.textContent = option.text;
+                        el.appendChild(node);
+                    }
+                    if (previous && Array.from(el.options).some(o => o.value === previous)) {
+                        el.value = previous;
+                    }
+                    return el.options.length - 1;
+                }""",
+                pairs,
+            )
+        except Exception:
+            logger.warning("location_option_backfill_failed", extra={"extra_fields": {"selector": selector}})
+            return 0
+
+        count = int(applied or 0)
+        logger.info(
+            "location_options_backfilled",
+            extra={"extra_fields": {"selector": selector, "count": count}},
+        )
+        return count
+
+    async def _ensure_province_options(self, selectors: list[str]) -> bool:
+        """اطمینان از وجود گزینه‌های واقعی استان، در صورت نیاز با backfill."""
+        if await self._wait_for_select_options(selectors, min_real_options=1, timeout_ms=4000):
+            return True
+
+        records = await self._fetch_utcms_records("/Barname/Document/FillProvinces")
+        if not records:
+            return False
+        for selector in selectors:
+            if await self._backfill_select_options(selector, records):
+                return True
+        return False
+
+    async def _ensure_city_options(self, selectors: list[str], state_id: str) -> bool:
+        """اطمینان از وجود گزینه‌های واقعی شهر برای استان انتخاب‌شده."""
+        if await self._wait_for_select_options(selectors, min_real_options=1, timeout_ms=5000):
+            return True
+        if not state_id:
+            return False
+
+        records = await self._fetch_utcms_records(f"/Barname/Document/FillCities?StateId={state_id}")
+        if not records:
+            return False
+        for selector in selectors:
+            if await self._backfill_select_options(selector, records):
+                return True
+        return False
+
+    async def _reapply_option_value(self, selector: str, value: str) -> str:
+        """بازنشانی مقدار یک select بدون انتشار change (برای جلوگیری از حلقه AJAX)."""
+        resolved = await self._resolve_selector(selector)
+        if resolved is None:
+            return "detached"
+        try:
+            return str(
+                await self.page.eval_on_selector(
+                    resolved,
+                    """(el, wanted) => {
+                        const value = String(wanted ?? '');
+                        if (!Array.from(el.options || []).some(o => (o.getAttribute('value') || '') === value)) {
+                            return 'missing';
+                        }
+                        el.value = value;
+                        return el.value === value ? 'ok' : 'failed';
+                    }""",
+                    value,
+                )
+                or "failed"
+            )
+        except Exception:
+            logger.warning("location_option_reapply_failed", extra={"extra_fields": {"selector": selector}})
+            return "failed"
+
+    async def _hold_select_value(
+        self,
+        selector: str,
+        value: str,
+        *,
+        settle_ms: int = 3000,
+        refill: Callable[[], Awaitable[bool]] | None = None,
+    ) -> bool:
+        """نگه‌داشتن مقدار انتخاب‌شده تا زمانی که AJAX خود سامانه آرام بگیرد.
+
+        هندلر ``change`` روی ``#ddStateSource`` درخواست ``FillCities`` می‌فرستد و
+        در پاسخ، ``#ddCitySource`` را ``empty()`` می‌کند؛ پاسخی که ثانیه‌ها بعد از
+        انتخاب ما می‌رسد و انتخاب شهر را پاک می‌کند.  این متد در بازه‌ی مشخصی
+        مقدار را پایش می‌کند و در صورت پاک‌شدن دوباره اعمالش می‌کند -- بدون
+        انتشار ``change`` تا حلقه‌ی AJAX تکرار نشود.
+        """
+        if not value:
+            return False
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.5, settle_ms / 1000)
+        reapplied = 0
+        while loop.time() < deadline:
+            await asyncio.sleep(0.25)
+            current = await self._read_selected_option(selector)
+            if str(current.get("value") or "").strip() == value:
+                continue
+            outcome = await self._reapply_option_value(selector, value)
+            if outcome == "missing" and refill is not None:
+                if await refill():
+                    outcome = await self._reapply_option_value(selector, value)
+            if outcome == "ok":
+                reapplied += 1
+                continue
+            logger.warning(
+                "location_selection_hold_failed",
+                extra={"extra_fields": {"selector": selector, "value": value, "outcome": outcome}},
+            )
+            return False
+
+        final = await self._read_selected_option(selector)
+        held = str(final.get("value") or "").strip() == value
+        if reapplied:
+            logger.info(
+                "location_selection_reasserted",
+                extra={"extra_fields": {"selector": selector, "value": value, "times": reapplied, "held": held}},
+            )
+        return held
 
     async def _log_select_diagnostics(self, selector: str, field_label: str, target_value: str) -> None:
         try:
@@ -664,8 +919,11 @@ class LocationSelector:
     async def _read_element_value(self, selector: str) -> str:
         """بازخوانی مقدار متنی یک input یا textarea از DOM."""
         try:
+            resolved = await self._resolve_selector(selector)
+            if resolved is None:
+                return ""
             val = await self.page.eval_on_selector(
-                self._make_visible_selector(selector),
+                resolved,
                 "el => (el.value || el.innerText || el.textContent || '').trim()",
             )
             return str(val or "").strip()
@@ -675,8 +933,11 @@ class LocationSelector:
     async def _read_selected_option(self, selector: str) -> dict[str, str]:
         """بازخوانی مقدار و متن گزینه انتخاب‌شده در یک select از DOM."""
         try:
+            resolved = await self._resolve_selector(selector)
+            if resolved is None:
+                return {"value": "", "text": ""}
             return await self.page.eval_on_selector(
-                self._make_visible_selector(selector),
+                resolved,
                 """el => {
                     const opt = el.selectedOptions ? el.selectedOptions[0] : null;
                     return {
@@ -731,12 +992,8 @@ class LocationSelector:
             # ۱. اطمینان از فعال بودن تب
             await self._ensure_location_tab_active(prefix)
 
-            # ۲. انتظار و بارگذاری گزینه‌های استان
-            province_ready = await self._wait_for_select_options(
-                utcms["province"],
-                min_real_options=1,
-                timeout_ms=4000,
-            )
+            # ۲. انتظار و بارگذاری گزینه‌های استان (با backfill از خود UTCMS)
+            province_ready = await self._ensure_province_options(utcms["province"])
             if not province_ready:
                 return {
                     "success": False,
@@ -767,10 +1024,9 @@ class LocationSelector:
                 }
 
             # ۳. انتظار برای بارگذاری AJAX گزینه‌های شهر بعد از انتخاب استان
-            city_ready = await self._wait_for_select_options(
+            city_ready = await self._ensure_city_options(
                 utcms["city"],
-                min_real_options=1,
-                timeout_ms=5000,
+                str(province_readback.get("value") or "").strip(),
             )
             if not city_ready:
                 return {
@@ -825,6 +1081,26 @@ class LocationSelector:
                     "success": False,
                     "method": "utcms_direct_text",
                     "error": f"عدم تطابق Read-back آدرس ({prefix}): مورد انتظار='{address}'، بازخوانی‌شده='{addr_readback}'",
+                }
+
+            # ۷.۵ تثبیت انتخاب استان/شهر تا پاسخ AJAX خود سامانه آن را پاک نکند
+            province_value = str(province_readback.get("value") or "").strip()
+            city_value = str(city_readback.get("value") or "").strip()
+
+            async def _refill_cities() -> bool:
+                return await self._ensure_city_options([city_selector], province_value)
+
+            if not await self._hold_select_value(province_selector, province_value):
+                return {
+                    "success": False,
+                    "method": "utcms_direct_text",
+                    "error": f"مقدار استان ({prefix}) پس از پاسخ AJAX سامانه پایدار نماند",
+                }
+            if not await self._hold_select_value(city_selector, city_value, refill=_refill_cities):
+                return {
+                    "success": False,
+                    "method": "utcms_direct_text",
+                    "error": f"مقدار شهر ({prefix}) پس از پاسخ AJAX سامانه پایدار نماند",
                 }
 
             # ۸. بررسی خطاهای احتمالی فرم
@@ -1852,6 +2128,58 @@ class LocationSelector:
 
         return None
 
+    async def _select_option_via_js(self, selector: str, value_text: str, normalized_target: str) -> bool:
+        """انتخاب گزینه در یک select پنهان‌شده از طریق JS (بدون انتظار visibility).
+
+        فقط زمانی استفاده می‌شود که هیچ تطابق ``:visible`` وجود نداشته باشد؛
+        تطابق دقیقاً همان قاعده ``_find_best_option_match`` است، پس هیچ حدسی
+        روی چند گزینه مبهم زده نمی‌شود.
+        """
+        options = await self._read_select_options(selector)
+        if not options:
+            return False
+
+        target_value = self._find_best_option_match(options, normalized_target) or ""
+        if not target_value:
+            return False
+
+        try:
+            applied = await self.page.eval_on_selector(
+                selector,
+                """(el, wanted) => {
+                    const value = String(wanted ?? '');
+                    let matched = false;
+                    for (const option of Array.from(el.options || [])) {
+                        const optionValue = (option.getAttribute('value') || '').trim();
+                        const optionText = (option.textContent || '').trim();
+                        if (optionValue === value || optionText === value) {
+                            el.value = optionValue;
+                            option.selected = true;
+                            matched = true;
+                            break;
+                        }
+                    }
+                    if (!matched) return false;
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    if (window.jQuery) {
+                        window.jQuery(el).trigger('change');
+                    }
+                    return true;
+                }""",
+                target_value,
+            )
+        except Exception:
+            logger.warning("location_selector_error", exc_info=True)
+            return False
+
+        if not applied:
+            logger.info(
+                "location_option_match_failed",
+                extra={"extra_fields": {"selector": selector, "target": value_text, "mode": "hidden_js"}},
+            )
+        return bool(applied)
+
     async def _select_from_options_with_selector(self, selectors: list[str], value: str) -> str | None:
         """انتخاب گزینه و بازگرداندن همان selector موفق برای read-back دقیق."""
         if not value:
@@ -1862,9 +2190,15 @@ class LocationSelector:
 
         for selector in selectors:
             try:
-                visible_selector = self._make_visible_selector(selector)
-                element = await self.page.query_selector(visible_selector)
-                if not element:
+                visible_selector = await self._resolve_selector(selector)
+                if visible_selector is None:
+                    continue
+                if visible_selector == selector:
+                    # Hidden but attached (collapsed pane / select2 replacement):
+                    # ``page.select_option`` would block on the visibility check,
+                    # so drive the native select through JS instead.
+                    if await self._select_option_via_js(selector, value_text, normalized_target):
+                        return selector
                     continue
 
                 success = False
