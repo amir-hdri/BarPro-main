@@ -1036,6 +1036,14 @@ class LocationSelector:
                 }
 
             # ۴. انتخاب شهر بر اساس تطابق یکتا (بدون حدس اولین گزینه)
+            province_value = str(province_readback.get("value") or "").strip()
+            raw_city_options = await self._read_select_options(utcms["city"][0])
+            expected_city_val = (
+                self._find_best_option_match(raw_city_options, self._normalize_text(city))
+                if raw_city_options
+                else None
+            )
+
             city_selector = await self._select_from_options_with_selector(utcms["city"], city)
             if not city_selector:
                 return {
@@ -1044,6 +1052,16 @@ class LocationSelector:
                     "error": f"شهر '{city}' در میان گزینه‌های استان '{province}' ({prefix}) یافت نشد",
                 }
 
+            initial_city_readback = await self._read_selected_option(city_selector)
+            city_value = str(initial_city_readback.get("value") or expected_city_val or "").strip()
+
+            async def _refill_cities() -> bool:
+                return await self._ensure_city_options([city_selector], province_value)
+
+            # ۴.۵ تثبیت انتخاب شهر در برابر AJAX پاسخ FillCities سامانه
+            if city_value:
+                await self._hold_select_value(city_selector, city_value, settle_ms=1500, refill=_refill_cities)
+
             # ۵. Read-back شهر (مقدار و برچسب)
             city_readback = await self._read_selected_option(city_selector)
             norm_city_target = self._normalize_text(city)
@@ -1051,11 +1069,20 @@ class LocationSelector:
             if not city_readback.get("value") or (
                 norm_city_target not in norm_city_read and norm_city_read not in norm_city_target
             ):
-                return {
-                    "success": False,
-                    "method": "utcms_direct_text",
-                    "error": f"عدم تطابق Read-back شهر ({prefix}): مورد انتظار='{city}'، بازخوانی‌شده='{city_readback.get('text')}'",
-                }
+                if city_value:
+                    await self._reapply_option_value(city_selector, city_value)
+                    await asyncio.sleep(0.2)
+                    city_readback = await self._read_selected_option(city_selector)
+                    norm_city_read = self._normalize_text(city_readback.get("text", ""))
+
+                if not city_readback.get("value") or (
+                    norm_city_target not in norm_city_read and norm_city_read not in norm_city_target
+                ):
+                    return {
+                        "success": False,
+                        "method": "utcms_direct_text",
+                        "error": f"عدم تطابق Read-back شهر ({prefix}): مورد انتظار='{city}'، بازخوانی‌شده='{city_readback.get('text')}'",
+                    }
 
             # ۶. پر کردن آدرس متنی در textarea
             addr_filled = False
