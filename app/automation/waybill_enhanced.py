@@ -5133,147 +5133,179 @@ class EnhancedWaybillManager:
             extra={"extra_fields": {"navigation_clicked": bool(final_stage_clicked)}},
         )
 
-        # ── Step 2: Solve captcha (if present) ──
-        await self._handle_submit_captcha_if_present()
-
-        # ── Step 3: Final submit click ──
-        submit_selectors = [
-            "#btnRegisterFinished",
-            "#btnFinalSubmit",
-            "#btnSubmit",
-        ]
-
-        # Central mutation-boundary guard. Scheduler checks are advisory; every
-        # browser/direct caller must pass the same live gate immediately before
-        # the first mutating click.
-        from app.services.utcms_submission_gate import utcms_submission_gate
-
-        if not await utcms_submission_gate.is_submission_allowed():
-            logger.info(
-                "final_mutation_blocked_by_submission_gate",
-                extra={"extra_fields": {"job_id": job_id}},
-            )
-            return {
-                "success": False,
-                "status": "otp_backoff",
-                "error_category": "otp_required",
-                "message": "پنجره ثبت بدون OTP هنوز به صورت زنده تایید نشده است",
-                "mutation_dispatched": False,
-                "next_retry_at_minutes_add": max(1, utcms_config.GATE_PROBE_INTERVAL_SECONDS // 60),
-            }
-
-        submit_timeout_ms = min(max(12000, utcms_config.PAGE_NAVIGATION_TIMEOUT), 35000)
-        submit_response_task = await self._wait_for_response_match(
-            self._is_register_submit_response,
-            timeout_ms=submit_timeout_ms,
-        )
-
-        # Mutating final click must be executed At-Most-Once — NO retries/fallbacks
-        submit_clicked, post_click_err = await self._click_once_no_retry(
-            submit_selectors, "ثبت نهایی", wait_after_seconds=0.5
-        )
-        if not submit_clicked:
-            await self._cancel_response_task(submit_response_task)
-            raise WaybillError("ارسال فرم بارنامه انجام نشد (کلیک روی دکمه ثبت ناموفق بود)")
-
-        # If an error occurred after the click was dispatched (e.g. TargetClosedError),
-        # the HTTP POST may already have been sent.  Route to UNKNOWN for reconciliation.
-        if post_click_err is not None:
-            logger.warning(
-                "mutation_submit_post_click_error_route_to_unknown",
-                extra={"extra_fields": {"error": str(post_click_err), "job_id": job_id}},
-            )
-            return {
-                "success": False,
-                "status": "unknown",
-                "mutation_status": "ambiguous",
-                "mutation_dispatched": True,
-                "error_category": "submission_unknown",
-                "message": f"Submit click dispatched but post-click error: {post_click_err}",
-                "needs_reconciliation": True,
-            }
-
-        try:
-            await self._wait_for_network_settle(primary_timeout_ms=submit_timeout_ms, fallback_sleep_seconds=2.0)
-            await asyncio.sleep(0.1)
-
-            submit_payload = await self._consume_json_response(
-                submit_response_task,
-                timeout_seconds=max(12.0, submit_timeout_ms / 1000),
-            )
-            submit_state = self._parse_register_submit_payload(submit_payload)
-            if submit_state is not None and submit_state.get("is_otp_needed") is True:
-                await utcms_submission_gate.record_otp_detected(
-                    worker_id="waybill-mutation",
-                    evidence={"is_otp_needed": True, "document_id_present": bool(submit_state.get("document_id"))},
+        max_submit_attempts = max(1, utcms_config.CAPTCHA_MAX_RETRIES + 1)
+        for submit_attempt in range(1, max_submit_attempts + 1):
+            if submit_attempt > 1:
+                logger.info(
+                    "retrying_submit_due_to_captcha_failure",
+                    extra={"extra_fields": {"attempt": submit_attempt, "max_attempts": max_submit_attempts}},
                 )
-            elif submit_state is not None and submit_state.get("is_otp_needed") is False:
-                await utcms_submission_gate.record_otp_free(
-                    worker_id="waybill-mutation",
-                    evidence={"is_otp_needed": False, "document_id_present": bool(submit_state.get("document_id"))},
+                await self._refresh_submit_captcha()
+                await asyncio.sleep(0.5)
+
+            # ── Step 2: Solve captcha (if present) ──
+            await self._handle_submit_captcha_if_present()
+
+            # ── Step 3: Final submit click ──
+            submit_selectors = [
+                "#btnRegisterFinished",
+                "#btnFinalSubmit",
+                "#btnSubmit",
+            ]
+
+            # Central mutation-boundary guard. Scheduler checks are advisory; every
+            # browser/direct caller must pass the same live gate immediately before
+            # the first mutating click.
+            from app.services.utcms_submission_gate import utcms_submission_gate
+
+            if not await utcms_submission_gate.is_submission_allowed():
+                logger.info(
+                    "final_mutation_blocked_by_submission_gate",
+                    extra={"extra_fields": {"job_id": job_id}},
                 )
-            if submit_state is not None and not submit_state["success"]:
-                raise WaybillError(submit_state["message"] or "ارسال فرم بارنامه ناموفق بود")
+                return {
+                    "success": False,
+                    "status": "otp_backoff",
+                    "error_category": "otp_required",
+                    "message": "پنجره ثبت بدون OTP هنوز به صورت زنده تایید نشده است",
+                    "mutation_dispatched": False,
+                    "next_retry_at_minutes_add": max(1, utcms_config.GATE_PROBE_INTERVAL_SECONDS // 60),
+                }
 
-            # ── Step 4: OTP Handling ──
-            otp_state = await self._handle_otp_if_required(otp_value, submit_state=submit_state)
-            if not otp_state["success"]:
-                if otp_state.get("mutation_status") == "ambiguous":
-                    return otp_state
-                raise WaybillError("مدیریت OTP ناموفق بود")
-
-            if await self._detect_otp_required(submit_state=submit_state):
-                await self._wait_for_network_settle(primary_timeout_ms=12000, fallback_sleep_seconds=2.0)
-
-            # ── Step 5: OTP Detect & Graceful Exit (Self-Healing) ──
-            # After successful submit, check if an OTP/SMS challenge appeared.
-            # If OTP modal is detected → graceful exit with OTP_BACKOFF status.
-            # If NOT detected → submission was successful, proceed normally.
-            otp_backoff_result = await self._check_otp_after_submit()
-            if otp_backoff_result is not None:
-                return otp_backoff_result
-
-            # ── Step 6: Extract tracking code ──
-            document_id = (otp_state or {}).get("document_id") or (submit_state or {}).get("document_id")
-            tracking_code = (
-                (otp_state or {}).get("tracking_code")
-                or (submit_state or {}).get("tracking_code")
-                or await self._extract_tracking_code(document_id=document_id)
+            submit_timeout_ms = min(max(12000, utcms_config.PAGE_NAVIGATION_TIMEOUT), 35000)
+            submit_response_task = await self._wait_for_response_match(
+                self._is_register_submit_response,
+                timeout_ms=submit_timeout_ms,
             )
-            submission_confirmed = await self._is_submission_successful()
 
-            # A tracking code is only a provisional witness.  History/Search
-            # reconciliation must still confirm the final state; callers map
-            # this result to UNKNOWN until the third witness is present.
-            if not tracking_code:
+            # Mutating final click must be executed At-Most-Once — NO retries/fallbacks
+            submit_clicked, post_click_err = await self._click_once_no_retry(
+                submit_selectors, "ثبت نهایی", wait_after_seconds=0.5
+            )
+            if not submit_clicked:
+                await self._cancel_response_task(submit_response_task)
+                raise WaybillError("ارسال فرم بارنامه انجام نشد (کلیک روی دکمه ثبت ناموفق بود)")
+
+            # If an error occurred after the click was dispatched (e.g. TargetClosedError),
+            # the HTTP POST may already have been sent.  Route to UNKNOWN for reconciliation.
+            if post_click_err is not None:
                 logger.warning(
-                    "submit_tracking_code_missing_confirm_false",
-                    extra={"extra_fields": {"job_id": job_id, "submission_confirmed": submission_confirmed}},
+                    "mutation_submit_post_click_error_route_to_unknown",
+                    extra={"extra_fields": {"error": str(post_click_err), "job_id": job_id}},
                 )
-                submission_confirmed = False
-
-            if not tracking_code and not submission_confirmed:
-                form_errors = await self._extract_form_errors()
-                if form_errors:
-                    raise WaybillError(f"ثبت بارنامه با خطا مواجه شد: {form_errors}")
-
-                # If no explicit form error was detected after submit click, status is ambiguous and MUST enter reconciliation
                 return {
                     "success": False,
                     "status": "unknown",
                     "mutation_status": "ambiguous",
-                    "error": "ثبت بارنامه انجام شد اما پاسخ قطعی دریافت نشد؛ نیاز به تطبیق (Reconciliation)",
-                    "error_category": "submission_unconfirmed",
-                    "tracking_code": None,
-                    "document_id": document_id,
                     "mutation_dispatched": True,
+                    "error_category": "submission_unknown",
+                    "message": f"Submit click dispatched but post-click error: {post_click_err}",
                     "needs_reconciliation": True,
                 }
 
-            # Keep the browser-layer result explicitly provisional.  The
-            # orchestrator is the only component allowed to transition to
-            # terminal SUCCESS after History/Search reconciliation.
-            submission_confirmed = False
+            try:
+                await self._wait_for_network_settle(primary_timeout_ms=submit_timeout_ms, fallback_sleep_seconds=2.0)
+                await asyncio.sleep(0.1)
+
+                submit_payload = await self._consume_json_response(
+                    submit_response_task,
+                    timeout_seconds=max(12.0, submit_timeout_ms / 1000),
+                )
+                submit_state = self._parse_register_submit_payload(submit_payload)
+                if submit_state is not None and submit_state.get("is_otp_needed") is True:
+                    await utcms_submission_gate.record_otp_detected(
+                        worker_id="waybill-mutation",
+                        evidence={"is_otp_needed": True, "document_id_present": bool(submit_state.get("document_id"))},
+                    )
+                elif submit_state is not None and submit_state.get("is_otp_needed") is False:
+                    await utcms_submission_gate.record_otp_free(
+                        worker_id="waybill-mutation",
+                        evidence={"is_otp_needed": False, "document_id_present": bool(submit_state.get("document_id"))},
+                    )
+                if submit_state is not None and not submit_state["success"]:
+                    msg = submit_state.get("message") or ""
+                    if any(k in msg.lower() for k in ("امنیتی", "کپچا", "captcha")) and submit_attempt < max_submit_attempts:
+                        continue
+                    raise WaybillError(msg or "ارسال فرم بارنامه ناموفق بود")
+
+                # ── Step 4: OTP Handling ──
+                otp_state = await self._handle_otp_if_required(otp_value, submit_state=submit_state)
+                if not otp_state["success"]:
+                    if otp_state.get("mutation_status") == "ambiguous":
+                        return otp_state
+                    raise WaybillError("مدیریت OTP ناموفق بود")
+
+                if await self._detect_otp_required(submit_state=submit_state):
+                    await self._wait_for_network_settle(primary_timeout_ms=12000, fallback_sleep_seconds=2.0)
+
+                # ── Step 5: OTP Detect & Graceful Exit (Self-Healing) ──
+                # After successful submit, check if an OTP/SMS challenge appeared.
+                # If OTP modal is detected → graceful exit with OTP_BACKOFF status.
+                # If NOT detected → submission was successful, proceed normally.
+                otp_backoff_result = await self._check_otp_after_submit()
+                if otp_backoff_result is not None:
+                    return otp_backoff_result
+
+                # ── Step 6: Extract tracking code ──
+                document_id = (otp_state or {}).get("document_id") or (submit_state or {}).get("document_id")
+                tracking_code = (
+                    (otp_state or {}).get("tracking_code")
+                    or (submit_state or {}).get("tracking_code")
+                    or await self._extract_tracking_code(document_id=document_id)
+                )
+                submission_confirmed = await self._is_submission_successful()
+
+                # A tracking code is only a provisional witness.  History/Search
+                # reconciliation must still confirm the final state; callers map
+                # this result to UNKNOWN until the third witness is present.
+                if not tracking_code:
+                    logger.warning(
+                        "submit_tracking_code_missing_confirm_false",
+                        extra={"extra_fields": {"job_id": job_id, "submission_confirmed": submission_confirmed}},
+                    )
+                    submission_confirmed = False
+
+                if not tracking_code and not submission_confirmed:
+                    form_errors = await self._extract_form_errors()
+                    if form_errors:
+                        if any(k in form_errors.lower() for k in ("امنیتی", "کپچا", "captcha")) and submit_attempt < max_submit_attempts:
+                            continue
+                        raise WaybillError(f"ثبت بارنامه با خطا مواجه شد: {form_errors}")
+
+                    # If no explicit form error was detected after submit click, status is ambiguous and MUST enter reconciliation
+                    return {
+                        "success": False,
+                        "status": "unknown",
+                        "mutation_status": "ambiguous",
+                        "error": "ثبت بارنامه انجام شد اما پاسخ قطعی دریافت نشد؛ نیاز به تطبیق (Reconciliation)",
+                        "error_category": "submission_unconfirmed",
+                        "tracking_code": None,
+                        "document_id": document_id,
+                        "mutation_dispatched": True,
+                        "needs_reconciliation": True,
+                    }
+
+                # Success!
+                submission_confirmed = False
+                break
+            except WaybillError as w_err:
+                if any(k in str(w_err).lower() for k in ("امنیتی", "کپچا", "captcha")) and submit_attempt < max_submit_attempts:
+                    continue
+                raise
+            except Exception as post_submit_exc:
+                logger.warning(
+                    "mutation_submit_post_dispatch_error_route_to_unknown",
+                    extra={"extra_fields": {"error": str(post_submit_exc), "job_id": job_id}},
+                )
+                return {
+                    "success": False,
+                    "status": "unknown",
+                    "mutation_status": "ambiguous",
+                    "mutation_dispatched": True,
+                    "error_category": "submission_unknown",
+                    "message": f"Submit dispatched but post-dispatch exception: {post_submit_exc}",
+                    "needs_reconciliation": True,
+                }
         except WaybillError:
             raise
         except Exception as post_submit_exc:

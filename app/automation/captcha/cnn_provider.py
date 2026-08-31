@@ -13,8 +13,8 @@ class CnnCaptchaProvider(CaptchaProvider):
             return CaptchaResult(solved=False, provider="cnn", error="missing_image")
 
         candidate = await asyncio.to_thread(barname_ml_solver.solve_base64, image_base64)
-        if candidate is None:
-            return CaptchaResult(solved=False, provider="cnn", error="cnn_unsolved")
+        if candidate is None or candidate.confidence < 0.45:
+            return CaptchaResult(solved=False, provider="cnn", error="cnn_low_confidence")
 
         return CaptchaResult(
             solved=True,
