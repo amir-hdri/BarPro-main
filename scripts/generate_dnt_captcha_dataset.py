@@ -7,7 +7,7 @@ Replicates DNT Captcha rendering: Persian text, wave distortion, background nois
 import os
 import random
 import math
-import pandas as pd
+import csv
 import numpy as np
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
@@ -173,9 +173,11 @@ def generate_dataset(count: int = 8000):
         if i % 1000 == 0 or i == count:
             print(f"  Generated {i}/{count} images...")
 
-    df = pd.DataFrame(records)
-    df.to_csv(LABELS_FILE, index=False, encoding="utf-8")
-    print(f"✅ Generated {len(df)} synthetic samples with labels saved to {LABELS_FILE}")
+    with open(LABELS_FILE, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["filename", "number", "words"])
+        writer.writeheader()
+        writer.writerows(records)
+    print(f"✅ Generated {len(records)} synthetic samples with labels saved to {LABELS_FILE}")
 
 
 if __name__ == "__main__":

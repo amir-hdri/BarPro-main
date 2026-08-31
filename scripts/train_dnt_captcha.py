@@ -7,8 +7,8 @@ Solves wave-distorted Persian number words with high accuracy.
 import os
 import json
 import random
+import csv
 from pathlib import Path
-import pandas as pd
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -79,8 +79,8 @@ class CRNN(nn.Module):
 
 
 class DntCaptchaDataset(Dataset):
-    def __init__(self, df: pd.DataFrame, vocab: list[str], img_w: int = 240, img_h: int = 36, augment: bool = False):
-        self.df = df
+    def __init__(self, records: list[dict[str, str]], vocab: list[str], img_w: int = 240, img_h: int = 36, augment: bool = False):
+        self.records = records
         self.vocab = vocab
         # Index 0 is reserved for CTC blank token
         self.char_to_idx = {char: idx + 1 for idx, char in enumerate(vocab)}
@@ -89,7 +89,7 @@ class DntCaptchaDataset(Dataset):
         self.augment = augment
 
     def __len__(self):
-        return len(self.df)
+        return len(self.records)
 
     def augment_image(self, img: Image.Image) -> Image.Image:
         draw = ImageDraw.Draw(img)
@@ -104,7 +104,7 @@ class DntCaptchaDataset(Dataset):
         return img
 
     def __getitem__(self, idx):
-        row = self.df.iloc[idx]
+        row = self.records[idx]
         filename = row["filename"]
         words = str(row["words"])
 
@@ -157,11 +157,15 @@ def train(epochs: int = 50, batch_size: int = 32, lr: float = 1e-3):
         print(f"Error: {LABELS_FILE} not found. Please run generate_dnt_captcha_dataset.py first.")
         return
 
-    df = pd.read_csv(LABELS_FILE)
-    print(f"Loaded {len(df)} samples from {LABELS_FILE}")
+    records = []
+    with open(LABELS_FILE, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for r in reader:
+            records.append(r)
+    print(f"Loaded {len(records)} samples from {LABELS_FILE}")
 
     # Build vocabulary from all unique characters in labels
-    unique_chars = sorted(list(set("".join(df["words"].astype(str).tolist()))))
+    unique_chars = sorted(list(set("".join([str(r["words"]) for r in records]))))
     print(f"Vocabulary ({len(unique_chars)} chars): {''.join(unique_chars)}")
 
     with open(VOCAB_SAVE_PATH, "w", encoding="utf-8") as f:
@@ -169,12 +173,12 @@ def train(epochs: int = 50, batch_size: int = 32, lr: float = 1e-3):
     print(f"Saved vocabulary to {VOCAB_SAVE_PATH}")
 
     # Split Train (90%) and Val (10%)
-    val_size = max(50, int(len(df) * 0.1))
-    train_df = df.iloc[:-val_size].reset_index(drop=True)
-    val_df = df.iloc[-val_size:].reset_index(drop=True)
+    val_size = max(50, int(len(records) * 0.1))
+    train_records = records[:-val_size]
+    val_records = records[-val_size:]
 
-    train_dataset = DntCaptchaDataset(train_df, unique_chars, augment=True)
-    val_dataset = DntCaptchaDataset(val_df, unique_chars, augment=False)
+    train_dataset = DntCaptchaDataset(train_records, unique_chars, augment=True)
+    val_dataset = DntCaptchaDataset(val_records, unique_chars, augment=False)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
