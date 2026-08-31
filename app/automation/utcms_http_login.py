@@ -172,7 +172,10 @@ class UtcmsHttpLogin:
         timeout: float = DEFAULT_TIMEOUT,
         user_agent: str | None = None,
     ) -> None:
-        self._login_url = (login_url or utcms_config.LOGIN_URL).strip()
+        raw_login_url = (login_url or utcms_config.LOGIN_URL).strip()
+        if "/barname/account/login" in raw_login_url.lower():
+            raw_login_url = raw_login_url.replace("/Barname/Account/Login", "/Account/Login").replace("/barname/account/login", "/Account/Login")
+        self._login_url = raw_login_url
         if proxy_url is None:
             # Use the worker's configured proxy by default.
             try:

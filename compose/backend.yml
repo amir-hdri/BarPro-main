@@ -59,7 +59,7 @@ x-backend-common: &backend-common
     AUTH_STATE_PATH: /app/runtime/auth/utcms_state.json
     FUEL_SCREENSHOTS_DIR: /app/runtime/screenshots/fuel
     ENVIRONMENT: ${ENVIRONMENT:-production}
-    LOGIN_URL: ${LOGIN_URL:-https://barname.utcms.ir/Barname/Account/Login}
+    LOGIN_URL: ${LOGIN_URL:-https://barname.utcms.ir/Account/Login}
     HEADLESS: ${HEADLESS:-true}
     ALLOW_LIVE_SUBMIT: ${ALLOW_LIVE_SUBMIT:-false}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}

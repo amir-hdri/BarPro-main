@@ -61,7 +61,7 @@ class UTCMSConfig:
             "https://barname.utcms.ir/barname/Document/HagigiHogugi",
         )
         self.BASE_URL = os.getenv("BASE_URL", "https://barname.utcms.ir")
-        self.LOGIN_URL = os.getenv("LOGIN_URL", f"{self.BASE_URL.rstrip('/')}/Barname/Account/Login")
+        self.LOGIN_URL = os.getenv("LOGIN_URL", f"{self.BASE_URL.rstrip('/')}/Account/Login")
         self.HEADLESS = _to_bool(os.getenv("HEADLESS"), default=True)
 
         self.UTCMS_USERNAME = os.getenv("UTCMS_USERNAME", "")
