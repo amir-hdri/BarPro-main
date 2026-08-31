@@ -43,14 +43,14 @@ PAYLOAD = {
         "province": "خوزستان",
         "city": "ماهشهر",
         "district": "",
-        "address": "",
+        "address": "بندر ماهشهر خیابان اصلی پلاک ۱۰",
         "coordinates": None,
     },
     "destination": {
         "province": "خوزستان",
         "city": "ماهشهر",
         "district": "",
-        "address": "",
+        "address": "بندر ماهشهر منطقه ویژه اقتصادی پلاک ۲",
         "coordinates": None,
     },
     "cargo": {
