@@ -5306,24 +5306,6 @@ class EnhancedWaybillManager:
                     "message": f"Submit dispatched but post-dispatch exception: {post_submit_exc}",
                     "needs_reconciliation": True,
                 }
-        except WaybillError:
-            raise
-        except Exception as post_submit_exc:
-            logger.warning(
-                "post_submit_exception_entering_unknown_for_reconciliation",
-                extra={"extra_fields": {"job_id": job_id, "error": str(post_submit_exc)[:240]}},
-            )
-            return {
-                "success": False,
-                "status": "unknown",
-                "mutation_status": "ambiguous",
-                "error": f"خطا پس از کلیک ثبت بارنامه: {str(post_submit_exc)}",
-                "error_category": "submission_unconfirmed",
-                "tracking_code": None,
-                "document_id": None,
-                "mutation_dispatched": True,
-                "needs_reconciliation": True,
-            }
 
         # Capture waybill screenshot on success
         waybill_screenshot = None
