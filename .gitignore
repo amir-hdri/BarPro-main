@@ -33,6 +33,8 @@ output/
 evidence/
 scratch/
 datasets/
+data/
+*.zip
 app/ui/assets/screenshots/
 remote_*.json
 output_fuel_result_local.png

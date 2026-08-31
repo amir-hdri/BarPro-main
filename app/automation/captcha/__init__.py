@@ -5,6 +5,7 @@ from typing import Optional
 from app.automation.captcha.barname_ml_solver import BarnameMlCaptchaSolver, barname_ml_solver
 from app.automation.captcha.base import CaptchaProvider, CaptchaResult
 from app.automation.captcha.cnn_provider import CnnCaptchaProvider
+from app.automation.captcha.dnt_captcha_solver import DntCaptchaProvider
 from app.automation.captcha.engine import CaptchaEngine, captcha_engine
 from app.automation.captcha.enhanced_ocr import EnhancedOcrProvider
 from app.automation.captcha.fuel_captcha_solver import PyTorchFuelCaptchaProvider
@@ -45,6 +46,8 @@ class CompositeCaptchaProvider(CaptchaProvider):
 
 
 def _build_provider(provider_name: str) -> CaptchaProvider | None:
+    if provider_name == "dnt_crnn":
+        return DntCaptchaProvider()
     if provider_name == "keras_ocr":
         return KerasOcrCaptchaProvider()
     if provider_name == "pytorch_fuel":
@@ -58,6 +61,7 @@ def _build_provider(provider_name: str) -> CaptchaProvider | None:
     if provider_name in ("auto", "ensemble", "composite"):
         return CompositeCaptchaProvider(
             [
+                DntCaptchaProvider(),
                 CnnCaptchaProvider(),
                 PyTorchFuelCaptchaProvider(),
                 KerasOcrCaptchaProvider(),
