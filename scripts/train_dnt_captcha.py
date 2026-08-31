@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Train a PyTorch CRNN (CNN + Bidirectional GRU + CTC Loss) model for DNT Captcha.
-Solves wave-distorted Persian number words with high accuracy.
+High-resolution temporal sequence modeling for wave-distorted Persian number words.
 """
 
 import os
@@ -31,27 +31,32 @@ class CRNN(nn.Module):
     def __init__(self, num_classes: int, img_channel: int = 1):
         super().__init__()
         self.cnn = nn.Sequential(
+            # Layer 1: (H, W) -> (H/2, W/2)
             nn.Conv2d(img_channel, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),  # (H/2, W/2) -> (18, 120)
+            nn.MaxPool2d(kernel_size=(2, 2)),
 
+            # Layer 2: (H/2, W/2) -> (H/4, W/2)  [preserve width for high CTC resolution]
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),  # (H/4, W/4) -> (9, 60)
+            nn.MaxPool2d(kernel_size=(2, 1)),
 
+            # Layer 3: (H/4, W/2) -> (H/8, W/2)
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 1)),       # (4, 60)
+            nn.MaxPool2d(kernel_size=(2, 1)),
 
+            # Layer 4: (H/8, W/2) -> (H/16, W/2)
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 1)),       # (2, 60)
+            nn.MaxPool2d(kernel_size=(2, 1)),
 
-            nn.Conv2d(256, 256, kernel_size=(2, 1)), # (1, 60)
+            # Layer 5: (H/16, W/2) -> (1, W/2)
+            nn.Conv2d(256, 256, kernel_size=(2, 1)),
             nn.BatchNorm2d(256),
             nn.ReLU(),
         )
@@ -79,11 +84,11 @@ class CRNN(nn.Module):
 
 
 class DntCaptchaDataset(Dataset):
-    def __init__(self, records: list[dict[str, str]], vocab: list[str], img_w: int = 240, img_h: int = 36, augment: bool = False):
+    def __init__(self, records: list[dict[str, str]], vocab: list[str], img_w: int = 360, img_h: int = 32, augment: bool = False):
         self.records = records
         self.vocab = vocab
-        # Index 0 is reserved for CTC blank token
-        self.char_to_idx = {char: idx + 1 for idx, char in enumerate(vocab)}
+        # Index len(vocab) is reserved for CTC blank token
+        self.char_to_idx = {char: idx for idx, char in enumerate(vocab)}
         self.img_w = img_w
         self.img_h = img_h
         self.augment = augment
@@ -96,8 +101,8 @@ class DntCaptchaDataset(Dataset):
         w, h = img.size
 
         # Add random light noise dots/lines
-        if random.random() < 0.6:
-            for _ in range(random.randint(2, 6)):
+        if random.random() < 0.5:
+            for _ in range(random.randint(2, 5)):
                 x1, y1 = random.randint(0, w), random.randint(0, h)
                 x2, y2 = random.randint(0, w), random.randint(0, h)
                 draw.line([(x1, y1), (x2, y2)], fill=random.randint(120, 200), width=1)
@@ -137,22 +142,23 @@ def collate_fn(batch):
 def decode_predictions(preds, vocab: list[str]):
     # preds: [W_seq, B, num_classes]
     preds = preds.permute(1, 0, 2)  # [B, W_seq, num_classes]
+    blank_idx = len(vocab)
     argmax_preds = torch.argmax(preds, dim=2).detach().cpu().numpy()
 
     decoded_strings = []
     for seq in argmax_preds:
         decoded_chars = []
-        prev_idx = 0
+        prev_idx = -1
         for idx in seq:
-            if idx != 0 and idx != prev_idx:
-                if idx - 1 < len(vocab):
-                    decoded_chars.append(vocab[idx - 1])
+            if idx != blank_idx and idx != prev_idx:
+                if idx < len(vocab):
+                    decoded_chars.append(vocab[idx])
             prev_idx = idx
-        decoded_strings.append("".join(decoded_chars))
+        decoded_strings.append("".join(decoded_chars).strip())
     return decoded_strings
 
 
-def train(epochs: int = 50, batch_size: int = 32, lr: float = 1e-3):
+def train(epochs: int = 40, batch_size: int = 32, lr: float = 1e-3):
     if not LABELS_FILE.exists():
         print(f"Error: {LABELS_FILE} not found. Please run generate_dnt_captcha_dataset.py first.")
         return
@@ -166,6 +172,9 @@ def train(epochs: int = 50, batch_size: int = 32, lr: float = 1e-3):
 
     # Build vocabulary from all unique characters in labels
     unique_chars = sorted(list(set("".join([str(r["words"]) for r in records]))))
+    if " " not in unique_chars:
+        unique_chars.append(" ")
+    unique_chars = sorted(list(set(unique_chars)))
     print(f"Vocabulary ({len(unique_chars)} chars): {''.join(unique_chars)}")
 
     with open(VOCAB_SAVE_PATH, "w", encoding="utf-8") as f:
@@ -177,21 +186,22 @@ def train(epochs: int = 50, batch_size: int = 32, lr: float = 1e-3):
     train_records = records[:-val_size]
     val_records = records[-val_size:]
 
-    train_dataset = DntCaptchaDataset(train_records, unique_chars, augment=True)
-    val_dataset = DntCaptchaDataset(val_records, unique_chars, augment=False)
+    train_dataset = DntCaptchaDataset(train_records, unique_chars, img_w=360, img_h=32, augment=True)
+    val_dataset = DntCaptchaDataset(val_records, unique_chars, img_w=360, img_h=32, augment=False)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 
-    # Blank token at index 0 -> num_classes = len(vocab) + 1
+    # Blank token at index len(vocab) -> num_classes = len(vocab) + 1
+    blank_idx = len(unique_chars)
     num_classes = len(unique_chars) + 1
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using training device: {device}")
+    print(f"Using training device: {device} | Blank token index: {blank_idx}")
 
     model = CRNN(num_classes=num_classes).to(device)
-    ctc_loss = nn.CTCLoss(blank=0, zero_infinity=True)
+    ctc_loss = nn.CTCLoss(blank=blank_idx, zero_infinity=True)
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max", factor=0.5, patience=3)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max", factor=0.5, patience=4)
 
     best_val_acc = 0.0
 
@@ -240,10 +250,10 @@ def train(epochs: int = 50, batch_size: int = 32, lr: float = 1e-3):
 
         print(f"Epoch {epoch:02d}/{epochs:02d} | Loss: {avg_loss:.4f} | Val Exact Accuracy: {val_acc * 100:.2f}% ({correct}/{total})")
 
-        if val_acc > best_val_acc or epoch == epochs:
+        if val_acc >= best_val_acc or epoch == epochs:
             best_val_acc = max(best_val_acc, val_acc)
             torch.save(model.state_dict(), MODEL_SAVE_PATH)
-            print(f"  ⭐ Saved best model ({best_val_acc * 100:.2f}%) to {MODEL_SAVE_PATH}")
+            print(f"  ⭐ Saved model checkpoint ({val_acc * 100:.2f}%) to {MODEL_SAVE_PATH}")
 
     print(f"\n🎉 Training complete! Best validation exact-match accuracy: {best_val_acc * 100:.2f}%")
 

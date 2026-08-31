@@ -31,26 +31,31 @@ class CRNN(nn.Module):
     def __init__(self, num_classes: int, img_channel: int = 1):
         super().__init__()
         self.cnn = nn.Sequential(
+            # Layer 1: (H, W) -> (H/2, W/2)
             nn.Conv2d(img_channel, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.MaxPool2d(kernel_size=(2, 2)),
 
+            # Layer 2: (H/2, W/2) -> (H/4, W/2)
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.MaxPool2d(kernel_size=(2, 1)),
 
+            # Layer 3: (H/4, W/2) -> (H/8, W/2)
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(2, 1)),
 
+            # Layer 4: (H/8, W/2) -> (H/16, W/2)
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(2, 1)),
 
+            # Layer 5: (H/16, W/2) -> (1, W/2)
             nn.Conv2d(256, 256, kernel_size=(2, 1)),
             nn.BatchNorm2d(256),
             nn.ReLU(),
@@ -68,12 +73,13 @@ class CRNN(nn.Module):
         self.fc = nn.Linear(128 * 2, num_classes)
 
     def forward(self, x):
-        features = self.cnn(x)
-        features = features.squeeze(2)
-        features = features.permute(0, 2, 1)
+        features = self.cnn(x)          # [B, 256, 1, W_seq]
+        features = features.squeeze(2)  # [B, 256, W_seq]
+        features = features.permute(0, 2, 1)  # [B, W_seq, 256]
 
-        rnn_out, _ = self.rnn(features)
-        output = self.fc(rnn_out)
+        rnn_out, _ = self.rnn(features) # [B, W_seq, 256]
+        output = self.fc(rnn_out)       # [B, W_seq, num_classes]
+        output = output.permute(1, 0, 2)  # [W_seq, B, num_classes] (for CTC)
         return output
 
 
@@ -90,8 +96,8 @@ class DntCaptchaProvider(CaptchaProvider):
         self._vocab = []
         self._initialized = False
         self._init_lock = Lock()
-        self.img_w = 240
-        self.img_h = 36
+        self.img_w = 360
+        self.img_h = 32
 
     async def solve_text_captcha(self, image_base64: str) -> CaptchaResult:
         if not image_base64 or not str(image_base64).strip():
@@ -122,7 +128,8 @@ class DntCaptchaProvider(CaptchaProvider):
             with open(self.vocab_path, encoding="utf-8") as f:
                 self._vocab = json.load(f)
 
-            num_classes = len(self._vocab) + 1  # 0 is CTC blank
+            blank_idx = len(self._vocab)
+            num_classes = len(self._vocab) + 1  # blank token at index len(vocab)
             self._model = CRNN(num_classes)
             self._device = torch.device("cpu")
 
@@ -151,11 +158,12 @@ class DntCaptchaProvider(CaptchaProvider):
                 argmax_preds = torch.argmax(preds, dim=2)[:, 0].cpu().numpy()
 
             decoded_chars = []
-            prev_idx = 0
+            prev_idx = -1
+            blank_idx = len(self._vocab)
             for idx in argmax_preds:
-                if idx != 0 and idx != prev_idx:
-                    if idx - 1 < len(self._vocab):
-                        decoded_chars.append(self._vocab[idx - 1])
+                if idx != blank_idx and idx != prev_idx:
+                    if idx < len(self._vocab):
+                        decoded_chars.append(self._vocab[idx])
                 prev_idx = idx
 
             predicted_text = "".join(decoded_chars).strip()
