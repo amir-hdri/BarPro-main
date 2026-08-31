@@ -269,7 +269,7 @@ class UtcmsHttpLogin:
         username = str(username).translate(_digit_map).strip()
         password = str(password).translate(_digit_map).strip()
 
-        captcha_attempts_left = max(1, getattr(utcms_config, "CAPTCHA_AUTO_MAX_ATTEMPTS", 3))
+        captcha_attempts_left = max(4, getattr(utcms_config, "CAPTCHA_AUTO_MAX_ATTEMPTS", 4))
         last_result: HttpLoginResult | None = None
         self._authenticated_session = None
         rate_limit_retries_left = 3
