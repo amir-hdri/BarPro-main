@@ -1669,7 +1669,19 @@ class EnhancedWaybillManager:
     def _is_register_submit_response(response: Any) -> bool:
         """Match the actual mutating UTCMS request, not an obsolete JS name."""
         url = str(getattr(response, "url", "") or "").lower().split("?", 1)[0]
-        return url.endswith("/barname/printreport/printbarnamenew") or url.endswith("/printbarnamenew")
+        return any(
+            url.endswith(suffix)
+            for suffix in (
+                "/barname/document/updateregisternewold",
+                "/barname/document/updateregisternewnewold",
+                "/barname/document/updateregisternewnew",
+                "/updateregisternewold",
+                "/updateregisternewnewold",
+                "/updateregisternewnew",
+                "/barname/printreport/printbarnamenew",
+                "/printbarnamenew",
+            )
+        )
 
     @staticmethod
     def _is_otp_submit_response(response: Any) -> bool:
@@ -6281,7 +6293,7 @@ class EnhancedWaybillManager:
                 )
                 for text in texts:
                     cleaned = await self._as_clean_text(text)
-                    if cleaned:
+                    if cleaned and cleaned not in ("*", "•", "-", ":", "!", "×", "✓") and len(cleaned) > 2:
                         for err_key, err_msg in self._UTCMS_ERROR_MAP.items():
                             if err_key in cleaned.lower():
                                 return f"{err_msg} ({cleaned})"
