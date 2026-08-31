@@ -6310,6 +6310,20 @@ class EnhancedWaybillManager:
         if any(fragment in current_url for fragment in success_fragments):
             return True
 
+        try:
+            has_tracking_or_doc = await self.page.evaluate(
+                """() => {
+                    const tracking = (document.getElementById('TrackingCodeNumber')?.value || '').trim();
+                    const docId = (document.getElementById('DocumentId')?.value || '').trim();
+                    const isTab10Active = document.querySelector('#pills-10-tab.active, #pills-10.active, .tab-pane.active#pills-10') !== null;
+                    return Boolean(tracking || (docId && isTab10Active));
+                }"""
+            )
+            if has_tracking_or_doc:
+                return True
+        except Exception:
+            pass
+
         # بررسی عناصر موفقیت خاص بارنامه در صفحه
         try:
             body_text = await self._as_clean_text(await self.page.text_content("body"))
@@ -6401,15 +6415,47 @@ class EnhancedWaybillManager:
         """استخراج کد رهگیری از صفحه - فقط اعدادی که در بافت کد رهگیری/شماره بارنامه هستند"""
         import re
 
+        if not document_id:
+            try:
+                dom_doc_id = await self.page.evaluate(
+                    "() => (document.getElementById('DocumentId')?.value || '').trim()"
+                )
+                if dom_doc_id:
+                    document_id = dom_doc_id
+            except Exception:
+                pass
+
         fetched_code = await self._fetch_tracking_code_by_document_id(document_id)
         if fetched_code:
             return fetched_code
 
+        # Direct DOM evaluation for input values
+        try:
+            dom_tracking = await self.page.evaluate(
+                """() => {
+                    const el = document.getElementById('TrackingCodeNumber') 
+                        || document.getElementById('TrackingCode')
+                        || document.querySelector('[name="printId"]')
+                        || document.querySelector('.tracking-code');
+                    if (el) {
+                        return (el.value || el.textContent || el.innerText || '').trim();
+                    }
+                    return '';
+                }"""
+            )
+            if dom_tracking:
+                clean_dom_tracking = self._to_english_digits(dom_tracking)
+                codes = re.findall(r"\d{6,}", clean_dom_tracking)
+                if codes:
+                    return codes[0]
+        except Exception:
+            pass
+
         # تلاش با انتخابگرهای مختص کد رهگیری
         selectors = [
-            ".tracking-code",
-            "#TrackingCode",
             "#TrackingCodeNumber",
+            "#TrackingCode",
+            ".tracking-code",
             "[data-tracking]",
             ".waybill-number",
             "#printId",
@@ -6421,7 +6467,24 @@ class EnhancedWaybillManager:
                 element = await self.page.query_selector(selector)
                 if element is None:
                     element = await self.smart_locator.locate(self.page, [selector], timeout=900)
-                text = await self._as_clean_text(await element.text_content())
+                
+                raw_text = ""
+                try:
+                    raw_text = (await element.input_value() or "").strip()
+                except Exception:
+                    pass
+                if not raw_text:
+                    try:
+                        raw_text = (await element.get_attribute("value") or "").strip()
+                    except Exception:
+                        pass
+                if not raw_text:
+                    try:
+                        raw_text = (await element.text_content() or "").strip()
+                    except Exception:
+                        pass
+
+                text = await self._as_clean_text(raw_text)
                 text = self._to_english_digits(text)
                 # فقط اعدادی که در بافت کد رهگیری یا شماره بارنامه هستند
                 labeled = re.findall(
