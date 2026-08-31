@@ -984,3 +984,26 @@ def test_get_bridge_never_installs_one() -> None:
     page = MagicMock()
     page._barpro_http_browser_bridge = None
     assert bridge_module.get_utcms_http_browser_bridge(page) is None
+
+
+def test_the_final_captcha_image_is_never_stubbed() -> None:
+    """Run 20 (2026-08-30): the image stub answered
+    ``/DNTCaptchaImage/Show?data=...`` with an empty body, so the issuance form
+    rendered a broken image, the submit-stage solver read no challenge at all
+    and filled a one-character junk value.  The captcha image is the challenge,
+    so it has to reach the network like scripts and stylesheets do."""
+    assert bridge_module._is_behavioural_asset(
+        "https://barname.utcms.ir/DNTCaptchaImage/Show?data=GNoMNJtQ1A1v", "image"
+    )
+    assert bridge_module._is_captcha_asset("https://barname.utcms.ir/DNTCaptchaImage/Show?data=x")
+    # Decoration is still stubbed: that is what keeps the asset flood off the
+    # curl transport UTCMS's edge resets.
+    assert not bridge_module._is_behavioural_asset("https://barname.utcms.ir/img/logo.png", "image")
+    assert not bridge_module._is_behavioural_asset("https://barname.utcms.ir/fonts/iran.woff2", "font")
+
+
+def test_captcha_images_bypass_the_on_disk_asset_cache() -> None:
+    """A captcha challenge is single-use and bound to a server-side token, so a
+    cached copy would be replayed against a token it no longer matches."""
+    assert bridge_module._is_captcha_asset("https://barname.utcms.ir/DNTCaptchaImage/Show?data=a")
+    assert not bridge_module._is_captcha_asset("https://barname.utcms.ir/assets/js/app.js")

@@ -2,6 +2,21 @@
   
   All notable changes to the UTCMS Automation System.
 
+  ## [Unreleased] - 2026-08-30
+
+### Fixed — the final-registration CAPTCHA image was being blanked by our own asset policy
+- `/DNTCaptchaImage/Show?data=...` is an `image` resource, and the bridge stubbed every image with an empty body to keep the asset flood off the curl transport. The issuance form therefore rendered a broken image, the submit-stage solver read no challenge at all, and it filled a one-character junk value into `#DNTCaptchaInputText` — a live submit with that value would have been rejected by UTCMS. Login was unaffected because the login CAPTCHA is solved over the HTTP path, not inside the browser, which is why this stayed hidden until the final stage (`app/automation/http_browser_bridge.py`).
+- Captcha images now bypass both the stub and the on-disk asset cache: each challenge is single-use and bound to a server-side token, so a cached copy would be replayed against a token it no longer matches.
+- Live verification (run 21, read-only, submit never clicked): the real image loaded, the `math` strategy correctly declined (the challenge is a handwritten-font image, not DOM text), the provider chain OCR'd it and `_normalize_captcha_solution` evaluated the expression — the result matched the challenge. One verified solve, not a success-rate measurement.
+
+### Documented — the real final-stage, CAPTCHA and OTP contract
+- Added `docs/UTCMS_SITE_BEHAVIOR_AND_BOT_RESPONSE.md`: the single reference for what the site does and how the bot answers — access/transport layer, asset-stubbing policy and the three behavioural regressions that shaped it, the pill-pane map, the two upstream location-dropdown defects, the three `#CapType` captcha/submit paths, the OTP contract, the mutation-boundary rules, the upstream-defect table and the live-run log.
+- Corrected `UTCMS_SUBMIT_CONTRACT.md`: the final save is **not** `/Barname/PrintReport/printbarnameNew` (that is the print path). It is `UpdateRegisterNewNewOld` / `UpdateRegisterNewOld` / `UpdateRegisterNewNew`, selected by `#CapType` (live value: `1`, DNTCaptcha). Added `IssueDocumentByOtpNew` and `ResendOtpForIssueDocumen`.
+- Corrected the OTP modal id across the docs: it is `#GetOptCodeModal`, not `#FormSendOtpCode`, it exists in the DOM from page load, and only the `.show` class is meaningful. Recorded the captcha-placeholder false positive ("کد امنیتی" matches `input[placeholder*='کد']`).
+- Recorded that `#GoFinalStep` is UTCMS's own post-save navigation, hidden before submission; the readiness signal is `#btnRegisterFinished` visibility.
+- Corrected the predicted OTP window to 17:30–08:00 Tehran in `UTCMS_GATE_RUNBOOK.md` and `UTCMS_OTP_DETECTION.md`, matching `PREDICTED_OTP_REQUIRED_*` defaults in the gate.
+- `scripts/probe_waybill_final_stage.py` now emits a read-only final-stage DOM inventory and has an opt-in `--attempt-captcha` / `--captcha-artifact-dir` mode. It never clicks a submit control, never requests an OTP, and writes the solver output only to disk for operator review.
+
   ## [Unreleased] - 2026-08-29
 
 ### Frontend multi-route hardening and release verification

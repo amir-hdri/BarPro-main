@@ -149,10 +149,13 @@ payload با شکل ترکیبی (طرفین nested همراه مبدا/مقصد
 3. اجرای candidate به‌صورت process ایزوله روی Worker، بدون جایگزینی فایل‌های سرویس.
 4. شواهد لازم در هر مرحله: status و طول body صفحهٔ فرم، نتیجهٔ گیت بند ۴،
    read-back تطبیقی هر دو موبایل، پاسخ `KalaSearch`، مقدار و برچسب استان/شهر
-   مبدا و مقصد، و screenshot بدون داده‌های حساس. dry-run باید navigation مرحلهٔ
-   نهایی را فقط یک‌بار باز کند و visibility کنترل ثبت نهایی، سطح CAPTCHA، مودال
-   `#FormSendOtpCode`، کنترل ارسال OTP و تنظیمات passive `GetCostSettings` را
-   ثبت کند؛ در این شاخه solver کپچا، ارسال SMS و کلیک mutation ممنوع است.
+   مبدا و مقصد، و screenshot بدون داده‌های حساس. dry-run هیچ کلیک ناوبری روی
+   `#GoFinalStep`/`#btnregisterbarname` نمی‌زند — آن‌ها ناوبری **پس از ذخیرهٔ**
+   خودِ UTCMS هستند و پیش از ثبت مخفی‌اند؛ سیگنال آمادگی، visible بودن
+   `#btnRegisterFinished` است. dry-run باید مقدار `#CapType`، سطح CAPTCHA، مودال
+   `#GetOptCodeModal` (فقط کلاس `.show` معنی‌دار است)، کنترل ارسال OTP و تنظیمات
+   passive `GetCostSettings` را ثبت کند؛ در این شاخه solver کپچا، ارسال SMS و
+   کلیک mutation ممنوع است.
 5. توقف فوری در نخستین mismatch؛ گزارش دلیل دقیق به‌جای تلاش کورکورانه. نبود
    کنترل ثبت نهایی یا نامشخص بودن OTP به `needs_review` می‌رود.
 6. ثبت زنده تنها پس از عبور کامل مرحلهٔ ۴ و تأیید اپراتور.

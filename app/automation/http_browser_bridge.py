@@ -160,6 +160,22 @@ def _is_critical_form_script(url: str) -> bool:
     return any(marker in lowered for marker in _CRITICAL_FORM_SCRIPT_MARKERS)
 
 
+# Captcha endpoints whose response body is the challenge itself.  DNTCaptcha is
+# the variant UTCMS serves on the issuance form (``#CapType == "1"``); the other
+# two spellings cover the ``CaptchaCode``/``window.cap`` branches.
+_CAPTCHA_ASSET_MARKERS = (
+    "dntcaptchaimage",
+    "/captchaimage",
+    "captcha/show",
+    "getcaptcha",
+)
+
+
+def _is_captcha_asset(url: str) -> bool:
+    lowered = url.lower()
+    return any(marker in lowered for marker in _CAPTCHA_ASSET_MARKERS)
+
+
 def _is_behavioural_asset(url: str, resource_type: Any = None) -> bool:
     """Does this asset change what the automation can observe or do?
 
@@ -179,8 +195,16 @@ def _is_behavioural_asset(url: str, resource_type: Any = None) -> bool:
     has a real box and Playwright reports it visible.  The bot's OTP/CAPTCHA
     gate decisions are visibility decisions, so CSS is behaviour here, not
     decoration.  Only fonts and images are stubbed now.
+    Images: almost all of them are decoration, but the final-registration
+    CAPTCHA is an image (``/DNTCaptchaImage/Show?data=...``).  An empty stub
+    renders it as a broken image, the solver then reads nothing and fills a
+    junk value, and UTCMS rejects the save -- so captcha images must go to the
+    network like scripts and stylesheets.  Everything else (fonts, logos,
+    icons) is still stubbed.
     """
     if isinstance(resource_type, str) and resource_type in {"script", "stylesheet"}:
+        return True
+    if _is_captcha_asset(url):
         return True
     return urlparse(url).path.lower().endswith((".js", ".css"))
 
@@ -1016,9 +1040,10 @@ class UtcmsHttpBrowserBridge:
         # the on-disk cache is what makes the form deterministic instead.
         max_attempts = 1 if asset or not is_safe_method else 3
 
-        if asset:
+        if asset and not _is_captcha_asset(request.url):
             # Served outside the transport lock so static files never queue
-            # behind the form's document/XHR traffic.
+            # behind the form's document/XHR traffic.  Captcha images skip the
+            # cache entirely: every challenge is single-use.
             asset_cache_key = self._request_cache_key(request.url)
             cached_asset = self._prefetched_assets.pop(asset_cache_key, None)
             if cached_asset is None:
@@ -1217,9 +1242,12 @@ class UtcmsHttpBrowserBridge:
                     any(marker in body_text for marker in ("Account/Login", 'name="Username"', "ورود به سامانه")),
                     detail,
                 )
-            if asset:
+            if asset and not _is_captcha_asset(request.url):
                 # Every asset this run manages to download makes the next run
-                # faster and less dependent on UTCMS's static surface.
+                # faster and less dependent on UTCMS's static surface.  Captcha
+                # images are excluded: each one is a single-use challenge bound
+                # to a server-side token, so a cached copy would be replayed
+                # against a different token on every later run.
                 await asyncio.to_thread(
                     _write_asset_cache,
                     self._request_cache_key(request.url),

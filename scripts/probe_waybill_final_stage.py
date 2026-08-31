@@ -47,6 +47,102 @@ from app.services.utcms_submission_gate import utcms_submission_gate
 
 logger = logging.getLogger("waybill_final_stage_probe")
 
+# Read-only inventory of the real final-registration stage.  It records which
+# captcha implementation UTCMS served (``#CapType`` selects one of three submit
+# endpoints), the state of the OTP modal UTCMS shows *after* a save, and every
+# control on the final pane -- without clicking anything.
+_FINAL_STAGE_INVENTORY_JS = """
+() => {
+    const val = (id) => {
+        const el = document.getElementById(id);
+        return el ? (el.value ?? '') : null;
+    };
+    const describe = (el) => {
+        if (!el) return null;
+        const style = getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return {
+            tag: el.tagName.toLowerCase(),
+            id: el.id || '',
+            name: el.getAttribute('name') || '',
+            type: el.getAttribute('type') || '',
+            placeholder: el.getAttribute('placeholder') || '',
+            text: (el.innerText || el.textContent || '').trim().slice(0, 60),
+            cls: (el.className || '').toString().slice(0, 120),
+            display: style.display,
+            visible: style.display !== 'none' && style.visibility !== 'hidden'
+                && rect.width > 0 && rect.height > 0,
+            disabled: !!el.disabled,
+        };
+    };
+    const byId = (id) => describe(document.getElementById(id));
+
+    const capType = val('CapType');
+    const captchaImage = document.querySelector(
+        '.dntCaptcha img, img[src*="Captcha" i], img[id*="captcha" i], #CaptchaImage'
+    );
+
+    const activePane = Array.from(document.querySelectorAll('.tab-pane'))
+        .filter(p => getComputedStyle(p).display !== 'none')
+        .map(p => p.id || '');
+
+    const finalPane = document.getElementById('pills-10') || document.getElementById('pills-9');
+    const finalControls = finalPane
+        ? Array.from(finalPane.querySelectorAll('button, input[type=submit], input[type=button], a.btn'))
+            .map(describe).filter(c => c && (c.id || c.text))
+        : [];
+
+    const otpModal = document.getElementById('GetOptCodeModal');
+    return {
+        captcha: {
+            cap_type: capType,
+            cap_type_meaning: capType === '0'
+                ? 'window.cap widget -> POST /Barname/Document/UpdateRegisterNewNewOld'
+                : capType === '1'
+                    ? 'DNTCaptcha -> POST /Barname/Document/UpdateRegisterNewOld'
+                    : 'CaptchaCode -> POST /Barname/Document/UpdateRegisterNewNew',
+            cap_token_present: !!val('CapToken'),
+            dnt_captcha_text_present: !!val('DNTCaptchaText'),
+            dnt_captcha_token_present: !!val('DNTCaptchaToken'),
+            dnt_input: byId('DNTCaptchaInputText'),
+            captcha_code_input: byId('CaptchaCode'),
+            dnt_refresh_button: byId('dntCaptchaRefreshButton'),
+            reload_button: byId('btnReloadCaptcha'),
+            image_present: !!captchaImage,
+            image_src_head: captchaImage ? (captchaImage.getAttribute('src') || '').slice(0, 80) : null,
+            window_cap_available: typeof window.cap !== 'undefined',
+        },
+        submit_controls: {
+            btnRegisterFinished: byId('btnRegisterFinished'),
+            btnRegisterFinishedReturn: byId('btnRegisterFinishedReturn'),
+            GoFinalStep: byId('GoFinalStep'),
+            btnregisterbarname: byId('btnregisterbarname'),
+        },
+        otp_stage: {
+            modal_present: !!otpModal,
+            modal_classes: otpModal ? (otpModal.className || '').toString() : null,
+            modal_aria_hidden: otpModal ? otpModal.getAttribute('aria-hidden') : null,
+            modal_open: !!otpModal && otpModal.classList.contains('show'),
+            otp_input: byId('otp'),
+            submit_otp: byId('submitOtp'),
+            resend_button: byId('sendVerificationCode'),
+            document_id_value: val('DocumentId'),
+            timer_text: (document.getElementById('time') || {}).textContent || null,
+            otp_duration: typeof otpDuration !== 'undefined' ? otpDuration : null,
+        },
+        tracking: {
+            tracking_input: byId('TrackingCodeNumber'),
+            tracking_value: val('TrackingCodeNumber'),
+        },
+        sms_checkbox: byId('sendsmsvalue'),
+        active_panes: activePane,
+        final_pane_id: finalPane ? finalPane.id : null,
+        final_pane_controls: finalControls.slice(0, 25),
+        open_modals: Array.from(document.querySelectorAll('.modal.show')).map(m => m.id || ''),
+    };
+}
+"""
+
 
 def _emit(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, ensure_ascii=False, default=str), flush=True)
@@ -110,7 +206,12 @@ async def _load_driver(driver_id: int | None, payload: dict[str, Any]) -> tuple[
         return driver, driver.utcms_username, password, normalized_plate
 
 
-async def run(payload_file: Path, driver_id: int | None) -> dict[str, Any]:
+async def run(
+    payload_file: Path,
+    driver_id: int | None,
+    attempt_captcha: bool = False,
+    captcha_artifact_dir: Path | None = None,
+) -> dict[str, Any]:
     payload = _load_payload(payload_file)
     normalized = build_enhanced_waybill_payload(payload)
     driver, username, password, normalized_plate = await _load_driver(driver_id, normalized)
@@ -186,6 +287,64 @@ async def run(payload_file: Path, driver_id: int | None) -> dict[str, Any]:
             dry_run=True,
             job_id="final-stage-probe",
         )
+        # Read-only DOM inventory of the stage the dry run stopped on.  This
+        # only evaluates getters -- it never clicks a control.
+        try:
+            inventory = await page.evaluate(_FINAL_STAGE_INVENTORY_JS)
+        except Exception as exc:  # pragma: no cover - live-page boundary
+            inventory = {"error": str(exc)[:300]}
+        result["final_stage_inventory"] = inventory
+        _emit({"stage": "final_stage_inventory", "inventory": inventory})
+
+        if attempt_captcha:
+            # Exercise the real solver against the live captcha image.  Filling a
+            # text input mutates nothing server-side, and the solved value is
+            # never emitted -- only its length and whether the fill happened.
+            captcha_report: dict[str, Any] = {"attempted": True}
+            try:
+                await manager._handle_submit_captcha_if_present()
+                captcha_report["solver_error"] = None
+            except Exception as exc:
+                captcha_report["solver_error"] = str(exc)[:300]
+            try:
+                filled_len = await page.evaluate(
+                    "() => { const el = document.getElementById('DNTCaptchaInputText');"
+                    " return el ? (el.value || '').trim().length : -1; }"
+                )
+            except Exception as exc:  # pragma: no cover - live-page boundary
+                filled_len = -1
+                captcha_report["readback_error"] = str(exc)[:200]
+            captcha_report["input_filled"] = filled_len > 0
+            captcha_report["solution_length"] = filled_len
+            if captcha_artifact_dir is not None:
+                # Written to disk for operator-side accuracy review only; the
+                # solved value is never printed to stdout or the log.
+                captcha_artifact_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    image_b64 = await manager._extract_captcha_image_base64(
+                        "input[name='DNTCaptchaInputText']"
+                    )
+                    if image_b64:
+                        import base64
+
+                        (captcha_artifact_dir / "captcha.png").write_bytes(
+                            base64.b64decode(image_b64.split(",")[-1])
+                        )
+                        captcha_report["image_saved"] = True
+                    else:
+                        captcha_report["image_saved"] = False
+                    solved_value = await page.evaluate(
+                        "() => { const el = document.getElementById('DNTCaptchaInputText');"
+                        " return el ? (el.value || '').trim() : ''; }"
+                    )
+                    (captcha_artifact_dir / "solution.txt").write_text(
+                        str(solved_value), encoding="utf-8"
+                    )
+                except Exception as exc:  # pragma: no cover - live-page boundary
+                    captcha_report["artifact_error"] = str(exc)[:200]
+            result["captcha_solver_probe"] = captcha_report
+            _emit({"stage": "captcha_solver_probe", "report": captcha_report})
+
         gate_state = await utcms_submission_gate.get_state()
         result["probe_contract"] = {
             "final_submit_clicked": False,
@@ -208,10 +367,27 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--payload-file", required=True, type=Path)
     parser.add_argument("--driver-id", type=int)
+    parser.add_argument(
+        "--attempt-captcha",
+        action="store_true",
+        help="Run the real captcha solver against the live image (fills the input, never clicks submit).",
+    )
+    parser.add_argument(
+        "--captcha-artifact-dir",
+        type=Path,
+        help="Write the live captcha image and the solver output here for accuracy review.",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     try:
-        asyncio.run(run(args.payload_file, args.driver_id))
+        asyncio.run(
+            run(
+                args.payload_file,
+                args.driver_id,
+                args.attempt_captcha,
+                args.captcha_artifact_dir,
+            )
+        )
     except SystemExit as exc:
         return int(exc.code or 0)
     except Exception as exc:  # pragma: no cover - CLI boundary
