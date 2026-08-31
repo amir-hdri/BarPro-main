@@ -13,7 +13,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATASET_DIR = PROJECT_ROOT / "datasets" / "dnt_captcha"
+DATASET_DIR = Path(os.getenv("DATASET_DIR", str(PROJECT_ROOT / "datasets" / "dnt_captcha")))
 IMAGES_DIR = DATASET_DIR / "images"
 LABELS_FILE = DATASET_DIR / "labels.csv"
 

@@ -18,11 +18,11 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATASET_DIR = PROJECT_ROOT / "datasets" / "dnt_captcha"
+DATASET_DIR = Path(os.getenv("DATASET_DIR", str(PROJECT_ROOT / "datasets" / "dnt_captcha")))
 IMAGES_DIR = DATASET_DIR / "images"
 LABELS_FILE = DATASET_DIR / "labels.csv"
-MODEL_SAVE_PATH = PROJECT_ROOT / "app" / "automation/captcha/assets/dnt_captcha_crnn.pth"
-VOCAB_SAVE_PATH = PROJECT_ROOT / "app" / "automation/captcha/assets/dnt_captcha_vocab.json"
+MODEL_SAVE_PATH = Path(os.getenv("MODEL_SAVE_PATH", str(PROJECT_ROOT / "app" / "automation/captcha/assets/dnt_captcha_crnn.pth")))
+VOCAB_SAVE_PATH = Path(os.getenv("VOCAB_SAVE_PATH", str(PROJECT_ROOT / "app" / "automation/captcha/assets/dnt_captcha_vocab.json")))
 
 os.makedirs(MODEL_SAVE_PATH.parent, exist_ok=True)
 
