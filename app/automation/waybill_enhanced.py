@@ -5743,6 +5743,62 @@ class EnhancedWaybillManager:
         return score
 
     async def _extract_captcha_image_base64(self, captcha_selector: str | None = None) -> str | None:
+        # First attempt: Pure canvas extraction in the page context.
+        # This draws the exact pixel bitmap loaded in the <img> element to a canvas
+        # and extracts png base64 without any screenshot scaling, DPR, or bounding-box artifacts.
+        try:
+            canvas_b64 = await self.page.evaluate(
+                """() => {
+                    const selectors = [
+                        '.dntCaptcha img',
+                        '#dntCaptchaImg',
+                        'img[id*="dnt" i][id*="captcha" i]',
+                        'img[src*="DNTCaptchaImage" i]',
+                        'img[src*="captcha" i]',
+                        'img[id*="captcha" i]',
+                        '#CaptchaImage',
+                        '.captcha img'
+                    ];
+                    let targetImg = null;
+                    for (const sel of selectors) {
+                        const imgs = Array.from(document.querySelectorAll(sel));
+                        for (const img of imgs) {
+                            if (img && img.naturalWidth > 0 && (img.offsetWidth > 0 || img.offsetHeight > 0 || img.offsetParent !== null)) {
+                                targetImg = img;
+                                break;
+                            }
+                        }
+                        if (targetImg) break;
+                    }
+                    if (!targetImg) {
+                        for (const sel of selectors) {
+                            const img = document.querySelector(sel);
+                            if (img && img.naturalWidth > 0) {
+                                targetImg = img;
+                                break;
+                            }
+                        }
+                    }
+                    if (!targetImg) return null;
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = targetImg.naturalWidth;
+                        canvas.height = targetImg.naturalHeight;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(targetImg, 0, 0);
+                        const dataUrl = canvas.toDataURL('image/png');
+                        return dataUrl.split(',')[1] || null;
+                    } catch (e) {
+                        return null;
+                    }
+                }"""
+            )
+            if canvas_b64 and len(canvas_b64) > 100:
+                return canvas_b64
+        except Exception:
+            logger.debug("canvas_captcha_extraction_failed", exc_info=True)
+
+        # Fallback to smart element screenshot
         input_box = None
         if captcha_selector:
             try:
@@ -6165,6 +6221,19 @@ class EnhancedWaybillManager:
         try:
             locator = await self.smart_locator.locate(self.page, [selector], timeout=3500)
             await locator.fill(value)
+            try:
+                await self.page.eval_on_selector(
+                    selector,
+                    """(el, val) => {
+                        el.value = val;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        el.dispatchEvent(new Event('blur', { bubbles: true }));
+                    }""",
+                    value,
+                )
+            except Exception:
+                pass
             return True
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
