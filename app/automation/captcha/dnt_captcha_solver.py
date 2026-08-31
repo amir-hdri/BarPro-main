@@ -31,31 +31,31 @@ class CRNN(nn.Module):
     def __init__(self, num_classes: int, img_channel: int = 1):
         super().__init__()
         self.cnn = nn.Sequential(
-            # Layer 1: (H, W) -> (H/2, W/2)
+            # Layer 1: (H, W) -> (H/2, W/2)  (32, 320) -> (16, 160)
             nn.Conv2d(img_channel, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(2, 2)),
 
-            # Layer 2: (H/2, W/2) -> (H/4, W/2)
+            # Layer 2: (16, 160) -> (8, 80)
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 1)),
+            nn.MaxPool2d(kernel_size=(2, 2)),
 
-            # Layer 3: (H/4, W/2) -> (H/8, W/2)
+            # Layer 3: (8, 80) -> (4, 80)
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(2, 1)),
 
-            # Layer 4: (H/8, W/2) -> (H/16, W/2)
+            # Layer 4: (4, 80) -> (2, 80)
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(2, 1)),
 
-            # Layer 5: (H/16, W/2) -> (1, W/2)
+            # Layer 5: (2, 80) -> (1, 80)
             nn.Conv2d(256, 256, kernel_size=(2, 1)),
             nn.BatchNorm2d(256),
             nn.ReLU(),
@@ -96,7 +96,7 @@ class DntCaptchaProvider(CaptchaProvider):
         self._vocab = []
         self._initialized = False
         self._init_lock = Lock()
-        self.img_w = 360
+        self.img_w = 320
         self.img_h = 32
 
     async def solve_text_captcha(self, image_base64: str) -> CaptchaResult:

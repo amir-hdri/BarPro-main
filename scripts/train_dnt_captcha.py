@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Train a PyTorch CRNN (CNN + Bidirectional GRU + CTC Loss) model for DNT Captcha.
-High-resolution temporal sequence modeling for wave-distorted Persian number words.
+Multi-threaded CPU-optimized training with live batch logging.
 """
 
 import os
@@ -17,6 +17,9 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 
+# Maximize CPU core usage
+torch.set_num_threads(int(os.getenv("TORCH_NUM_THREADS", "4")))
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATASET_DIR = Path(os.getenv("DATASET_DIR", str(PROJECT_ROOT / "datasets" / "dnt_captcha")))
 IMAGES_DIR = DATASET_DIR / "images"
@@ -31,31 +34,31 @@ class CRNN(nn.Module):
     def __init__(self, num_classes: int, img_channel: int = 1):
         super().__init__()
         self.cnn = nn.Sequential(
-            # Layer 1: (H, W) -> (H/2, W/2)
+            # Layer 1: (H, W) -> (H/2, W/2)  (32, 320) -> (16, 160)
             nn.Conv2d(img_channel, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(2, 2)),
 
-            # Layer 2: (H/2, W/2) -> (H/4, W/2)  [preserve width for high CTC resolution]
+            # Layer 2: (16, 160) -> (8, 80)
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 1)),
+            nn.MaxPool2d(kernel_size=(2, 2)),
 
-            # Layer 3: (H/4, W/2) -> (H/8, W/2)
+            # Layer 3: (8, 80) -> (4, 80)
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(2, 1)),
 
-            # Layer 4: (H/8, W/2) -> (H/16, W/2)
+            # Layer 4: (4, 80) -> (2, 80)
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(2, 1)),
 
-            # Layer 5: (H/16, W/2) -> (1, W/2)
+            # Layer 5: (2, 80) -> (1, 80)
             nn.Conv2d(256, 256, kernel_size=(2, 1)),
             nn.BatchNorm2d(256),
             nn.ReLU(),
@@ -84,10 +87,9 @@ class CRNN(nn.Module):
 
 
 class DntCaptchaDataset(Dataset):
-    def __init__(self, records: list[dict[str, str]], vocab: list[str], img_w: int = 360, img_h: int = 32, augment: bool = False):
+    def __init__(self, records: list[dict[str, str]], vocab: list[str], img_w: int = 320, img_h: int = 32, augment: bool = False):
         self.records = records
         self.vocab = vocab
-        # Index len(vocab) is reserved for CTC blank token
         self.char_to_idx = {char: idx for idx, char in enumerate(vocab)}
         self.img_w = img_w
         self.img_h = img_h
@@ -100,12 +102,11 @@ class DntCaptchaDataset(Dataset):
         draw = ImageDraw.Draw(img)
         w, h = img.size
 
-        # Add random light noise dots/lines
-        if random.random() < 0.5:
-            for _ in range(random.randint(2, 5)):
+        if random.random() < 0.4:
+            for _ in range(random.randint(1, 4)):
                 x1, y1 = random.randint(0, w), random.randint(0, h)
                 x2, y2 = random.randint(0, w), random.randint(0, h)
-                draw.line([(x1, y1), (x2, y2)], fill=random.randint(120, 200), width=1)
+                draw.line([(x1, y1), (x2, y2)], fill=random.randint(130, 210), width=1)
         return img
 
     def __getitem__(self, idx):
@@ -121,7 +122,6 @@ class DntCaptchaDataset(Dataset):
 
         img = img.resize((self.img_w, self.img_h), Image.Resampling.BILINEAR)
         img_arr = np.array(img, dtype=np.float32) / 255.0
-        # Normalize: zero mean, unit variance
         img_arr = (img_arr - 0.5) / 0.5
         img_tensor = torch.tensor(img_arr, dtype=torch.float32).unsqueeze(0)
 
@@ -158,9 +158,9 @@ def decode_predictions(preds, vocab: list[str]):
     return decoded_strings
 
 
-def train(epochs: int = 40, batch_size: int = 32, lr: float = 1e-3):
+def train(epochs: int = 25, batch_size: int = 64, lr: float = 1e-3):
     if not LABELS_FILE.exists():
-        print(f"Error: {LABELS_FILE} not found. Please run generate_dnt_captcha_dataset.py first.")
+        print(f"Error: {LABELS_FILE} not found.")
         return
 
     records = []
@@ -170,7 +170,7 @@ def train(epochs: int = 40, batch_size: int = 32, lr: float = 1e-3):
             records.append(r)
     print(f"Loaded {len(records)} samples from {LABELS_FILE}")
 
-    # Build vocabulary from all unique characters in labels
+    # Build vocabulary
     unique_chars = sorted(list(set("".join([str(r["words"]) for r in records]))))
     if " " not in unique_chars:
         unique_chars.append(" ")
@@ -186,22 +186,20 @@ def train(epochs: int = 40, batch_size: int = 32, lr: float = 1e-3):
     train_records = records[:-val_size]
     val_records = records[-val_size:]
 
-    train_dataset = DntCaptchaDataset(train_records, unique_chars, img_w=360, img_h=32, augment=True)
-    val_dataset = DntCaptchaDataset(val_records, unique_chars, img_w=360, img_h=32, augment=False)
+    train_dataset = DntCaptchaDataset(train_records, unique_chars, img_w=320, img_h=32, augment=True)
+    val_dataset = DntCaptchaDataset(val_records, unique_chars, img_w=320, img_h=32, augment=False)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 
-    # Blank token at index len(vocab) -> num_classes = len(vocab) + 1
     blank_idx = len(unique_chars)
     num_classes = len(unique_chars) + 1
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using training device: {device} | Blank token index: {blank_idx}")
+    print(f"Using device: {device} | Threads: {torch.get_num_threads()} | Blank: {blank_idx}")
 
     model = CRNN(num_classes=num_classes).to(device)
     ctc_loss = nn.CTCLoss(blank=blank_idx, zero_infinity=True)
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max", factor=0.5, patience=4)
 
     best_val_acc = 0.0
 
@@ -209,7 +207,7 @@ def train(epochs: int = 40, batch_size: int = 32, lr: float = 1e-3):
         model.train()
         total_loss = 0.0
 
-        for images, targets, target_lengths, _ in train_loader:
+        for b_idx, (images, targets, target_lengths, _) in enumerate(train_loader, 1):
             images = images.to(device)
             targets = targets.to(device)
             target_lengths = target_lengths.to(device)
@@ -226,6 +224,8 @@ def train(epochs: int = 40, batch_size: int = 32, lr: float = 1e-3):
             optimizer.step()
 
             total_loss += loss.item()
+            if b_idx % 25 == 0 or b_idx == len(train_loader):
+                print(f"  [Epoch {epoch:02d}] Batch {b_idx:03d}/{len(train_loader):03d} | Current Loss: {loss.item():.4f}")
 
         avg_loss = total_loss / len(train_loader)
 
@@ -246,14 +246,12 @@ def train(epochs: int = 40, batch_size: int = 32, lr: float = 1e-3):
                     total += 1
 
         val_acc = correct / total if total > 0 else 0.0
-        scheduler.step(val_acc)
-
-        print(f"Epoch {epoch:02d}/{epochs:02d} | Loss: {avg_loss:.4f} | Val Exact Accuracy: {val_acc * 100:.2f}% ({correct}/{total})")
+        print(f"==> Epoch {epoch:02d}/{epochs:02d} | Avg Loss: {avg_loss:.4f} | Val Accuracy: {val_acc * 100:.2f}% ({correct}/{total})")
 
         if val_acc >= best_val_acc or epoch == epochs:
             best_val_acc = max(best_val_acc, val_acc)
             torch.save(model.state_dict(), MODEL_SAVE_PATH)
-            print(f"  ⭐ Saved model checkpoint ({val_acc * 100:.2f}%) to {MODEL_SAVE_PATH}")
+            print(f"  ⭐ Saved checkpoint ({val_acc * 100:.2f}%) to {MODEL_SAVE_PATH}")
 
     print(f"\n🎉 Training complete! Best validation exact-match accuracy: {best_val_acc * 100:.2f}%")
 
@@ -261,8 +259,8 @@ def train(epochs: int = 40, batch_size: int = 32, lr: float = 1e-3):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=35)
-    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--epochs", type=int, default=25)
+    parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-3)
     args = parser.parse_args()
     train(epochs=args.epochs, batch_size=args.batch_size, lr=args.lr)
