@@ -6063,19 +6063,21 @@ class EnhancedWaybillManager:
     async def _auto_fill_submit_captcha(self, captcha_selector: str) -> bool:
         attempts = max(1, utcms_config.CAPTCHA_AUTO_MAX_ATTEMPTS)
         retry_delay = max(0.1, utcms_config.CAPTCHA_AUTO_RETRY_DELAY_SECONDS)
-        mode = (utcms_config.CAPTCHA_MODE or "").strip().lower()
-        strategy_order = get_captcha_strategy_order(mode, utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED)
 
         for attempt in range(1, attempts + 1):
             if attempt > 1 and utcms_config.CAPTCHA_AUTO_REFRESH_ON_RETRY:
                 await self._refresh_submit_captcha()
                 await asyncio.sleep(retry_delay)
 
-            for strategy in strategy_order:
-                if strategy == "provider":
-                    solved = await self._solve_submit_captcha_with_provider(captcha_selector)
-                else:
-                    solved = await self._solve_submit_math_captcha(captcha_selector)
+            # For the issuance form submit stage, the challenge is an IMAGE (DNTCaptcha).
+            # Always solve the image with provider (CNN / CRNN / OCR) first!
+            solved = await self._solve_submit_captcha_with_provider(captcha_selector)
+            if solved and await self._fill_with_selector(captcha_selector, solved):
+                return True
+
+            # Only if provider failed and local fallback is enabled, try local math solver
+            if utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED:
+                solved = await self._solve_submit_math_captcha(captcha_selector)
                 if solved and await self._fill_with_selector(captcha_selector, solved):
                     return True
 
