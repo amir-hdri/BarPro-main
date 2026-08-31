@@ -147,8 +147,8 @@ class DntCaptchaProvider(CaptchaProvider):
             tensor = torch.tensor(arr, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self._device)
 
             with torch.no_grad():
-                preds = self._model(tensor)  # [1, W_seq, num_classes]
-                argmax_preds = torch.argmax(preds, dim=2)[0].cpu().numpy()
+                preds = self._model(tensor)  # [W_seq, 1, num_classes]
+                argmax_preds = torch.argmax(preds, dim=2)[:, 0].cpu().numpy()
 
             decoded_chars = []
             prev_idx = 0
