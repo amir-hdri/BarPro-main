@@ -83,6 +83,8 @@ def apply_wave_distortion(img: Image.Image, amplitude: float = 4.0, period: floa
 def get_available_fonts():
     # Common system Persian / Arabic TrueType fonts
     font_candidates = [
+        "/usr/share/fonts/truetype/custom/Tahoma.ttf",
+        "/usr/share/fonts/truetype/custom/Arial.ttf",
         "/System/Library/Fonts/Supplemental/Tahoma.ttf",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
         "/Library/Fonts/Tahoma.ttf",
