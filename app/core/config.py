@@ -81,6 +81,8 @@ class UTCMSConfig:
             "auto",
             "ensemble",
             "composite",
+            "nvidia_nim",
+            "dnt_crnn",
             "cnn",
             "pytorch_fuel",
             "keras_ocr",
@@ -94,6 +96,7 @@ class UTCMSConfig:
             "auto",
             _valid_captcha_providers,
         )
+        self.NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "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").strip()
         self.TWOCAPTCHA_API_KEY = os.getenv("TWOCAPTCHA_API_KEY", "").strip()
         self.CAPTCHA_TIMEOUT_SECONDS = int(os.getenv("CAPTCHA_TIMEOUT_SECONDS", "120"))
         self.CAPTCHA_POLL_SECONDS = float(os.getenv("CAPTCHA_POLL_SECONDS", "5"))
@@ -102,13 +105,9 @@ class UTCMSConfig:
             os.getenv("CAPTCHA_LOCAL_FALLBACK_ENABLED", "True"),
             default=True,
         )
-        # When True the bot NEVER contacts an external captcha solver service.
-        # All captcha solving is performed by the bundled local ML models
-        # (CNN / PyTorch fuel / Keras OCR / enhanced OCR / local OCR for the
-        # fuel page, and the math-captcha engine for the login page).
         self.CAPTCHA_LOCAL_ONLY = _to_bool(
-            os.getenv("CAPTCHA_LOCAL_ONLY", "True"),
-            default=True,
+            os.getenv("CAPTCHA_LOCAL_ONLY", "False"),
+            default=False,
         )
         self.CAPTCHA_MATH_MIN_CONFIDENCE = float(os.getenv("CAPTCHA_MATH_MIN_CONFIDENCE", "0.62"))
         self.CAPTCHA_AUTO_ONLY = _to_bool(os.getenv("CAPTCHA_AUTO_ONLY", "True"), default=True)

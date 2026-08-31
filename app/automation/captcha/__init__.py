@@ -11,6 +11,7 @@ from app.automation.captcha.enhanced_ocr import EnhancedOcrProvider
 from app.automation.captcha.fuel_captcha_solver import PyTorchFuelCaptchaProvider
 from app.automation.captcha.keras_ocr import KerasOcrCaptchaProvider
 from app.automation.captcha.local_ocr import LocalOcrCaptchaProvider
+from app.automation.captcha.nvidia_nim_provider import NvidiaNimCaptchaProvider
 from app.core.config import utcms_config
 
 _provider_lock = Lock()
@@ -46,6 +47,8 @@ class CompositeCaptchaProvider(CaptchaProvider):
 
 
 def _build_provider(provider_name: str) -> CaptchaProvider | None:
+    if provider_name == "nvidia_nim":
+        return NvidiaNimCaptchaProvider()
     if provider_name == "dnt_crnn":
         return DntCaptchaProvider()
     if provider_name == "keras_ocr":
@@ -61,6 +64,7 @@ def _build_provider(provider_name: str) -> CaptchaProvider | None:
     if provider_name in ("auto", "ensemble", "composite"):
         return CompositeCaptchaProvider(
             [
+                NvidiaNimCaptchaProvider(),
                 DntCaptchaProvider(),
                 CnnCaptchaProvider(),
                 PyTorchFuelCaptchaProvider(),
