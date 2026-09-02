@@ -9,6 +9,7 @@
 - Synced the deployed DNT CRNN model and vocabulary assets into the repository.
 - Rebuilt stale Central Scheduler and Beat containers from the current backend image and verified the Central image inventory.
 - Corrected `manage.sh health` to test the live Backend container directly when Compose project labels do not match the fixed `container_name`.
+- Set the Playwright browser download default to the Iranian TestEng mirror (`mirror.testeng.ir/playwright`) with a build-argument override; the mirror returned `502` during the live check, so no unverified download is treated as successful.
 - Added the timestamped live operations report at `docs/OPERATIONS_STATUS_2026-09-02.md`, including the three-witness success rule, current job causes, Worker outage, OTP gate state, and IP pool policy.
 
   ## [Unreleased] - 2026-08-30

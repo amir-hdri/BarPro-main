@@ -29,6 +29,8 @@
 
 بررسی Image و container inventory روی Worker 2 و 3 به علت timeout SSH هنوز قابل اثبات نیست و نباید سالم فرض شود.
 
+یک rebuild کامل Backend انجام نشد: dependencyها و لایه‌های cache موفق بودند، اما دانلود Chromium Headless Shell از mirror در مهلت عملیاتی timeout شد. بررسی endpoint ایرانی `mirror.testeng.ir/playwright` نیز در همان زمان `502 Bad Gateway` داد؛ بنابراین artifact جدید از mirror ایرانی دریافت نشده است. Dockerfile اکنون همین mirror ایرانی را به‌صورت پیش‌فرض و قابل override تنظیم می‌کند. سرویس‌های running از image قبلی tag-compatible استفاده می‌کنند، درحالی‌که source و Compose/config جدید روی host bind-mounted و فعال است. برای تغییر digest image باید mirror سالم شود یا browser artifact از قبل در cache موجود باشد و سپس build کامل و verify شود.
+
 ## وضعیت بارنامه‌ها
 
 | وضعیت | تعداد | علت/اقدام |
