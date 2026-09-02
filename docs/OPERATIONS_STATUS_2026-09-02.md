@@ -23,7 +23,7 @@
 
 اصلاح `manage.sh health` انجام شد تا تست اتصال DB را مستقیماً داخل `barpro-backend` اجرا کند؛ خطای قبلی ناشی از mismatch project label در Compose بود، نه خرابی PostgreSQL.
 
-Kernel log روی Central چند OOM kill برای Backend با سقف `512m` نشان داد. سقف Backend به `768m` و سقف Beat به `384m` افزایش یافت؛ مجموع limitهای Central طبق audit برابر `9.6GB` و همچنان زیر بودجهٔ `10.5GB` است.
+Kernel log روی Central چند OOM kill برای Backend با سقف `512m` نشان داد. سقف Backend به `768m` و سقف Beat به `384m` افزایش یافت؛ مجموع limitهای Central طبق audit برابر `9.6GB` و همچنان زیر بودجهٔ `10.5GB` است. پس از اعمال limitها، Backend و Beat healthy و بدون OOM/restart جدید در snapshot ده‌دقیقه‌ای بودند.
 
 ## بررسی Imageها
 
@@ -39,14 +39,14 @@ Kernel log روی Central چند OOM kill برای Backend با سقف `512m` ن
 |---|---:|---|
 | `success` با شاهد کامل | 0 | هیچ tracking code معتبر در jobها وجود ندارد |
 | `pending` | 20 | آمادهٔ برنامه‌ریزی، مشروط به Gate و Worker سالم |
-| `waiting_submission_window` | 9 | Gate فعلی `unknown` و fail-closed است |
-| `failed` | 8 | `TARGET_SITE_TIMEOUT`؛ علت غالباً در دسترس نبودن فرم پس از recovery |
-| `needs_review` | 4 | یک `AUTH_FAILURE` قابل retry، یک payload ناقص، یک `submission_unconfirmed` و یک mutation مبهم بدون category |
+| `waiting_submission_window` | 18 | Gate فعلی `unknown` و fail-closed است؛ 9 مورد safe retry نیز پس از requeue در همین صف قرار گرفتند |
+| `failed` | 0 | 8 timeout تاریخی و 1 auth failure از مسیر رسمی retry requeue شدند |
+| `needs_review` | 3 | یک payload ناقص، یک `submission_unconfirmed` و یک mutation مبهم بدون category |
 | کل | 41 | 40 payload معتبر، 1 payload ناقص |
 
 اعتبارسنجی strict روی payloadهای ذخیره‌شده نشان داد job با `id=53` شهر/آدرس مبدأ و مقصد و پلاک ندارد. این فیلدها قابل حدس‌زدن نیستند و تا دریافت دادهٔ واقعی نباید ارسال شوند.
 
-دو job دارای `mutation_status=ambiguous` یا `submission_unconfirmed` هرگز مستقیم resubmit نمی‌شوند؛ ابتدا باید با مسیر reconciliation و سه شاهد بررسی شوند تا duplicate registration رخ ندهد.
+دو job دارای `mutation_status=ambiguous` یا `submission_unconfirmed` هرگز مستقیم resubmit نمی‌شوند؛ ابتدا باید با مسیر reconciliation و سه شاهد بررسی شوند تا duplicate registration رخ ندهد. queueهای `waybill_tasks_1/2/3` در آخرین snapshot خالی بودند و تنها 5 پیام کنترلی در `rpa_scheduler` باقی مانده بود.
 
 ## Gate و CAPTCHA
 
@@ -62,7 +62,7 @@ provider بینایی خارجی، کلید API، fallbackهای Compose/config 
 
 ## IP و Proxy Pool
 
-Pool مشترک Redis دارای 8 proxy عملیاتی است؛ 4 مورد egress ایران را اندازه‌گیری کرده‌اند و 4 مورد هنوز شاهد مثبت جغرافیایی ندارند. انتخاب round-robin در pool روی کل رکوردهای قابل‌استفاده انجام می‌شود و proxy مسدودشده cache Worker را فوراً invalidate می‌کند.
+Pool مشترک Redis در آخرین snapshot دارای 14 proxy عملیاتی بود؛ 5 مورد egress ایران را اندازه‌گیری کرده‌اند و بقیه هنوز شاهد مثبت جغرافیایی ندارند. انتخاب round-robin در pool روی کل رکوردهای قابل‌استفاده انجام می‌شود و proxy مسدودشده cache Worker را فوراً invalidate می‌کند.
 
 Policy فعلی `worker_first` است: Squid اختصاصی هر Worker مسیر اصلی است و Clean IP Pool فقط در صورت unavailable/blocked شدن مسیر اختصاصی وارد می‌شود. این policy برای موفقیت ثبت مناسب‌تر است؛ proxyهای رایگان با وجود healthy بودن screening، برای Playwright ثبت واقعی ناپایدارند. با بازگشت Workerها، سه egress اختصاصی و pool fallback باید جداگانه probe و ثبت شوند.
 
@@ -91,7 +91,7 @@ Policy فعلی `worker_first` است: Squid اختصاصی هر Worker مسیر
 1. پس از بازگشت Worker 2/3، SSH، Image ID، Squid local، egress IP، registry heartbeat و queue binding هر دو نود بررسی شود.
 2. یک live gate probe معتبر با evidence واقعی انجام شود تا `OTP_FREE` فعلی ثبت شود؛ صرفاً باز کردن زمان‌بندی یا manual override مجاز نیست.
 3. job `id=53` فقط پس از دریافت شهر/آدرس‌های واقعی و پلاک معتبر اصلاح شود.
-4. jobهای `TARGET_SITE_TIMEOUT` و `AUTH_FAILURE` از مسیر رسمی retry requeue شوند؛ jobهای ambiguous ابتدا reconciliation شوند.
+4. jobهای timeout و auth از مسیر رسمی retry requeue شدند؛ jobهای ambiguous همچنان منتظر reconciliation هستند.
 5. jobها با concurrency برابر 1 برای هر Worker/driver اجرا شوند و هر نتیجه تا سه شاهد در History reconcile شود.
 6. فقط پس از صفر شدن queueهای قابل‌اجرا و تعیین تکلیف `needs_review`، نتیجهٔ نهایی موفق اعلام شود.
 
