@@ -192,18 +192,6 @@ USER_AGENT_PROFILES = [
 
 GPU_PROFILES = [
     {
-        "vendor": "Google Inc. (NVIDIA)",
-        "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0)",
-        "unmasked_vendor": "NVIDIA Corporation",
-        "unmasked_renderer": "NVIDIA GeForce RTX 3070",
-    },
-    {
-        "vendor": "Google Inc. (NVIDIA)",
-        "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11 vs_5_0 ps_5_0)",
-        "unmasked_vendor": "NVIDIA Corporation",
-        "unmasked_renderer": "NVIDIA GeForce GTX 1650",
-    },
-    {
         "vendor": "Google Inc. (AMD)",
         "renderer": "ANGLE (AMD, AMD Radeon RX 6700 XT Direct3D11 vs_5_0 ps_5_0)",
         "unmasked_vendor": "Advanced Micro Devices, Inc.",

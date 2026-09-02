@@ -227,7 +227,7 @@ case "$1" in
         # Must actually round-trip a query. The previous probe only constructed a
         # session and closed it, which never opens a connection — it passed with
         # Postgres stopped.
-        if docker compose -f compose/backend.yml exec -T backend python -c "
+        if docker exec barpro-backend python -c "
 import asyncio
 from sqlalchemy import text
 from app.core.database import async_session_factory

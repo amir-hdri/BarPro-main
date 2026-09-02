@@ -63,7 +63,6 @@ x-backend-common: &backend-common
     HEADLESS: ${HEADLESS:-true}
     ALLOW_LIVE_SUBMIT: ${ALLOW_LIVE_SUBMIT:-false}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    NVIDIA_API_KEY: ${NVIDIA_API_KEY:-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}
     CAPTCHA_LOCAL_ONLY: "false"
     KERAS_PYTHON_PATH: ${KERAS_PYTHON_PATH:-python3}
     KERAS_MODEL_PATH: ${KERAS_MODEL_PATH:-persian_number_ocr.keras}

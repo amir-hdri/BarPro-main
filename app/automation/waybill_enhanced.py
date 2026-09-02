@@ -16,7 +16,6 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from playwright.async_api import BrowserContext, Page
 
-from app.automation.auth_utils import get_captcha_strategy_order
 from app.automation.browser import PageInteractor
 from app.automation.captcha import captcha_engine, get_captcha_provider
 from app.automation.location_selector import LocationSelector, RouteCalculator
@@ -1668,20 +1667,17 @@ class EnhancedWaybillManager:
     @staticmethod
     def _is_register_submit_response(response: Any) -> bool:
         """Match the actual mutating UTCMS request, not an obsolete JS name."""
-        url = str(getattr(response, "url", "") or "").lower().split("?", 1)[0]
-        return any(
-            url.endswith(suffix)
-            for suffix in (
-                "/barname/document/updateregisternewold",
-                "/barname/document/updateregisternewnewold",
-                "/barname/document/updateregisternewnew",
-                "/updateregisternewold",
-                "/updateregisternewnewold",
-                "/updateregisternewnew",
-                "/barname/printreport/printbarnamenew",
-                "/printbarnamenew",
-            )
-        )
+        from urllib.parse import urlparse
+
+        parsed = urlparse(str(getattr(response, "url", "") or ""))
+        if (parsed.hostname or "").lower() != "barname.utcms.ir":
+            return False
+        return parsed.path.rstrip("/").lower() in {
+            "/barname/document/updateregisternewold",
+            "/barname/document/updateregisternewnewold",
+            "/barname/document/updateregisternewnew",
+            "/barname/printreport/printbarnamenew",
+        }
 
     @staticmethod
     def _is_otp_submit_response(response: Any) -> bool:
@@ -1831,6 +1827,26 @@ class EnhancedWaybillManager:
             if clicked:
                 await asyncio.sleep(wait_after_seconds)
                 return True
+
+            try:
+                js_clicked = await self.page.evaluate(
+                    """(sel) => {
+                        const el = document.querySelector(sel);
+                        if (el) {
+                            el.scrollIntoView({block: 'center'});
+                            el.click();
+                            return true;
+                        }
+                        return false;
+                    }""",
+                    selector,
+                )
+                if js_clicked:
+                    logger.info(f"JS click succeeded on {selector} for {label}")
+                    await asyncio.sleep(wait_after_seconds)
+                    return True
+            except Exception as exc:
+                logger.debug("waybill_js_click_fallback_failed", extra={"extra_fields": {"selector": selector, "error": str(exc)[:200]}})
 
         if required:
             raise WaybillError(f"کلیک روی `{label}` ناموفق بود")
@@ -2181,14 +2197,6 @@ class EnhancedWaybillManager:
             return
 
         current_url = await self._current_url()
-
-        # Do not cold-navigate to a canonical form URL here.  UTCMS accepts the
-        # same URL after the authenticated menu flow, but a direct first request
-        # is answered with HTTP 408.  The menu click also preserves the portal's
-        # referrer and any JavaScript state required by the form endpoint.
-        # A reused HTTP session can still be left on the stale configured URL
-        # (often RegisterWaybill/Index, whose 408 body is only 39 bytes), so
-        # warm the authenticated landing page before looking for menu anchors.
         warmup_url = "https://barname.utcms.ir/Barname/Notification/Notification"
         if current_url.rstrip("/").lower() != warmup_url.rstrip("/").lower():
             try:
@@ -5198,7 +5206,7 @@ class EnhancedWaybillManager:
                     "status": "unknown",
                     "mutation_status": "ambiguous",
                     "mutation_dispatched": True,
-                    "error_category": "submission_unknown",
+                    "error_category": "submission_unconfirmed",
                     "message": f"Submit click dispatched but post-click error: {post_click_err}",
                     "needs_reconciliation": True,
                 }
@@ -5286,7 +5294,6 @@ class EnhancedWaybillManager:
                     }
 
                 # Success!
-                submission_confirmed = False
                 break
             except WaybillError as w_err:
                 if any(k in str(w_err).lower() for k in ("امنیتی", "کپچا", "captcha")) and submit_attempt < max_submit_attempts:
@@ -5302,7 +5309,7 @@ class EnhancedWaybillManager:
                     "status": "unknown",
                     "mutation_status": "ambiguous",
                     "mutation_dispatched": True,
-                    "error_category": "submission_unknown",
+                    "error_category": "submission_unconfirmed",
                     "message": f"Submit dispatched but post-dispatch exception: {post_submit_exc}",
                     "needs_reconciliation": True,
                 }
@@ -6433,7 +6440,7 @@ class EnhancedWaybillManager:
         try:
             dom_tracking = await self.page.evaluate(
                 """() => {
-                    const el = document.getElementById('TrackingCodeNumber') 
+                    const el = document.getElementById('TrackingCodeNumber')
                         || document.getElementById('TrackingCode')
                         || document.querySelector('[name="printId"]')
                         || document.querySelector('.tracking-code');
@@ -6443,7 +6450,7 @@ class EnhancedWaybillManager:
                     return '';
                 }"""
             )
-            if dom_tracking:
+            if isinstance(dom_tracking, str) and dom_tracking:
                 clean_dom_tracking = self._to_english_digits(dom_tracking)
                 codes = re.findall(r"\d{6,}", clean_dom_tracking)
                 if codes:
@@ -6467,20 +6474,23 @@ class EnhancedWaybillManager:
                 element = await self.page.query_selector(selector)
                 if element is None:
                     element = await self.smart_locator.locate(self.page, [selector], timeout=900)
-                
+
                 raw_text = ""
                 try:
-                    raw_text = (await element.input_value() or "").strip()
+                    value = await element.input_value()
+                    raw_text = value.strip() if isinstance(value, str) else ""
                 except Exception:
                     pass
                 if not raw_text:
                     try:
-                        raw_text = (await element.get_attribute("value") or "").strip()
+                        value = await element.get_attribute("value")
+                        raw_text = value.strip() if isinstance(value, str) else ""
                     except Exception:
                         pass
                 if not raw_text:
                     try:
-                        raw_text = (await element.text_content() or "").strip()
+                        value = await element.text_content()
+                        raw_text = value.strip() if isinstance(value, str) else ""
                     except Exception:
                         pass
 

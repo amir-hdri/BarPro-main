@@ -81,7 +81,6 @@ class UTCMSConfig:
             "auto",
             "ensemble",
             "composite",
-            "nvidia_nim",
             "dnt_crnn",
             "cnn",
             "pytorch_fuel",
@@ -96,7 +95,6 @@ class UTCMSConfig:
             "auto",
             _valid_captcha_providers,
         )
-        self.NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "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").strip()
         self.TWOCAPTCHA_API_KEY = os.getenv("TWOCAPTCHA_API_KEY", "").strip()
         self.CAPTCHA_TIMEOUT_SECONDS = int(os.getenv("CAPTCHA_TIMEOUT_SECONDS", "120"))
         self.CAPTCHA_POLL_SECONDS = float(os.getenv("CAPTCHA_POLL_SECONDS", "5"))

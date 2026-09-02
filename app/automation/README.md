@@ -274,8 +274,8 @@ from app.automation.config import BrowserProfile, ScreenFingerprint, WebGLFinger
 # Create custom fingerprint
 screen = ScreenFingerprint(width=1920, height=1080, pixel_ratio=1.5)
 webgl = WebGLFingerprint(
-    vendor="Google Inc. (NVIDIA)",
-    renderer="ANGLE (NVIDIA, RTX 3070...)"
+    vendor="Google Inc. (Intel)",
+    renderer="ANGLE (Intel, Intel(R) UHD Graphics 770...)"
 )
 
 profile = BrowserProfile(

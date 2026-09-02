@@ -56,10 +56,6 @@ _WEBGL = [
         "vendor": "Google Inc. (Intel)",
         "renderer": "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)",
     },
-    {
-        "vendor": "Google Inc. (NVIDIA)",
-        "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11 vs_5_0 ps_5_0, D3D11)",
-    },
     {"vendor": "Google Inc. (AMD)", "renderer": "ANGLE (AMD, AMD Radeon RX 580 Direct3D11 vs_5_0 ps_5_0, D3D11)"},
     {"vendor": "Apple", "renderer": "Apple M1"},
 ]

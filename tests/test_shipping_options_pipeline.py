@@ -415,7 +415,7 @@ class TestDryRunValidationSummary:
         assert vs["end_shipping"] == "1402-05-20"
         assert vs["time_limit"] == 60
         assert vs["otp_required"] is True
-        assert any(
+        assert not any(
             call.args[:2] == (["#btnregisterbarname", "#GoFinalStep"], "مرحله نهایی (فقط مشاهده)")
             for call in mgr._click_with_fallback.await_args_list
         )

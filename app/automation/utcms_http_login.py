@@ -172,10 +172,7 @@ class UtcmsHttpLogin:
         timeout: float = DEFAULT_TIMEOUT,
         user_agent: str | None = None,
     ) -> None:
-        raw_login_url = (login_url or utcms_config.LOGIN_URL).strip()
-        if "/barname/account/login" in raw_login_url.lower():
-            raw_login_url = raw_login_url.replace("/Barname/Account/Login", "/Account/Login").replace("/barname/account/login", "/Account/Login")
-        self._login_url = raw_login_url
+        self._login_url = (login_url or utcms_config.LOGIN_URL).strip()
         if proxy_url is None:
             # Use the worker's configured proxy by default.
             try:
@@ -552,7 +549,13 @@ class UtcmsHttpLogin:
 
     async def _attempt_single_session(self, username: str, password: str) -> HttpLoginResult:
         """One full GET → solve → POST round inside a single curl_cffi session."""
-        # 1) GET login page
+        # 1) Prime WAF session with root / GET to avoid 408 on cold /Barname/Account/Login
+        origin_url = f"{urlparse(self._login_url).scheme}://{urlparse(self._login_url).netloc}/"
+        try:
+            await self._call(self._session.get, origin_url, timeout=10.0)
+        except Exception as exc:
+            logger.debug("utcms_http_login_root_prime_failed", extra={"extra_fields": {"error": str(exc)[:200]}})
+
         logger.info(
             "utcms_http_login_get_start",
             extra={"extra_fields": {"login_url": self._login_url, "proxy": self._proxy_url}},
@@ -670,6 +673,7 @@ class UtcmsHttpLogin:
             "DNTCaptchaText": self._captcha_text or "",
             "CapType": self._cap_type or "1",
             "RequestVerificationToken": self._antiforgery,
+            "__RequestVerificationToken": self._antiforgery,
             "ruleExcepted": "true",
         }
         origin = f"{urlparse(str(get_resp.url)).scheme}://{urlparse(str(get_resp.url)).netloc}"
@@ -677,6 +681,8 @@ class UtcmsHttpLogin:
             "X-Requested-With": "XMLHttpRequest",
             "Referer": str(get_resp.url),
             "Origin": origin,
+            "RequestVerificationToken": self._antiforgery or "",
+            "__RequestVerificationToken": self._antiforgery or "",
         }
         logger.info(
             "utcms_http_login_post_start",
@@ -794,17 +800,26 @@ class UtcmsHttpLogin:
     @staticmethod
     def _extract_dnt_captcha_token(html: str) -> str | None:
         m = _DNT_CAPTCHA_TOKEN_RE.search(html)
-        return m.group(1) if m else None
+        if m:
+            return m.group(1)
+        m2 = re.search(r'<input[^>]+value=["\']([^"\']+)["\'][^>]+name=["\']DNTCaptchaToken["\']', html, re.IGNORECASE)
+        return m2.group(1) if m2 else None
 
     @staticmethod
     def _extract_dnt_captcha_text(html: str) -> str | None:
         m = _DNT_CAPTCHA_TEXT_RE.search(html)
-        return m.group(1) if m else None
+        if m:
+            return m.group(1)
+        m2 = re.search(r'<input[^>]+value=["\']([^"\']+)["\'][^>]+name=["\']DNTCaptchaText["\']', html, re.IGNORECASE)
+        return m2.group(1) if m2 else None
 
     @staticmethod
     def _extract_cap_type(html: str) -> str | None:
         m = _CAP_TYPE_RE.search(html)
-        return m.group(1) if m else None
+        if m:
+            return m.group(1)
+        m2 = re.search(r'<input[^>]+value=["\']([^"\']+)["\'][^>]+name=["\']CapType["\']', html, re.IGNORECASE)
+        return m2.group(1) if m2 else None
 
     @staticmethod
     def _extract_form_ajax_url(html: str) -> str | None:
@@ -815,10 +830,10 @@ class UtcmsHttpLogin:
     def _extract_captcha_image_url(html: str, base_url: str) -> str | None:
         m = _CAPTCHA_IMG_RE.search(html)
         if m:
-            return urljoin(base_url, m.group(1))
+            return urljoin(base_url, m.group(1).replace("&amp;", "&"))
         m2 = _CAPTCHA_IMG_FALLBACK_RE.search(html)
         if m2:
-            return urljoin(base_url, m2.group(1))
+            return urljoin(base_url, m2.group(1).replace("&amp;", "&"))
         return None
 
     @staticmethod

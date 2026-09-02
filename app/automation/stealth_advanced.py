@@ -54,12 +54,6 @@ WEBGL_FINGERPRINTS = [
         "unmasked_renderer": "Intel(R) HD Graphics 620",
     },
     {
-        "vendor": "Google Inc. (NVIDIA)",
-        "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1050 Direct3D11 vs_5_0 ps_5_0)",
-        "unmasked_vendor": "NVIDIA Corporation",
-        "unmasked_renderer": "NVIDIA GeForce GTX 1050",
-    },
-    {
         "vendor": "Google Inc. (AMD)",
         "renderer": "ANGLE (AMD, AMD Radeon RX 580 Direct3D11 vs_5_0 ps_5_0)",
         "unmasked_vendor": "ATI Technologies Inc.",

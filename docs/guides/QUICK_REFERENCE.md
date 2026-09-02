@@ -121,7 +121,7 @@ async with managed_browser_resource(pool, workflow_id="wb_001") as (context, ctx
 - [x] Webdriver flag removal
 - [x] Chrome runtime mocking
 - [x] Playwright property deletion
-- [x] WebGL fingerprint spoofing (Intel, NVIDIA, AMD)
+- [x] WebGL fingerprint spoofing (Intel, AMD, Apple)
 - [x] Canvas fingerprint noise injection
 - [x] AudioContext spoofing
 - [x] Screen resolution randomization

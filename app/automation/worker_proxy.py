@@ -382,17 +382,11 @@ def get_playwright_proxy() -> dict | None:
 
 
 async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> bool:
-    """Verify that Squid can reach UTCMS without confusing UTCMS health with proxy health.
+    """Verify the proxy tunnel without confusing an upstream UTCMS error with proxy failure."""
+    parsed = urlparse(proxy_url)
+    if not parsed.hostname or not parsed.port:
+        return False
 
-    The RPA login path uses ``curl_cffi`` with a Chrome TLS fingerprint.  The old
-    pre-flight used one plain ``httpx`` request to the UTCMS home page, so a
-    single upstream reset/WAF response incorrectly marked Squid unhealthy and
-    permanently drained all Celery consumers on that worker.
-
-    Any real HTTP response proves that the proxy tunnel is operational.  Only
-    connection failures (or an explicit ``X-Squid-Error`` response) count as a
-    proxy failure.  A short retry absorbs UTCMS's observed transient resets.
-    """
     from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
 
     effective_target = target_url or utcms_config.LOGIN_URL
@@ -403,9 +397,6 @@ async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> b
             session = cc_requests.Session(
                 impersonate="chrome120",
                 proxies={"http": proxy_url, "https": proxy_url},
-                # Verify certificates: a health check that accepts a MITM'd
-                # session would green-light exactly the egress we must reject,
-                # since the same proxy then carries UTCMS credentials.
                 verify=True,
             )
             response = await asyncio.to_thread(session.get, effective_target, timeout=12.0)
@@ -419,9 +410,8 @@ async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> b
             if session is not None:
                 try:
                     await asyncio.to_thread(session.close)
-                except Exception:
-                    logger.debug("worker_proxy_health_session_close_failed", exc_info=True)
-
+                except Exception as exc:
+                    logger.debug("worker_proxy_health_session_close_failed", extra={"extra_fields": {"error": str(exc)[:200]}})
         if attempt < 3:
             await asyncio.sleep(1.5)
 

@@ -1036,14 +1036,6 @@ class LocationSelector:
                 }
 
             # ۴. انتخاب شهر بر اساس تطابق یکتا (بدون حدس اولین گزینه)
-            province_value = str(province_readback.get("value") or "").strip()
-            raw_city_options = await self._read_select_options(utcms["city"][0])
-            expected_city_val = (
-                self._find_best_option_match(raw_city_options, self._normalize_text(city))
-                if raw_city_options
-                else None
-            )
-
             city_selector = await self._select_from_options_with_selector(utcms["city"], city)
             if not city_selector:
                 return {
@@ -1052,8 +1044,9 @@ class LocationSelector:
                     "error": f"شهر '{city}' در میان گزینه‌های استان '{province}' ({prefix}) یافت نشد",
                 }
 
-            initial_city_readback = await self._read_selected_option(city_selector)
-            city_value = str(initial_city_readback.get("value") or expected_city_val or "").strip()
+            city_readback = await self._read_selected_option(city_selector)
+            province_value = str(province_readback.get("value") or "").strip()
+            city_value = str(city_readback.get("value") or "").strip()
 
             async def _refill_cities() -> bool:
                 return await self._ensure_city_options([city_selector], province_value)
@@ -1062,8 +1055,9 @@ class LocationSelector:
             if city_value:
                 await self._hold_select_value(city_selector, city_value, settle_ms=1500, refill=_refill_cities)
 
-            # ۵. Read-back شهر (مقدار و برچسب)
-            city_readback = await self._read_selected_option(city_selector)
+            # ۵. Read-back شهر (مقدار و برچسب).  _hold_select_value performs
+            # the final value stability check while this read-back preserves
+            # the exact label returned by the selection.
             norm_city_target = self._normalize_text(city)
             norm_city_read = self._normalize_text(city_readback.get("text", ""))
             if not city_readback.get("value") or (
