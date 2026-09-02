@@ -88,8 +88,8 @@ services:
     <<: *backend-common
     container_name: barpro-backend
     shm_size: '256m'
-    mem_limit: 512m      # ↑ از 256m — پاسخ‌دهی سریع‌تر API روی 16GB
-    mem_reservation: 256m  # ↑ از 128m
+    mem_limit: 768m      # API imports the RPA/CAPTCHA stack; 512m caused repeated OOM kills
+    mem_reservation: 384m
     environment:
       <<: *backend-env
       PORT: 8000
@@ -242,8 +242,8 @@ services:
     <<: *backend-common
     image: ${BACKEND_IMAGE:-barpro_backend:latest}
     container_name: barpro-beat
-    mem_limit: 256m      # ↑ از 128m — Beat واقعاً ~225MB RSS مصرف می‌کند (automation/captcha imports)
-    mem_reservation: 128m  # ↑ از 64m
+    mem_limit: 384m      # Beat imports the automation/CAPTCHA stack and reached ~230MB RSS
+    mem_reservation: 192m
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import os, redis; redis.Redis.from_url(os.environ['REDIS_URL'], socket_connect_timeout=3, socket_timeout=3).ping()\" && grep -q celery /proc/1/comm || exit 1"]
       interval: 30s

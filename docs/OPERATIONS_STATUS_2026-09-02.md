@@ -23,6 +23,8 @@
 
 اصلاح `manage.sh health` انجام شد تا تست اتصال DB را مستقیماً داخل `barpro-backend` اجرا کند؛ خطای قبلی ناشی از mismatch project label در Compose بود، نه خرابی PostgreSQL.
 
+Kernel log روی Central چند OOM kill برای Backend با سقف `512m` نشان داد. سقف Backend به `768m` و سقف Beat به `384m` افزایش یافت؛ مجموع limitهای Central طبق audit برابر `9.6GB` و همچنان زیر بودجهٔ `10.5GB` است.
+
 ## بررسی Imageها
 
 هر 16 کانتینر فعال Central با tag مورد انتظار منطبق هستند و کانتینر اضافی Model A مشاهده نشد. Image مشترک Backend/Worker/Scheduler/Beat با tag `barpro_backend:latest` و Image ID فعلی اجرا می‌شود. Scheduler و Beat که ابتدا stale بودند، بازسازی شدند.
