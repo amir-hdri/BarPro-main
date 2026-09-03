@@ -36,6 +36,10 @@ x-backend-common: &backend-common
     context: ..
     dockerfile: Dockerfile
     network: host
+    args:
+      HTTP_PROXY: ${BUILD_HTTP_PROXY:-}
+      HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
+      ALL_PROXY: ${BUILD_ALL_PROXY:-}
   restart: unless-stopped
   security_opt: [no-new-privileges:true]
   env_file: [../.env]

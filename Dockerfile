@@ -9,6 +9,16 @@
 FROM python:3.11-slim AS builder
 
 
+# Optional build-only egress for package/model downloads.  Values are supplied
+# by the deployment environment and are intentionally not copied to the final
+# image; this is needed on hosts whose direct egress is filtered.
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG ALL_PROXY
+ENV HTTP_PROXY=${HTTP_PROXY} \
+    HTTPS_PROXY=${HTTPS_PROXY} \
+    ALL_PROXY=${ALL_PROXY}
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -61,6 +71,10 @@ RUN pip install --no-cache-dir \
 # ── مرحله ۲: image تولید ──────────────────────────────────────
 FROM python:3.11-slim AS production
 
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG ALL_PROXY
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
@@ -88,6 +102,7 @@ COPY --from=builder /usr/local/lib/python3.11/site-packages \
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 RUN mkdir -p /opt/playwright-browsers \
+    && export HTTP_PROXY HTTPS_PROXY ALL_PROXY \
     && playwright install chromium
 
 # کپی کد اپلیکیشن
