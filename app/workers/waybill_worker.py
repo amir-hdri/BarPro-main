@@ -118,6 +118,33 @@ async def _close_page_quickly(page: Any) -> None:
         logger.warning("worker_page_close_skipped", extra={"extra_fields": {"error": str(exc)}})
 
 
+async def _evict_unhealthy_proxy(proxy_url: str) -> None:
+    """Remove the proxy that failed preflight before the next dispatch.
+
+    A clean-pool endpoint can pass a login probe and fail immediately after
+    the session starts.  Reporting a synthetic CONNECT failure here preserves
+    the endpoint identity, so the circuit breaker evicts that exact proxy
+    instead of allowing it to remain cached until the next pool refresh.
+    """
+    if not proxy_url:
+        return
+    try:
+        from app.automation.worker_proxy import get_current_egress_context
+        from app.core.circuit_breaker import check_and_report_failure
+
+        source, cached_url = get_current_egress_context()
+        await check_and_report_failure(
+            "proxy connect failed during preflight health check",
+            egress_source=source,
+            proxy_url=cached_url or proxy_url,
+        )
+    except Exception as exc:
+        logger.warning(
+            "unhealthy_proxy_eviction_failed",
+            extra={"extra_fields": {"proxy": proxy_url, "error": str(exc)[:240]}},
+        )
+
+
 class WaybillTask(Task):
     """Base task for waybill processing with common utilities."""
 
@@ -350,6 +377,7 @@ async def _claim_and_execute(task: Any, intent_id: str):
                 is_healthy = await check_proxy_health(proxy_url)
                 if not is_healthy:
                     logger.error(f"Proxy health check failed for {proxy_url}. Incrementing failures.")
+                    await _evict_unhealthy_proxy(proxy_url)
                     # Do not permanently cancel Celery consumers for an egress
                     # outage.  The circuit breaker temporarily removes this IP
                     # from routing and automatically retries after its TTL.
@@ -552,6 +580,7 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
                 is_healthy = await check_proxy_health(proxy_url)
                 if not is_healthy:
                     logger.error(f"Proxy health check failed for {proxy_url}. Incrementing failures.")
+                    await _evict_unhealthy_proxy(proxy_url)
                     # Keep consumers alive; circuit-breaker routing handles a
                     # temporarily unavailable egress path and self-recovers.
 
