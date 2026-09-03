@@ -54,6 +54,8 @@ CLASSIFICATION_MATRIX = [
     ("408 Request Timeout", True, False, ErrorCategory.TARGET_SITE_TIMEOUT, "103"),
     ("net::ERR_CONNECTION_RESET", True, True, ErrorCategory.TARGET_SITE_TIMEOUT, "103"),
     ("ERR_CONNECTION_CLOSED", True, True, ErrorCategory.TARGET_SITE_TIMEOUT, "103"),
+    ("curl (56) Proxy CONNECT aborted", True, True, ErrorCategory.TARGET_SITE_TIMEOUT, "103"),
+    ("Proxy CONNECT failed: connection refused", True, True, ErrorCategory.TARGET_SITE_TIMEOUT, "103"),
     # Worker-local faults: retryable, but never egress.
     (
         "Target page, context or browser has been closed",

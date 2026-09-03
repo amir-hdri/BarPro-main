@@ -73,6 +73,12 @@ EGRESS_FAILURE_MARKERS = (
     # failures are egress failures.
     "err_proxy_connection_failed",
     "err_tunnel_connection_failed",
+    # curl/libcurl proxy transport diagnostics.  These indicate that the
+    # selected proxy could not establish the CONNECT tunnel and must be
+    # evicted from rotation for the current block window.
+    "proxy connect aborted",
+    "proxy connect failed",
+    "proxy connect error",
     "proxy error",
     "squid",
     "502 bad gateway",

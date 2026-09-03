@@ -64,6 +64,11 @@ def classify_exception(error: Exception) -> tuple[ErrorCategory, bool]:
 
     if "bot" in text or "automationcontrolled" in text or "suspicious" in text:
         return ErrorCategory.BOT_DETECTED, False
+    # Transport-specific proxy evidence must outrank the broad keyword
+    # fallback below.  CONNECT failures are egress failures and should follow
+    # the same target-timeout/retry path as the browser-result classifier.
+    if is_egress_failure(error):
+        return ErrorCategory.TARGET_SITE_TIMEOUT, True
     if "proxy" in text or "unreachable" in text or "squid" in text:
         return ErrorCategory.TRANSIENT_INFRA_ERROR, True
     if "selector" in text or "query_selector" in text:
@@ -74,8 +79,6 @@ def classify_exception(error: Exception) -> tuple[ErrorCategory, bool]:
     # message such as "playwright: net::ERR_CONNECTION_RESET" mentions the
     # browser but describes a broken route, and blaming the worker for it sends
     # the job down the wrong recovery path.
-    if is_egress_failure(error):
-        return ErrorCategory.TARGET_SITE_TIMEOUT, True
     if (
         "memory" in text
         or "browser" in text
