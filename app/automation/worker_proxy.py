@@ -177,9 +177,9 @@ def invalidate_worker_proxy_cache() -> None:
     """Drop ONLY this process's cached proxy choice (cheap, targeted).
 
     Called by CleanIPPoolManager.mark_blocked so a just-blocked clean proxy can
-    never be served again from the 60s success cache. Unlike clear_proxy_cache
-    it does NOT wipe the shared pool cache — blocking one address must not
-    force a full pool re-read.
+    never be served again from the refresh-window success cache. Unlike
+    clear_proxy_cache it does NOT wipe the shared pool cache — blocking one
+    address must not force a full pool re-read.
     """
     global _cached_proxy_source, _cached_proxy_url, _cached_proxy_timestamp
     _cached_proxy_url = None
