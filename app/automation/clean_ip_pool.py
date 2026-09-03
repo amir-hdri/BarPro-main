@@ -1383,7 +1383,8 @@ class CleanIPPoolManager:
         refresher; this is the safety net when it has not run in time.
         """
         now = time.time()
-        if now - self._bg_refresh_last_kick < 300:  # at most one kick per 5 min
+        refresh_interval = max(1, int(getattr(utcms_config, "CLEAN_IP_PROBE_INTERVAL_SECONDS", 180)))
+        if now - self._bg_refresh_last_kick < refresh_interval:
             return
         if self._bg_refresh_thread is not None and self._bg_refresh_thread.is_alive():
             return

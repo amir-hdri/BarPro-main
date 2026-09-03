@@ -57,6 +57,8 @@ x-backend-common: &backend-common
     FRONTEND_URL_ALT: ${FRONTEND_URL_ALT:-}
     AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
     AUTH_STATE_PATH: /app/runtime/auth/utcms_state.json
+    # Empty override prevents stale images from selecting a regional CDN.
+    PLAYWRIGHT_DOWNLOAD_HOST: ""
     FUEL_SCREENSHOTS_DIR: /app/runtime/screenshots/fuel
     ENVIRONMENT: ${ENVIRONMENT:-production}
     LOGIN_URL: ${LOGIN_URL:-https://barname.utcms.ir/Account/Login}

@@ -6,7 +6,7 @@
 ║  Server  : ابرآروان (ArvanCloud) — سرور ایرانی                     ║
 ║  Node    : <CENTRAL_IP> (Primary) + <SECONDARY_EGRESS_IP> (Secondary) ║
 ║  Stack   : FastAPI · Celery · Next.js · PostgreSQL · Redis · Nginx  ║
-║  Registry: docker.arvancloud.ir  (بدون نیاز به VPN)               ║
+║  Registry: Docker Hub (upstream)                                  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
 حالت‌های اجرا:
@@ -50,10 +50,6 @@ SSH_KNOWN_HOSTS = os.environ.get("SSH_KNOWN_HOSTS", os.path.expanduser("~/.ssh/k
 
 REMOTE_DIR = "/opt/barpro"  # محل استقرار روی سرور
 DB_NAME = "utcms_rpa"
-
-# Registry آروان‌کلود (بدون تحریم — بدون نیاز به VPN)
-ARVAN_REGISTRY = "docker.arvancloud.ir"
-ARVAN_PYPI = "https://pypi.arvancloud.ir/simple"
 
 # ═══════════════════════════════════════════════════════════════════
 #  📁 آیتم‌هایی که در آرشیو آپلودی نباشند
@@ -310,30 +306,29 @@ def step_network(ssh: paramiko.SSHClient) -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  🐳 مرحله ۲ — نصب Docker + آروان‌کلود Registry Mirror
+#  🐳 مرحله ۲ — نصب Docker با تنظیمات upstream
 # ═══════════════════════════════════════════════════════════════════
 
-DOCKER_DAEMON = f"""{{
-  "registry-mirrors": ["https://{ARVAN_REGISTRY}"],
-  "insecure-registries": ["{ARVAN_REGISTRY}"],
+DOCKER_DAEMON = """{
+  "registry-mirrors": [],
   "log-driver": "json-file",
-  "log-opts": {{
+  "log-opts": {
     "max-size": "10m",
     "max-file": "3"
-  }},
-  "default-ulimits": {{
-    "nofile": {{
+  },
+  "default-ulimits": {
+    "nofile": {
       "Name": "nofile",
       "Hard": 64000,
       "Soft": 64000
-    }}
-  }}
-}}
+    }
+  }
+}
 """
 
 
 def step_docker(ssh: paramiko.SSHClient) -> bool:
-    section("🐳  مرحله ۲ — نصب Docker + آروان‌کلود Mirror")
+    section("🐳  مرحله ۲ — نصب Docker با تنظیمات upstream")
 
     # بررسی Docker
     ok_flag, out = run(ssh, "docker --version 2>/dev/null || echo MISSING", silent=True)
@@ -358,8 +353,8 @@ def step_docker(ssh: paramiko.SSHClient) -> bool:
         ver = out.strip().splitlines()[0] if out.strip() else "نامشخص"
         ok(f"Docker نصب است: {ver}")
 
-    # پیکربندی Mirror آروان‌کلود
-    info(f"پیکربندی Registry Mirror: {ARVAN_REGISTRY}")
+    # پیکربندی Docker بدون registry mirror؛ pullها مستقیماً از upstream انجام می‌شوند.
+    info("پیکربندی Docker با registry پیش‌فرض upstream")
     try:
         sftp = ssh.open_sftp()
         with sftp.file("/tmp/daemon.json", "w") as f:
@@ -371,7 +366,7 @@ def step_docker(ssh: paramiko.SSHClient) -> bool:
 
     return run_script(
         ssh,
-        "پیکربندی Docker Mirror",
+        "پیکربندی Docker با registry upstream",
         [
             "sudo mkdir -p /etc/docker",
             "sudo mv /tmp/daemon.json /etc/docker/daemon.json",

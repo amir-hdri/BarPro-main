@@ -2695,26 +2695,49 @@ class EnhancedWaybillManager:
         if any(fragment in current_url for fragment in error_url_fragments):
             return True
 
-        not_found_markers = (
-            "text=یافت نشد",
-            "text=صفحه مورد نظر شما یافت نشد",
-            "text=درخواست مجاز نمی باشد",
-            "text=خطا در سامانه",
-            "text=متاسفانه در هنگام پردازش درخواست شما خطایی رخ داده است",
-            "text=ورود مجدد به سامانه",
-            "text=Access Denied",
-            "text=فقط با آی‌پی ایران",
-            "text=دسترسی شما مسدود",
-            "text=آی پی شما",
-            "text=IP address is blocked",
-            "text=Not Found",
-        )
-        for marker in not_found_markers:
-            try:
-                await self.smart_locator.locate(self.page, [marker], timeout=500)
+        # These are negative, diagnostic markers.  Running each one through
+        # SmartLocator turns an expected "not present" result into fuzzy
+        # recovery logs and spends a timeout per marker.  Probe the live DOM in
+        # one pass instead; only a visible error marker is evidence of a bad
+        # page.
+        try:
+            marker_texts = (
+                "یافت نشد",
+                "صفحه مورد نظر شما یافت نشد",
+                "درخواست مجاز نمی باشد",
+                "خطا در سامانه",
+                "متاسفانه در هنگام پردازش درخواست شما خطایی رخ داده است",
+                "ورود مجدد به سامانه",
+                "Access Denied",
+                "فقط با آی‌پی ایران",
+                "دسترسی شما مسدود",
+                "آی پی شما",
+                "IP address is blocked",
+                "Not Found",
+            )
+            marker_found = await self.page.evaluate(
+                """(markers) => {
+                    const visible = (el) => {
+                        const style = window.getComputedStyle(el);
+                        const rect = el.getBoundingClientRect();
+                        return style.display !== 'none' && style.visibility !== 'hidden'
+                            && rect.width > 0 && rect.height > 0;
+                    };
+                    const nodes = Array.from(document.querySelectorAll('body *'))
+                        // Ignore body/container text that includes hidden
+                        // descendants; inspect leaf nodes whose own text is
+                        // actually rendered.
+                        .filter((el) => el.childElementCount === 0);
+                    return markers.some((marker) => nodes.some((el) =>
+                        visible(el) && String(el.innerText || el.textContent || '').includes(marker)
+                    ));
+                }""",
+                marker_texts,
+            )
+            if marker_found:
                 return True
-            except Exception:
-                continue
+        except Exception:
+            logger.debug("not_found_marker_probe_failed", exc_info=True)
         return False
 
     async def _fill_sender_info(self, sender: dict[str, str]):

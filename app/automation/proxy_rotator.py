@@ -837,7 +837,13 @@ class ProxyRotator:
 
 
 async def _test_proxy(proxy_url: str, timeout: float = 10.0) -> bool:
-    """Quick proxy test."""
+    """Quick proxy test using the same transport that screens the pool.
+
+    ``aiohttp`` does not natively speak SOCKS4/SOCKS5, while the clean-pool
+    records deliberately include those protocols.  Use curl_cffi/libcurl for
+    every protocol first so a proxy cannot pass screening and then fail the
+    Worker health check solely because the checker used a different client.
+    """
     try:
         proxy_str = (proxy_url or "").strip()
         if not proxy_str:
@@ -845,6 +851,30 @@ async def _test_proxy(proxy_url: str, timeout: float = 10.0) -> bool:
 
         if not proxy_str.startswith(("http://", "https://", "socks4://", "socks5://")):
             proxy_str = f"http://{proxy_str}"
+
+        try:
+            from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
+
+            def _probe(target_url: str) -> bool:
+                response = cc_requests.get(
+                    target_url,
+                    proxy=proxy_str,
+                    impersonate="chrome120",
+                    timeout=max(1.0, timeout),
+                    allow_redirects=True,
+                )
+                return response.status_code in (200, 301, 302)
+
+            for target_url in ("https://utcms.ir", "https://httpbin.org/ip"):
+                try:
+                    if await asyncio.to_thread(_probe, target_url):
+                        return True
+                except Exception:
+                    continue
+            return False
+        except ImportError:
+            # Keep the lightweight aiohttp fallback for minimal/dev installs.
+            pass
 
         async with ClientSession(timeout=ClientTimeout(total=timeout)) as session:
             # Try UTCMS first, then fallback

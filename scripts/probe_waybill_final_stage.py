@@ -37,7 +37,7 @@ from app.automation.multitenant_payload_adapter import (
     build_enhanced_waybill_payload,
     validate_live_waybill_payload,
 )
-from app.automation.proxy_rotator import get_proxy_rotator
+from app.automation.worker_proxy import get_worker_proxy_url
 from app.automation.utcms_http_login import UtcmsHttpLogin
 from app.automation.waybill_enhanced import EnhancedWaybillManager
 from app.core.config import utcms_config
@@ -239,8 +239,11 @@ async def run(
     # The script is intentionally hard-wired to the non-mutating path.  A live
     # submission requires the separately guarded production workflow.
     utcms_config.ALLOW_LIVE_SUBMIT = False
-    proxy_info = await get_proxy_rotator().get_next()
-    proxy_url = proxy_info.url if proxy_info else None
+    # Use the same worker-level resolver as the production RPA path.  The
+    # generic ProxyRotator is intentionally empty in clean_pool_only mode and
+    # would make preflight report "no proxy" even though UtcmsHttpLogin later
+    # selected a valid clean-pool endpoint.
+    proxy_url = get_worker_proxy_url()
     _emit(
         {
             "stage": "preflight",
@@ -272,7 +275,7 @@ async def run(
             proxy_dict={"server": proxy_url} if proxy_url else None,
         )
         page = await browser_manager.new_page(context)
-        bridge = await ensure_utcms_http_browser_bridge(page)
+        bridge = await ensure_utcms_http_browser_bridge(page, proxy_url=proxy_url)
         if bridge is None:
             raise RuntimeError("UTCMS HTTP/browser bridge could not be initialized")
         await bridge.adopt_authenticated_session(login.take_authenticated_session(), login_result.cookies)

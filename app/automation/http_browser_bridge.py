@@ -1262,14 +1262,16 @@ class UtcmsHttpBrowserBridge:
             )
 
 
-async def ensure_utcms_http_browser_bridge(page: Any) -> UtcmsHttpBrowserBridge | None:
+async def ensure_utcms_http_browser_bridge(
+    page: Any, *, proxy_url: str | None = None
+) -> UtcmsHttpBrowserBridge | None:
     """Install one bridge per page when HTTP-login mode is enabled."""
     if not getattr(utcms_config, "UTCMS_HTTP_LOGIN_ENABLED", True):
         return None
     existing = getattr(page, "_barpro_http_browser_bridge", None)
     if existing is not None:
         return existing
-    bridge = UtcmsHttpBrowserBridge(page)
+    bridge = UtcmsHttpBrowserBridge(page, proxy_url=proxy_url)
     await bridge.install()
     page._barpro_http_browser_bridge = bridge
     return bridge

@@ -122,6 +122,8 @@ services:
       # CAPTCHA & Browser
       CAPTCHA_PROVIDER: ${CAPTCHA_PROVIDER:-auto}
       HEADLESS: ${HEADLESS:-true}
+      # Keep Playwright browser downloads on the official CDN.
+      PLAYWRIGHT_DOWNLOAD_HOST: ""
       # Queue feature flags
       QUEUE_ENABLED: "true"
       QUEUE_INLINE_FALLBACK: "false"

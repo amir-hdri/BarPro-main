@@ -7,7 +7,7 @@ and TLS handshake against https://utcms.ir, and updates the shared pool.
 
 Usage:
   python3 scripts/refresh_iran_proxies.py --once
-  python3 scripts/refresh_iran_proxies.py --interval 5 --timeout 7.5
+  python3 scripts/refresh_iran_proxies.py --interval 3 --timeout 7.5
 """
 
 import argparse
@@ -35,8 +35,8 @@ def main():
     parser.add_argument(
         "--interval",
         type=int,
-        default=5,
-        help="Refresh interval in minutes for continuous background mode (default: 5)",
+        default=3,
+        help="Refresh interval in minutes for continuous background mode (default: 3)",
     )
     parser.add_argument(
         "--timeout",

@@ -1,7 +1,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  BarPro — Dockerfile
-#  Registry : docker.arvancloud.ir  (مخزن ایرانی)
-# PyPI     : pypi.org (قابل دسترس از سرور آروان‌کلود — Tsinghua mirror unstable from Iran)
+#  Registry : Docker Hub (upstream)
+# PyPI     : pypi.org (upstream; no regional mirror)
 #  PyTorch  : download.pytorch.org/whl/cpu
 # ═══════════════════════════════════════════════════════════════
 
@@ -28,7 +28,8 @@ RUN pip install --no-cache-dir \
     --timeout 1000 \
     "torch>=2.13.0"
 
-# Then install TensorFlow — heavy, needs retries for Iranian servers
+# Then install TensorFlow from the upstream PyPI index. Retries only improve
+# resilience; they do not switch to a regional mirror.
 RUN if [ "$(uname -m)" = "x86_64" ]; then TF_PACKAGE="tensorflow-cpu>=2.18.0"; else TF_PACKAGE="tensorflow>=2.18.0"; fi \
     && pip install --no-cache-dir \
     --index-url https://pypi.org/simple \
@@ -36,7 +37,7 @@ RUN if [ "$(uname -m)" = "x86_64" ]; then TF_PACKAGE="tensorflow-cpu>=2.18.0"; e
     --timeout 1000 \
     "$TF_PACKAGE"
 
-# Install Playwright separately — use piwheels or simple fallback
+# Install Playwright from the upstream PyPI index with a version fallback
 RUN pip install --no-cache-dir \
     --index-url https://pypi.org/simple \
     --retries 30 \
@@ -59,11 +60,6 @@ RUN pip install --no-cache-dir \
 
 # ── مرحله ۲: image تولید ──────────────────────────────────────
 FROM python:3.11-slim AS production
-
-RUN python3 -c "import socket; socket.create_connection(('mirror.iranserver.com', 80), timeout=2)" 2>/dev/null && ( \
-    sed -i 's/deb.debian.org/mirror.iranserver.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
-    sed -i 's/deb.debian.org/mirror.iranserver.com/g' /etc/apt/sources.list 2>/dev/null || true \
-    ) || echo "Mirror mirror.iranserver.com unreachable, keeping default deb.debian.org"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -91,8 +87,6 @@ COPY --from=builder /usr/local/lib/python3.11/site-packages \
                     /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-ARG PLAYWRIGHT_DOWNLOAD_HOST=https://mirror.testeng.ir/playwright
-ENV PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST}
 RUN mkdir -p /opt/playwright-browsers \
     && playwright install chromium
 

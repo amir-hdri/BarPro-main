@@ -238,6 +238,41 @@ class UtcmsHttpLogin:
     TRANSPORT_BACKOFF_BASE = 8.0
     TRANSPORT_BACKOFF_CAP = 90.0
 
+    async def _rotate_after_transport_failure(self, failed_proxy: str | None) -> None:
+        """Evict a dead clean-pool proxy and select the next candidate.
+
+        A transport timeout is evidence about the tunnel, not about UTCMS. The
+        old retry loop reused the same dead proxy for every attempt, turning a
+        short-lived pool failure into a multi-minute login outage. Dedicated
+        worker Squids are never marked as clean-pool entries; only a matching
+        structured pool record is evicted.
+        """
+        if not failed_proxy:
+            return
+        try:
+            from app.automation.clean_ip_pool import clean_ip_pool
+            from app.automation.worker_proxy import (
+                get_worker_proxy_url,
+                invalidate_worker_proxy_cache,
+            )
+
+            records = await clean_ip_pool.get_all_clean_ips()
+            if any(record.url == failed_proxy for record in records):
+                await clean_ip_pool.mark_blocked(failed_proxy)
+            invalidate_worker_proxy_cache()
+            next_proxy = get_worker_proxy_url()
+            if next_proxy and next_proxy != failed_proxy:
+                self._proxy_url = next_proxy
+                logger.warning(
+                    "utcms_http_login_proxy_rotated_after_transport_failure",
+                    extra={"extra_fields": {"proxy_changed": True}},
+                )
+        except Exception as exc:
+            logger.debug(
+                "utcms_http_login_proxy_rotation_failed",
+                extra={"extra_fields": {"error": str(exc)[:200]}},
+            )
+
     async def authenticate(self, username: str, password: str) -> HttpLoginResult:
         """Run the full HTTP login flow with transparent retries.
 
@@ -332,6 +367,7 @@ class UtcmsHttpLogin:
                 from app.core.network import is_retryable_network_error
 
                 if is_retryable_network_error(error):
+                    await self._rotate_after_transport_failure(self._proxy_url)
                     consumed = self.TRANSPORT_MAX_RETRIES - transport_retries_left
                     transport_retries_left -= 1
                     captcha_attempts_left += 1  # TLS/connect reset is not a captcha miss

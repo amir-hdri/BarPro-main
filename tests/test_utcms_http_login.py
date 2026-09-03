@@ -511,5 +511,32 @@ async def test_authenticate_retries_transport_reset_without_spending_captcha_bud
     assert login.take_authenticated_session() is sessions[-1]
 
 
+@pytest.mark.asyncio
+async def test_authenticate_rotates_clean_pool_proxy_after_transport_failure(monkeypatch):
+    from app.automation.utcms_http_login import HttpLoginResult
+
+    login = _make_login()
+    login._proxy_url = "http://203.0.113.10:8080"
+    rotate = AsyncMock()
+    monkeypatch.setattr(login, "_rotate_after_transport_failure", rotate)
+
+    class _Session:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(login, "_build_session", lambda _cc: _Session())
+    responses = [
+        HttpLoginResult(success=False, error="curl: (28) connection timed out", status_code=None),
+        HttpLoginResult(success=True, cookies=[{"name": "Barname", "value": "v"}], status_code=200),
+    ]
+    monkeypatch.setattr(login, "_attempt_single_session", lambda _u, _p: _async_pop(responses))
+    monkeypatch.setattr("app.automation.utcms_http_login.asyncio.sleep", AsyncMock())
+
+    result = await login.authenticate("u", "p")
+
+    assert result.success is True
+    rotate.assert_awaited_once_with("http://203.0.113.10:8080")
+
+
 async def _async_pop(items):
     return items.pop(0)

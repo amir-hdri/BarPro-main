@@ -88,6 +88,20 @@ async def test_proxy_empty_or_malformed_url():
 
 
 @pytest.mark.asyncio
+async def test_proxy_health_check_supports_socks_via_curl_cffi():
+    """The Worker checker must use the same SOCKS-capable transport as pool screening."""
+    from unittest.mock import MagicMock, patch
+
+    response = MagicMock(status_code=200)
+    with patch("curl_cffi.requests.get", return_value=response) as get:
+        assert await test_proxy("socks4://192.0.2.10:8080") is True
+
+    get.assert_called_once()
+    assert get.call_args.kwargs["proxy"] == "socks4://192.0.2.10:8080"
+    assert get.call_args.kwargs["impersonate"] == "chrome120"
+
+
+@pytest.mark.asyncio
 async def test_get_next_require_iran_ip_does_not_grow_pool():
     """Clean IP Pool fallback proxies must be ephemeral — never appended to the persistent rotator pool."""
     from app.automation.clean_ip_pool import CleanIPRecord

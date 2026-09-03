@@ -445,7 +445,9 @@ class UTCMSConfig:
             "worker_first",
             {"worker_first", "clean_pool_only", "hybrid"},
         )
-        self.CLEAN_IP_PROBE_INTERVAL_SECONDS = int(os.getenv("CLEAN_IP_PROBE_INTERVAL_SECONDS", "300"))
+        # Keep the shared clean-IP pool fresh enough for fast-changing public
+        # proxy feeds. Beat uses this value for the screening task interval.
+        self.CLEAN_IP_PROBE_INTERVAL_SECONDS = int(os.getenv("CLEAN_IP_PROBE_INTERVAL_SECONDS", "180"))
         self.CLEAN_IP_MAX_POOL = int(os.getenv("CLEAN_IP_MAX_POOL", "50"))
         self.CLEAN_IP_MAX_CANDIDATES = int(os.getenv("CLEAN_IP_MAX_CANDIDATES", "1000"))
         self.CLEAN_IP_MAX_PROBE_WORKERS = int(os.getenv("CLEAN_IP_MAX_PROBE_WORKERS", "35"))
