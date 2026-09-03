@@ -778,6 +778,17 @@ class TestOtpFalsePositiveGuards(unittest.IsolatedAsyncioTestCase):
         self.assertIn(".modal.show", script)
         self.assertNotIn("#FormSendOtpCode", script)
 
+    async def test_otp_probe_does_not_use_smart_locator_for_absent_controls(self):
+        self.mock_page.query_selector = AsyncMock(return_value=None)
+        self.mock_page.evaluate = AsyncMock(return_value="")
+        self.manager.smart_locator.locate = AsyncMock(side_effect=AssertionError("diagnostic probe used recovery"))
+
+        detected, evidence = await self.manager._detect_otp_required_with_evidence()
+
+        self.assertFalse(detected)
+        self.assertEqual(evidence, {})
+        self.manager.smart_locator.locate.assert_not_awaited()
+
 
 class TestOptionalShippingFields(unittest.IsolatedAsyncioTestCase):
     """UTCMS has no time-limit or end-of-shipping control.

@@ -151,8 +151,26 @@ def _resolve_to_ip(url: str) -> str:
 _cached_proxy_url: str | None = None
 _cached_proxy_source: str | None = None
 _cached_proxy_timestamp: float = 0.0
-_PROXY_CACHE_TTL_SUCCESS: float = 60.0  # Cache valid proxy for 60s
+# A selected egress stays assigned until the next clean-pool screening cycle.
+# This keeps consecutive waybills on the same verified IP while still allowing
+# the configured refresh cadence to replace stale or blocked candidates.
+_PROXY_CACHE_TTL_SUCCESS: float = 60.0  # Legacy fallback; runtime TTL is config-driven
 _PROXY_CACHE_TTL_FAILURE: float = 5.0  # Retry failed proxy lookup after 5s
+
+
+def _proxy_cache_ttl_success() -> float:
+    """Return the configured egress assignment lifetime.
+
+    Clean-IP screening and Beat refresh use ``CLEAN_IP_PROBE_INTERVAL_SECONDS``.
+    Reusing that value here means a worker does not rotate its proxy merely
+    because another waybill started, while ``mark_blocked`` can still force an
+    immediate reassignment through ``invalidate_worker_proxy_cache``.
+    """
+    try:
+        refresh_interval = float(getattr(utcms_config, "CLEAN_IP_PROBE_INTERVAL_SECONDS", 180))
+    except (TypeError, ValueError):
+        refresh_interval = 180.0
+    return max(1.0, refresh_interval)
 
 
 def invalidate_worker_proxy_cache() -> None:
@@ -200,7 +218,7 @@ def get_best_egress_proxy() -> str | None:
     global _cached_proxy_source, _cached_proxy_url, _cached_proxy_timestamp
 
     now = time.time()
-    ttl = _PROXY_CACHE_TTL_SUCCESS if _cached_proxy_url else _PROXY_CACHE_TTL_FAILURE
+    ttl = _proxy_cache_ttl_success() if _cached_proxy_url else _PROXY_CACHE_TTL_FAILURE
     if _cached_proxy_timestamp > 0 and (now - _cached_proxy_timestamp) < ttl:
         return _cached_proxy_url
 

@@ -538,7 +538,7 @@ async def test_clean_ip_pool_manager_mark_blocked_invalidates_worker_cache():
     ):
         await pool_mgr.mark_blocked("http://185.100.47.106:8080", duration_seconds=600)
         assert mock_redis.set.called
-        # The 60s worker-side success cache must drop the just-blocked proxy NOW
+        # The refresh-window worker-side cache must drop the just-blocked proxy NOW
         mock_invalidate.assert_called_once()
         pool_mgr.clear_local_cache()
 

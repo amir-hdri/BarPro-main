@@ -1,4 +1,5 @@
 import os
+import time
 from unittest.mock import patch
 
 import pytest
@@ -58,6 +59,32 @@ def test_get_worker_proxy_url_clean_pool_fallback():
         ):
             mock_conn.side_effect = TimeoutError("Connection timed out")
             assert get_worker_proxy_url() == "http://10.0.0.1:3128"
+
+
+def test_worker_proxy_cache_follows_clean_pool_refresh_window():
+    """A proxy remains assigned between pool refreshes, then is reselected."""
+    import app.automation.worker_proxy as wp
+
+    clear_proxy_cache()
+    with patch.dict(os.environ, {"ENVIRONMENT": "production", "PROXY_FAIL_CLOSED": "true"}):
+        with (
+            patch.object(wp.utcms_config, "EGRESS_PROXY_MODE", "clean_pool_only"),
+            patch.object(wp.utcms_config, "CLEAN_IP_PROBE_INTERVAL_SECONDS", 180),
+            patch("app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync", side_effect=[
+                "http://185.100.47.106:8080",
+                "http://5.56.132.26:3128",
+            ]) as select_proxy,
+        ):
+            first = get_worker_proxy_url()
+            wp._cached_proxy_timestamp = time.time() - 179
+            second = get_worker_proxy_url()
+            assert first == second == "http://185.100.47.106:8080"
+            select_proxy.assert_called_once()
+
+            wp._cached_proxy_timestamp = time.time() - 181
+            third = get_worker_proxy_url()
+            assert third == "http://5.56.132.26:3128"
+            assert select_proxy.call_count == 2
 
 
 def test_get_proxy_rotator_thread_safety():

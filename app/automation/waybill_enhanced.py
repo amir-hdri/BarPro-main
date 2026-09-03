@@ -1431,7 +1431,14 @@ class EnhancedWaybillManager:
         except Exception:
             return False
 
-    async def _is_selector_visible(self, selector: str) -> bool:
+    async def _is_selector_visible(self, selector: str, *, recover_with_smart_locator: bool = True) -> bool:
+        """Return whether a selector has a visible element in the live page.
+
+        Diagnostic probes often ask about controls that are intentionally absent
+        (for example OTP controls before a submit).  Those probes must not turn
+        an expected negative result into a SmartLocator fuzzy-recovery attempt.
+        Interactive callers retain the recovery path by default.
+        """
         try:
             handle = await self.page.query_selector(selector)
             if handle is not None:
@@ -1440,6 +1447,8 @@ class EnhancedWaybillManager:
                     return visible
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
+        if not recover_with_smart_locator:
+            return False
         try:
             locator = await self.smart_locator.locate(self.page, [selector], timeout=1200)
             return bool(await locator.is_visible())
@@ -1481,7 +1490,9 @@ class EnhancedWaybillManager:
 
     async def _is_active_selector_visible(self, selector: str) -> bool:
         """Visible *and* not parked inside a closed modal."""
-        if not await self._is_selector_visible(selector):
+        # OTP detection is a negative diagnostic probe.  Avoid invoking the
+        # interactive SmartLocator fallback for every absent OTP selector.
+        if not await self._is_selector_visible(selector, recover_with_smart_locator=False):
             return False
         return not await self._is_inside_closed_modal(selector)
 
