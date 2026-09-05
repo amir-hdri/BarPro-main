@@ -105,6 +105,15 @@ DIRECT_DISPATCH_QUEUES = {
 }
 
 
+def test_manage_health_only_probes_enabled_remote_indices() -> None:
+    """Central-only health must not fail because disabled remote nodes are offline."""
+    manage = MANAGE_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'active_indices=",${AVAILABLE_IP_INDICES:-1,2,3},"' in manage
+    assert '[[ "$active_indices" == *,2,* ]]' in manage
+    assert '[[ "$active_indices" == *,3,* ]]' in manage
+
+
 def _queues_by_worker() -> dict[str, set[str]]:
     """Parse the ``-Q`` queues for each named Celery worker in backend compose."""
     queues_by_worker: dict[str, set[str]] = {}

@@ -315,7 +315,10 @@ class BrowserManager:
             "--disable-dev-shm-usage",
             "--max-old-space-size=1024",  # Cap Chromium V8 heap (CRITICAL_RULES §9)
             "--disable-gpu",
-            "--disable-crashpad-for-testing",
+            # Debian's system Chromium exits with SIGTRAP when the
+            # Playwright-only crashpad flag is used.  This flag disables the
+            # crash reporter without triggering that incompatible code path.
+            "--disable-crashpad",
             "--disable-crash-reporter",
             "--disable-dbus",  # Prevent FD/D-Bus errors in Docker containers
             # --- TLS / WAF fingerprint evasion ---

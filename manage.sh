@@ -274,8 +274,20 @@ asyncio.run(main())
             probe_squid "Squid 2 - local Model A" "127.0.0.1:3129"
             probe_squid "Squid 3 - local Model A" "127.0.0.1:3130"
         else
-            probe_squid "Squid - remote Worker 2" "${WORKER_2_IP:-5.56.132.26}:3128"
-            probe_squid "Squid - remote Worker 3" "${WORKER_3_IP:-87.107.5.219}:3128"
+            # Model B may intentionally run Central-only while remote nodes
+            # are offline.  Probe only indices enabled for dispatch; probing
+            # hard-coded remote defaults made a healthy Central report DOWN.
+            active_indices=",${AVAILABLE_IP_INDICES:-1,2,3},"
+            if [[ "$active_indices" == *,2,* ]]; then
+                probe_squid "Squid - remote Worker 2" "${WORKER_2_IP:-5.56.132.26}:3128"
+            else
+                echo "Squid - remote Worker 2: SKIPPED (IP index 2 is disabled)"
+            fi
+            if [[ "$active_indices" == *,3,* ]]; then
+                probe_squid "Squid - remote Worker 3" "${WORKER_3_IP:-87.107.5.219}:3128"
+            else
+                echo "Squid - remote Worker 3: SKIPPED (IP index 3 is disabled)"
+            fi
         fi
 
         echo ""

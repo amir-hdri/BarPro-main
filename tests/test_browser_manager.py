@@ -78,7 +78,8 @@ class TestBrowserManager(unittest.IsolatedAsyncioTestCase):
         self.mock_playwright.chromium.launch.assert_awaited_once()
         launch_kwargs = self.mock_playwright.chromium.launch.await_args.kwargs
         self.assertEqual(launch_kwargs["headless"], utcms_config.HEADLESS)
-        self.assertIn("--disable-crashpad-for-testing", launch_kwargs["args"])
+        self.assertIn("--disable-crashpad", launch_kwargs["args"])
+        self.assertNotIn("--disable-crashpad-for-testing", launch_kwargs["args"])
         self.assertIn("--disable-crash-reporter", launch_kwargs["args"])
         self.assertEqual(self.browser_manager.browser, self.mock_browser)
 
