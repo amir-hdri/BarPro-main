@@ -166,39 +166,20 @@ class CleanIPRecord:
     @property
     def has_measured_iranian_egress(self) -> bool:
         """Strongest form of the evidence: a GeoIP endpoint answered "IR"
-        through this very proxy. Used for ranking and observability, NOT as an
-        admission gate -- see ``is_operational_iranian_egress``."""
+        through this very proxy. This is the admission gate for UTCMS
+        operations; source-declared country or an unreachable GeoIP check is
+        never sufficient for a production registration."""
         return self.egress_verified and self.observed_country == "IR"
 
     @property
     def is_operational_iranian_egress(self) -> bool:
-        """True when the tunnel is healthy and nothing CONTRADICTS an Iranian egress.
+        """True only for a usable proxy with measured Iranian egress.
 
-        This used to require a positive measurement (``egress_verified and
-        observed_country == "IR"``), which emptied the pool 100% of the time and
-        is the reason workers never actually failed over to it. Measured
-        2026-08-28 against the 12 harvested candidates:
-
-          * 3 reached ``barname.utcms.ir`` -- and NONE of those 3 could reach any
-            GeoIP endpoint (``api.country.is``, ``ip-api.com``), so all 3 were
-            discarded as "unverified";
-          * the only 3 that DID answer GeoIP could not reach the target at all.
-
-        Reachability of a foreign GeoIP endpoint is anti-correlated with
-        reachability of the Iranian target, so demanding both is close to a
-        guaranteed zero. An unrunnable check is missing evidence, not negative
-        evidence -- that is exactly what ``_egress_check`` says when it tags a
-        record ``geo_unverified`` and deliberately keeps it. Ranking still
-        prefers measured-IR records (see ``run_screening_cycle``).
-
-        A measurement that came back as some OTHER country is still a hard fail:
-        that is real negative evidence, and such an egress cannot serve UTCMS.
+        UTCMS registration is a sensitive operation and must never use a
+        source-declared country or a candidate whose GeoIP check was
+        unavailable. Unknown geography is therefore fail-closed.
         """
-        if not self.is_usable:
-            return False
-        if self.egress_verified:
-            return self.observed_country == "IR"
-        return True
+        return self.is_usable and self.has_measured_iranian_egress
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -1125,9 +1106,9 @@ def run_screening_cycle(
                 pass
 
         # Sort fastest first, then measure the real egress of only the head of
-        # the list (bounded cost). A measured non-Iranian egress is dropped; an
-        # UNMEASURABLE one is kept but ranked below every measured-IR record, so
-        # proof still wins without a missing measurement emptying the pool.
+        # the list (bounded cost). Both measured non-Iranian and unmeasurable
+        # egress are dropped: production registration requires positive Iranian
+        # evidence, never a source declaration or an unknown result.
         verified.sort(key=lambda x: x.latency_ms)
         shortlist = verified[: max_pool_size * 3]
         if shortlist:

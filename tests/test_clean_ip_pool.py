@@ -347,16 +347,8 @@ def test_screening_keeps_measured_iranian_egress_and_marks_verified():
     assert rec.observed_country == "IR"
 
 
-def test_screening_admits_geo_unverified_candidate_but_marks_it():
-    """An unrunnable GeoIP check is missing evidence, not negative evidence.
-
-    Measured 2026-08-28: of the harvested candidates that actually reached
-    ``barname.utcms.ir``, NONE could reach ``api.country.is``/``ip-api.com``,
-    while the only ones that answered GeoIP could not reach the target. Dropping
-    ``geo_unverified`` records therefore emptied the pool every single cycle,
-    which is why workers never failed over to it. The record is admitted, tagged,
-    and ranked below any measured-IR record.
-    """
+def test_screening_rejects_geo_unverified_candidate():
+    """A missing GeoIP result is fail-closed for production registration."""
     rec = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080, country="IR")
 
     with (
@@ -367,14 +359,14 @@ def test_screening_admits_geo_unverified_candidate_but_marks_it():
     ):
         verified = cip.run_screening_cycle(max_pool_size=10)
 
-    assert verified == [rec]
+    assert verified == []
     assert rec.egress_verified is False
     assert rec.has_measured_iranian_egress is False
     assert "geo_unverified" in rec.tags
 
 
-def test_screening_ranks_measured_iranian_egress_above_unverified():
-    """Proof still wins: a slower measured-IR proxy outranks a faster unmeasured one."""
+def test_screening_drops_unverified_even_when_measured_proxy_is_slower():
+    """Production registration never falls back to unknown geography."""
     measured = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080)
     measured.latency_ms = 900.0
     unmeasured = CleanIPRecord(url="http://46.209.30.11:8080", ip="46.209.30.11", port=8080)
@@ -391,7 +383,7 @@ def test_screening_ranks_measured_iranian_egress_above_unverified():
     ):
         verified = cip.run_screening_cycle(max_pool_size=10)
 
-    assert [r.url for r in verified] == [measured.url, unmeasured.url]
+    assert [r.url for r in verified] == [measured.url]
 
 
 def test_zero_result_screening_invalidates_all_runtime_fallbacks():
