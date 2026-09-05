@@ -248,6 +248,56 @@ async def test_timeout_after_submit_transitions_to_unknown_without_retry() -> No
 
 
 @pytest.mark.asyncio
+async def test_captcha_rejection_after_submit_is_reconciliation_only_without_retry() -> None:
+    from app.automation.waybill_enhanced import EnhancedWaybillManager
+
+    page = MagicMock()
+    page.on = MagicMock()
+    manager = EnhancedWaybillManager(page, MagicMock())
+    _permit_final_stage(manager, page)
+    manager._handle_submit_captcha_if_present = AsyncMock()
+    manager._click_once_no_retry = AsyncMock(return_value=(True, None))
+    manager._close_blocking_overlays = AsyncMock()
+    manager._wait_for_network_settle = AsyncMock()
+    manager._wait_for_response_match = AsyncMock(return_value=MagicMock())
+    manager._consume_json_response = AsyncMock(
+        return_value={
+            "success": False,
+            "resultCode": 200,
+            "message": "لطفاً کد امنیتی صحیح را وارد نمایید",
+        }
+    )
+    manager._refresh_submit_captcha = AsyncMock()
+
+    with patch(
+        "app.services.utcms_submission_gate.utcms_submission_gate.is_submission_allowed",
+        new=AsyncMock(return_value=True),
+    ):
+        result = await manager._submit_waybill(otp_value=None, job_id="job_test_captcha_rejected")
+
+    assert result["status"] == "unknown"
+    assert result["mutation_status"] == "ambiguous"
+    assert result["mutation_dispatched"] is True
+    assert result["needs_reconciliation"] is True
+    assert result["error_category"] == "submission_unconfirmed"
+    manager._click_once_no_retry.assert_awaited_once()
+    manager._refresh_submit_captcha.assert_not_awaited()
+
+
+def test_final_submit_captcha_rejects_one_character_solution() -> None:
+    from app.automation.waybill_enhanced import EnhancedWaybillManager
+
+    manager = EnhancedWaybillManager(MagicMock(), MagicMock())
+
+    assert manager._normalize_captcha_solution(
+        "3", minimum_length=manager._final_captcha_min_length()
+    ) is None
+    assert manager._normalize_captcha_solution(
+        "30", minimum_length=manager._final_captcha_min_length()
+    ) == "30"
+
+
+@pytest.mark.asyncio
 async def test_connection_reset_after_submit_transitions_to_unknown_without_retry() -> None:
     from app.automation.waybill_enhanced import EnhancedWaybillManager
 

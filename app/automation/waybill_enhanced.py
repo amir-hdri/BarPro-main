@@ -1619,6 +1619,11 @@ class EnhancedWaybillManager:
         }
 
     @staticmethod
+    def _is_submit_captcha_error(message: str | None) -> bool:
+        value = (message or "").lower()
+        return any(marker in value for marker in ("کد امنیتی", "عبارت امنیتی", "کپچا", "captcha", "cap token"))
+
+    @staticmethod
     def _parse_otp_submit_payload(payload: dict[str, Any] | None) -> dict[str, Any] | None:
         if not isinstance(payload, dict):
             return None
@@ -5175,16 +5180,11 @@ class EnhancedWaybillManager:
             extra={"extra_fields": {"navigation_clicked": bool(final_stage_clicked)}},
         )
 
-        max_submit_attempts = max(1, utcms_config.CAPTCHA_MAX_RETRIES + 1)
+        # The final UTCMS mutation is at-most-once.  CAPTCHA refresh/retry is
+        # allowed before this boundary, but a response or exception after the
+        # click must never re-enter this loop and POST the same waybill again.
+        max_submit_attempts = 1
         for submit_attempt in range(1, max_submit_attempts + 1):
-            if submit_attempt > 1:
-                logger.info(
-                    "retrying_submit_due_to_captcha_failure",
-                    extra={"extra_fields": {"attempt": submit_attempt, "max_attempts": max_submit_attempts}},
-                )
-                await self._refresh_submit_captcha()
-                await asyncio.sleep(0.5)
-
             # ── Step 2: Solve captcha (if present) ──
             await self._handle_submit_captcha_if_present()
 
@@ -5266,9 +5266,20 @@ class EnhancedWaybillManager:
                     )
                 if submit_state is not None and not submit_state["success"]:
                     msg = submit_state.get("message") or ""
-                    if any(k in msg.lower() for k in ("امنیتی", "کپچا", "captcha")) and submit_attempt < max_submit_attempts:
-                        continue
-                    raise WaybillError(msg or "ارسال فرم بارنامه ناموفق بود")
+                    logger.warning(
+                        "final_submit_rejected_after_dispatch",
+                        extra={"extra_fields": {"job_id": job_id, "captcha_error": self._is_submit_captcha_error(msg)}},
+                    )
+                    return {
+                        "success": False,
+                        "status": "unknown",
+                        "mutation_status": "ambiguous",
+                        "mutation_dispatched": True,
+                        "error_category": "submission_unconfirmed",
+                        "message": msg or "UTCMS پاسخ منفی پس از ارسال ثبت نهایی برگرداند",
+                        "needs_reconciliation": True,
+                        "document_id": submit_state.get("document_id"),
+                    }
 
                 # ── Step 4: OTP Handling ──
                 otp_state = await self._handle_otp_if_required(otp_value, submit_state=submit_state)
@@ -5310,9 +5321,16 @@ class EnhancedWaybillManager:
                 if not tracking_code and not submission_confirmed:
                     form_errors = await self._extract_form_errors()
                     if form_errors:
-                        if any(k in form_errors.lower() for k in ("امنیتی", "کپچا", "captcha")) and submit_attempt < max_submit_attempts:
-                            continue
-                        raise WaybillError(f"ثبت بارنامه با خطا مواجه شد: {form_errors}")
+                        return {
+                            "success": False,
+                            "status": "unknown",
+                            "mutation_status": "ambiguous",
+                            "mutation_dispatched": True,
+                            "error_category": "submission_unconfirmed",
+                            "message": f"پاسخ خطای فرم پس از ارسال دریافت شد: {form_errors}",
+                            "needs_reconciliation": True,
+                            "document_id": document_id,
+                        }
 
                     # If no explicit form error was detected after submit click, status is ambiguous and MUST enter reconciliation
                     return {
@@ -5330,9 +5348,19 @@ class EnhancedWaybillManager:
                 # Success!
                 break
             except WaybillError as w_err:
-                if any(k in str(w_err).lower() for k in ("امنیتی", "کپچا", "captcha")) and submit_attempt < max_submit_attempts:
-                    continue
-                raise
+                logger.warning(
+                    "final_submit_error_after_dispatch",
+                    extra={"extra_fields": {"error": str(w_err), "job_id": job_id}},
+                )
+                return {
+                    "success": False,
+                    "status": "unknown",
+                    "mutation_status": "ambiguous",
+                    "mutation_dispatched": True,
+                    "error_category": "submission_unconfirmed",
+                    "message": f"خطا پس از ارسال ثبت نهایی: {w_err}",
+                    "needs_reconciliation": True,
+                }
             except Exception as post_submit_exc:
                 logger.warning(
                     "mutation_submit_post_dispatch_error_route_to_unknown",
@@ -5652,7 +5680,7 @@ class EnhancedWaybillManager:
             "sms_requested": False,
         }
 
-    def _normalize_captcha_solution(self, value: str | None) -> str | None:
+    def _normalize_captcha_solution(self, value: str | None, *, minimum_length: int | None = None) -> str | None:
         if value is None:
             return None
 
@@ -5672,7 +5700,7 @@ class EnhancedWaybillManager:
         if not self._captcha_value_pattern.match(normalized):
             return None
 
-        min_len = max(1, utcms_config.CAPTCHA_VALUE_MIN_LENGTH)
+        min_len = max(1, utcms_config.CAPTCHA_VALUE_MIN_LENGTH, minimum_length or 0)
         max_len = max(min_len, utcms_config.CAPTCHA_VALUE_MAX_LENGTH)
         if not (min_len <= len(normalized) <= max_len):
             return None
@@ -5681,6 +5709,12 @@ class EnhancedWaybillManager:
 
     def _captcha_math_min_confidence(self) -> float:
         return max(0.0, min(1.0, float(utcms_config.CAPTCHA_MATH_MIN_CONFIDENCE)))
+
+    def _final_captcha_min_length(self) -> int:
+        # UTCMS's final DNT image is not the login math field.  A one-character
+        # OCR result is treated as an invalid/low-information solve and must
+        # never reach the mutating click boundary.
+        return max(2, int(getattr(utcms_config, "CAPTCHA_VALUE_MIN_LENGTH", 1)))
 
     def _hint_candidates_from_text(self, raw_text: str | None) -> list[str]:
         text = (raw_text or "").strip()
@@ -5996,7 +6030,10 @@ class EnhancedWaybillManager:
                 )
                 continue
 
-            solved = self._normalize_captcha_solution(decision.value)
+            solved = self._normalize_captcha_solution(
+                decision.value,
+                minimum_length=self._final_captcha_min_length(),
+            )
             if solved:
                 elapsed = asyncio.get_running_loop().time() - started_at
                 track_captcha_success(
@@ -6083,7 +6120,10 @@ class EnhancedWaybillManager:
             )
             return None
 
-        normalized = self._normalize_captcha_solution(result.value)
+        normalized = self._normalize_captcha_solution(
+            result.value,
+            minimum_length=self._final_captcha_min_length(),
+        )
         if normalized:
             track_captcha_success(
                 "provider",
@@ -6232,7 +6272,13 @@ class EnhancedWaybillManager:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
         if utcms_config.UTCMS_CAPTCHA_VALUE:
-            filled = await self._fill_with_selector(captcha_selector, utcms_config.UTCMS_CAPTCHA_VALUE)
+            normalized = self._normalize_captcha_solution(
+                utcms_config.UTCMS_CAPTCHA_VALUE,
+                minimum_length=self._final_captcha_min_length(),
+            )
+            if not normalized:
+                raise WaybillError("مقدار کپچای ثبت نهایی نامعتبر یا یک‌کاراکتری است")
+            filled = await self._fill_with_selector(captcha_selector, normalized)
             if filled:
                 return
             raise WaybillError("فیلد کپچا یافت شد اما مقداردهی کپچا انجام نشد")
@@ -6264,7 +6310,10 @@ class EnhancedWaybillManager:
                     captcha_selector,
                     "el => (el.value || '').trim()",
                 )
-                if value:
+                if self._normalize_captcha_solution(
+                    value,
+                    minimum_length=self._final_captcha_min_length(),
+                ):
                     return
             except Exception:
                 logger.warning("waybill_enhanced_silent_error", exc_info=True)

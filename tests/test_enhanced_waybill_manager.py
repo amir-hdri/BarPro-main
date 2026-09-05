@@ -379,15 +379,17 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         self.assertIn("کلیک روی دکمه ثبت ناموفق بود", str(context.exception))
 
     async def test_submit_waybill_rejects_unconfirmed_result(self):
-        """Submit should fail when no tracking code exists and form error occurs."""
+        """A post-click form error is reconciled, never submitted again."""
         self.manager._extract_tracking_code = AsyncMock(return_value=None)
         self.manager._is_submission_successful = AsyncMock(return_value=False)
         self.manager._extract_form_errors = AsyncMock(return_value="اعتبارسنجی فرم ناموفق بود")
 
-        with self.assertRaises(WaybillError) as context:
-            await self.manager._submit_waybill()
+        result = await self.manager._submit_waybill()
 
-        self.assertIn("اعتبارسنجی فرم ناموفق بود", str(context.exception))
+        self.assertEqual(result["status"], "unknown")
+        self.assertEqual(result["mutation_status"], "ambiguous")
+        self.assertTrue(result["needs_reconciliation"])
+        self.assertIn("اعتبارسنجی فرم ناموفق بود", result["message"])
 
     async def test_create_waybill_generic_error(self):
         """Test handling of unexpected exceptions."""
