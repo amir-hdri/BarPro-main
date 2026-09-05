@@ -112,6 +112,11 @@ _CRITICAL_FORM_SCRIPT_MARKERS = (
 # parser never blocks on a synchronous <script> that will not arrive.
 _ASSET_CACHE_DIR = Path(os.environ.get("UTCMS_ASSET_CACHE_DIR", "/tmp/utcms_asset_cache"))
 _ASSET_CACHE_MAX_BYTES = 8 * 1024 * 1024
+_JSON_CACHE_TTL_SECONDS = 8.0
+
+
+class BridgeTransportTimeout(TimeoutError):
+    """Raised when a curl operation outlives the bridge's hard deadline."""
 
 
 def _asset_cache_files(cache_key: str) -> tuple[Path, Path]:
@@ -230,6 +235,7 @@ class UtcmsHttpBrowserBridge:
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="utcms-bridge"
         )
+        self._executor_generation = 0
         self._session: Any = None
         self._document_session: Any = None
         # Static /assets traffic gets its OWN disposable session.  UTCMS's
@@ -284,6 +290,7 @@ class UtcmsHttpBrowserBridge:
         # flow; after cookie seeding, curl_cffi preserves that session and the
         # browser request's Referer while avoiding Chromium TLS resets.
         self._authenticated_document_bridge = False
+        self._json_cache: dict[str, tuple[float, Any]] = {}
 
     async def install(self) -> None:
         await self.page.route("**/*", self._handle_route)
@@ -291,9 +298,35 @@ class UtcmsHttpBrowserBridge:
     async def _call(self, func: Any, /, *args: Any, **kwargs: Any) -> Any:
         """Run a curl_cffi session operation on this bridge's pinned thread."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
+        future = loop.run_in_executor(
             self._executor, functools.partial(func, *args, **kwargs)
         )
+        try:
+            # curl_cffi normally honours its own timeout, but a stuck libcurl
+            # call used to hold the serialized bridge lock until the whole job
+            # deadline.  A shield keeps the underlying future from being
+            # cancelled while the worker thread unwinds; the executor is
+            # rotated so later requests are not queued behind that call.
+            deadline = max(0.25, float(self.timeout))
+            return await asyncio.wait_for(asyncio.shield(future), timeout=deadline)
+        except asyncio.TimeoutError as exc:
+            self._rotate_executor()
+            logger.error(
+                "http_browser_bridge_transport_timeout timeout=%ss executor_generation=%s",
+                max(0.25, float(self.timeout)),
+                self._executor_generation,
+            )
+            raise BridgeTransportTimeout(f"curl operation exceeded {max(0.25, float(self.timeout)):.1f}s") from exc
+
+    def _rotate_executor(self) -> None:
+        """Detach a wedged curl thread so the page can continue with a fresh one."""
+        old_executor = self._executor
+        self._executor_generation += 1
+        self._executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix=f"utcms-bridge-{self._executor_generation}",
+        )
+        old_executor.shutdown(wait=False, cancel_futures=True)
 
     async def close(self) -> None:
         await self._stop_keepalive()
@@ -305,6 +338,7 @@ class UtcmsHttpBrowserBridge:
         self._document_session_warmed = False
         self._prefetched_documents.clear()
         self._prefetched_assets.clear()
+        self._json_cache.clear()
         self._preserve_authenticated_session = False
         self._form_assets_bridge_enabled = False
         closed: set[int] = set()
@@ -354,6 +388,14 @@ class UtcmsHttpBrowserBridge:
         cities) should ask here first and treat the page as a rendering surface
         only.  Read-only by construction: GET, no redirects followed.
         """
+        cache_key = self._request_cache_key(url, params)
+        cached_json = self._json_cache.get(cache_key)
+        if cached_json is not None:
+            expires_at, value = cached_json
+            if expires_at > time.monotonic():
+                return value
+            self._json_cache.pop(cache_key, None)
+
         async with self._lock:
             session = self._document_session or self._session
             if session is None:
@@ -398,6 +440,7 @@ class UtcmsHttpBrowserBridge:
                     parsed = json.loads(parsed)
                 except Exception:
                     return None
+            self._json_cache[cache_key] = (time.monotonic() + _JSON_CACHE_TTL_SECONDS, parsed)
             return parsed
 
     async def adopt_authenticated_session(self, session: Any, cookies: list[dict[str, Any]] | None = None) -> None:
@@ -706,9 +749,12 @@ class UtcmsHttpBrowserBridge:
         self._start_keepalive()
 
     @staticmethod
-    def _request_cache_key(url: str) -> str:
+    def _request_cache_key(url: str, params: dict[str, Any] | None = None) -> str:
         parsed = urlparse(url)
-        return f"{parsed.path.lower()}?{parsed.query}" if parsed.query else parsed.path.lower()
+        key = f"{parsed.path.lower()}?{parsed.query}" if parsed.query else parsed.path.lower()
+        if params:
+            key = f"{key}|{json.dumps(params, sort_keys=True, ensure_ascii=False, default=str)}"
+        return key
 
     async def _prefetch_document_assets(self, form_url: str, body: bytes) -> None:
         """Warm the issuance form's scripts and stylesheets, critical files first.

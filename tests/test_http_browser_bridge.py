@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.automation import http_browser_bridge as bridge_module
-from app.automation.http_browser_bridge import UtcmsHttpBrowserBridge, ensure_utcms_http_browser_bridge
+from app.automation.http_browser_bridge import (
+    BridgeTransportTimeout,
+    UtcmsHttpBrowserBridge,
+    ensure_utcms_http_browser_bridge,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -977,6 +981,34 @@ async def test_fetch_json_never_raises_on_a_transport_failure() -> None:
     bridge._call = AsyncMock(side_effect=RuntimeError("connection reset"))
 
     assert await bridge.fetch_json("https://barname.utcms.ir/x") is None
+
+
+@pytest.mark.asyncio
+async def test_bridge_transport_timeout_rotates_executor() -> None:
+    bridge = UtcmsHttpBrowserBridge(MagicMock(), timeout=0.01)
+    generation = bridge._executor_generation
+
+    def _stuck() -> None:
+        time.sleep(0.5)
+
+    with pytest.raises(BridgeTransportTimeout):
+        await bridge._call(_stuck)
+
+    assert bridge._executor_generation == generation + 1
+    bridge._executor.shutdown(wait=False, cancel_futures=True)
+
+
+@pytest.mark.asyncio
+async def test_fetch_json_short_cache_avoids_duplicate_lookup() -> None:
+    bridge = UtcmsHttpBrowserBridge(MagicMock())
+    bridge._document_session = MagicMock()
+    bridge._call = AsyncMock(return_value=MagicMock(status_code=200, text='[{"id": 1}]'))
+
+    first = await bridge.fetch_json("https://barname.utcms.ir/x", {"q": "cargo"})
+    second = await bridge.fetch_json("https://barname.utcms.ir/x", {"q": "cargo"})
+
+    assert first == second == [{"id": 1}]
+    bridge._call.assert_awaited_once()
 
 
 def test_get_bridge_never_installs_one() -> None:
