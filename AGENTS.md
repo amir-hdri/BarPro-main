@@ -354,7 +354,15 @@ docker compose -f compose/monitoring.yml up  # Full monitoring stack
 Default `CAPTCHA_PROVIDER=auto` tries CNN → PyTorch fuel → Keras → Enhanced → Local in sequence.
 All current providers execute within the Worker process; Keras is lazy-loaded once and reused.
 
-## Optimization Applied (2026-06-30 → 2026-08-27)
+## Optimization Applied (2026-06-30 → 2026-09-06)
+
+### 2026-09-06 — UTCMS End-to-End Submission & OTP Lifecycle Hardening (v2.9.10)
+| Change | Impact |
+|---|---|
+| Auto-populate `citySourceMap`, `CityDestMap` & default coordinates (`sourceLatM`/`destLatM`) | Resolves unhandled HTTP 500 on `UpdateRegisterNewOld` caused by ASP.NET Core parsing empty decimal strings |
+| Enforce fare/rent (`#txtkeraye` / `rent` / `postRent` = 5,000,000 Rials default) | Resolves UTCMS rejection 400 (Error 4025: "مقدار کرایه را باید وارد کنید") |
+| Neuter `window.validateTime` & transport-level auto-heal of `SelfDeclaredTimeOfStartShipment` | Resolves UTCMS rejection 200 ("تبدیل تاریخ بدرستی انجام نگرفت") caused by client-side clearing of `#loadingTime` |
+| Live Document Creation & Evening OTP Lifecycle Integration | Successful live submission of Job 56 resulting in UTCMS Document ID `214489653` and handled two-step OTP workflow |
 
 ### 2026-08-27 — Session-Aware 408 and Shared Clean Pool Hardening (v2.9.8)
 | Change | Impact |

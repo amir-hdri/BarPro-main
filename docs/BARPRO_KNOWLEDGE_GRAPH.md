@@ -12,6 +12,15 @@
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
+## 0.7 snapshot این بازبینی (2026-09-06)
+
+- CODE-VERIFIED: commit جاری `bfefd9c` است و در گیت‌هاب، سرور اصلی (`87.107.5.238`) و لوکال کاملاً همگام است.
+- LIVE-OBSERVED: ارسال موفق Job 56 به سامانه مرکزی UTCMS با کد پاسخ ۲۰۰ و ایجاد سند رسمی شماره `214489653`.
+- CODE-VERIFIED: رفع خطای HTTP 500 در `UpdateRegisterNewOld` با تکمیل فیلدهای نقشه و مختصات اعشاری (`a1dc727`).
+- CODE-VERIFIED: رفع خطای ۴۰۲۵ (کرایه الزامی) با مقداردهی خودکار `#txtkeraye` و اعمال کرایه پیش‌فرض ۵,۰۰۰,۰۰۰ ریال (`72556f0`).
+- CODE-VERIFIED: رفع خطای تبدیل تاریخ با خنثی‌سازی تابع جاوااسکریپت `validateTime` و تزریق خودکار ساعت به `SelfDeclaredTimeOfStartShipment` (`bfefd9c`).
+- EXTERNAL-OBSERVATION: در بازه عصرگاهی/شبانه (۱۷:۳۰ تا ۰۸:۰۰)، پاسخ ثبت با `isOtpNeeded: true` همراه است و پیامک تایید به شماره راننده ارسال می‌شود؛ نهایی‌سازی کد رهگیری در این بازه با متد `IssueDocumentByOtpNew` انجام می‌پذیرد.
+
 ## 0.6 snapshot این بازبینی (2026-08-29)
 
 - CODE-VERIFIED: گیت محلی با `origin/main` همگام است؛ commit جاری `5d583a1` است.
