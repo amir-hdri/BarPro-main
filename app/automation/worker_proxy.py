@@ -413,10 +413,7 @@ async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> b
 
     from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
 
-    effective_target = target_url or "https://barname.utcms.ir"
-    targets_to_try = [effective_target]
-    if effective_target != "https://utcms.ir":
-        targets_to_try.append("https://utcms.ir")
+    targets_to_try = [target_url] if target_url else ["https://barname.utcms.ir", "https://api.ipify.org"]
     last_error = ""
     for attempt in range(1, 4):
         for tgt in targets_to_try:
@@ -427,7 +424,7 @@ async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> b
                     proxies={"http": proxy_url, "https": proxy_url},
                     verify=True,
                 )
-                response = await asyncio.to_thread(session.get, tgt, timeout=12.0)
+                response = await asyncio.to_thread(session.get, tgt, timeout=10.0)
                 squid_error = response.headers.get("X-Squid-Error") or response.headers.get("x-squid-error")
                 if not squid_error and response.status_code in (200, 301, 302, 403):
                     return True
