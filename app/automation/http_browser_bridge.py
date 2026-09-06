@@ -1188,6 +1188,12 @@ class UtcmsHttpBrowserBridge:
                         session is self._document_session,
                         self._preserve_authenticated_session,
                     )
+                    if "updateregister" in request.url.lower():
+                        logger.info(
+                            "http_browser_bridge_submit_payload url=%s body=%s",
+                            request.url,
+                            (body or b"").decode("utf-8", errors="ignore")[:3000],
+                        )
                 try:
                     response = await self._call(
                         session.request,
@@ -1198,6 +1204,13 @@ class UtcmsHttpBrowserBridge:
                         allow_redirects=False,
                         timeout=self.timeout,
                     )
+                    if "updateregister" in request.url.lower():
+                        logger.info(
+                            "http_browser_bridge_submit_response url=%s status=%s body=%s",
+                            request.url,
+                            response.status_code,
+                            (response.text or "")[:1000],
+                        )
                     self._last_transport_at = time.monotonic()
                     # Only the reserved document session's own traffic proves the
                     # connection the runtime XHR will inherit is still warm.

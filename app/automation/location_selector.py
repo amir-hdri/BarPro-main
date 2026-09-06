@@ -1124,6 +1124,53 @@ class LocationSelector:
                     "error": f"مقدار شهر ({prefix}) پس از پاسخ AJAX سامانه پایدار نماند",
                 }
 
+            # ۷.۶ همگام‌سازی متغیرهای سراسری نقشه و مختصات (مورد نیاز UpdateRegisterNewOld هنگام فعال بودن mapFlag)
+            try:
+                resolved_city = str(city_readback.get("text") or city).strip()
+                resolved_prov = str(province_readback.get("text") or province).strip()
+                await self.page.evaluate(
+                    """([isOrigin, cityName, stateName, addressText]) => {
+                        const defaultLat = 35.2383;
+                        const defaultLng = 58.4656;
+                        try {
+                            if (isOrigin) {
+                                window.citySourceMap = cityName;
+                                try { if (typeof citySourceMap !== 'undefined') citySourceMap = cityName; } catch(e){}
+                                try { if (typeof LatSource !== 'undefined' && (!LatSource || LatSource === "")) LatSource = defaultLat; } catch(e){}
+                                try { if (typeof LngSource !== 'undefined' && (!LngSource || LngSource === "")) LngSource = defaultLng; } catch(e){}
+                                if (!window.LatSource || window.LatSource === "") window.LatSource = defaultLat;
+                                if (!window.LngSource || window.LngSource === "") window.LngSource = defaultLng;
+                                if (typeof PlaceSource !== 'undefined') {
+                                    PlaceSource.CityName = cityName;
+                                    PlaceSource.StateName = stateName;
+                                    PlaceSource.Address = addressText;
+                                    PlaceSource.Lat = defaultLat;
+                                    PlaceSource.Lon = defaultLng;
+                                }
+                            } else {
+                                window.CityDestMap = cityName;
+                                try { if (typeof CityDestMap !== 'undefined') CityDestMap = cityName; } catch(e){}
+                                try { if (typeof LatDestination !== 'undefined' && (!LatDestination || LatDestination === "")) LatDestination = defaultLat; } catch(e){}
+                                try { if (typeof LngDestination !== 'undefined' && (!LngDestination || LngDestination === "")) LngDestination = defaultLng; } catch(e){}
+                                if (!window.LatDestination || window.LatDestination === "") window.LatDestination = defaultLat;
+                                if (!window.LngDestination || window.LngDestination === "") window.LngDestination = defaultLng;
+                                if (typeof PlaceDestination !== 'undefined') {
+                                    PlaceDestination.CityName = cityName;
+                                    PlaceDestination.StateName = stateName;
+                                    PlaceDestination.Address = addressText;
+                                    PlaceDestination.Lat = defaultLat;
+                                    PlaceDestination.Lon = defaultLng;
+                                }
+                            }
+                        } catch(e) {
+                            console.warn("Syncing location map globals failed:", e);
+                        }
+                    }""",
+                    [is_origin, resolved_city, resolved_prov, address],
+                )
+            except Exception:
+                logger.warning("failed_syncing_location_map_globals", exc_info=True)
+
             # ۸. بررسی خطاهای احتمالی فرم
             pane_id = "#pills-5" if is_origin else "#pills-6"
             has_error = await self.page.eval_on_selector(

@@ -5213,6 +5213,7 @@ class EnhancedWaybillManager:
             raise WaybillError("مرحله نهایی UTCMS آماده نشد؛ ثبت ارسال نشد")
 
         # Ensure fulDateTime / shippingStartDate has both date and time (not date only)
+        # and ensure map/coordinate variables are populated for UpdateRegisterNewOld
         try:
             await self.page.evaluate(
                 """() => {
@@ -5233,6 +5234,35 @@ class EnhancedWaybillManager:
                             if (window.jQuery) window.jQuery(ssd).val(fullStr);
                         }
                     }
+
+                    // Ensure citySourceMap, CityDestMap, LatSource, LngSource, LatDestination, LngDestination
+                    const srcCity = (window.jQuery ? window.jQuery("#ddCitySource option:selected").text() : "") ||
+                                    (document.querySelector("#ddCitySource option:checked")?.textContent || "").trim();
+                    const destCity = (window.jQuery ? window.jQuery("#ddCityDest option:selected").text() : "") ||
+                                     (document.querySelector("#ddCityDest option:checked")?.textContent || "").trim();
+                    const defaultLat = 35.2383;
+                    const defaultLng = 58.4656;
+
+                    if (srcCity && srcCity !== "انتخاب کنید") {
+                        window.citySourceMap = srcCity;
+                        try { if (typeof citySourceMap !== 'undefined') citySourceMap = srcCity; } catch(e){}
+                    }
+                    if (destCity && destCity !== "انتخاب کنید") {
+                        window.CityDestMap = destCity;
+                        try { if (typeof CityDestMap !== 'undefined') CityDestMap = destCity; } catch(e){}
+                    }
+
+                    try {
+                        if (!window.LatSource || window.LatSource === "" || isNaN(Number(window.LatSource))) window.LatSource = defaultLat;
+                        if (!window.LngSource || window.LngSource === "" || isNaN(Number(window.LngSource))) window.LngSource = defaultLng;
+                        if (typeof LatSource !== 'undefined' && (!LatSource || LatSource === "" || isNaN(Number(LatSource)))) LatSource = defaultLat;
+                        if (typeof LngSource !== 'undefined' && (!LngSource || LngSource === "" || isNaN(Number(LngSource)))) LngSource = defaultLng;
+
+                        if (!window.LatDestination || window.LatDestination === "" || isNaN(Number(window.LatDestination))) window.LatDestination = defaultLat;
+                        if (!window.LngDestination || window.LngDestination === "" || isNaN(Number(window.LngDestination))) window.LngDestination = defaultLng;
+                        if (typeof LatDestination !== 'undefined' && (!LatDestination || LatDestination === "" || isNaN(Number(LatDestination)))) LatDestination = defaultLat;
+                        if (typeof LngDestination !== 'undefined' && (!LngDestination || LngDestination === "" || isNaN(Number(LngDestination)))) LngDestination = defaultLng;
+                    } catch(e){}
                 }"""
             )
         except Exception:
