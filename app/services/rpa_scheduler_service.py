@@ -224,8 +224,11 @@ class RPASchedulerService:
             batch_limit = max(1, utcms_config.RPA_SCHEDULER_BATCH_SIZE)
             now = datetime.now(UTC).replace(tzinfo=None)
 
-            # Check UTCMS Submission Gate state once per planning cycle
-            is_gate_open = await utcms_submission_gate.is_submission_allowed()
+            # Check the authoritative gate state once per planning cycle.
+            # Clock-based OTP predictions are telemetry only; UNKNOWN must be
+            # re-probed rather than converted into a fixed overnight schedule.
+            gate_state = await utcms_submission_gate.get_state()
+            is_gate_open = gate_state.value == "otp_free"
 
             for job, driver, batch in jobs:
                 if len(decisions) >= batch_limit:
@@ -431,7 +434,12 @@ class RPASchedulerService:
                                     driver.id,
                                     job.job_id,
                                     JOB_WAITING_SUBMISSION_WINDOW,
-                                    {"reason": "gate_closed_otp_active", "retry_at": retry_at.isoformat()},
+                                    {
+                                        "reason": "gate_closed_otp_required"
+                                        if gate_state.value == "otp_required"
+                                        else "gate_closed_unknown",
+                                        "retry_at": retry_at.isoformat(),
+                                    },
                                 )
                             continue
 

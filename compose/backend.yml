@@ -45,6 +45,10 @@ x-backend-common: &backend-common
   env_file: [../.env]
   environment: &backend-env
     PYTHON_ENV: production
+    # Keep process/log timestamps aligned with the business timezone. Database
+    # timestamps remain explicitly UTC in application code and PostgreSQL.
+    TZ: ${TZ:-Asia/Tehran}
+    BUSINESS_TIMEZONE: ${BUSINESS_TIMEZONE:-Asia/Tehran}
     SKIP_MIGRATIONS: "false"  # PostgreSQL advisory lock از اجرای موازی جلوگیری می‌کند
     # ✅ استفاده از نام سرویس (postgres) به عنوان hostname در شبکه داکر
     DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-utcms_rpa}

@@ -146,18 +146,18 @@ class UTCMSSubmissionGate:
         except Exception:
             logger.debug("failed_to_query_utcms_system_observations_db", exc_info=True)
 
-        # 4. Fallback to adaptive evaluation. A daytime prediction must never
-        # open the mutation gate when Redis/DB evidence is unavailable: only a
-        # current, explicit OTP_FREE observation is authoritative.
-        tehran_now = self.get_tehran_now()
-        # If in predicted OTP required window -> OTP_REQUIRED
-        if self.is_in_predicted_otp_required_window(tehran_now):
-            set_gate_state_metric(GateStateValue.OTP_REQUIRED.value)
-            return GateStateValue.OTP_REQUIRED
-
+        # 4. No live evidence means UNKNOWN, regardless of the clock. The
+        # historical 17:30-08:00 interval is only a prediction/telemetry aid;
+        # UTCMS may change its OTP schedule at any time and a prediction must
+        # never be promoted to an authoritative OTP_REQUIRED observation.
         logger.warning(
             "utcms_gate_evidence_unavailable_fail_closed",
-            extra={"extra_fields": {"reason": "redis_and_db_observation_unavailable"}},
+            extra={
+                "extra_fields": {
+                    "reason": "redis_and_db_observation_unavailable",
+                    "predicted_window": self.is_in_predicted_otp_required_window(),
+                }
+            },
         )
         set_gate_state_metric(GateStateValue.UNKNOWN.value)
         return GateStateValue.UNKNOWN
