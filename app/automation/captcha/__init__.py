@@ -61,8 +61,8 @@ def _build_provider(provider_name: str) -> CaptchaProvider | None:
     if provider_name in ("auto", "ensemble", "composite"):
         return CompositeCaptchaProvider(
             [
-                CnnCaptchaProvider(),
                 DntCaptchaProvider(),
+                CnnCaptchaProvider(),
                 PyTorchFuelCaptchaProvider(),
                 KerasOcrCaptchaProvider(),
                 EnhancedOcrProvider(),

@@ -287,6 +287,12 @@ class BarnameMlCaptchaSolver:
         if not self._available:
             return None
 
+        # Aspect ratio check: Simple math captcha (X + Y) is never wider than 4.5 aspect ratio.
+        # Persian word captchas (e.g. DNTCaptcha) are 6.0 to 12.0 aspect ratio.
+        height, width = image.shape[:2]
+        if height > 0 and (width / height) > 4.5:
+            return None
+
         best_candidate: MlMathCaptchaCandidate | None = None
         allowed_by_position = (tuple(VALUE_MAP.keys()), ("plus",), tuple(VALUE_MAP.keys()))
 
@@ -318,6 +324,9 @@ class BarnameMlCaptchaSolver:
             )
             if best_candidate is None or candidate.confidence > best_candidate.confidence:
                 best_candidate = candidate
+
+        if best_candidate is not None and best_candidate.confidence < 0.60:
+            return None
 
         return best_candidate
 

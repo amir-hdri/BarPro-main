@@ -6114,16 +6114,8 @@ class EnhancedWaybillManager:
             )
             return None
 
-        logger.info(
-            "submit_captcha_provider_verdict",
-            extra={
-                "extra_fields": {
-                    "solved": result.solved,
-                    "provider": result.provider,
-                    "value": result.value,
-                    "error": result.error,
-                }
-            },
+        logger.warning(
+            f"[CAPTCHA_SOLVER] verdict: solved={result.solved}, provider={result.provider}, value='{result.value}', error='{result.error}'"
         )
 
         if not result.solved:
@@ -6149,15 +6141,8 @@ class EnhancedWaybillManager:
             result.value,
             minimum_length=self._final_captcha_min_length(),
         )
-        logger.info(
-            "submit_captcha_normalization_result",
-            extra={
-                "extra_fields": {
-                    "raw_value": result.value,
-                    "normalized": normalized,
-                    "min_len": self._final_captcha_min_length(),
-                }
-            },
+        logger.warning(
+            f"[CAPTCHA_SOLVER] normalization: raw='{result.value}', normalized='{normalized}', min_len={self._final_captcha_min_length()}"
         )
         if normalized:
             track_captcha_success(
@@ -6361,13 +6346,18 @@ class EnhancedWaybillManager:
             locator = await self.smart_locator.locate(self.page, [selector], timeout=3500)
             await locator.fill(value)
             try:
-                await self.page.eval_on_selector(
-                    selector,
-                    """(el, val) => {
-                        el.value = val;
-                        el.dispatchEvent(new Event('input', { bubbles: true }));
-                        el.dispatchEvent(new Event('change', { bubbles: true }));
-                        el.dispatchEvent(new Event('blur', { bubbles: true }));
+                await self.page.evaluate(
+                    """(val) => {
+                        const els = document.querySelectorAll("input[name='DNTCaptchaInputText'], input[id='DNTCaptchaInputText'], input[name*='captcha' i]");
+                        els.forEach(el => {
+                            el.value = val;
+                            el.dispatchEvent(new Event('keydown', { bubbles: true }));
+                            el.dispatchEvent(new Event('keypress', { bubbles: true }));
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('keyup', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            el.dispatchEvent(new Event('blur', { bubbles: true }));
+                        });
                     }""",
                     value,
                 )
