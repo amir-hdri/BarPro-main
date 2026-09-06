@@ -6357,23 +6357,28 @@ class EnhancedWaybillManager:
             locator = await self.smart_locator.locate(self.page, [selector], timeout=3500)
             await locator.fill(value)
             try:
+                # CRITICAL: Only target the EXACT selector passed in.
+                # DO NOT touch #CapToken or #CaptchaCode when filling DNTCaptchaInputText —
+                # touching them triggers UTCMS client-side JS to POST to /DNTCaptchaImage/Refresh
+                # which invalidates the DNTCaptchaText/DNTCaptchaToken hidden fields server-side,
+                # causing "لطفا کد امنیتی صحیح را وارد نمایید" on the subsequent submit POST.
                 await self.page.evaluate(
-                    """(val) => {
-                        if (window.jQuery) {
-                            window.jQuery("input[name='DNTCaptchaInputText'], input[id='DNTCaptchaInputText'], input[name*='captcha' i], #DNTCaptchaInputText, #CapToken, #CaptchaCode").val(val).trigger('change').trigger('input');
-                        }
-                        const els = document.querySelectorAll("input[name='DNTCaptchaInputText'], input[id='DNTCaptchaInputText'], input[name*='captcha' i], #DNTCaptchaInputText, #CapToken, #CaptchaCode");
-                        els.forEach(el => {
+                    """([sel, val]) => {
+                        const el = document.querySelector(sel);
+                        if (el) {
                             el.value = val;
+                            if (window.jQuery) {
+                                window.jQuery(el).val(val).trigger('input').trigger('change');
+                            }
                             el.dispatchEvent(new Event('keydown', { bubbles: true }));
                             el.dispatchEvent(new Event('keypress', { bubbles: true }));
                             el.dispatchEvent(new Event('input', { bubbles: true }));
                             el.dispatchEvent(new Event('keyup', { bubbles: true }));
                             el.dispatchEvent(new Event('change', { bubbles: true }));
                             el.dispatchEvent(new Event('blur', { bubbles: true }));
-                        });
+                        }
                     }""",
-                    value,
+                    [selector, value],
                 )
             except Exception:
                 pass
