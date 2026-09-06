@@ -131,11 +131,17 @@ class WaybillAutomationBot:
             )
 
             dry_run = not utcms_config.ALLOW_LIVE_SUBMIT
-            manager_result = await self.manager.create_waybill_with_map(
-                normalized_payload, dry_run=dry_run, job_id=job_id
-            )
+            manager_result = None
+            manager_exc = None
+            try:
+                manager_result = await self.manager.create_waybill_with_map(
+                    normalized_payload, dry_run=dry_run, job_id=job_id
+                )
+            except WaybillError as exc:
+                manager_exc = exc
+                manager_result = {"success": False, "error": str(exc), "status": "failed"}
 
-            # Self-healing: if session was reused but creation failed, check if we got redirected to login page
+            # Self-healing: if session was reused but creation failed/errored, check if we got redirected to login page
             mutation_may_have_been_dispatched = bool(
                 manager_result.get("mutation_dispatched")
                 or manager_result.get("mutation_status") == "ambiguous"
@@ -153,16 +159,40 @@ class WaybillAutomationBot:
                 from app.automation.auth_utils import is_login_url
 
                 current_url = self.page.url or ""
-                if is_login_url(current_url):
-                    logger.warning("Reused session expired/logged out during execution. Retrying with fresh login...")
+                err_text = str(manager_exc or manager_result.get("error") or "")
+                session_expired = (
+                    is_login_url(current_url)
+                    or "فرم بارنامه پس از بازیابی در دسترس نیست" in err_text
+                    or "دسترسی" in err_text
+                    or "نشست" in err_text
+                )
+                if session_expired:
+                    logger.warning(
+                        "Reused session expired/navigation failed. Invalidating cache and retrying with fresh login...",
+                        extra={"extra_fields": {"url": current_url, "error": err_text[:160]}},
+                    )
+                    if auth_state_path:
+                        try:
+                            from app.services.session_vault import session_vault
+                            await session_vault.async_delete_auth_state(auth_state_path)
+                        except Exception:
+                            pass
                     # Try a fresh login
                     login_success = await self.authenticator.login(username, password)
                     if login_success:
                         await browser_manager.save_auth_state(self.context, auth_state_path=auth_state_path)
-                        # Try creation again
-                        manager_result = await self.manager.create_waybill_with_map(
-                            normalized_payload, dry_run=dry_run, job_id=job_id
-                        )
+                        manager_exc = None
+                        try:
+                            # Try creation again
+                            manager_result = await self.manager.create_waybill_with_map(
+                                normalized_payload, dry_run=dry_run, job_id=job_id
+                            )
+                        except WaybillError as retry_exc:
+                            manager_exc = retry_exc
+                            manager_result = {"success": False, "error": str(retry_exc), "status": "failed"}
+
+            if manager_exc is not None:
+                raise manager_exc
 
             # A fresh-login retry produces a new result; recompute the mutation
             # boundary before deciding whether any further submit is safe.

@@ -133,10 +133,10 @@ def _build_beat_schedule() -> dict:
             # Keep this on its dedicated queue and expire stale ticks to prevent backlog.
             "orchestrator-reconciliation": {
                 "task": "orchestrator.reconciliation.run",
-                "schedule": schedule(15.0),
+                "schedule": schedule(60.0),
                 "options": {
                     "queue": utcms_config.CELERY_RECONCILIATION_TASKS_QUEUE,
-                    "expires": 14,
+                    "expires": 55,
                 },
             },
             "fuel-inquiry-cleanup-stale": {

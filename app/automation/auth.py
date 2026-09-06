@@ -174,13 +174,24 @@ class UTCMSAuthenticator:
 
         if not probe_login_url:
             if await self._has_auth_cookie():
-                deadline = asyncio.get_running_loop().time() + 5.0
-                while asyncio.get_running_loop().time() < deadline:
+                curr_url = await self._current_url()
+                if curr_url and is_authenticated_url(curr_url):
+                    return True
+                # Context has cookies but hasn't reached an authenticated page yet (e.g. about:blank).
+                # Quickly probe the authenticated notification landing page to verify cookie liveness.
+                try:
+                    await self._goto_with_retry(
+                        "https://barname.utcms.ir/Barname/Notification/Notification",
+                        wait_until="domcontentloaded",
+                        timeout=10000,
+                    )
                     curr_url = await self._current_url()
-                    if curr_url and not is_login_url(curr_url):
+                    if is_authenticated_url(curr_url):
                         return True
-                    await asyncio.sleep(0.05)
-                return True
+                    if is_login_url(curr_url):
+                        return False
+                except Exception:
+                    return False
             return False
 
         try:

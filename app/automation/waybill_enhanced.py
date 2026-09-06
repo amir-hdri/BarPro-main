@@ -2449,6 +2449,11 @@ class EnhancedWaybillManager:
         except Exception:
             access_denied_by_text = False
 
+        from app.automation.auth_utils import is_login_url
+
+        if is_login_url(current_url):
+            raise WaybillError("نشست کاربری منقضی شده و مرورگر به صفحه ورود منتقل شده است")
+
         if "/home/infoindex" in current_url or lacks_access_banner or access_denied_by_text:
             raise WaybillError("حساب کاربری به ماژول صدور بارنامه دسترسی ندارد")
 
