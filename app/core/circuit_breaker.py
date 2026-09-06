@@ -266,6 +266,13 @@ async def check_and_report_failure(
         ip_index = os.getenv("WORKER_IP_INDEX")
         if ip_index:
             try:
+                available = get_available_ip_indices()
+                if len(available) <= 1:
+                    logger.warning(
+                        f"Circuit Breaker: IP index {ip_index} had failure ({error_msg}) "
+                        f"but is the ONLY available worker index ({available}). Skipping 30-min block to prevent total fleet paralysis."
+                    )
+                    return
                 r_async = await redis_manager.get()
                 if r_async is not None:
                     key = f"utcms:circuit_breaker:blocked:{ip_index}"

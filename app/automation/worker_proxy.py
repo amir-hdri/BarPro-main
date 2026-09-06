@@ -413,29 +413,33 @@ async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> b
 
     from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
 
-    effective_target = target_url or "https://utcms.ir"
+    effective_target = target_url or "https://barname.utcms.ir"
+    targets_to_try = [effective_target]
+    if effective_target != "https://utcms.ir":
+        targets_to_try.append("https://utcms.ir")
     last_error = ""
     for attempt in range(1, 4):
-        session = None
-        try:
-            session = cc_requests.Session(
-                impersonate="chrome120",
-                proxies={"http": proxy_url, "https": proxy_url},
-                verify=True,
-            )
-            response = await asyncio.to_thread(session.get, effective_target, timeout=12.0)
-            squid_error = response.headers.get("X-Squid-Error") or response.headers.get("x-squid-error")
-            if not squid_error:
-                return True
-            last_error = f"X-Squid-Error={squid_error}; status={response.status_code}"
-        except Exception as exc:
-            last_error = str(exc)
-        finally:
-            if session is not None:
-                try:
-                    await asyncio.to_thread(session.close)
-                except Exception as exc:
-                    logger.debug("worker_proxy_health_session_close_failed", extra={"extra_fields": {"error": str(exc)[:200]}})
+        for tgt in targets_to_try:
+            session = None
+            try:
+                session = cc_requests.Session(
+                    impersonate="chrome120",
+                    proxies={"http": proxy_url, "https": proxy_url},
+                    verify=True,
+                )
+                response = await asyncio.to_thread(session.get, tgt, timeout=12.0)
+                squid_error = response.headers.get("X-Squid-Error") or response.headers.get("x-squid-error")
+                if not squid_error and response.status_code in (200, 301, 302, 403):
+                    return True
+                last_error = f"X-Squid-Error={squid_error}; status={response.status_code}"
+            except Exception as exc:
+                last_error = str(exc)
+            finally:
+                if session is not None:
+                    try:
+                        await asyncio.to_thread(session.close)
+                    except Exception as exc:
+                        logger.debug("worker_proxy_health_session_close_failed", extra={"extra_fields": {"error": str(exc)[:200]}})
         if attempt < 3:
             await asyncio.sleep(1.5)
 
