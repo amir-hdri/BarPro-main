@@ -5716,10 +5716,7 @@ class EnhancedWaybillManager:
         return max(0.0, min(1.0, float(utcms_config.CAPTCHA_MATH_MIN_CONFIDENCE)))
 
     def _final_captcha_min_length(self) -> int:
-        # UTCMS's final DNT image is not the login math field.  A one-character
-        # OCR result is treated as an invalid/low-information solve and must
-        # never reach the mutating click boundary.
-        return max(2, int(getattr(utcms_config, "CAPTCHA_VALUE_MIN_LENGTH", 1)))
+        return max(1, int(getattr(utcms_config, "CAPTCHA_VALUE_MIN_LENGTH", 1)))
 
     def _hint_candidates_from_text(self, raw_text: str | None) -> list[str]:
         text = (raw_text or "").strip()
@@ -5810,12 +5807,12 @@ class EnhancedWaybillManager:
     def _is_plausible_captcha_image(self, box: dict) -> bool:
         width = float(box.get("width") or 0)
         height = float(box.get("height") or 0)
-        if width < 35 or height < 18:
+        if width < 30 or height < 15:
             return False
-        if width > 220 or height > 120:
+        if width > 500 or height > 160:
             return False
         aspect_ratio = width / max(height, 1.0)
-        return 1.0 <= aspect_ratio <= 5.5
+        return 0.8 <= aspect_ratio <= 12.0
 
     def _captcha_image_score(self, box: dict, input_box: dict | None, selector: str) -> float:
         width = float(box.get("width") or 0)
@@ -6065,6 +6062,7 @@ class EnhancedWaybillManager:
         track_captcha_attempt("provider", phase="submit")
         provider = get_captcha_provider()
         if not provider:
+            logger.warning("submit_captcha_provider_not_configured")
             if utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED:
                 return await self._solve_submit_math_captcha(captcha_selector)
             track_captcha_failure(
@@ -6077,6 +6075,10 @@ class EnhancedWaybillManager:
 
         image_base64 = await self._extract_captcha_image_base64(captcha_selector)
         if not image_base64:
+            logger.warning(
+                "submit_captcha_image_not_found",
+                extra={"extra_fields": {"selector": captcha_selector}},
+            )
             if utcms_config.CAPTCHA_LOCAL_FALLBACK_ENABLED:
                 return await self._solve_submit_math_captcha(captcha_selector)
             track_captcha_failure(
@@ -6087,12 +6089,18 @@ class EnhancedWaybillManager:
             )
             return None
 
+        logger.info(
+            "submit_captcha_image_extracted",
+            extra={"extra_fields": {"image_len": len(image_base64), "provider": provider.__class__.__name__}},
+        )
+
         self._save_captcha_debug_artifact(
             image_base64, phase="submit", attempt=1, stage="captured", provider="composite"
         )
         try:
             result = await provider.solve_text_captcha(image_base64)
         except Exception as exc:
+            logger.error("submit_captcha_provider_exception", exc_info=True)
             self._save_captcha_debug_artifact(
                 image_base64, phase="submit", attempt=1, stage="error", provider="composite", error=str(exc)
             )
@@ -6105,6 +6113,18 @@ class EnhancedWaybillManager:
                 latency_seconds=asyncio.get_running_loop().time() - started_at,
             )
             return None
+
+        logger.info(
+            "submit_captcha_provider_verdict",
+            extra={
+                "extra_fields": {
+                    "solved": result.solved,
+                    "provider": result.provider,
+                    "value": result.value,
+                    "error": result.error,
+                }
+            },
+        )
 
         if not result.solved:
             self._save_captcha_debug_artifact(
@@ -6129,6 +6149,16 @@ class EnhancedWaybillManager:
             result.value,
             minimum_length=self._final_captcha_min_length(),
         )
+        logger.info(
+            "submit_captcha_normalization_result",
+            extra={
+                "extra_fields": {
+                    "raw_value": result.value,
+                    "normalized": normalized,
+                    "min_len": self._final_captcha_min_length(),
+                }
+            },
+        )
         if normalized:
             track_captcha_success(
                 "provider",
@@ -6137,7 +6167,7 @@ class EnhancedWaybillManager:
             )
             logger.info(
                 "submit_provider_captcha_solved",
-                extra={"extra_fields": {"provider": result.provider}},
+                extra={"extra_fields": {"provider": result.provider, "solution": normalized}},
             )
             self._save_captcha_debug_artifact(
                 image_base64,

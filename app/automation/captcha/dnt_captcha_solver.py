@@ -169,7 +169,7 @@ class DntCaptchaProvider(CaptchaProvider):
             predicted_text = "".join(decoded_chars).strip()
             digits = persian_words_to_number(predicted_text)
 
-            if digits and digits.isdigit() and len(digits) >= 4:
+            if digits and digits.isdigit() and int(digits) > 0:
                 return CaptchaResult(
                     solved=True,
                     provider="dnt_crnn",
