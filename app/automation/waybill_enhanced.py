@@ -5375,12 +5375,21 @@ class EnhancedWaybillManager:
 
                 # ── Step 6: Extract tracking code ──
                 document_id = (otp_state or {}).get("document_id") or (submit_state or {}).get("document_id")
-                tracking_code = (
-                    (otp_state or {}).get("tracking_code")
-                    or (submit_state or {}).get("tracking_code")
-                    or await self._extract_tracking_code(document_id=document_id)
-                )
-                submission_confirmed = await self._is_submission_successful()
+                tracking_code = (otp_state or {}).get("tracking_code") or (submit_state or {}).get("tracking_code")
+                submission_confirmed = False
+
+                # Poll up to 10 seconds for showTrackingCode AJAX to finish and populate the DOM
+                for wait_step in range(10):
+                    if not tracking_code:
+                        tracking_code = await self._extract_tracking_code(document_id=document_id)
+                    submission_confirmed = await self._is_submission_successful()
+                    if tracking_code or submission_confirmed:
+                        break
+                    # If a genuine visible error appears on the form, stop waiting early
+                    form_errors = await self._extract_form_errors()
+                    if form_errors:
+                        break
+                    await asyncio.sleep(1.0)
 
                 # A tracking code is only a provisional witness.  History/Search
                 # reconciliation must still confirm the final state; callers map
@@ -6580,7 +6589,17 @@ class EnhancedWaybillManager:
             try:
                 texts = await self.page.eval_on_selector_all(
                     selector,
-                    "els => els.map(el => (el.textContent || '').trim()).filter(Boolean)",
+                    """els => els
+                        .filter(el => {
+                            if (!el) return false;
+                            if (el.classList.contains('d-none') || el.closest('.d-none')) return false;
+                            const style = window.getComputedStyle(el);
+                            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+                            const rect = el.getBoundingClientRect();
+                            return rect.width > 0 && rect.height > 0;
+                        })
+                        .map(el => (el.textContent || '').trim())
+                        .filter(Boolean)""",
                 )
                 for text in texts:
                     cleaned = await self._as_clean_text(text)
