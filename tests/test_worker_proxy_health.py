@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.automation.worker_proxy import check_proxy_health
+from app.core.config import utcms_config
 
 
 @pytest.mark.asyncio
@@ -16,6 +17,21 @@ async def test_check_proxy_health_success():
         result = await check_proxy_health("http://127.0.0.1:3128")
         assert result is True
         mock_get.assert_called_once()
+        assert mock_get.call_args.args[0] == "https://utcms.ir"
+
+
+@pytest.mark.asyncio
+async def test_check_proxy_health_default_does_not_follow_login_url():
+    """A login-route change must not turn the tunnel probe into a session probe."""
+    mock_response = MagicMock(status_code=200, headers={})
+    original_login_url = utcms_config.LOGIN_URL
+    utcms_config.LOGIN_URL = "https://barname.utcms.ir/Barname/Account/Login"
+    try:
+        with patch("curl_cffi.requests.Session.get", return_value=mock_response) as mock_get:
+            assert await check_proxy_health("http://127.0.0.1:3128") is True
+            assert mock_get.call_args.args[0] == "https://utcms.ir"
+    finally:
+        utcms_config.LOGIN_URL = original_login_url
 
 
 @pytest.mark.asyncio

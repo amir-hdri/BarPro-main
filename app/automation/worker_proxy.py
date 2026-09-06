@@ -400,14 +400,20 @@ def get_playwright_proxy() -> dict | None:
 
 
 async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> bool:
-    """Verify the proxy tunnel without confusing an upstream UTCMS error with proxy failure."""
+    """Verify the proxy tunnel without coupling health checks to the login route.
+
+    The login URL is session-sensitive and may redirect or time out while the
+    proxy tunnel itself is healthy.  Use the stable UTCMS root by default;
+    callers that need an authenticated/session-specific target can still pass
+    ``target_url`` explicitly.
+    """
     parsed = urlparse(proxy_url)
     if not parsed.hostname or not parsed.port:
         return False
 
     from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
 
-    effective_target = target_url or utcms_config.LOGIN_URL
+    effective_target = target_url or "https://utcms.ir"
     last_error = ""
     for attempt in range(1, 4):
         session = None
