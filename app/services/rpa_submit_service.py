@@ -237,6 +237,13 @@ class RPAHttpSubmitService:
                 retry_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(
                     seconds=utcms_config.GATE_PROBE_INTERVAL_SECONDS
                 )
+                gate_state = await utcms_submission_gate.get_state()
+                gate_category = "otp_required" if gate_state.value == "otp_required" else "gate_unknown"
+                gate_message = (
+                    "ثبت تا تأیید زنده پنجره بدون OTP متوقف شد"
+                    if gate_category == "otp_required"
+                    else "ثبت تا دریافت مشاهده زنده وضعیت OTP متوقف شد"
+                )
                 JobStateMachine.transition(
                     session,
                     job,
@@ -245,16 +252,16 @@ class RPAHttpSubmitService:
                     submit_after=retry_at,
                     retryable=True,
                     celery_task_id=None,
-                    last_error="UTCMS submission gate is not confirmed OTP-free",
-                    error_category="otp_required",
+                    last_error=gate_message,
+                    error_category=gate_category,
                 )
                 await session.commit()
                 return SubmitExecutionResult(
                     classification=SubmitClassification(
                         outcome=SubmitOutcome.TRANSIENT_FAILURE,
-                        reason_code="otp_required",
+                        reason_code=gate_category,
                         retryable=True,
-                        message="ثبت تا تایید زنده پنجره بدون OTP متوقف شد",
+                        message=gate_message,
                     ),
                     latency_ms=0,
                 )

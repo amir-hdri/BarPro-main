@@ -176,6 +176,13 @@ async def _execute_single_job(
 
     if not await utcms_submission_gate.is_submission_allowed():
         retry_at = _utcnow() + timedelta(seconds=utcms_config.GATE_PROBE_INTERVAL_SECONDS)
+        gate_state = await utcms_submission_gate.get_state()
+        gate_category = "otp_required" if gate_state.value == "otp_required" else "gate_unknown"
+        gate_message = (
+            "UTCMS submission gate is closed because OTP is required"
+            if gate_category == "otp_required"
+            else "UTCMS submission gate has no fresh live OTP observation"
+        )
         JobStateMachine.transition(
             session,
             job,
@@ -183,11 +190,15 @@ async def _execute_single_job(
             next_retry_at=retry_at,
             submit_after=retry_at,
             retryable=True,
-            last_error="UTCMS submission gate is not confirmed OTP-free",
-            error_category="otp_required",
+            last_error=gate_message,
+            error_category=gate_category,
         )
         await session.commit()
-        return {"status": TaskStatus.WAITING_SUBMISSION_WINDOW.value, "next_retry_at": retry_at.isoformat()}
+        return {
+            "status": TaskStatus.WAITING_SUBMISSION_WINDOW.value,
+            "next_retry_at": retry_at.isoformat(),
+            "error_category": gate_category,
+        }
 
     from app.services.session_vault import session_vault
 

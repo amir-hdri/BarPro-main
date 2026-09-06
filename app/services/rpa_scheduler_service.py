@@ -227,8 +227,12 @@ class RPASchedulerService:
             # Check the authoritative gate state once per planning cycle.
             # Clock-based OTP predictions are telemetry only; UNKNOWN must be
             # re-probed rather than converted into a fixed overnight schedule.
-            gate_state = await utcms_submission_gate.get_state()
-            is_gate_open = gate_state.value == "otp_free"
+            is_gate_open = await utcms_submission_gate.is_submission_allowed()
+            gate_state = None
+            if not is_gate_open:
+                # Read the concrete state only for diagnostics/event reasons;
+                # the permission check remains the single gate decision API.
+                gate_state = await utcms_submission_gate.get_state()
 
             for job, driver, batch in jobs:
                 if len(decisions) >= batch_limit:
@@ -436,7 +440,7 @@ class RPASchedulerService:
                                     JOB_WAITING_SUBMISSION_WINDOW,
                                     {
                                         "reason": "gate_closed_otp_required"
-                                        if gate_state.value == "otp_required"
+                                        if gate_state is not None and gate_state.value == "otp_required"
                                         else "gate_closed_unknown",
                                         "retry_at": retry_at.isoformat(),
                                     },

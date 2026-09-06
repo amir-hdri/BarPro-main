@@ -1223,7 +1223,10 @@ async def _execute_job(
                     updated_at=_utcnow_naive(),
                 )
                 await session.commit()
-                return {"status": TaskStatus.WAITING_SUBMISSION_WINDOW.value, "error_category": "otp_required"}
+                return {
+                    "status": TaskStatus.WAITING_SUBMISSION_WINDOW.value,
+                    "error_category": "otp_required" if gate_state.value == "otp_required" else "gate_unknown",
+                }
 
             # Use simple worker proxy helper — bypasses proxy_rotator's cooldown/geo-check
             # that could return None, leaving Chromium without proxy → navigation timeout.
