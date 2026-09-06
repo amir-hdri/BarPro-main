@@ -234,9 +234,9 @@ class UtcmsHttpLogin:
     # keeps the IP hot and never escapes it.  Retry the transport-level failure
     # more times with exponential backoff + jitter so the wait can straddle the
     # cool-down window instead of hammering inside it.
-    TRANSPORT_MAX_RETRIES = 5
-    TRANSPORT_BACKOFF_BASE = 8.0
-    TRANSPORT_BACKOFF_CAP = 90.0
+    TRANSPORT_MAX_RETRIES = 3
+    TRANSPORT_BACKOFF_BASE = 4.0
+    TRANSPORT_BACKOFF_CAP = 20.0
 
     async def _rotate_after_transport_failure(self, failed_proxy: str | None) -> None:
         """Evict a dead clean-pool proxy and select the next candidate.

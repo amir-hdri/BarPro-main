@@ -187,7 +187,7 @@ class UTCMSConfig:
         # only loopback/RFC1918 peers are served.
         self.METRICS_SCRAPE_TOKEN = os.getenv("METRICS_SCRAPE_TOKEN", "").strip()
         self.JOB_TIMEOUT_SECONDS = int(
-            os.getenv("JOB_TIMEOUT_SECONDS", "330")
+            os.getenv("JOB_TIMEOUT_SECONDS", "600")
         )  # inner asyncio.wait_for bound; CELERY_TASK_SOFT/TIME_LIMIT derive from this (see H1 below)
         self.ITMBOL_SERVICE_URL = os.getenv("ITMBOL_SERVICE_URL", "https://services2.sipaad.ir/ITMBOL.asmx")
         self.ITMBOL_COMPANY_CODE = os.getenv("ITMBOL_COMPANY_CODE", "").strip()
