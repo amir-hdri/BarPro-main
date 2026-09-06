@@ -142,6 +142,10 @@ class FinancialModel(BaseModel):
                 d["cost"] = d["fare_amount"]
             if "shipping_cost" in d and "cost" not in d:
                 d["cost"] = d["shipping_cost"]
+            if "fare" in d and "cost" not in d:
+                d["cost"] = d["fare"]
+            if "rent" in d and "cost" not in d:
+                d["cost"] = d["rent"]
             if "fare_type" in d and "payment_method" not in d:
                 d["payment_method"] = d["fare_type"]
             return d

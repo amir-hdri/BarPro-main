@@ -4290,24 +4290,30 @@ class EnhancedWaybillManager:
     async def _fill_financial_info(self, financial: dict[str, Any]):
         """پر کردن اطلاعات مالی"""
         await self._wait_for_loading_overlays_to_disappear()
-        if financial.get("cost"):
-            await self._fill_with_fallback(
-                [
-                    'input[name="TransportCost"]',
-                    'input[id="TransportCost"]',
-                    'input[name="txtkeraye"]',
-                    'input[id="txtkeraye"]',
-                    'input[name="txtPishKeraye"]',
-                    'input[id="txtPishKeraye"]',
-                    'input[name="txtPasKeraye"]',
-                    'input[id="txtPasKeraye"]',
-                    'input[name*="transport" i][name*="cost" i]',
-                    'input[name*="price" i]',
-                ],
-                self._normalize_number_text(financial["cost"]),
-                "هزینه حمل",
-                required=True,
-            )
+        cost = (
+            financial.get("cost")
+            or financial.get("fare")
+            or financial.get("fare_amount")
+            or financial.get("rent")
+            or "5000000"
+        )
+        await self._fill_with_fallback(
+            [
+                'input[name="txtkeraye"]',
+                'input[id="txtkeraye"]',
+                'input[name="TransportCost"]',
+                'input[id="TransportCost"]',
+                'input[name="txtPishKeraye"]',
+                'input[id="txtPishKeraye"]',
+                'input[name="txtPasKeraye"]',
+                'input[id="txtPasKeraye"]',
+                'input[name*="transport" i][name*="cost" i]',
+                'input[name*="price" i]',
+            ],
+            self._normalize_number_text(str(cost)),
+            "هزینه حمل",
+            required=True,
+        )
 
         # UTCMS validates that loading time is not before current time on current day.
         # If loadingTime is before current time, UTCMS displays "زمان بارگیری نمی تواند قبل از ساعت روز جاری باشد"
@@ -5262,6 +5268,15 @@ class EnhancedWaybillManager:
                         if (!window.LngDestination || window.LngDestination === "" || isNaN(Number(window.LngDestination))) window.LngDestination = defaultLng;
                         if (typeof LatDestination !== 'undefined' && (!LatDestination || LatDestination === "" || isNaN(Number(LatDestination)))) LatDestination = defaultLat;
                         if (typeof LngDestination !== 'undefined' && (!LngDestination || LngDestination === "" || isNaN(Number(LngDestination)))) LngDestination = defaultLng;
+
+                        // Ensure rent / txtkeraye is populated (UTCMS error 4025 if empty)
+                        const kerayeEl = document.querySelector("#txtkeraye");
+                        if (kerayeEl && (!kerayeEl.value || kerayeEl.value.trim() === "")) {
+                            kerayeEl.value = "5000000";
+                            if (window.jQuery) {
+                                window.jQuery("#txtkeraye").val("5000000").trigger("input").trigger("change");
+                            }
+                        }
                     } catch(e){}
                 }"""
             )

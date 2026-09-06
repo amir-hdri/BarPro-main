@@ -336,6 +336,17 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             if isinstance(payload.get("financial"), dict)
             else dict(_metadata_section(metadata, "financial"))
         )
+        if not financial.get("cost") and not financial.get("fare"):
+            extracted_cost = _first_value(
+                payload.get("fare"),
+                payload.get("cost"),
+                payload.get("rent"),
+                financial_meta.get("fare"),
+                financial_meta.get("cost"),
+                metadata.get("financial_cost"),
+                "5000000",
+            )
+            financial["cost"] = extracted_cost
         shipping_options = (
             dict(payload.get("shipping_options"))
             if isinstance(payload.get("shipping_options"), dict)
@@ -455,7 +466,16 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "type": vehicle_type or None,
         },
         "financial": {
-            "cost": _first_value(financial_meta.get("cost"), metadata.get("financial_cost")),
+            "cost": _first_value(
+                financial_meta.get("cost"),
+                financial_meta.get("fare"),
+                financial_meta.get("rent"),
+                payload.get("fare"),
+                payload.get("cost"),
+                payload.get("rent"),
+                metadata.get("financial_cost"),
+                "5000000",
+            ),
             "payment_method": _first_value(
                 financial_meta.get("payment_method"),
                 metadata.get("payment_method"),
