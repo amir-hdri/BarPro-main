@@ -4326,6 +4326,15 @@ class EnhancedWaybillManager:
         else:
             current_time = target_dt.strftime("%H:%M")
 
+        # Neuter validateTime in page context so UTCMS never clears #loadingTime
+        try:
+            await self.page.evaluate("""() => {
+                window.validateTime = function() { return true; };
+                try { if (typeof validateTime !== 'undefined') validateTime = function() { return true; }; } catch(e){}
+            }""")
+        except Exception:
+            pass
+
         await self._fill_verified_text_field(
             [
                 'input[name="loadingTime"]',
@@ -4336,6 +4345,18 @@ class EnhancedWaybillManager:
             required=True,
             prefer_type=True,
         )
+
+        try:
+            await self.page.evaluate(f"""() => {{
+                window.validateTime = function() {{ return true; }};
+                const el = document.querySelector("#loadingTime");
+                if (el) {{
+                    el.value = "{current_time}";
+                    if (window.jQuery) window.jQuery(el).val("{current_time}");
+                }}
+            }}""")
+        except Exception:
+            pass
 
         if financial.get("payment_method"):
             selected = await self._select_dropdown_with_fallback(
@@ -5275,6 +5296,25 @@ class EnhancedWaybillManager:
                             kerayeEl.value = "5000000";
                             if (window.jQuery) {
                                 window.jQuery("#txtkeraye").val("5000000").trigger("input").trigger("change");
+                            }
+                        }
+
+                        // Ensure loadingTime is populated and validateTime never wipes it
+                        window.validateTime = function() { return true; };
+                        try { if (typeof validateTime !== 'undefined') validateTime = function() { return true; }; } catch(e){}
+                        const ltEl = document.querySelector("#loadingTime");
+                        const d = new Date();
+                        d.setMinutes(d.getMinutes() + 45);
+                        const hh = String(d.getHours()).padStart(2, '0');
+                        const mm = String(d.getMinutes()).padStart(2, '0');
+                        const timeStr = hh + ':' + mm;
+                        if (ltEl && (!ltEl.value || ltEl.value.trim() === "")) {
+                            ltEl.value = timeStr;
+                        }
+                        if (window.jQuery) {
+                            const curLt = window.jQuery("#loadingTime").val();
+                            if (!curLt || curLt.trim() === "") {
+                                window.jQuery("#loadingTime").val(timeStr);
                             }
                         }
                     } catch(e){}

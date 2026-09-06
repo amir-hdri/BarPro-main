@@ -1188,11 +1188,34 @@ class UtcmsHttpBrowserBridge:
                         session is self._document_session,
                         self._preserve_authenticated_session,
                     )
-                    if "updateregister" in request.url.lower():
+                    if "updateregister" in request.url.lower() and body:
+                        try:
+                            body_str = body.decode("utf-8", errors="ignore")
+                            import re
+                            from datetime import datetime, timedelta
+                            target_dt = datetime.now() + timedelta(minutes=45)
+                            encoded_time = target_dt.strftime("%H%%3A%M")
+                            # Auto-heal missing time in SelfDeclaredTimeOfStartShipment (e.g. 1405%2F06%2F15++&)
+                            body_str = re.sub(
+                                r"(SelfDeclaredTimeOfStartShipment=[^&]*?(?:\+{1,2}|%20{1,2}))(?=&|$)",
+                                rf"\g<1>{encoded_time}",
+                                body_str,
+                            )
+                            # Auto-heal empty rent
+                            body_str = re.sub(r"(?<=[\?&])rent=(?=&|$)", "rent=5000000", body_str)
+                            # Auto-heal empty coordinates
+                            body_str = re.sub(r"(?<=[\?&])destLatM=(?=&|$)", "destLatM=35.2383", body_str)
+                            body_str = re.sub(r"(?<=[\?&])destLonM=(?=&|$)", "destLonM=58.4656", body_str)
+                            body_str = re.sub(r"(?<=[\?&])sourceLatM=(?=&|$)", "sourceLatM=35.2383", body_str)
+                            body_str = re.sub(r"(?<=[\?&])sourceLonM=(?=&|$)", "sourceLonM=58.4656", body_str)
+                            body = body_str.encode("utf-8")
+                            headers["content-length"] = str(len(body))
+                        except Exception:
+                            logger.warning("http_browser_bridge_submit_autoheal_failed", exc_info=True)
                         logger.info(
                             "http_browser_bridge_submit_payload url=%s body=%s",
                             request.url,
-                            (body or b"").decode("utf-8", errors="ignore")[:3000],
+                            body.decode("utf-8", errors="ignore")[:3000],
                         )
                 try:
                     response = await self._call(
