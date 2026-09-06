@@ -10,7 +10,7 @@ import os
 import random
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
@@ -4309,7 +4309,17 @@ class EnhancedWaybillManager:
                 required=True,
             )
 
-        current_time = datetime.now().strftime("%H:%M")
+        # UTCMS validates that loading time is not before current time on current day.
+        # If loadingTime is before current time, UTCMS displays "زمان بارگیری نمی تواند قبل از ساعت روز جاری باشد"
+        # and clears #loadingTime, causing UpdateRegisterNewOld to fail with "تبدیل تاریخ بدرستی انجام نگرفت".
+        # Because multi-step form navigation takes 1-2 minutes, setting exact current minute causes it to be in
+        # the past by the time the final submit button is clicked. Therefore, set it safely 45 minutes into future.
+        target_dt = datetime.now() + timedelta(minutes=45)
+        if target_dt.date() > datetime.now().date():
+            current_time = "23:55"
+        else:
+            current_time = target_dt.strftime("%H:%M")
+
         await self._fill_verified_text_field(
             [
                 'input[name="loadingTime"]',
@@ -5152,8 +5162,29 @@ class EnhancedWaybillManager:
             )
             return False
 
-        # ── Step 1: Click "مرحله نهایی" ──
-        # ── Step 1: Enter the final stage ──
+        # ── Step 1: Ensure loadingTime has a future time and click "مرحله نهایی" ──
+        try:
+            await self.page.evaluate(
+                """() => {
+                    const el = document.querySelector('#loadingTime') || document.querySelector('input[name="loadingTime"]');
+                    if (el) {
+                        const now = new Date();
+                        now.setMinutes(now.getMinutes() + 45);
+                        const hh = String(now.getHours()).padStart(2, '0');
+                        const mm = String(now.getMinutes()).padStart(2, '0');
+                        const timeStr = `${hh}:${mm}`;
+                        el.value = timeStr;
+                        if (window.jQuery) {
+                            window.jQuery(el).val(timeStr).trigger('input').trigger('change');
+                        }
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }"""
+            )
+        except Exception:
+            pass
+
         # ``#GoFinalStep`` is *UTCMS's own* post-save navigation: the page clicks
         # it after a successful save to reveal the tracking-code step, so it is
         # hidden before submission and must not gate the run.  The authoritative
@@ -5180,6 +5211,33 @@ class EnhancedWaybillManager:
                     break
         if not final_submit_ready:
             raise WaybillError("مرحله نهایی UTCMS آماده نشد؛ ثبت ارسال نشد")
+
+        # Ensure fulDateTime / shippingStartDate has both date and time (not date only)
+        try:
+            await self.page.evaluate(
+                """() => {
+                    const dateVal = (document.getElementById('loadingDate')?.value || '').trim();
+                    let timeVal = (document.getElementById('loadingTime')?.value || '').trim();
+                    if (!timeVal) {
+                        const now = new Date();
+                        now.setMinutes(now.getMinutes() + 45);
+                        const hh = String(now.getHours()).padStart(2, '0');
+                        const mm = String(now.getMinutes()).padStart(2, '0');
+                        timeVal = `${hh}:${mm}`;
+                    }
+                    if (dateVal && timeVal) {
+                        const fullStr = dateVal + ' - ' + timeVal;
+                        const ssd = document.getElementById('shippingStartDate');
+                        if (ssd) {
+                            ssd.value = fullStr;
+                            if (window.jQuery) window.jQuery(ssd).val(fullStr);
+                        }
+                    }
+                }"""
+            )
+        except Exception:
+            pass
+
         logger.info(
             "final_stage_ready",
             extra={"extra_fields": {"navigation_clicked": bool(final_stage_clicked)}},
