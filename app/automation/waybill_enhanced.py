@@ -5193,6 +5193,12 @@ class EnhancedWaybillManager:
             # ── Step 2: Solve captcha (if present) ──
             await self._handle_submit_captcha_if_present()
 
+            try:
+                os.makedirs("runtime/screenshots", exist_ok=True)
+                await self.page.screenshot(path=f"runtime/screenshots/{job_id or 'submit'}_stage_before_click.png")
+            except Exception:
+                pass
+
             # ── Step 3: Final submit click ──
             submit_selectors = [
                 "#btnRegisterFinished",
@@ -5229,6 +5235,11 @@ class EnhancedWaybillManager:
             submit_clicked, post_click_err = await self._click_once_no_retry(
                 submit_selectors, "ثبت نهایی", wait_after_seconds=0.5
             )
+
+            try:
+                await self.page.screenshot(path=f"runtime/screenshots/{job_id or 'submit'}_stage_after_click.png")
+            except Exception:
+                pass
             if not submit_clicked:
                 await self._cancel_response_task(submit_response_task)
                 raise WaybillError("ارسال فرم بارنامه انجام نشد (کلیک روی دکمه ثبت ناموفق بود)")
@@ -6348,7 +6359,10 @@ class EnhancedWaybillManager:
             try:
                 await self.page.evaluate(
                     """(val) => {
-                        const els = document.querySelectorAll("input[name='DNTCaptchaInputText'], input[id='DNTCaptchaInputText'], input[name*='captcha' i]");
+                        if (window.jQuery) {
+                            window.jQuery("input[name='DNTCaptchaInputText'], input[id='DNTCaptchaInputText'], input[name*='captcha' i], #DNTCaptchaInputText, #CapToken, #CaptchaCode").val(val).trigger('change').trigger('input');
+                        }
+                        const els = document.querySelectorAll("input[name='DNTCaptchaInputText'], input[id='DNTCaptchaInputText'], input[name*='captcha' i], #DNTCaptchaInputText, #CapToken, #CaptchaCode");
                         els.forEach(el => {
                             el.value = val;
                             el.dispatchEvent(new Event('keydown', { bubbles: true }));
