@@ -1054,6 +1054,7 @@ class LocationSelector:
             # ۴.۵ تثبیت انتخاب شهر در برابر AJAX پاسخ FillCities سامانه
             if city_value:
                 await self._hold_select_value(city_selector, city_value, settle_ms=1500, refill=_refill_cities)
+                city_readback = await self._read_selected_option(city_selector)
 
             # ۵. Read-back شهر (مقدار و برچسب).  _hold_select_value performs
             # the final value stability check while this read-back preserves
@@ -1063,7 +1064,19 @@ class LocationSelector:
             if not city_readback.get("value") or (
                 norm_city_target not in norm_city_read and norm_city_read not in norm_city_target
             ):
-                if city_value:
+                # If late AJAX from FillCities wiped the select, wait 0.5s and re-select from settled options
+                await asyncio.sleep(0.5)
+                re_selector = await self._select_from_options_with_selector(utcms["city"], city)
+                if re_selector:
+                    city_selector = re_selector
+                    city_readback = await self._read_selected_option(city_selector)
+                    norm_city_read = self._normalize_text(city_readback.get("text", ""))
+                    city_value = str(city_readback.get("value") or "").strip()
+                    if city_value:
+                        await self._hold_select_value(city_selector, city_value, settle_ms=1000, refill=_refill_cities)
+                        city_readback = await self._read_selected_option(city_selector)
+                        norm_city_read = self._normalize_text(city_readback.get("text", ""))
+                elif city_value:
                     await self._reapply_option_value(city_selector, city_value)
                     await asyncio.sleep(0.2)
                     city_readback = await self._read_selected_option(city_selector)
