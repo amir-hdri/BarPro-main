@@ -3813,6 +3813,12 @@ class EnhancedWaybillManager:
                 except Exception:
                     selected_plate_value = ""
                 if selected_plate_value:
+                    try:
+                        parsed_record = json.loads(selected_plate_value)
+                        if isinstance(parsed_record, dict):
+                            self._tajmi_fleet_record = parsed_record
+                    except Exception:
+                        pass
                     await self._set_select_value_with_js("#PelakComboTajmi", str(selected_plate_value))
                 await asyncio.sleep(0.05)
                 await self._wait_for_non_empty_value(
@@ -3921,28 +3927,40 @@ class EnhancedWaybillManager:
         if not await self._element_exists("#DriverListTajmi"):
             return False
 
+        # Determine car_tag from self._tajmi_fleet_record or directly from #PelakComboTajmi
+        car_tag = (self._tajmi_fleet_record or {}).get("ncarTag")
+        if not car_tag:
+            try:
+                val = await self.page.eval_on_selector(
+                    "#PelakComboTajmi",
+                    "el => el ? String(el.value || '') : ''",
+                )
+                if val:
+                    parsed = json.loads(val)
+                    if isinstance(parsed, dict):
+                        car_tag = parsed.get("ncarTag") or parsed.get("carTag")
+                        if not self._tajmi_fleet_record:
+                            self._tajmi_fleet_record = parsed
+            except Exception:
+                pass
+
+        usable_options = await self._count_tajmi_driver_records()
+        if usable_options == 0 and car_tag:
+            fetched = await self._populate_tajmi_driver_options_via_bridge(car_tag)
+            logger.info("tajmi_driver_options_backfilled count=%s", fetched)
+            usable_options = await self._count_tajmi_driver_records()
+            if usable_options == 0:
+                deadline = asyncio.get_running_loop().time() + 8.0
+                while asyncio.get_running_loop().time() < deadline:
+                    await asyncio.sleep(0.5)
+                    usable_options = await self._count_tajmi_driver_records()
+                    if usable_options > 0:
+                        break
+
         try:
-            await self._wait_for_select_options_count("#DriverListTajmi", timeout_ms=12000)
             await self._log_select_options("#DriverListTajmi", "tajmi_driver_after_plate")
         except Exception:
-            logger.warning("waybill_enhanced_silent_error", exc_info=True)
-
-        # UTCMS fills this list from its ``#PelakComboTajmi`` change handler.  When
-        # that page script has not run the list holds only its placeholder, so
-        # fetch the same ``GetFleetDriverList`` the handler would have called --
-        # otherwise no identity key can ever match and the run falls back to the
-        # normal-mode driver fields, which do not exist in the tajmi form.
-        #
-        # "Has a value" is not enough of a test: dry-run 7 found one valued option
-        # that still matched nothing.  A usable option's value is the driver
-        # record as JSON (``changeComboDriverClick`` does ``JSON.parse`` on it),
-        # so require that shape before trusting the list.
-        usable_options = await self._count_tajmi_driver_records()
-        if usable_options == 0:
-            fetched = await self._populate_tajmi_driver_options_via_bridge(
-                (self._tajmi_fleet_record or {}).get("ncarTag")
-            )
-            logger.info("tajmi_driver_options_backfilled count=%s", fetched)
+            pass
 
         # Fetch all options first.  ``data-attr3`` carries the driver's registered
         # mobile: UTCMS's own ``changeComboDriverClick`` handler copies it into
@@ -4110,7 +4128,13 @@ class EnhancedWaybillManager:
                         if (window.jQuery) { window.jQuery(el).trigger('change'); }
                     };
                     const option = select.options[select.selectedIndex];
-                    setIfEmpty('#txtDriverSearch', select.value);
+                    const natCode = driver.driverNationalCode || '';
+                    if (natCode) {
+                        setIfEmpty('#txtDriverSearch', natCode);
+                        setIfEmpty('#DriverNationalCode', natCode);
+                        setIfEmpty('#driverNationalCode', natCode);
+                        try { window.driverNationalCode = natCode; } catch(e){}
+                    }
                     setIfEmpty(
                         '#DriverFullNameTajmi',
                         `${driver.driverName ?? ' '}  ${driver.driverLastName ?? ''}`,
@@ -5296,6 +5320,17 @@ class EnhancedWaybillManager:
                             kerayeEl.value = "5000000";
                             if (window.jQuery) {
                                 window.jQuery("#txtkeraye").val("5000000").trigger("input").trigger("change");
+                            }
+                        }
+
+                        // Ensure driverNationalCode is populated if known
+                        const driverCode = (typeof window.driverNationalCode !== 'undefined' ? window.driverNationalCode : '') ||
+                                           (document.querySelector("#txtDriverSearch")?.value || '').trim();
+                        if (driverCode) {
+                            const dncInput = document.querySelector("#DriverNationalCode") || document.querySelector("input[name='DriverNationalCode']");
+                            if (dncInput && (!dncInput.value || dncInput.value.trim() === "")) {
+                                dncInput.value = driverCode;
+                                if (window.jQuery) window.jQuery(dncInput).val(driverCode);
                             }
                         }
 

@@ -474,6 +474,27 @@ class TestDriverFieldSelectors(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(selected)
         self.manager._set_select_value_with_js.assert_not_awaited()
 
+    async def test_tajmi_driver_proactive_backfill_when_car_tag_present(self):
+        self.manager._element_exists = AsyncMock(return_value=True)
+        self.manager._log_select_options = AsyncMock()
+        self.manager._tajmi_fleet_record = {"ncarTag": "363421453"}
+        self.manager._count_tajmi_driver_records = AsyncMock(side_effect=[0, 1])
+        self.manager._populate_tajmi_driver_options_via_bridge = AsyncMock(return_value=1)
+        self.manager._set_select_value_with_js = AsyncMock(return_value=True)
+        self.mock_page.eval_on_selector_all = AsyncMock(
+            return_value=[
+                {"text": "علی محمدی (5720114726)", "value": '{"driverNationalCode":"5720114726"}', "mobile": "09333702137"}
+            ]
+        )
+
+        selected = await self.manager._handle_tajmi_driver_selection("5720114726")
+
+        self.assertTrue(selected)
+        self.manager._populate_tajmi_driver_options_via_bridge.assert_awaited_once_with("363421453")
+        self.manager._set_select_value_with_js.assert_awaited_once_with(
+            "#DriverListTajmi", '{"driverNationalCode":"5720114726"}'
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
