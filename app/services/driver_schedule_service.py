@@ -263,3 +263,30 @@ class DriverScheduleService:
             session.add(schedule)
         await session.commit()
         return {"created_jobs": created_jobs, "created_count": len(created_jobs), "skipped": skipped}
+
+    @staticmethod
+    async def evaluate_all_due_schedules(session: AsyncSession) -> dict:
+        """
+        Evaluate and run due driver schedules across all active clients.
+        Called periodically by the Celery Beat scheduler.
+        """
+        active_clients = (
+            await session.exec(select(Client).where(col(Client.status) == "active"))
+        ).all()
+        total_created = 0
+        total_skipped = 0
+        created_job_ids: list[str] = []
+        for client in active_clients:
+            try:
+                res = await DriverScheduleService.run_due_schedules(client, session)
+                created = res.get("created_jobs", [])
+                total_created += len(created)
+                created_job_ids.extend(created)
+                total_skipped += res.get("skipped", 0)
+            except Exception as e:
+                logger.error(f"Error evaluating due schedules for client {client.id}: {e}", exc_info=True)
+        return {
+            "created_count": total_created,
+            "created_jobs": created_job_ids,
+            "skipped": total_skipped,
+        }

@@ -163,6 +163,14 @@ def _build_beat_schedule() -> dict:
                     "expires": max(10, utcms_config.CLEAN_IP_PROBE_INTERVAL_SECONDS - 5),
                 },
             },
+            "driver-schedules-evaluate": {
+                "task": "driver.schedules.evaluate",
+                "schedule": schedule(60.0),
+                "options": {
+                    "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                    "expires": 50,
+                },
+            },
         }
     )
 

@@ -366,3 +366,15 @@ if celery_app is not None:
             return {"status": "ok", "verified_count": len(verified)}
 
         return _run_async(_run())
+
+    @celery_app.task(name="driver.schedules.evaluate")
+    def evaluate_driver_schedules():
+        """Periodic evaluation of due driver schedules across all active clients."""
+        from app.core.database import async_session_factory
+        from app.services.driver_schedule_service import DriverScheduleService
+
+        async def _run():
+            async with async_session_factory() as session:
+                return await DriverScheduleService.evaluate_all_due_schedules(session)
+
+        return _run_async(_run())

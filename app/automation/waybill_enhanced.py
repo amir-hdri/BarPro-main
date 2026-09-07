@@ -1574,6 +1574,22 @@ class EnhancedWaybillManager:
         )
         obj_value = data.get("obj", payload.get("obj"))
         obj = obj_value if isinstance(obj_value, dict) else {}
+
+        # Extract embedded JSON if message wraps backend error response (e.g. ASP.NET Status 400 Response: {...})
+        if not result_code and isinstance(result_message, str) and "{" in result_message:
+            try:
+                start_idx = result_message.find("{")
+                end_idx = result_message.rfind("}")
+                if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                    nested_raw = result_message[start_idx : end_idx + 1]
+                    nested_json = json.loads(nested_raw)
+                    if isinstance(nested_json, dict):
+                        result_code = nested_json.get("resultCode", result_code)
+                        if nested_json.get("resultMessage"):
+                            result_message = nested_json.get("resultMessage")
+            except Exception:
+                pass
+
         document_id = (
             obj.get("documentId")
             or obj.get("document_id")
@@ -1614,6 +1630,7 @@ class EnhancedWaybillManager:
                 else (str(tracking_code).strip() if tracking_code is not None else None)
             ),
             "is_otp_needed": is_otp_needed,
+            "result_code": result_code,
             "message": str(result_message or ""),
             "payload": payload,
         }
@@ -5460,18 +5477,77 @@ class EnhancedWaybillManager:
                     )
                 if submit_state is not None and not submit_state["success"]:
                     msg = submit_state.get("message") or ""
+                    result_code = submit_state.get("result_code")
+                    is_road_waybill_active = (
+                        str(result_code) == "4041"
+                        or "بارنامه جاده ای فعال" in msg
+                        or "بارنامه جاده‌ای فعال" in msg
+                    )
+                    if is_road_waybill_active:
+                        clean_msg = (
+                            msg.strip()
+                            if msg
+                            else "خودرو در حال حاضر دارای بارنامه جاده ای فعال بوده و ثبت پیمایش درون شهری امکان پذیر نمی باشد (کد ۴۰۴۱)"
+                        )
+                        logger.warning(
+                            "final_submit_rejected_active_road_waybill_4041",
+                            extra={"extra_fields": {"job_id": job_id, "message": clean_msg}},
+                        )
+                        return {
+                            "success": False,
+                            "status": "failed",
+                            "mutation_status": "rejected",
+                            "mutation_dispatched": False,
+                            "error_category": "external_road_waybill_active",
+                            "terminal_reason": "active_road_waybill_4041",
+                            "error": clean_msg,
+                            "message": clean_msg,
+                            "needs_reconciliation": False,
+                            "retryable": False,
+                            "document_id": None,
+                        }
+
+                    if self._is_submit_captcha_error(msg):
+                        logger.warning(
+                            "final_submit_rejected_captcha_error",
+                            extra={"extra_fields": {"job_id": job_id, "message": msg}},
+                        )
+                        return {
+                            "success": False,
+                            "status": "waiting_retry",
+                            "mutation_status": "rejected",
+                            "mutation_dispatched": False,
+                            "error_category": "captcha_solve_failed",
+                            "terminal_reason": "captcha_rejected",
+                            "error": "کد امنیتی اشتباه یا منقضی شده است؛ تلاش مجدد مجاز است",
+                            "message": msg,
+                            "needs_reconciliation": False,
+                            "retryable": True,
+                            "document_id": None,
+                        }
+
+                    has_doc_id = bool(submit_state.get("document_id"))
                     logger.warning(
                         "final_submit_rejected_after_dispatch",
-                        extra={"extra_fields": {"job_id": job_id, "captcha_error": self._is_submit_captcha_error(msg)}},
+                        extra={
+                            "extra_fields": {
+                                "job_id": job_id,
+                                "has_doc_id": has_doc_id,
+                                "result_code": result_code,
+                                "message": msg,
+                            }
+                        },
                     )
                     return {
                         "success": False,
-                        "status": "unknown",
-                        "mutation_status": "ambiguous",
-                        "mutation_dispatched": True,
-                        "error_category": "submission_unconfirmed",
+                        "status": "unknown" if has_doc_id else "failed",
+                        "mutation_status": "ambiguous" if has_doc_id else "rejected",
+                        "mutation_dispatched": has_doc_id,
+                        "error_category": "submission_unconfirmed" if has_doc_id else "portal_business_rule_rejected",
+                        "error": msg or "UTCMS پاسخ منفی پس از ارسال ثبت نهایی برگرداند",
                         "message": msg or "UTCMS پاسخ منفی پس از ارسال ثبت نهایی برگرداند",
-                        "needs_reconciliation": True,
+                        "needs_reconciliation": has_doc_id,
+                        "retryable": False,
                         "document_id": submit_state.get("document_id"),
                     }
 
