@@ -325,6 +325,25 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             if isinstance(payload.get("receiver"), dict)
             else dict(_metadata_section(metadata, "receiver"))
         )
+        if not sender.get("phone"):
+            sender_phone = _first_value(
+                payload.get("sender_phone"),
+                payload.get("sender_mobile"),
+                sender_meta.get("phone"),
+                metadata.get("sender_phone"),
+            )
+            if sender_phone:
+                sender["phone"] = sender_phone
+        if not receiver.get("phone"):
+            receiver_phone = _first_value(
+                payload.get("receiver_phone"),
+                payload.get("receiver_mobile"),
+                receiver_meta.get("phone"),
+                metadata.get("receiver_phone"),
+            )
+            if receiver_phone:
+                receiver["phone"] = receiver_phone
+
         cargo = dict(payload.get("cargo")) if isinstance(payload.get("cargo"), dict) else dict(_metadata_section(metadata, "cargo"))
         vehicle = (
             dict(payload.get("vehicle"))
@@ -347,6 +366,8 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "5000000",
             )
             financial["cost"] = extracted_cost
+        if not financial.get("fare") and financial.get("cost"):
+            financial["fare"] = f"{int(financial['cost']):,}" if str(financial["cost"]).isdigit() else str(financial["cost"])
         shipping_options = (
             dict(payload.get("shipping_options"))
             if isinstance(payload.get("shipping_options"), dict)

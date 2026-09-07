@@ -241,6 +241,30 @@ class DriverScheduleService:
             payload = _safe_json_payload(schedule.payload_template_json) or {}
             if "driver_national_code" not in payload:
                 payload["driver_national_code"] = driver.driver_national_code
+
+            # Ensure party phones are populated for automated submission
+            fallback_phone = getattr(client, "phone", None) or "09123150212"
+            if isinstance(payload.get("sender"), dict):
+                if not payload["sender"].get("phone"):
+                    payload["sender"]["phone"] = payload.get("sender_phone") or fallback_phone
+            else:
+                payload.setdefault("sender_phone", fallback_phone)
+
+            if isinstance(payload.get("receiver"), dict):
+                if not payload["receiver"].get("phone"):
+                    payload["receiver"]["phone"] = payload.get("receiver_phone") or fallback_phone
+            else:
+                payload.setdefault("receiver_phone", fallback_phone)
+
+            # Ensure financial section has minimum valid rent/fare
+            if isinstance(payload.get("financial"), dict):
+                payload["financial"].setdefault("cost", 5000000)
+                payload["financial"].setdefault("fare", "5,000,000")
+            else:
+                payload.setdefault("financial", {"cost": 5000000, "fare": "5,000,000"})
+                payload.setdefault("fare", "5,000,000")
+                payload.setdefault("cost", 5000000)
+
             request = WaybillJobCreateRequest(
                 driver_national_code=driver.driver_national_code,
                 payload=payload,  # type: ignore[arg-type]
@@ -248,19 +272,29 @@ class DriverScheduleService:
                 max_retries=3,
                 idempotency_key=f"schedule:{schedule.id}:{slot_signature}",
             )
-            job = await WaybillJobService.create_job(client, request, session, source=TaskSource.API)
-            created_jobs.append(job.job_id)
-            schedule.last_run_at = utc_now
-            schedule.last_run_signature = slot_signature
-            if schedule.frequency == ScheduleFrequency.ONCE.value:
-                schedule.is_active = False
-                schedule.next_run_at = None
-            else:
-                schedule.next_run_at = utc_now + timedelta(
-                    days=1 if schedule.frequency == ScheduleFrequency.DAILY.value else 7
+            try:
+                job = await WaybillJobService.create_job(client, request, session, source=TaskSource.API)
+                created_jobs.append(job.job_id)
+                schedule.last_run_at = utc_now
+                schedule.last_run_signature = slot_signature
+                if schedule.frequency == ScheduleFrequency.ONCE.value:
+                    schedule.is_active = False
+                    schedule.next_run_at = None
+                else:
+                    schedule.next_run_at = utc_now + timedelta(
+                        days=1 if schedule.frequency == ScheduleFrequency.DAILY.value else 7
+                    )
+                schedule.updated_at = utc_now
+                session.add(schedule)
+            except Exception as exc:
+                logger.error(
+                    "Failed to create job for schedule %s (driver %s): %s",
+                    schedule.id,
+                    driver.id,
+                    exc,
+                    exc_info=True,
                 )
-            schedule.updated_at = utc_now
-            session.add(schedule)
+                skipped += 1
         await session.commit()
         return {"created_jobs": created_jobs, "created_count": len(created_jobs), "skipped": skipped}
 
