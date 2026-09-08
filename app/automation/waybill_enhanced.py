@@ -5420,7 +5420,7 @@ class EnhancedWaybillManager:
                     "next_retry_at_minutes_add": max(1, utcms_config.GATE_PROBE_INTERVAL_SECONDS // 60),
                 }
 
-            submit_timeout_ms = min(max(12000, utcms_config.PAGE_NAVIGATION_TIMEOUT), 35000)
+            submit_timeout_ms = min(max(30000, utcms_config.PAGE_NAVIGATION_TIMEOUT), 120000)
             submit_response_task = await self._wait_for_response_match(
                 self._is_register_submit_response,
                 timeout_ms=submit_timeout_ms,

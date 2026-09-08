@@ -1218,6 +1218,7 @@ class UtcmsHttpBrowserBridge:
                             body.decode("utf-8", errors="ignore")[:3000],
                         )
                 try:
+                    req_timeout = 120.0 if "updateregister" in request.url.lower() else self.timeout
                     response = await self._call(
                         session.request,
                         request.method,
@@ -1225,7 +1226,7 @@ class UtcmsHttpBrowserBridge:
                         headers=headers,
                         data=body,
                         allow_redirects=False,
-                        timeout=self.timeout,
+                        timeout=req_timeout,
                     )
                     if "updateregister" in request.url.lower():
                         logger.info(
