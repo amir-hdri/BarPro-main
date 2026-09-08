@@ -301,22 +301,27 @@ class UtcmsHttpBrowserBridge:
         future = loop.run_in_executor(
             self._executor, functools.partial(func, *args, **kwargs)
         )
+        timeout_arg = kwargs.get("timeout")
+        try:
+            base_timeout = float(timeout_arg) if timeout_arg is not None else float(self.timeout)
+        except (TypeError, ValueError):
+            base_timeout = float(self.timeout)
+        deadline = max(0.25, base_timeout + 5.0)
         try:
             # curl_cffi normally honours its own timeout, but a stuck libcurl
             # call used to hold the serialized bridge lock until the whole job
             # deadline.  A shield keeps the underlying future from being
             # cancelled while the worker thread unwinds; the executor is
             # rotated so later requests are not queued behind that call.
-            deadline = max(0.25, float(self.timeout))
             return await asyncio.wait_for(asyncio.shield(future), timeout=deadline)
         except asyncio.TimeoutError as exc:
             self._rotate_executor()
             logger.error(
                 "http_browser_bridge_transport_timeout timeout=%ss executor_generation=%s",
-                max(0.25, float(self.timeout)),
+                deadline,
                 self._executor_generation,
             )
-            raise BridgeTransportTimeout(f"curl operation exceeded {max(0.25, float(self.timeout)):.1f}s") from exc
+            raise BridgeTransportTimeout(f"curl operation exceeded {deadline:.1f}s") from exc
 
     def _rotate_executor(self) -> None:
         """Detach a wedged curl thread so the page can continue with a fresh one."""
