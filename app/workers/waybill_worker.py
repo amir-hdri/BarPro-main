@@ -1345,6 +1345,15 @@ async def _execute_job(
                         tracking_code = (
                             result_payload.get("tracking_code") if isinstance(result_payload, dict) else None
                         )
+                        doc_id = None
+                        if isinstance(result_payload, dict) and result_payload.get("document_id"):
+                            doc_id = str(result_payload["document_id"])
+                        elif result.get("document_id"):
+                            doc_id = str(result.get("document_id"))
+
+                        if doc_id and not job.document_id:
+                            job.document_id = doc_id
+
                         if not tracking_code:
                             # CRITICAL REDLINE: SUCCESS without tracking code is forbidden -> downgrade to UNKNOWN
                             result_status = TaskStatus.UNKNOWN.value
@@ -1353,15 +1362,22 @@ async def _execute_job(
                                 "Portal success response did not include a tracking code; reconciliation required"
                             )
                             result["error_category"] = ErrorCategory.SUBMISSION_UNCONFIRMED.value
-                            job.mutation_status = "ambiguous"
+                            job.mutation_status = "dispatched" if doc_id else "ambiguous"
+                            provisional = dict(result_payload or {})
+                            if doc_id:
+                                provisional["document_id"] = doc_id
+                            provisional["confirmation_status"] = "pending_history_reconciliation"
+                            reconciliation_at = now + timedelta(seconds=15)
                             JobStateMachine.transition(
                                 session,
                                 job,
                                 TaskStatus.UNKNOWN.value,
+                                result_json=provisional if doc_id else None,
                                 celery_task_id=None,
                                 retryable=False,
                                 last_error=result["error"],
                                 error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                                next_retry_at=reconciliation_at if doc_id else None,
                                 finished_at=now,
                             )
                             runtime_state.state = DriverRuntimeStateValue.READY.value
