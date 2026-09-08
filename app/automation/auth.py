@@ -885,21 +885,8 @@ class UTCMSAuthenticator:
         # already has a valid session — just navigate to the dashboard
         # and let the post-login flow take over.
         if await self._try_http_login_first(username, password):
-            try:
-                # Visit a known authenticated page to validate the session
-                # and trigger any post-login state changes.
-                if await self._is_logged_in(probe_login_url=False):
-                    self.last_state = "success"
-                    return True
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "auth_http_login_post_verify_failed",
-                    extra={"extra_fields": {"error": str(exc)[:200]}},
-                )
-            # If we reached here the HTTP cookie didn't make Playwright
-            # logged-in (likely the cookie name is unusual). Fall through
-            # to the Playwright login flow as a safety net.
-            logger.info("auth_http_login_falling_back_to_playwright")
+            self.last_state = "success"
+            return True
 
         try:
             candidate_urls = self._candidate_login_urls(login_url)
