@@ -43,6 +43,14 @@ async def test_check_proxy_health_does_not_classify_upstream_status_as_proxy_fai
 
 
 @pytest.mark.asyncio
+async def test_check_proxy_health_rejects_proxy_authentication_required():
+    """A 407 response means the proxy itself rejected authentication."""
+    mock_response = MagicMock(status_code=407, headers={})
+    with patch("curl_cffi.requests.Session.get", return_value=mock_response):
+        assert await check_proxy_health("http://127.0.0.1:3128") is False
+
+
+@pytest.mark.asyncio
 async def test_check_proxy_health_failure():
     """Ensure check_proxy_health returns False if proxy connection fails."""
     with patch("curl_cffi.requests.Session.get", side_effect=Exception("Connection refused")):

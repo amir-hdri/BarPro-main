@@ -128,7 +128,6 @@ class DntCaptchaProvider(CaptchaProvider):
             with open(self.vocab_path, encoding="utf-8") as f:
                 self._vocab = json.load(f)
 
-            blank_idx = len(self._vocab)
             num_classes = len(self._vocab) + 1  # blank token at index len(vocab)
             self._model = CRNN(num_classes)
             self._device = torch.device("cpu")

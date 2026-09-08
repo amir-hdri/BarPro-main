@@ -100,6 +100,48 @@ async def test_reconcile_job_registered(async_db: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_manual_reconcile_allows_unconfirmed_needs_review(async_db: AsyncSession):
+    """A terminal ambiguity can be searched in History without permitting resubmission."""
+    job = WaybillJob(
+        job_id="test_job_manual_reconcile",
+        idempotency_key="idemp_manual_reconcile",
+        client_id=1,
+        driver_id=1,
+        payload_json={"origin_city_id": 1, "destination_city_id": 2},
+        status=JobStatus.NEEDS_REVIEW,
+        mutation_status="ambiguous",
+        error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+    )
+    async_db.add(job)
+    await async_db.commit()
+    await async_db.refresh(job)
+
+    mock_bm = MagicMock()
+    mock_bm.create_context = AsyncMock(return_value=("session-manual", AsyncMock()))
+    mock_bm.new_page = AsyncMock(return_value=AsyncMock())
+
+    mock_res = ReconciliationResult(
+        outcome=ScraperOutcome.REGISTERED,
+        tracking_code="UTC-2026-MANUAL",
+    )
+
+    with patch(
+        "app.orchestrator.reconciliation_service.reconciliation_scraper.query_waybill_status", new_callable=AsyncMock
+    ) as mock_query:
+        mock_query.return_value = mock_res
+        reconciled_job = await ReconciliationService().reconcile_job(
+            session=async_db,
+            job_id=job.id,
+            browser_manager=mock_bm,
+        )
+
+    assert reconciled_job is not None
+    assert reconciled_job.status == JobStatus.SUCCESS
+    assert (reconciled_job.result_json or {}).get("tracking_code") == "UTC-2026-MANUAL"
+    mock_query.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_reconcile_job_not_found_eventual_consistency(async_db: AsyncSession):
     job = WaybillJob(
         job_id="test_job_2",

@@ -188,6 +188,7 @@ async def test_direct_fill_reads_back_the_exact_successful_selectors(mock_page):
         side_effect=[
             {"value": "1", "text": "تهران"},
             {"value": "101", "text": "تهران"},
+            {"value": "101", "text": "تهران"},
         ]
     )
     selector._fill_input_like = AsyncMock(side_effect=[False, True])
@@ -203,8 +204,44 @@ async def test_direct_fill_reads_back_the_exact_successful_selectors(mock_page):
     )
 
     assert result["success"] is True
-    assert selector._read_selected_option.await_args_list == [call("#actualState"), call("#actualCity")]
+    assert selector._read_selected_option.await_args_list == [
+        call("#actualState"),
+        call("#actualCity"),
+        call("#actualCity"),
+    ]
     selector._read_element_value.assert_awaited_once_with("#actualAddress")
+
+
+@pytest.mark.asyncio
+async def test_direct_fill_rejects_city_when_initial_ajax_hold_fails(mock_page):
+    selector = LocationSelector(mock_page)
+    selector._ensure_location_tab_active = AsyncMock()
+    selector._wait_for_select_options = AsyncMock(return_value=True)
+    selector._get_utcms_selectors = MagicMock(
+        return_value={
+            "province": ["#state"],
+            "city": ["#city"],
+            "address": ["#address"],
+        }
+    )
+    selector._select_from_options_with_selector = AsyncMock(side_effect=["#state", "#city"])
+    selector._read_selected_option = AsyncMock(
+        side_effect=[
+            {"value": "1", "text": "تهران"},
+            {"value": "101", "text": "تهران"},
+        ]
+    )
+    selector._hold_select_value = AsyncMock(return_value=False)
+    selector._fill_input_like = AsyncMock()
+
+    result = await selector._try_utcms_direct_fill(
+        {"province": "تهران", "city": "تهران", "address": "خیابان آزادی پلاک ۱۰"},
+        "Origin",
+    )
+
+    assert result["success"] is False
+    assert "پایدار نماند" in result["error"]
+    selector._fill_input_like.assert_not_awaited()
 
 
 @pytest.mark.asyncio

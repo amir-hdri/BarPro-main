@@ -306,7 +306,10 @@ class UtcmsHttpBrowserBridge:
             base_timeout = float(timeout_arg) if timeout_arg is not None else float(self.timeout)
         except (TypeError, ValueError):
             base_timeout = float(self.timeout)
-        deadline = max(0.25, base_timeout + 5.0)
+        # A caller-provided curl timeout needs a small unwind buffer.  The
+        # bridge's own timeout remains the actual deadline for internal calls,
+        # which keeps short lifecycle tests and shutdown paths deterministic.
+        deadline = max(0.25, base_timeout) + (5.0 if timeout_arg is not None else 0.0)
         try:
             # curl_cffi normally honours its own timeout, but a stuck libcurl
             # call used to hold the serialized bridge lock until the whole job
@@ -314,7 +317,7 @@ class UtcmsHttpBrowserBridge:
             # cancelled while the worker thread unwinds; the executor is
             # rotated so later requests are not queued behind that call.
             return await asyncio.wait_for(asyncio.shield(future), timeout=deadline)
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             self._rotate_executor()
             logger.error(
                 "http_browser_bridge_transport_timeout timeout=%ss executor_generation=%s",

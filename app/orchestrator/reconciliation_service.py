@@ -44,13 +44,20 @@ class ReconciliationService:
             logger.warning("Job #%s not found for reconciliation", job_id)
             return None
 
-        # Only reconcile jobs in unknown or reconciling status
-        if job.status not in (JobStatus.UNKNOWN, JobStatus.RECONCILING):
+        # A terminal unconfirmed submission can still be verified manually in
+        # UTCMS History. Other needs_review causes must remain terminal and
+        # must never enter this read-only reconciliation path.
+        manually_reconcilable = (
+            job.status == JobStatus.NEEDS_REVIEW
+            and job.error_category == ErrorCategory.SUBMISSION_UNCONFIRMED.value
+        )
+        if job.status not in (JobStatus.UNKNOWN, JobStatus.RECONCILING) and not manually_reconcilable:
             logger.info("Job #%s status is '%s', skipping reconciliation", job_id, job.status)
             return job
 
-        # Move to RECONCILING if currently UNKNOWN
-        if job.status == JobStatus.UNKNOWN:
+        # Move to RECONCILING before querying UTCMS, including a manual review
+        # retry of an unconfirmed submission. This is not a resubmission.
+        if job.status in (JobStatus.UNKNOWN, JobStatus.NEEDS_REVIEW):
             try:
                 JobStateMachine.transition(session, job, JobStatus.RECONCILING)
                 await session.commit()

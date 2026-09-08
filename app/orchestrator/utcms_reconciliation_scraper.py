@@ -230,10 +230,17 @@ class UTCMSReconciliationScraper:
             }}
             """
             result_data = await page.evaluate(fetch_script)
+            history_error: dict[str, Any] | None = None
+            history_not_found_hint = False
 
             if isinstance(result_data, dict):
                 if result_data.get("error"):
                     logger.warning("History DataTables evaluate error: %s", result_data["error"])
+                    history_error = {
+                        "source": "GetHistoryFirstList",
+                        "error": "history_request_failed",
+                        "message": str(result_data["error"])[:240],
+                    }
                 else:
                     status_code = result_data.get("status")
                     json_body = result_data.get("json") or {}
@@ -244,62 +251,63 @@ class UTCMSReconciliationScraper:
                         and isinstance(json_body, dict)
                         and "یافت نشد" in str(json_body.get("resultMessage", ""))
                     ):
-                        return ReconciliationResult(
-                            outcome=ScraperOutcome.NOT_FOUND,
-                            details={"source": "GetHistoryFirstList", "message": "اطلاعات یافت نشد"},
-                        )
+                        history_not_found_hint = True
+                    elif not isinstance(status_code, int) or not 200 <= status_code < 300:
+                        history_error = {
+                            "source": "GetHistoryFirstList",
+                            "error": "history_http_error",
+                            "status": status_code,
+                            "message": str(result_data.get("text") or "")[:240],
+                        }
+                    else:
+                        rows: list[dict[str, Any]] = []
+                        if isinstance(json_body, dict):
+                            if isinstance(json_body.get("data"), list):
+                                rows = json_body["data"]
+                            elif isinstance(json_body.get("aaData"), list):
+                                rows = json_body["aaData"]
+                            elif isinstance(json_body.get("Data"), list):
+                                rows = json_body["Data"]
+                            elif isinstance(json_body.get("obj"), dict) and isinstance(json_body["obj"].get("data"), list):
+                                rows = json_body["obj"]["data"]
+                            elif isinstance(json_body.get("obj"), list):
+                                rows = json_body["obj"]
+                        elif isinstance(json_body, list):
+                            rows = json_body
 
-                    rows: list[dict[str, Any]] = []
-                    if isinstance(json_body, dict):
-                        if isinstance(json_body.get("data"), list):
-                            rows = json_body["data"]
-                        elif isinstance(json_body.get("aaData"), list):
-                            rows = json_body["aaData"]
-                        elif isinstance(json_body.get("Data"), list):
-                            rows = json_body["Data"]
-                        elif isinstance(json_body.get("obj"), dict) and isinstance(json_body["obj"].get("data"), list):
-                            rows = json_body["obj"]["data"]
-                        elif isinstance(json_body.get("obj"), list):
-                            rows = json_body["obj"]
-                    elif isinstance(json_body, list):
-                        rows = json_body
-
-                    if isinstance(rows, list) and len(rows) > 0:
-                        for row in rows:
-                            if isinstance(row, dict) and self._match_row(
-                                row=row,
-                                tracking_code=tracking_code,
-                                national_code=national_code,
-                                plate_number=plate_number,
-                                origin_city=origin_city,
-                                dest_city=dest_city,
-                                business_date=business_date,
-                            ):
-                                found_code = str(
-                                    row.get("docNo")
-                                    or row.get("DocNo")
-                                    or row.get("trackingCode")
-                                    or row.get("TrackingCode")
-                                    or row.get("doc_no")
-                                    or row.get("tracking_code")
-                                    or row.get("printId")
-                                    or row.get("PrintId")
-                                    or row.get("id")
-                                    or row.get("Id")
-                                    or ""
-                                ).strip()
-                                return ReconciliationResult(
-                                    outcome=ScraperOutcome.REGISTERED,
-                                    tracking_code=found_code if found_code else tracking_code,
-                                    issue_date=row.get("dateFarsi") or row.get("DateFarsi") or row.get("date"),
-                                    status_text=row.get("status", "ثبت شده"),
-                                    details={"source": "GetHistoryFirstList", "matched_row": row},
-                                )
-                    elif status_code == 200 and isinstance(json_body, dict) and "data" in json_body and len(json_body["data"]) == 0:
-                        return ReconciliationResult(
-                            outcome=ScraperOutcome.NOT_FOUND,
-                            details={"source": "GetHistoryFirstList", "message": "empty_data_list"},
-                        )
+                        if isinstance(rows, list) and len(rows) > 0:
+                            for row in rows:
+                                if isinstance(row, dict) and self._match_row(
+                                    row=row,
+                                    tracking_code=tracking_code,
+                                    national_code=national_code,
+                                    plate_number=plate_number,
+                                    origin_city=origin_city,
+                                    dest_city=dest_city,
+                                    business_date=business_date,
+                                ):
+                                    found_code = str(
+                                        row.get("docNo")
+                                        or row.get("DocNo")
+                                        or row.get("trackingCode")
+                                        or row.get("TrackingCode")
+                                        or row.get("doc_no")
+                                        or row.get("tracking_code")
+                                        or row.get("printId")
+                                        or row.get("PrintId")
+                                        or row.get("id")
+                                        or row.get("Id")
+                                        or ""
+                                    ).strip()
+                                    return ReconciliationResult(
+                                        outcome=ScraperOutcome.REGISTERED,
+                                        tracking_code=found_code if found_code else tracking_code,
+                                        issue_date=row.get("dateFarsi") or row.get("DateFarsi") or row.get("date"),
+                                        status_text=row.get("status", "ثبت شده"),
+                                        details={"source": "GetHistoryFirstList", "matched_row": row},
+                                    )
+                        elif status_code == 200 and isinstance(json_body, dict) and "data" in json_body and len(json_body["data"]) == 0:
+                            history_not_found_hint = True
 
             # ── 3. DOM Fallback Search (if AJAX evaluate did not return matched records) ──
             if tracking_code:
@@ -321,6 +329,8 @@ class UTCMSReconciliationScraper:
             row_count = await table_rows.count()
 
             if row_count == 0:
+                if history_error:
+                    return ReconciliationResult(outcome=ScraperOutcome.AMBIGUOUS, details=history_error)
                 return ReconciliationResult(
                     outcome=ScraperOutcome.NOT_FOUND,
                     details={"message": "No matching records found in DOM search"},
@@ -359,9 +369,15 @@ class UTCMSReconciliationScraper:
                             details={"row_text": text[:200], "row_index": i},
                         )
 
+            if history_error:
+                return ReconciliationResult(outcome=ScraperOutcome.AMBIGUOUS, details=history_error)
             return ReconciliationResult(
                 outcome=ScraperOutcome.NOT_FOUND,
-                details={"row_count": row_count, "summary": "Rows inspected but no target waybill matched"},
+                details={
+                    "row_count": row_count,
+                    "summary": "Rows inspected but no target waybill matched",
+                    **({"source": "GetHistoryFirstList", "hint": "not_found"} if history_not_found_hint else {}),
+                },
             )
 
         except PlaywrightTimeoutError as te:
@@ -444,4 +460,3 @@ class UTCMSReconciliationScraper:
 
 
 reconciliation_scraper = UTCMSReconciliationScraper()
-

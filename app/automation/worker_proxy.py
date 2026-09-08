@@ -413,7 +413,7 @@ async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> b
 
     from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
 
-    targets_to_try = [target_url] if target_url else ["https://barname.utcms.ir", "https://api.ipify.org"]
+    targets_to_try = [target_url] if target_url else ["https://utcms.ir", "https://api.ipify.org"]
     last_error = ""
     for attempt in range(1, 4):
         for tgt in targets_to_try:
@@ -426,7 +426,10 @@ async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> b
                 )
                 response = await asyncio.to_thread(session.get, tgt, timeout=10.0)
                 squid_error = response.headers.get("X-Squid-Error") or response.headers.get("x-squid-error")
-                if not squid_error and response.status_code in (200, 301, 302, 403):
+                # Any valid upstream response without a Squid diagnostic proves
+                # the tunnel reached the target, except 407 which is generated
+                # by the proxy and means its credentials were rejected.
+                if not squid_error and 100 <= int(response.status_code) < 600 and int(response.status_code) != 407:
                     return True
                 last_error = f"X-Squid-Error={squid_error}; status={response.status_code}"
             except Exception as exc:
@@ -445,7 +448,7 @@ async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> b
         extra={
             "extra_fields": {
                 "proxy": _safe_proxy_url(proxy_url),
-                "target": effective_target,
+                "target": target_url or "default_targets",
                 "attempts": 3,
                 "error": last_error[:240],
             }

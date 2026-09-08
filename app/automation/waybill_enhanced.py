@@ -5384,7 +5384,7 @@ class EnhancedWaybillManager:
         # allowed before this boundary, but a response or exception after the
         # click must never re-enter this loop and POST the same waybill again.
         max_submit_attempts = 1
-        for submit_attempt in range(1, max_submit_attempts + 1):
+        for _submit_attempt in range(1, max_submit_attempts + 1):
             # ── Step 2: Solve captcha (if present) ──
             await self._handle_submit_captcha_if_present()
 
@@ -5575,7 +5575,7 @@ class EnhancedWaybillManager:
                 submission_confirmed = False
 
                 # Poll up to 10 seconds for showTrackingCode AJAX to finish and populate the DOM
-                for wait_step in range(10):
+                for _wait_step in range(10):
                     if not tracking_code:
                         tracking_code = await self._extract_tracking_code(document_id=document_id)
                     submission_confirmed = await self._is_submission_successful()
@@ -5990,7 +5990,10 @@ class EnhancedWaybillManager:
         return max(0.0, min(1.0, float(utcms_config.CAPTCHA_MATH_MIN_CONFIDENCE)))
 
     def _final_captcha_min_length(self) -> int:
-        return max(1, int(getattr(utcms_config, "CAPTCHA_VALUE_MIN_LENGTH", 1)))
+        # UTCMS final-submit challenges are multi-digit; keep the generic
+        # provider minimum (which may be 1 for other captcha surfaces) from
+        # admitting a one-character final answer.
+        return max(2, int(getattr(utcms_config, "CAPTCHA_VALUE_MIN_LENGTH", 1)))
 
     def _hint_candidates_from_text(self, raw_text: str | None) -> list[str]:
         text = (raw_text or "").strip()

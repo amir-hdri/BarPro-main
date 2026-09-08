@@ -302,6 +302,9 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if isinstance(payload.get("sender"), dict) or isinstance(payload.get("receiver"), dict):
         raw_metadata = payload.get("metadata_json")
         metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+        sender_meta = _metadata_section(metadata, "sender")
+        receiver_meta = _metadata_section(metadata, "receiver")
+        financial_meta = _metadata_section(metadata, "financial")
 
         raw_origin = payload.get("origin")
         origin_meta = _metadata_section(metadata, "origin")
