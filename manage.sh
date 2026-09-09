@@ -4,6 +4,10 @@
 set -e
 set -o pipefail
 
+# Resolve the script path once so internal subcommands work when invoked as
+# `bash manage.sh` from a shell where the current directory is not in PATH.
+SCRIPT_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/$(basename -- "${BASH_SOURCE[0]}")"
+
 # Load environment variables if present
 if [ -f .env ]; then
     # shellcheck source=scripts/load_env.sh
@@ -166,8 +170,8 @@ case "$1" in
         echo "BarPro platform stopped."
         ;;
     restart)
-        $0 stop
-        $0 start
+        bash "$SCRIPT_PATH" stop
+        bash "$SCRIPT_PATH" start
         ;;
     status)
         echo "================================================================="
@@ -367,14 +371,14 @@ asyncio.run(main())
         
         echo "Running migrations after deploy..."
         sleep 10  # backend startup grace
-        $0 migrate
-        
+        bash "$SCRIPT_PATH" migrate
+
         echo "✅ Deploy complete. Verifying health..."
-        $0 health
+        bash "$SCRIPT_PATH" health
         ;;
     *)
-        echo "Usage: $0 {start|stop|restart|status|health|migrate|beat-restart|logs [service]|backup-db|deploy}"
-        echo "       BARPRO_TOPOLOGY=model-a $0 start  # explicit legacy single-VM topology"
+        echo "Usage: bash $SCRIPT_PATH {start|stop|restart|status|health|migrate|beat-restart|logs [service]|backup-db|deploy}"
+        echo "       BARPRO_TOPOLOGY=model-a bash $SCRIPT_PATH start  # explicit legacy single-VM topology"
         exit 1
         ;;
 esac
