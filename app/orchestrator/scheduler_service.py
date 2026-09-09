@@ -1,3 +1,4 @@
+import json
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -93,6 +94,25 @@ class SchedulerService:
                 scheduled_driver_ids = set()
                 for job in due_jobs:
                     if job.driver_id in scheduled_driver_ids:
+                        continue
+
+                    # Tracking-first no-submit guard: a job whose result_json
+                    # carries a persisted tracking code is acknowledged — it
+                    # must never be (re)dispatched for submit. Leave it
+                    # untouched.
+                    _raw_result = getattr(job, "result_json", None)
+                    if isinstance(_raw_result, str):
+                        try:
+                            _raw_result = json.loads(_raw_result)
+                        except (TypeError, json.JSONDecodeError):
+                            _raw_result = {}
+                    _result_dict = _raw_result if isinstance(_raw_result, dict) else {}
+                    if str(_result_dict.get("tracking_code") or "").strip():
+                        logger.warning(
+                            "tracking_acknowledged_job_skipped",
+                            extra={"extra_fields": {"job_id": job.job_id, "status": job.status}},
+                        )
+                        skipped += 1
                         continue
 
                     # Tenant eligibility: account must be active.

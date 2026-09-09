@@ -258,3 +258,82 @@ async def test_reconcile_job_ambiguous(async_db: AsyncSession):
         assert reconciled_job.status == JobStatus.NEEDS_REVIEW
         assert reconciled_job.error_category == ErrorCategory.SUBMISSION_UNCONFIRMED.value
         mock_alert_check.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_tracking_received_job_is_not_auto_reconciled(async_db: AsyncSession):
+    """A tracking-received job must never enter the auto reconciliation path."""
+    job = WaybillJob(
+        job_id="test_job_tracking_ack",
+        idempotency_key="idemp_tracking_ack",
+        client_id=1,
+        driver_id=1,
+        payload_json={"origin_city_id": 1, "destination_city_id": 2},
+        status=JobStatus.UNKNOWN,
+        mutation_status="dispatched",
+        result_json={
+            "tracking_code": "UTC-ACK-1",
+            "confirmation_status": "tracking_received",
+            "operator_acknowledged": True,
+            "requires_reconciliation": False,
+            "requires_resubmission": False,
+        },
+    )
+    async_db.add(job)
+    await async_db.commit()
+    await async_db.refresh(job)
+
+    mock_bm = MagicMock()
+
+    with patch(
+        "app.orchestrator.reconciliation_service.reconciliation_scraper.query_waybill_status", new_callable=AsyncMock
+    ) as mock_query:
+        rec_service = ReconciliationService()
+        reconciled_job = await rec_service.reconcile_job(session=async_db, job_id=job.id, browser_manager=mock_bm)
+
+        mock_query.assert_not_called()
+        assert reconciled_job is not None
+        assert reconciled_job.status == JobStatus.UNKNOWN
+        assert (reconciled_job.result_json or {}).get("tracking_code") == "UTC-ACK-1"
+        assert (reconciled_job.result_json or {}).get("confirmation_status") == "tracking_received"
+
+
+@pytest.mark.asyncio
+async def test_audit_only_forces_reconciliation_for_tracking_received_job(async_db: AsyncSession):
+    """The manual audit path (audit_only=True) proceeds even for acknowledged jobs."""
+    job = WaybillJob(
+        job_id="test_job_tracking_audit",
+        idempotency_key="idemp_tracking_audit",
+        client_id=1,
+        driver_id=1,
+        payload_json={"origin_city_id": 1, "destination_city_id": 2},
+        status=JobStatus.UNKNOWN,
+        mutation_status="dispatched",
+        result_json={
+            "tracking_code": "UTC-ACK-2",
+            "confirmation_status": "tracking_received",
+            "operator_acknowledged": True,
+        },
+    )
+    async_db.add(job)
+    await async_db.commit()
+    await async_db.refresh(job)
+
+    mock_bm = MagicMock()
+    mock_bm.create_context = AsyncMock(return_value=("session-a", AsyncMock()))
+    mock_bm.new_page = AsyncMock(return_value=AsyncMock())
+
+    mock_res = ReconciliationResult(outcome=ScraperOutcome.REGISTERED, tracking_code="UTC-ACK-2")
+
+    with patch(
+        "app.orchestrator.reconciliation_service.reconciliation_scraper.query_waybill_status", new_callable=AsyncMock
+    ) as mock_query:
+        mock_query.return_value = mock_res
+        rec_service = ReconciliationService()
+        reconciled_job = await rec_service.reconcile_job(
+            session=async_db, job_id=job.id, browser_manager=mock_bm, audit_only=True
+        )
+
+        mock_query.assert_awaited()
+        assert reconciled_job.status == JobStatus.SUCCESS
+        assert (reconciled_job.result_json or {}).get("confirmation_status") == "confirmed_by_history"

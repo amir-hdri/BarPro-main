@@ -545,15 +545,46 @@ class RPASchedulerService:
                     },
                 )
 
-                if tracking_code or old_status == TaskStatus.IN_PROGRESS.value:
-                    # A tracking code is only witness 1/3, and an expired
-                    # in-progress lease may have crossed the mutation boundary.
-                    # Both cases must reconcile before any further submission.
+                if tracking_code:
+                    # Tracking-first contract: a stuck job with a persisted
+                    # tracking code is ACKNOWLEDGED. Preserve the code and the
+                    # acknowledgement, never schedule reconciliation, never
+                    # resubmit.
+                    recovery_at = _utcnow_naive()
+                    result_data.update(
+                        {
+                            "status": TaskStatus.UNKNOWN.value,
+                            "confirmation_status": "tracking_received",
+                            "operator_acknowledged": True,
+                            "requires_reconciliation": False,
+                            "requires_resubmission": False,
+                        }
+                    )
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.UNKNOWN.value,
+                        error_category=None,
+                        last_error=None,
+                        result_json=result_data,
+                        next_retry_at=None,
+                        submit_after=None,
+                        retryable=False,
+                        celery_task_id=None,
+                        worker_id=None,
+                        finished_at=recovery_at,
+                        updated_at=recovery_at,
+                    )
+                    job.mutation_status = "dispatched"
+                elif old_status == TaskStatus.IN_PROGRESS.value:
+                    # An expired in-progress lease may have crossed the
+                    # mutation boundary — reconcile before any submission.
                     reconciliation_at = _utcnow_naive()
                     result_data.update(
                         {
                             "status": TaskStatus.UNKNOWN.value,
-                            "confirmation_status": "pending_history_reconciliation",
+                            "confirmation_status": "tracking_missing_history_required",
+                            "reconciliation_mode": "history_only",
                             "needs_reconciliation": True,
                         }
                     )
@@ -562,11 +593,7 @@ class RPASchedulerService:
                         job,
                         TaskStatus.UNKNOWN.value,
                         error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
-                        last_error=(
-                            "Tracking code exists but UTCMS History is not confirmed"
-                            if tracking_code
-                            else "Worker lease expired after submission may have started; reconciliation required"
-                        ),
+                        last_error="Worker lease expired after submission may have started; reconciliation required",
                         result_json=result_data,
                         next_retry_at=reconciliation_at,
                         submit_after=reconciliation_at,
@@ -576,7 +603,7 @@ class RPASchedulerService:
                         finished_at=reconciliation_at,
                         updated_at=reconciliation_at,
                     )
-                    job.mutation_status = "dispatched" if tracking_code else "ambiguous"
+                    job.mutation_status = "ambiguous"
                 else:
                     JobStateMachine.transition(
                         session,

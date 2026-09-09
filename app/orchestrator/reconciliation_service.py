@@ -1,6 +1,4 @@
-"""
-Reconciliation Service for reconciling orphan and ambiguous waybill jobs.
-"""
+"""Management service for the reconciliation process of waybill jobs."""
 
 import json
 import logging
@@ -26,6 +24,28 @@ logger = logging.getLogger(__name__)
 RECONCILIATION_SCHEDULE = [15, 45, 120, 300]
 
 
+def _result_json_dict(raw) -> dict:
+    """Parse a job's result_json (dict or JSON string) into a plain dict."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except (TypeError, json.JSONDecodeError):
+            return {}
+    return {}
+
+
+def is_tracking_received(job: WaybillJob) -> bool:
+    """True iff the job carries an acknowledged, persisted tracking code."""
+    res_json = _result_json_dict(getattr(job, "result_json", None))
+    return bool(
+        str(res_json.get("tracking_code") or "").strip()
+        and str(res_json.get("confirmation_status") or "").strip() == "tracking_received"
+    )
+
+
 class ReconciliationService:
     """Service to match waybill job states with UTCMS portal reality."""
 
@@ -34,10 +54,15 @@ class ReconciliationService:
         session: AsyncSession,
         job_id: int,
         browser_manager: BrowserManager | None = None,
+        audit_only: bool = False,
     ) -> WaybillJob | None:
         """
         Reconcile a single WaybillJob with UTCMS.
         Transitions status from unknown -> reconciling -> success/needs_review.
+
+        ``audit_only=True`` forces the read-only History lookup even for a
+        tracking-received (acknowledged) job: the manual audit path that
+        attaches the third witness. It never mutates towards a resubmit.
         """
         stmt = select(WaybillJob).where(WaybillJob.id == job_id).with_for_update(skip_locked=True)
         job = (await session.execute(stmt)).scalar_one_or_none()
@@ -45,6 +70,16 @@ class ReconciliationService:
         if not job:
             logger.warning("Job #%s not found for reconciliation", job_id)
             return None
+
+        # A tracking-received job is acknowledged: History is not on its
+        # critical path and auto-reconciliation must skip it. Only an explicit
+        # manual audit may proceed.
+        if is_tracking_received(job) and not audit_only:
+            logger.info(
+                "tracking_acknowledged_job_reconciliation_skipped",
+                extra={"extra_fields": {"job_id": job.id, "job_status": job.status}},
+            )
+            return job
 
         # A terminal unconfirmed submission can still be verified manually in
         # UTCMS History. Other needs_review causes must remain terminal and
@@ -361,9 +396,22 @@ class ReconciliationService:
         )
         job_ids = (await session.execute(stmt)).scalars().all()
 
-        results = {"total": len(job_ids), "success": 0, "failed": 0, "needs_review": 0, "errors": 0}
-
+        # Tracking-received (acknowledged) jobs never auto-reconcile: filter
+        # them out of the due list before iterating.
+        due_ids: list[int] = []
         for jid in job_ids:
+            due_job = await session.get(WaybillJob, jid)
+            if due_job is not None and is_tracking_received(due_job):
+                logger.info(
+                    "tracking_acknowledged_job_reconciliation_skipped",
+                    extra={"extra_fields": {"job_id": due_job.job_id, "sweep": "orphaned"}},
+                )
+                continue
+            due_ids.append(jid)
+
+        results = {"total": len(due_ids), "success": 0, "failed": 0, "needs_review": 0, "errors": 0}
+
+        for jid in due_ids:
             try:
                 updated_job = await self.reconcile_job(session=session, job_id=jid, browser_manager=browser_manager)
                 if updated_job:

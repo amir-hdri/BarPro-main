@@ -345,14 +345,19 @@ async def test_phase1_dispatch_due_jobs_enqueues_auth_task_and_persists_task_id(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("initial_status", "result_json", "expected_mutation_status"),
+    ("initial_status", "result_json", "expected_mutation_status", "expected_confirmation_status"),
     [
-        (TaskStatus.QUEUED.value, {"tracking_code": "UTC-RECOVERY-123"}, "dispatched"),
-        (TaskStatus.IN_PROGRESS.value, None, "ambiguous"),
+        (
+            TaskStatus.QUEUED.value,
+            {"tracking_code": "UTC-RECOVERY-123"},
+            "dispatched",
+            "tracking_received",
+        ),
+        (TaskStatus.IN_PROGRESS.value, None, "ambiguous", "tracking_missing_history_required"),
     ],
 )
 async def test_cleanup_stuck_jobs_routes_possible_mutations_to_reconciliation(
-    initial_status, result_json, expected_mutation_status
+    initial_status, result_json, expected_mutation_status, expected_confirmation_status
 ):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
     from sqlmodel.ext.asyncio.session import AsyncSession
@@ -406,9 +411,19 @@ async def test_cleanup_stuck_jobs_routes_possible_mutations_to_reconciliation(
         assert job.status == TaskStatus.UNKNOWN.value
         assert job.mutation_status == expected_mutation_status
         assert job.retryable is False
-        assert job.next_retry_at is not None
-        assert job.result_json["confirmation_status"] == "pending_history_reconciliation"
-        assert job.result_json["needs_reconciliation"] is True
+        if expected_confirmation_status == "tracking_received":
+            # Tracking-first contract: an acknowledged code is preserved; no
+            # reconciliation scheduling, no resubmission.
+            assert job.next_retry_at is None
+            assert job.result_json["confirmation_status"] == "tracking_received"
+            assert job.result_json["operator_acknowledged"] is True
+            assert job.result_json.get("needs_reconciliation") is not True
+        else:
+            # Missing-code/ambiguous lease: read-only History reconciliation.
+            assert job.next_retry_at is not None
+            assert job.result_json["confirmation_status"] == "tracking_missing_history_required"
+            assert job.result_json["reconciliation_mode"] == "history_only"
+            assert job.result_json["needs_reconciliation"] is True
 
     await engine.dispose()
 

@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import UTC, datetime
 
@@ -11,6 +12,32 @@ from app.orchestrator.state_machine import JobStateMachine, StateTransitionError
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+def _job_result_json(job: WaybillJob) -> dict:
+    """Parse a job's result_json (dict or JSON string) into a plain dict."""
+    raw = getattr(job, "result_json", None)
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except (TypeError, json.JSONDecodeError):
+            return {}
+    return {}
+
+
+def _has_persisted_tracking_code(job: WaybillJob) -> bool:
+    return bool(str(_job_result_json(job).get("tracking_code") or "").strip())
+
+
+def _is_tracking_received(job: WaybillJob) -> bool:
+    res_json = _job_result_json(job)
+    return bool(
+        str(res_json.get("tracking_code") or "").strip()
+        and str(res_json.get("confirmation_status") or "").strip() == "tracking_received"
+    )
 
 
 class DispatcherService:
@@ -109,6 +136,24 @@ class DispatcherService:
             logger.error(f"Intent {intent.intent_id} has unknown operation {operation!r}, cancelling")
             self._expire_intent(session, intent, reason="unknown_operation")
             return 0
+
+        # Tracking-first no-submit guard: a job with a persisted tracking code
+        # is acknowledged — a submit intent for it is always stale, and a
+        # reconciliation intent for a tracking_received job is stale too (the
+        # manual audit path is reconcile_job(audit_only=True), not an intent).
+        # Only an explicitly named audit-only operation may proceed.
+        if operation != "reconciliation_audit":
+            if _has_persisted_tracking_code(job) and (operation == "submit" or _is_tracking_received(job)):
+                logger.info(
+                    f"Intent {intent.intent_id} ({operation}) for job {job.job_id} carries a persisted "
+                    "tracking code; cancelling stale intent (tracking_acknowledged)"
+                )
+                self._expire_intent(session, intent, reason="tracking_acknowledged")
+                if job.driver_id:
+                    await release_driver_execution_slot(
+                        session, driver_id=job.driver_id, expected_intent_id=intent.intent_id
+                    )
+                return 0
 
         if job.status not in claimable:
             # The job moved to a status the state machine cannot claim from
