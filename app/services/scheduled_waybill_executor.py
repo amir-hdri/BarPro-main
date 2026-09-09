@@ -241,24 +241,40 @@ async def _execute_single_job(
 
             if status_str == "success":
                 result_payload = result.get("result")
-                tracking_code = result_payload.get("tracking_code") if isinstance(result_payload, dict) else None
+                tracking_code = (
+                    str(result_payload.get("tracking_code") or "").strip()
+                    if isinstance(result_payload, dict)
+                    else ""
+                )
                 if not tracking_code:
+                    # Success-shaped response without a tracking code: the
+                    # mutation boundary was crossed; only read-only UTCMS
+                    # History reconciliation may confirm it — never a resubmit.
+                    doc_id = (
+                        str(result_payload.get("document_id") or "").strip()
+                        if isinstance(result_payload, dict)
+                        else None
+                    ) or (str(result.get("document_id") or "").strip() or None)
+                    from app.schemas.task import build_missing_tracking_result
+
+                    missing_contract = build_missing_tracking_result(document_id=doc_id)
+                    reconciliation_at = _utcnow() + timedelta(seconds=15)
                     result = {
                         **result,
-                        "status": "failed",
-                        "error": "Portal success response did not include a tracking code",
+                        "status": TaskStatus.UNKNOWN.value,
+                        "error": "Portal success response did not include a tracking code; reconciliation required",
                         "error_category": "submission_unconfirmed",
+                        "mutation_status": "dispatched" if doc_id else "ambiguous",
+                        "needs_reconciliation": True,
                     }
-                    status_str = "failed"
-                else:
-                    reconciliation_at = _utcnow() + timedelta(seconds=15)
-                    job.result_json = {**result_payload, "confirmation_status": "pending_history_reconciliation"}
-                    job.mutation_status = "dispatched"
-                    job.last_error = "Tracking code received; UTCMS History reconciliation is pending"
+                    job.result_json = {**(result_payload if isinstance(result_payload, dict) else {}), **missing_contract}
+                    if doc_id:
+                        job.document_id = doc_id
+                    job.mutation_status = "dispatched" if doc_id else "ambiguous"
+                    job.last_error = result["error"]
                     job.error_category = ErrorCategory.SUBMISSION_UNCONFIRMED.value
                     job.retryable = False
                     job.next_retry_at = reconciliation_at
-                    job.submit_after = reconciliation_at
                     job.finished_at = _utcnow()
                     JobStateMachine.transition(session, job, TaskStatus.UNKNOWN.value)
                     await session.commit()
@@ -266,9 +282,37 @@ async def _execute_single_job(
                         session,
                         job_id,
                         client.id,
-                        "reconciliation_pending",
+                        "history_reconciliation_scheduled",
                         "unknown",
-                        "Tracking code received; History check pending",
+                        "Tracking code missing; read-only UTCMS History reconciliation scheduled",
+                    )
+                    return result
+                else:
+                    # Tracking-first acknowledgement — identical semantics to
+                    # the normal worker: persist the code, acknowledge the
+                    # operator immediately, DB stays UNKNOWN (NOT success —
+                    # the three-witness rule still gates status=success), and
+                    # NO reconciliation scheduling: the code is off the
+                    # critical path.
+                    job.result_json = dict(result_payload or {})
+                    job.mutation_status = "dispatched"
+                    if not job.mutation_at:
+                        job.mutation_at = _utcnow()
+                    job.retryable = False
+                    job.next_retry_at = None
+                    job.submit_after = None
+                    job.finished_at = _utcnow()
+                    job.last_error = None
+                    job.error_category = None
+                    JobStateMachine.transition(session, job, TaskStatus.UNKNOWN.value)
+                    await session.commit()
+                    await _add_log(
+                        session,
+                        job_id,
+                        client.id,
+                        "tracking_acknowledged",
+                        "unknown",
+                        "Tracking code received and acknowledged to operator",
                     )
                     await _record_event(
                         session,
@@ -280,7 +324,7 @@ async def _execute_single_job(
                             "attempt": attempt,
                             "steps": result.get("steps", []),
                             "tracking_code": tracking_code,
-                            "confirmation_status": "pending_reconciliation",
+                            "confirmation_status": "tracking_received",
                         },
                     )
                     await browser_manager.record_success_for_recycle()
@@ -288,8 +332,53 @@ async def _execute_single_job(
                         **result,
                         "status": TaskStatus.UNKNOWN.value,
                         "mutation_status": "dispatched",
-                        "needs_reconciliation": True,
+                        "operator_acknowledged": True,
                     }
+            if (
+                status_str == TaskStatus.UNKNOWN.value
+                or result.get("mutation_status") == "ambiguous"
+                or result.get("error_category") == "submission_unconfirmed"
+            ):
+                # Ambiguous/unknown mutation outcome: read-only History
+                # reconciliation only — never a recursive retry that would
+                # re-submit the same waybill (the generic else branch below
+                # retries retryable failures; a post-boundary unknown must
+                # never reach it).
+                from app.schemas.task import build_missing_tracking_result
+
+                doc_id = str(result.get("document_id") or "").strip() or None
+                if isinstance(result.get("result"), dict) and result["result"].get("document_id"):
+                    doc_id = str(result["result"]["document_id"])
+                result = {
+                    **result,
+                    "status": TaskStatus.UNKNOWN.value,
+                    "mutation_status": "ambiguous",
+                    "needs_reconciliation": True,
+                    "error_category": "submission_unconfirmed",
+                }
+                job.result_json = {
+                    **(result.get("result") if isinstance(result.get("result"), dict) else {}),
+                    **build_missing_tracking_result(document_id=doc_id),
+                }
+                if doc_id and not job.document_id:
+                    job.document_id = doc_id
+                job.mutation_status = "ambiguous"
+                job.retryable = False
+                job.next_retry_at = _utcnow() + timedelta(seconds=15)
+                job.finished_at = _utcnow()
+                job.last_error = result.get("error", "Submission outcome ambiguous; reconciliation required")
+                job.error_category = ErrorCategory.SUBMISSION_UNCONFIRMED.value
+                JobStateMachine.transition(session, job, TaskStatus.UNKNOWN.value)
+                await session.commit()
+                await _add_log(
+                    session,
+                    job_id,
+                    client.id,
+                    "mutation_ambiguous",
+                    "unknown",
+                    job.last_error,
+                )
+                return result
             if status_str == "otp_backoff":
                 retry_minutes = int(result.get("next_retry_at_minutes_add", 60))
                 retry_at = _utcnow() + timedelta(minutes=retry_minutes)
@@ -485,16 +574,15 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
         result_status = str(result.get("status", "")).strip().lower()
 
         if result_status == "success":
-            JobStateMachine.transition(
-                session,
-                job,
-                TaskStatus.SUCCESS.value,
-                finished_at=_utcnow(),
-                result_json=result.get("result"),
-                last_error=None,
-                error_category=None,
-            )
-            job.retryable = False
+            # A bot 'success' now means an acknowledged tracking code was
+            # persisted by _execute_single_job, which already transitioned the
+            # job to UNKNOWN with the ack result. The three-witness rule gates
+            # status=success; nothing further to do here.
+            pass
+        elif result.get("operator_acknowledged") is True:
+            # Tracking-received path: _execute_single_job already persisted
+            # UNKNOWN + ack contract; do not schedule anything.
+            pass
         elif result_status in {TaskStatus.WAITING_RETRY.value, TaskStatus.WAITING_SUBMISSION_WINDOW.value}:
             # WAITING_RETRY is set inside _execute_single_job and committed there
             pass
@@ -502,7 +590,12 @@ async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:
             result_status in {TaskStatus.UNKNOWN.value, TaskStatus.RECONCILING.value}
             or result.get("mutation_status") == "ambiguous"
         ):
-            job.mutation_status = "ambiguous"
+            # _execute_single_job already persisted the unknown/ambiguous
+            # contract; only normalize any legacy path that still arrives
+            # here without it (and never overwrite an explicit dispatched
+            # mutation state from the missing-code branch).
+            if result.get("mutation_status") == "ambiguous" or not job.mutation_status:
+                job.mutation_status = "ambiguous"
             JobStateMachine.transition(
                 session,
                 job,
