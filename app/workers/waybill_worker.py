@@ -47,6 +47,7 @@ from app.rpa.event_taxonomy import (
     JOB_RETRY_SCHEDULED,
     OTP_DETECTED,
 )
+from app.schemas.task import build_missing_tracking_result
 from app.services.night_submission_policy import register_safe_night_failure
 from app.services.rpa_runtime_service import rpa_runtime
 from app.services.utcms_submission_gate import utcms_submission_gate
@@ -1343,13 +1344,15 @@ async def _execute_job(
                     if result_status == TaskStatus.SUCCESS.value:
                         result_payload = result.get("result")
                         tracking_code = (
-                            result_payload.get("tracking_code") if isinstance(result_payload, dict) else None
+                            str(result_payload.get("tracking_code") or "").strip()
+                            if isinstance(result_payload, dict)
+                            else ""
                         )
                         doc_id = None
                         if isinstance(result_payload, dict) and result_payload.get("document_id"):
                             doc_id = str(result_payload["document_id"])
                         elif result.get("document_id"):
-                            doc_id = str(result.get("document_id"))
+                            doc_id = str(result["document_id"])
 
                         if doc_id and not job.document_id:
                             job.document_id = doc_id
@@ -1366,7 +1369,7 @@ async def _execute_job(
                             provisional = dict(result_payload or {})
                             if doc_id:
                                 provisional["document_id"] = doc_id
-                            provisional["confirmation_status"] = "pending_history_reconciliation"
+                            provisional.update(build_missing_tracking_result(document_id=doc_id))
                             reconciliation_at = now + timedelta(seconds=15)
                             JobStateMachine.transition(
                                 session,
@@ -1386,27 +1389,37 @@ async def _execute_job(
                             await session.commit()
                             return result
                         else:
-                            job.mutation_status = "dispatched"
-                            if (
-                                isinstance(result_payload, dict)
-                                and "document_id" in result_payload
-                                and result_payload["document_id"]
-                            ):
-                                job.document_id = str(result_payload["document_id"])
+                            # Tracking-first acknowledgement: persist the code
+                            # and acknowledge the operator immediately. This is
+                            # NOT final DB success (the three-witness rule
+                            # still gates status=success) and NOT a reason to
+                            # schedule reconciliation — the code is off the
+                            # critical path. Second invocations are blocked by
+                            # the hard idempotency guard before any browser
+                            # session is created.
+                            from app.schemas.task import build_tracking_received_result
 
-                            provisional_result = dict(result_payload)
-                            provisional_result["confirmation_status"] = "pending_history_reconciliation"
-                            reconciliation_at = now + timedelta(seconds=15)
+                            ack_result = build_tracking_received_result(tracking_code, **dict(result_payload or {}))
+                            if doc_id:
+                                ack_result["document_id"] = doc_id
+                            job.mutation_status = "dispatched"
+                            if not job.mutation_at:
+                                job.mutation_at = now
+                            if isinstance(result_payload, dict) and result_payload.get("document_id"):
+                                job.document_id = str(result_payload["document_id"])
+                            elif doc_id and not job.document_id:
+                                job.document_id = doc_id
+
                             JobStateMachine.transition(
                                 session,
                                 job,
                                 TaskStatus.UNKNOWN.value,
-                                result_json=provisional_result,
+                                result_json=ack_result,
                                 finished_at=now,
-                                last_error="Tracking code received; UTCMS History reconciliation is pending",
-                                error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                                last_error=None,
+                                error_category=None,
                                 retryable=False,
-                                next_retry_at=reconciliation_at,
+                                next_retry_at=None,
                             )
                             runtime_state.state = DriverRuntimeStateValue.READY.value
                             runtime_state.next_retry_at = None
@@ -1417,16 +1430,17 @@ async def _execute_job(
                                 session=session,
                                 job_id=job_id,
                                 client_id=job.client_id,
-                                step="reconciliation_pending",
+                                step="tracking_acknowledged",
                                 status="unknown",
-                                message="Tracking code received; waiting for UTCMS History confirmation",
-                                details_json=provisional_result,
+                                message="Tracking code received; operator acknowledged, History confirmation pending",
+                                details_json=json.dumps(ack_result, ensure_ascii=False, default=str),
                             )
-                            logger.info("Job %s submitted and queued for mandatory reconciliation", job_id)
+                            logger.info("Job %s acknowledged tracking code %s", job_id, tracking_code)
                             await browser_manager.record_success_for_recycle()
-                            result["status"] = TaskStatus.UNKNOWN.value
+                            result["status"] = TaskStatus.SUCCESS.value
                             result["mutation_status"] = "dispatched"
-                            result["needs_reconciliation"] = True
+                            result["operator_acknowledged"] = True
+                            result["needs_reconciliation"] = False
                             return result
 
                     if (

@@ -14,6 +14,7 @@ from app.automation.waybill_enhanced import EnhancedWaybillManager
 from app.core.config import utcms_config
 from app.core.exceptions import WaybillError
 from app.models_multitenant import TaskStatus
+from app.schemas.task import build_missing_tracking_result, build_tracking_received_result
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +149,12 @@ class WaybillAutomationBot:
                 or manager_result.get("needs_reconciliation")
                 or str(manager_result.get("status", "")).lower() in {"unknown", "reconciling"}
             )
-            if is_logged_in and not manager_result.get("success", False) and not mutation_may_have_been_dispatched:
+            if (
+                is_logged_in
+                and not manager_result.get("success", False)
+                and not mutation_may_have_been_dispatched
+                and not str(manager_result.get("tracking_code") or "").strip()
+            ):
                 # ``Page.url`` is a property (str), not a coroutine — awaiting a
                 # call on it raises TypeError and would be swallowed by the
                 # broad handler below, masking the real submission error.
@@ -194,14 +200,27 @@ class WaybillAutomationBot:
             if manager_exc is not None:
                 raise manager_exc
 
+            # A tracking code from any manager outcome (success or a
+            # post-boundary failure) is an acknowledged mutation: never
+            # re-run create_waybill, never treat it as ambiguous.
+            manager_tracking_code = str(manager_result.get("tracking_code") or "").strip()
+
             # A fresh-login retry produces a new result; recompute the mutation
-            # boundary before deciding whether any further submit is safe.
+            # boundary before deciding whether any further submit is safe. A
+            # success-shaped result that already carries a tracking code has an
+            # unambiguous mutation outcome — it is an acknowledgement, not an
+            # ambiguity, and must never enter the retry/boundary path below.
             mutation_may_have_been_dispatched = bool(
-                manager_result.get("mutation_dispatched")
-                or manager_result.get("mutation_status") == "ambiguous"
-                or manager_result.get("needs_reconciliation")
-                or str(manager_result.get("status", "")).lower() in {"unknown", "reconciling", "submitted"}
-                or str(manager_result.get("confirmation_status", "")).lower() == "pending_history_reconciliation"
+                not manager_tracking_code
+                and (
+                    manager_result.get("mutation_dispatched")
+                    or manager_result.get("mutation_status") == "ambiguous"
+                    or manager_result.get("needs_reconciliation")
+                    or str(manager_result.get("status", "")).lower()
+                    in {"unknown", "reconciling", "submitted"}
+                    or str(manager_result.get("confirmation_status", "")).lower()
+                    == "pending_history_reconciliation"
+                )
             )
 
             result["steps"].append(
@@ -239,13 +258,48 @@ class WaybillAutomationBot:
                 return result
 
             if mutation_may_have_been_dispatched:
+                # Truly ambiguous mutation (no code, boundary possibly crossed):
+                # read-only History reconciliation is the only allowed next step.
+                if manager_result.get("document_id"):
+                    result["document_id"] = manager_result["document_id"]
                 result["status"] = TaskStatus.UNKNOWN.value
                 result["error"] = manager_result.get("message") or manager_result.get("error")
                 result["error_category"] = "submission_unconfirmed"
                 result["mutation_status"] = "ambiguous"
                 result["needs_reconciliation"] = True
-                if manager_result.get("document_id"):
-                    result["document_id"] = manager_result["document_id"]
+                result["result"] = build_missing_tracking_result(
+                    document_id=str(manager_result["document_id"]) if manager_result.get("document_id") else None
+                )
+                return result
+
+            tracking_code = str(manager_result.get("tracking_code") or "").strip()
+            if tracking_code:
+                # Tracking-first acknowledgement: the code is shown to the
+                # operator immediately. It is NOT final success (the
+                # three-witness rule still gates status=success) and never a
+                # reason to dispatch reconciliation or resubmit.
+                result["status"] = TaskStatus.SUCCESS.value
+                result["result"] = build_tracking_received_result(
+                    tracking_code,
+                    url=manager_result.get("url"),
+                    origin_method=manager_result.get("origin_method"),
+                    destination_method=manager_result.get("destination_method"),
+                    origin_map_type=manager_result.get("origin_map_type"),
+                    destination_map_type=manager_result.get("destination_map_type"),
+                    route=manager_result.get("route"),
+                    waybill_screenshot=manager_result.get("waybill_screenshot"),
+                    document_id=(
+                        str(manager_result["document_id"]) if manager_result.get("document_id") else None
+                    ),
+                )
+                result["mutation_status"] = "dispatched"
+                result["steps"].append(
+                    {
+                        "step": "submit",
+                        "status": "success",
+                        "message": tracking_code or "Waybill registered successfully",
+                    }
+                )
                 return result
 
             if not manager_result.get("success", False):
@@ -256,35 +310,23 @@ class WaybillAutomationBot:
                 result["error_category"] = "submission_failed"
                 return result
 
-            tracking_code = manager_result.get("tracking_code")
-            if not tracking_code:
-                result["status"] = TaskStatus.FAILED.value
-                result["error"] = "waybill_submission_unconfirmed"
-                result["error_category"] = "submission_unconfirmed"
-                return result
-
-            # A browser tracking code is only witness 1/3. Keep the job in the
-            # reconciliation path until History/Search confirms the mutation.
+            # Success-shaped response without a tracking code: the mutation
+            # boundary was crossed, so only read-only UTCMS History
+            # reconciliation may confirm it — never a resubmission.
+            doc_id = str(manager_result.get("document_id") or "").strip() or None
             result["status"] = TaskStatus.UNKNOWN.value
-            result["result"] = {
-                "tracking_code": tracking_code,
-                "url": manager_result.get("url"),
-                "origin_method": manager_result.get("origin_method"),
-                "destination_method": manager_result.get("destination_method"),
-                "origin_map_type": manager_result.get("origin_map_type"),
-                "destination_map_type": manager_result.get("destination_map_type"),
-                "route": manager_result.get("route"),
-                "waybill_screenshot": manager_result.get("waybill_screenshot"),
-                "confirmation_status": "pending_history_reconciliation",
-            }
+            result["error"] = "Portal success response did not include a tracking code; reconciliation required"
             result["error_category"] = "submission_unconfirmed"
-            result["mutation_status"] = "dispatched"
+            result["mutation_status"] = "dispatched" if doc_id else "ambiguous"
             result["needs_reconciliation"] = True
+            if doc_id:
+                result["document_id"] = doc_id
+            result["result"] = build_missing_tracking_result(document_id=doc_id)
             result["steps"].append(
                 {
                     "step": "submit",
-                    "status": "success",
-                    "message": manager_result.get("tracking_code") or "Waybill registered successfully",
+                    "status": "unknown",
+                    "message": result["error"],
                 }
             )
             return result

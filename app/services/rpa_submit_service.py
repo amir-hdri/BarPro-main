@@ -329,33 +329,65 @@ class RPAHttpSubmitService:
                 await self._record_attempt(session, job, runtime_state, classification, result.latency_ms)
 
                 if classification.outcome == SubmitOutcome.SUCCESS:
+                    raw_result = result.raw_payload if isinstance(result.raw_payload, dict) else {}
+                    submitted_code = str(raw_result.get("tracking_code") or "").strip()
                     res_json = {
                         "status": "success",
                         "reason": classification.reason_code,
                         "http_status": classification.http_status,
                         "latency_ms": result.latency_ms,
                     }
-                    if result.raw_payload and isinstance(result.raw_payload, dict):
-                        for k in ["waybill_screenshot", "tracking_code", "url", "route"]:
-                            if k in result.raw_payload:
-                                res_json[k] = result.raw_payload[k]
-                    res_json["confirmation_status"] = "pending_history_reconciliation"
-                    reconciliation_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=15)
+                    for k in ["waybill_screenshot", "tracking_code", "url", "route", "document_id"]:
+                        if k in raw_result:
+                            res_json[k] = raw_result[k]
                     job.mutation_status = "dispatched"
-                    JobStateMachine.transition(
-                        session,
-                        job,
-                        TaskStatus.UNKNOWN.value,
-                        result_json=res_json,
-                        finished_at=datetime.now(UTC).replace(tzinfo=None),
-                        submit_after=reconciliation_at,
-                        next_retry_at=reconciliation_at,
-                        last_error="Tracking code received; UTCMS History reconciliation is pending",
-                        error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
-                        terminal_reason=classification.reason_code,
-                        celery_task_id=None,
-                        updated_at=datetime.now(UTC).replace(tzinfo=None),
-                    )
+                    if not job.mutation_at:
+                        job.mutation_at = datetime.now(UTC).replace(tzinfo=None)
+                    if submitted_code:
+                        # Tracking-first acknowledgement: the code is shown to
+                        # the operator immediately. NOT final success and NOT
+                        # a reason to schedule reconciliation — read-only
+                        # History is only for missing-code outcomes.
+                        from app.schemas.task import build_tracking_received_result
+
+                        res_json.update(build_tracking_received_result(submitted_code))
+                        JobStateMachine.transition(
+                            session,
+                            job,
+                            TaskStatus.UNKNOWN.value,
+                            result_json=res_json,
+                            finished_at=datetime.now(UTC).replace(tzinfo=None),
+                            submit_after=None,
+                            next_retry_at=None,
+                            last_error=None,
+                            error_category=None,
+                            terminal_reason=classification.reason_code,
+                            celery_task_id=None,
+                            updated_at=datetime.now(UTC).replace(tzinfo=None),
+                        )
+                    else:
+                        # Success without a tracking code: read-only history
+                        # reconciliation is the only allowed next step.
+                        from app.schemas.task import build_missing_tracking_result
+
+                        res_json.update(
+                            build_missing_tracking_result(document_id=raw_result.get("document_id"))
+                        )
+                        reconciliation_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=15)
+                        JobStateMachine.transition(
+                            session,
+                            job,
+                            TaskStatus.UNKNOWN.value,
+                            result_json=res_json,
+                            finished_at=datetime.now(UTC).replace(tzinfo=None),
+                            submit_after=reconciliation_at,
+                            next_retry_at=reconciliation_at,
+                            last_error="Portal accepted the request without returning a tracking code",
+                            error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                            terminal_reason=classification.reason_code,
+                            celery_task_id=None,
+                            updated_at=datetime.now(UTC).replace(tzinfo=None),
+                        )
                     runtime_state.state = DriverRuntimeStateValue.READY.value
                     runtime_state.next_retry_at = None
                     runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
@@ -367,7 +399,12 @@ class RPAHttpSubmitService:
                         job.driver_id,
                         job.job_id,
                         SUBMIT_SUCCEEDED,
-                        {"reason": classification.reason_code, "confirmation_status": "pending_reconciliation"},
+                        {
+                            "reason": classification.reason_code,
+                            "confirmation_status": (
+                                "tracking_received" if submitted_code else "pending_reconciliation"
+                            ),
+                        },
                     )
                 elif classification.outcome == SubmitOutcome.AUTH_EXPIRED:
                     await rpa_runtime.delete_session(client_id, job.driver_id)

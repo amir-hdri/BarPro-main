@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.rpa.contracts import SessionBundle, SubmitOutcome
+from app.schemas.task import build_tracking_received_result
 from app.services.rpa_submit_service import SubmitAdapter
 
 
@@ -13,7 +14,6 @@ class _Response:
     @staticmethod
     def json():
         return {"success": True, "data": {"trackingCode": "UTC-12345"}}
-
 
 class _AsyncClient:
     async def __aenter__(self):
@@ -49,3 +49,17 @@ async def test_http_submit_adapter_does_not_invent_tracking_code(monkeypatch):
 
     assert result.classification.outcome == SubmitOutcome.SUCCESS
     assert "tracking_code" not in result.raw_payload
+
+def test_tracking_first_ack_contract_is_worker_authoritative():
+    """Worker code-present path: ack fields, no reconciliation scheduling.
+
+    Mirrors the acknowledgement the worker persists (waybill_worker.py
+    success branch): the tracking-received result must carry the ack fields
+    and explicitly NOT a reconciliation requirement.
+    """
+    ack = build_tracking_received_result("UTC-123")
+    assert ack["confirmation_status"] == "tracking_received"
+    assert ack["operator_acknowledged"] is True
+    assert ack["requires_reconciliation"] is False
+    assert ack["requires_resubmission"] is False
+    assert "pending_history_reconciliation" not in ack
