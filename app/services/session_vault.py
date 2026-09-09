@@ -3,6 +3,7 @@ import logging
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 from app.core.config import utcms_config
 from app.core.redis import redis_manager
@@ -197,6 +198,41 @@ class SessionVault:
         except Exception as e:
             logger.error(f"Redis session vault store failed: {e}", exc_info=True)
             raise RuntimeError(f"Session vault store error (fail-closed): {e}") from e
+
+    async def save_driver_session(
+        self,
+        client_id: int,
+        driver_id: int,
+        username: str,
+        context: Any,
+        session_version: int | None = None,
+        ttl: int | None = None,
+    ) -> str | None:
+        """Persist an authenticated Playwright context under its tenant-scoped driver key.
+
+        Reconciliation can authenticate in an already-open context, so it needs
+        the same persistence contract used by BrowserManager without creating a
+        second browser context. A fresh version is allocated above the stored
+        version when the caller does not have the durable runtime row available.
+        """
+        if not utcms_config.USE_PERSISTENT_AUTH_STATE:
+            return None
+
+        path = self.auth_state_path_for_driver(
+            client_id=client_id,
+            driver_id=driver_id,
+            username=username,
+            fallback=username,
+        )
+        self.ensure_parent_dir(path)
+
+        if session_version is None:
+            stored_version = await self.async_get_session_version(path)
+            session_version = (stored_version or 0) + 1
+
+        await context.storage_state(path=path)
+        await self.store_auth_state_from_file(path, session_version=session_version, ttl=ttl)
+        return path
 
     async def async_get_session_version(self, path: str | None) -> int | None:
         if not path:

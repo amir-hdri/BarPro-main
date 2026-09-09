@@ -32,6 +32,11 @@ export function middleware(request: NextRequest) {
   }
 
   if (isPublicPath(pathname)) {
+    if (request.nextUrl.searchParams.get('reason') === 'session_expired') {
+      const response = NextResponse.next();
+      response.cookies.delete(AUTH_COOKIE_NAME);
+      return response;
+    }
     if (hasAuthCookie) {
       const url = request.nextUrl.clone();
       url.pathname = '/';

@@ -70,6 +70,9 @@ services:
       - ../infra/nginx/http-server.conf:/etc/nginx/http-server.conf:ro
       # H6 fix: shared security-headers include used by http-server.conf
       - ../infra/nginx/security-headers.conf:/etc/nginx/security-headers.conf:ro
+      # ACME HTTP-01 webroot — always mounted so certbot challenges are
+      # servable on every checkout; contents are ephemeral (gitignored).
+      - ../infra/nginx/acme-challenge:/var/www/acme-challenge:ro
     # بعد از نصب گواهی HTTPS: خط زیر را uncomment کنید
     # - ../infra/nginx/ssl:/etc/nginx/ssl:ro
     # ✅ تنها پورتی که به اینترنت باز است

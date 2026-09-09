@@ -181,6 +181,38 @@ class UTCMSReconciliationScraper:
                 "HasFreezone": True,
             }
 
+            history_form: dict[str, str] = {
+                "draw": "1",
+                "start": "0",
+                "length": "10",
+                "search[value]": "",
+                "search[regex]": "false",
+                "function": "GetHistoryFirstList",
+                "data": json.dumps([post_filter], ensure_ascii=False),
+            }
+            columns = [
+                ("", "row", False),
+                ("dateFarsi", "dateFarsi", True),
+                ("time", "time", True),
+                ("", "senderFullName", False),
+                ("", "receiverFullName", False),
+                ("driverFullName", "driverFullName", True),
+                ("", "car", False),
+                ("", "Value", False),
+                ("insuranceValue", "insuranceValue", False),
+                ("", "sourceAddress", False),
+                ("", "destAddress", False),
+                ("docNo", "trackingCode", True),
+                ("", "btnSelect", False),
+            ]
+            for index, (data_name, column_name, searchable) in enumerate(columns):
+                history_form[f"columns[{index}][data]"] = data_name
+                history_form[f"columns[{index}][name]"] = column_name
+                history_form[f"columns[{index}][searchable]"] = str(searchable).lower()
+                history_form[f"columns[{index}][orderable]"] = "false"
+                history_form[f"columns[{index}][search][value]"] = ""
+                history_form[f"columns[{index}][search][regex]"] = "false"
+
             fetch_script = f"""
             async () => {{
                 try {{
@@ -230,6 +262,30 @@ class UTCMSReconciliationScraper:
             }}
             """
             result_data = await page.evaluate(fetch_script)
+            if isinstance(result_data, dict) and result_data.get("error"):
+                # Some UTCMS pages reject an in-page fetch from the browser
+                # bridge while the context request client still has the valid
+                # authenticated cookies. Retry through that client before
+                # classifying the outcome as ambiguous.
+                try:
+                    response = await page.request.post(
+                        f"https://barname.utcms.ir{self.HISTORY_LIST_ENDPOINT}",
+                        form=history_form,
+                        headers={
+                            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                            "X-Requested-With": "XMLHttpRequest",
+                        },
+                        timeout=30000,
+                    )
+                    response_text = await response.text()
+                    try:
+                        response_body = json.loads(response_text)
+                        result_data = {"status": response.status, "json": response_body}
+                    except json.JSONDecodeError:
+                        result_data = {"status": response.status, "text": response_text}
+                    logger.info("History DataTables request-context fallback completed: status=%s", response.status)
+                except Exception as request_exc:
+                    logger.warning("History DataTables request-context fallback failed: %s", request_exc)
             history_error: dict[str, Any] | None = None
             history_not_found_hint = False
 

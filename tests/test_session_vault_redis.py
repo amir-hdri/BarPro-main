@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.services.session_vault import session_vault
+from app.services.session_vault import SessionVault, session_vault
 
 
 @pytest.mark.asyncio
@@ -26,6 +26,69 @@ async def test_store_auth_state_from_file(tmp_path):
         val = json.loads(args[1])
         assert val["session_version"] == 5
         assert val["playwright_state"] == {"cookies": [{"name": "sid"}]}
+
+
+@pytest.mark.asyncio
+async def test_save_driver_session_persists_context_state(tmp_path):
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = None
+    mock_context = AsyncMock()
+
+    with (
+        patch("app.core.redis.redis_manager.get", return_value=mock_redis),
+        patch("app.services.session_vault.utcms_config.AUTH_STATE_PATH", str(tmp_path / "utcms_state.json")),
+    ):
+        vault = SessionVault()
+
+        async def write_state(path):
+            with open(path, "w", encoding="utf-8") as state_file:
+                json.dump({"cookies": [{"name": "sid"}]}, state_file)
+
+        mock_context.storage_state.side_effect = write_state
+        await vault.save_driver_session(
+            client_id=7,
+            driver_id=9,
+            username="driver-9",
+            context=mock_context,
+        )
+
+    mock_context.storage_state.assert_awaited_once()
+    args, kwargs = mock_redis.set.call_args
+    assert args[0] == "session:auth_state:utcms_state_client-7-driver-9-driver-9"
+    stored = json.loads(args[1])
+    assert stored["session_version"] == 1
+    assert stored["playwright_state"] == {"cookies": [{"name": "sid"}]}
+
+
+@pytest.mark.asyncio
+async def test_save_driver_session_increments_existing_version(tmp_path):
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = json.dumps({"session_version": 7, "playwright_state": {}})
+    mock_context = AsyncMock()
+
+    with (
+        patch("app.core.redis.redis_manager.get", return_value=mock_redis),
+        patch("app.services.session_vault.utcms_config.AUTH_STATE_PATH", str(tmp_path / "utcms_state.json")),
+    ):
+        vault = SessionVault()
+
+        async def write_state(path):
+            with open(path, "w", encoding="utf-8") as state_file:
+                json.dump({"cookies": [{"name": "fresh"}]}, state_file)
+
+        mock_context.storage_state.side_effect = write_state
+        await vault.save_driver_session(client_id=7, driver_id=9, username="driver-9", context=mock_context)
+
+    stored = json.loads(mock_redis.set.call_args.args[1])
+    assert stored["session_version"] == 8
+
+
+@pytest.mark.asyncio
+async def test_save_driver_session_is_noop_when_persistence_disabled():
+    mock_context = AsyncMock()
+    with patch("app.services.session_vault.utcms_config.USE_PERSISTENT_AUTH_STATE", False):
+        assert await SessionVault().save_driver_session(7, 9, "driver-9", mock_context) is None
+    mock_context.storage_state.assert_not_awaited()
 
 
 def test_auth_state_exists_loads_from_redis(tmp_path):

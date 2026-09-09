@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from datetime import UTC, datetime
 
 from app.core.redis_client import redis_manager
@@ -21,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 _REDIS_KEY_PREFIX = "jwt:blacklist:"
 
-# In-memory fallback set for when Redis is unavailable.  Entries here are
-# never cleaned up automatically, so this is a best-effort defense only.
-_mem_fallback: set[str] = set()
+# In-memory fallback cache for when Redis is unavailable. Values are expiry
+# timestamps, so a long Redis outage cannot retain every historical JTI forever.
+_mem_fallback: dict[str, float] = {}
 _mem_lock = threading.Lock()
 
 
@@ -41,7 +42,11 @@ async def blacklist_token(jti: str, expires_at: datetime) -> None:
     ttl_seconds = max(1, int((exp - now).total_seconds()))
 
     with _mem_lock:
-        _mem_fallback.add(jti)
+        now_monotonic = time.monotonic()
+        _mem_fallback[jti] = now_monotonic + ttl_seconds
+        for cached_jti, expires_monotonic in list(_mem_fallback.items()):
+            if expires_monotonic <= now_monotonic:
+                _mem_fallback.pop(cached_jti, None)
 
     try:
         redis = await redis_manager.get()
@@ -61,8 +66,11 @@ async def is_blacklisted(jti: str) -> bool:
     fallback provides local process-level cache.
     """
     with _mem_lock:
-        if jti in _mem_fallback:
-            return True
+        expires_monotonic = _mem_fallback.get(jti)
+        if expires_monotonic is not None:
+            if expires_monotonic > time.monotonic():
+                return True
+            _mem_fallback.pop(jti, None)
 
     try:
         redis = await redis_manager.get()

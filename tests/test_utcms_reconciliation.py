@@ -273,3 +273,46 @@ async def test_history_ajax_failure_still_uses_matching_dom_row():
 
     assert result.outcome == ScraperOutcome.REGISTERED
     assert result.details["row_index"] == 0
+
+
+@pytest.mark.asyncio
+async def test_history_fetch_failure_retries_with_authenticated_request_context():
+    """A browser fetch failure must fall back to the context request client."""
+    scraper = UTCMSReconciliationScraper()
+    mock_page = AsyncMock()
+    mock_page.goto = AsyncMock()
+    mock_page.url = scraper.HISTORY_URL
+    mock_page.evaluate = AsyncMock(return_value={"error": "TypeError: Failed to fetch"})
+
+    response = AsyncMock()
+    response.status = 200
+    response.text = AsyncMock(
+        return_value=json.dumps(
+            {
+                "data": [
+                    {
+                        "docNo": "140508170001",
+                        "driverNationalCode": "5720114726",
+                        "car": "82ع338ایران24",
+                        "sourceAddress": "اهواز",
+                        "destAddress": "اهواز",
+                    }
+                ]
+            }
+        )
+    )
+    mock_page.request.post = AsyncMock(return_value=response)
+
+    res = await scraper.query_waybill_status(
+        page=mock_page,
+        national_code="5720114726",
+        reconciliation_fields={
+            "plate_number": "82ع338ایران24",
+            "origin_city": "اهواز",
+            "dest_city": "اهواز",
+        },
+    )
+
+    assert res.outcome == ScraperOutcome.REGISTERED
+    assert res.tracking_code == "140508170001"
+    mock_page.request.post.assert_awaited_once()

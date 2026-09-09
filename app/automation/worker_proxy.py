@@ -42,6 +42,7 @@ from app.core.config import utcms_config
 logger = logging.getLogger(__name__)
 
 _WORKER_ID_ENV = "WORKER_ID"
+BROWSER_PROXY_PROTOCOLS = frozenset({"http", "https", "socks5"})
 # Docker bridge gateway that routes to the host where Squid listens
 # (network_mode: host). This MUST match the actual barpro_platform network
 # gateway. compose/backend.yml, proxy_rotator.py and system.py all use
@@ -197,11 +198,11 @@ def clear_proxy_cache() -> None:
         from app.automation.clean_ip_pool import clean_ip_pool
 
         clean_ip_pool.clear_local_cache()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("worker_proxy: clean pool cache clear failed: %s", exc)
 
 
-def get_best_egress_proxy() -> str | None:
+def get_best_egress_proxy(allowed_protocols: set[str] | frozenset[str] | None = None) -> str | None:
     """
     Return the best egress proxy URL based on the configured EGRESS_PROXY_MODE:
     - 'worker_first' (default): Try dedicated worker Squid. If unreachable or blocked,
@@ -219,7 +220,9 @@ def get_best_egress_proxy() -> str | None:
 
     now = time.time()
     ttl = _proxy_cache_ttl_success() if _cached_proxy_url else _PROXY_CACHE_TTL_FAILURE
-    if _cached_proxy_timestamp > 0 and (now - _cached_proxy_timestamp) < ttl:
+    cached_protocol = urlparse(_cached_proxy_url).scheme.lower() if _cached_proxy_url else None
+    cache_allowed = allowed_protocols is None or cached_protocol in allowed_protocols
+    if _cached_proxy_timestamp > 0 and (now - _cached_proxy_timestamp) < ttl and cache_allowed:
         return _cached_proxy_url
 
     mode = utcms_config.EGRESS_PROXY_MODE
@@ -227,6 +230,9 @@ def get_best_egress_proxy() -> str | None:
     worker_ip_index = os.environ.get("WORKER_IP_INDEX", worker_id)
 
     from app.automation.clean_ip_pool import clean_ip_pool
+
+    def _clean_url() -> str | None:
+        return clean_ip_pool.get_clean_ip_sync(allowed_protocols=allowed_protocols)
 
     # Helper to check if current worker IP index is marked blocked in Redis
     def _is_worker_index_blocked() -> bool:
@@ -242,7 +248,7 @@ def get_best_egress_proxy() -> str | None:
 
     # 1. Mode: clean_pool_only
     if mode == "clean_pool_only":
-        clean_url = clean_ip_pool.get_clean_ip_sync()
+        clean_url = _clean_url()
         if clean_url:
             resolved = _resolve_to_ip(clean_url)
             logger.info("worker_proxy: using Clean IP Pool proxy %s (mode=clean_pool_only)", _safe_proxy_url(resolved))
@@ -286,14 +292,16 @@ def get_best_egress_proxy() -> str | None:
                     worker_squid_reachable = True
             except (OSError, TimeoutError):
                 logger.debug("worker_proxy: worker proxy %s unreachable", _safe_proxy_url(resolved_worker_squid))
-    worker_squid_healthy = worker_squid_reachable and not worker_index_blocked
+    worker_protocol = urlparse(resolved_worker_squid).scheme.lower() if resolved_worker_squid else None
+    worker_protocol_allowed = allowed_protocols is None or worker_protocol in allowed_protocols
+    worker_squid_healthy = worker_squid_reachable and not worker_index_blocked and worker_protocol_allowed
 
     # Mode: hybrid
     if mode == "hybrid":
         # Toggle based on timestamp
         use_clean = int(now) % 2 == 0
         if use_clean:
-            clean_url = clean_ip_pool.get_clean_ip_sync()
+            clean_url = _clean_url()
             if clean_url:
                 resolved = _resolve_to_ip(clean_url)
                 logger.info("worker_proxy: using Clean IP Pool proxy %s (mode=hybrid)", _safe_proxy_url(resolved))
@@ -315,7 +323,7 @@ def get_best_egress_proxy() -> str | None:
         return resolved_worker_squid
 
     # Fallback to Clean IP Pool
-    clean_url = clean_ip_pool.get_clean_ip_sync()
+    clean_url = _clean_url()
     if clean_url:
         resolved_clean = _resolve_to_ip(clean_url)
         logger.warning(
@@ -337,7 +345,7 @@ def get_best_egress_proxy() -> str | None:
     # continuing to try the throttled address, which does still succeed between
     # throttle windows. Failover remains preferred; this only fires when there is
     # genuinely nowhere else to go.
-    if worker_squid_reachable and resolved_worker_squid:
+    if worker_squid_reachable and resolved_worker_squid and worker_protocol_allowed:
         logger.warning(
             "worker_proxy: egress index %s is marked blocked but the Clean IP Pool is empty; "
             "continuing on the blocked worker Squid %s (degraded, NOT failing closed)",
@@ -365,12 +373,12 @@ def get_best_egress_proxy() -> str | None:
     return None
 
 
-def get_worker_proxy_url() -> str | None:
+def get_worker_proxy_url(allowed_protocols: set[str] | frozenset[str] | None = None) -> str | None:
     """
     Return the active proxy URL for this worker (Squid or Clean IP Pool fallback).
     Result is cached per worker process with short TTL.
     """
-    return get_best_egress_proxy()
+    return get_best_egress_proxy(allowed_protocols=allowed_protocols)
 
 
 def get_current_egress_context() -> tuple[str | None, str | None]:
@@ -387,10 +395,12 @@ def get_playwright_proxy() -> dict | None:
         async with managed_browser_session(auth_state_path=..., proxy_dict=proxy_dict) as ...:
             ...
     """
-    url = get_worker_proxy_url()
+    url = get_worker_proxy_url(allowed_protocols=set(BROWSER_PROXY_PROTOCOLS))
     if not url:
         return None
     parsed = urlparse(url)
+    if parsed.scheme.lower() not in BROWSER_PROXY_PROTOCOLS:
+        raise ProxyUnavailableError(f"worker_proxy: unsupported Playwright proxy protocol '{parsed.scheme}'")
     proxy = {"server": _safe_proxy_url(url)}
     if parsed.username:
         proxy["username"] = parsed.username

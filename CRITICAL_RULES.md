@@ -257,11 +257,13 @@ bash manage.sh migrate   # یا: alembic upgrade head
 ### 16. پس از نصب HTTPS
 
 ```bash
-# این مراحل را به ترتیب انجام دهید:
-1. Let's Encrypt cert نصب کنید
-2. listen 443 را در nginx.conf uncomment کنید
-3. AUTH_COOKIE_SECURE=true در .env تنظیم کنید
-4. bash manage.sh deploy
+# روی سرور مرکزی، به ترتیب:
+1. sudo bash scripts/install_letsencrypt.sh your-domain.com
+#    (صدور گواهی، فعال‌سازی 443 + ریدایرکت 301، به‌روزرسانی خودکار .env)
+2. bash manage.sh deploy
+#    (گارد بوت، AUTH_COOKIE_SECURE=true و FRONTEND_URL=https را enforced می‌کند)
+# تمدید خودکار (یک‌بار در crontab — خود اسکریپت چاپش می‌کند):
+#    15 3 * * * /bin/bash <repo>/scripts/renew_letsencrypt.sh your-domain.com
 ```
 
 ### 16.5 تنظیم FRONTEND_URL در دیپلوی Production

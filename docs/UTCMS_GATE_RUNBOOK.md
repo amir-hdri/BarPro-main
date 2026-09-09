@@ -3,6 +3,8 @@
 **تاریخ تدوین:** ۱۵ اوت ۲۰۲۶ (۱۴۰۵/۰۵/۲۴)  
 **سرویس:** `app.services.utcms_submission_gate.UTCMSSubmissionGate`
 
+**وضعیت انتشار 2026-09-09:** پس از observation معتبر `OTP_FREE`، scheduler به‌صورت خودکار Jobهای آماده را dispatch می‌کند؛ زمان روز فقط prediction است. برای وضعیت دقیق انتشار و سه‌شاهدی بودن ثبت‌ها به [OPERATIONS_STATUS_2026-09-09.md](OPERATIONS_STATUS_2026-09-09.md) مراجعه کنید.
+
 ---
 
 ## ۱. وضعیت‌های دروازه ثبت (Gate States)
@@ -53,6 +55,8 @@ docker compose exec postgres psql -U barpro -d barpro_db -c "SELECT * FROM utcms
 ```
 
 ### ب) تنظیم دستی وضعیت (Manual Override)
+
+این بخش فقط برای dry-run یا تست کنترل‌شده است و مجوز ثبت زنده یا جایگزین observation واقعی سامانه نیست. برای تولید، manual override نباید فعال باشد.
 ```bash
 # باز کردن موقت دروازه برای تست زنده یک Job کنترل‌شده (مثلاً برای ۱۰ دقیقه)
 redis-cli SETEX rpa:gate:manual_override 600 "otp_free"

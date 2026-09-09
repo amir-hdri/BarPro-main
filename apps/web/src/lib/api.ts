@@ -113,13 +113,15 @@ function createApiClient(): AxiosInstance {
       if (status === 401 && typeof window !== 'undefined') {
         try {
           window.localStorage.removeItem('utcms_auth_client');
-          // Clear the auth cookie
-          document.cookie = `${AUTH_COOKIE_NAME}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+          // The auth cookie is httpOnly; only the server can remove it.
+          void axios
+            .post(`${API_BASE_URL}/api/v1/auth/logout`, undefined, { withCredentials: true })
+            .catch(() => undefined);
           if (!window.location.pathname.startsWith('/auth')) {
-            window.location.href = '/auth';
+            window.location.replace('/auth?reason=session_expired');
           }
-        } catch {
-          // ignore
+        } catch (logoutError) {
+          console.debug('Failed to invalidate expired session:', logoutError);
         }
       }
       return Promise.reject(err);

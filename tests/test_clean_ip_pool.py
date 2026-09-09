@@ -645,6 +645,37 @@ def test_get_clean_ip_sync_rotates_across_cache():
     pool_mgr.clear_local_cache()
 
 
+def test_get_clean_ip_sync_filters_protocols_for_browser_clients():
+    pool_mgr = CleanIPPoolManager()
+    pool_mgr.clear_local_cache()
+    pool_mgr._local_cache = [
+        CleanIPRecord(
+            url="socks4://185.100.47.106:1080",
+            protocol="socks4",
+            ip="185.100.47.106",
+            port=1080,
+            observed_country="IR",
+            egress_verified=True,
+        ),
+        CleanIPRecord(
+            url="socks5://5.56.132.26:1080",
+            protocol="socks5",
+            ip="5.56.132.26",
+            port=1080,
+            observed_country="IR",
+            egress_verified=True,
+        ),
+    ]
+    pool_mgr._local_cache_time = time.time()
+
+    with patch("app.core.circuit_breaker._get_redis_sync") as redis_sync:
+        redis_sync.return_value.exists.return_value = False
+        assert pool_mgr.get_clean_ip_sync(allowed_protocols={"http", "https", "socks5"}) == (
+            "socks5://5.56.132.26:1080"
+        )
+    pool_mgr.clear_local_cache()
+
+
 def test_get_clean_ip_sync_json_fallback_respects_blocked(tmp_path):
     """Structured fallback must prove Iranian egress and respect Redis blocks."""
     pool_mgr = CleanIPPoolManager()

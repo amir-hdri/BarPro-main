@@ -1,0 +1,4 @@
+# ACME HTTP-01 challenge files are written here by scripts/install_letsencrypt.sh
+# (certbot webroot) and served by nginx at /.well-known/acme-challenge/.
+# Directory itself is tracked so the bind-mount in compose/web.yml never
+# points at a missing path; contents are ephemeral.

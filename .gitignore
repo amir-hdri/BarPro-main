@@ -138,3 +138,11 @@ graphify-out/
 # Local live-diagnostic probe scripts (never part of the deployed system)
 .tmp_*.py
 
+# TLS private keys — issued on the server by install_letsencrypt.sh, must
+# NEVER be committed. The directory itself is NOT ignored on purpose so a
+# missing mount path fails loudly instead of silently serving HTTP.
+infra/nginx/ssl/
+# ACME challenge responses are ephemeral (written by certbot, served once).
+infra/nginx/acme-challenge/*
+!infra/nginx/acme-challenge/.gitkeep
+

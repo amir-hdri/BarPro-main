@@ -12,10 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.automation.browser import BrowserManager
 from app.core.error_taxonomy import ErrorCategory
 from app.models_multitenant import Driver, WaybillJob
+from app.models_rpa import DriverRuntimeState
 from app.monitoring.metrics import track_reconciliation_outcome
 from app.orchestrator.alert_manager import admin_alert_service
 from app.orchestrator.state_machine import JobStateMachine, JobStatus
 from app.orchestrator.utcms_reconciliation_scraper import ScraperOutcome, reconciliation_scraper
+from app.rpa.contracts import SessionBundle
 from app.services.rpa_runtime_service import rpa_runtime
 
 logger = logging.getLogger(__name__)
@@ -141,12 +143,34 @@ class ReconciliationService:
                             )
                             if job.client_id and job.driver_id:
                                 try:
-                                    await session_vault.save_driver_session(
+                                    runtime_stmt = select(DriverRuntimeState).where(
+                                        DriverRuntimeState.driver_id == job.driver_id
+                                    ).with_for_update()
+                                    runtime_state = (await session.execute(runtime_stmt)).scalar_one_or_none()
+                                    next_session_version = (runtime_state.session_version + 1) if runtime_state else None
+                                    saved_path = await session_vault.save_driver_session(
                                         client_id=job.client_id,
                                         driver_id=job.driver_id,
                                         username=driver_obj.utcms_username,
                                         context=context,
+                                        session_version=next_session_version,
                                     )
+                                    if saved_path:
+                                        stored_version = await session_vault.async_get_session_version(saved_path)
+                                        effective_version = stored_version or next_session_version or 1
+                                        if runtime_state:
+                                            runtime_state.session_version = effective_version
+                                            runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                                        await rpa_runtime.store_session(
+                                            job.client_id,
+                                            job.driver_id,
+                                            SessionBundle(
+                                                cookies=await context.cookies(),
+                                                user_agent=await page.evaluate("() => navigator.userAgent"),
+                                                issued_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
+                                                session_version=effective_version,
+                                            ),
+                                        )
                                 except Exception as sv_exc:
                                     logger.warning("Failed saving refreshed session in reconciliation: %s", sv_exc)
 

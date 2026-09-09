@@ -32,6 +32,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -1255,7 +1256,13 @@ class CleanIPPoolManager:
         self._rr_async = 0
         self._rr_sync = 0
 
-    async def get_clean_ip(self) -> str | None:
+    @staticmethod
+    def _protocol_filter(allowed_protocols: Iterable[str] | None) -> set[str] | None:
+        if allowed_protocols is None:
+            return None
+        return {str(protocol).lower().strip() for protocol in allowed_protocols if str(protocol).strip()}
+
+    async def get_clean_ip(self, allowed_protocols: Iterable[str] | None = None) -> str | None:
         """
         Return a usable clean proxy URL, ROTATING across the whole pool.
 
@@ -1265,7 +1272,13 @@ class CleanIPPoolManager:
         is. Round-robin distributes load over ALL verified records; blocked or
         dead entries are skipped.
         """
-        ips = [record for record in await self.get_all_clean_ips() if record.is_operational_iranian_egress]
+        protocol_filter = self._protocol_filter(allowed_protocols)
+        ips = [
+            record
+            for record in await self.get_all_clean_ips()
+            if record.is_operational_iranian_egress
+            and (protocol_filter is None or record.protocol in protocol_filter)
+        ]
         if not ips:
             return None
 
@@ -1291,11 +1304,11 @@ class CleanIPPoolManager:
 
         return None
 
-    def get_clean_record_sync(self) -> CleanIPRecord | None:
+    def get_clean_record_sync(self, allowed_protocols: Iterable[str] | None = None) -> CleanIPRecord | None:
         """Synchronous round-robin selection returning the FULL record so
         callers (e.g. ProxyRotator) can use measured metadata — never assume
         country="IR" from a bare URL."""
-        url = self.get_clean_ip_sync()
+        url = self.get_clean_ip_sync(allowed_protocols=allowed_protocols)
         if url is None:
             return None
         for p in self._local_cache:
@@ -1381,7 +1394,7 @@ class CleanIPPoolManager:
         self._bg_refresh_thread.start()
         logger.info("CleanIPPool: pool stale — background screening kicked from sync path.")
 
-    def get_clean_ip_sync(self) -> str | None:
+    def get_clean_ip_sync(self, allowed_protocols: Iterable[str] | None = None) -> str | None:
         """Synchronous round-robin selection over the usable pool.
 
         Precedence: validated in-memory cache → best-file → full working list.
@@ -1390,6 +1403,7 @@ class CleanIPPoolManager:
         kicked (non-blocking) so the sync path can never serve the same dead
         file forever.
         """
+        protocol_filter = self._protocol_filter(allowed_protocols)
         candidates: list[str] = []
         max_age = getattr(utcms_config, "CLEAN_IP_POOL_MAX_AGE_SECONDS", 1800)
         local_cache_is_fresh = bool(self._local_cache) and (time.time() - self._local_cache_time) <= max_age
@@ -1398,7 +1412,11 @@ class CleanIPPoolManager:
             local_cache_is_fresh = bool(self._local_cache)
 
         if local_cache_is_fresh:
-            candidates = [p.url for p in self._local_cache if p.is_operational_iranian_egress]
+            candidates = [
+                p.url
+                for p in self._local_cache
+                if p.is_operational_iranian_egress and (protocol_filter is None or p.protocol in protocol_filter)
+            ]
 
         if not candidates and not self._pool_is_stale() and os.path.exists(FILE_WORKING_JSON):
             try:
@@ -1407,7 +1425,11 @@ class CleanIPPoolManager:
                 records = [record for record in (CleanIPRecord.from_dict(item) for item in items) if record is not None]
                 self._local_cache = [record for record in records if record.is_operational_iranian_egress]
                 self._local_cache_time = time.time()
-                candidates = [record.url for record in self._local_cache]
+                candidates = [
+                    record.url
+                    for record in self._local_cache
+                    if protocol_filter is None or record.protocol in protocol_filter
+                ]
             except (OSError, ValueError, TypeError) as exc:
                 logger.debug(f"Could not read {FILE_WORKING_JSON}: {exc}")
 
