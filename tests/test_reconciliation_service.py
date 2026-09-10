@@ -337,3 +337,40 @@ async def test_audit_only_forces_reconciliation_for_tracking_received_job(async_
         mock_query.assert_awaited()
         assert reconciled_job.status == JobStatus.SUCCESS
         assert (reconciled_job.result_json or {}).get("confirmation_status") == "confirmed_by_history"
+
+
+@pytest.mark.asyncio
+async def test_tracking_received_job_in_reconciling_heals_to_unknown(async_db: AsyncSession):
+    """A tracking-received job stranded in RECONCILING (claim race) must heal
+    to UNKNOWN with the code preserved — never stay stuck, never resubmit."""
+    job = WaybillJob(
+        job_id="test_job_tracking_heal",
+        idempotency_key="idemp_tracking_heal",
+        client_id=1,
+        driver_id=1,
+        payload_json={"origin_city_id": 1, "destination_city_id": 2},
+        status=JobStatus.RECONCILING,
+        mutation_status="dispatched",
+        result_json={
+            "tracking_code": "UTC-ACK-3",
+            "confirmation_status": "tracking_received",
+            "operator_acknowledged": True,
+        },
+    )
+    async_db.add(job)
+    await async_db.commit()
+    await async_db.refresh(job)
+
+    mock_bm = MagicMock()
+
+    with patch(
+        "app.orchestrator.reconciliation_service.reconciliation_scraper.query_waybill_status", new_callable=AsyncMock
+    ) as mock_query:
+        rec_service = ReconciliationService()
+        reconciled_job = await rec_service.reconcile_job(session=async_db, job_id=job.id, browser_manager=mock_bm)
+
+        mock_query.assert_not_called()
+        assert reconciled_job is not None
+        assert reconciled_job.status == JobStatus.UNKNOWN
+        assert (reconciled_job.result_json or {}).get("tracking_code") == "UTC-ACK-3"
+        assert (reconciled_job.result_json or {}).get("confirmation_status") == "tracking_received"

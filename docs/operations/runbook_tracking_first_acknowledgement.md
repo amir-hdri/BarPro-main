@@ -60,7 +60,7 @@ What each combination means:
 The response-level `operator_acknowledged` boolean (on `WaybillJobResponse` and
 `WaybillTaskStatusResponse`) mirrors the persisted result field. The UI shows
 «کد رهگیری دریافت شد» (with sub-label «در انتظار تأیید نهایی») for
-acknowledged jobs and «نیازمند بررسی History» for missing-code jobs; neither
+acknowledged jobs and «در انتظار تطبیق با سوابق UTCMS» for missing-code jobs; neither
 shows a retry/resubmit action.
 
 ## 2. Confirm no submit intent was created after acknowledgement
@@ -128,7 +128,7 @@ confirmation.
 | RPA result | Persisted state | Operator result | History | Resubmit |
 |---|---|---|---|---|
 | Non-empty tracking code | `unknown` + `tracking_received` acknowledgement | Immediate code shown («کد رهگیری دریافت شد») | Not on the critical path (audit-only manual path available) | Never |
-| Success-shaped response, no code | `unknown` + `tracking_missing_history_required` | Pending verification («نیازمند بررسی History») | Read-only, bounded (15s/45s/120s/300s) | Never |
+| Success-shaped response, no code | `unknown` + `tracking_missing_history_required` | Pending verification («در انتظار تطبیق با سوابق UTCMS») | Read-only, bounded (15s/45s/120s/300s) | Never |
 | History finds the code | `success` + `confirmed` + `reconciled_at` | Confirmed | Completed | Never |
 | History not found after window | `needs_review` / `submission_unconfirmed` | Manual review required | Exhausted | Never automatic |
 | Clear pre-submit failure (before the mutation boundary) | Existing retryable-failure policy | Retryable | Not required | Existing guarded retry only |

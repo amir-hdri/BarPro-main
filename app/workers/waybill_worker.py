@@ -622,6 +622,27 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
             if not job:
                 raise ValueError(f"Job {intent.job_id} not found for intent {intent_id}")
 
+            # Tracking-first claim guard: the code may have been persisted
+            # after the dispatcher claimed this intent. A tracking-received
+            # job must never move unknown -> reconciling — cancel the intent
+            # and report unknown so the acknowledgement stands.
+            from app.orchestrator.reconciliation_service import is_tracking_received as _is_tr
+
+            if _is_tr(job):
+                logger.info(
+                    "tracking_acknowledged_reconcile_intent_cancelled",
+                    extra={"extra_fields": {"job_id": job.job_id, "intent_id": intent_id}},
+                )
+                intent.status = "cancelled"
+                intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                session.add(intent)
+                await session.commit()
+                return {
+                    "status": TaskStatus.UNKNOWN.value,
+                    "result_json": job.result_json,
+                    "skipped": "tracking_acknowledged",
+                }
+
             # Create unique execution ID
             execution_id = str(uuid.uuid4())
 

@@ -79,6 +79,18 @@ class ReconciliationService:
                 "tracking_acknowledged_job_reconciliation_skipped",
                 extra={"extra_fields": {"job_id": job.id, "job_status": job.status}},
             )
+            # Self-heal a stranded row: a tracking-received job must never sit
+            # in RECONCILING (claim race). The reconciling -> unknown edge
+            # exists; use it so the acknowledgement badge shows and the
+            # orphan/scheduler guards apply. The code is untouched.
+            if job.status == JobStatus.RECONCILING:
+                try:
+                    JobStateMachine.transition(session, job, JobStatus.UNKNOWN)
+                    await session.commit()
+                    await session.refresh(job)
+                except Exception as e:
+                    logger.error("Failed to heal tracking-received job #%s to unknown: %s", job_id, e)
+                    await session.rollback()
             return job
 
         # A terminal unconfirmed submission can still be verified manually in
