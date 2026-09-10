@@ -332,6 +332,22 @@ class WaybillJobService:
                 detail="Job not found",
             )
 
+        # Tracking-first no-resubmit guard: a job with a persisted tracking
+        # code is acknowledged — a resubmission could duplicate the waybill.
+        # This holds regardless of the job's status.
+        _retry_result_raw = getattr(job, "result_json", None)
+        if isinstance(_retry_result_raw, str):
+            try:
+                _retry_result_raw = json.loads(_retry_result_raw)
+            except (TypeError, json.JSONDecodeError):
+                _retry_result_raw = {}
+        _retry_result = _retry_result_raw if isinstance(_retry_result_raw, dict) else {}
+        if str(_retry_result.get("tracking_code") or "").strip():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="کار دارای کد رهگیری است؛ ثبت مجدد مجاز نیست",
+            )
+
         # Check if job is in a terminal state that requires safe retry logic
         terminal_statuses = {TaskStatus.FAILED.value, TaskStatus.NEEDS_REVIEW.value}
         if job.status in terminal_statuses:

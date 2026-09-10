@@ -196,6 +196,25 @@ export function confirmedTrackingCode(
   return trackingCodeFromResult(result);
 }
 
+export function trackingAcknowledged(result: unknown): { code: string } | null {
+  if (!result) return null;
+  let parsed: Record<string, unknown> | null = null;
+  if (typeof result === 'string') {
+    try {
+      const obj = JSON.parse(result);
+      if (obj && typeof obj === 'object') parsed = obj as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  } else if (typeof result === 'object') {
+    parsed = result as Record<string, unknown>;
+  }
+  if (!parsed || parsed.confirmation_status !== 'tracking_received') return null;
+  const code = trackingCodeFromResult(parsed);
+  if (!code || !code.trim()) return null;
+  return { code };
+}
+
 export function downloadCSV(filename: string, headers: string[], rows: (string | number)[][]): void {
   const processRow = (row: (string | number)[]) =>
     row.map((val) => `"${String(val ?? '').replace(/"/g, '""')}"`).join(',');

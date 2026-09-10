@@ -185,3 +185,23 @@ UTCMS زمان تضمین‌شده یا پنجره‌ی رسمی برای ثبت
 5. IP index و Worker؛
 6. نتیجه‌ی dry-run و screenshot بدون اطلاعات حساس؛
 7. نتیجه‌ی تست قرارداد payload و test suite کامل.
+
+
+## 10. قرارداد تصریح کد رهگیری (Tracking-First Acknowledgement)
+
+**آخرین بازبینی: ۲۰۲۶-۰۹-۰۹**
+
+- POST نهایی به UTCMS دقیقاً یک‌بار انجام می‌شود؛ هرگز retry، fallback یا تکرار
+  درخواست mutation رخ نمی‌دهد.
+- کد رهگیری غیرخالی برای **تصریح فوری اپراتور** کافی است، اما به‌خودی‌خود برای
+  ثبت `status=success` در پایگاه داده کافی **نیست** (قانون سه‌شاهد: کد در پاسخ
+  RPA + ثبت در `result_json` + `mutation_status='confirmed'` همراه
+  `reconciled_at`).
+- Job دارای کد (confirmation_status=`tracking_received`):
+  - هرگز submit intent دوم نمی‌گیرد؛
+  - هرگز POST نهایی را retry نمی‌کند؛
+  - هرگز به‌صورت خودکار تطبیق (reconciliation) نمی‌شود — تنها مسیر دستی
+    `audit_only=True` است.
+- پاسخ موفق‌نما بدون کد رهگیری نشانه‌ی نبودِ بارنامه نیست؛ مرز mutation عبور
+  شده و تنها تطبیق **فقط‌خواندنی** UTCMS History قبل از هر تصمیمی مجاز است.
+- endpoint بازتلاش (retry) برای Jobهای دارای کد، HTTP 409 برمی‌گرداند.

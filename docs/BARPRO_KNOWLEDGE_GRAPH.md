@@ -12,6 +12,14 @@
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
+## 0.8 snapshot این بازبینی (2026-09-09)
+
+- CODE-VERIFIED: قرارداد تصریح کد رهگیری (Tracking-First Acknowledgement) پیاده شد — کد رهگیری غیرخالی = تصریح فوری اپراتور، نه success نهایی (قانون سه‌شاهد بدون تغییر).
+- CODE-VERIFIED: فیلدهای سطح نتیجه در `result_json`: `confirmation_status` ∈ {`tracking_received`, `tracking_missing_history_required`, `confirmed_by_history`}، `operator_acknowledged`، `requires_reconciliation`، `requires_resubmission`، `reconciliation_mode='history_only'`.
+- CODE-VERIFIED: فیلد سطح پاسخ `operator_acknowledged: bool` روی `WaybillJobResponse` و `WaybillTaskStatusResponse`.
+- CODE-VERIFIED: گاردها — Dispatcher اینتنت‌های submit/reconciliation قدیمی jobهای دارای کد را لغو می‌کند؛ Scheduler این jobها را از dispatch خارج می‌کند؛ Reconciliation خودکار برای `tracking_received` رد می‌شود (مسیر دستی `audit_only=True`)؛ endpoint بازتلاش HTTP 409 برمی‌گرداند؛ recovery کارهای گیرکرده قرارداد را حفظ می‌کند.
+- CODE-VERIFIED: Worker عادی و `scheduled_waybill_executor` رفتار یکسان دارند؛ نتیجه `unknown` در executor هرگز به retry بازگشتی نمی‌رسد.
+
 ## 0.7 snapshot این بازبینی (2026-09-06)
 
 - CODE-VERIFIED: commit جاری `bfefd9c` است و در گیت‌هاب، سرور اصلی (`87.107.5.238`) و لوکال کاملاً همگام است.
@@ -443,6 +451,25 @@ success message، بسته‌شدن modal، screenshot یا dry-run شاهد ک�
 - هر راننده یک submit lock/active execution دارد.
 - lock release مبتنی بر ownership token و fencing است؛ admin recovery مسیر
   جداگانه و حساس دارد.
+
+### 7.6. قرارداد تصریح کد رهگیری (Tracking-First Acknowledgement)
+
+از ۲۰۲۶-۰۹-۰۹:
+
+- کد رهگیری غیرخالی → Job در `unknown` با `confirmation_status='tracking_received'`
+  و `operator_acknowledged=true`؛ بدون زمان‌بندی تطبیق (`requires_reconciliation=false`)،
+  بدون resubmit. تصریح فوری به اپراتور، اما نه success نهایی (قانون سه‌شاهد
+  بخش 7.3 بدون تغییر است).
+- موفق‌نما بدون کد → `unknown` با `confirmation_status='tracking_missing_history_required'`
+  و `reconciliation_mode='history_only'`؛ زمان‌بندی تطبیق فقط‌خواندنی ۱۵/۴۵/۱۲۰/۳۰۰ ثانیه.
+- گاردهای no-submit: `result_json.tracking_code` غیرخالی به‌صورت بی‌قید و شرط
+  dispatch submit را مسدود می‌کند (scheduler skip، dispatcher intent cancellation
+  با دلیل `tracking_acknowledged`، رد 409 در endpoint بازتلاش).
+- تطبیق خودکار برای `tracking_received` رد می‌شود؛ مسیر دستی تنها
+  `reconcile_job(..., audit_only=True)` است (فقط‌خواندنی، برای اتصال مدرک).
+- Worker عادی، `scheduled_waybill_executor` و مسیر HTTP submit (`rpa_submit_service`)
+  از helperهای مشترک `app/schemas/task.py` استفاده می‌کنند: `build_tracking_received_result`
+  و `build_missing_tracking_result`.
 
 ---
 

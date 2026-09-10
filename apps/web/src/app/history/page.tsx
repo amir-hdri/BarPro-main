@@ -21,6 +21,7 @@ import {
   toPersianDigitsPreserveZero,
   trackingCodeFromResult,
   confirmedTrackingCode,
+  trackingAcknowledged,
 } from '@/lib/format';
 import type {
   FuelInquiryItem,
@@ -217,6 +218,29 @@ const JobCard = memo(function JobCard({
           return (
             <div className="mt-3 rounded-xl bg-emerald-500/10 p-3 text-[11px] font-medium text-emerald-400 border border-emerald-500/20">
               <span className="font-bold">کد رهگیری UTCMS:</span> {tc}
+            </div>
+          );
+        }
+        const ack = trackingAcknowledged(job.result_json);
+        if (ack) {
+          return (
+            <div className="mt-3 rounded-xl bg-emerald-500/10 p-3 text-[11px] font-medium text-emerald-400 border border-emerald-500/20">
+              <div className="flex items-center justify-between gap-2">
+                <span><span className="font-bold">کد رهگیری دریافت شد:</span> {ack.code}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(ack.code);
+                    toast.success('کد رهگیری کپی شد');
+                  }}
+                  className="rounded-lg bg-emerald-500/20 p-1.5 hover:bg-emerald-500/30 transition text-emerald-300"
+                  title="کپی کد رهگیری"
+                  aria-label="کپی کد رهگیری"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="mt-1 text-[10px] text-emerald-500/80">در انتظار تأیید نهایی</div>
             </div>
           );
         }
@@ -1006,6 +1030,32 @@ export default function HistoryPage() {
                                 >
                                   <Copy className="h-3.5 w-3.5" />
                                 </button>
+                              </div>
+                            );
+                          }
+                          const ack = trackingAcknowledged(selectedJob.result_json);
+                          if (ack) {
+                            return (
+                              <div className="mt-4 rounded-xl bg-emerald-500/10 p-3 text-xs text-emerald-400 border border-emerald-500/20 font-medium">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold">کد رهگیری دریافت شد:</span>
+                                    <span className="font-mono font-bold text-sm bg-emerald-500/20 px-2 py-0.5 rounded">{ack.code}</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      void navigator.clipboard.writeText(ack.code);
+                                      toast.success('کد رهگیری کپی شد');
+                                    }}
+                                    className="rounded-lg bg-emerald-500/20 p-1.5 hover:bg-emerald-500/30 transition text-emerald-300"
+                                    title="کپی کد رهگیری"
+                                    aria-label="کپی کد رهگیری"
+                                  >
+                                    <Copy className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                                <div className="mt-1 text-[11px] text-emerald-500/80">در انتظار تأیید نهایی</div>
                               </div>
                             );
                           }

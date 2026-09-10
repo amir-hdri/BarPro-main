@@ -1,9 +1,12 @@
-from unittest.mock import AsyncMock, patch
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
 
 from app.core.exceptions import WaybillError
+from app.schemas.multitenant import WaybillJobResponse
+from app.schemas.task import TaskStatus, WaybillTaskStatusResponse
 from app.schemas.waybill import (
     CargoModel,
     FinancialModel,
@@ -16,6 +19,7 @@ from app.schemas.waybill import (
     VehicleModel,
     WaybillMapRequest,
 )
+from app.services.waybill_job_service import WaybillJobService
 from app.services.waybill_service import WaybillService
 
 
@@ -209,3 +213,123 @@ async def test_detect_map_closes_manager_before_early_return():
     manager_instance.close.assert_awaited_once()
     page.close.assert_awaited_once()
     close_context.assert_awaited_once_with("detect-map-session")
+
+
+# ── Tracking-first acknowledgement exposure tests (plan Task 5) ──────────────
+
+
+class _JobLike:
+    """Minimal attributes WaybillJobResponse needs for model_validate."""
+
+    def __init__(self, **kwargs):
+        base = {
+            "id": 1,
+            "job_id": "job-ack-1",
+            "client_id": 1,
+            "driver_id": 1,
+            "status": "unknown",
+            "source": "api",
+            "correlation_id": None,
+            "business_date": None,
+            "priority": 5,
+            "last_error": None,
+            "error_category": None,
+            "next_retry_at": None,
+            "submit_after": None,
+            "terminal_reason": None,
+            "attempt_count": 1,
+            "max_retries": 3,
+            "created_at": datetime(2026, 9, 9, 12, 0, 0),
+            "updated_at": datetime(2026, 9, 9, 12, 0, 0),
+        }
+        base.update(kwargs)
+        for key, value in base.items():
+            setattr(self, key, value)
+
+
+def test_job_response_acknowledges_tracking_received():
+    resp = WaybillJobResponse.model_validate(
+        _JobLike(
+            result_json={
+                "tracking_code": "UTC-123",
+                "confirmation_status": "tracking_received",
+                "operator_acknowledged": True,
+            }
+        )
+    )
+    assert resp.operator_acknowledged is True
+    assert isinstance(resp.result_json, dict) and resp.result_json["tracking_code"] == "UTC-123"
+
+
+def test_job_response_not_acknowledged_for_missing_code():
+    resp = WaybillJobResponse.model_validate(
+        _JobLike(
+            result_json={
+                "confirmation_status": "tracking_missing_history_required",
+                "requires_reconciliation": True,
+            }
+        )
+    )
+    assert resp.operator_acknowledged is False
+
+
+def test_job_response_acknowledged_with_json_string_result():
+    resp = WaybillJobResponse.model_validate(
+        _JobLike(
+            result_json='{"tracking_code": "UTC-123", "confirmation_status": "tracking_received"}'
+        )
+    )
+    assert resp.operator_acknowledged is True
+
+
+def test_task_status_response_mirrors_ack_fields():
+    resp = WaybillTaskStatusResponse(
+        task_id="t1",
+        idempotency_key="k1",
+        status=TaskStatus.UNKNOWN,
+        created_at=datetime(2026, 9, 9, 12, 0, 0),
+        updated_at=datetime(2026, 9, 9, 12, 0, 0),
+        result={
+            "tracking_code": "UTC-123",
+            "confirmation_status": "tracking_received",
+            "operator_acknowledged": True,
+            "requires_resubmission": False,
+        },
+    )
+    assert resp.operator_acknowledged is True
+    assert resp.requires_resubmission is False
+
+
+def test_task_status_response_defaults_false_without_result():
+    resp = WaybillTaskStatusResponse(
+        task_id="t2",
+        idempotency_key="k2",
+        status=TaskStatus.PENDING,
+        created_at=datetime(2026, 9, 9, 12, 0, 0),
+        updated_at=datetime(2026, 9, 9, 12, 0, 0),
+    )
+    assert resp.operator_acknowledged is False
+    assert resp.requires_resubmission is False
+
+
+async def test_retry_rejects_job_with_persisted_tracking_code():
+    """409 before any state change — a code-bearing job is never retried."""
+    service = WaybillJobService()
+    job = _JobLike(
+        status="failed",
+        error_category="network_error",
+        result_json={"tracking_code": "UTC-409", "confirmation_status": "tracking_received"},
+    )
+
+    session = MagicMock()
+    exec_result = MagicMock()
+    exec_result.first = MagicMock(return_value=job)
+    session.exec = AsyncMock(return_value=exec_result)
+
+    client_obj = _JobLike(id=1, client_id=1)
+    user_context = {"role": "client", "user": client_obj}
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.retry_job(user_context, "job-ack-1", session)
+    assert exc_info.value.status_code == 409
+    assert "کد رهگیری" in exc_info.value.detail

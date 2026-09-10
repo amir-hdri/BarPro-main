@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # ── Tracking-first acknowledgement contract ─────────────────────────────────
 #
@@ -114,6 +114,21 @@ class WaybillTaskStatusResponse(BaseModel):
     updated_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    # Tracking-first acknowledgement mirror fields (result-level values when
+    # a result is present; defaults otherwise).
+    operator_acknowledged: bool = False
+    requires_resubmission: bool = False
+
+    @model_validator(mode="after")
+    def mirror_ack_fields(self) -> "WaybillTaskStatusResponse":
+        result = self.result if isinstance(self.result, dict) else {}
+        if result.get("confirmation_status") == "tracking_received" and str(
+            result.get("tracking_code") or ""
+        ).strip():
+            self.operator_acknowledged = True
+        if result.get("requires_resubmission") is True:
+            self.requires_resubmission = True
+        return self
 
 
 class QueueSnapshotResponse(BaseModel):

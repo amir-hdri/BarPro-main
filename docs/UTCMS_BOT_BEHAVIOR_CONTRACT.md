@@ -144,6 +144,26 @@ payload با شکل ترکیبی (طرفین nested همراه مبدا/مقصد
 
 نبود هر شاهد ⇒ `needs_review/submission_unconfirmed`، نه `success`. `CODE-VERIFIED`
 
+## ۶-الف. قرارداد نتیجه ربات (Tracking-First Result Contract)
+
+**از ۲۰۲۶-۰۹-۰۹** نتیجه‌ی `WaybillAutomationBot.execute_waybill_job` و رفتار
+Worker عادی و `scheduled_waybill_executor` یکسان است:
+
+| نتیجه manager | خروجی ربات | Worker/Executor |
+|---|---|---|
+| کد رهگیری غیرخالی (حتی با `status='submitted'`) | `status='success'` + `result` با `confirmation_status='tracking_received'`, `operator_acknowledged=true`, `requires_reconciliation=false`, `requires_resubmission=false` + `mutation_status='dispatched'` | Job → `unknown` با همان قرارداد؛ بدون زمان‌بندی تطبیق؛ پاسخ `success` با `operator_acknowledged=true` |
+| موفق‌نما بدون کد (document_id موجود) | `status='unknown'` + `result` با `tracking_missing_history_required`, `reconciliation_mode='history_only'` | Job → `unknown`؛ زمان‌بندی تطبیق فقط‌خواندنی +۱۵ ثانیه |
+| mutation مبهم (بدون کد، پرچم ambiguous) | `status='unknown'` + `mutation_status='ambiguous'` | Job → `unknown`؛ فقط تطبیق؛ **بدون retry بازگشتی** |
+
+قواعد تکمیلی:
+
+- نتیجه manager دارای کد هرگز «ambiguous» تلقی نمی‌شود (تصریح، نه ابهام).
+- اگر نتیجه‌ی اول حتی پس از خطای post-boundary کد داشته باشد، حلقه‌ی
+  retry با login مجدد کوتاه‌می‌شود؛ `create_waybill_with_map` دوباره صدا
+  زده نمی‌شود.
+- نتیجه‌ی `unknown` از ربات در `scheduled_waybill_executor` هرگز به شاخه‌ی
+  retry بازگشتی نمی‌رسد.
+
 ## 7. پروتکل آزمون کنترل‌شده (dry-run) پیش از هر ثبت زنده
 
 1. Job جدید و مستقل با idempotency تازه ساخته می‌شود؛ Jobهای ambiguous دست‌نخورده

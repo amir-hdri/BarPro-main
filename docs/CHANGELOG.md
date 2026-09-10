@@ -2,7 +2,18 @@
   
   All notable changes to the UTCMS Automation System.
 
-  ## [2.9.10] - 2026-09-06
+  ## [2.9.11] - 2026-09-09
+
+### Added — Tracking-First Waybill Acknowledgement («کد رهگیری دریافت شد»)
+
+- **Immediate operator acknowledgement for a tracking code**: when UTCMS returns a non-empty tracking code, it is persisted once in `waybill_jobs.result_json` with `confirmation_status='tracking_received'`, `operator_acknowledged=true`, `requires_reconciliation=false`, `requires_resubmission=false`, and shown to the operator at once. DB status stays `unknown` — final `success` still requires the unchanged three-witness rule (`mutation_status='confirmed'` + `reconciled_at` + persisted code).
+- **Read-only History fallback for missing-code outcomes**: a success-shaped response without a tracking code keeps `confirmation_status='tracking_missing_history_required'` with `reconciliation_mode='history_only'` and a bounded read-only UTCMS History schedule (15s/45s/120s/300s). Exhaustion → `needs_review/submission_unconfirmed`, never an automatic resubmission.
+- **No-duplicate guards**: a tracking-received job never gets a second submit intent (dispatcher cancels stale submit/reconciliation intents with reason `tracking_acknowledged`), the scheduler skips tracking-acknowledged jobs, auto-reconciliation skips them (manual audit path: `reconcile_job(..., audit_only=True)`), the retry API rejects them with HTTP 409, and stuck-job recovery preserves the acknowledgement contract.
+- **Shared contract helpers** in `app/schemas/task.py` (`build_tracking_received_result`, `build_missing_tracking_result`); response-level `operator_acknowledged` boolean on `WaybillJobResponse` and `WaybillTaskStatusResponse`. Normal worker, `scheduled_waybill_executor`, and the HTTP submit path behave identically; an `unknown` result in the scheduled executor can never reach the recursive retry branch.
+- **UI**: acknowledged jobs show «کد رهگیری دریافت شد» (with sub-label «در انتظار تأیید نهایی»); missing-code jobs show «نیازمند بررسی History»; neither shows a retry/resubmit action.
+- **Docs**: `docs/UTCMS_CONSTRAINTS.md` §10, `docs/UTCMS_BOT_BEHAVIOR_CONTRACT.md` §۶-الف, `docs/UTCMS_RECONCILIATION.md` §۴, `docs/BARPRO_KNOWLEDGE_GRAPH.md` §0.8/§7.6, and the new operator runbook `docs/operations/runbook_tracking_first_acknowledgement.md`.
+
+## [2.9.10] - 2026-09-06
 
 ### Fixed — UTCMS End-to-End Submission (HTTP 500, Error 4025, and Date Conversion)
 - **Resolved HTTP 500 on `UpdateRegisterNewOld` (`a1dc727`)**:

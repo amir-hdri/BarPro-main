@@ -10,7 +10,7 @@ import { EmptyState, ErrorState, Skeleton } from "@/components/layout/States";
 import { ProgressBar } from "@/components/ProgressBar";
 import { useSession } from "@/hooks/useSession";
 import { useWaybillJob } from "@/hooks/useWaybillJob";
-import { confirmedTrackingCode, formatDateTime, statusLabel, statusTone, toPersianDigits, trackingCodeFromResult } from "@/lib/format";
+import { confirmedTrackingCode, formatDateTime, statusLabel, statusTone, toPersianDigits, trackingAcknowledged, trackingCodeFromResult } from "@/lib/format";
 import type { ClientStats, WaybillJob } from "@/lib/types";
 import {
   ClockIcon,
@@ -352,9 +352,15 @@ export default function DashboardPage() {
                     {(() => {
                       const provisionalCode = trackingCodeFromResult(job.result_json);
                       const tc = confirmedTrackingCode(job.result_json, job.status, job.mutation_status, job.reconciled_at);
+                      const ack = trackingAcknowledged(job.result_json);
                       return tc ? (
                         <p className="mt-2 text-[11px] font-bold text-emerald-400">
                           کد رهگیری UTCMS: {tc}
+                        </p>
+                      ) : ack ? (
+                        <p className="mt-2 text-[11px] font-bold text-emerald-400">
+                          کد رهگیری دریافت شد: {ack.code}
+                          <span className="block text-[10px] font-medium text-emerald-500/80">در انتظار تأیید نهایی</span>
                         </p>
                       ) : provisionalCode ? (
                         <p className="mt-2 text-[11px] font-bold text-amber-400">

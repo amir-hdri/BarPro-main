@@ -799,6 +799,10 @@ class WaybillJobResponse(BaseModel):
     night_attempt_count: int = 0
     night_attempt_window: str | None = None
 
+    # Tracking-first acknowledgement: True iff the persisted result carries
+    # an acknowledged tracking code (computed, not stored).
+    operator_acknowledged: bool = False
+
     # Multi-route batch linkage (migration 038) — consumed by the batches
     # progress dashboard and history filters in the frontend (types.ts).
     batch_id: int | None = None
@@ -812,6 +816,24 @@ class WaybillJobResponse(BaseModel):
     @classmethod
     def coerce_json_fields(cls, v: Any) -> Any:
         return _coerce_json_field(v)
+
+    @model_validator(mode="after")
+    def compute_operator_acknowledged(self) -> "WaybillJobResponse":
+        """Tracking-first acknowledgement: derived from the persisted result.
+
+        True iff the parsed result_json carries confirmation_status
+        'tracking_received' AND a non-empty tracking code. This is an operator
+        acknowledgement, never a statement of final success (the three-witness
+        rule still gates status=success).
+        """
+        result = self.result_json if isinstance(self.result_json, dict) else {}
+        if result.get("confirmation_status") == "tracking_received" and str(
+            result.get("tracking_code") or ""
+        ).strip():
+            self.operator_acknowledged = True
+        else:
+            self.operator_acknowledged = False
+        return self
 
     model_config = ConfigDict(from_attributes=True)
 
