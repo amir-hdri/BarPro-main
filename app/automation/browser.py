@@ -843,8 +843,16 @@ browser_manager = BrowserManager()
 
 
 @asynccontextmanager
-async def managed_browser_session(auth_state_path: str | None = None, proxy_dict: dict | None = None):
+async def managed_browser_session(
+    auth_state_path: str | None = None,
+    proxy_dict: dict | None = None,
+    *,
+    skip_browser: bool = False,
+):
     """Context manager for safe browser session lifecycle with automatic cleanup."""
+    if skip_browser:
+        yield None, None
+        return
     session_id = None
     context = None
     success = True

@@ -157,6 +157,34 @@ class UTCMSConfig:
         # injected into the Playwright context and the rest of the RPA
         # flow continues with a valid session. Disable for diagnosis.
         self.UTCMS_HTTP_LOGIN_ENABLED = _to_bool(os.getenv("UTCMS_HTTP_LOGIN_ENABLED", "True"), default=True)
+        # Mobile API transport is opt-in. "shadow" performs only mobile
+        # read-only checks and never calls a mutation endpoint.
+        self.UTCMS_TRANSPORT = _validated_choice(
+            "UTCMS_TRANSPORT",
+            os.getenv("UTCMS_TRANSPORT"),
+            "mobile",
+            {"web", "mobile", "shadow"},
+        )
+        self.UTCMS_MOBILE_API_BASE_URL = os.getenv(
+            "UTCMS_MOBILE_API_BASE_URL",
+            "https://mobservices-barname.utcms.ir/baarnameh_sd/API",
+        ).strip()
+        self.UTCMS_MOBILE_API_TIMEOUT_SECONDS = float(
+            os.getenv("UTCMS_MOBILE_API_TIMEOUT_SECONDS", "20")
+        )
+        # CapJS is the proof-of-work CAPTCHA used by the official mobile app.
+        # Keep the endpoint configurable because UTCMS can move the challenge
+        # service independently from the document API.
+        self.UTCMS_CAPTCHA_POW_API_ENDPOINT = os.getenv(
+            "UTCMS_CAPTCHA_POW_API_ENDPOINT",
+            "https://cptch.utcms.ir/",
+        ).strip()
+        self.UTCMS_CAPTCHA_POW_TIMEOUT_SECONDS = float(
+            os.getenv("UTCMS_CAPTCHA_POW_TIMEOUT_SECONDS", "20")
+        )
+        self.UTCMS_CAPTCHA_POW_MAX_NONCE = int(
+            os.getenv("UTCMS_CAPTCHA_POW_MAX_NONCE", "10000000")
+        )
 
         self.API_AUTH_MODE = os.getenv("API_AUTH_MODE", "api_key_or_jwt").lower()
         self.API_KEY_HEADER = os.getenv("API_KEY_HEADER", "X-API-Key")

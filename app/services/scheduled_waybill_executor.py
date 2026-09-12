@@ -208,14 +208,19 @@ async def _execute_single_job(
         fallback=username,
         scope=f"client-{client.id}-driver-{driver.id}",
     )
-    proxy_info = await get_proxy_rotator().get_next()
+    mobile_transport = utcms_config.UTCMS_TRANSPORT in {"mobile", "shadow"}
+    proxy_info = None if mobile_transport else await get_proxy_rotator().get_next()
     proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
 
-    async with managed_browser_session(auth_state_path=auth_state_path, proxy_dict=proxy_dict) as (
+    async with managed_browser_session(
+        auth_state_path=auth_state_path,
+        proxy_dict=proxy_dict,
+        skip_browser=mobile_transport,
+    ) as (
         _session_id,
         context,
     ):
-        page = await browser_manager.new_page(context)
+        page = None if mobile_transport else await browser_manager.new_page(context)
         try:
             bot = WaybillAutomationBot(page, context)
             result = await bot.execute_waybill_job(
@@ -327,7 +332,8 @@ async def _execute_single_job(
                             "confirmation_status": "tracking_received",
                         },
                     )
-                    await browser_manager.record_success_for_recycle()
+                    if not mobile_transport:
+                        await browser_manager.record_success_for_recycle()
                     return {
                         **result,
                         "status": TaskStatus.UNKNOWN.value,
@@ -339,6 +345,62 @@ async def _execute_single_job(
                 or result.get("mutation_status") == "ambiguous"
                 or result.get("error_category") == "submission_unconfirmed"
             ):
+                result_payload = result.get("result") if isinstance(result.get("result"), dict) else {}
+                otp_required = bool(
+                    result.get("requires_operator_otp")
+                    or result.get("error_category") == "otp_required"
+                    or result_payload.get("otp_required") is True
+                )
+                if otp_required:
+                    await utcms_submission_gate.record_otp_detected(
+                        worker_id=str(getattr(utcms_config, "WORKER_ID", "scheduled")),
+                        evidence={
+                            "transport": result.get("transport"),
+                            "isOtpNeeded": True,
+                            "document_id": result_payload.get("document_id"),
+                        },
+                    )
+                    doc_id = str(result.get("document_id") or "").strip() or None
+                    if result_payload.get("document_id"):
+                        doc_id = str(result_payload["document_id"])
+                    result = {
+                        **result,
+                        "status": TaskStatus.UNKNOWN.value,
+                        "mutation_status": result.get("mutation_status") or ("dispatched" if doc_id else "ambiguous"),
+                        "error_category": "otp_required",
+                        "needs_reconciliation": False,
+                        "requires_operator_otp": True,
+                    }
+                    job.result_json = dict(result_payload)
+                    if doc_id:
+                        job.document_id = doc_id
+                    job.mutation_status = result["mutation_status"]
+                    job.retryable = False
+                    job.next_retry_at = None
+                    job.finished_at = _utcnow()
+                    job.last_error = result.get("error", "UTCMS requires operator OTP")
+                    job.error_category = "otp_required"
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.UNKNOWN.value,
+                        result_json=job.result_json,
+                        next_retry_at=None,
+                        retryable=False,
+                        last_error=job.last_error,
+                        error_category="otp_required",
+                        finished_at=job.finished_at,
+                    )
+                    await session.commit()
+                    await _add_log(
+                        session,
+                        job_id,
+                        client.id,
+                        "otp_required",
+                        "unknown",
+                        "UTCMS sent an OTP challenge; operator entry is required",
+                    )
+                    return result
                 # Ambiguous/unknown mutation outcome: read-only History
                 # reconciliation only — never a recursive retry that would
                 # re-submit the same waybill (the generic else branch below
@@ -457,10 +519,11 @@ async def _execute_single_job(
                 return result
 
         finally:
-            try:
-                await asyncio.wait_for(page.close(), timeout=3)
-            except Exception:
-                logger.warning("scheduled_job_page_close_failed", exc_info=True)
+            if page is not None:
+                try:
+                    await asyncio.wait_for(page.close(), timeout=3)
+                except Exception:
+                    logger.warning("scheduled_job_page_close_failed", exc_info=True)
 
 
 async def execute_scheduled_job_by_id(job_id: int) -> dict[str, Any]:

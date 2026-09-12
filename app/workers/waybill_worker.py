@@ -26,7 +26,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.auth_multitenant import DriverPasswordDecryptError, decrypt_driver_password
 from app.automation.browser import browser_manager, managed_browser_session
 from app.automation.waybill_bot_multitenant import WaybillAutomationBot
-from app.automation.worker_proxy import get_playwright_proxy
+from app.automation.worker_proxy import get_playwright_proxy, get_worker_proxy_url
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.core.error_taxonomy import ErrorCategory, classify_error_string, classify_exception
@@ -1250,367 +1250,233 @@ async def _execute_job(
                     "error_category": "otp_required" if gate_state.value == "otp_required" else "gate_unknown",
                 }
 
-            # Use simple worker proxy helper — bypasses proxy_rotator's cooldown/geo-check
-            # that could return None, leaving Chromium without proxy → navigation timeout.
-            proxy_dict = get_playwright_proxy()
-            async with managed_browser_session(auth_state_path=auth_state_path, proxy_dict=proxy_dict) as (
-                _session_id,
-                context,
-            ):
-                page = await browser_manager.new_page(context)
-
+            job_timeout = getattr(utcms_config, "JOB_TIMEOUT_SECONDS", 330)
+            if utcms_config.UTCMS_TRANSPORT in {"mobile", "shadow"}:
+                worker_proxy_url = get_worker_proxy_url()
+                bot = WaybillAutomationBot(page=None, context=None, proxy_url=worker_proxy_url)
                 try:
-                    bot = WaybillAutomationBot(page, context)
-                    job_timeout = getattr(utcms_config, "JOB_TIMEOUT_SECONDS", 330)
-                    try:
-                        result = await asyncio.wait_for(
-                            bot.execute_waybill_job(
-                                username=username,
-                                password=password,
-                                payload=payload,
-                                job_id=job_id,
-                                client_id=job.client_id,
-                                auth_state_path=auth_state_path,
-                            ),
-                            timeout=float(job_timeout),
-                        )
-                    except TimeoutError:
-                        logger.warning(f"Job {job_id} automation execution timed out after {job_timeout} seconds")
-                        result = {
-                            "status": "unknown",
-                            "error": f"Execution timed out after {job_timeout}s",
-                            "error_category": ErrorCategory.SUBMISSION_UNCONFIRMED.value,
-                            "mutation_status": "ambiguous",
-                            "needs_reconciliation": True,
-                        }
-
-                    result_status = str(result.get("status", "")).strip().lower()
-                    now = _utcnow_naive()
-
-                    if result_status == "otp_backoff":
-                        await utcms_submission_gate.record_otp_detected(worker_id=worker_id, evidence=result)
-                        night_decision = register_safe_night_failure(job)
-                        if night_decision.standby:
-                            retry_at = night_decision.retry_at
-                            error_category = "night_submission_attempts_exhausted"
-                            message = "سه تلاش امن شبانه ناموفق بود؛ ثبت تا ساعت ۰۸:۰۰ تهران در آماده‌باش است"
-                        else:
-                            retry_minutes = int(result.get("next_retry_at_minutes_add", 60))
-                            retry_at = now + timedelta(minutes=retry_minutes)
-                            error_category = "otp_required"
-                            message = result.get("message", "OTP challenge detected")
-                        JobStateMachine.transition(
-                            session,
-                            job,
-                            TaskStatus.WAITING_SUBMISSION_WINDOW.value,
-                            celery_task_id=None,
-                            next_retry_at=retry_at,
-                            submit_after=retry_at,
-                            last_error=message,
-                            error_category=error_category,
-                            finished_at=None,
-                        )
-                        runtime_state.state = DriverRuntimeStateValue.WAITING_SUBMISSION_WINDOW.value
-                        runtime_state.next_retry_at = retry_at
-                        runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                        await session.commit()
-
-                        await _add_job_log(
-                            session=session,
+                    result = await asyncio.wait_for(
+                        bot.execute_waybill_job(
+                            username=username,
+                            password=password,
+                            payload=payload,
                             job_id=job_id,
                             client_id=job.client_id,
-                            step="otp_backoff",
-                            status="waiting_submission_window",
-                            message=message,
-                            details_json=result,
-                        )
-                        await _record_event(
-                            session=session,
-                            client_id=job.client_id,
-                            driver_id=job.driver_id,
-                            job_id=job.job_id,
-                            event_type=OTP_DETECTED,
-                            payload={
-                                "retry_at": retry_at.isoformat(),
-                                "message": job.last_error,
-                                "night_attempt_count": night_decision.attempt_count,
-                                "standby": night_decision.standby,
-                            },
-                        )
-
-                        logger.info(f"Job {job_id} entered WAITING_SUBMISSION_WINDOW, retry at {job.next_retry_at}")
-                        return result
-
-                    if result_status == "validated":
-                        validation_payload = result.get("result") if isinstance(result.get("result"), dict) else {}
-                        JobStateMachine.transition(
-                            session,
-                            job,
-                            TaskStatus.NEEDS_REVIEW.value,
-                            result_json=validation_payload,
-                            celery_task_id=None,
-                            last_error="Waybill form validated; live submit is disabled",
-                            error_category="live_submit_disabled",
-                            retryable=False,
-                            next_retry_at=None,
-                            finished_at=now,
-                        )
-                        runtime_state.state = DriverRuntimeStateValue.READY.value
-                        runtime_state.next_retry_at = None
-                        runtime_state.updated_at = now
-                        await session.commit()
-                        logger.info("Job %s passed safe pre-submit validation", job_id)
-                        return result
-
-                    if result_status == TaskStatus.SUCCESS.value:
-                        result_payload = result.get("result")
-                        tracking_code = (
-                            str(result_payload.get("tracking_code") or "").strip()
-                            if isinstance(result_payload, dict)
-                            else ""
-                        )
-                        doc_id = None
-                        if isinstance(result_payload, dict) and result_payload.get("document_id"):
-                            doc_id = str(result_payload["document_id"])
-                        elif result.get("document_id"):
-                            doc_id = str(result["document_id"])
-
-                        if doc_id and not job.document_id:
-                            job.document_id = doc_id
-
-                        if not tracking_code:
-                            # CRITICAL REDLINE: SUCCESS without tracking code is forbidden -> downgrade to UNKNOWN
-                            result_status = TaskStatus.UNKNOWN.value
-                            result["status"] = TaskStatus.UNKNOWN.value
-                            result["error"] = (
-                                "Portal success response did not include a tracking code; reconciliation required"
-                            )
-                            result["error_category"] = ErrorCategory.SUBMISSION_UNCONFIRMED.value
-                            job.mutation_status = "dispatched" if doc_id else "ambiguous"
-                            provisional = dict(result_payload or {})
-                            if doc_id:
-                                provisional["document_id"] = doc_id
-                            provisional.update(build_missing_tracking_result(document_id=doc_id))
-                            reconciliation_at = now + timedelta(seconds=15)
-                            JobStateMachine.transition(
-                                session,
-                                job,
-                                TaskStatus.UNKNOWN.value,
-                                result_json=provisional if doc_id else None,
-                                celery_task_id=None,
-                                retryable=False,
-                                last_error=result["error"],
-                                error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
-                                next_retry_at=reconciliation_at if doc_id else None,
-                                finished_at=now,
-                            )
-                            runtime_state.state = DriverRuntimeStateValue.READY.value
-                            runtime_state.next_retry_at = None
-                            runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                            await session.commit()
-                            return result
-                        else:
-                            # Tracking-first acknowledgement: persist the code
-                            # and acknowledge the operator immediately. This is
-                            # NOT final DB success (the three-witness rule
-                            # still gates status=success) and NOT a reason to
-                            # schedule reconciliation — the code is off the
-                            # critical path. Second invocations are blocked by
-                            # the hard idempotency guard before any browser
-                            # session is created.
-                            from app.schemas.task import build_tracking_received_result
-
-                            ack_result = build_tracking_received_result(tracking_code, **dict(result_payload or {}))
-                            if doc_id:
-                                ack_result["document_id"] = doc_id
-                            job.mutation_status = "dispatched"
-                            if not job.mutation_at:
-                                job.mutation_at = now
-                            if isinstance(result_payload, dict) and result_payload.get("document_id"):
-                                job.document_id = str(result_payload["document_id"])
-                            elif doc_id and not job.document_id:
-                                job.document_id = doc_id
-
-                            JobStateMachine.transition(
-                                session,
-                                job,
-                                TaskStatus.UNKNOWN.value,
-                                result_json=ack_result,
-                                finished_at=now,
-                                last_error=None,
-                                error_category=None,
-                                retryable=False,
-                                next_retry_at=None,
-                            )
-                            runtime_state.state = DriverRuntimeStateValue.READY.value
-                            runtime_state.next_retry_at = None
-                            runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                            await session.commit()
-
-                            await _add_job_log(
-                                session=session,
-                                job_id=job_id,
-                                client_id=job.client_id,
-                                step="tracking_acknowledged",
-                                status="unknown",
-                                message="Tracking code received; operator acknowledged, History confirmation pending",
-                                details_json=json.dumps(ack_result, ensure_ascii=False, default=str),
-                            )
-                            logger.info("Job %s acknowledged tracking code %s", job_id, tracking_code)
-                            await browser_manager.record_success_for_recycle()
-                            result["status"] = TaskStatus.SUCCESS.value
-                            result["mutation_status"] = "dispatched"
-                            result["operator_acknowledged"] = True
-                            result["needs_reconciliation"] = False
-                            return result
-
-                    if (
-                        result_status == "unknown"
-                        or result_status == TaskStatus.UNKNOWN.value
-                        or result.get("mutation_status") == "ambiguous"
-                        or result.get("error_category") == ErrorCategory.SUBMISSION_UNCONFIRMED.value
-                    ):
-                        job.mutation_status = "ambiguous"
-                        error_msg = result.get(
-                            "error",
-                            "Waybill submission status ambiguous; reconciliation required",
-                        )
-                        JobStateMachine.transition(
-                            session,
-                            job,
-                            TaskStatus.UNKNOWN.value,
-                            celery_task_id=None,
-                            retryable=False,
-                            last_error=error_msg,
-                            error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
-                            finished_at=now,
-                        )
-                        runtime_state.state = DriverRuntimeStateValue.READY.value
-                        runtime_state.next_retry_at = None
-                        runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                        await session.commit()
-
-                        await _add_job_log(
-                            session=session,
-                            job_id=job_id,
-                            client_id=job.client_id,
-                            step="mutation_ambiguous",
-                            status="unknown",
-                            message=error_msg,
-                            details_json=result,
-                        )
-                        await _record_event(
-                            session=session,
-                            client_id=job.client_id,
-                            driver_id=job.driver_id,
-                            job_id=job.job_id,
-                            event_type=JOB_EXECUTION_FAILED,
-                            payload={
-                                "status": "unknown",
-                                "error": error_msg,
-                                "error_category": ErrorCategory.SUBMISSION_UNCONFIRMED.value,
-                            },
-                        )
-                        logger.warning(
-                            "job_entered_unknown_for_mandatory_reconciliation",
-                            extra={"extra_fields": {"job_id": job_id, "error": error_msg}},
-                        )
-                        return result
-
-                    job.last_error = result.get("error", "Unknown error")
-                    job.error_category = classify_error_string(
-                        error_msg=job.last_error,
-                        error_category_hint=result.get("error_category"),
-                        status_hint=result.get("status"),
-                    ).value
-
-                    night_decision = register_safe_night_failure(job)
-                    if night_decision.standby:
-                        retry_at = night_decision.retry_at
-                        JobStateMachine.transition(
-                            session,
-                            job,
-                            TaskStatus.WAITING_SUBMISSION_WINDOW.value,
-                            celery_task_id=None,
-                            retryable=True,
-                            next_retry_at=retry_at,
-                            submit_after=retry_at,
-                            finished_at=None,
-                            last_error="سه تلاش امن شبانه ناموفق بود؛ ثبت تا ساعت ۰۸:۰۰ تهران در آماده‌باش است",
-                            error_category="night_submission_attempts_exhausted",
-                        )
-                        runtime_state.state = DriverRuntimeStateValue.WAITING_SUBMISSION_WINDOW.value
-                        runtime_state.next_retry_at = retry_at
-                        runtime_state.updated_at = now
-                        await session.commit()
-                        return {
-                            **result,
-                            "status": TaskStatus.WAITING_SUBMISSION_WINDOW.value,
-                            "next_retry_at": retry_at.isoformat(),
-                            "night_attempt_count": night_decision.attempt_count,
-                        }
-
-                    if job.attempt_count < job.max_retries and _is_retryable(result):
-                        retry_delay = get_retry_delay(result, job.attempt_count)
-                        retry_at = now + timedelta(seconds=retry_delay)
-                        JobStateMachine.transition(
-                            session,
-                            job,
-                            TaskStatus.WAITING_RETRY.value,
-                            celery_task_id=None,
-                            retryable=True,
-                            next_retry_at=retry_at,
-                            submit_after=retry_at,
-                            finished_at=None,
-                        )
-                        runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
-                        runtime_state.next_retry_at = retry_at
-                        runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                        await session.commit()
-
-                        await _add_job_log(
-                            session=session,
-                            job_id=job_id,
-                            client_id=job.client_id,
-                            step="retry_scheduled",
-                            status="waiting_retry",
-                            message=f"Retry scheduled for {retry_at.isoformat()} (attempt {job.attempt_count}/{job.max_retries})",
-                            details_json=result,
-                        )
-                        await _record_event(
-                            session=session,
-                            client_id=job.client_id,
-                            driver_id=job.driver_id,
-                            job_id=job.job_id,
-                            event_type=JOB_RETRY_SCHEDULED,
-                            payload={
-                                "retry_at": retry_at.isoformat(),
-                                "attempt": job.attempt_count,
-                                "max_retries": job.max_retries,
-                                "error_category": job.error_category,
-                            },
-                        )
-
-                        logger.info(f"Job {job_id} moved to WAITING_RETRY until {retry_at.isoformat()}")
-                        return {
-                            **result,
-                            "status": TaskStatus.WAITING_RETRY.value,
-                            "next_retry_at": retry_at.isoformat(),
-                        }
-
-                    target_status = (
-                        TaskStatus.NEEDS_REVIEW.value
-                        if job.error_category
-                        in {
-                            ErrorCategory.AUTH_FAILURE.value,
-                            ErrorCategory.USER_DATA_ERROR.value,
-                            ErrorCategory.SELECTOR_CHANGED.value,
-                            ErrorCategory.BOT_DETECTED.value,
-                        }
-                        else TaskStatus.FAILED.value
+                            auth_state_path=auth_state_path,
+                            allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
+                            proxy_url=worker_proxy_url,
+                        ),
+                        timeout=float(job_timeout),
                     )
+                except TimeoutError:
+                    logger.warning(f"Job {job_id} mobile automation execution timed out after {job_timeout} seconds")
+                    result = {
+                        "status": "unknown",
+                        "error": f"Execution timed out after {job_timeout}s",
+                        "error_category": ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                        "mutation_status": "ambiguous",
+                        "needs_reconciliation": True,
+                    }
+            else:
+                # Use simple worker proxy helper — bypasses proxy_rotator's cooldown/geo-check
+                # that could return None, leaving Chromium without proxy → navigation timeout.
+                proxy_dict = get_playwright_proxy()
+                async with managed_browser_session(
+                    auth_state_path=auth_state_path,
+                    proxy_dict=proxy_dict,
+                    skip_browser=False,
+                ) as (
+                    _session_id,
+                    context,
+                ):
+                    page = await browser_manager.new_page(context) if context is not None else None
+
+                    try:
+                        bot = WaybillAutomationBot(page, context)
+                        try:
+                            result = await asyncio.wait_for(
+                                bot.execute_waybill_job(
+                                    username=username,
+                                    password=password,
+                                    payload=payload,
+                                    job_id=job_id,
+                                    client_id=job.client_id,
+                                    auth_state_path=auth_state_path,
+                                ),
+                                timeout=float(job_timeout),
+                            )
+                        except TimeoutError:
+                            logger.warning(f"Job {job_id} automation execution timed out after {job_timeout} seconds")
+                            result = {
+                                "status": "unknown",
+                                "error": f"Execution timed out after {job_timeout}s",
+                                "error_category": ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                                "mutation_status": "ambiguous",
+                                "needs_reconciliation": True,
+                            }
+
+                    finally:
+                        await _close_page_quickly(page)
+
+            result_status = str(result.get("status", "")).strip().lower()
+            now = _utcnow_naive()
+
+            if result_status == "otp_backoff":
+                await utcms_submission_gate.record_otp_detected(worker_id=worker_id, evidence=result)
+                night_decision = register_safe_night_failure(job)
+                if night_decision.standby:
+                    retry_at = night_decision.retry_at
+                    error_category = "night_submission_attempts_exhausted"
+                    message = "سه تلاش امن شبانه ناموفق بود؛ ثبت تا ساعت ۰۸:۰۰ تهران در آماده‌باش است"
+                else:
+                    retry_minutes = int(result.get("next_retry_at_minutes_add", 60))
+                    retry_at = now + timedelta(minutes=retry_minutes)
+                    error_category = "otp_required"
+                    message = result.get("message", "OTP challenge detected")
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.WAITING_SUBMISSION_WINDOW.value,
+                    celery_task_id=None,
+                    next_retry_at=retry_at,
+                    submit_after=retry_at,
+                    last_error=message,
+                    error_category=error_category,
+                    finished_at=None,
+                )
+                runtime_state.state = DriverRuntimeStateValue.WAITING_SUBMISSION_WINDOW.value
+                runtime_state.next_retry_at = retry_at
+                runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                await session.commit()
+
+                await _add_job_log(
+                    session=session,
+                    job_id=job_id,
+                    client_id=job.client_id,
+                    step="otp_backoff",
+                    status="waiting_submission_window",
+                    message=message,
+                    details_json=result,
+                )
+                await _record_event(
+                    session=session,
+                    client_id=job.client_id,
+                    driver_id=job.driver_id,
+                    job_id=job.job_id,
+                    event_type=OTP_DETECTED,
+                    payload={
+                        "retry_at": retry_at.isoformat(),
+                        "message": job.last_error,
+                        "night_attempt_count": night_decision.attempt_count,
+                        "standby": night_decision.standby,
+                    },
+                )
+
+                logger.info(f"Job {job_id} entered WAITING_SUBMISSION_WINDOW, retry at {job.next_retry_at}")
+                return result
+
+            if result_status == "validated":
+                validation_payload = result.get("result") if isinstance(result.get("result"), dict) else {}
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.NEEDS_REVIEW.value,
+                    result_json=validation_payload,
+                    celery_task_id=None,
+                    last_error="Waybill form validated; live submit is disabled",
+                    error_category="live_submit_disabled",
+                    retryable=False,
+                    next_retry_at=None,
+                    finished_at=now,
+                )
+                runtime_state.state = DriverRuntimeStateValue.READY.value
+                runtime_state.next_retry_at = None
+                runtime_state.updated_at = now
+                await session.commit()
+                logger.info("Job %s passed safe pre-submit validation", job_id)
+                return result
+
+            if result_status == TaskStatus.SUCCESS.value:
+                result_payload = result.get("result")
+                tracking_code = (
+                    str(result_payload.get("tracking_code") or "").strip()
+                    if isinstance(result_payload, dict)
+                    else ""
+                )
+                doc_id = None
+                if isinstance(result_payload, dict) and result_payload.get("document_id"):
+                    doc_id = str(result_payload["document_id"])
+                elif result.get("document_id"):
+                    doc_id = str(result["document_id"])
+
+                if doc_id and not job.document_id:
+                    job.document_id = doc_id
+
+                if not tracking_code:
+                    # CRITICAL REDLINE: SUCCESS without tracking code is forbidden -> downgrade to UNKNOWN
+                    result_status = TaskStatus.UNKNOWN.value
+                    result["status"] = TaskStatus.UNKNOWN.value
+                    result["error"] = (
+                        "Portal success response did not include a tracking code; reconciliation required"
+                    )
+                    result["error_category"] = ErrorCategory.SUBMISSION_UNCONFIRMED.value
+                    job.mutation_status = "dispatched" if doc_id else "ambiguous"
+                    provisional = dict(result_payload or {})
+                    if doc_id:
+                        provisional["document_id"] = doc_id
+                    provisional.update(build_missing_tracking_result(document_id=doc_id))
+                    reconciliation_at = now + timedelta(seconds=15)
                     JobStateMachine.transition(
-                        session, job, target_status, retryable=False, finished_at=now, next_retry_at=None
+                        session,
+                        job,
+                        TaskStatus.UNKNOWN.value,
+                        result_json=provisional if doc_id else None,
+                        celery_task_id=None,
+                        retryable=False,
+                        last_error=result["error"],
+                        error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                        next_retry_at=reconciliation_at if doc_id else None,
+                        finished_at=now,
+                    )
+                    runtime_state.state = DriverRuntimeStateValue.READY.value
+                    runtime_state.next_retry_at = None
+                    runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    await session.commit()
+                    return result
+                else:
+                    # Tracking-first acknowledgement: persist the code
+                    # and acknowledge the operator immediately. This is
+                    # NOT final DB success (the three-witness rule
+                    # still gates status=success) and NOT a reason to
+                    # schedule reconciliation — the code is off the
+                    # critical path. Second invocations are blocked by
+                    # the hard idempotency guard before any browser
+                    # session is created.
+                    from app.schemas.task import build_tracking_received_result
+
+                    payload_details = dict(result_payload or {})
+                    payload_details.pop("tracking_code", None)
+                    ack_result = build_tracking_received_result(tracking_code, **payload_details)
+                    if doc_id:
+                        ack_result["document_id"] = doc_id
+                    job.mutation_status = "dispatched"
+                    if not job.mutation_at:
+                        job.mutation_at = now
+                    if isinstance(result_payload, dict) and result_payload.get("document_id"):
+                        job.document_id = str(result_payload["document_id"])
+                    elif doc_id and not job.document_id:
+                        job.document_id = doc_id
+
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.UNKNOWN.value,
+                        result_json=ack_result,
+                        finished_at=now,
+                        last_error=None,
+                        error_category=None,
+                        retryable=False,
+                        next_retry_at=None,
                     )
                     runtime_state.state = DriverRuntimeStateValue.READY.value
                     runtime_state.next_retry_at = None
@@ -1621,27 +1487,219 @@ async def _execute_job(
                         session=session,
                         job_id=job_id,
                         client_id=job.client_id,
-                        step="failed",
-                        status="failed",
-                        message=result.get("error", "Failed"),
-                        details_json=result.get("steps", []),
+                        step="tracking_acknowledged",
+                        status="unknown",
+                        message="Tracking code received; operator acknowledged, History confirmation pending",
+                        details_json=json.dumps(ack_result, ensure_ascii=False, default=str),
                     )
-                    await _record_event(
-                        session=session,
-                        client_id=job.client_id,
-                        driver_id=job.driver_id,
-                        job_id=job.job_id,
-                        event_type=JOB_EXECUTION_FAILED,
-                        payload={"error": job.last_error, "error_category": job.error_category},
-                    )
-
-                    logger.warning(f"Job {job_id} failed permanently: {result.get('error')}")
-                    from app.core.circuit_breaker import check_and_report_failure
-
-                    await check_and_report_failure(result.get("error", "Unknown error"))
+                    if utcms_config.UTCMS_TRANSPORT not in {"mobile", "shadow"}:
+                        await browser_manager.record_success_for_recycle()
+                    result["status"] = TaskStatus.SUCCESS.value
+                    result["mutation_status"] = "dispatched"
+                    result["operator_acknowledged"] = True
+                    result["needs_reconciliation"] = False
                     return result
-                finally:
-                    await _close_page_quickly(page)
+
+            if (
+                result_status == "unknown"
+                or result_status == TaskStatus.UNKNOWN.value
+                or result.get("mutation_status") == "ambiguous"
+                or result.get("error_category") == ErrorCategory.SUBMISSION_UNCONFIRMED.value
+            ):
+                result_payload = result.get("result") if isinstance(result.get("result"), dict) else {}
+                document_id = str(
+                    result.get("document_id") or result_payload.get("document_id") or ""
+                ).strip()
+                if document_id and not job.document_id:
+                    job.document_id = document_id
+                otp_required = bool(
+                    result.get("requires_operator_otp")
+                    or result.get("error_category") == "otp_required"
+                    or result_payload.get("otp_required") is True
+                )
+                if otp_required:
+                    # The API response is the authoritative signal. A
+                    # clock prediction must never be used to infer or
+                    # suppress this challenge.
+                    await utcms_submission_gate.record_otp_detected(
+                        worker_id=worker_id,
+                        evidence={
+                            "transport": result.get("transport"),
+                            "isOtpNeeded": True,
+                            "document_id": result_payload.get("document_id"),
+                        },
+                    )
+                job.mutation_status = result.get("mutation_status") or "ambiguous"
+                error_msg = result.get(
+                    "error",
+                    "Waybill submission status ambiguous; reconciliation required",
+                )
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.UNKNOWN.value,
+                    celery_task_id=None,
+                    retryable=False,
+                    last_error=error_msg,
+                    error_category="otp_required" if otp_required else ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                    result_json=result_payload or None,
+                    finished_at=now,
+                )
+                runtime_state.state = DriverRuntimeStateValue.READY.value
+                runtime_state.next_retry_at = None
+                runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                await session.commit()
+
+                await _add_job_log(
+                    session=session,
+                    job_id=job_id,
+                    client_id=job.client_id,
+                    step="mutation_ambiguous",
+                    status="unknown",
+                    message=error_msg,
+                    details_json=result,
+                )
+                await _record_event(
+                    session=session,
+                    client_id=job.client_id,
+                    driver_id=job.driver_id,
+                    job_id=job.job_id,
+                    event_type=JOB_EXECUTION_FAILED,
+                    payload={
+                        "status": "unknown",
+                        "error": error_msg,
+                        "error_category": ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                    },
+                )
+                logger.warning(
+                    "job_entered_unknown_for_mandatory_reconciliation",
+                    extra={"extra_fields": {"job_id": job_id, "error": error_msg}},
+                )
+                return result
+
+            job.last_error = result.get("error", "Unknown error")
+            job.error_category = classify_error_string(
+                error_msg=job.last_error,
+                error_category_hint=result.get("error_category"),
+                status_hint=result.get("status"),
+            ).value
+
+            night_decision = register_safe_night_failure(job)
+            if night_decision.standby:
+                retry_at = night_decision.retry_at
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.WAITING_SUBMISSION_WINDOW.value,
+                    celery_task_id=None,
+                    retryable=True,
+                    next_retry_at=retry_at,
+                    submit_after=retry_at,
+                    finished_at=None,
+                    last_error="سه تلاش امن شبانه ناموفق بود؛ ثبت تا ساعت ۰۸:۰۰ تهران در آماده‌باش است",
+                    error_category="night_submission_attempts_exhausted",
+                )
+                runtime_state.state = DriverRuntimeStateValue.WAITING_SUBMISSION_WINDOW.value
+                runtime_state.next_retry_at = retry_at
+                runtime_state.updated_at = now
+                await session.commit()
+                return {
+                    **result,
+                    "status": TaskStatus.WAITING_SUBMISSION_WINDOW.value,
+                    "next_retry_at": retry_at.isoformat(),
+                    "night_attempt_count": night_decision.attempt_count,
+                }
+
+            if job.attempt_count < job.max_retries and _is_retryable(result):
+                retry_delay = get_retry_delay(result, job.attempt_count)
+                retry_at = now + timedelta(seconds=retry_delay)
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.WAITING_RETRY.value,
+                    celery_task_id=None,
+                    retryable=True,
+                    next_retry_at=retry_at,
+                    submit_after=retry_at,
+                    finished_at=None,
+                )
+                runtime_state.state = DriverRuntimeStateValue.WAITING_RETRY.value
+                runtime_state.next_retry_at = retry_at
+                runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                await session.commit()
+
+                await _add_job_log(
+                    session=session,
+                    job_id=job_id,
+                    client_id=job.client_id,
+                    step="retry_scheduled",
+                    status="waiting_retry",
+                    message=f"Retry scheduled for {retry_at.isoformat()} (attempt {job.attempt_count}/{job.max_retries})",
+                    details_json=result,
+                )
+                await _record_event(
+                    session=session,
+                    client_id=job.client_id,
+                    driver_id=job.driver_id,
+                    job_id=job.job_id,
+                    event_type=JOB_RETRY_SCHEDULED,
+                    payload={
+                        "retry_at": retry_at.isoformat(),
+                        "attempt": job.attempt_count,
+                        "max_retries": job.max_retries,
+                        "error_category": job.error_category,
+                    },
+                )
+
+                logger.info(f"Job {job_id} moved to WAITING_RETRY until {retry_at.isoformat()}")
+                return {
+                    **result,
+                    "status": TaskStatus.WAITING_RETRY.value,
+                    "next_retry_at": retry_at.isoformat(),
+                }
+
+            target_status = (
+                TaskStatus.NEEDS_REVIEW.value
+                if job.error_category
+                in {
+                    ErrorCategory.AUTH_FAILURE.value,
+                    ErrorCategory.USER_DATA_ERROR.value,
+                    ErrorCategory.SELECTOR_CHANGED.value,
+                    ErrorCategory.BOT_DETECTED.value,
+                }
+                else TaskStatus.FAILED.value
+            )
+            JobStateMachine.transition(
+                session, job, target_status, retryable=False, finished_at=now, next_retry_at=None
+            )
+            runtime_state.state = DriverRuntimeStateValue.READY.value
+            runtime_state.next_retry_at = None
+            runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+            await session.commit()
+
+            await _add_job_log(
+                session=session,
+                job_id=job_id,
+                client_id=job.client_id,
+                step="failed",
+                status="failed",
+                message=result.get("error", "Failed"),
+                details_json=result.get("steps", []),
+            )
+            await _record_event(
+                session=session,
+                client_id=job.client_id,
+                driver_id=job.driver_id,
+                job_id=job.job_id,
+                event_type=JOB_EXECUTION_FAILED,
+                payload={"error": job.last_error, "error_category": job.error_category},
+            )
+
+            logger.warning(f"Job {job_id} failed permanently: {result.get('error')}")
+            from app.core.circuit_breaker import check_and_report_failure
+
+            await check_and_report_failure(result.get("error", "Unknown error"))
+            return result
 
         except Exception as e:
             logger.error(f"Job {job_id} execution error: {e}", exc_info=True)
@@ -1684,7 +1742,8 @@ async def _execute_job(
             if any(msg in err_msg for msg in ("target closed", "browser closed", "context closed", "page closed")):
                 logger.warning("Browser crash detected. Triggering browser recycle.")
                 try:
-                    await browser_manager.recycle_browser()
+                    if utcms_config.UTCMS_TRANSPORT not in {"mobile", "shadow"}:
+                        await browser_manager.recycle_browser()
                 except Exception as recycle_err:
                     logger.error(f"Failed to recycle browser after crash: {recycle_err}")
 

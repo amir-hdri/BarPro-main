@@ -467,7 +467,7 @@ class EnhancedWaybillManager:
     def _to_english_digits(text: str) -> str:
         if text is None:
             return ""
-        translation_table = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
+        translation_table = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
         return str(text).translate(translation_table)
 
     @classmethod
@@ -902,27 +902,51 @@ class EnhancedWaybillManager:
         except Exception:
             return False
 
-        best_value = None
-        for option in options:
-            option_text = self._normalize_text(str(option.get("text") or ""))
-            option_value_normalized = self._normalize_text(str(option.get("value") or ""))
-            option_value = str(option.get("value") or "").strip()
-            if all(fragment in option_text or fragment in option_value_normalized for fragment in cleaned_fragments):
-                best_value = option_value or str(option.get("text") or "").strip()
-                break
+        # Fragments must own whole tokens (plate digits "345" never match
+        # "3459"), and the match must be unique — never first-match-wins.
+        matches: list[str] = []
+        for option in options or []:
+            option_text = str((option or {}).get("text") or "")
+            option_value = str((option or {}).get("value") or "")
+            tokens = {
+                self._normalize_text(token)
+                for token in re.split(r"[\s\-_/()]+", f"{option_text} {option_value}")
+                if token.strip()
+            }
+            if all(fragment in tokens for fragment in cleaned_fragments):
+                candidate = option_value.strip() or option_text.strip()
+                if candidate and candidate not in matches:
+                    matches.append(candidate)
 
-        if not best_value:
+        if len(matches) != 1:
+            if len(matches) > 1:
+                logger.warning(
+                    "fragment_select_ambiguous_match",
+                    extra={"extra_fields": {"selector": selector, "matches": len(matches)}},
+                )
             return False
+        best_value = matches[0]
 
-        try:
-            await self.page.select_option(visible_selector, value=best_value)
-            return True
-        except Exception:
+        for attempt in ("value", "label"):
             try:
-                await self.page.select_option(visible_selector, label=best_value)
-                return True
-            except Exception:
+                if attempt == "value":
+                    await self.page.select_option(visible_selector, value=best_value)
+                else:
+                    await self.page.select_option(visible_selector, label=best_value)
+                readback = await self._read_select_value(visible_selector)
+                if readback is not None and (
+                    self._fill_readback_matches(best_value, readback[0])
+                    or self._fill_readback_matches(best_value, readback[1])
+                ):
+                    return True
+                logger.warning(
+                    "fragment_select_readback_mismatch",
+                    extra={"extra_fields": {"selector": selector}},
+                )
                 return False
+            except Exception:
+                continue
+        return False
 
     async def _log_select_options(self, selector: str, label: str) -> None:
         try:
@@ -2616,6 +2640,11 @@ class EnhancedWaybillManager:
             "#formHagigiHogugi",
             "form[action*='HagigiHogugi' i]",
         )
+        # One batched DOM sweep first: 23 sequential query_selector roundtrips
+        # plus up to 23 SmartLocator recovery waits (~14s) collapse into one.
+        probe = await self._any_marker_present(markers)
+        if probe is not None:
+            return probe
         for selector in markers:
             try:
                 handle = await self.page.query_selector(selector)
@@ -2630,6 +2659,30 @@ class EnhancedWaybillManager:
             except Exception:
                 continue
         return False
+
+    async def _any_marker_present(self, selectors) -> bool | None:
+        """Single-roundtrip presence sweep over CSS/text markers.
+
+        Returns None when the probe itself is inconclusive (evaluate
+        unsupported or a non-boolean answer) so callers fall back to the
+        legacy per-selector sweep instead of trusting a negative.
+        """
+        try:
+            found = await self.page.evaluate(
+                """(selectors) => selectors.some((sel) => {
+                    try {
+                        if (typeof sel === 'string' && sel.startsWith('text=')) {
+                            const text = sel.slice(5);
+                            return (document.body?.innerText || '').includes(text);
+                        }
+                        return document.querySelector(sel) !== null;
+                    } catch (e) { return false; }
+                })""",
+                list(selectors),
+            )
+        except Exception:
+            return None
+        return found if isinstance(found, bool) else None
 
     async def _probe_form_javascript(self) -> dict[str, Any] | None:
         """Report whether the issuance form's JavaScript actually initialised.
@@ -4559,6 +4612,41 @@ class EnhancedWaybillManager:
         )
         return False
 
+    async def _read_selector_value(self, selector: str) -> str:
+        """Best-effort DOM read-back of a filled field (never raises)."""
+        try:
+            current = await self.page.eval_on_selector(
+                selector,
+                """el => {
+                    if (!el) return '';
+                    if ('value' in el) return String(el.value || '');
+                    return String((el.innerText || el.textContent || '').trim());
+                }""",
+            )
+        except Exception:
+            return ""
+        return str(current or "")
+
+    async def _read_select_value(self, selector: str) -> tuple[str, str] | None:
+        """Read back a select's (value, visible text); None when unreadable."""
+        try:
+            readback = await self.page.eval_on_selector(
+                selector,
+                "el => ({value: String(el.value || '').trim(), text: String(el.selectedOptions?.[0]?.textContent || '').trim()})",
+            )
+        except Exception:
+            return None
+        if not isinstance(readback, dict):
+            return None
+        return (str(readback.get("value") or ""), str(readback.get("text") or ""))
+
+    @staticmethod
+    def _fill_readback_matches(expected: str, actual: str) -> bool:
+        """Same equality rule as `_fill_verified_text_field`: exact or normalized."""
+        if actual == expected:
+            return True
+        return EnhancedWaybillManager._normalize_text(actual) == EnhancedWaybillManager._normalize_text(expected)
+
     async def _fill_with_fallback(
         self,
         selectors,
@@ -4593,14 +4681,20 @@ class EnhancedWaybillManager:
             except Exception:
                 logger.warning("waybill_enhanced_silent_error", exc_info=True)
             await asyncio.sleep(0.05)
-            self._record_selector_inventory(
-                field_label=field_label,
-                selectors=list(selectors),
-                status="filled",
-                selector_used=list(selectors)[0] if selectors else None,
-                value=value,
+            current = await self._locator_current_value(locator)
+            if self._fill_readback_matches(value, current):
+                self._record_selector_inventory(
+                    field_label=field_label,
+                    selectors=list(selectors),
+                    status="filled",
+                    selector_used=list(selectors)[0] if selectors else None,
+                    value=current,
+                )
+                return
+            logger.warning(
+                "fill_readback_mismatch",
+                extra={"extra_fields": {"field": field_label}},
             )
-            return
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
@@ -4608,26 +4702,28 @@ class EnhancedWaybillManager:
             fill_success = await self.interactor.safe_fill(selector, value)
             if fill_success:
                 await asyncio.sleep(0.05)
-                self._record_selector_inventory(
-                    field_label=field_label,
-                    selectors=list(selectors),
-                    status="fallback-only",
-                    selector_used=selector,
-                    value=value,
-                )
-                return
+                if self._fill_readback_matches(value, await self._read_selector_value(selector)):
+                    self._record_selector_inventory(
+                        field_label=field_label,
+                        selectors=list(selectors),
+                        status="fallback-only",
+                        selector_used=selector,
+                        value=value,
+                    )
+                    return
 
             js_success = await self._set_value_with_js(selector, value)
             if js_success:
                 await asyncio.sleep(0.05)
-                self._record_selector_inventory(
-                    field_label=field_label,
-                    selectors=list(selectors),
-                    status="fallback-only",
-                    selector_used=selector,
-                    value=value,
-                )
-                return
+                if self._fill_readback_matches(value, await self._read_selector_value(selector)):
+                    self._record_selector_inventory(
+                        field_label=field_label,
+                        selectors=list(selectors),
+                        status="fallback-only",
+                        selector_used=selector,
+                        value=value,
+                    )
+                    return
 
         if required:
             self._record_selector_inventory(
@@ -4812,6 +4908,7 @@ class EnhancedWaybillManager:
             options = []
 
         best_value = None
+        exact_matches: list[str] = []
         for option in options:
             option_text = str(option.get("text") or "").strip()
             option_value = str(option.get("value") or "").strip()
@@ -4820,14 +4917,43 @@ class EnhancedWaybillManager:
             normalized_value = self._normalize_text(option_value)
 
             if normalized_target == normalized_text or normalized_target == normalized_value:
-                best_value = option_value or option_text
-                break
-            if (
-                normalized_target in normalized_text
-                or normalized_target in normalized_value
-                or normalized_text in normalized_target
-            ):
-                best_value = option_value or option_text
+                candidate = option_value or option_text
+                if candidate not in exact_matches:
+                    exact_matches.append(candidate)
+
+        if len(exact_matches) == 1:
+            best_value = exact_matches[0]
+        elif len(exact_matches) > 1:
+            logger.warning(
+                "dropdown_ambiguous_match",
+                extra={"extra_fields": {"selector": selector, "matches": len(exact_matches)}},
+            )
+            return False
+        else:
+            # No exact hit: allow a whole-token match only (never a substring).
+            # A substring keeps the LAST arbitrary hit ("کابین" silently
+            # resolving to "دو کابینه"); a token still requires uniqueness.
+            token_matches: list[str] = []
+            for option in options:
+                option_text = str(option.get("text") or "").strip()
+                option_value = str(option.get("value") or "").strip()
+                tokens = {
+                    self._normalize_text(token)
+                    for token in re.split(r"\s+", f"{option_text} {option_value}")
+                    if token.strip()
+                }
+                if normalized_target in tokens:
+                    candidate = option_value or option_text
+                    if candidate not in token_matches:
+                        token_matches.append(candidate)
+            if len(token_matches) == 1:
+                best_value = token_matches[0]
+            elif len(token_matches) > 1:
+                logger.warning(
+                    "dropdown_ambiguous_match",
+                    extra={"extra_fields": {"selector": selector, "matches": len(token_matches)}},
+                )
+                return False
 
         if best_value:
             try:
@@ -4844,7 +4970,17 @@ class EnhancedWaybillManager:
                     )
                 except Exception:
                     logger.warning("waybill_enhanced_silent_error", exc_info=True)
-                return True
+                readback = await self._read_select_value(selector)
+                if readback is not None and (
+                    self._fill_readback_matches(best_value, readback[0])
+                    or self._fill_readback_matches(best_value, readback[1])
+                ):
+                    return True
+                logger.warning(
+                    "dropdown_readback_mismatch",
+                    extra={"extra_fields": {"selector": selector}},
+                )
+                return False
             except Exception:
                 try:
                     if locator is not None:
@@ -4859,7 +4995,17 @@ class EnhancedWaybillManager:
                         )
                     except Exception:
                         logger.warning("waybill_enhanced_silent_error", exc_info=True)
-                    return True
+                    readback = await self._read_select_value(selector)
+                    if readback is not None and (
+                        self._fill_readback_matches(best_value, readback[0])
+                        or self._fill_readback_matches(best_value, readback[1])
+                    ):
+                        return True
+                    logger.warning(
+                        "dropdown_readback_mismatch",
+                        extra={"extra_fields": {"selector": selector}},
+                    )
+                    return False
                 except Exception:
                     logger.warning("waybill_enhanced_silent_error", exc_info=True)
 
@@ -6691,12 +6837,16 @@ class EnhancedWaybillManager:
             "text=کد رهگیری",
             "text=چاپ بارنامه",
         ]
-        for selector in success_selectors:
-            try:
-                if await self._is_selector_visible(selector):
-                    return True
-            except Exception:
-                continue
+        # Batched gate first: each absent marker below costs a SmartLocator
+        # recovery wait (~1200ms), so an empty page burns ~10s here per poll
+        # iteration. Only run the recovery sweep when something is present.
+        if await self._any_marker_present(success_selectors) is not False:
+            for selector in success_selectors:
+                try:
+                    if await self._is_selector_visible(selector):
+                        return True
+                except Exception:
+                    continue
 
         current_url = (await self._current_url()).lower()
         success_fragments = (
@@ -6871,6 +7021,11 @@ class EnhancedWaybillManager:
             "#printId",
             "input[name='printId']",
         ]
+
+        # Batched gate first: each absent marker below costs a SmartLocator
+        # recovery wait (~900ms). Skip the sweep when nothing is present.
+        if await self._any_marker_present(selectors) is False:
+            selectors = []
 
         for selector in selectors:
             try:

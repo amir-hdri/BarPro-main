@@ -173,6 +173,7 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
         mock_locator = AsyncMock()
         mock_locator.fill = AsyncMock()
         self.manager.smart_locator.locate = AsyncMock(return_value=mock_locator)
+        self.manager._locator_current_value = AsyncMock(return_value="test_value")
 
         await self.manager._fill_with_fallback(["#primary", "#secondary"], "test_value", "test_field")
 
@@ -184,6 +185,7 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
         self.manager.smart_locator.locate = AsyncMock(side_effect=Exception("Not found"))
         self.manager.interactor.safe_fill = AsyncMock(side_effect=[False, True])
         self.manager._set_value_with_js = AsyncMock(return_value=False)
+        self.mock_page.eval_on_selector = AsyncMock(return_value="test_value")
 
         await self.manager._fill_with_fallback(["#first", "#second"], "test_value", "test_field")
 
@@ -196,6 +198,7 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
         mock_locator = AsyncMock()
         mock_locator.fill = AsyncMock()
         self.manager.smart_locator.locate = AsyncMock(return_value=mock_locator)
+        self.manager._locator_current_value = AsyncMock(return_value="value")
 
         await self.manager._fill_with_fallback(["#primary", "#secondary"], "value", "field_name")
 
@@ -207,6 +210,7 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
         """Test fill with fallback records selector inventory when using fallback."""
         self.manager.smart_locator.locate = AsyncMock(side_effect=Exception("Not found"))
         self.manager.interactor.safe_fill = AsyncMock(return_value=True)
+        self.mock_page.eval_on_selector = AsyncMock(return_value="value")
 
         await self.manager._fill_with_fallback(["#primary", "#secondary"], "value", "field_name")
 

@@ -9,6 +9,12 @@ import { ErrorState } from '@/components/layout/States';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useSession } from '@/hooks/useSession';
 import { api } from '@/lib/api';
+import dynamic from 'next/dynamic';
+
+const ShippingRouteMap = dynamic(
+  () => import('@/components/ShippingRouteMap').then((mod) => mod.ShippingRouteMap),
+  { ssr: false, loading: () => <div className="h-[350px] bg-slate-900/40 animate-pulse rounded-xl" /> }
+);
 import {
   errorCategoryLabel,
   formatDateTime,
@@ -1007,6 +1013,42 @@ export default function HistoryPage() {
                             )}
                           </div>
                         </div>
+
+                        {/* GPS Shipping Route Map — exact user addresses */}
+                        {selectedJob.status === 'success' && (
+                          <div className="mt-4">
+                            <ShippingRouteMap
+                              jobId={selectedJob.job_id}
+                              docNo={
+                                typeof selectedJob.result_json === 'object' && selectedJob.result_json
+                                  ? String((selectedJob.result_json as Record<string, unknown>).document_id || (selectedJob.result_json as Record<string, unknown>).tracking_code || '')
+                                  : ''
+                              }
+                              originAddress={selectedJobPayload?.originCity || ''}
+                              destAddress={selectedJobPayload?.destinationCity || ''}
+                              originLat={
+                                typeof selectedJob.payload_json === 'object' && selectedJob.payload_json
+                                  ? Number((selectedJob.payload_json as Record<string, unknown>).originLat) || undefined
+                                  : undefined
+                              }
+                              originLng={
+                                typeof selectedJob.payload_json === 'object' && selectedJob.payload_json
+                                  ? Number((selectedJob.payload_json as Record<string, unknown>).originLng) || undefined
+                                  : undefined
+                              }
+                              destLat={
+                                typeof selectedJob.payload_json === 'object' && selectedJob.payload_json
+                                  ? Number((selectedJob.payload_json as Record<string, unknown>).destLat) || undefined
+                                  : undefined
+                              }
+                              destLng={
+                                typeof selectedJob.payload_json === 'object' && selectedJob.payload_json
+                                  ? Number((selectedJob.payload_json as Record<string, unknown>).destLng) || undefined
+                                  : undefined
+                              }
+                            />
+                          </div>
+                        )}
 
                         {/* Confirmed Tracking Code */}
                         {(() => {

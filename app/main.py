@@ -24,6 +24,7 @@ from app.api.routes import (
     reports,
     route_templates,
     rpa_phase1,
+    shipping_gps,
     system,
     user_reporting,
     waybill_entry,
@@ -425,6 +426,7 @@ app.include_router(realtime.router)
 app.include_router(admin_alerts.router)
 app.include_router(admin_reporting.router)
 app.include_router(user_reporting.router)
+app.include_router(shipping_gps.router)
 
 
 @app.exception_handler(UTCMSException)

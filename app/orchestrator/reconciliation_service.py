@@ -20,9 +20,6 @@ from app.services.rpa_runtime_service import rpa_runtime
 
 logger = logging.getLogger(__name__)
 
-# Eventual consistency retry delays in seconds: 15s, 45s, 2m, 5m
-RECONCILIATION_SCHEDULE = [15, 45, 120, 300]
-
 
 def _result_json_dict(raw) -> dict:
     """Parse a job's result_json (dict or JSON string) into a plain dict."""
@@ -35,6 +32,20 @@ def _result_json_dict(raw) -> dict:
         except (TypeError, json.JSONDecodeError):
             return {}
     return {}
+
+
+def _is_operator_otp_pending(job: WaybillJob) -> bool:
+    """Keep OTP-pending mobile results out of automatic History reconciliation."""
+    result = _result_json_dict(getattr(job, "result_json", None))
+    return bool(
+        job.error_category == "otp_required"
+        or result.get("requires_operator_otp")
+        or result.get("otp_required") is True
+    )
+
+
+# Eventual consistency retry delays in seconds: 15s, 45s, 2m, 5m
+RECONCILIATION_SCHEDULE = [15, 45, 120, 300]
 
 
 def is_tracking_received(job: WaybillJob) -> bool:
@@ -91,6 +102,13 @@ class ReconciliationService:
                 except Exception as e:
                     logger.error("Failed to heal tracking-received job #%s to unknown: %s", job_id, e)
                     await session.rollback()
+            return job
+
+        if _is_operator_otp_pending(job) and not audit_only:
+            logger.info(
+                "operator_otp_pending_reconciliation_skipped",
+                extra={"extra_fields": {"job_id": job.job_id}},
+            )
             return job
 
         # A terminal unconfirmed submission can still be verified manually in
@@ -413,10 +431,18 @@ class ReconciliationService:
         due_ids: list[int] = []
         for jid in job_ids:
             due_job = await session.get(WaybillJob, jid)
-            if due_job is not None and is_tracking_received(due_job):
+            if due_job is not None and (is_tracking_received(due_job) or _is_operator_otp_pending(due_job)):
                 logger.info(
-                    "tracking_acknowledged_job_reconciliation_skipped",
-                    extra={"extra_fields": {"job_id": due_job.job_id, "sweep": "orphaned"}},
+                    "job_reconciliation_skipped",
+                    extra={
+                        "extra_fields": {
+                            "job_id": due_job.job_id,
+                            "sweep": "orphaned",
+                            "reason": "tracking_acknowledged"
+                            if is_tracking_received(due_job)
+                            else "operator_otp_pending",
+                        }
+                    },
                 )
                 continue
             due_ids.append(jid)

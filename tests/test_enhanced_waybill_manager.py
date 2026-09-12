@@ -194,6 +194,12 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         mock_element = AsyncMock()
         mock_element.text_content.return_value = "Code: 123456"
         self.mock_page.query_selector.return_value = mock_element
+        # Coherent DOM: the batched presence probe must see the staged element.
+        self.mock_page.evaluate = AsyncMock(
+            side_effect=lambda script, *args: True
+            if isinstance(script, str) and "selectors.some" in script
+            else False
+        )
 
         # Run
         result = await self.manager.create_waybill_with_map(data)
@@ -406,6 +412,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
     async def test_fill_with_fallback_records_selector_inventory_status(self):
         self.manager.smart_locator.locate = AsyncMock(side_effect=Exception("not found"))
         self.mock_interactor.safe_fill = AsyncMock(side_effect=[False, True])
+        self.mock_page.eval_on_selector = AsyncMock(return_value="value-1")
         self.manager._set_value_with_js = AsyncMock(return_value=False)
 
         await self.manager._fill_with_fallback(
@@ -419,6 +426,240 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(inventory["status"], "fallback-only")
         self.assertEqual(inventory["selector_used"], "#secondary")
         self.assertEqual(inventory["value_summary"], "value-1")
+
+    async def test_fill_with_fallback_rejects_silent_rejected_write(self):
+        """SmartLocator fill dispatches but the DOM never holds the value."""
+        self.manager._locator_current_value = AsyncMock(return_value="")
+        self.mock_interactor.safe_fill = AsyncMock(return_value=False)
+        self.manager._set_value_with_js = AsyncMock(return_value=False)
+
+        with self.assertRaises(WaybillError) as context:
+            await self.manager._fill_with_fallback(
+                ["#txtkeraye"],
+                "5000000",
+                "هزینه حمل",
+                required=True,
+            )
+
+        self.assertIn("هزینه حمل", str(context.exception))
+        inventory = self.manager._selector_inventory["bootstrap:هزینه حمل"]
+        self.assertEqual(inventory["status"], "unsupported")
+
+    async def test_fill_with_fallback_skips_selector_on_readback_mismatch(self):
+        """safe_fill reports success on #primary but the DOM read-back is
+        empty; the write must move to #secondary instead of recording filled."""
+        self.manager.smart_locator.locate = AsyncMock(side_effect=Exception("not found"))
+        self.mock_interactor.safe_fill = AsyncMock(side_effect=[True, True])
+        self.mock_page.eval_on_selector = AsyncMock(side_effect=["", "value-1"])
+        self.manager._set_value_with_js = AsyncMock(return_value=False)
+
+        await self.manager._fill_with_fallback(
+            ["#primary", "#secondary"],
+            "value-1",
+            "field-y",
+            required=False,
+        )
+
+        inventory = self.manager._selector_inventory["bootstrap:field-y"]
+        self.assertEqual(inventory["status"], "fallback-only")
+        self.assertEqual(inventory["selector_used"], "#secondary")
+        self.assertEqual(inventory["value_summary"], "value-1")
+
+    async def test_select_dropdown_rejects_ambiguous_fuzzy_match(self):
+        """Target 'تک' is a token of two options — guessing is forbidden."""
+        locator = AsyncMock()
+        locator.select_option = AsyncMock(side_effect=Exception("no exact option"))
+        self.manager.smart_locator.locate = AsyncMock(return_value=locator)
+        self.mock_page.eval_on_selector_all = AsyncMock(
+            return_value=[
+                {"text": "تک کابینه", "value": "5"},
+                {"text": "تک کابین", "value": "6"},
+                {"text": "دو کابینه", "value": "7"},
+            ]
+        )
+
+        result = await self.manager._select_dropdown("#VehicleType", "تک")
+
+        self.assertFalse(result)
+        self.mock_page.select_option.assert_not_awaited()
+
+    async def test_select_dropdown_selects_unique_token_match_not_last_fuzzy(self):
+        """Target 'کابین' must resolve to the unique token owner (تک کابین/6),
+        never to the last fuzzy substring hit (دو کابینه/7)."""
+        locator = AsyncMock()
+
+        async def fake_select_option(*args, **kwargs):
+            if "label" in kwargs:
+                raise Exception("strict label mismatch")
+            if kwargs.get("value") in {"5", "6", "7"}:
+                return [kwargs.get("value")]
+            raise Exception("no such option value")
+
+        locator.select_option = AsyncMock(side_effect=fake_select_option)
+        self.manager.smart_locator.locate = AsyncMock(return_value=locator)
+        self.mock_page.eval_on_selector_all = AsyncMock(
+            return_value=[
+                {"text": "تک کابینه", "value": "5"},
+                {"text": "تک کابین", "value": "6"},
+                {"text": "دو کابینه", "value": "7"},
+            ]
+        )
+        self.mock_page.eval_on_selector = AsyncMock(
+            return_value={"value": "6", "text": "تک کابین"}
+        )
+
+        result = await self.manager._select_dropdown("#VehicleType", "کابین")
+
+        self.assertTrue(result)
+        locator.select_option.assert_any_await(value="6")
+        for call in locator.select_option.await_args_list:
+            self.assertNotEqual(call.kwargs.get("value"), "7")
+
+    async def test_select_dropdown_rejects_silent_select_revert(self):
+        """Unique exact match selected, but the DOM read-back shows another
+        option — the claim must be rejected, not reported as success."""
+        locator = AsyncMock()
+
+        async def fake_select_option(*args, **kwargs):
+            if "label" in kwargs:
+                raise Exception("strict label mismatch")
+            if kwargs.get("value") in {"1", "2"}:
+                return [kwargs.get("value")]
+            raise Exception("no such option value")
+
+        locator.select_option = AsyncMock(side_effect=fake_select_option)
+        self.manager.smart_locator.locate = AsyncMock(return_value=locator)
+        self.mock_page.eval_on_selector_all = AsyncMock(
+            return_value=[
+                {"text": "فله", "value": "1"},
+                {"text": "پالت", "value": "2"},
+            ]
+        )
+        self.mock_page.eval_on_selector = AsyncMock(
+            return_value={"value": "1", "text": "فله"}
+        )
+
+        result = await self.manager._select_dropdown("#ddBoxType", "پالت")
+
+        self.assertFalse(result)
+
+    async def test_select_option_by_fragments_ignores_substring_plate(self):
+        """Fragments ['11','ب','12','345'] must NOT match plate 3459 listed
+        first — only the whole-token owner is selected."""
+        self.mock_page.eval_on_selector_all = AsyncMock(
+            return_value=[
+                {"text": "11-ب-12-3459", "value": "wrong_plate"},
+                {"text": "11-ب-12-345", "value": "right_plate"},
+            ]
+        )
+        self.mock_page.eval_on_selector = AsyncMock(
+            return_value={"value": "right_plate", "text": "11-ب-12-345"}
+        )
+
+        result = await self.manager._select_option_by_fragments(
+            "#p", ["11", "ب", "12", "345"]
+        )
+
+        self.assertTrue(result)
+        self.mock_page.select_option.assert_awaited_once_with("#p:visible", value="right_plate")
+
+    async def test_select_option_by_fragments_rejects_ambiguous_plate(self):
+        """Two options own every fragment — first-match-wins is forbidden."""
+        self.mock_page.eval_on_selector_all = AsyncMock(
+            return_value=[
+                {"text": "11-ب-12-345", "value": "plate_a"},
+                {"text": "11-ب-12-345", "value": "plate_b"},
+            ]
+        )
+
+        result = await self.manager._select_option_by_fragments(
+            "#p", ["11", "ب", "12", "345"]
+        )
+
+        self.assertFalse(result)
+        self.mock_page.select_option.assert_not_awaited()
+
+    async def test_select_option_by_fragments_rejects_silent_revert(self):
+        """Unique match selected, but the read-back shows another option."""
+        self.mock_page.eval_on_selector_all = AsyncMock(
+            return_value=[
+                {"text": "11-ب-12-345", "value": "right_plate"},
+            ]
+        )
+        self.mock_page.eval_on_selector = AsyncMock(
+            return_value={"value": "other_plate", "text": "11-ب-12-345"}
+        )
+
+        result = await self.manager._select_option_by_fragments(
+            "#p", ["11", "ب", "12", "345"]
+        )
+
+        self.assertFalse(result)
+
+    async def test_form_ready_batched_probe_empty_page(self):
+        self.manager._is_waybill_form_ready = EnhancedWaybillManager._is_waybill_form_ready.__get__(
+            self.manager
+        )
+        self.mock_page.evaluate = AsyncMock(return_value=False)
+
+        ready = await self.manager._is_waybill_form_ready()
+
+        self.assertFalse(ready)
+        self.mock_page.query_selector.assert_not_awaited()
+        self.mock_page.evaluate.assert_awaited()
+
+    async def test_form_ready_batched_probe_hit(self):
+        self.manager._is_waybill_form_ready = EnhancedWaybillManager._is_waybill_form_ready.__get__(
+            self.manager
+        )
+        self.mock_page.evaluate = AsyncMock(return_value=True)
+
+        ready = await self.manager._is_waybill_form_ready()
+
+        self.assertTrue(ready)
+        self.mock_page.query_selector.assert_not_awaited()
+
+    async def test_form_ready_falls_back_when_probe_inconclusive(self):
+        self.manager._is_waybill_form_ready = EnhancedWaybillManager._is_waybill_form_ready.__get__(
+            self.manager
+        )
+        self.mock_page.evaluate = AsyncMock(side_effect=Exception("no js engine"))
+        self.mock_page.query_selector = AsyncMock(return_value=AsyncMock())
+
+        ready = await self.manager._is_waybill_form_ready()
+
+        self.assertTrue(ready)
+        self.mock_page.evaluate.assert_awaited()
+        self.mock_page.query_selector.assert_awaited()
+
+    async def test_submission_success_probe_gate_skips_recovery_waits(self):
+        self.mock_page.evaluate = AsyncMock(return_value=False)
+        self.mock_page.eval_on_selector_all = AsyncMock(return_value=[])
+
+        ok = await self.manager._is_submission_successful()
+
+        self.assertFalse(ok)
+        self.manager.smart_locator.locate.assert_not_awaited()
+
+    async def test_submission_success_probe_hit_runs_legacy_path(self):
+        self.mock_page.evaluate = AsyncMock(return_value=True)
+        self.mock_page.eval_on_selector_all = AsyncMock(return_value=[])
+
+        ok = await self.manager._is_submission_successful()
+
+        self.assertTrue(ok)
+        self.mock_page.evaluate.assert_awaited()
+
+    async def test_extract_tracking_code_gate_skips_selector_recovery(self):
+        self.manager._fetch_tracking_code_by_document_id = AsyncMock(return_value=None)
+        self.mock_page.evaluate = AsyncMock(return_value=False)
+        self.mock_page.query_selector = AsyncMock(return_value=None)
+        self.mock_page.text_content = AsyncMock(return_value="")
+
+        code = await self.manager._extract_tracking_code(document_id="123")
+
+        self.assertIsNone(code)
+        self.manager.smart_locator.locate.assert_not_awaited()
 
     async def test_selector_inventory_audit_emits_monitoring_schema(self):
         self.manager._record_selector_inventory(
@@ -480,6 +721,12 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         mock_element = AsyncMock()
         mock_element.text_content.return_value = "Code: 123456"
         self.mock_page.query_selector.return_value = mock_element
+        # Coherent DOM: the batched presence probe must see the staged element.
+        self.mock_page.evaluate = AsyncMock(
+            side_effect=lambda script, *args: True
+            if isinstance(script, str) and "selectors.some" in script
+            else False
+        )
 
         result = await self.manager.create_waybill_with_map(data)
         self.assertTrue(result["success"])
@@ -490,6 +737,22 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(inventory["vehicle:منطقه آزاد"]["value_summary"], "1")
         self.assertIn("vehicle:شماره پلاک منطقه آزاد", inventory)
         self.assertEqual(inventory["vehicle:شماره پلاک منطقه آزاد"]["value_summary"], "12345")
+
+    async def test_to_english_digits_converts_arabic_indic_digits(self):
+        self.assertEqual(
+            EnhancedWaybillManager._to_english_digits("٠١٢٣٤٥٦٧٨٩"),
+            "0123456789",
+        )
+        self.assertEqual(
+            EnhancedWaybillManager._to_english_digits("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩"),
+            "01234567890123456789",
+        )
+
+    async def test_digits_only_normalizes_arabic_indic_mobile(self):
+        self.assertEqual(
+            EnhancedWaybillManager._digits_only("٠٩١٢٣٤٥٦٧٨٩"),
+            "09123456789",
+        )
 
 
 if __name__ == "__main__":
