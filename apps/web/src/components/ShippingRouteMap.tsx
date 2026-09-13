@@ -81,22 +81,6 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
   const [status, setStatus] = useState<ShippingStatus | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const readDeviceLocation = useCallback(
-    () =>
-      new Promise<GeolocationPosition>((resolve, reject) => {
-        if (!navigator.geolocation) {
-          reject(new Error("GPS دستگاه در دسترس نیست"));
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          maximumAge: 0,
-          timeout: 15000,
-        });
-      }),
-    [],
-  );
-
   /* ── Fetch current status ── */
   const fetchStatus = useCallback(async () => {
     try {
@@ -151,13 +135,26 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
       .bindPopup(`<div dir="rtl" style="font-family:Vazirmatn,Tahoma;text-align:right"><b>🔴 مقصد</b><br/>${dAddr}</div>`);
     markersRef.current.push(m2);
 
-    // Route polyline
+    // Planned route polyline. These points are not GPS evidence.
     const poly = L.polyline(latLngs, {
-      color: st.status === "delivered" ? "#16a34a" : "#3b82f6",
+      color: "#64748b",
       weight: 4,
-      opacity: 0.8,
+      opacity: 0.65,
+      dashArray: "8 6",
     }).addTo(map);
     polylineRef.current = poly;
+
+    // Actual evidence points, when present, are rendered separately.
+    const actualPoints = st.gps_list
+      .filter((item): item is { Latitude: number; Longitude: number } => {
+        if (!item || typeof item !== "object") return false;
+        const point = item as Record<string, unknown>;
+        return typeof point.Latitude === "number" && typeof point.Longitude === "number";
+      })
+      .map((point) => [point.Latitude, point.Longitude] as [number, number]);
+    if (actualPoints.length > 1) {
+      L.polyline(actualPoints, { color: "#0891b2", weight: 5, opacity: 0.9 }).addTo(map);
+    }
 
     // Truck marker at current position
     const currentIdx = Math.min(st.current_step, st.waypoints.length - 1);
@@ -179,7 +176,7 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
     truckMarkerRef.current = truck;
     markersRef.current.push(truck);
 
-    // Intermediate waypoint dots
+    // Planned waypoint dots (not telemetry)
     st.waypoints.forEach((wp, i) => {
       if (i === 0 || i === st.waypoints.length - 1) return; // skip origin/dest
       const visited = i <= st.current_step;
@@ -290,14 +287,18 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
     }
     setLoading(true);
     try {
-      const position = await readDeviceLocation();
+      const latitude = originLat ?? status?.origin?.lat;
+      const longitude = originLng ?? status?.origin?.lng;
+      if (latitude == null || longitude == null) {
+        throw new Error("مختصات مبدأ در بارنامه ثبت نشده است");
+      }
       await api.post("/shipping/start", {
         job_id: jobId,
         doc_no: docNo,
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        altitude: position.coords.altitude ?? 0,
-        speed: position.coords.speed ? position.coords.speed * 3.6 : 0,
+        latitude,
+        longitude,
+        altitude: 0,
+        speed: 0,
       });
       toast.success("✅ حمل شروع شد");
       const st = await fetchStatus();
@@ -316,13 +317,17 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
   const handleFinish = async () => {
     setLoading(true);
     try {
-      const position = await readDeviceLocation();
+      const latitude = destLat ?? status?.destination?.lat;
+      const longitude = destLng ?? status?.destination?.lng;
+      if (latitude == null || longitude == null) {
+        throw new Error("مختصات مقصد در بارنامه ثبت نشده است");
+      }
       await api.post("/shipping/finish", {
         job_id: jobId,
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        altitude: position.coords.altitude ?? 0,
-        speed: position.coords.speed ? position.coords.speed * 3.6 : 0,
+        latitude,
+        longitude,
+        altitude: 0,
+        speed: 0,
       });
       toast.success("✅ حمل با موفقیت پایان یافت");
       const st = await fetchStatus();

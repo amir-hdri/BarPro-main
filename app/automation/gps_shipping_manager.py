@@ -1,7 +1,9 @@
-"""GPS Shipping Lifecycle Manager — distance calculation, waypoint interpolation,
-Redis Session Vault for token caching (eliminates HTTP 429), and state management.
+"""Server-managed shipping lifecycle and GPS evidence state.
 
-All coordinates are derived from the **exact** user-entered payload for each waybill.
+The operator registers the route; there is no driver-side Android agent. The
+interpolated route is a planning/display artifact only. ``gps_list`` is the
+separate evidence list and must contain only explicitly supplied anchors or
+future live tracking observations.
 """
 
 from __future__ import annotations
@@ -521,7 +523,7 @@ async def get_or_login_client(
     # Full login requires a fresh server-issued CAPTCHA proof; an empty token
     # is rejected by the mobile API and must never be used as a fallback.
     client = UtcmsMobileClient(proxy_url=proxy_url)
-    solved = await client.auto_solve_captcha(form_id=1)
+    solved = await client.auto_solve_captcha(form_id="login")
     cap_token = UtcmsMobileClient.cap_token_from_solution(solved)
     if not cap_token:
         raise RuntimeError("UTCMS mobile CAPTCHA could not be solved")
@@ -551,7 +553,9 @@ class ShippingState:
     current_step: int = 0
     total_steps: int = 0
     traveled_km: float = 0.0
+    # Planned/display route; never treat these points as GPS evidence.
     waypoints: list[dict[str, Any]] = field(default_factory=list)
+    # Explicit operator/device observations eligible for UTCMS submission.
     gps_list: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:

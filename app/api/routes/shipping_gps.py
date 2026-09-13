@@ -1,7 +1,8 @@
-"""API routes for GPS Shipping lifecycle — start, step, finish, simulate, status.
+"""Server-managed shipping lifecycle and GPS evidence routes.
 
-All operations use the **exact** addresses and coordinates the user entered
-for each waybill, extracted from ``WaybillJob.payload_json``.
+The operator registers the waybill and route in BarPro; no driver Android
+agent is required. Planned waypoints are display-only. Only route-anchor
+coordinates explicitly supplied by the operator are eligible for UTCMS.
 """
 
 from __future__ import annotations
@@ -33,10 +34,10 @@ router = APIRouter(prefix="/shipping", tags=["shipping-gps"])
 class ShippingStartRequest(BaseModel):
     job_id: str = Field(..., description="شناسه Job بارنامه")
     doc_no: str = Field(..., description="شماره سند بارنامه در UTCMS")
-    latitude: float = Field(..., ge=-90, le=90, description="عرض جغرافیایی واقعی دستگاه")
-    longitude: float = Field(..., ge=-180, le=180, description="طول جغرافیایی واقعی دستگاه")
-    altitude: float = Field(default=0, ge=-500, le=10000)
-    speed: float = Field(default=0, ge=0, le=400)
+    latitude: float = Field(..., ge=-90, le=90, description="عرض جغرافیایی مبدأ ثبت‌شده در بارنامه")
+    longitude: float = Field(..., ge=-180, le=180, description="طول جغرافیایی مبدأ ثبت‌شده در بارنامه")
+    altitude: float = Field(default=0, ge=-500, le=10000, description="ارتفاع ثبت‌شده؛ در نبود دستگاه صفر است")
+    speed: float = Field(default=0, ge=0, le=400, description="سرعت ثبت‌شده؛ در نبود دستگاه صفر است")
 
 
 class ShippingStepRequest(BaseModel):
@@ -45,10 +46,10 @@ class ShippingStepRequest(BaseModel):
 
 class ShippingFinishRequest(BaseModel):
     job_id: str = Field(..., description="شناسه Job بارنامه")
-    latitude: float = Field(..., ge=-90, le=90, description="عرض جغرافیایی واقعی دستگاه")
-    longitude: float = Field(..., ge=-180, le=180, description="طول جغرافیایی واقعی دستگاه")
-    altitude: float = Field(default=0, ge=-500, le=10000)
-    speed: float = Field(default=0, ge=0, le=400)
+    latitude: float = Field(..., ge=-90, le=90, description="عرض جغرافیایی مقصد ثبت‌شده در بارنامه")
+    longitude: float = Field(..., ge=-180, le=180, description="طول جغرافیایی مقصد ثبت‌شده در بارنامه")
+    altitude: float = Field(default=0, ge=-500, le=10000, description="ارتفاع ثبت‌شده؛ در نبود دستگاه صفر است")
+    speed: float = Field(default=0, ge=0, le=400, description="سرعت ثبت‌شده؛ در نبود دستگاه صفر است")
 
 
 class ShippingInfoRequest(BaseModel):
@@ -96,6 +97,19 @@ async def _get_job_and_driver(job_id: str, user_context: dict[str, Any]) -> tupl
         return dict(job.payload_json or {}), driver
 
 
+def _assert_route_anchor(
+    *, latitude: float, longitude: float, expected_lat: float | None, expected_lng: float | None, label: str
+) -> None:
+    """Ensure an operator-submitted anchor belongs to the waybill route."""
+    if expected_lat is None or expected_lng is None:
+        raise HTTPException(status_code=422, detail=f"مختصات {label} در بارنامه ثبت نشده است")
+    # Coordinates are serialized as decimals in several clients; allow only
+    # harmless rounding while rejecting arbitrary locations.
+    tolerance = 0.0002
+    if abs(latitude - expected_lat) > tolerance or abs(longitude - expected_lng) > tolerance:
+        raise HTTPException(status_code=422, detail=f"مختصات ارسالی با {label} بارنامه تطبیق ندارد")
+
+
 # ──────────────────── Endpoints ────────────────────
 
 
@@ -109,7 +123,7 @@ async def get_job_coordinates(req: ShippingInfoRequest, user_context: dict[str, 
 
 @router.post("/start", dependencies=[Depends(require_sensitive_auth)])
 async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any] = Depends(get_current_user_or_admin)):
-    """شروع حمل با GPS — ثبت مختصات مبدأ (آدرس دقیق کاربر) در سامانه UTCMS و ذخیره در سیستم."""
+    """شروع حمل توسط اپراتور — ثبت anchor مبدأ بارنامه در UTCMS."""
     if not utcms_config.ALLOW_LIVE_SUBMIT:
         raise HTTPException(status_code=409, detail="ثبت زنده GPS غیرفعال است")
     payload, driver = await _get_job_and_driver(req.job_id, user_context)
@@ -120,6 +134,13 @@ async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any]
         state = await init_shipping(req.job_id, req.doc_no, payload, persist=False)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _assert_route_anchor(
+        latitude=req.latitude,
+        longitude=req.longitude,
+        expected_lat=state.origin_lat,
+        expected_lng=state.origin_lng,
+        label="مبدأ",
+    )
     # Build the origin witness, but persist local state only after UTCMS confirms.
     wp = state.waypoints[0]
     state.gps_list.append({
@@ -139,7 +160,7 @@ async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any]
         from app.automation.worker_proxy import get_worker_proxy_url
         pwd = decrypt_driver_password(driver.utcms_password_encrypted)
         client = UtcmsMobileClient(proxy_url=get_worker_proxy_url())
-        auth = await client.auto_solve_captcha(form_id=1)
+        auth = await client.auto_solve_captcha(form_id="login")
         cap_token = UtcmsMobileClient.cap_token_from_solution(auth)
         await client.login(driver.driver_national_code, pwd, cap_token=cap_token)
         utcms_result = await client.start_shipping_with_gps(
@@ -177,7 +198,7 @@ async def step_shipping(req: ShippingStepRequest, user_context: dict[str, Any] =
 
 @router.post("/finish", dependencies=[Depends(require_sensitive_auth)])
 async def finish_shipping(req: ShippingFinishRequest, user_context: dict[str, Any] = Depends(get_current_user_or_admin)):
-    """پایان حمل با GPS — ثبت مختصات مقصد (آدرس دقیق کاربر) در سامانه UTCMS."""
+    """پایان حمل توسط اپراتور — ثبت anchor مقصد بارنامه در UTCMS."""
     if not utcms_config.ALLOW_LIVE_SUBMIT:
         raise HTTPException(status_code=409, detail="ثبت زنده GPS غیرفعال است")
     state = await load_shipping_state(req.job_id)
@@ -186,8 +207,16 @@ async def finish_shipping(req: ShippingFinishRequest, user_context: dict[str, An
     if state.status in {"delivered", "finishing", "failed"}:
         raise HTTPException(status_code=409, detail=f"پایان حمل قابل تکرار نیست؛ وضعیت فعلی {state.status} است")
 
-    # Add the operator's real destination point; no interpolated telemetry is
-    # ever submitted to UTCMS.
+    _assert_route_anchor(
+        latitude=req.latitude,
+        longitude=req.longitude,
+        expected_lat=state.dest_lat,
+        expected_lng=state.dest_lng,
+        label="مقصد",
+    )
+
+    # Add the operator-confirmed route destination anchor; no interpolated
+    # telemetry is ever submitted to UTCMS.
     dest_wp = state.waypoints[-1]
     if not state.gps_list or state.gps_list[-1].get("Type") != 3:
         state.gps_list.append({
@@ -213,7 +242,7 @@ async def finish_shipping(req: ShippingFinishRequest, user_context: dict[str, An
         from app.automation.worker_proxy import get_worker_proxy_url
         pwd = decrypt_driver_password(driver.utcms_password_encrypted)
         client = UtcmsMobileClient(proxy_url=get_worker_proxy_url())
-        solved = await client.auto_solve_captcha(form_id=1)
+        solved = await client.auto_solve_captcha(form_id="login")
         cap_token = UtcmsMobileClient.cap_token_from_solution(solved)
         await client.login(driver.driver_national_code, pwd, cap_token=cap_token)
         finish_result = await client.finish_shipping_with_gps(

@@ -12,7 +12,7 @@ from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
-import httpx
+from curl_cffi import requests as cc_requests
 
 from app.automation.mobile_payload_adapter import build_mobile_document_payload
 from app.core.config import utcms_config
@@ -123,7 +123,7 @@ class UtcmsMobileClient:
         client = self._http_client
         owns_client = client is None
         if owns_client:
-            client = httpx.AsyncClient(proxy=self.proxy_url, timeout=self.timeout, follow_redirects=False)
+            client = cc_requests.AsyncSession(proxies={"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else None, timeout=self.timeout, allow_redirects=False, impersonate="chrome120")
         try:
             # For GET requests, SecurityKey is MD5 of empty JSON or params
             serialized = json.dumps(params or {}, ensure_ascii=False, separators=(",", ":"))
@@ -139,7 +139,7 @@ class UtcmsMobileClient:
                 headers["Authorization"] = f"Bearer {self.token}"
             try:
                 response = await client.get(url, params=params, headers=headers)
-            except httpx.HTTPError as exc:
+            except cc_requests.errors.RequestsError as exc:
                 raise UtcmsMobileApiError("UTCMS mobile API transport failed") from exc
             try:
                 decoded = response.json()
@@ -164,14 +164,14 @@ class UtcmsMobileClient:
             return decoded
         finally:
             if owns_client:
-                await client.aclose()
+                await client.close()
 
     async def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         url = f"{self.base_url}/{path.lstrip('/')}"
         client = self._http_client
         owns_client = client is None
         if owns_client:
-            client = httpx.AsyncClient(proxy=self.proxy_url, timeout=self.timeout, follow_redirects=False)
+            client = cc_requests.AsyncSession(proxies={"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else None, timeout=self.timeout, allow_redirects=False, impersonate="chrome120")
         try:
             # Sign exactly the UTF-8 bytes sent to UTCMS.  Contract-test fakes
             # may only accept ``json=``; real httpx clients use the signed bytes.
@@ -183,7 +183,7 @@ class UtcmsMobileClient:
                 request_kwargs["json"] = body
             try:
                 response = await client.post(url, **request_kwargs)
-            except httpx.HTTPError as exc:
+            except cc_requests.errors.RequestsError as exc:
                 raise UtcmsMobileApiError("UTCMS mobile API transport failed") from exc
             try:
                 decoded = response.json()
@@ -208,7 +208,7 @@ class UtcmsMobileClient:
             return decoded
         finally:
             if owns_client:
-                await client.aclose()
+                await client.close()
 
     async def get_captcha(self, *, form_id: int = 1) -> dict[str, Any]:
         numeric_form_id = 1 if str(form_id).lower() == "login" else int(form_id)
@@ -319,12 +319,12 @@ class UtcmsMobileClient:
         client = self._http_client
         owns_client = client is None
         if owns_client:
-            client = httpx.AsyncClient(proxy=self.proxy_url, timeout=utcms_config.UTCMS_CAPTCHA_POW_TIMEOUT_SECONDS)
+            client = cc_requests.AsyncSession(proxies={"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else None, timeout=utcms_config.UTCMS_CAPTCHA_POW_TIMEOUT_SECONDS, allow_redirects=False, impersonate="chrome120")
         try:
             try:
                 challenge_response = await client.post(f"{endpoint}challenge", headers=headers)
                 challenge_body = challenge_response.json()
-            except (httpx.HTTPError, TypeError, ValueError) as exc:
+            except (cc_requests.errors.RequestsError, TypeError, ValueError) as exc:
                 raise UtcmsMobileApiError("UTCMS CAPTCHA challenge request failed") from exc
             if not isinstance(challenge_body, dict) or not challenge_body.get("token"):
                 raise UtcmsMobileApiError("UTCMS CAPTCHA challenge response is invalid")
@@ -346,7 +346,7 @@ class UtcmsMobileClient:
             return solved_token
         finally:
             if owns_client:
-                await client.aclose()
+                await client.close()
 
     async def auto_solve_captcha(self, form_id: int = 1) -> tuple[str, str]:
         """Fetch, decode and solve CAPTCHA via configured provider. Returns (solution_text, cap_token)."""

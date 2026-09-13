@@ -356,6 +356,14 @@ All current providers execute within the Worker process; Keras is lazy-loaded on
 
 ## Optimization Applied (2026-06-30 → 2026-09-06)
 
+### 2026-09-13 — Deep WAF Evasion & Mobile TLS Hardening (v2.9.11)
+| Change | Impact |
+|---|---|
+| Migrated `UtcmsMobileClient` from `httpx` to `curl_cffi` (`impersonate="chrome120"`) | Eradicates Python JA3/TLS fingerprints, bypassing the strict WAF HTTP 444 blocks completely |
+| Auto-normalization of Android/Chrome security headers | Prevents `python-httpx` User-Agent leaks and missing `Accept-Encoding: br` anomalies |
+| Enforced Elite Anonymity on all `infra/squid/*.conf` proxies | `forwarded_for delete`, `via off`, and `X-Forwarded-For deny all` prevents proxy footprinting |
+| Realigned contract tests & live execution verification | Proved protected Mobile API (Fleet list) is fully accessible without WAF detection |
+
 ### 2026-09-06 — UTCMS End-to-End Submission & OTP Lifecycle Hardening (v2.9.10)
 | Change | Impact |
 |---|---|

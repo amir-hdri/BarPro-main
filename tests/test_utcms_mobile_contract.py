@@ -243,7 +243,7 @@ def test_client_initialization_with_proxy():
 
 @pytest.mark.asyncio
 async def test_post_uses_proxy_when_creating_client():
-    with patch("httpx.AsyncClient") as mock_client_cls:
+    with patch("app.automation.utcms_mobile_client.cc_requests.AsyncSession") as mock_client_cls:
         class _ProxyFakeResponse:
             status_code = 200
 
@@ -261,9 +261,9 @@ async def test_post_uses_proxy_when_creating_client():
         await client.get_captcha()
 
         mock_client_cls.assert_called_once_with(
-            proxy="http://127.0.0.1:3128",
+            proxies={"http": "http://127.0.0.1:3128", "https": "http://127.0.0.1:3128"},
             timeout=client.timeout,
-            follow_redirects=False,
+            allow_redirects=False, impersonate='chrome120',
         )
 
 

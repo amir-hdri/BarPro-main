@@ -37,7 +37,8 @@ async def test_worker_bot_uses_dry_run_when_live_submit_is_disabled() -> None:
         return_value={"success": True, "status": "validated", "validation_summary": {"ready_for_submit": True}}
     )
 
-    with patch("app.automation.waybill_bot_multitenant.utcms_config.ALLOW_LIVE_SUBMIT", False):
+    with patch("app.automation.waybill_bot_multitenant.utcms_config.ALLOW_LIVE_SUBMIT", False), \
+         patch("app.automation.waybill_bot_multitenant.utcms_config.UTCMS_TRANSPORT", "web"):
         result = await bot.execute_waybill_job(
             username="user",
             password="password",
@@ -63,7 +64,8 @@ async def test_worker_bot_acknowledges_tracking_code_immediately() -> None:
     """
     bot = _bot_with_logged_in_session({"success": True, "tracking_code": "123456"})
 
-    with patch("app.automation.waybill_bot_multitenant.utcms_config.ALLOW_LIVE_SUBMIT", True):
+    with patch("app.automation.waybill_bot_multitenant.utcms_config.ALLOW_LIVE_SUBMIT", True), \
+         patch("app.automation.waybill_bot_multitenant.utcms_config.UTCMS_TRANSPORT", "web"):
         result = await bot.execute_waybill_job(
             username="user",
             password="password",
@@ -102,7 +104,8 @@ async def test_worker_bot_acknowledges_real_manager_submitted_result() -> None:
         }
     )
 
-    with patch("app.automation.waybill_bot_multitenant.utcms_config.ALLOW_LIVE_SUBMIT", True):
+    with patch("app.automation.waybill_bot_multitenant.utcms_config.ALLOW_LIVE_SUBMIT", True), \
+         patch("app.automation.waybill_bot_multitenant.utcms_config.UTCMS_TRANSPORT", "web"):
         result = await bot.execute_waybill_job(
             username="user",
             password="password",
@@ -130,7 +133,8 @@ async def test_worker_bot_success_without_tracking_code_requires_history_only() 
     """
     bot = _bot_with_logged_in_session({"success": True, "status": "submitted", "document_id": "214000001"})
 
-    with patch("app.automation.waybill_bot_multitenant.utcms_config.ALLOW_LIVE_SUBMIT", True):
+    with patch("app.automation.waybill_bot_multitenant.utcms_config.ALLOW_LIVE_SUBMIT", True), \
+         patch("app.automation.waybill_bot_multitenant.utcms_config.UTCMS_TRANSPORT", "web"):
         result = await bot.execute_waybill_job(
             username="user",
             password="password",
@@ -173,7 +177,8 @@ async def test_worker_bot_does_not_resubmit_when_first_result_already_has_tracki
         }
     )
 
-    with patch("app.automation.waybill_bot_multitenant.utcms_config.ALLOW_LIVE_SUBMIT", True):
+    with patch("app.automation.waybill_bot_multitenant.utcms_config.ALLOW_LIVE_SUBMIT", True), \
+         patch("app.automation.waybill_bot_multitenant.utcms_config.UTCMS_TRANSPORT", "web"):
         result = await bot.execute_waybill_job(
             username="user",
             password="password",
