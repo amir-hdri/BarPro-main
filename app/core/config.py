@@ -173,11 +173,24 @@ class UTCMSConfig:
             os.getenv("UTCMS_MOBILE_API_TIMEOUT_SECONDS", "20")
         )
         # CapJS is the proof-of-work CAPTCHA used by the official mobile app.
-        # Keep the endpoint configurable because UTCMS can move the challenge
-        # service independently from the document API.
+        # Verified live (2026-09-13): the Android APK reads ``capSiteKey`` from
+        # POST /CostSettings/GetGeneralSettings (``captchaType: 1``) and builds
+        # challenge/redeem URLs as {base}/{sitekey}/challenge|redeem.  Bare
+        # requests without a site key get 404 on /challenge, and requests
+        # without Android/widget headers get WAF 444.
         self.UTCMS_CAPTCHA_POW_API_ENDPOINT = os.getenv(
             "UTCMS_CAPTCHA_POW_API_ENDPOINT",
             "https://cptch.utcms.ir/",
+        ).strip()
+        self.UTCMS_CAPTCHA_POW_SITE_KEY = os.getenv(
+            "UTCMS_CAPTCHA_POW_SITE_KEY",
+            "6d1844135b",
+        ).strip()
+        # Browser-context headers the CapJS widget sends (mandatory for WAF).
+        self.UTCMS_CAPTCHA_POW_USER_AGENT = os.getenv(
+            "UTCMS_CAPTCHA_POW_USER_AGENT",
+            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.6049.195 Mobile Safari/537.36",
         ).strip()
         self.UTCMS_CAPTCHA_POW_TIMEOUT_SECONDS = float(
             os.getenv("UTCMS_CAPTCHA_POW_TIMEOUT_SECONDS", "20")

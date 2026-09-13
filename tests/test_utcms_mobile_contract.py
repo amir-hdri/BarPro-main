@@ -340,6 +340,7 @@ async def test_cap_pow_matches_apk_challenge_and_redeem_contract():
     salt = UtcmsMobileClient._cap_seed(f"{token}1", 8)
     target = hashlib.sha256(f"{salt}0".encode()).hexdigest()[:4]
     calls = []
+    site_key = "6d1844135b"
 
     class FakeResponse:
         status_code = 200
@@ -358,15 +359,50 @@ async def test_cap_pow_matches_apk_challenge_and_redeem_contract():
             return FakeResponse({"success": True, "token": "redeemed-token", "expires": "2099-01-01T00:00:00Z"})
 
     with patch.object(utcms_config, "UTCMS_CAPTCHA_POW_API_ENDPOINT", "https://captcha.example/"), patch.object(
+        utcms_config, "UTCMS_CAPTCHA_POW_SITE_KEY", site_key
+    ), patch.object(
         utcms_config, "UTCMS_CAPTCHA_POW_MAX_NONCE", 10
     ):
         client = UtcmsMobileClient(base_url="https://example.invalid/API", http_client=FakeClient())
         result = await client.solve_cap_pow()
 
+    # Verified live (2026-09-13): the CapJS contract is {base}/{sitekey}/challenge|redeem,
+    # sent with the Android widget's browser-context headers (required by the WAF).
     assert result == "redeemed-token"
-    assert calls[0][0] == "https://captcha.example/challenge"
-    assert calls[1][0] == "https://captcha.example/redeem"
+    assert calls[0][0] == f"https://captcha.example/{site_key}/challenge"
+    assert calls[0][1]["headers"]["Origin"] == "https://cptch.utcms.ir"
+    assert calls[0][1]["headers"]["Referer"] == "https://cptch.utcms.ir/"
+    assert calls[0][1]["headers"]["User-Agent"] == utcms_config.UTCMS_CAPTCHA_POW_USER_AGENT
+    assert calls[1][0] == f"https://captcha.example/{site_key}/redeem"
     assert calls[1][1]["json"] == {"token": token, "solutions": [0]}
+
+
+@pytest.mark.asyncio
+async def test_cap_site_key_comes_from_general_settings_with_config_fallback():
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {
+                "resultCode": 200,
+                "obj": {"capSiteKey": "live-key", "captchaType": 1},
+            }
+
+    class FakeClient:
+        async def post(self, url, **kwargs):
+            return FakeResp()
+
+    with patch.object(utcms_config, "UTCMS_CAPTCHA_POW_SITE_KEY", "fallback-key"):
+        client = UtcmsMobileClient(base_url="https://example.invalid/API", http_client=FakeClient())
+        assert await client.get_cap_site_key() == "live-key"
+
+    class FailingClient:
+        async def post(self, url, **kwargs):
+            raise UtcmsMobileApiError("transport failed")
+
+    with patch.object(utcms_config, "UTCMS_CAPTCHA_POW_SITE_KEY", "fallback-key"):
+        client2 = UtcmsMobileClient(base_url="https://example.invalid/API", http_client=FailingClient())
+        assert await client2.get_cap_site_key() == "fallback-key"
 
 
 @pytest.mark.asyncio

@@ -274,16 +274,55 @@ class UtcmsMobileClient:
                 return nonce
         raise UtcmsMobileApiError("UTCMS CAPTCHA proof-of-work has no solution in configured range")
 
-    async def solve_cap_pow(self) -> str:
+    @classmethod
+    def _cap_pow_headers(cls, ua: str | None = None) -> dict[str, str]:
+        """Browser-context headers the CapJS widget sends; required by the WAF.
+
+        Verified live (2026-09-13): requests without Origin/Referer/UA get
+        blocked (HTTP 444); with them the site-keyed challenge answers 200.
+        """
+        return {
+            "Origin": "https://cptch.utcms.ir",
+            "Referer": "https://cptch.utcms.ir/",
+            "User-Agent": ua or utcms_config.UTCMS_CAPTCHA_POW_USER_AGENT,
+            "Content-Type": "application/json",
+        }
+
+    async def get_cap_site_key(self) -> str:
+        """Return the live CapJS site key, like the Android APK does.
+
+        Mirrors the APK: read ``capSiteKey`` from
+        POST /CostSettings/GetGeneralSettings (a public, pre-login document
+        endpoint). Falls back to ``UTCMS_CAPTCHA_POW_SITE_KEY`` so a changed
+        key degrades to a config update instead of a broken flow.
+        """
+        try:
+            settings = await self._post("/CostSettings/GetGeneralSettings", {})
+            obj = _unwrap_obj(settings)
+            key = str(obj.get("capSiteKey") or "").strip()
+            if key:
+                return key
+        except Exception:
+            pass
+        return utcms_config.UTCMS_CAPTCHA_POW_SITE_KEY
+
+    def _cap_pow_base(self, site_key: str | None = None) -> str:
+        """Build the site-keyed CapJS base: {endpoint}/{sitekey}/."""
+        base = utcms_config.UTCMS_CAPTCHA_POW_API_ENDPOINT.rstrip("/")
+        key = (site_key or utcms_config.UTCMS_CAPTCHA_POW_SITE_KEY).strip()
+        return f"{base}/{key}/" if key else f"{base}/"
+
+    async def solve_cap_pow(self, site_key: str | None = None) -> str:
         """Solve the CapJS challenge/redeem flow used by the Android APK."""
-        endpoint = utcms_config.UTCMS_CAPTCHA_POW_API_ENDPOINT.rstrip("/") + "/"
+        endpoint = self._cap_pow_base(site_key)
+        headers = self._cap_pow_headers()
         client = self._http_client
         owns_client = client is None
         if owns_client:
             client = httpx.AsyncClient(proxy=self.proxy_url, timeout=utcms_config.UTCMS_CAPTCHA_POW_TIMEOUT_SECONDS)
         try:
             try:
-                challenge_response = await client.post(f"{endpoint}challenge", headers={"Accept": "application/json"})
+                challenge_response = await client.post(f"{endpoint}challenge", headers=headers)
                 challenge_body = challenge_response.json()
             except (httpx.HTTPError, TypeError, ValueError) as exc:
                 raise UtcmsMobileApiError("UTCMS CAPTCHA challenge request failed") from exc
@@ -296,7 +335,7 @@ class UtcmsMobileClient:
             redeem_response = await client.post(
                 f"{endpoint}redeem",
                 json={"token": token, "solutions": solutions},
-                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                headers=headers,
             )
             redeem_body = redeem_response.json()
             if not isinstance(redeem_body, dict) or not redeem_body.get("success"):
@@ -312,12 +351,10 @@ class UtcmsMobileClient:
     async def auto_solve_captcha(self, form_id: int = 1) -> tuple[str, str]:
         """Fetch, decode and solve CAPTCHA via configured provider. Returns (solution_text, cap_token)."""
         if str(form_id).lower() == "login":
-            try:
-                return "", await self.solve_cap_pow()
-            except UtcmsMobileApiError:
-                # Older UTCMS tenants may still expose the image contract;
-                # retain the existing provider path as an explicit fallback.
-                pass
+            # Mirror the APK exactly: the site key is dynamic server config,
+            # and the PoW path is the only contract the mobile login accepts.
+            site_key = await self.get_cap_site_key()
+            return "", await self.solve_cap_pow(site_key)
         from app.automation.captcha import get_captcha_provider
 
         response = await self.get_captcha(form_id=form_id)
