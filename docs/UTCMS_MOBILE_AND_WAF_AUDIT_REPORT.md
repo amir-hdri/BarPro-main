@@ -21,20 +21,19 @@ flowchart TD
         A[UtcmsMobileClient] -->|Bug 1: content= به جای data=| B[کرش پایتون با TypeError در پروداکشن]
         A -->|Bug 2: curl_cffi با impersonate chrome120| C[نشت هدرهای دسکتاپ sec-ch-ua]
         A -->|Bug 3: تزریق هدر ساختگی X-Requested-With| D[پکیج جعلی ir.utcms.userPanel]
-        A -->|Bug 4: ارسال به Base URL قدیمی| E[دامنه mobservices-barname.utcms.ir]
+        A -->|Bug 4: ارسال به cptch.utcms.ir برای API| E[خطای HTTP 404 NOT FOUND برای UserLoginV2]
     end
 
     subgraph NetworkWAF ["لایه WAF و لبه شبکه UTCMS"]
         C -->|تضاد Android UA با sec-ch-ua-mobile: ?0| WAF[فایروال WAF / Fortinet]
         D -->|عدم تطابق با پکیج رسمی com.baarnameshahri| WAF
-        E -->|Connection Refused / بدون روتینگ| WAF
         WAF -->|نتیجه قطعی| BLK[بلاک ترافیک با HTTP 444 / 408]
     end
 
     subgraph APKReality ["رفتار واقعی اپلیکیشن اندروید (com.baarnameshahri)"]
         APK[React Native + OkHttp 4.9.2] --> H1[بدون X-Requested-With]
         APK --> H2[بدون هدرهای Sec-CH-UA]
-        APK --> H3[هاست مستقیم: cptch.utcms.ir]
+        APK --> H3[تفکیک دو هاست: حل کپچا روی cptch + تراکنش روی mobservices]
         APK --> H4[هدرهای احراز هویت: ServicePassword + SecurityKey]
     end
 ```
@@ -106,21 +105,19 @@ flowchart TD
 
 ---
 
-### بردار ۳: عدم تطابق هاست اصلی API موبایل (`mobservices` در برابر `cptch`)
+### بردار ۳: تفکیک معماری دو هاست (`cptch.utcms.ir` برای حل کپچا و `mobservices` برای تراکنش‌های تجاری)
 
-* **محل در کد:** فایل `app/core/config.py` خط ۱۷۰:
+* **محل در کد:** فایل `app/core/config.py` خط ۱۶۸ تا ۱۸۵:
   ```python
   self.UTCMS_MOBILE_API_BASE_URL = "https://mobservices-barname.utcms.ir/baarnameh_sd/API"
+  self.UTCMS_CAPTCHA_POW_API_ENDPOINT = "https://cptch.utcms.ir/"
   ```
-* **شواهد باینری APK:**
-  1. جستجوی آدرس‌های استاتیک در باندل هرمس نشان داد تنها یک URL کامل برای API وجود دارد:
-     ```text
-     آفست ۶۳۸۱۷۹: https://cptch.utcms.ir/Account/UserLoginV2
-     ```
-  2. تمامی ۷۸ متد دیگر به صورت نسبی (Relative) تعریف شده‌اند (`/Document/InsertDocumentHagigiV3`، `/Document/IssueDocumentByOtp` و ...).
-  3. هاست `mobservices-barname.utcms.ir` در کل کد برنامه **۰ بار** صدا زده شده و تنها در فایل کانفیگ پینینگ سیستم‌عامل (`res/xml/network_security_config.xml` خط ۹) به عنوان یک ورودی قدیمی حضور دارد.
-  4. تلاش‌های زنده قبلی برای اتصال به `mobservices` با پورت ۴۴۳ منجر به `Connection Refused` شده است.
-* **تحلیل اثر:** ترافیک موبایل باید مستقیماً به هاست **`https://cptch.utcms.ir`** هدایت شود.
+* **شواهد باینری APK و راستی‌آزمایی زنده لایه شبکه:**
+  1. در بایت‌کد هرمس، رشتهٔ استاتیک `https://cptch.utcms.ir/Account/UserLoginV2` در آفست ۶۳۸۱۴۸ حضور دارد که ناشی از یک آدرس تستی/اولیه در باندل جاوااسکریپت بوده است.
+  2. **آزمون تجربی روی سرور (Empirical Proof):** هنگامی که به `https://cptch.utcms.ir/Account/UserLoginV2` درخواست لاگین ارسال می‌شود، سرور کلاودفلر/انجینکس این هاست کد خطای **HTTP 404 NOT_FOUND** برمی‌گرداند؛ زیرا این دامنه صرفاً میزبان سرویس اثبات کار CapJS (`/6d1844135b/challenge` و `/6d1844135b/redeem`) است و اندپوینت‌های ASP.NET روی آن مستقر نیستند.
+  3. در مقابل، اندپوینت واقعی و فعال پروداکشن برای تراکنش‌ها و لاگین، **`https://mobservices-barname.utcms.ir/baarnameh_sd/API`** است (که در مانیفست و کانفیگ امنیتی سیستم‌عامل `res/xml/network_security_config.xml` نیز پین شده است).
+  4. ارسال درخواست به `mobservices-barname.utcms.ir/baarnameh_sd/API/Account/UserLoginV2` همراه با توکن حل‌شدهٔ CapJS از هاست `cptch` با موفقیت کامل پاسخ **HTTP 200 OK** همراه با توکن دسترسی راننده (JWT) و Refresh Token را دریافت می‌کند و کلیه متدهای استعلام و ناوگان روی این هاست فعال هستند.
+* **تحلیل اثر معماری:** سیستم BarPro باید به صورت ترکیبی عمل کند: ابتدا با هاست `cptch.utcms.ir` چالش CapJS را دریافت و حل کرده، سپس توکن حاصله را به هاست تراکنشی `mobservices-barname.utcms.ir/baarnameh_sd/API` تحویل دهد. تنظیم اشتباه `UTCMS_MOBILE_API_BASE_URL` روی `cptch.utcms.ir` منجر به شکست تمامی لاگین‌ها و ثبت بارنامه‌ها با خطای ۴۰۴ می‌گردد.
 
 ---
 

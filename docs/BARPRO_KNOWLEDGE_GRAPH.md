@@ -12,7 +12,25 @@
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
-## 0.9 snapshot این بازبینی (2026-09-14)
+## تصمیم معماری GPS — 2026-09-15
+
+- CONFIG-TARGET (تصمیم صریح کاربر): FakeTraveler جایگزین روش فعلی اجرای GPS
+  می‌شود؛ روی Android مجازی سرور Linux، بدون نیاز به گوشی فیزیکی.
+- مسیر هدف: BarPro orchestration → Android Bridge → `cl.coders.faketraveler`
+  → Android location → `com.baarnameshahri` → Squid → UTCMS.
+- CODE-VERIFIED: `app/android_bridge/` مشاهدهٔ opt-in با serial صریح ADB، بررسی
+  نصب اپ رسمی و FakeTraveler، boot، ABI، نمایشگر و تنظیم proxy دارد؛ گزارش آن
+  صریحاً `submission_ready=false` و `egress_verified=false` است.
+- CODE-VERIFIED: مسیر فعلی `shipping_gps.py` همچنان از کلاینت HTTP استفاده می‌کند؛
+  این مسیر مبنای مهاجرت است. Bridge هنوز به عملیات start/finish متصل نشده است.
+- RUNTIME-VERIFICATION در `2026-09-14T20:39:04Z`: kernel مرکز binder/binderfs را
+  به‌صورت module تعریف کرده، اما device nodeهای بررسی‌شده موجود نبودند؛ در
+  فهرست کامل کانتینرهای در حال اجرا نیز Redroid نبود. قابلیت boot اثبات نشده است.
+- جزئیات: [طرح اجرایی](ANDROID_CLIENT_IMPLEMENTATION_PLAN.md) و
+  [ممیزی شواهد و تست](ANDROID_CLIENT_REVIEW.md). ادعاهای تاریخی زیر دربارهٔ
+  «ناممکن بودن 429» یا «پوشش ۱۰۰٪» اثبات readiness مسیر Android محسوب نمی‌شوند.
+
+## 0.9 snapshot تاریخی (2026-09-14، مسیر HTTP)
 
 - CODE-VERIFIED: یکپارچه‌سازی فرآیند GPS Shipping با Redis Session Vault — اندپوینت‌های `/shipping/start` و `/shipping/finish` با متد `get_or_login_client()` بازنویسی شدند. توکن راننده تا ۱۱۵ دقیقه کش می‌شود و نوسازی با refresh token پیش از لاگین جدید اولویت دارد. حل تکراری کپچا و اسپم لاگین برای هر درخواست GPS کاملاً ریشه‌کن و خطای HTTP 429 ناممکن شد.
 - CODE-VERIFIED: گارد دفاعی fail-closed برای پراکسی (`ProxyUnavailableError`) — بررسی صریح عدم تهی بودن `proxy_url` در محیط‌های پروداکشن، تفکیک پاسخ با HTTP 503 صریح («پراکسی UTCMS در دسترس نیست — IP سرور محافظت شد») و جلوگیری از نشت ترافیک مستقیم بدون پراکسی.

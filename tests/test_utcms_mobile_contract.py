@@ -658,9 +658,9 @@ def test_get_headers_also_include_waf_fields():
         assert base[key] == post_headers[key], f"{key} mismatch between base and POST headers"
 
 
-def test_default_mobile_api_base_url_is_cptch():
-    """Base URL must default to cptch.utcms.ir matching APK bytecode offset 638179."""
-    assert utcms_config.UTCMS_MOBILE_API_BASE_URL.rstrip("/") == "https://cptch.utcms.ir"
+def test_default_mobile_api_base_url():
+    """Base URL must default to mobservices-barname.utcms.ir/baarnameh_sd/API (verified live production API)."""
+    assert utcms_config.UTCMS_MOBILE_API_BASE_URL.rstrip("/") == "https://mobservices-barname.utcms.ir/baarnameh_sd/API"
 
 
 @pytest.mark.asyncio

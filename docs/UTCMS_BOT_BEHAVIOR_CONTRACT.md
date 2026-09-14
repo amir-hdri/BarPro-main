@@ -261,10 +261,19 @@ SSH_PASSWORD=***  python scripts/deploy_and_verify_all.py
 
 ## 12. شبکه، اثرانگشت (TLS Fingerprint) و عبور از WAF
 
+**تفکیک معماری از ۲۰۲۶-۰۹-۱۵:** در مسیر هدف GPS، FakeTraveler روی Android
+مجازیِ سرور موقعیت را تأمین می‌کند و اپ رسمی `com.baarnameshahri` با stack شبکهٔ
+خودش درخواست می‌فرستد. قواعد `curl_cffi` زیر فقط برای transport پایتون موجود
+است؛ به معنی عبور ترافیک native از curl_cffi نیست. هیچ‌یک از این دو stack
+پذیرش WAF را تضمین نمی‌کند. Bridge تا اثبات اجرا فقط observation ارائه می‌دهد.
+فرمان `geo:` FakeTraveler با اعمال موقعیت برابر نیست؛ Apply/Stop و read-back
+provider باید اثبات شوند. در نتیجهٔ مبهم Android، fallback به submit پایتون
+ممنوع است. [طرح جایگزینی و گیت‌ها](ANDROID_CLIENT_IMPLEMENTATION_PLAN.md).
+
 پرتال UTCMS مجهز به یک WAF سخت‌گیرانه (احتمالاً ArvanCloud) است که به اثرانگشت TLS (شناسه‌های JA3/JA4) و هدرهای غیراستاندارد حساس است:
 
-1. **مدیریت TLS (جلوگیری از خطای 444):** 
-   به هیچ عنوان نباید از `httpx`، `requests` یا `aiohttp` برای اتصال به endpointهای موبایل استفاده شود. تمامی ارتباطات باید از طریق کتابخانه `curl_cffi` (همگام/ناهمگام) با متد `impersonate="chrome120"` (یا معادل آن) صورت پذیرد تا سایفرها و پروفایل HTTP/2 دقیقاً مشابه یک مرورگر کرومِ اندرویدی جعل شود.
+1. **مدیریت TLS در transport پایتون (جلوگیری از خطای 444):** 
+  به هیچ عنوان نباید از `httpx`، `requests` یا `aiohttp` برای اتصال به endpointهای موبایل استفاده شود. تمامی ارتباطات باید از طریق کتابخانه `curl_cffi` (همگام/ناهمگام) با متد `impersonate="chrome120"` (یا معادل آن) صورت پذیرد تا سایفرها و پروفایل HTTP/2 دقیقاً مشابه یک مرورگر کرومِ اندرویدی جعل شود.
 2. **پنهان‌سازی پراکسی (Elite Proxying):** 
    پراکسی‌های Squid باید کاملاً استتار شوند. در تمامی فایل‌های `squid.conf` دستورات `forwarded_for delete`، `via off` و `request_header_access X-Forwarded-For deny all` الزامی است. تزریق هرگونه IP کلاینت در هدرها به معنای مسدودسازی فوری توسط WAF است.
 3. **ساختار هدرها:**

@@ -128,13 +128,13 @@ def test_item3_genuine_accept_header():
 
 
 # ==============================================================================
-# 4. ITEM 4: Base API URL Configuration (https://cptch.utcms.ir)
+# 4. ITEM 4: Base API URL Configuration (https://mobservices-barname.utcms.ir/baarnameh_sd/API)
 # ==============================================================================
 def test_item4_base_api_url_default():
-    """Verify config default and client default use https://cptch.utcms.ir."""
-    assert utcms_config.UTCMS_MOBILE_API_BASE_URL == "https://cptch.utcms.ir"
+    """Verify config default and client default use verified production mobservices base URL."""
+    assert utcms_config.UTCMS_MOBILE_API_BASE_URL == "https://mobservices-barname.utcms.ir/baarnameh_sd/API"
     client = UtcmsMobileClient()
-    assert client.base_url == "https://cptch.utcms.ir"
+    assert client.base_url == "https://mobservices-barname.utcms.ir/baarnameh_sd/API"
 
 
 # ==============================================================================
@@ -195,7 +195,7 @@ async def test_item6_refresh_contract_uses_get_with_query_param():
 
     assert len(fake_client.calls) == 1
     url, kwargs = fake_client.calls[0]
-    assert url == "https://cptch.utcms.ir/Account/GetTokenByRefreshToken"
+    assert url == "https://mobservices-barname.utcms.ir/baarnameh_sd/API/Account/GetTokenByRefreshToken"
     assert kwargs.get("params") == {"refreshToken": "old_refresh_token_000"}
 
     assert isinstance(res, MobileAuthResult)

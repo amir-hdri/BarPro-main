@@ -116,6 +116,28 @@
 
 ## 🟠 قوانین معماری حیاتی
 
+### معماری جایگزین GPS با FakeTraveler — تصمیم کاربر ۲۰۲۶-۰۹-۱۵
+
+- معماری هدف GPS، **FakeTraveler روی Android مجازی سرور Linux** است؛ گوشی فیزیکی
+  پیش‌نیاز نیست. بارپرو orchestration و مالکیت سفر را نگه می‌دارد، FakeTraveler
+  موقعیت Android را تأمین می‌کند و اپ رسمی UTCMS شروع/پایان حمل را انجام می‌دهد.
+- مسیر HTTP فعلی `shipping_gps.py` مبنای مهاجرت است، نه طرح نهایی. تغییر rules
+  به معنی راه‌اندازی Redroid یا سوییچ شدن runtime نیست؛ هرکدام شاهد مستقل می‌خواهد.
+- هویت فعلی provider برابر `cl.coders.faketraveler` است. Broadcast با نام
+  `org.woheller69.mocklocation.UPDATE_LOCATION` در این پروژه پیاده نشده؛ فرمان
+  فرضی ارسال نکنید. `geo:` فقط ورودی فرم است و جای read-back اعمال موقعیت را نمی‌گیرد.
+- نمونهٔ موقعیت FakeTraveler باید با منبع مجازی و زمان مشاهده ثبت شود. نقاط
+  برنامه‌ریزی‌شده، نمونهٔ مشاهده‌شده توسط Android و GPS اندازه‌گیری‌شدهٔ فیزیکی
+  یکسان نیستند؛ هیچ‌کدام را به جای دیگری گزارش نکنید.
+- قبل از هر عملیات حمل: مالکیت tenant/driver/job، session همان راننده، lease
+  فعال، موقعیت بازخوانی‌شده و مسیر خروجی مجاز بررسی شوند. یک UI action با نتیجهٔ
+  نامعلوم فقط قابل reconciliation است؛ fallback به HTTP یا تکرار کلیک ممنوع است.
+- خطا یا نبود FakeTraveler/اپ رسمی/ADB باید مسیر Android را متوقف کند. خاموش بودن
+  Bridge پیش‌فرض است؛ فقط وجود process یا پیام «hook installed» آمادگی عملیات نیست.
+- ممنوعیت `privileged: true`، ADB عمومی و ثبت زندهٔ پیش‌فرض با این تصمیم تغییر
+  نمی‌کند. طراحی binder/capability باید روی میزبان ایزوله اثبات شود.
+- مرجع اجرایی: [طرح جایگزینی Android/FakeTraveler](docs/ANDROID_CLIENT_IMPLEMENTATION_PLAN.md).
+
 ### UTCMS 408، Clean IP و Circuit Breaker
 
 - probe عمومی Clean IP فقط روی surface بدون‌احراز و پایدار login انجام می‌شود؛ deep-link صدور probe عمومی نیست.
