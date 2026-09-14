@@ -49,6 +49,33 @@ def test_get_worker_proxy_url_fail_closed_in_production():
                 get_worker_proxy_url()
 
 
+def test_get_worker_proxy_url_fails_closed_when_worker_egress_is_blocked():
+    """A reachable Squid must not bypass an active blocked-worker marker."""
+    from unittest.mock import MagicMock
+
+    from app.automation.worker_proxy import ProxyUnavailableError
+
+    clear_proxy_cache()
+    redis = MagicMock()
+    redis.exists.return_value = 1
+    with patch.dict(
+        os.environ,
+        {
+            "WORKER_1_PROXY": "http://172.20.0.1:3128",
+            "ENVIRONMENT": "production",
+            "PROXY_FAIL_CLOSED": "true",
+        },
+    ):
+        with (
+            patch("socket.create_connection") as mock_conn,
+            patch("app.core.circuit_breaker._get_redis_sync", return_value=redis),
+            patch("app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync", return_value=None),
+        ):
+            mock_conn.return_value = MagicMock()
+            with pytest.raises(ProxyUnavailableError):
+                get_worker_proxy_url()
+
+
 def test_get_worker_proxy_url_clean_pool_fallback():
     """Verify fallback to clean IP pool when worker Squid is unreachable."""
     clear_proxy_cache()
@@ -70,10 +97,13 @@ def test_worker_proxy_cache_follows_clean_pool_refresh_window():
         with (
             patch.object(wp.utcms_config, "EGRESS_PROXY_MODE", "clean_pool_only"),
             patch.object(wp.utcms_config, "CLEAN_IP_PROBE_INTERVAL_SECONDS", 180),
-            patch("app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync", side_effect=[
-                "http://185.100.47.106:8080",
-                "http://5.56.132.26:3128",
-            ]) as select_proxy,
+            patch(
+                "app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync",
+                side_effect=[
+                    "http://185.100.47.106:8080",
+                    "http://5.56.132.26:3128",
+                ],
+            ) as select_proxy,
         ):
             first = get_worker_proxy_url()
             wp._cached_proxy_timestamp = time.time() - 179

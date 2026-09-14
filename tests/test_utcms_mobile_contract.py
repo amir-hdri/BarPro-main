@@ -1,7 +1,7 @@
 import hashlib
 import json
 from datetime import datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -263,7 +263,7 @@ async def test_post_uses_proxy_when_creating_client():
         mock_client_cls.assert_called_once_with(
             proxies={"http": "http://127.0.0.1:3128", "https": "http://127.0.0.1:3128"},
             timeout=client.timeout,
-            allow_redirects=False, impersonate='chrome120',
+            allow_redirects=False, impersonate='chrome120', default_headers=False,
         )
 
 
@@ -597,3 +597,122 @@ def test_plate_parsing_fallback_in_truck():
     assert body["truck"]["t2"] == "ع"
     assert body["truck"]["t3"] == "345"
     assert body["truck"]["t4"] == "67"
+
+
+def test_mobile_headers_include_waf_evasion_fields():
+    """Every API request must carry Android-realistic WAF-resistant headers.
+
+    WAF hardening:
+    - User-Agent, Accept-Language and Accept match the real APK Axios stack.
+    - X-Requested-With is omitted because React Native OkHttp/Axios does not send it
+      and the APK bytecode has 0 occurrences of X-Requested-With.
+    """
+    client = UtcmsMobileClient(base_url="https://cptch.utcms.ir", now=lambda: datetime(2026, 9, 10))
+    body = {"nationalCode": "0084575948", "password": TEST_PASSWORD, "capToken": "cap"}
+
+    headers = client._headers(body)
+
+    # WAF-critical headers that must be present on every request
+    assert "User-Agent" in headers, "User-Agent header is missing — WAF will detect bot"
+    assert "Android" in headers["User-Agent"], "User-Agent must identify as Android device"
+    assert "Chrome/120" in headers["User-Agent"], "User-Agent must match curl_cffi impersonate=chrome120"
+
+    assert headers.get("Accept-Language", "").startswith("fa-IR"), (
+        "Accept-Language must start with fa-IR for Iranian locale"
+    )
+    assert "Accept-Encoding" in headers, "Accept-Encoding is required for WAF evasion"
+    assert "br" in headers["Accept-Encoding"], "Accept-Encoding must include brotli (br)"
+
+    # Axios default Accept header from Hermes bundle offset 637068
+    assert headers.get("Accept") == "application/json, text/plain, */*"
+
+    # React Native Axios/OkHttp native networking never sends X-Requested-With
+    assert "X-Requested-With" not in headers, (
+        "X-Requested-With must NOT be sent; official APK has 0 occurrences and sending it is an anomaly"
+    )
+
+    # Security headers from _headers() must still be intact
+    assert "ServicePassword" in headers
+    assert "SecurityKey" in headers
+    assert headers["Content-Type"] == "application/json"
+
+
+def test_mobile_base_headers_are_classmethod_and_consistent():
+    """_mobile_base_headers is a classmethod producing identical headers each call."""
+    h1 = UtcmsMobileClient._mobile_base_headers()
+    h2 = UtcmsMobileClient._mobile_base_headers()
+    assert h1 == h2, "WAF headers must be deterministic"
+    assert "X-Requested-With" not in h1
+    assert h1.get("Accept") == "application/json, text/plain, */*"
+
+
+def test_get_headers_also_include_waf_fields():
+    """GET requests must carry the same WAF-resistant headers as POST."""
+    base = UtcmsMobileClient._mobile_base_headers()
+    client = UtcmsMobileClient(base_url="https://cptch.utcms.ir", now=lambda: datetime(2026, 9, 10))
+    post_headers = client._headers({"test": True})
+
+    for key in ("User-Agent", "Accept-Language", "Accept-Encoding", "Accept"):
+        assert key in base, f"{key} missing from _mobile_base_headers"
+        assert key in post_headers, f"{key} missing from POST _headers"
+        assert base[key] == post_headers[key], f"{key} mismatch between base and POST headers"
+
+
+def test_default_mobile_api_base_url_is_cptch():
+    """Base URL must default to cptch.utcms.ir matching APK bytecode offset 638179."""
+    assert utcms_config.UTCMS_MOBILE_API_BASE_URL.rstrip("/") == "https://cptch.utcms.ir"
+
+
+@pytest.mark.asyncio
+async def test_session_creation_uses_default_headers_false_and_no_content_kwargs():
+    """AsyncSession in UtcmsMobileClient must be created with default_headers=False.
+
+    This prevents curl_cffi from injecting desktop sec-ch-ua-mobile: ?0 and
+    sec-ch-ua-platform: macOS headers that trigger WAF 444 blocks.
+    Furthermore, _post must pass data= (bytes) and NOT content=.
+    """
+    with patch("app.automation.utcms_mobile_client.cc_requests.AsyncSession") as mock_session_cls:
+        mock_instance = AsyncMock()
+        mock_instance.post.return_value = MagicMock(status_code=200, json=lambda: {"resultCode": 200, "obj": {}})
+        mock_session_cls.return_value = mock_instance
+
+        client = UtcmsMobileClient(base_url="https://cptch.utcms.ir", proxy_url="http://127.0.0.1:3128")
+        await client._post("/test", {"foo": "bar"})
+
+        mock_session_cls.assert_called_once_with(
+            proxies={"http": "http://127.0.0.1:3128", "https": "http://127.0.0.1:3128"},
+            timeout=client.timeout,
+            allow_redirects=False,
+            impersonate="chrome120",
+            default_headers=False,
+        )
+        # Verify post received data= and NOT content=
+        _, post_kwargs = mock_instance.post.call_args
+        assert "data" in post_kwargs, "POST request kwargs must use data= for curl_cffi"
+        assert "content" not in post_kwargs, "POST request kwargs must NOT use content="
+
+
+@pytest.mark.asyncio
+async def test_mobile_refresh_uses_get_with_query_param():
+    """Refresh token in official APK is a GET request with ?refreshToken= query param."""
+    class FakeGetClient:
+        async def get(self, url, **kwargs):
+            assert url.endswith("/Account/GetTokenByRefreshToken")
+            assert kwargs.get("params") == {"refreshToken": "test-refresh-token"}
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.json = lambda: {
+                "resultCode": 200,
+                "obj": {
+                    "token": "new-access-token",
+                    "refreshToken": "new-refresh-token",
+                    "tokenExpireDate": "2026-09-15T00:00:00",
+                }
+            }
+            return resp
+
+    client = UtcmsMobileClient(base_url="https://cptch.utcms.ir", http_client=FakeGetClient())
+    auth = await client.refresh("test-refresh-token")
+    assert auth.token == "new-access-token"
+    assert auth.refresh_token == "new-refresh-token"
+

@@ -4,6 +4,7 @@
 
 import asyncio
 import logging
+import math
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -182,6 +183,49 @@ IRAN_PROVINCE_COORDINATES: dict[str, dict[str, float]] = {
     "سمنان": {"lat": 35.5722, "lng": 53.3960},
     "ایلام": {"lat": 33.6374, "lng": 46.4227},
 }
+
+
+def resolve_location_coordinates(location_data: dict[str, Any] | None) -> tuple[float, float] | None:
+    """Resolve only explicit coordinates or a known city-center mapping.
+
+    Missing or unknown locations deliberately return ``None``.  A global
+    fallback coordinate would silently submit a different origin/destination.
+    """
+    if not isinstance(location_data, dict):
+        return None
+
+    explicit = location_data.get("coordinates")
+    if explicit is not None:
+        if not isinstance(explicit, dict):
+            return None
+        latitude = explicit.get("lat", explicit.get("latitude"))
+        longitude = explicit.get("lng", explicit.get("lon", explicit.get("longitude")))
+        if latitude is None or longitude is None:
+            return None
+        try:
+            lat, lng = float(latitude), float(longitude)
+        except (TypeError, ValueError):
+            return None
+        return (lat, lng) if math.isfinite(lat) and math.isfinite(lng) else None
+
+    if any(key in location_data for key in ("lat", "latitude", "lng", "lon", "longitude")):
+        latitude = location_data.get("lat", location_data.get("latitude"))
+        longitude = location_data.get("lng", location_data.get("lon", location_data.get("longitude")))
+        if latitude is None or longitude is None:
+            return None
+        try:
+            lat, lng = float(latitude), float(longitude)
+        except (TypeError, ValueError):
+            return None
+        return (lat, lng) if math.isfinite(lat) and math.isfinite(lng) else None
+
+    city = str(location_data.get("city") or "").strip()
+    normalized_city = city.replace(" ", "").replace("ی", "ي").replace("ک", "ك")
+    for name, coords in IRAN_CITY_COORDINATES.items():
+        normalized_name = name.replace(" ", "").replace("ی", "ي").replace("ک", "ك")
+        if normalized_name == normalized_city:
+            return float(coords["lat"]), float(coords["lng"])
+    return None
 
 
 class LocationSelector:
@@ -1053,9 +1097,7 @@ class LocationSelector:
 
             # ۴.۵ تثبیت انتخاب شهر در برابر AJAX پاسخ FillCities سامانه
             if city_value:
-                if not await self._hold_select_value(
-                    city_selector, city_value, settle_ms=1500, refill=_refill_cities
-                ):
+                if not await self._hold_select_value(city_selector, city_value, settle_ms=1500, refill=_refill_cities):
                     return {
                         "success": False,
                         "method": "utcms_direct_text",
@@ -1148,45 +1190,58 @@ class LocationSelector:
             try:
                 resolved_city = str(city_readback.get("text") or city).strip()
                 resolved_prov = str(province_readback.get("text") or province).strip()
+
+                coordinates = resolve_location_coordinates(location_data)
+                lat, lng = coordinates if coordinates is not None else (None, None)
+
                 await self.page.evaluate(
-                    """([isOrigin, cityName, stateName, addressText]) => {
-                        const defaultLat = 35.2383;
-                        const defaultLng = 58.4656;
+                    """([isOrigin, cityName, stateName, addressText, lat, lng]) => {
+                        const hasCoordinates = Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
+                        const resolvedLat = hasCoordinates ? Number(lat) : null;
+                        const resolvedLng = hasCoordinates ? Number(lng) : null;
                         try {
                             if (isOrigin) {
                                 window.citySourceMap = cityName;
                                 try { if (typeof citySourceMap !== 'undefined') citySourceMap = cityName; } catch(e){}
-                                try { if (typeof LatSource !== 'undefined' && (!LatSource || LatSource === "")) LatSource = defaultLat; } catch(e){}
-                                try { if (typeof LngSource !== 'undefined' && (!LngSource || LngSource === "")) LngSource = defaultLng; } catch(e){}
-                                if (!window.LatSource || window.LatSource === "") window.LatSource = defaultLat;
-                                if (!window.LngSource || window.LngSource === "") window.LngSource = defaultLng;
+                                if (hasCoordinates) {
+                                    try { if (typeof LatSource !== 'undefined' && (!LatSource || LatSource === "")) LatSource = resolvedLat; } catch(e){}
+                                    try { if (typeof LngSource !== 'undefined' && (!LngSource || LngSource === "")) LngSource = resolvedLng; } catch(e){}
+                                    if (!window.LatSource || window.LatSource === "") window.LatSource = resolvedLat;
+                                    if (!window.LngSource || window.LngSource === "") window.LngSource = resolvedLng;
+                                }
                                 if (typeof PlaceSource !== 'undefined') {
                                     PlaceSource.CityName = cityName;
                                     PlaceSource.StateName = stateName;
                                     PlaceSource.Address = addressText;
-                                    PlaceSource.Lat = defaultLat;
-                                    PlaceSource.Lon = defaultLng;
+                                    if (hasCoordinates) {
+                                        PlaceSource.Lat = resolvedLat;
+                                        PlaceSource.Lon = resolvedLng;
+                                    }
                                 }
                             } else {
                                 window.CityDestMap = cityName;
                                 try { if (typeof CityDestMap !== 'undefined') CityDestMap = cityName; } catch(e){}
-                                try { if (typeof LatDestination !== 'undefined' && (!LatDestination || LatDestination === "")) LatDestination = defaultLat; } catch(e){}
-                                try { if (typeof LngDestination !== 'undefined' && (!LngDestination || LngDestination === "")) LngDestination = defaultLng; } catch(e){}
-                                if (!window.LatDestination || window.LatDestination === "") window.LatDestination = defaultLat;
-                                if (!window.LngDestination || window.LngDestination === "") window.LngDestination = defaultLng;
+                                if (hasCoordinates) {
+                                    try { if (typeof LatDestination !== 'undefined' && (!LatDestination || LatDestination === "")) LatDestination = resolvedLat; } catch(e){}
+                                    try { if (typeof LngDestination !== 'undefined' && (!LngDestination || LngDestination === "")) LngDestination = resolvedLng; } catch(e){}
+                                    if (!window.LatDestination || window.LatDestination === "") window.LatDestination = resolvedLat;
+                                    if (!window.LngDestination || window.LngDestination === "") window.LngDestination = resolvedLng;
+                                }
                                 if (typeof PlaceDestination !== 'undefined') {
                                     PlaceDestination.CityName = cityName;
                                     PlaceDestination.StateName = stateName;
                                     PlaceDestination.Address = addressText;
-                                    PlaceDestination.Lat = defaultLat;
-                                    PlaceDestination.Lon = defaultLng;
+                                    if (hasCoordinates) {
+                                        PlaceDestination.Lat = resolvedLat;
+                                        PlaceDestination.Lon = resolvedLng;
+                                    }
                                 }
                             }
                         } catch(e) {
                             console.warn("Syncing location map globals failed:", e);
                         }
                     }""",
-                    [is_origin, resolved_city, resolved_prov, address],
+                    [is_origin, resolved_city, resolved_prov, address, lat, lng],
                 )
             except Exception:
                 logger.warning("failed_syncing_location_map_globals", exc_info=True)

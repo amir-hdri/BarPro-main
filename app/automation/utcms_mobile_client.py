@@ -9,7 +9,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
-from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from curl_cffi import requests as cc_requests
@@ -86,6 +85,16 @@ def _iter_dicts(value: Any):
 class UtcmsMobileClient:
     """Small, non-retrying API client."""
 
+    # ── WAF-resistant mobile headers ──────────────────────────────
+    # Every request must carry the same fingerprint as the real UTCMS
+    # Android APK (com.baarnameshahri).  Missing or inconsistent
+    # User-Agent / Accept / Accept-Language headers are the primary
+    # heuristic WAFs use to distinguish bots from real devices.
+    _MOBILE_USER_AGENT = (
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.6049.195 Mobile Safari/537.36"
+    )
+
     def __init__(
         self,
         *,
@@ -103,17 +112,33 @@ class UtcmsMobileClient:
         self._http_client = http_client
         self._now = now or (lambda: datetime.now(ZoneInfo("Asia/Tehran")))
 
+    @classmethod
+    def _mobile_base_headers(cls) -> dict[str, str]:
+        """Return the baseline headers that the real Android APK sends.
+
+        These MUST be present on every request (GET and POST) to avoid
+        WAF fingerprinting.  The Chrome/120 User-Agent matches the
+        ``impersonate="chrome120"`` TLS fingerprint in curl_cffi.
+        """
+        return {
+            "User-Agent": cls._MOBILE_USER_AGENT,
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
+        }
+
     def _headers(self, body: dict[str, Any]) -> dict[str, str]:
         serialized = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
         current = self._now()
         if current.tzinfo is None:
             current = current.replace(tzinfo=ZoneInfo("Asia/Tehran"))
         date = current.astimezone(ZoneInfo("Asia/Tehran")).strftime("%Y%m%d")
-        headers = {
+        headers = self._mobile_base_headers()
+        headers.update({
             "Content-Type": "application/json",
             "ServicePassword": f"9#$K<31l0?+;{date}0KxsoSx)IFI&",
             "SecurityKey": hashlib.md5(serialized.encode("utf-8")).hexdigest(),
-        }
+        })
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
@@ -123,7 +148,13 @@ class UtcmsMobileClient:
         client = self._http_client
         owns_client = client is None
         if owns_client:
-            client = cc_requests.AsyncSession(proxies={"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else None, timeout=self.timeout, allow_redirects=False, impersonate="chrome120")
+            client = cc_requests.AsyncSession(
+                proxies={"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else None,
+                timeout=self.timeout,
+                allow_redirects=False,
+                impersonate="chrome120",
+                default_headers=False,
+            )
         try:
             # For GET requests, SecurityKey is MD5 of empty JSON or params
             serialized = json.dumps(params or {}, ensure_ascii=False, separators=(",", ":"))
@@ -131,10 +162,11 @@ class UtcmsMobileClient:
             if current.tzinfo is None:
                 current = current.replace(tzinfo=ZoneInfo("Asia/Tehran"))
             date = current.astimezone(ZoneInfo("Asia/Tehran")).strftime("%Y%m%d")
-            headers = {
+            headers = self._mobile_base_headers()
+            headers.update({
                 "ServicePassword": f"9#$K<31l0?+;{date}0KxsoSx)IFI&",
                 "SecurityKey": hashlib.md5(serialized.encode("utf-8")).hexdigest(),
-            }
+            })
             if self.token:
                 headers["Authorization"] = f"Bearer {self.token}"
             try:
@@ -171,14 +203,20 @@ class UtcmsMobileClient:
         client = self._http_client
         owns_client = client is None
         if owns_client:
-            client = cc_requests.AsyncSession(proxies={"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else None, timeout=self.timeout, allow_redirects=False, impersonate="chrome120")
+            client = cc_requests.AsyncSession(
+                proxies={"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else None,
+                timeout=self.timeout,
+                allow_redirects=False,
+                impersonate="chrome120",
+                default_headers=False,
+            )
         try:
             # Sign exactly the UTF-8 bytes sent to UTCMS.  Contract-test fakes
-            # may only accept ``json=``; real httpx clients use the signed bytes.
+            # may only accept ``json=``; real curl_cffi clients use the signed bytes via ``data=``.
             serialized = json.dumps(body, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
             request_kwargs: dict[str, Any] = {"headers": self._headers(body)}
             if owns_client:
-                request_kwargs["content"] = serialized.encode("utf-8")
+                request_kwargs["data"] = serialized.encode("utf-8")
             else:
                 request_kwargs["json"] = body
             try:
@@ -319,7 +357,13 @@ class UtcmsMobileClient:
         client = self._http_client
         owns_client = client is None
         if owns_client:
-            client = cc_requests.AsyncSession(proxies={"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else None, timeout=utcms_config.UTCMS_CAPTCHA_POW_TIMEOUT_SECONDS, allow_redirects=False, impersonate="chrome120")
+            client = cc_requests.AsyncSession(
+                proxies={"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else None,
+                timeout=utcms_config.UTCMS_CAPTCHA_POW_TIMEOUT_SECONDS,
+                allow_redirects=False,
+                impersonate="chrome120",
+                default_headers=False,
+            )
         try:
             try:
                 challenge_response = await client.post(f"{endpoint}challenge", headers=headers)
@@ -405,8 +449,7 @@ class UtcmsMobileClient:
         )
 
     async def refresh(self, refresh_token: str) -> MobileAuthResult:
-        encoded = quote(refresh_token, safe="")
-        response = await self._post("/Account/GetTokenByRefreshToken", {"refreshToken": encoded})
+        response = await self._get("/Account/GetTokenByRefreshToken", params={"refreshToken": refresh_token})
         obj = _unwrap_obj(response)
         token = str(obj.get("token") or obj.get("bearerToken") or "").strip()
         if not token:
@@ -464,14 +507,28 @@ class UtcmsMobileClient:
     async def issue_document_by_otp(self, document_id: str, code: str, *, allow_live_submit: bool) -> dict[str, Any]:
         if not allow_live_submit:
             raise PermissionError("ALLOW_LIVE_SUBMIT must be explicitly enabled for mobile OTP mutation")
-        if not code or not code.isdigit() or len(code) not in {5, 6}:
-            raise ValueError("کد OTP باید ۵ یا ۶ رقم باشد")
+        if not code or not code.isdigit() or not (4 <= len(code) <= 8):
+            raise ValueError("کد OTP باید بین ۴ تا ۸ رقم باشد")
         return await self._post("/Document/IssueDocumentByOtp", {"docId": document_id, "code": code})
 
     async def resend_otp(self, document_id: str, *, allow_live_submit: bool) -> dict[str, Any]:
         if not allow_live_submit:
             raise PermissionError("ALLOW_LIVE_SUBMIT must be explicitly enabled for mobile OTP mutation")
         return await self._post("/Document/ResendOtpForIssueDocument", {"documentId": document_id})
+
+    async def get_current_shamsi_date(self) -> dict[str, Any]:
+        """Fetch current server Shamsi date."""
+        return await self._post("/Document/GetCurrentShamsiDate", {})
+
+    async def get_document_pdf_v2(self, document_id: str) -> dict[str, Any]:
+        """Fetch V2 PDF format of the issued document."""
+        return await self._post("/Document/GetDocumentPdfV2", {"documentId": document_id})
+
+    async def revoke_document(self, document_id: str, reason: str = "", *, allow_live_submit: bool) -> dict[str, Any]:
+        """Revoke/Cancel an issued document (بطال بارنامه)."""
+        if not allow_live_submit:
+            raise PermissionError("ALLOW_LIVE_SUBMIT must be explicitly enabled for mobile mutation")
+        return await self._post("/Document/RevokeDocument", {"documentId": document_id, "reason": reason})
 
     async def register_start_of_shipping(
         self,

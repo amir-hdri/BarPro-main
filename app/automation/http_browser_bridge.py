@@ -14,16 +14,18 @@ import functools
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urljoin, urlparse
 
 from app.automation.worker_proxy import get_worker_proxy_url
 from app.core.config import utcms_config
+from app.core.exceptions import WaybillError
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +93,28 @@ _ISSUANCE_DOCUMENT_MARKERS = (
     "/waybill/create",
     "/transportation/waybill",
 )
+
+
+def validate_submission_coordinates(body: str) -> None:
+    """Reject UpdateRegister requests that would submit fabricated coordinates."""
+    values = dict(parse_qsl(body, keep_blank_values=True))
+    required = ("sourceLatM", "sourceLonM", "destLatM", "destLonM")
+    missing = [key for key in required if not values.get(key, "").strip()]
+    invalid: list[str] = []
+    for key in required:
+        raw = values.get(key, "").strip()
+        if not raw:
+            continue
+        try:
+            if not math.isfinite(float(raw)):
+                invalid.append(key)
+        except ValueError:
+            invalid.append(key)
+    if missing or invalid:
+        details = ", ".join((*missing, *invalid))
+        raise WaybillError(f"مختصات واقعی برای ثبت بارنامه معتبر نیستند: {details}")
+
+
 # Scripts the issuance form must have in order to initialise.  Verified live on
 # 2026-08-27: fetched sequentially on the authenticated login session they all
 # return HTTP 200, while Chromium's own TLS handshake resets them.
@@ -218,7 +242,6 @@ def _asset_stub_content_type(url: str) -> str:
     return "text/css; charset=utf-8" if urlparse(url).path.lower().endswith(".css") else "application/javascript"
 
 
-
 class UtcmsHttpBrowserBridge:
     """A page-scoped, serialized curl_cffi transport for UTCMS requests."""
 
@@ -232,9 +255,7 @@ class UtcmsHttpBrowserBridge:
         # multi-thread pool, so the same session gets driven from alternating
         # threads and UTCMS tears the TLS connection down ("Connection closed
         # abruptly").  Pin every curl operation for this bridge to ONE thread.
-        self._executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="utcms-bridge"
-        )
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="utcms-bridge")
         self._executor_generation = 0
         self._session: Any = None
         self._document_session: Any = None
@@ -298,9 +319,7 @@ class UtcmsHttpBrowserBridge:
     async def _call(self, func: Any, /, *args: Any, **kwargs: Any) -> Any:
         """Run a curl_cffi session operation on this bridge's pinned thread."""
         loop = asyncio.get_running_loop()
-        future = loop.run_in_executor(
-            self._executor, functools.partial(func, *args, **kwargs)
-        )
+        future = loop.run_in_executor(self._executor, functools.partial(func, *args, **kwargs))
         timeout_arg = kwargs.get("timeout")
         try:
             base_timeout = float(timeout_arg) if timeout_arg is not None else float(self.timeout)
@@ -726,9 +745,7 @@ class UtcmsHttpBrowserBridge:
         if int(response.status_code) != 200 or not any(
             marker in body for marker in (b"txtSenderFirstName", b"txtReceiverFirstName", b"btnGoLVL2")
         ):
-            raise RuntimeError(
-                f"UTCMS issuance prefetch failed: HTTP {response.status_code}, body_len={len(body)}"
-            )
+            raise RuntimeError(f"UTCMS issuance prefetch failed: HTTP {response.status_code}, body_len={len(body)}")
         response_headers = {
             str(k): str(v) for k, v in response.headers.items() if str(k).lower() not in _RESPONSE_DROP_HEADERS
         }
@@ -898,14 +915,10 @@ class UtcmsHttpBrowserBridge:
                 )
                 continue
             headers = {
-                str(k): str(v)
-                for k, v in response.headers.items()
-                if str(k).lower() not in _RESPONSE_DROP_HEADERS
+                str(k): str(v) for k, v in response.headers.items() if str(k).lower() not in _RESPONSE_DROP_HEADERS
             }
             self._prefetched_assets[cache_key] = (int(response.status_code), headers, body_bytes)
-            await asyncio.to_thread(
-                _write_asset_cache, cache_key, int(response.status_code), headers, body_bytes
-            )
+            await asyncio.to_thread(_write_asset_cache, cache_key, int(response.status_code), headers, body_bytes)
             prefetched += 1
             # Gentle pace so the reserved connection serves scripts one at a
             # time instead of triggering a burst of parallel-looking handshakes.
@@ -1201,6 +1214,7 @@ class UtcmsHttpBrowserBridge:
                             body_str = body.decode("utf-8", errors="ignore")
                             import re
                             from datetime import datetime, timedelta
+
                             target_dt = datetime.now() + timedelta(minutes=45)
                             encoded_time = target_dt.strftime("%H%%3A%M")
                             # Auto-heal missing time in SelfDeclaredTimeOfStartShipment (e.g. 1405%2F06%2F15++&)
@@ -1211,13 +1225,13 @@ class UtcmsHttpBrowserBridge:
                             )
                             # Auto-heal empty rent
                             body_str = re.sub(r"(?<=[\?&])rent=(?=&|$)", "rent=5000000", body_str)
-                            # Auto-heal empty coordinates
-                            body_str = re.sub(r"(?<=[\?&])destLatM=(?=&|$)", "destLatM=35.2383", body_str)
-                            body_str = re.sub(r"(?<=[\?&])destLonM=(?=&|$)", "destLonM=58.4656", body_str)
-                            body_str = re.sub(r"(?<=[\?&])sourceLatM=(?=&|$)", "sourceLatM=35.2383", body_str)
-                            body_str = re.sub(r"(?<=[\?&])sourceLonM=(?=&|$)", "sourceLonM=58.4656", body_str)
+                            # Empty or malformed coordinates are a payload error,
+                            # never an opportunity to invent an origin/destination.
+                            validate_submission_coordinates(body_str)
                             body = body_str.encode("utf-8")
                             headers["content-length"] = str(len(body))
+                        except WaybillError:
+                            raise
                         except Exception:
                             logger.warning("http_browser_bridge_submit_autoheal_failed", exc_info=True)
                         logger.info(
@@ -1353,9 +1367,7 @@ class UtcmsHttpBrowserBridge:
             )
 
 
-async def ensure_utcms_http_browser_bridge(
-    page: Any, *, proxy_url: str | None = None
-) -> UtcmsHttpBrowserBridge | None:
+async def ensure_utcms_http_browser_bridge(page: Any, *, proxy_url: str | None = None) -> UtcmsHttpBrowserBridge | None:
     """Install one bridge per page when HTTP-login mode is enabled."""
     if not getattr(utcms_config, "UTCMS_HTTP_LOGIN_ENABLED", True):
         return None

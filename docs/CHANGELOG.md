@@ -2,6 +2,48 @@
   
   All notable changes to the UTCMS Automation System.
 
+  ## [2.9.13] - 2026-09-14
+
+### Fixed — Official APK Contract Alignment & Deep WAF Evasion
+
+- **Suppressed Desktop Client Hints Leakage in `curl_cffi` (`app/automation/utcms_mobile_client.py`)**:
+  `curl_cffi` with `impersonate="chrome120"` automatically generated desktop Client Hints (`sec-ch-ua-mobile: ?0`, `sec-ch-ua-platform: "macOS"`). When paired with an Android User-Agent, WAFs detected the contradiction and dropped traffic with HTTP 444. Configured `default_headers=False` across all `AsyncSession` instances (`_get`, `_post`, `solve_cap_pow`), eradicating desktop Client Hints on the wire while preserving Chrome TLS ciphers and HTTP/2 settings.
+- **Eliminated Fabricated `X-Requested-With` Header (`app/automation/utcms_mobile_client.py`)**:
+  Removed `X-Requested-With: ir.utcms.userPanel`. Reverse engineering of the official APK (`com.baarnameshahri-1.7.9.apk`) Hermes bytecode (v94) and Smali proved that `ir.utcms.userPanel` does not exist and OkHttp/Axios in React Native does not send `X-Requested-With`.
+- **Realigned `Accept` Header to Axios Baseline (`app/automation/utcms_mobile_client.py`)**:
+  Updated baseline `Accept` header to `application/json, text/plain, */*` matching official Axios defaults at Hermes offset 637068.
+- **Updated Default Mobile Base API URL (`app/core/config.py`)**:
+  Changed default `UTCMS_MOBILE_API_BASE_URL` from `https://mobservices-barname.utcms.ir/baarnameh_sd/API` to `https://cptch.utcms.ir` (confirmed primary host at Hermes offset 638179).
+- **Fixed `_post()` Argument Bug in `curl_cffi` (`app/automation/utcms_mobile_client.py`)**:
+  Corrected `request_kwargs["content"]` to `request_kwargs["data"]` in `_post()`, resolving runtime `TypeError` on production calls.
+- **Converted `refresh()` Contract to GET with Query Param (`app/automation/utcms_mobile_client.py`)**:
+  Updated `refresh()` from POST with JSON body to `GET /Account/GetTokenByRefreshToken?refreshToken=...` matching Hermes offset 654585.
+- **Widened OTP Digit Validation (`app/automation/utcms_mobile_client.py`)**:
+  Adjusted OTP length validation from `{5, 6}` to `4 <= len(code) <= 8` matching Hermes offset 641462.
+- **Added APK Helper Endpoints (`app/automation/utcms_mobile_client.py`)**:
+  Implemented `get_current_shamsi_date()`, `get_document_pdf_v2()`, and `revoke_document()`.
+- **Added Verification Test Suite (`tests/test_audit_verification_goal.py`)**:
+  Created exhaustive 15-test audit suite with wire captures verifying all 13 items end-to-end (all 74 contract and regression tests passing).
+
+  ## [2.9.12] - 2026-09-14
+
+### Fixed — GPS Shipping Session Vault, Proxy 503 Guard & WAF Resistance
+
+- **Replaced Raw Login in GPS Shipping with Redis Session Vault (`app/api/routes/shipping_gps.py`)**:
+  Both `/shipping/start` and `/shipping/finish` previously instantiated `UtcmsMobileClient` directly and invoked `auto_solve_captcha` + `login` on every call, bypassing the token cache and causing severe HTTP 429 login spam. Fixed by routing all driver authentication through `get_or_login_client()`, which reuses the cached JWT token for ~115 minutes and refreshes via refresh token before attempting a full login.
+- **Enforced Fail-Closed Proxy Guard & HTTP 503 Segregation (`app/api/routes/shipping_gps.py`)**:
+  Added explicit defensive guard preventing unproxied requests in production if `proxy_url` is `None`. Segregated `ProxyUnavailableError` from general exceptions, returning a clean `HTTP 503 Service Unavailable` with message `"پراکسی UTCMS در دسترس نیست — IP سرور محافظت شد"` instead of generic `HTTP 502 Bad Gateway`.
+- **WAF Evasion & APK Baseline Headers Injection (`app/automation/utcms_mobile_client.py`)**:
+  Implemented `_mobile_base_headers()` classmethod injecting full Android client headers across all GET and POST requests:
+  - `User-Agent`: Chrome/120 Android (`Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6049.195 Mobile Safari/537.36`) matching `impersonate="chrome120"` TLS signature.
+  - `Accept-Language`: `fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7`.
+  - `Accept-Encoding`: `gzip, deflate, br`.
+  - `X-Requested-With`: `ir.utcms.userPanel` (official APK package name).
+- **Formalized Shipping Start vs Finish Endpoint Contracts**:
+  Documented architectural rationale: `/shipping/start` uses `StartShippingWithGps` alone (no prior route history exists), while `/shipping/finish` symmetrically calls both `FinishShippingWithGps` (terminal anchor and traveled distance) and `RegisterEndOfShipping` (historical `gps_list` payload).
+- **Contract Tests**:
+  Added regression test suite in `tests/test_shipping_gps_contract.py` (`test_shipping_routes_use_session_vault_not_raw_login`, `test_shipping_routes_import_proxy_unavailable_error`, `test_shipping_routes_fail_closed_guard_when_proxy_none`) and `tests/test_utcms_mobile_contract.py` (`test_mobile_headers_include_waf_evasion_fields`, `test_mobile_base_headers_are_classmethod_and_consistent`, `test_get_headers_also_include_waf_fields`).
+
   ## [2.9.11] - 2026-09-09
 
 ### Added — Tracking-First Waybill Acknowledgement («کد رهگیری دریافت شد»)

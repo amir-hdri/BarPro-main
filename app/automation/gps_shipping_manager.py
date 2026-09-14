@@ -8,9 +8,11 @@ future live tracking observations.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
+import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -61,7 +63,6 @@ DEFAULT_CITY_COORDS: dict[str, tuple[float, float]] = {
     "شهر کرد": (32.3256, 50.8644),
     "سمنان": (35.5769, 53.3970),
     "یاسوج": (30.6684, 51.5876),
-
     # بنادر، قطب‌های ترانزیتی و شهرهای بزرگ
     "کاشان": (33.9850, 51.4100),
     "ساوه": (35.0213, 50.3566),
@@ -165,6 +166,7 @@ def normalize_city_name(name: str | None) -> str:
     if not name or not isinstance(name, str):
         return ""
     import re
+
     cleaned = (
         name.strip()
         .replace("\u200c", "")
@@ -424,7 +426,11 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "direct_distance_km": direct_distance_km,
         "duration_hours": duration_hours,
         "duration_minutes": duration_minutes,
-        "estimated_duration_text": f"{int(duration_hours)} ساعت و {duration_minutes % 60} دقیقه" if duration_hours >= 1 else f"{duration_minutes} دقیقه",
+        "estimated_duration_text": (
+            f"{int(duration_hours)} ساعت و {duration_minutes % 60} دقیقه"
+            if duration_hours >= 1
+            else f"{duration_minutes} دقیقه"
+        ),
     }
 
 
@@ -433,13 +439,16 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 DRIVER_TOKEN_KEY = "utcms:driver:token:{national_code}"
 DRIVER_REFRESH_KEY = "utcms:driver:refresh:{national_code}"
+DRIVER_AUTH_LOCK_KEY = "utcms:driver:auth-lock:{national_code}"
 SHIPPING_STATE_KEY = "utcms:shipping:job:{job_id}"
+_LOCAL_AUTH_LOCKS: dict[str, asyncio.Lock] = {}
 
 
 async def _get_redis():
     """Best-effort Redis accessor."""
     try:
         from app.core.redis import redis_manager
+
         return await redis_manager.get()
     except Exception:
         return None
@@ -488,10 +497,59 @@ async def get_cached_refresh_token(national_code: str) -> str | None:
         return None
 
 
+async def invalidate_cached_session(national_code: str) -> None:
+    """Remove both cached credentials after UTCMS rejects authentication."""
+    r = await _get_redis()
+    if r is None:
+        return
+    try:
+        await r.delete(
+            DRIVER_TOKEN_KEY.format(national_code=national_code),
+            DRIVER_REFRESH_KEY.format(national_code=national_code),
+        )
+    except Exception as exc:
+        logger.warning("invalidate_cached_session_failed: %s", exc)
+
+
+async def _release_auth_lock(redis: Any, key: str, token: str) -> None:
+    script = """
+    if redis.call('get', KEYS[1]) == ARGV[1] then
+        return redis.call('del', KEYS[1])
+    end
+    return 0
+    """
+    try:
+        await redis.eval(script, 1, key, token)
+    except Exception as exc:
+        logger.warning("utcms_auth_lock_release_failed: %s", exc)
+
+
+async def _acquire_auth_lock(redis: Any, key: str, *, wait_seconds: float = 30.0) -> str | None:
+    token = secrets.token_urlsafe(24)
+    deadline = asyncio.get_running_loop().time() + wait_seconds
+    while True:
+        try:
+            if await redis.set(key, token, ex=120, nx=True):
+                return token
+        except Exception as exc:
+            logger.warning("utcms_auth_lock_unavailable; using process-local lock: %s", exc)
+            return None
+        if asyncio.get_running_loop().time() >= deadline:
+            raise RuntimeError("UTCMS authentication is already in progress")
+        await asyncio.sleep(0.25)
+
+
+def is_mobile_authentication_error(exc: BaseException) -> bool:
+    """Return true only for explicit authentication rejection responses."""
+    return bool(getattr(exc, "status_code", None) in {401, 403} or getattr(exc, "result_code", None) in {3000, 3001})
+
+
 async def get_or_login_client(
     national_code: str,
     password: str,
     proxy_url: str | None = None,
+    *,
+    force_reauth: bool = False,
 ) -> Any:
     """Get an authenticated UtcmsMobileClient, reusing cached token to avoid 429.
 
@@ -501,38 +559,49 @@ async def get_or_login_client(
     """
     from app.automation.utcms_mobile_client import UtcmsMobileClient
 
-    cached = await get_cached_token(national_code)
-    if cached:
-        logger.info("session_vault_hit national_code=%s", national_code)
-        return UtcmsMobileClient(token=cached, proxy_url=proxy_url)
-
-    # Try refresh
-    refresh = await get_cached_refresh_token(national_code)
-    if refresh:
-        client = UtcmsMobileClient(proxy_url=proxy_url)
+    local_lock = _LOCAL_AUTH_LOCKS.setdefault(national_code, asyncio.Lock())
+    async with local_lock:
+        redis = await _get_redis()
+        lock_key = DRIVER_AUTH_LOCK_KEY.format(national_code=national_code)
+        lock_token: str | None = None
+        if redis is not None:
+            lock_token = await _acquire_auth_lock(redis, lock_key)
         try:
-            auth = await client.refresh(refresh)
+            if force_reauth:
+                await invalidate_cached_session(national_code)
+
+            cached = await get_cached_token(national_code)
+            if cached:
+                logger.info("session_vault_hit national_code=%s", national_code)
+                return UtcmsMobileClient(token=cached, proxy_url=proxy_url)
+
+            refresh = await get_cached_refresh_token(national_code)
+            if refresh:
+                client = UtcmsMobileClient(proxy_url=proxy_url)
+                try:
+                    auth = await client.refresh(refresh)
+                    await cache_token(national_code, auth.token)
+                    if auth.refresh_token:
+                        await cache_refresh_token(national_code, auth.refresh_token)
+                    logger.info("session_vault_refreshed national_code=%s", national_code)
+                    return client
+                except Exception as exc:
+                    logger.warning("session_vault_refresh_failed: %s, falling back to login", exc)
+
+            client = UtcmsMobileClient(proxy_url=proxy_url)
+            solved = await client.auto_solve_captcha(form_id="login")
+            cap_token = UtcmsMobileClient.cap_token_from_solution(solved)
+            if not cap_token:
+                raise RuntimeError("UTCMS mobile CAPTCHA could not be solved")
+            auth = await client.login(national_code, password, cap_token=cap_token)
             await cache_token(national_code, auth.token)
             if auth.refresh_token:
                 await cache_refresh_token(national_code, auth.refresh_token)
-            logger.info("session_vault_refreshed national_code=%s", national_code)
+            logger.info("session_vault_login national_code=%s", national_code)
             return client
-        except Exception as exc:
-            logger.warning("session_vault_refresh_failed: %s, falling back to login", exc)
-
-    # Full login requires a fresh server-issued CAPTCHA proof; an empty token
-    # is rejected by the mobile API and must never be used as a fallback.
-    client = UtcmsMobileClient(proxy_url=proxy_url)
-    solved = await client.auto_solve_captcha(form_id="login")
-    cap_token = UtcmsMobileClient.cap_token_from_solution(solved)
-    if not cap_token:
-        raise RuntimeError("UTCMS mobile CAPTCHA could not be solved")
-    auth = await client.login(national_code, password, cap_token=cap_token)
-    await cache_token(national_code, auth.token)
-    if auth.refresh_token:
-        await cache_refresh_token(national_code, auth.refresh_token)
-    logger.info("session_vault_login national_code=%s", national_code)
-    return client
+        finally:
+            if redis is not None and lock_token is not None:
+                await _release_auth_lock(redis, lock_key, lock_token)
 
 
 # ──────────────────── Shipping State (Redis) ────────────────────
@@ -631,7 +700,10 @@ async def init_shipping(
     olat, olng, dlat, dlng = (float(value) for value in required)
 
     waypoints = interpolate_waypoints(
-        olat, olng, dlat, dlng,
+        olat,
+        olng,
+        dlat,
+        dlng,
         num_steps=num_steps,
         origin_address=info["origin_address"],
         dest_address=info["dest_address"],
@@ -680,6 +752,8 @@ __all__ = [
     "get_cached_refresh_token",
     "get_cached_token",
     "get_or_login_client",
+    "invalidate_cached_session",
+    "is_mobile_authentication_error",
     "haversine_km",
     "init_shipping",
     "interpolate_waypoints",

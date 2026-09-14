@@ -210,11 +210,9 @@ def get_best_egress_proxy(allowed_protocols: set[str] | frozenset[str] | None = 
     - 'clean_pool_only': Always use verified proxies from the Clean IP Pool.
     - 'hybrid': Alternates between local worker Squid and the Clean IP Pool.
 
-    Fail-closed: in production (see ``_proxy_fail_closed``), if both the worker proxy
-    and the clean IP pool are unavailable, raises ``ProxyUnavailableError``. One
-    exception: a worker Squid that is UP but whose egress index is marked blocked is
-    still used (degraded) when the pool is empty, so marking an egress blocked can
-    never take waybill processing offline.
+    Fail-closed: in production (see ``_proxy_fail_closed``), if the worker proxy is
+    unreachable or blocked and the clean IP pool is unavailable, raises
+    ``ProxyUnavailableError``. A blocked egress is never reused as a last resort.
     """
     global _cached_proxy_source, _cached_proxy_url, _cached_proxy_timestamp
 
@@ -335,28 +333,6 @@ def get_best_egress_proxy(allowed_protocols: set[str] | frozenset[str] | None = 
         _cached_proxy_timestamp = now
         return resolved_clean
 
-    # Last resort: the worker Squid is up but its egress index was marked blocked
-    # and the pool had nothing to move to. Use it anyway, degraded.
-    #
-    # This branch is what makes marking an egress blocked SAFE to do at all.
-    # Without it, "blocked" plus an empty pool reaches ``_proxy_fail_closed()``
-    # below and raises, i.e. an IP the WAF is throttling would take waybill
-    # processing fully OFFLINE instead of degrading it -- strictly worse than
-    # continuing to try the throttled address, which does still succeed between
-    # throttle windows. Failover remains preferred; this only fires when there is
-    # genuinely nowhere else to go.
-    if worker_squid_reachable and resolved_worker_squid and worker_protocol_allowed:
-        logger.warning(
-            "worker_proxy: egress index %s is marked blocked but the Clean IP Pool is empty; "
-            "continuing on the blocked worker Squid %s (degraded, NOT failing closed)",
-            worker_ip_index,
-            _safe_proxy_url(resolved_worker_squid),
-        )
-        _cached_proxy_url = resolved_worker_squid
-        _cached_proxy_source = "worker_squid_degraded"
-        _cached_proxy_timestamp = now
-        return resolved_worker_squid
-
     if _proxy_fail_closed():
         _cached_proxy_url = None
         _cached_proxy_source = None
@@ -449,7 +425,10 @@ async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> b
                     try:
                         await asyncio.to_thread(session.close)
                     except Exception as exc:
-                        logger.debug("worker_proxy_health_session_close_failed", extra={"extra_fields": {"error": str(exc)[:200]}})
+                        logger.debug(
+                            "worker_proxy_health_session_close_failed",
+                            extra={"extra_fields": {"error": str(exc)[:200]}},
+                        )
         if attempt < 3:
             await asyncio.sleep(1.5)
 

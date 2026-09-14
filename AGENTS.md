@@ -356,6 +356,14 @@ All current providers execute within the Worker process; Keras is lazy-loaded on
 
 ## Optimization Applied (2026-06-30 → 2026-09-06)
 
+### 2026-09-14 — GPS Shipping Session Vault & WAF Evasion Hardening (v2.9.12)
+| Change | Impact |
+|---|---|
+| Replaced raw mobile login & CAPTCHA in `/shipping/start` and `/shipping/finish` with `get_or_login_client()` | Driver JWT cached in Redis Session Vault for ~115 min; eliminates redundant CAPTCHA solving and eradicates HTTP 429 login spam |
+| Enforced fail-closed proxy guard with dedicated HTTP 503 response | Prevents silent fail-open direct server egress when proxy is unavailable; returns clear 503 ("پراکسی UTCMS در دسترس نیست") instead of generic 502 |
+| Injected Android-realistic baseline headers (`_mobile_base_headers`) & suppressed desktop Client Hints | `curl_cffi` AsyncSession uses `default_headers=False` (eradicating desktop `sec-ch-ua` headers); baseline headers send Chrome/120 Android UA, `Accept: application/json, text/plain, */*`, `Accept-Language: fa-IR`, `Accept-Encoding: gzip, deflate, br`; removed fake `X-Requested-With`; fixed `_post` kwargs to `data=`; updated base URL to `cptch.utcms.ir` matching genuine APK |
+| Formalized start vs finish dual-endpoint shipping contract | Proved that `/start` using `StartShippingWithGps` alone and `/finish` using `FinishShippingWithGps` + `RegisterEndOfShipping` is correct business architecture, not a state defect |
+
 ### 2026-09-13 — Deep WAF Evasion & Mobile TLS Hardening (v2.9.11)
 | Change | Impact |
 |---|---|

@@ -5454,9 +5454,6 @@ class EnhancedWaybillManager:
                                     (document.querySelector("#ddCitySource option:checked")?.textContent || "").trim();
                     const destCity = (window.jQuery ? window.jQuery("#ddCityDest option:selected").text() : "") ||
                                      (document.querySelector("#ddCityDest option:checked")?.textContent || "").trim();
-                    const defaultLat = 35.2383;
-                    const defaultLng = 58.4656;
-
                     if (srcCity && srcCity !== "انتخاب کنید") {
                         window.citySourceMap = srcCity;
                         try { if (typeof citySourceMap !== 'undefined') citySourceMap = srcCity; } catch(e){}
@@ -5467,15 +5464,21 @@ class EnhancedWaybillManager:
                     }
 
                     try {
-                        if (!window.LatSource || window.LatSource === "" || isNaN(Number(window.LatSource))) window.LatSource = defaultLat;
-                        if (!window.LngSource || window.LngSource === "" || isNaN(Number(window.LngSource))) window.LngSource = defaultLng;
-                        if (typeof LatSource !== 'undefined' && (!LatSource || LatSource === "" || isNaN(Number(LatSource)))) LatSource = defaultLat;
-                        if (typeof LngSource !== 'undefined' && (!LngSource || LngSource === "" || isNaN(Number(LngSource)))) LngSource = defaultLng;
-
-                        if (!window.LatDestination || window.LatDestination === "" || isNaN(Number(window.LatDestination))) window.LatDestination = defaultLat;
-                        if (!window.LngDestination || window.LngDestination === "" || isNaN(Number(window.LngDestination))) window.LngDestination = defaultLng;
-                        if (typeof LatDestination !== 'undefined' && (!LatDestination || LatDestination === "" || isNaN(Number(LatDestination)))) LatDestination = defaultLat;
-                        if (typeof LngDestination !== 'undefined' && (!LngDestination || LngDestination === "" || isNaN(Number(LngDestination)))) LngDestination = defaultLng;
+                        // Preserve coordinates already selected by the operator or
+                        // location selector; never invent a coordinate at submit time.
+                        const validCoordinate = value => value !== null && value !== "" && Number.isFinite(Number(value));
+                        if (validCoordinate(window.LatSource) && validCoordinate(window.LngSource)) {
+                            window.LatSource = Number(window.LatSource);
+                            window.LngSource = Number(window.LngSource);
+                        }
+                        if (typeof LatSource !== 'undefined' && validCoordinate(LatSource)) LatSource = Number(LatSource);
+                        if (typeof LngSource !== 'undefined' && validCoordinate(LngSource)) LngSource = Number(LngSource);
+                        if (validCoordinate(window.LatDestination) && validCoordinate(window.LngDestination)) {
+                            window.LatDestination = Number(window.LatDestination);
+                            window.LngDestination = Number(window.LngDestination);
+                        }
+                        if (typeof LatDestination !== 'undefined' && validCoordinate(LatDestination)) LatDestination = Number(LatDestination);
+                        if (typeof LngDestination !== 'undefined' && validCoordinate(LngDestination)) LngDestination = Number(LngDestination);
 
                         // Ensure rent / txtkeraye is populated (UTCMS error 4025 if empty)
                         const kerayeEl = document.querySelector("#txtkeraye");

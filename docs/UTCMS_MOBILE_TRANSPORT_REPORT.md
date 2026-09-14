@@ -24,12 +24,12 @@ opt-in پیاده شده است:
 - Package: com.baarnameshahri
 - Version: 1.7.9، version code 29
 - React Native + Hermes؛ مجیک Hermes در bundle مشاهده شد.
-- Base URL رمزگشایی‌شده:
-  https://mobservices-barname.utcms.ir/baarnameh_sd/API
+- Base URL قطعی در بایت‌کد هرمس:
+  https://cptch.utcms.ir (هاست قدیمی mobservices-barname.utcms.ir/baarnameh_sd/API صرفاً در network_security_config حضور داشت و فراخوانی مستقیم نمی‌شود)
 - wrapperهای endpoint در bundle شامل موارد زیر هستند:
   - POST /Account/UserLoginV2
   - POST /Utils/GetCaptcha
-  - POST /Account/GetTokenByRefreshToken
+  - GET /Account/GetTokenByRefreshToken (از طریق query parameter)
   - POST /Document/InsertDocumentHagigiV3
   - POST /Document/IssueDocumentByOtp
   - POST /Document/ResendOtpForIssueDocument
@@ -226,3 +226,35 @@ OTP هرگز در log، evidence یا پاسخ sanitised ذخیره نمی‌ش�
 تأیید قرارداد پاسخ زنده، حل خودکار هر دو خانواده CAPTCHA و تکمیل OTP اپراتوری
 هنوز به یک حساب تست مجاز و egress قابل‌دسترسی نیاز دارد. تا آن زمان مقدار
 `UTCMS_TRANSPORT=web` و `ALLOW_LIVE_SUBMIT=false` باید حفظ شوند.
+
+## الحاقیه رفع ریشه‌ای گپ‌های GPS Shipping و مقاوم‌سازی WAF (2026-09-14 — v2.9.12)
+
+در ممیزی عمیق کلاینت موبایل و روتهای GPS، سه گپ فنی و یک ریسک اثرانگشت WAF کشف و به صورت ریشه‌ای برطرف شدند:
+
+### ۱. حذف اسپم لاگین و CAPTCHA با Redis Session Vault
+- **وضعیت قبلی:** در `app/api/routes/shipping_gps.py` هر بار که کاربر `/start` یا `/finish` را می‌زد، کد مستقیماً یک نمونه جدید از `UtcmsMobileClient` می‌ساخت و `auto_solve_captcha` + `login` را اجرا می‌کرد. این کار باعث حل مکرر کپچا و ترافیک غیرعادی روی اندپوینت احراز هویت می‌شد و ریسک خطای `HTTP 429` را به شدت بالا می‌برد.
+- **اصلاح:** در هر دو اندپوینت، فراخوانی مستقیم لاگین با `get_or_login_client()` جایگزین شد. این متد توکن JWT راننده را تا ۱۱۵ دقیقه در Redis (`utcms:driver:token:{national_code}`) کش می‌کند و در صورت انقضا ابتدا از طریق Refresh Token اقدام به تمدید می‌کند و تنها در نبود توکن لاگین جدید انجام می‌دهد.
+
+### ۲. اثبات معماری نامتقارن شروع در برابر پایان حمل
+- **تحلیل:** در شروع حمل، فقط `StartShippingWithGps` (`/Document/StartShippingWithGps`) صدا زده می‌شود چون هنوز مسافتی طی نشده و آرایه `gps_list` خالی است (نیازی به ارسال سابقه نیست). در پایان حمل، هم `FinishShippingWithGps` (ثبت مختصات مقصد و مسافت پیموده‌شده) و هم `RegisterEndOfShipping` (ارسال آرایه کامل نقاط `gps_list` به دیتابیس پیمایش) فراخوانی می‌شوند. این عدم تقارن نه تنها باگ نیست بلکه دقیقاً منطبق با مدل دیتای رسمی UTCMS است.
+
+### ۳. تفکیک خطای پراکسی و گارد دفاعی Fail-Closed (HTTP 503)
+- **اصلاح:** گارد دفاعی صریح در `shipping_gps.py` اعمال شد تا در صورت `proxy_url is None` در پروداکشن، قبل از هرگونه ارسال درخواست مستقیم، خطای `ProxyUnavailableError` صادر شود. علاوه بر آن، `worker_proxy.py` دیگر یک Squid دارای نشانگر blocked را به‌عنوان last resort برنمی‌گرداند؛ در نبود Clean IP معتبر، مسیر production واقعاً fail-closed است. این خطا به طور اختصاصی با کد **HTTP 503** («پراکسی UTCMS در دسترس نیست — IP سرور محافظت شد») بازگردانده می‌شود.
+
+### ۴. تزریق هدرهای اندروید واقعی برای WAF Evasion و مسدودسازی Client Hints دسکتاپ
+- **اصلاح:** متد `_mobile_base_headers()` در `UtcmsMobileClient` و مقداردهی `default_headers=False` در وهله‌های ساخت `curl_cffi.requests.AsyncSession` اعمال شد:
+  - `User-Agent`: شبیه‌ساز Chrome/120 Android منطبق بر اثرانگشت TLS JA3 کتابخانه `curl_cffi` (`impersonate="chrome120"`).
+  - `Accept`: `application/json, text/plain, */*` (منطبق بر تنظیمات پیش‌فرض کتابخانه Axios در بایت‌کد هرمس، آفست ۶۳۷۰۶۸).
+  - `Accept-Language`: `fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7`.
+  - `Accept-Encoding`: `gzip, deflate, br`.
+  - مسدودسازی Client Hints دسکتاپ (`sec-ch-ua-mobile: ?0`, `sec-ch-ua-platform: "macOS"`) از طریق `default_headers=False`.
+  - حذف هدر جعلی `X-Requested-With` (پکیج واقعی `com.baarnameshahri` است و کلاینت بومی React Native/OkHttp این هدر را ارسال نمی‌کند).
+- این هدرها در Wire Capture محلی راستی‌آزمایی شده و خروجی ترافیک شبکه کاملاً مطابق با کلاینت اندرویدی بومی گردید.
+
+### ۵. جلوگیری از مختصات ساختگی و بازیابی session
+- مختصات مبدأ و مقصد فقط از مختصات صریح یا نگاشت شهر شناخته‌شده resolve می‌شوند؛ شهر ناشناخته یا مختصات ناقص مقدار تهران یا مقدار دیگری تولید نمی‌کند.
+- interceptor شبکه، `sourceLatM`، `sourceLonM`، `destLatM` و `destLonM` خالی/نامعتبر را پیش از ارسال `UpdateRegister` به خطای کنترل‌شده می‌فرستد و دیگر مقدار پیش‌فرض تزریق نمی‌کند.
+- Session Vault برای هر راننده قفل محلی و Redis دارد تا درخواست‌های هم‌زمان CAPTCHA/login تکراری تولید نکنند. در پاسخ صریح احراز هویت نامعتبر (`401/403/3000/3001`)، هر دو کلید token و refresh حذف و فقط یک بار re-authentication انجام می‌شود.
+
+### آزمون‌های این مرحله
+- تست‌های اختصاصی در `tests/test_shipping_gps_contract.py`، `tests/test_utcms_mobile_contract.py`، `tests/test_worker_proxy_and_rotator.py` و `tests/test_gps_session_vault.py` اجرا شدند؛ مجموعهٔ مرتبط ۱۲۳ آزمون را با موفقیت پشت سر گذاشت.

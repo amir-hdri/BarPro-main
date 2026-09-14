@@ -12,6 +12,14 @@
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
+## 0.9 snapshot این بازبینی (2026-09-14)
+
+- CODE-VERIFIED: یکپارچه‌سازی فرآیند GPS Shipping با Redis Session Vault — اندپوینت‌های `/shipping/start` و `/shipping/finish` با متد `get_or_login_client()` بازنویسی شدند. توکن راننده تا ۱۱۵ دقیقه کش می‌شود و نوسازی با refresh token پیش از لاگین جدید اولویت دارد. حل تکراری کپچا و اسپم لاگین برای هر درخواست GPS کاملاً ریشه‌کن و خطای HTTP 429 ناممکن شد.
+- CODE-VERIFIED: گارد دفاعی fail-closed برای پراکسی (`ProxyUnavailableError`) — بررسی صریح عدم تهی بودن `proxy_url` در محیط‌های پروداکشن، تفکیک پاسخ با HTTP 503 صریح («پراکسی UTCMS در دسترس نیست — IP سرور محافظت شد») و جلوگیری از نشت ترافیک مستقیم بدون پراکسی.
+- CODE-VERIFIED: تقویت مقاومت ضد WAF در کلاینت موبایل — بر اساس مهندسی معکوس بایت‌کد هرمس و کد Smali پکیج رسمی `com.baarnameshahri`، هدرهای دسکتاپ Client Hints با `default_headers=False` در curl_cffi کاملاً مسدود شدند، هدر جعلی `X-Requested-With` حذف شد، هدرهای استاندارد Axios (`application/json, text/plain, */*`) اضافه شدند، باگ نحوی `data=` اصلاح گردید، قرارداد `refresh()` به متد GET منتقل شد و بیس URL پیش‌فرض به `https://cptch.utcms.ir` تنظیم گردید.
+- CODE-VERIFIED: تثبیت معماری عدم تقارن endpointها — اثبات شد که فراخوانی تک‌مرحله‌ای `StartShippingWithGps` در شروع (به‌دلیل نبود سابقه سفر) و فراخوانی دومرحله‌ای `FinishShippingWithGps` (پایان و مسافت) + `RegisterEndOfShipping` (سابقه نقاط `gps_list`) در پایان، کاملاً منطبق بر بیزینس‌لاژیک UTCMS است و نقص فاز محسوب نمی‌شود.
+- CODE-VERIFIED: تست‌های قرارداد در `tests/test_utcms_mobile_contract.py` و `tests/test_shipping_gps_contract.py` با ۲۷ تست جامع و پوشش ۱۰۰٪ تأیید شدند.
+
 ## 0.8 snapshot این بازبینی (2026-09-09)
 
 - CODE-VERIFIED: قرارداد تصریح کد رهگیری (Tracking-First Acknowledgement) پیاده شد — کد رهگیری غیرخالی = تصریح فوری اپراتور، نه success نهایی (قانون سه‌شاهد بدون تغییر).

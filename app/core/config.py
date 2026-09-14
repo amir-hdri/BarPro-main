@@ -167,7 +167,7 @@ class UTCMSConfig:
         )
         self.UTCMS_MOBILE_API_BASE_URL = os.getenv(
             "UTCMS_MOBILE_API_BASE_URL",
-            "https://mobservices-barname.utcms.ir/baarnameh_sd/API",
+            "https://cptch.utcms.ir",
         ).strip()
         self.UTCMS_MOBILE_API_TIMEOUT_SECONDS = float(
             os.getenv("UTCMS_MOBILE_API_TIMEOUT_SECONDS", "20")
