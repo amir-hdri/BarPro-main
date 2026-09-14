@@ -32,7 +32,7 @@ flowchart TD
     end
 
     subgraph APKReality ["رفتار واقعی اپلیکیشن اندروید (com.baarnameshahri)"]
-        APK[React Native + OkHttp 3.14.9] --> H1[بدون X-Requested-With]
+        APK[React Native + OkHttp 4.9.2] --> H1[بدون X-Requested-With]
         APK --> H2[بدون هدرهای Sec-CH-UA]
         APK --> H3[هاست مستقیم: cptch.utcms.ir]
         APK --> H4[هدرهای احراز هویت: ServicePassword + SecurityKey]
@@ -145,7 +145,7 @@ flowchart TD
 
 * **شواهد باینری در بایت‌کد هرمس:**
   برخلاف گزارش اولیه‌ای که به این هدرها اشاره نکرده بود، استخراج باینری وجود قطعی آن‌ها را ثابت کرد:
-  - **پیشوند کلید (آفست ۶۰۵۳۰۲):** `9#$K<31l0?+;`
+  - **پیشوند کلید (آفست ۶۰۵۲۹۷):** `9#$K<31l0?+;`
   - **پسوند کلید (آفست ۶۰۴۲۶۰):** `0KxsoSx)IFI&`
   - **نام هدر ServicePassword (آفست ۸۹۱۸۸۹):** `ServicePassword`
   - **نام هدر SecurityKey (آفست ۸۸۲۵۴۳):** `SecurityKey`
@@ -164,10 +164,10 @@ flowchart TD
 ### بردار ۶: تفاوت متد پروتکل Refresh Token (GET در برابر POST)
 
 * **ادعای گزارش مرجع و شواهد باینری:**
-  در بایت‌کد هرمس، رفرش توکن دقیقاً به صورت کوئری استخراج شد:
+  در بایت‌کد هرمس، رفرش توکن به صورت کوئری در آفست‌های زیر استخراج شد:
   ```text
-  آفست ۶۵۴۵۸۵: Account/GetTokenByRefreshToken?refreshToken=
-  متن لاگ مجاور: ========== RESPONSE ==========
+  آفست ۶۳۷۳۶۸: Account/GetTokenByRefreshToken?refreshToken=
+  آفست‌های لاگ مجاور (۵۵۶۹۸۸، ۶۵۴۵۴۸، ۶۵۴۶۰۸): Account/GetTokenByRefreshToken==========
   متن هندلر موفقیت: refreshToken is successfull
   ```
 * **مغایرت در کد BarPro:**  
@@ -228,9 +228,9 @@ flowchart TD
 | **۲** | **نشت Client Hints** | در گزارش نیامده بود | نشت `sec-ch-ua-mobile: ?0` دسکتاپ | شنود مستقیم وایر با سرور محلی HTTP | ❌ نیازمند اصلاح |
 | **۳** | **هدر X-Requested-With** | در گزارش نیامده بود | `ir.utcms.userPanel` | ۰ برخورد در Smali و هرمس؛ پکیج `com.baarnameshahri` | ❌ نیازمند حذف |
 | **۴** | **باگ پارامتر POST** | در گزارش نیامده بود | `content=serialized...` | خطای `TypeError` در `curl_cffi` با اجرای زنده | ❌ نیازمند اصلاح |
-| **۵** | **متد Refresh Token** | GET با Query Param | POST با JSON Body | رشته `Account/GetTokenByRefreshToken?` در آفست ۶۵۴۵۸۵ | ❌ نیازمند اصلاح |
+| **۵** | **متد Refresh Token** | GET با Query Param | POST با JSON Body | رشته `Account/GetTokenByRefreshToken?` در آفست ۶۳۷۳۶۸ | ❌ نیازمند اصلاح |
 | **۶** | **هدر Accept** | `application/json, text/plain, */*` | `application/json` | استخراج صریح از آفست ۶۳۷۰۶۸ باندل هرمس | ❌ نیازمند اصلاح |
-| **۷** | **هدر ServicePassword** | در گزارش نیامده بود | فرمول تاریخ روز تهران | آفست ۶۰۵۳۰۲ (`9#$K<31l0?+;`) و ۶۰۴۲۶۰ (`0KxsoSx)IFI&`) | ✅ تأیید و حفظ |
+| **۷** | **هدر ServicePassword** | در گزارش نیامده بود | فرمول تاریخ روز تهران | آفست ۶۰۵۲۹۷ (`9#$K<31l0?+;`) و ۶۰۴۲۶۰ (`0KxsoSx)IFI&`) | ✅ تأیید و حفظ |
 | **۸** | **هدر SecurityKey** | در گزارش نیامده بود | MD5 بدنه سریالایز شده | آفست ۸۸۲۵۴۳ در هرمس | ✅ تأیید و حفظ |
 | **۹** | **مکانیزم حل کپچا** | Cap.js PoW 0.0.6 | حل عددی شبیه‌ساز با چالش | تطابق فایل `assets/cap/widget.js` در APK | ✅ تأیید و حفظ |
 
