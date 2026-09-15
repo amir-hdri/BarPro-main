@@ -12,14 +12,14 @@
   Executed real driver authentication flow (`1752641744`) through Iranian Squid proxy (`http://172.20.0.1:3128`) without WAF blocks (0% HTTP 444 / 408):
   1. Solved CapJS PoW on `cptch.utcms.ir`.
   2. Authenticated on `mobservices-barname.utcms.ir/baarnameh_sd/API/Account/UserLoginV2` with HTTP 200 OK.
-  3. Cached driver JWT in Redis Session Vault with TTL 6731s (~112 min), eliminating redundant login and CAPTCHA overhead and eradicating HTTP 429 login rate limits.
+  3. Cached driver bearer token in Redis Session Vault (short TTL, 240s default; refresh token 7000s default), reducing redundant login and CAPTCHA overhead and lowering HTTP 429 login rate-limit risk — not eradicating it (see `docs/ANTIGRAVITY_GPS_VERIFICATION_2026-09-15.md`).
   4. Successfully retrieved driver fleet (`vin=IRGC761H07Y582039`).
 - **Virtual Android Client Bridge Phase 1 (`app/android_bridge/`)**:
   Added an opt-in, lightweight observation bridge for server-side virtual Android (Redroid) running on Linux (no physical phones required). Features zero heavy dependencies (no DB, SQLModel, or ML imports), explicit ADB serial requirement (`ANDROID_BRIDGE_SERIAL`), package verification for official APK (`com.baarnameshahri`) and FakeTraveler (`cl.coders.faketraveler`), and UI hierarchy layout inspection. Test counts are reported from the current checkout rather than a fixed historical number; the 2026-09-15 regression run covered 102 GPS/mobile/bridge tests.
 - **GPS Target Architecture Migration Plan (`docs/ANDROID_CLIENT_IMPLEMENTATION_PLAN.md`)**:
   Documented the future migration of GPS shipping from Python HTTP emulation to FakeTraveler location injection (`cl.coders.faketraveler` via `geo:` Intent) driven by official UTCMS app in Redroid. Enforced security boundary: no `privileged: true` in containers.
 - **Test Suite Pass**:
-  Full test regression passed 100/100 tests locally and in CI.
+  Full test regression snapshot at release time: 100/100 in the release subset locally and in CI. Per-checkout counts are authoritative — current full suite: 1373 passed, 3 skipped (measured 2026-09-16, `tests/test_e2e_bot.py` excluded).
 
 ## [2.9.13] - 2026-09-14
 

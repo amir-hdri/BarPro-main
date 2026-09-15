@@ -26,6 +26,7 @@ opt-in پیاده شده است:
 - React Native + Hermes؛ مجیک Hermes در bundle مشاهده شد.
 - Base URL قطعی در بایت‌کد هرمس:
   https://cptch.utcms.ir (هاست قدیمی mobservices-barname.utcms.ir/baarnameh_sd/API صرفاً در network_security_config حضور داشت و فراخوانی مستقیم نمی‌شود)
+> یادداشت اصلاحی 2026-09-15: آزمون تجربی بعدی نشان داد `cptch.utcms.ir` فقط سرویس CapJS (`challenge`/`redeem`) می‌دهد و برای `UserLoginV2` مقدار HTTP 404 برمی‌گرداند؛ هاست تراکنشی فعال `mobservices-barname.utcms.ir/baarnameh_sd/API` است. پیکربندی فعلی همین تفکیک دوهاستی را دارد (`app/core/config.py:168-184`، تفصیل در `docs/UTCMS_MOBILE_AND_WAF_AUDIT_REPORT.md`).
 - wrapperهای endpoint در bundle شامل موارد زیر هستند:
   - POST /Account/UserLoginV2
   - POST /Utils/GetCaptcha
