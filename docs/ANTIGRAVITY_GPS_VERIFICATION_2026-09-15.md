@@ -2,7 +2,7 @@
 
 **مرجع جلسه:** 609d52c3-0463-430c-bb62-c967a912e9bc  
 **تاریخ بررسی:** ۱۵ سپتامبر ۲۰۲۶  
-**مخزن و commit بررسی‌شده:** BarPro-main در 9d2198d  
+**مخزن و commit بررسی‌شده:** BarPro-main در 68767e7 (اصلاحات ممیزی)
 **دامنه:** راستی‌آزمایی ادعاهای جلسه، مسیرهای /shipping/*، کلاینت موبایل UTCMS، Session Vault، Android Bridge و بسته FakeTraveler.
 
 ## حکم اجرایی
@@ -199,7 +199,7 @@ All checks passed!
 محدودیت‌های runtime:
 
 - image production شامل pytest نیست؛ اجرای تست داخل آن با No module named pytest متوقف شد.
-- production روی 9d2198d است و ALLOW_LIVE_SUBMIT=False.
+- production پس از deploy باید روی 68767e7 و با ALLOW_LIVE_SUBMIT=False تأیید شود.
 - /healthz سالم و /readyz آماده گزارش شده، اما probe زنده ITMB/cache در readiness skip شده است.
 - هیچ Redroid، ADB listener، binder evidence یا FakeTraveler مستقر در production مشاهده نشد.
 - build FakeTraveler اجرا نشد چون محیط JDK 11 دارد و Gradle به JDK 17 نیاز دارد؛ این blocker محیطی است، نه pass منبع.

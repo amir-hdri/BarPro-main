@@ -15,7 +15,7 @@
   3. Cached driver JWT in Redis Session Vault with TTL 6731s (~112 min), eliminating redundant login and CAPTCHA overhead and eradicating HTTP 429 login rate limits.
   4. Successfully retrieved driver fleet (`vin=IRGC761H07Y582039`).
 - **Virtual Android Client Bridge Phase 1 (`app/android_bridge/`)**:
-  Added an opt-in, lightweight observation bridge for server-side virtual Android (Redroid) running on Linux (no physical phones required). Features zero heavy dependencies (no DB, SQLModel, or ML imports), explicit ADB serial requirement (`ANDROID_BRIDGE_SERIAL`), package verification for official APK (`com.baarnameshahri`) and FakeTraveler (`cl.coders.faketraveler`), and UI hierarchy layout inspection. Covered by 57 dedicated unit tests (`tests/test_android_bridge.py`, `tests/test_shipping_gps_runtime.py`).
+  Added an opt-in, lightweight observation bridge for server-side virtual Android (Redroid) running on Linux (no physical phones required). Features zero heavy dependencies (no DB, SQLModel, or ML imports), explicit ADB serial requirement (`ANDROID_BRIDGE_SERIAL`), package verification for official APK (`com.baarnameshahri`) and FakeTraveler (`cl.coders.faketraveler`), and UI hierarchy layout inspection. Test counts are reported from the current checkout rather than a fixed historical number; the 2026-09-15 regression run covered 102 GPS/mobile/bridge tests.
 - **GPS Target Architecture Migration Plan (`docs/ANDROID_CLIENT_IMPLEMENTATION_PLAN.md`)**:
   Documented the future migration of GPS shipping from Python HTTP emulation to FakeTraveler location injection (`cl.coders.faketraveler` via `geo:` Intent) driven by official UTCMS app in Redroid. Enforced security boundary: no `privileged: true` in containers.
 - **Test Suite Pass**:
@@ -49,7 +49,7 @@
 ### Fixed — GPS Shipping Session Vault, Proxy 503 Guard & WAF Resistance
 
 - **Replaced Raw Login in GPS Shipping with Redis Session Vault (`app/api/routes/shipping_gps.py`)**:
-  Both `/shipping/start` and `/shipping/finish` previously instantiated `UtcmsMobileClient` directly and invoked `auto_solve_captcha` + `login` on every call, bypassing the token cache and causing severe HTTP 429 login spam. Fixed by routing all driver authentication through `get_or_login_client()`, which reuses the cached JWT token for ~115 minutes and refreshes via refresh token before attempting a full login.
+  Both `/shipping/start` and `/shipping/finish` previously instantiated `UtcmsMobileClient` directly and invoked `auto_solve_captcha` + `login` on every call, increasing authentication traffic and 429 risk. Fixed by routing all driver authentication through `get_or_login_client()`, which uses a short bearer-token TTL (240 seconds by default) and a refresh-token TTL (7000 seconds by default) before attempting a full login. This reduces repeated login traffic; it does not guarantee that UTCMS will never return 429.
 - **Enforced Fail-Closed Proxy Guard & HTTP 503 Segregation (`app/api/routes/shipping_gps.py`)**:
   Added explicit defensive guard preventing unproxied requests in production if `proxy_url` is `None`. Segregated `ProxyUnavailableError` from general exceptions, returning a clean `HTTP 503 Service Unavailable` with message `"پراکسی UTCMS در دسترس نیست — IP سرور محافظت شد"` instead of generic `HTTP 502 Bad Gateway`.
 - **WAF Evasion & APK Baseline Headers Injection (`app/automation/utcms_mobile_client.py`)**:
