@@ -63,10 +63,10 @@ def _payload() -> dict:
             "driver_national_code": "0084575948",
             "plate": "12ب345ایران11",
             "tag_type": 1,
-            "t1": "11",
-            "t2": "345",
-            "t3": "ب",
-            "t4": "12",
+            "t1": "12",
+            "t2": "ب",
+            "t3": 345,
+            "t4": "11",
             "capacity": 10,
             "type": "کامیون",
         },
@@ -92,7 +92,7 @@ def test_mobile_payload_maps_explicit_fields_without_silent_defaults():
     assert body["driverNationalCode"] == "0084575948"
     assert body["rent"] == 5000000
     assert body["sendSMS"] is True
-    assert body["insurance"] == {"haveInsurance": True, "insuranceCover": 1000000}
+    assert body["insurance"] == {"haveInsurance": True, "insuranceCover": True}
 
     missing_cost = _payload()
     missing_cost["financial"] = {}
@@ -522,7 +522,7 @@ def test_mobile_payload_matches_deep_analysis_schema_complete():
     assert body["token"] == "tok-1"
     assert body["driverNationalCode"] == "0084575948"
     assert body["isDraft"] is False
-    assert body["docID"] == 0
+    assert "docID" not in body
     assert body["bearingCost"] == 100000
     assert body["rent"] == 5000000
     assert body["preRent"] == 1000000
@@ -534,14 +534,14 @@ def test_mobile_payload_matches_deep_analysis_schema_complete():
 
     # Verify insurance
     assert body["insurance"]["haveInsurance"] is True
-    assert body["insurance"]["insuranceCover"] == 1000000
+    assert body["insurance"]["insuranceCover"] is True
 
     # Verify truck
-    assert body["truck"]["tagType"] == 1
-    assert body["truck"]["t1"] == "11"
-    assert body["truck"]["t2"] == "345"
-    assert body["truck"]["t3"] == "ب"
-    assert body["truck"]["t4"] == "12"
+    assert body["truck"]["tagType"] is True
+    assert body["truck"]["t1"] == "12"
+    assert body["truck"]["t2"] == "ب"
+    assert body["truck"]["t3"] == 345
+    assert body["truck"]["t4"] == "11"
     assert body["truck"]["capacity"] == 10
     assert body["truck"]["type"] == "کامیون"
 
@@ -601,7 +601,7 @@ def test_plate_parsing_fallback_in_truck():
     body = build_mobile_document_payload(payload, token="tok-1", cap_token="cap-1")
     assert body["truck"]["t1"] == "12"
     assert body["truck"]["t2"] == "ع"
-    assert body["truck"]["t3"] == "345"
+    assert body["truck"]["t3"] == 345
     assert body["truck"]["t4"] == "67"
 
 

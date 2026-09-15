@@ -899,15 +899,9 @@ def test_blocked_egress_index_prefers_clean_pool():
             assert wp._cached_proxy_source == "clean_pool"
 
 
-def test_blocked_egress_index_with_empty_pool_degrades_instead_of_failing_closed():
-    """Marking an egress blocked must never take waybill processing offline.
-
-    Previously "blocked index" + empty pool fell through to ``_proxy_fail_closed``
-    and raised, so enabling automatic egress blocking would have stopped all
-    processing rather than degrading it. A reachable-but-blocked Squid still
-    succeeds between WAF throttle windows, so it is strictly better than nothing.
-    """
-    import app.automation.worker_proxy as wp
+def test_blocked_egress_index_with_empty_pool_fails_closed():
+    """A reachable Squid whose egress index is marked blocked must fail closed when pool is empty."""
+    from app.automation.worker_proxy import ProxyUnavailableError
 
     clear_proxy_cache()
 
@@ -929,8 +923,8 @@ def test_blocked_egress_index_with_empty_pool_degrades_instead_of_failing_closed
             patch("app.automation.clean_ip_pool.clean_ip_pool.get_clean_ip_sync", return_value=None),
         ):
             redis_sync.return_value.exists.return_value = True
-            assert get_best_egress_proxy() == "http://172.20.0.1:3128"
-            assert wp._cached_proxy_source == "worker_squid_degraded"
+            with pytest.raises(ProxyUnavailableError):
+                get_best_egress_proxy()
 
 
 # ---------------------------------------------------------------------------

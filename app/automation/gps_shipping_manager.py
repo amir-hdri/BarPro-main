@@ -465,8 +465,8 @@ async def get_cached_token(national_code: str) -> str | None:
         return None
 
 
-async def cache_token(national_code: str, token: str, ttl_seconds: int = 6900) -> None:
-    """Store driver UTCMS token in Redis with TTL (default ~115 min < 2h expiry)."""
+async def cache_token(national_code: str, token: str, ttl_seconds: int = 240) -> None:
+    """Store driver UTCMS bearer token in Redis with TTL (default 240s < 5m expiry)."""
     r = await _get_redis()
     if r is None:
         return
@@ -476,13 +476,13 @@ async def cache_token(national_code: str, token: str, ttl_seconds: int = 6900) -
         logger.warning("cache_token_failed: %s", exc)
 
 
-async def cache_refresh_token(national_code: str, refresh_token: str) -> None:
-    """Store refresh token with long TTL (24h)."""
+async def cache_refresh_token(national_code: str, refresh_token: str, ttl_seconds: int = 7000) -> None:
+    """Store refresh token with TTL (default 7000s < 120m expiry)."""
     r = await _get_redis()
     if r is None:
         return
     try:
-        await r.set(DRIVER_REFRESH_KEY.format(national_code=national_code), refresh_token, ex=86400)
+        await r.set(DRIVER_REFRESH_KEY.format(national_code=national_code), refresh_token, ex=ttl_seconds)
     except Exception as exc:
         logger.warning("cache_refresh_token_failed: %s", exc)
 

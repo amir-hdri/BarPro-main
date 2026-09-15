@@ -198,13 +198,33 @@ def build_mobile_document_payload(
             if all(value is not None for value in supplied) and tuple(str(value) for value in supplied) != natural:
                 raise ValueError("اجزای پلاک با قالب واقعی پلاک ایران مطابقت ندارد")
 
+    raw_tag_type = _required_alias(vehicle, ("tag_type", "tagType"), "نوع پلاک")
+    tag_type_bool = bool(raw_tag_type in (1, True, "1", "true", "True"))
+
+    t3_val = _required_alias({"value": t3}, ("value",), "سه رقم پلاک")
+    try:
+        t3_clean: Any = int(t3_val)
+    except (ValueError, TypeError):
+        t3_clean = t3_val
+
     bearing_cost = _value(financial, "bearing_cost", "bearingCost")
     pre_rent = _value(financial, "pre_rent", "preRent")
     post_rent = _value(financial, "post_rent", "postRent")
     fuel_type = _value(shipping, "fuel_type") or _value(payload, "fuel_type") or 1
     send_sms = bool(_value(shipping, "send_sms", "sendSMS") or _value(payload, "send_sms", "sendSMS") or False)
-    doc_id = _value(payload, "doc_id", "docID") or 0
+
+    raw_doc_id = _value(payload, "doc_id", "docID")
+    doc_id: int | None = None
+    if raw_doc_id is not None and str(raw_doc_id).strip() not in ("", "0"):
+        try:
+            parsed_doc_id = int(raw_doc_id)
+            if parsed_doc_id > 0:
+                doc_id = parsed_doc_id
+        except (ValueError, TypeError):
+            pass
+
     insurance_cover = _value(insurance, "cover", "insurance_cover", "insuranceCover")
+    insurance_cover_bool = bool(insurance_cover)
 
     body: dict[str, Any] = {
         "token": token,
@@ -215,11 +235,11 @@ def build_mobile_document_payload(
         "receiver": _party_payload(receiver, "گیرنده"),
         "driverNationalCode": _required_alias(vehicle, ("driver_national_code", "driverNationalCode"), "کد ملی راننده"),
         "truck": {
-            "tagType": _required_alias(vehicle, ("tag_type", "tagType"), "نوع پلاک"),
-            "t1": _required_alias({"value": t1}, ("value",), "بخش اول پلاک"),
-            "t2": _required_alias({"value": t2}, ("value",), "بخش دوم پلاک"),
-            "t3": _required_alias({"value": t3}, ("value",), "حرف پلاک"),
-            "t4": _required_alias({"value": t4}, ("value",), "بخش چهارم پلاک"),
+            "tagType": tag_type_bool,
+            "t1": str(_required_alias({"value": t1}, ("value",), "بخش اول پلاک")),
+            "t2": str(_required_alias({"value": t2}, ("value",), "حرف پلاک")),
+            "t3": t3_clean,
+            "t4": str(_required_alias({"value": t4}, ("value",), "بخش چهارم پلاک")),
             "capacity": _required_alias(vehicle, ("capacity",), "ظرفیت خودرو"),
             "haveCertificate": bool(_value(vehicle, "have_certificate", "haveCertificate")),
             "have3rdInsurance": bool(_value(vehicle, "have_3rd_insurance", "have3rdInsurance")),
@@ -227,7 +247,7 @@ def build_mobile_document_payload(
         },
         "insurance": {
             "haveInsurance": bool(_value(insurance, "have_insurance", "haveInsurance")),
-            "insuranceCover": insurance_cover if insurance_cover is not None else 0,
+            "insuranceCover": insurance_cover_bool,
         },
         "value": _required_alias(cargo, ("value", "approximate_value", "approximateValueOfLoad"), "ارزش کالا"),
         "bearingCost": bearing_cost if bearing_cost is not None else 0,
@@ -236,12 +256,13 @@ def build_mobile_document_payload(
         "postRent": post_rent if post_rent is not None else rent,
         "fuelType": fuel_type,
         "sendSMS": send_sms,
-        "docID": doc_id,
         "isDraft": is_draft,
         "selfDeclaredTimeOfStartShipment": _value(
             payload, "self_declared_time_of_start_shipment", "selfDeclaredTimeOfStartShipment"
         ),
     }
+    if doc_id is not None:
+        body["docID"] = doc_id
     if cap_token and cap_token.strip():
         body["capToken"] = cap_token.strip()
     return body
