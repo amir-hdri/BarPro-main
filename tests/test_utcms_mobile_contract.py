@@ -267,7 +267,7 @@ async def test_post_uses_proxy_when_creating_client():
             allow_redirects=False,
             impersonate="chrome120",
             default_headers=False,
-            verify=False,
+            verify=True,
         )
 
 
@@ -692,7 +692,7 @@ async def test_session_creation_uses_default_headers_false_and_no_content_kwargs
             allow_redirects=False,
             impersonate="chrome120",
             default_headers=False,
-            verify=False,
+            verify=True,
         )
         # Verify post received data= and NOT content=
         _, post_kwargs = mock_instance.post.call_args

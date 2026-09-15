@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -84,6 +85,23 @@ def _iter_dicts(value: Any):
             yield from _iter_dicts(nested)
 
 
+def require_successful_mutation(response: Any, operation: str) -> dict[str, Any]:
+    """Accept only an explicit UTCMS business success envelope.
+
+    HTTP 200 is insufficient: UTCMS frequently returns a JSON envelope with a
+    business rejection code while keeping the transport status successful.
+    """
+    if not isinstance(response, dict):
+        raise UtcmsMobileApiError(f"UTCMS {operation} returned an invalid response envelope")
+    result_code = response.get("resultCode")
+    if str(result_code).strip() != "200":
+        raise UtcmsMobileApiError(
+            f"UTCMS {operation} business rejection",
+            result_code=result_code,
+        )
+    return response
+
+
 class UtcmsMobileClient:
     """Small, non-retrying API client."""
 
@@ -106,7 +124,7 @@ class UtcmsMobileClient:
         proxy_url: str | None = None,
         http_client: Any | None = None,
         now: Callable[[], datetime] | None = None,
-        verify: bool = False,
+        verify: bool | None = None,
     ) -> None:
         self.base_url = (base_url or utcms_config.UTCMS_MOBILE_API_BASE_URL).rstrip("/")
         self.token = token
@@ -114,7 +132,9 @@ class UtcmsMobileClient:
         self.proxy_url = proxy_url
         self._http_client = http_client
         self._now = now or (lambda: datetime.now(ZoneInfo("Asia/Tehran")))
-        self.verify = verify
+        self.verify = utcms_config.UTCMS_MOBILE_TLS_VERIFY if verify is None else verify
+        if (os.environ.get("ENVIRONMENT") or "").lower() == "production" and not self.verify:
+            raise ValueError("TLS verification cannot be disabled in production")
 
     @classmethod
     def _mobile_base_headers(cls) -> dict[str, str]:

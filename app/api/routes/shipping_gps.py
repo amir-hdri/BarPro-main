@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import UTC, datetime
+from functools import wraps
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from app.auth_multitenant import get_current_user_or_admin
 from app.automation.gps_shipping_manager import (
+    ShippingStatePersistenceError,
     extract_coordinates_from_payload,
     get_or_login_client,
     init_shipping,
@@ -23,9 +26,11 @@ from app.automation.gps_shipping_manager import (
     load_shipping_state,
     save_shipping_state,
 )
+from app.automation.utcms_mobile_client import require_successful_mutation
 from app.automation.worker_proxy import ProxyUnavailableError, get_worker_proxy_url
 from app.core.config import utcms_config
 from app.core.security import require_sensitive_auth
+from app.services.rpa_runtime_service import rpa_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +59,12 @@ class ShippingFinishRequest(BaseModel):
     longitude: float = Field(..., ge=-180, le=180, description="طول جغرافیایی مقصد ثبت‌شده در بارنامه")
     altitude: float = Field(default=0, ge=-500, le=10000, description="ارتفاع ثبت‌شده؛ در نبود دستگاه صفر است")
     speed: float = Field(default=0, ge=0, le=400, description="سرعت ثبت‌شده؛ در نبود دستگاه صفر است")
+    measured_distance_km: float | None = Field(
+        default=None,
+        gt=0,
+        le=1_000_000,
+        description="مسافت اندازه‌گیری‌شده توسط دستگاه/اپ؛ مقدار تخمینی مسیر مجاز نیست",
+    )
 
 
 class ShippingInfoRequest(BaseModel):
@@ -79,7 +90,32 @@ class CoordinateInfoResponse(BaseModel):
 # ──────────────────── Helper ────────────────────
 
 
-async def _get_job_and_driver(job_id: str, user_context: dict[str, Any]) -> tuple[dict[str, Any], Any | None]:
+def _document_ids(job: Any, payload: dict[str, Any]) -> set[str]:
+    ids: set[str] = set()
+    for value in (getattr(job, "document_id", None),):
+        if value is not None and str(value).strip():
+            ids.add(str(value).strip())
+    for source in (getattr(job, "result_json", None), payload):
+        stack = [source] if isinstance(source, dict) else []
+        while stack:
+            item = stack.pop()
+            for key, value in item.items():
+                if key.lower() in {"document_id", "documentid", "docid", "doc_no", "docno"}:
+                    if value is not None and str(value).strip():
+                        ids.add(str(value).strip())
+                elif isinstance(value, dict):
+                    stack.append(value)
+                elif isinstance(value, list):
+                    stack.extend(entry for entry in value if isinstance(entry, dict))
+    return ids
+
+
+async def _get_job_and_driver(
+    job_id: str,
+    user_context: dict[str, Any],
+    *,
+    expected_doc_no: str | None = None,
+) -> tuple[dict[str, Any], Any | None]:
     """Load job payload and driver from the database."""
     from sqlmodel import select
 
@@ -95,10 +131,27 @@ async def _get_job_and_driver(job_id: str, user_context: dict[str, Any]) -> tupl
         job = result.first()
         if job is None:
             raise HTTPException(status_code=404, detail=f"بارنامه با شناسه {job_id} یافت نشد")
+        payload = dict(job.payload_json or {})
+        if expected_doc_no is not None:
+            document_ids = _document_ids(job, payload)
+            expected = str(expected_doc_no).strip()
+            if len(document_ids) != 1 or expected not in document_ids:
+                raise HTTPException(
+                    status_code=409,
+                    detail="شماره سند GPS با سند ثبت‌شده بارنامه تطبیق ندارد",
+                )
         driver = None
         if job.driver_id:
             driver = (await session.exec(select(Driver).where(Driver.id == job.driver_id))).first()
-        return dict(job.payload_json or {}), driver
+        return payload, driver
+
+
+async def _load_state_or_503(job_id: str):
+    try:
+        return await load_shipping_state(job_id)
+    except ShippingStatePersistenceError as exc:
+        logger.error("shipping_state_load_unavailable", exc_info=True)
+        raise HTTPException(status_code=503, detail="ذخیره‌ساز وضعیت حمل در دسترس نیست") from exc
 
 
 def _assert_route_anchor(
@@ -112,6 +165,27 @@ def _assert_route_anchor(
     tolerance = 0.0002
     if abs(latitude - expected_lat) > tolerance or abs(longitude - expected_lng) > tolerance:
         raise HTTPException(status_code=422, detail=f"مختصات ارسالی با {label} بارنامه تطبیق ندارد")
+
+
+def _shipping_mutation_lock(handler):
+    @wraps(handler)
+    async def wrapped(req, user_context):
+        if not utcms_config.ALLOW_LIVE_SUBMIT:
+            raise HTTPException(status_code=409, detail="ثبت زنده GPS غیرفعال است")
+        key = f"lock:shipping:{req.job_id}"
+        try:
+            acquired = await rpa_runtime.acquire_lock(key, max(int(utcms_config.RPA_LOCK_TTL_SECONDS), 900))
+        except Exception as exc:
+            logger.error("shipping_mutation_lock_unavailable", exc_info=True)
+            raise HTTPException(status_code=503, detail="قفل ثبت GPS در دسترس نیست") from exc
+        if not acquired:
+            raise HTTPException(status_code=409, detail="ثبت GPS دیگری برای همین بارنامه در حال اجراست")
+        try:
+            return await handler(req, user_context)
+        finally:
+            await rpa_runtime.release_lock(key)
+
+    return wrapped
 
 
 # ──────────────────── Endpoints ────────────────────
@@ -128,13 +202,14 @@ async def get_job_coordinates(
 
 
 @router.post("/start", dependencies=[Depends(require_sensitive_auth)])
+@_shipping_mutation_lock
 async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any] = Depends(get_current_user_or_admin)):
     """شروع حمل توسط اپراتور — ثبت anchor مبدأ بارنامه در UTCMS."""
     if not utcms_config.ALLOW_LIVE_SUBMIT:
         raise HTTPException(status_code=409, detail="ثبت زنده GPS غیرفعال است")
-    payload, driver = await _get_job_and_driver(req.job_id, user_context)
-    existing = await load_shipping_state(req.job_id)
-    if existing and existing.status in {"in_transit", "delivered"}:
+    payload, driver = await _get_job_and_driver(req.job_id, user_context, expected_doc_no=req.doc_no)
+    existing = await _load_state_or_503(req.job_id)
+    if existing and existing.status != "ready":
         raise HTTPException(status_code=409, detail=f"حمل قبلاً در وضعیت {existing.status} ثبت شده است")
     try:
         state = await init_shipping(req.job_id, req.doc_no, payload, persist=False)
@@ -148,7 +223,7 @@ async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any]
         label="مبدأ",
     )
     # Build the origin witness, but persist local state only after UTCMS confirms.
-    wp = state.waypoints[0]
+    observed_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     state.gps_list.append(
         {
             "Type": 1,
@@ -156,12 +231,16 @@ async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any]
             "Latitude": req.latitude,
             "Altitude": req.altitude,
             "Speed": req.speed,
-            "Date": wp["ts"],
+            "Date": observed_at,
+            "ObservedAt": observed_at,
+            "Provider": "operator_anchor",
+            "Provenance": "operator_confirmed",
         }
     )
     if not driver or not driver.utcms_password_encrypted:
         raise HTTPException(status_code=409, detail="اعتبارنامه راننده برای GPS موجود نیست")
     utcms_result = None
+    mutation_attempted = False
     try:
         from app.auth_multitenant import decrypt_driver_password
 
@@ -188,6 +267,7 @@ async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any]
         # the full GPS history list), start has no history to submit — so
         # StartShippingWithGps alone is correct and symmetric.
         try:
+            mutation_attempted = True
             utcms_result = await client.start_shipping_with_gps(
                 doc_no=req.doc_no,
                 lat=req.latitude,
@@ -213,18 +293,26 @@ async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any]
                 speed=req.speed,
                 allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
             )
-        if not isinstance(utcms_result, dict):
-            raise RuntimeError("پاسخ شروع GPS نامعتبر است")
+        utcms_result = require_successful_mutation(utcms_result, "شروع GPS")
     except ProxyUnavailableError as exc:
         logger.error("utcms_live_start_shipping_proxy_unavailable", exc_info=True)
         raise HTTPException(status_code=503, detail="پراکسی UTCMS در دسترس نیست — IP سرور محافظت شد") from exc
     except Exception as exc:
         logger.error("utcms_live_start_shipping_failed", exc_info=True)
+        state.status = "unknown" if mutation_attempted else "failed"
+        try:
+            await save_shipping_state(state)
+        except Exception:
+            logger.error("shipping_start_failure_state_persist_failed", exc_info=True)
         raise HTTPException(status_code=502, detail="UTCMS شروع حمل را تأیید نکرد") from exc
 
     state.status = "in_transit"
     state.current_step = 0
-    await save_shipping_state(state)
+    try:
+        await save_shipping_state(state)
+    except ShippingStatePersistenceError as exc:
+        logger.error("shipping_start_state_persist_failed", exc_info=True)
+        raise HTTPException(status_code=503, detail="وضعیت ثبت GPS پایدار نشد") from exc
     return {
         "status": "started",
         "message": f"حمل شروع شد از: {state.origin_address}",
@@ -245,17 +333,22 @@ async def step_shipping(req: ShippingStepRequest, user_context: dict[str, Any] =
 
 
 @router.post("/finish", dependencies=[Depends(require_sensitive_auth)])
+@_shipping_mutation_lock
 async def finish_shipping(
     req: ShippingFinishRequest, user_context: dict[str, Any] = Depends(get_current_user_or_admin)
 ):
     """پایان حمل توسط اپراتور — ثبت anchor مقصد بارنامه در UTCMS."""
     if not utcms_config.ALLOW_LIVE_SUBMIT:
         raise HTTPException(status_code=409, detail="ثبت زنده GPS غیرفعال است")
-    state = await load_shipping_state(req.job_id)
+    _, driver = await _get_job_and_driver(req.job_id, user_context)
+    state = await _load_state_or_503(req.job_id)
     if state is None:
         raise HTTPException(status_code=404, detail="ابتدا حمل را شروع کنید")
-    if state.status in {"delivered", "finishing", "failed"}:
+    if state.status != "in_transit":
         raise HTTPException(status_code=409, detail=f"پایان حمل قابل تکرار نیست؛ وضعیت فعلی {state.status} است")
+    await _get_job_and_driver(req.job_id, user_context, expected_doc_no=state.doc_no)
+    if req.measured_distance_km is None:
+        raise HTTPException(status_code=422, detail="مسافت اندازه‌گیری‌شده دستگاه برای پایان حمل الزامی است")
 
     _assert_route_anchor(
         latitude=req.latitude,
@@ -267,7 +360,7 @@ async def finish_shipping(
 
     # Add the operator-confirmed route destination anchor; no interpolated
     # telemetry is ever submitted to UTCMS.
-    dest_wp = state.waypoints[-1]
+    observed_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     if not state.gps_list or state.gps_list[-1].get("Type") != 3:
         state.gps_list.append(
             {
@@ -276,18 +369,25 @@ async def finish_shipping(
                 "Latitude": req.latitude,
                 "Altitude": req.altitude,
                 "Speed": req.speed,
-                "Date": dest_wp["ts"],
+                "Date": observed_at,
+                "ObservedAt": observed_at,
+                "Provider": "operator_anchor",
+                "Provenance": "operator_confirmed",
             }
         )
 
     # Fence the two UTCMS mutations.  A timeout after the first mutation must
     # never be retried as a fresh finish request.
     state.status = "finishing"
-    await save_shipping_state(state)
-
-    _, driver = await _get_job_and_driver(req.job_id, user_context)
+    try:
+        await save_shipping_state(state)
+    except ShippingStatePersistenceError as exc:
+        raise HTTPException(status_code=503, detail="وضعیت پایان حمل پایدار نشد") from exc
     if not driver or not driver.utcms_password_encrypted:
+        state.status = "failed"
+        await save_shipping_state(state)
         raise HTTPException(status_code=409, detail="اعتبارنامه راننده برای GPS موجود نیست")
+    mutation_attempted = False
     try:
         from app.auth_multitenant import decrypt_driver_password
 
@@ -310,13 +410,14 @@ async def finish_shipping(
         # The start flow only calls StartShippingWithGps because there is no
         # GPS history to submit at start time.  See implementation_plan.md §2.
         try:
+            mutation_attempted = True
             finish_result = await client.finish_shipping_with_gps(
                 doc_no=state.doc_no,
                 lat=req.latitude,
                 lon=req.longitude,
                 alt=req.altitude,
                 speed=req.speed,
-                total_distance_km=state.distance_km,
+                total_distance_km=req.measured_distance_km,
                 allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
             )
         except Exception as exc:
@@ -334,10 +435,12 @@ async def finish_shipping(
                 lon=req.longitude,
                 alt=req.altitude,
                 speed=req.speed,
-                total_distance_km=state.distance_km,
+                total_distance_km=req.measured_distance_km,
                 allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
             )
+        finish_result = require_successful_mutation(finish_result, "پایان GPS")
         try:
+            mutation_attempted = True
             history_result = await client.register_end_of_shipping(
                 document_id=state.doc_no,
                 gps_list=state.gps_list,
@@ -357,27 +460,32 @@ async def finish_shipping(
                 gps_list=state.gps_list,
                 allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
             )
+        history_result = require_successful_mutation(history_result, "ثبت تاریخچه GPS")
         utcms_result = {"finish": finish_result, "history": history_result}
     except ProxyUnavailableError as exc:
         logger.error("utcms_live_end_shipping_proxy_unavailable", exc_info=True)
-        state.status = "failed"
+        state.status = "unknown" if mutation_attempted else "failed"
         await save_shipping_state(state)
         raise HTTPException(status_code=503, detail="پراکسی UTCMS در دسترس نیست — IP سرور محافظت شد") from exc
     except Exception as exc:
         logger.error("utcms_live_end_shipping_failed", exc_info=True)
-        state.status = "failed"
+        state.status = "unknown" if mutation_attempted else "failed"
         await save_shipping_state(state)
         raise HTTPException(status_code=502, detail="UTCMS پایان حمل را تأیید نکرد") from exc
 
     state.status = "delivered"
     state.current_step = len(state.waypoints) - 1
-    state.traveled_km = state.distance_km
-    await save_shipping_state(state)
+    state.traveled_km = req.measured_distance_km
+    try:
+        await save_shipping_state(state)
+    except ShippingStatePersistenceError as exc:
+        raise HTTPException(status_code=503, detail="وضعیت تحویل پایدار نشد") from exc
 
     return {
         "status": "delivered",
         "message": f"حمل با موفقیت در مقصد تحویل شد: {state.dest_address}",
         "distance_km": state.distance_km,
+        "measured_distance_km": req.measured_distance_km,
         "gps_list": state.gps_list,
         "total_points": len(state.gps_list),
         "utcms_result": utcms_result,
@@ -387,11 +495,11 @@ async def finish_shipping(
 @router.get("/status/{job_id}", dependencies=[Depends(require_sensitive_auth)])
 async def get_shipping_status(job_id: str, user_context: dict[str, Any] = Depends(get_current_user_or_admin)):
     """وضعیت فعلی حمل و نقاط GPS ثبت‌شده."""
-    state = await load_shipping_state(job_id)
+    payload, _ = await _get_job_and_driver(job_id, user_context)
+    state = await _load_state_or_503(job_id)
     if state is None:
         # Try to extract coordinate info from the job for pre-start display
         try:
-            payload, _ = await _get_job_and_driver(job_id, user_context)
             info = extract_coordinates_from_payload(payload)
             duration_hours = round(info["distance_km"] / 65.0, 2)
             duration_minutes = int(round(duration_hours * 60))

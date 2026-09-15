@@ -1,10 +1,12 @@
 """Regression tests for server-managed shipping GPS semantics."""
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi import HTTPException
 
-from app.api.routes.shipping_gps import _assert_route_anchor
-from app.automation.gps_shipping_manager import init_shipping
+from app.api.routes.shipping_gps import _assert_route_anchor, _document_ids
+from app.automation.gps_shipping_manager import ShippingStatePersistenceError, init_shipping, save_shipping_state
 from app.automation.http_browser_bridge import validate_submission_coordinates
 from app.automation.location_selector import resolve_location_coordinates
 from app.core.exceptions import WaybillError
@@ -140,3 +142,24 @@ def test_submission_bridge_rejects_missing_coordinates_instead_of_inventing_them
         validate_submission_coordinates("sourceLatM=&sourceLonM=&destLatM=&destLonM=")
 
     validate_submission_coordinates("sourceLatM=35.6892&sourceLonM=51.389&destLatM=32.65&destLonM=51.66")
+
+
+def test_document_ids_are_extracted_from_job_and_result_without_accepting_ambiguity() -> None:
+    job = SimpleNamespace(document_id="doc-123", result_json={"document_id": "doc-123"})
+    assert _document_ids(job, {"docNo": "doc-123"}) == {"doc-123"}
+
+
+@pytest.mark.asyncio
+async def test_shipping_state_does_not_fail_open_when_both_stores_are_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.automation.gps_shipping_manager._get_redis",
+        lambda: __import__("asyncio").sleep(0, result=None),
+    )
+    monkeypatch.setattr(
+        "app.automation.gps_shipping_manager._persist_shipping_state_db",
+        lambda state: __import__("asyncio").sleep(0, result=False),
+    )
+    with pytest.raises(ShippingStatePersistenceError):
+        await save_shipping_state(SimpleNamespace(job_id="job", to_dict=lambda: {"job_id": "job"}))

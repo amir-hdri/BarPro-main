@@ -42,6 +42,7 @@ interface ShippingStatus {
   waypoints: ShippingWaypoint[];
   gps_list: unknown[];
   doc_no?: string;
+  measured_distance_km?: number;
 }
 
 export interface ShippingRouteMapProps {
@@ -80,6 +81,7 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
 
   const [status, setStatus] = useState<ShippingStatus | null>(null);
   const [loading, setLoading] = useState(false);
+  const [measuredDistanceKm, setMeasuredDistanceKm] = useState("");
 
   /* ── Fetch current status ── */
   const fetchStatus = useCallback(async () => {
@@ -317,6 +319,10 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
   const handleFinish = async () => {
     setLoading(true);
     try {
+      const measuredDistance = Number(measuredDistanceKm);
+      if (!Number.isFinite(measuredDistance) || measuredDistance <= 0) {
+        throw new Error("مسافت اندازه‌گیری‌شده را وارد کنید");
+      }
       const latitude = destLat ?? status?.destination?.lat;
       const longitude = destLng ?? status?.destination?.lng;
       if (latitude == null || longitude == null) {
@@ -328,6 +334,7 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
         longitude,
         altitude: 0,
         speed: 0,
+        measured_distance_km: measuredDistance,
       });
       toast.success("✅ حمل با موفقیت پایان یافت");
       const st = await fetchStatus();
@@ -449,9 +456,22 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
 
         {isStarted && (
           <>
+            <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+              <span>مسافت اندازه‌گیری‌شده (km)</span>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                inputMode="decimal"
+                value={measuredDistanceKm}
+                onChange={(event) => setMeasuredDistanceKm(event.target.value)}
+                className="w-28 rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                aria-label="مسافت اندازه‌گیری‌شده بر حسب کیلومتر"
+              />
+            </label>
             <button
               onClick={handleFinish}
-              disabled={loading}
+              disabled={loading || !measuredDistanceKm}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-medium disabled:opacity-50 transition-colors"
             >
               <StopIcon className="h-4 w-4" />

@@ -44,6 +44,7 @@ async def test_item1_async_session_default_headers_false_in_get():
             allow_redirects=False,
             impersonate="chrome120",
             default_headers=False,
+            verify=True,
         )
 
 
@@ -68,6 +69,7 @@ async def test_item1_async_session_default_headers_false_in_post():
             allow_redirects=False,
             impersonate="chrome120",
             default_headers=False,
+            verify=True,
         )
 
 
@@ -96,6 +98,7 @@ async def test_item1_async_session_default_headers_false_in_solve_cap_pow():
             allow_redirects=False,
             impersonate="chrome120",
             default_headers=False,
+            verify=True,
         )
 
 

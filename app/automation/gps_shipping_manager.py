@@ -14,7 +14,7 @@ import logging
 import math
 import secrets
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -268,7 +268,7 @@ def interpolate_waypoints(
     """
     total_km = calculate_realistic_road_distance(origin_lat, origin_lon, dest_lat, dest_lon)
     total_hours = total_km / max(avg_speed_kmh, 10.0)
-    now = datetime.now(TEHRAN_TZ)
+    now = datetime.now(UTC)
 
     points: list[GpsWaypoint] = []
 
@@ -667,22 +667,75 @@ class ShippingState:
         )
 
 
+class ShippingStatePersistenceError(RuntimeError):
+    """Raised when shipping state cannot be durably recorded."""
+
+
+async def _persist_shipping_state_db(state: ShippingState) -> bool:
+    """Mirror state into the Job result envelope for recovery after Redis loss."""
+    try:
+        from sqlmodel import select
+
+        from app.core.database import async_session_factory
+        from app.models_multitenant import WaybillJob
+
+        async with async_session_factory() as session:
+            job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == state.job_id))).first()
+            if job is None:
+                return False
+            result = dict(job.result_json or {})
+            result["_shipping_state"] = state.to_dict()
+            job.result_json = result
+            job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+            session.add(job)
+            await session.commit()
+            return True
+    except Exception as exc:
+        logger.error("shipping_state_db_persist_failed", exc_info=True)
+        raise ShippingStatePersistenceError("ذخیره پایدار وضعیت حمل ممکن نیست") from exc
+
+
 async def save_shipping_state(state: ShippingState) -> None:
+    """Persist state in Redis and the Job envelope; never silently drop it."""
+    serialized = json.dumps(state.to_dict(), ensure_ascii=False, allow_nan=False)
     r = await _get_redis()
-    if r is None:
-        return
-    key = SHIPPING_STATE_KEY.format(job_id=state.job_id)
-    await r.set(key, json.dumps(state.to_dict(), ensure_ascii=False), ex=86400)
+    redis_saved = False
+    if r is not None:
+        try:
+            key = SHIPPING_STATE_KEY.format(job_id=state.job_id)
+            await r.set(key, serialized, ex=7 * 86400)
+            redis_saved = True
+        except Exception:
+            logger.error("shipping_state_redis_persist_failed", exc_info=True)
+    db_saved = await _persist_shipping_state_db(state)
+    if not redis_saved and not db_saved:
+        raise ShippingStatePersistenceError("ذخیره وضعیت حمل در Redis و پایگاه داده شکست خورد")
 
 
 async def load_shipping_state(job_id: str) -> ShippingState | None:
     r = await _get_redis()
-    if r is None:
-        return None
-    raw = await r.get(SHIPPING_STATE_KEY.format(job_id=job_id))
-    if raw is None:
-        return None
-    return ShippingState.from_dict(json.loads(raw))
+    if r is not None:
+        try:
+            raw = await r.get(SHIPPING_STATE_KEY.format(job_id=job_id))
+            if raw is not None:
+                return ShippingState.from_dict(json.loads(raw))
+        except Exception:
+            logger.error("shipping_state_redis_load_failed", exc_info=True)
+    try:
+        from sqlmodel import select
+
+        from app.core.database import async_session_factory
+        from app.models_multitenant import WaybillJob
+
+        async with async_session_factory() as session:
+            job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == job_id))).first()
+            if job is None:
+                return None
+            stored = (job.result_json or {}).get("_shipping_state")
+            return ShippingState.from_dict(stored) if isinstance(stored, dict) else None
+    except Exception as exc:
+        logger.error("shipping_state_db_load_failed", exc_info=True)
+        raise ShippingStatePersistenceError("خواندن پایدار وضعیت حمل ممکن نیست") from exc
 
 
 async def init_shipping(
@@ -746,6 +799,7 @@ __all__ = [
     "DEFAULT_CITY_COORDS",
     "GpsWaypoint",
     "ShippingState",
+    "ShippingStatePersistenceError",
     "cache_refresh_token",
     "cache_token",
     "extract_coordinates_from_payload",
