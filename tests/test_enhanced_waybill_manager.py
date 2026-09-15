@@ -196,9 +196,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         self.mock_page.query_selector.return_value = mock_element
         # Coherent DOM: the batched presence probe must see the staged element.
         self.mock_page.evaluate = AsyncMock(
-            side_effect=lambda script, *args: True
-            if isinstance(script, str) and "selectors.some" in script
-            else False
+            side_effect=lambda script, *args: True if isinstance(script, str) and "selectors.some" in script else False
         )
 
         # Run
@@ -504,9 +502,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
                 {"text": "دو کابینه", "value": "7"},
             ]
         )
-        self.mock_page.eval_on_selector = AsyncMock(
-            return_value={"value": "6", "text": "تک کابین"}
-        )
+        self.mock_page.eval_on_selector = AsyncMock(return_value={"value": "6", "text": "تک کابین"})
 
         result = await self.manager._select_dropdown("#VehicleType", "کابین")
 
@@ -535,9 +531,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
                 {"text": "پالت", "value": "2"},
             ]
         )
-        self.mock_page.eval_on_selector = AsyncMock(
-            return_value={"value": "1", "text": "فله"}
-        )
+        self.mock_page.eval_on_selector = AsyncMock(return_value={"value": "1", "text": "فله"})
 
         result = await self.manager._select_dropdown("#ddBoxType", "پالت")
 
@@ -552,13 +546,9 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
                 {"text": "11-ب-12-345", "value": "right_plate"},
             ]
         )
-        self.mock_page.eval_on_selector = AsyncMock(
-            return_value={"value": "right_plate", "text": "11-ب-12-345"}
-        )
+        self.mock_page.eval_on_selector = AsyncMock(return_value={"value": "right_plate", "text": "11-ب-12-345"})
 
-        result = await self.manager._select_option_by_fragments(
-            "#p", ["11", "ب", "12", "345"]
-        )
+        result = await self.manager._select_option_by_fragments("#p", ["11", "ب", "12", "345"])
 
         self.assertTrue(result)
         self.mock_page.select_option.assert_awaited_once_with("#p:visible", value="right_plate")
@@ -572,9 +562,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        result = await self.manager._select_option_by_fragments(
-            "#p", ["11", "ب", "12", "345"]
-        )
+        result = await self.manager._select_option_by_fragments("#p", ["11", "ب", "12", "345"])
 
         self.assertFalse(result)
         self.mock_page.select_option.assert_not_awaited()
@@ -586,20 +574,14 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
                 {"text": "11-ب-12-345", "value": "right_plate"},
             ]
         )
-        self.mock_page.eval_on_selector = AsyncMock(
-            return_value={"value": "other_plate", "text": "11-ب-12-345"}
-        )
+        self.mock_page.eval_on_selector = AsyncMock(return_value={"value": "other_plate", "text": "11-ب-12-345"})
 
-        result = await self.manager._select_option_by_fragments(
-            "#p", ["11", "ب", "12", "345"]
-        )
+        result = await self.manager._select_option_by_fragments("#p", ["11", "ب", "12", "345"])
 
         self.assertFalse(result)
 
     async def test_form_ready_batched_probe_empty_page(self):
-        self.manager._is_waybill_form_ready = EnhancedWaybillManager._is_waybill_form_ready.__get__(
-            self.manager
-        )
+        self.manager._is_waybill_form_ready = EnhancedWaybillManager._is_waybill_form_ready.__get__(self.manager)
         self.mock_page.evaluate = AsyncMock(return_value=False)
 
         ready = await self.manager._is_waybill_form_ready()
@@ -609,9 +591,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         self.mock_page.evaluate.assert_awaited()
 
     async def test_form_ready_batched_probe_hit(self):
-        self.manager._is_waybill_form_ready = EnhancedWaybillManager._is_waybill_form_ready.__get__(
-            self.manager
-        )
+        self.manager._is_waybill_form_ready = EnhancedWaybillManager._is_waybill_form_ready.__get__(self.manager)
         self.mock_page.evaluate = AsyncMock(return_value=True)
 
         ready = await self.manager._is_waybill_form_ready()
@@ -620,9 +600,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         self.mock_page.query_selector.assert_not_awaited()
 
     async def test_form_ready_falls_back_when_probe_inconclusive(self):
-        self.manager._is_waybill_form_ready = EnhancedWaybillManager._is_waybill_form_ready.__get__(
-            self.manager
-        )
+        self.manager._is_waybill_form_ready = EnhancedWaybillManager._is_waybill_form_ready.__get__(self.manager)
         self.mock_page.evaluate = AsyncMock(side_effect=Exception("no js engine"))
         self.mock_page.query_selector = AsyncMock(return_value=AsyncMock())
 
@@ -723,9 +701,7 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         self.mock_page.query_selector.return_value = mock_element
         # Coherent DOM: the batched presence probe must see the staged element.
         self.mock_page.evaluate = AsyncMock(
-            side_effect=lambda script, *args: True
-            if isinstance(script, str) and "selectors.some" in script
-            else False
+            side_effect=lambda script, *args: True if isinstance(script, str) and "selectors.some" in script else False
         )
 
         result = await self.manager.create_waybill_with_map(data)

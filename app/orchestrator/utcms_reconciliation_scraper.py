@@ -44,7 +44,16 @@ def _canonical_nat_code(code: Any) -> str:
 def _canonical_text(text: str) -> str:
     if not text:
         return ""
-    t = str(text).strip().replace("ي", "ی").replace("ك", "ک").replace("‌", "").replace(" ", "").replace("،", "").replace("-", "")
+    t = (
+        str(text)
+        .strip()
+        .replace("ي", "ی")
+        .replace("ك", "ک")
+        .replace("‌", "")
+        .replace(" ", "")
+        .replace("،", "")
+        .replace("-", "")
+    )
     return t.lower()
 
 
@@ -324,7 +333,9 @@ class UTCMSReconciliationScraper:
                                 rows = json_body["aaData"]
                             elif isinstance(json_body.get("Data"), list):
                                 rows = json_body["Data"]
-                            elif isinstance(json_body.get("obj"), dict) and isinstance(json_body["obj"].get("data"), list):
+                            elif isinstance(json_body.get("obj"), dict) and isinstance(
+                                json_body["obj"].get("data"), list
+                            ):
                                 rows = json_body["obj"]["data"]
                             elif isinstance(json_body.get("obj"), list):
                                 rows = json_body["obj"]
@@ -362,7 +373,12 @@ class UTCMSReconciliationScraper:
                                         status_text=row.get("status", "ثبت شده"),
                                         details={"source": "GetHistoryFirstList", "matched_row": row},
                                     )
-                        elif status_code == 200 and isinstance(json_body, dict) and "data" in json_body and len(json_body["data"]) == 0:
+                        elif (
+                            status_code == 200
+                            and isinstance(json_body, dict)
+                            and "data" in json_body
+                            and len(json_body["data"]) == 0
+                        ):
                             history_not_found_hint = True
 
             # ── 3. DOM Fallback Search (if AJAX evaluate did not return matched records) ──

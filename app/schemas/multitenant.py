@@ -827,9 +827,7 @@ class WaybillJobResponse(BaseModel):
         rule still gates status=success).
         """
         result = self.result_json if isinstance(self.result_json, dict) else {}
-        if result.get("confirmation_status") == "tracking_received" and str(
-            result.get("tracking_code") or ""
-        ).strip():
+        if result.get("confirmation_status") == "tracking_received" and str(result.get("tracking_code") or "").strip():
             self.operator_acknowledged = True
         else:
             self.operator_acknowledged = False

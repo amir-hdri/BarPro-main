@@ -169,9 +169,7 @@ class UTCMSConfig:
             "UTCMS_MOBILE_API_BASE_URL",
             "https://mobservices-barname.utcms.ir/baarnameh_sd/API",
         ).strip()
-        self.UTCMS_MOBILE_API_TIMEOUT_SECONDS = float(
-            os.getenv("UTCMS_MOBILE_API_TIMEOUT_SECONDS", "20")
-        )
+        self.UTCMS_MOBILE_API_TIMEOUT_SECONDS = float(os.getenv("UTCMS_MOBILE_API_TIMEOUT_SECONDS", "20"))
         # CapJS is the proof-of-work CAPTCHA used by the official mobile app.
         # Verified live (2026-09-13): the Android APK reads ``capSiteKey`` from
         # POST /CostSettings/GetGeneralSettings (``captchaType: 1``) and builds
@@ -192,12 +190,8 @@ class UTCMSConfig:
             "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/120.0.6049.195 Mobile Safari/537.36",
         ).strip()
-        self.UTCMS_CAPTCHA_POW_TIMEOUT_SECONDS = float(
-            os.getenv("UTCMS_CAPTCHA_POW_TIMEOUT_SECONDS", "20")
-        )
-        self.UTCMS_CAPTCHA_POW_MAX_NONCE = int(
-            os.getenv("UTCMS_CAPTCHA_POW_MAX_NONCE", "10000000")
-        )
+        self.UTCMS_CAPTCHA_POW_TIMEOUT_SECONDS = float(os.getenv("UTCMS_CAPTCHA_POW_TIMEOUT_SECONDS", "20"))
+        self.UTCMS_CAPTCHA_POW_MAX_NONCE = int(os.getenv("UTCMS_CAPTCHA_POW_MAX_NONCE", "10000000"))
 
         self.API_AUTH_MODE = os.getenv("API_AUTH_MODE", "api_key_or_jwt").lower()
         self.API_KEY_HEADER = os.getenv("API_KEY_HEADER", "X-API-Key")

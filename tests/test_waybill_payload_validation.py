@@ -141,11 +141,14 @@ def test_live_gate_accepts_complete_user_payload():
     payload["sender"]["phone"] = "۰۹۱۲۳۴۵۶۷۸۹"
     payload["receiver"]["phone"] = "09129876543"
 
-    assert validate_live_waybill_payload(
-        payload,
-        expected_driver_national_code="0084575948",
-        expected_plate="12ب345ایران11",
-    ) == []
+    assert (
+        validate_live_waybill_payload(
+            payload,
+            expected_driver_national_code="0084575948",
+            expected_plate="12ب345ایران11",
+        )
+        == []
+    )
 
 
 def test_waybill_job_create_request_strict_union_rejection():

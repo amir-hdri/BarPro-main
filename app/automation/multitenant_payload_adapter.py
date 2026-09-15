@@ -322,7 +322,11 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             province, city, address = _location_parts(raw_destination, destination_meta, metadata)
             dest_dict = {"province": province, "city": city, "address": address}
 
-        sender = dict(payload.get("sender")) if isinstance(payload.get("sender"), dict) else dict(_metadata_section(metadata, "sender"))
+        sender = (
+            dict(payload.get("sender"))
+            if isinstance(payload.get("sender"), dict)
+            else dict(_metadata_section(metadata, "sender"))
+        )
         receiver = (
             dict(payload.get("receiver"))
             if isinstance(payload.get("receiver"), dict)
@@ -347,7 +351,11 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             if receiver_phone:
                 receiver["phone"] = receiver_phone
 
-        cargo = dict(payload.get("cargo")) if isinstance(payload.get("cargo"), dict) else dict(_metadata_section(metadata, "cargo"))
+        cargo = (
+            dict(payload.get("cargo"))
+            if isinstance(payload.get("cargo"), dict)
+            else dict(_metadata_section(metadata, "cargo"))
+        )
         vehicle = (
             dict(payload.get("vehicle"))
             if isinstance(payload.get("vehicle"), dict)
@@ -370,7 +378,9 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             )
             financial["cost"] = extracted_cost
         if not financial.get("fare") and financial.get("cost"):
-            financial["fare"] = f"{int(financial['cost']):,}" if str(financial["cost"]).isdigit() else str(financial["cost"])
+            financial["fare"] = (
+                f"{int(financial['cost']):,}" if str(financial["cost"]).isdigit() else str(financial["cost"])
+            )
         shipping_options = (
             dict(payload.get("shipping_options"))
             if isinstance(payload.get("shipping_options"), dict)

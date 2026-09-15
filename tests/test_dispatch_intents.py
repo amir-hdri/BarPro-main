@@ -261,9 +261,7 @@ async def test_scheduler_skips_tracking_acknowledged_job():
     async with async_session() as session:
         job_db = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-skip-1"))).first()
         assert job_db.status == TaskStatus.WAITING_RETRY.value  # untouched
-        intent_db = (
-            await session.exec(select(DispatchIntent).where(DispatchIntent.job_id == "job-skip-1"))
-        ).first()
+        intent_db = (await session.exec(select(DispatchIntent).where(DispatchIntent.job_id == "job-skip-1"))).first()
         assert intent_db is None
 
     await engine.dispose()

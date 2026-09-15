@@ -289,12 +289,8 @@ def test_final_submit_captcha_rejects_one_character_solution() -> None:
 
     manager = EnhancedWaybillManager(MagicMock(), MagicMock())
 
-    assert manager._normalize_captcha_solution(
-        "3", minimum_length=manager._final_captcha_min_length()
-    ) is None
-    assert manager._normalize_captcha_solution(
-        "30", minimum_length=manager._final_captcha_min_length()
-    ) == "30"
+    assert manager._normalize_captcha_solution("3", minimum_length=manager._final_captcha_min_length()) is None
+    assert manager._normalize_captcha_solution("30", minimum_length=manager._final_captcha_min_length()) == "30"
 
 
 @pytest.mark.asyncio

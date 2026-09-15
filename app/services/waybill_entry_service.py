@@ -324,9 +324,7 @@ class ManualWaybillService:
 
         # Validate auth
         has_request_auth = (
-            request.utcms_auth
-            and request.utcms_auth.username.strip()
-            and request.utcms_auth.password.strip()
+            request.utcms_auth and request.utcms_auth.username.strip() and request.utcms_auth.password.strip()
         )
         if not has_request_auth:
             errors.append("اطلاعات ورود UTCMS باید برای هر راننده یا هر درخواست به صورت صریح ارسال شود")

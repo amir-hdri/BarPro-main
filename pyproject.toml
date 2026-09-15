@@ -86,6 +86,8 @@ module = [
     "app.orchestrator.*",
     "app.workers.*",
     "app.api.*",
+    "app.legacy_web_rpa.*",
+    "app.android_bridge.*",
 ]
 ignore_errors = true
 

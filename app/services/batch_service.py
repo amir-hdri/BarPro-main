@@ -137,9 +137,7 @@ def estimate_route_duration_minutes(route: WaybillRouteTemplate) -> float:
         return 0.0
 
     is_urban = bool(
-        route.origin_city
-        and route.dest_city
-        and str(route.origin_city).strip() == str(route.dest_city).strip()
+        route.origin_city and route.dest_city and str(route.origin_city).strip() == str(route.dest_city).strip()
     )
     return max(1.0, estimate_time(distance, is_urban=is_urban))
 

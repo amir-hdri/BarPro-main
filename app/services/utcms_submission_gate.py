@@ -62,6 +62,7 @@ class UTCMSSubmissionGate:
     def is_in_predicted_otp_required_window(self, dt: datetime | None = None) -> bool:
         """Check if given Tehran datetime is within the predicted OTP_REQUIRED window (default 17:30 - 08:00)."""
         from datetime import time as dt_time
+
         tehran_dt = dt or self.get_tehran_now()
         cur_time = tehran_dt.time()
         start = dt_time(

@@ -295,7 +295,10 @@ async def test_utcms_bridge_forwards_browser_auth_cookie() -> None:
     request.resource_type = "document"
     request.post_data_buffer = None
     request.all_headers = AsyncMock(
-        return_value={"Cookie": "Barname=session-token", "Referer": "https://barname.utcms.ir/Barname/Notification/Notification"}
+        return_value={
+            "Cookie": "Barname=session-token",
+            "Referer": "https://barname.utcms.ir/Barname/Notification/Notification",
+        }
     )
     route = MagicMock(request=request)
     route.fulfill = AsyncMock()
@@ -795,9 +798,7 @@ async def test_script_prefetch_warms_every_same_origin_script_critical_first() -
     )
     bridge._ensure_asset_session = AsyncMock(return_value=asset_session)
 
-    await bridge._prefetch_document_assets(
-        "https://barname.utcms.ir/barname/Document/HagigiHogugi", html
-    )
+    await bridge._prefetch_document_assets("https://barname.utcms.ir/barname/Document/HagigiHogugi", html)
 
     fetched = [call.args[1] for call in asset_session.request.call_args_list]
     assert fetched == [
@@ -845,9 +846,7 @@ async def test_asset_prefetch_warms_stylesheets_after_scripts() -> None:
     )
     bridge._ensure_asset_session = AsyncMock(return_value=asset_session)
 
-    await bridge._prefetch_document_assets(
-        "https://barname.utcms.ir/barname/Document/HagigiHogugi", html
-    )
+    await bridge._prefetch_document_assets("https://barname.utcms.ir/barname/Document/HagigiHogugi", html)
 
     fetched = [call.args[1] for call in asset_session.request.call_args_list]
     assert fetched == [
@@ -858,10 +857,7 @@ async def test_asset_prefetch_warms_stylesheets_after_scripts() -> None:
     # A non-stylesheet <link> and an off-host stylesheet are both left alone.
     assert "https://barname.utcms.ir/assets/img/favicon.ico" not in fetched
     assert "https://cdn.example.com/x.css" not in fetched
-    dests = [
-        call.kwargs["headers"]["Sec-Fetch-Dest"]
-        for call in asset_session.request.call_args_list
-    ]
+    dests = [call.kwargs["headers"]["Sec-Fetch-Dest"] for call in asset_session.request.call_args_list]
     assert dests == ["script", "style", "style"]
 
 
@@ -880,9 +876,7 @@ async def test_script_prefetch_survives_a_dead_asset_connection() -> None:
     asset_session.request.side_effect = RuntimeError("connection reset")
     bridge._ensure_asset_session = AsyncMock(return_value=asset_session)
 
-    await bridge._prefetch_document_assets(
-        "https://barname.utcms.ir/barname/Document/HagigiHogugi", html
-    )
+    await bridge._prefetch_document_assets("https://barname.utcms.ir/barname/Document/HagigiHogugi", html)
 
     # Each critical file is retried, so compare the DISTINCT urls in first-seen
     # order: the property under test is "every file was still attempted after the
@@ -921,9 +915,7 @@ async def test_failed_script_prefetch_does_not_abort_the_document() -> None:
     session.request.side_effect = _respond
     bridge._ensure_asset_session = AsyncMock(return_value=session)
 
-    await bridge._prefetch_document_assets(
-        "https://barname.utcms.ir/barname/Document/HagigiHogugi", html
-    )
+    await bridge._prefetch_document_assets("https://barname.utcms.ir/barname/Document/HagigiHogugi", html)
 
     assert set(bridge._prefetched_assets) == {"/assets/jspage/barname/hagigihogugi.js"}
 

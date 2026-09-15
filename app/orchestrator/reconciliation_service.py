@@ -115,8 +115,7 @@ class ReconciliationService:
         # UTCMS History. Other needs_review causes must remain terminal and
         # must never enter this read-only reconciliation path.
         manually_reconcilable = (
-            job.status == JobStatus.NEEDS_REVIEW
-            and job.error_category == ErrorCategory.SUBMISSION_UNCONFIRMED.value
+            job.status == JobStatus.NEEDS_REVIEW and job.error_category == ErrorCategory.SUBMISSION_UNCONFIRMED.value
         )
         if job.status not in (JobStatus.UNKNOWN, JobStatus.RECONCILING) and not manually_reconcilable:
             logger.info("Job #%s status is '%s', skipping reconciliation", job_id, job.status)
@@ -208,11 +207,15 @@ class ReconciliationService:
                             )
                             if job.client_id and job.driver_id:
                                 try:
-                                    runtime_stmt = select(DriverRuntimeState).where(
-                                        DriverRuntimeState.driver_id == job.driver_id
-                                    ).with_for_update()
+                                    runtime_stmt = (
+                                        select(DriverRuntimeState)
+                                        .where(DriverRuntimeState.driver_id == job.driver_id)
+                                        .with_for_update()
+                                    )
                                     runtime_state = (await session.execute(runtime_stmt)).scalar_one_or_none()
-                                    next_session_version = (runtime_state.session_version + 1) if runtime_state else None
+                                    next_session_version = (
+                                        (runtime_state.session_version + 1) if runtime_state else None
+                                    )
                                     saved_path = await session_vault.save_driver_session(
                                         client_id=job.client_id,
                                         driver_id=job.driver_id,
@@ -438,9 +441,9 @@ class ReconciliationService:
                         "extra_fields": {
                             "job_id": due_job.job_id,
                             "sweep": "orphaned",
-                            "reason": "tracking_acknowledged"
-                            if is_tracking_received(due_job)
-                            else "operator_otp_pending",
+                            "reason": (
+                                "tracking_acknowledged" if is_tracking_received(due_job) else "operator_otp_pending"
+                            ),
                         }
                     },
                 )

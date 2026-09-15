@@ -198,10 +198,7 @@ async def retry_job_manually(
             guidance = f"retry is only allowed from {[s.value for s in valid_retry_statuses]}; current status '{job.status}' requires manual intervention"
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Cannot retry job #{job_id} in status '{job.status}'. "
-                f"{guidance[0].upper() + guidance[1:]}"
-            ),
+            detail=(f"Cannot retry job #{job_id} in status '{job.status}'. " f"{guidance[0].upper() + guidance[1:]}"),
         )
 
     # C4 fix: mirror the client endpoint's SUBMISSION_UNCONFIRMED guard. A job

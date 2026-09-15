@@ -304,9 +304,7 @@ class DriverScheduleService:
         Evaluate and run due driver schedules across all active clients.
         Called periodically by the Celery Beat scheduler.
         """
-        active_clients = (
-            await session.exec(select(Client).where(col(Client.status) == "active"))
-        ).all()
+        active_clients = (await session.exec(select(Client).where(col(Client.status) == "active"))).all()
         total_created = 0
         total_skipped = 0
         created_job_ids: list[str] = []

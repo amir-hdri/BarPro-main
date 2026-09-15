@@ -142,9 +142,7 @@ class WaybillJobService:
             metadata = payload_dict.get("metadata_json")
             metadata = dict(metadata) if isinstance(metadata, dict) else {}
             metadata_vehicle = dict(metadata.get("vehicle")) if isinstance(metadata.get("vehicle"), dict) else {}
-            metadata_vehicle.update(
-                {"driver_national_code": driver.driver_national_code, "plate": norm_plate}
-            )
+            metadata_vehicle.update({"driver_national_code": driver.driver_national_code, "plate": norm_plate})
             if vehicle_type_str:
                 metadata_vehicle["type"] = vehicle_type_str
             metadata["vehicle"] = metadata_vehicle
@@ -530,7 +528,9 @@ class WaybillJobService:
         elif job.status in (TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.CANCELLED.value):
             progress_percent = 100
         elif job.status == TaskStatus.NEEDS_REVIEW.value:
-            progress_percent = 95 if (job.result_json or getattr(job, "mutation_status", None) in ("dispatched", "ambiguous")) else 100
+            progress_percent = (
+                95 if (job.result_json or getattr(job, "mutation_status", None) in ("dispatched", "ambiguous")) else 100
+            )
         elif job.status in (TaskStatus.UNKNOWN.value, TaskStatus.RECONCILING.value):
             progress_percent = 90
         elif job.status in (TaskStatus.RUNNING.value, TaskStatus.IN_PROGRESS.value):

@@ -41,21 +41,23 @@ def _as_dict(value: Any) -> dict[str, Any]:
 def _sanitize(value: Any) -> Any:
     if isinstance(value, dict):
         return {
-            key: "[REDACTED]"
-            if str(key).lower()
-            in {
-                "password",
-                "token",
-                "refreshtoken",
-                "accesstoken",
-                "bearertoken",
-                "captoken",
-                "captcha",
-                "otp",
-                "otpcode",
-                "cookie",
-            }
-            else _sanitize(item)
+            key: (
+                "[REDACTED]"
+                if str(key).lower()
+                in {
+                    "password",
+                    "token",
+                    "refreshtoken",
+                    "accesstoken",
+                    "bearertoken",
+                    "captoken",
+                    "captcha",
+                    "otp",
+                    "otpcode",
+                    "cookie",
+                }
+                else _sanitize(item)
+            )
             for key, item in value.items()
         }
     if isinstance(value, list):
@@ -134,11 +136,13 @@ class UtcmsMobileClient:
             current = current.replace(tzinfo=ZoneInfo("Asia/Tehran"))
         date = current.astimezone(ZoneInfo("Asia/Tehran")).strftime("%Y%m%d")
         headers = self._mobile_base_headers()
-        headers.update({
-            "Content-Type": "application/json",
-            "ServicePassword": f"9#$K<31l0?+;{date}0KxsoSx)IFI&",
-            "SecurityKey": hashlib.md5(serialized.encode("utf-8")).hexdigest(),
-        })
+        headers.update(
+            {
+                "Content-Type": "application/json",
+                "ServicePassword": f"9#$K<31l0?+;{date}0KxsoSx)IFI&",
+                "SecurityKey": hashlib.md5(serialized.encode("utf-8")).hexdigest(),
+            }
+        )
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
@@ -163,10 +167,12 @@ class UtcmsMobileClient:
                 current = current.replace(tzinfo=ZoneInfo("Asia/Tehran"))
             date = current.astimezone(ZoneInfo("Asia/Tehran")).strftime("%Y%m%d")
             headers = self._mobile_base_headers()
-            headers.update({
-                "ServicePassword": f"9#$K<31l0?+;{date}0KxsoSx)IFI&",
-                "SecurityKey": hashlib.md5(serialized.encode("utf-8")).hexdigest(),
-            })
+            headers.update(
+                {
+                    "ServicePassword": f"9#$K<31l0?+;{date}0KxsoSx)IFI&",
+                    "SecurityKey": hashlib.md5(serialized.encode("utf-8")).hexdigest(),
+                }
+            )
             if self.token:
                 headers["Authorization"] = f"Bearer {self.token}"
             try:

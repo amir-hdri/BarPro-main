@@ -60,7 +60,6 @@ def build_missing_tracking_result(*, document_id: str | None) -> dict[str, Any]:
     }
 
 
-
 class TaskStatus(StrEnum):
     PENDING = "pending"
     QUEUED = "queued"
@@ -122,9 +121,7 @@ class WaybillTaskStatusResponse(BaseModel):
     @model_validator(mode="after")
     def mirror_ack_fields(self) -> "WaybillTaskStatusResponse":
         result = self.result if isinstance(self.result, dict) else {}
-        if result.get("confirmation_status") == "tracking_received" and str(
-            result.get("tracking_code") or ""
-        ).strip():
+        if result.get("confirmation_status") == "tracking_received" and str(result.get("tracking_code") or "").strip():
             self.operator_acknowledged = True
         if result.get("requires_resubmission") is True:
             self.requires_resubmission = True

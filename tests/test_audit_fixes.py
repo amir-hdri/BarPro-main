@@ -104,9 +104,9 @@ async def test_c1_orphan_sweep_skips_job_with_live_lease_despite_stale_updated_a
 
     async with async_session() as session:
         job_db = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-live"))).first()
-        assert job_db.status == TaskStatus.RUNNING.value, (
-            "orphan sweep killed an in-flight job — duplicate-registration risk"
-        )
+        assert (
+            job_db.status == TaskStatus.RUNNING.value
+        ), "orphan sweep killed an in-flight job — duplicate-registration risk"
         exec_db = (await session.exec(select(Execution).where(Execution.execution_id == "exec-live"))).first()
         assert exec_db.status == "running"
 
@@ -286,8 +286,9 @@ async def test_c3_lease_loop_renews_registered_driver_locks(async_session):
             call_count["n"] += 1
             return call_count["n"] > 1  # run exactly one renewal cycle
 
-        with patch.object(stop_event, "wait", side_effect=mock_wait), patch(
-            "app.workers.waybill_worker.utcms_config.WORKER_STALL_TIMEOUT_SECONDS", 90
+        with (
+            patch.object(stop_event, "wait", side_effect=mock_wait),
+            patch("app.workers.waybill_worker.utcms_config.WORKER_STALL_TIMEOUT_SECONDS", 90),
         ):
             _renew_lease_sync_loop("exec-x", 1, stop_event, main_loop=None, lock_holder=holder)
 
@@ -335,9 +336,7 @@ def _install_job_override(admin_client, job):
             yield session
         await engine.dispose()
 
-    admin_client.dependency_overrides[
-        __import__("app.core.database", fromlist=["get_session"]).get_session
-    ] = _gen
+    admin_client.dependency_overrides[__import__("app.core.database", fromlist=["get_session"]).get_session] = _gen
 
 
 @pytest.mark.asyncio
@@ -439,9 +438,11 @@ async def test_h5_sensitive_admin_rejects_blacklisted_jti():
     request = SimpleNamespace(headers={}, cookies={})
     payload = _jwt_payload()
 
-    with patch.object(sec, "_is_api_key_valid", return_value=False), patch.object(
-        sec, "_is_jwt_valid", return_value=payload
-    ), patch("app.core.token_blacklist.is_blacklisted", AsyncMock(return_value=True)):
+    with (
+        patch.object(sec, "_is_api_key_valid", return_value=False),
+        patch.object(sec, "_is_jwt_valid", return_value=payload),
+        patch("app.core.token_blacklist.is_blacklisted", AsyncMock(return_value=True)),
+    ):
         with pytest.raises(HTTPException) as exc_info:
             await sec.require_sensitive_admin(request)
     assert exc_info.value.status_code == 401
@@ -462,8 +463,9 @@ async def test_h5_sensitive_auth_accepts_unblacklisted_valid_jwt(monkeypatch):
     async def _not_blacklisted(jti):
         return False
 
-    with patch.object(sec, "_is_jwt_valid", return_value=payload), patch(
-        "app.core.token_blacklist.is_blacklisted", _not_blacklisted
+    with (
+        patch.object(sec, "_is_jwt_valid", return_value=payload),
+        patch("app.core.token_blacklist.is_blacklisted", _not_blacklisted),
     ):
         await sec.require_sensitive_auth(request)  # must not raise
 
@@ -514,12 +516,14 @@ def test_new1_url_candidates_survive_stale_registerwaybill_env(monkeypatch):
     monkeypatch.setattr(utcms_config, "WAYBILL_URL", "https://barname.utcms.ir/Barname/RegisterWaybill/Index")
     monkeypatch.setattr(utcms_config, "BASE_URL", "https://barname.utcms.ir")
 
-    candidates = EnhancedWaybillManager._waybill_url_candidates(None, )
+    candidates = EnhancedWaybillManager._waybill_url_candidates(
+        None,
+    )
 
     assert candidates[0] == "https://barname.utcms.ir/Barname/RegisterWaybill/Index"  # env first, as configured
-    assert any("/Document/HagigiHogugi" in c for c in candidates), (
-        "working route missing from candidates — stale env would brick navigation"
-    )
+    assert any(
+        "/Document/HagigiHogugi" in c for c in candidates
+    ), "working route missing from candidates — stale env would brick navigation"
     assert len(candidates) == len(set(candidates)), "duplicate candidates waste recovery time"
 
 
@@ -528,16 +532,16 @@ def test_new1_partition_internal_links_filters_and_hints():
 
     base = "https://barname.utcms.ir/Home/InfoIndex"
     hrefs = [
-        "/Barname/History/History",                      # internal hinted (barname)
-        "https://evil.example.com/Barname/Form",         # cross-origin → dropped
-        "#section",                                       # fragment → dropped
-        "javascript:void(0)",                             # script → dropped
-        "mailto:support@utcms.ir",                        # mail → dropped
-        "/Account/Login",                                 # auth page → dropped
-        "/Account/Logout",                                # logout → dropped
-        "/Reports/Monthly",                               # internal other
-        "/Barname/Document/HagigiHogugi",                # hinted duplicate target
-        "/barname/document/hagigihogugi?x=1",            # different URL, kept
+        "/Barname/History/History",  # internal hinted (barname)
+        "https://evil.example.com/Barname/Form",  # cross-origin → dropped
+        "#section",  # fragment → dropped
+        "javascript:void(0)",  # script → dropped
+        "mailto:support@utcms.ir",  # mail → dropped
+        "/Account/Login",  # auth page → dropped
+        "/Account/Logout",  # logout → dropped
+        "/Reports/Monthly",  # internal other
+        "/Barname/Document/HagigiHogugi",  # hinted duplicate target
+        "/barname/document/hagigihogugi?x=1",  # different URL, kept
     ]
     hinted, others = EnhancedWaybillManager._partition_internal_links(base, hrefs)
 
@@ -631,11 +635,11 @@ def test_bugclass_login_redirect_target_handles_paths_and_traps():
     from app.automation.utcms_http_login import UtcmsHttpLogin
 
     f = UtcmsHttpLogin._is_login_redirect_target
-    assert f("/Barname/Account/Login") is True                      # bare relative path
+    assert f("/Barname/Account/Login") is True  # bare relative path
     assert f("https://barname.utcms.ir/Barname/Account/Login?r=2") is True
-    assert f("/Dashboard?ref=LoginBanner") is False                 # query trap
-    assert f("/Barname/LoginDevice/Index") is False                 # different page, no boundary match
-    assert f("/login-help") is False                                # segment boundary respected
+    assert f("/Dashboard?ref=LoginBanner") is False  # query trap
+    assert f("/Barname/LoginDevice/Index") is False  # different page, no boundary match
+    assert f("/login-help") is False  # segment boundary respected
     assert f("") is False
     assert f(None) is False
 

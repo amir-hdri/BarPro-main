@@ -20,13 +20,21 @@ from app.api.routes.waybill_map import (
 def create_mock_request():
     return WaybillMapRequest(
         session_id="test_session",
-        sender=SenderModel(name="علی رضایی", phone="09121234567", address="خیابان آزادی پلاک ۱", national_code="0084575948"),
+        sender=SenderModel(
+            name="علی رضایی", phone="09121234567", address="خیابان آزادی پلاک ۱", national_code="0084575948"
+        ),
         receiver=ReceiverModel(name="رضا کرمی", phone="09129876543", address="بلوار جمهوری پلاک ۲"),
         origin=LocationModel(
-            province="تهران", city="تهران", address="خیابان آزادی پلاک ۱", coordinates=GeoCoordinateModel(lat=1.0, lng=1.0)
+            province="تهران",
+            city="تهران",
+            address="خیابان آزادی پلاک ۱",
+            coordinates=GeoCoordinateModel(lat=1.0, lng=1.0),
         ),
         destination=LocationModel(
-            province="البرز", city="کرج", address="بلوار جمهوری پلاک ۲", coordinates=GeoCoordinateModel(lat=2.0, lng=2.0)
+            province="البرز",
+            city="کرج",
+            address="بلوار جمهوری پلاک ۲",
+            coordinates=GeoCoordinateModel(lat=2.0, lng=2.0),
         ),
         cargo=CargoModel(type="مصالح", packaging="فله", weight=1000, count=1, value=1000000, description="Desc"),
         vehicle=VehicleModel(

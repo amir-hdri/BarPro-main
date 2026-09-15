@@ -189,8 +189,14 @@ async def test_scheduled_mobile_transport_does_not_create_browser_page(async_db)
 
     with (
         patch("app.services.scheduled_waybill_executor.utcms_config.UTCMS_TRANSPORT", "mobile"),
-        patch("app.services.scheduled_waybill_executor.utcms_submission_gate.is_submission_allowed", new_callable=AsyncMock, return_value=True),
-        patch("app.services.scheduled_waybill_executor.managed_browser_session", return_value=browser_session) as session_factory,
+        patch(
+            "app.services.scheduled_waybill_executor.utcms_submission_gate.is_submission_allowed",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "app.services.scheduled_waybill_executor.managed_browser_session", return_value=browser_session
+        ) as session_factory,
         patch("app.services.scheduled_waybill_executor.browser_manager.new_page", new_callable=AsyncMock) as new_page,
         patch("app.services.scheduled_waybill_executor.decrypt_driver_password", return_value="pw"),
         patch("app.services.scheduled_waybill_executor.WaybillAutomationBot", return_value=bot_instance),
@@ -230,8 +236,14 @@ async def test_scheduled_mobile_otp_closes_gate_and_skips_reconciliation(async_d
 
     with (
         patch("app.services.scheduled_waybill_executor.utcms_config.UTCMS_TRANSPORT", "mobile"),
-        patch("app.services.scheduled_waybill_executor.utcms_submission_gate.is_submission_allowed", new_callable=AsyncMock, return_value=True),
-        patch("app.services.scheduled_waybill_executor.utcms_submission_gate.record_otp_detected", new_callable=AsyncMock) as record_otp,
+        patch(
+            "app.services.scheduled_waybill_executor.utcms_submission_gate.is_submission_allowed",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "app.services.scheduled_waybill_executor.utcms_submission_gate.record_otp_detected", new_callable=AsyncMock
+        ) as record_otp,
         patch("app.services.scheduled_waybill_executor.managed_browser_session", return_value=browser_session),
         patch("app.services.scheduled_waybill_executor.browser_manager.new_page", new_callable=AsyncMock) as new_page,
         patch("app.services.scheduled_waybill_executor.decrypt_driver_password", return_value="pw"),
@@ -460,10 +472,18 @@ async def test_waybill_worker_executes_mobile_without_browser(async_db):
         patch("app.workers.waybill_worker.browser_manager.new_page", new_callable=AsyncMock) as new_page,
         patch("app.workers.waybill_worker.managed_browser_session") as browser_session,
         patch("app.workers.waybill_worker.decrypt_driver_password", return_value="secret"),
-        patch("app.workers.waybill_worker.utcms_submission_gate.get_state", new_callable=AsyncMock, return_value=MagicMock(value="otp_free")),
+        patch(
+            "app.workers.waybill_worker.utcms_submission_gate.get_state",
+            new_callable=AsyncMock,
+            return_value=MagicMock(value="otp_free"),
+        ),
         patch("app.workers.waybill_worker.rpa_runtime.acquire_lock", new_callable=AsyncMock, return_value=True),
         patch("app.workers.waybill_worker.rpa_runtime.release_lock", new_callable=AsyncMock, return_value=True),
-        patch("app.services.session_vault.session_vault.async_get_session_version", new_callable=AsyncMock, return_value=None),
+        patch(
+            "app.services.session_vault.session_vault.async_get_session_version",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
         patch("app.workers.waybill_worker.WaybillAutomationBot", return_value=bot_mock) as bot_cls,
         patch("app.workers.waybill_worker.async_session_factory", session_factory),
     ):

@@ -287,9 +287,13 @@ class TestWaybillEnhancedFast(unittest.IsolatedAsyncioTestCase):
                 Response("https://barname.utcms.ir/Barname/PrintReport/printbarnameNew?x=1")
             )
         )
-        self.assertFalse(self.manager._is_register_submit_response(Response("https://example.test/UpdateRegisterNewOld")))
+        self.assertFalse(
+            self.manager._is_register_submit_response(Response("https://example.test/UpdateRegisterNewOld"))
+        )
         self.assertTrue(
-            self.manager._is_otp_submit_response(Response("https://barname.utcms.ir/Barname/Document/IssueDocumentByOtpNew"))
+            self.manager._is_otp_submit_response(
+                Response("https://barname.utcms.ir/Barname/Document/IssueDocumentByOtpNew")
+            )
         )
 
     async def test_exact_dropdown_requires_unique_readback(self):
@@ -487,7 +491,11 @@ class TestDriverFieldSelectors(unittest.IsolatedAsyncioTestCase):
         self.manager._set_select_value_with_js = AsyncMock(return_value=True)
         self.mock_page.eval_on_selector_all = AsyncMock(
             return_value=[
-                {"text": "علی محمدی (5720114726)", "value": '{"driverNationalCode":"5720114726"}', "mobile": "09333702137"}
+                {
+                    "text": "علی محمدی (5720114726)",
+                    "value": '{"driverNationalCode":"5720114726"}',
+                    "mobile": "09333702137",
+                }
             ]
         )
 
@@ -534,10 +542,13 @@ class TestCargoCatalogueLookup(unittest.IsolatedAsyncioTestCase):
     def _bridge(self, **kwargs):
         bridge = Mock()
         bridge.fetch_json = AsyncMock(**kwargs)
-        return patch(
-            "app.automation.http_browser_bridge.get_utcms_http_browser_bridge",
-            return_value=bridge,
-        ), bridge
+        return (
+            patch(
+                "app.automation.http_browser_bridge.get_utcms_http_browser_bridge",
+                return_value=bridge,
+            ),
+            bridge,
+        )
 
     async def test_bridge_result_is_preferred_and_page_js_is_not_touched(self):
         catalogue = [{"id": 15122, "label": "سیمان", "value": "سیمان"}]
@@ -606,10 +617,13 @@ class TestBoxTypeCatalogue(unittest.IsolatedAsyncioTestCase):
     def _bridge(self, payload):
         bridge = Mock()
         bridge.fetch_json = AsyncMock(return_value=payload)
-        return patch(
-            "app.automation.http_browser_bridge.get_utcms_http_browser_bridge",
-            return_value=bridge,
-        ), bridge
+        return (
+            patch(
+                "app.automation.http_browser_bridge.get_utcms_http_browser_bridge",
+                return_value=bridge,
+            ),
+            bridge,
+        )
 
     async def test_options_are_rebuilt_from_the_fillboxtype_envelope(self):
         payload = {

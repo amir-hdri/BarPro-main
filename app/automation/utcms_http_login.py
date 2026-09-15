@@ -194,9 +194,7 @@ class UtcmsHttpLogin:
         # curl operations for this login to a single worker thread so the shared
         # asyncio pool can't scatter the handshake across threads (which UTCMS
         # answers with an intermittent TLS reset on the login GET).
-        self._executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="utcms-login"
-        )
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="utcms-login")
         self._antiforgery: str | None = None
         self._captcha_token: str | None = None
         self._captcha_text: str | None = None
@@ -207,9 +205,7 @@ class UtcmsHttpLogin:
     async def _call(self, func: Any, /, *args: Any, **kwargs: Any) -> Any:
         """Run a curl_cffi session operation on this login's pinned thread."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor, functools.partial(func, *args, **kwargs)
-        )
+        return await loop.run_in_executor(self._executor, functools.partial(func, *args, **kwargs))
 
     # ------------------------------------------------------------------
     # Public API
@@ -373,7 +369,7 @@ class UtcmsHttpLogin:
                     captcha_attempts_left += 1  # TLS/connect reset is not a captcha miss
                     backoff = min(
                         self.TRANSPORT_BACKOFF_CAP,
-                        self.TRANSPORT_BACKOFF_BASE * (2 ** consumed),
+                        self.TRANSPORT_BACKOFF_BASE * (2**consumed),
                     )
                     backoff *= 1.0 + random.uniform(-0.2, 0.2)  # de-synchronise workers
                     logger.warning(

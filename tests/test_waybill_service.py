@@ -275,9 +275,7 @@ def test_job_response_not_acknowledged_for_missing_code():
 
 def test_job_response_acknowledged_with_json_string_result():
     resp = WaybillJobResponse.model_validate(
-        _JobLike(
-            result_json='{"tracking_code": "UTC-123", "confirmation_status": "tracking_received"}'
-        )
+        _JobLike(result_json='{"tracking_code": "UTC-123", "confirmation_status": "tracking_received"}')
     )
     assert resp.operator_acknowledged is True
 

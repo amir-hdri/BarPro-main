@@ -81,10 +81,7 @@ class WaybillAutomationBot:
             return None
 
         raw_plate = (
-            vehicle.get("plate")
-            or vehicle.get("plate_number")
-            or payload.get("plate_number")
-            or payload.get("plate")
+            vehicle.get("plate") or vehicle.get("plate_number") or payload.get("plate_number") or payload.get("plate")
         )
         req_t1 = str(vehicle.get("t1") or "").strip()
         req_t2 = str(vehicle.get("t2") or "").strip()
@@ -161,9 +158,17 @@ class WaybillAutomationBot:
         if vtype is not None and vehicle.get("type") is None and vehicle.get("vehicle_type") is None:
             vehicle["type"] = vtype
 
-        if truck.get("haveCertificate") is not None and "have_certificate" not in vehicle and "haveCertificate" not in vehicle:
+        if (
+            truck.get("haveCertificate") is not None
+            and "have_certificate" not in vehicle
+            and "haveCertificate" not in vehicle
+        ):
             vehicle["have_certificate"] = truck["haveCertificate"]
-        if truck.get("have3rdInsurance") is not None and "have_3rd_insurance" not in vehicle and "have3rdInsurance" not in vehicle:
+        if (
+            truck.get("have3rdInsurance") is not None
+            and "have_3rd_insurance" not in vehicle
+            and "have3rdInsurance" not in vehicle
+        ):
             vehicle["have_3rd_insurance"] = truck["have3rdInsurance"]
 
         freighter_id = truck.get("freighterId") or truck.get("freighter_id")
@@ -203,8 +208,7 @@ class WaybillAutomationBot:
             if source_errors:
                 result.update(
                     status=TaskStatus.NEEDS_REVIEW.value,
-                    error="اطلاعات صریح transport موبایل ناقص است: "
-                    + "، ".join(source_errors),
+                    error="اطلاعات صریح transport موبایل ناقص است: " + "، ".join(source_errors),
                     error_category="mobile_payload_validation_failed",
                 )
                 return result
@@ -249,19 +253,13 @@ class WaybillAutomationBot:
                 items = normalized_cargo.get("items")
                 first_item = items[0] if items and isinstance(items[0], dict) else {}
                 validation_payload["cargo"] = {**normalized_cargo, **first_item}
-            vehicle = (
-                normalized_payload.get("vehicle")
-                if isinstance(normalized_payload.get("vehicle"), dict)
-                else {}
-            )
+            vehicle = normalized_payload.get("vehicle") if isinstance(normalized_payload.get("vehicle"), dict) else {}
             validation_errors = validate_live_waybill_payload(
                 validation_payload,
                 expected_driver_mobile=vehicle.get("driver_phone"),
             )
             if isinstance(normalized_cargo, dict) and isinstance(normalized_cargo.get("items"), list):
-                validation_errors = [
-                    error for error in validation_errors if error not in {"نوع کالا", "نوع بسته‌بندی"}
-                ]
+                validation_errors = [error for error in validation_errors if error not in {"نوع کالا", "نوع بسته‌بندی"}]
             if validation_errors:
                 result.update(
                     status=TaskStatus.NEEDS_REVIEW.value,
@@ -272,10 +270,7 @@ class WaybillAutomationBot:
 
             client = UtcmsMobileClient(proxy_url=proxy_url or self.proxy_url)
             cap_token = str(
-                payload.get("mobile_cap_token")
-                or payload.get("cap_token")
-                or utcms_config.UTCMS_CAPTCHA_VALUE
-                or ""
+                payload.get("mobile_cap_token") or payload.get("cap_token") or utcms_config.UTCMS_CAPTCHA_VALUE or ""
             ).strip()
             if not cap_token and hasattr(client, "auto_solve_captcha"):
                 try:
@@ -302,9 +297,7 @@ class WaybillAutomationBot:
                         "captcha_received": True,
                         "captcha_type": client.extract_captcha_type(captcha),
                         "captcha_has_image": bool(
-                            captcha_obj.get("image")
-                            or captcha_obj.get("captcha")
-                            or captcha_obj.get("base64")
+                            captcha_obj.get("image") or captcha_obj.get("captcha") or captcha_obj.get("base64")
                         ),
                     },
                 )
@@ -324,9 +317,7 @@ class WaybillAutomationBot:
                     )
                     if matched_truck:
                         if isinstance(normalized_payload.get("vehicle"), dict):
-                            self._apply_fleet_truck_to_vehicle(
-                                normalized_payload["vehicle"], matched_truck
-                            )
+                            self._apply_fleet_truck_to_vehicle(normalized_payload["vehicle"], matched_truck)
                         result["steps"].append({"step": "mobile_fleet_match", "status": "success"})
                         logger.info(
                             "mobile_fleet_matched",
@@ -340,9 +331,7 @@ class WaybillAutomationBot:
                 except Exception as exc:
                     logger.warning("Mobile fleet query/matching failed: %s", exc)
 
-            issue_cap_token = str(
-                payload.get("mobile_issue_cap_token") or payload.get("issue_cap_token") or ""
-            ).strip()
+            issue_cap_token = str(payload.get("mobile_issue_cap_token") or payload.get("issue_cap_token") or "").strip()
             # Build the exact APK DTO even for shadow/dry-run. This validates
             # every server ID and required field without dispatching a mutation.
             mobile_body = build_mobile_document_payload(
@@ -377,9 +366,10 @@ class WaybillAutomationBot:
             )
 
             if not effective_live_submit:
-                if not bool(normalized_payload.get("is_draft", False)) and not str(
-                    payload.get("mobile_issue_cap_token") or payload.get("issue_cap_token") or ""
-                ).strip():
+                if (
+                    not bool(normalized_payload.get("is_draft", False))
+                    and not str(payload.get("mobile_issue_cap_token") or payload.get("issue_cap_token") or "").strip()
+                ):
                     result.update(
                         status=TaskStatus.NEEDS_REVIEW.value,
                         error="برای CAPTCHA مرحله صدور موبایل، mobile_issue_cap_token لازم است",
@@ -468,10 +458,7 @@ class WaybillAutomationBot:
 
             result.update(
                 status=TaskStatus.UNKNOWN.value,
-                error=(
-                    "API موبایل سند را پذیرفت اما کد رهگیری بازنگرداند؛ "
-                    "تطبیق خواندنی لازم است"
-                ),
+                error=("API موبایل سند را پذیرفت اما کد رهگیری بازنگرداند؛ " "تطبیق خواندنی لازم است"),
                 error_category="submission_unconfirmed",
                 mutation_status="dispatched" if document_id else "ambiguous",
                 needs_reconciliation=True,
@@ -662,6 +649,7 @@ class WaybillAutomationBot:
                     if auth_state_path:
                         try:
                             from app.services.session_vault import session_vault
+
                             await session_vault.async_delete_auth_state(auth_state_path)
                         except Exception:
                             pass
@@ -698,10 +686,8 @@ class WaybillAutomationBot:
                     manager_result.get("mutation_dispatched")
                     or manager_result.get("mutation_status") == "ambiguous"
                     or manager_result.get("needs_reconciliation")
-                    or str(manager_result.get("status", "")).lower()
-                    in {"unknown", "reconciling", "submitted"}
-                    or str(manager_result.get("confirmation_status", "")).lower()
-                    == "pending_history_reconciliation"
+                    or str(manager_result.get("status", "")).lower() in {"unknown", "reconciling", "submitted"}
+                    or str(manager_result.get("confirmation_status", "")).lower() == "pending_history_reconciliation"
                 )
             )
 
@@ -770,9 +756,7 @@ class WaybillAutomationBot:
                     destination_map_type=manager_result.get("destination_map_type"),
                     route=manager_result.get("route"),
                     waybill_screenshot=manager_result.get("waybill_screenshot"),
-                    document_id=(
-                        str(manager_result["document_id"]) if manager_result.get("document_id") else None
-                    ),
+                    document_id=(str(manager_result["document_id"]) if manager_result.get("document_id") else None),
                 )
                 result["mutation_status"] = "dispatched"
                 result["steps"].append(

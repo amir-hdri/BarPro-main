@@ -1903,7 +1903,10 @@ class EnhancedWaybillManager:
                     await asyncio.sleep(wait_after_seconds)
                     return True
             except Exception as exc:
-                logger.debug("waybill_js_click_fallback_failed", extra={"extra_fields": {"selector": selector, "error": str(exc)[:200]}})
+                logger.debug(
+                    "waybill_js_click_fallback_failed",
+                    extra={"extra_fields": {"selector": selector, "error": str(exc)[:200]}},
+                )
 
         if required:
             raise WaybillError(f"کلیک روی `{label}` ناموفق بود")
@@ -4139,8 +4142,7 @@ class EnhancedWaybillManager:
         driver's name, mobile or national code.
         """
         try:
-            summary = await self.page.evaluate(
-                """() => {
+            summary = await self.page.evaluate("""() => {
                     const select = document.querySelector('#DriverListTajmi');
                     if (!select) return {records: 0, shapes: []};
                     let records = 0;
@@ -4158,8 +4160,7 @@ class EnhancedWaybillManager:
                         }
                     });
                     return {records, shapes};
-                }"""
-            )
+                }""")
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
             return 0
@@ -4183,8 +4184,7 @@ class EnhancedWaybillManager:
         hold a value are left alone: UTCMS's own handler wins when it did run.
         """
         try:
-            await self.page.evaluate(
-                """() => {
+            await self.page.evaluate("""() => {
                     const select = document.querySelector('#DriverListTajmi');
                     if (!select || !select.value) return false;
                     let driver;
@@ -4218,8 +4218,7 @@ class EnhancedWaybillManager:
                         (option && option.getAttribute('data-attr2')) || driver.certificateNo,
                     );
                     return true;
-                }"""
-            )
+                }""")
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
             return
@@ -4494,9 +4493,7 @@ class EnhancedWaybillManager:
                 continue
         return False
 
-    async def _fill_optional_shipping_field(
-        self, selectors: list[str], value: Any, field_label: str
-    ) -> None:
+    async def _fill_optional_shipping_field(self, selectors: list[str], value: Any, field_label: str) -> None:
         if not await self._any_selector_attached(selectors):
             self._record_selector_inventory(
                 field_label=field_label,
@@ -5378,8 +5375,7 @@ class EnhancedWaybillManager:
 
         # ── Step 1: Ensure loadingTime has a future time and click "مرحله نهایی" ──
         try:
-            await self.page.evaluate(
-                """() => {
+            await self.page.evaluate("""() => {
                     const el = document.querySelector('#loadingTime') || document.querySelector('input[name="loadingTime"]');
                     if (el) {
                         const now = new Date();
@@ -5394,8 +5390,7 @@ class EnhancedWaybillManager:
                         el.dispatchEvent(new Event('input', { bubbles: true }));
                         el.dispatchEvent(new Event('change', { bubbles: true }));
                     }
-                }"""
-            )
+                }""")
         except Exception:
             pass
 
@@ -5429,8 +5424,7 @@ class EnhancedWaybillManager:
         # Ensure fulDateTime / shippingStartDate has both date and time (not date only)
         # and ensure map/coordinate variables are populated for UpdateRegisterNewOld
         try:
-            await self.page.evaluate(
-                """() => {
+            await self.page.evaluate("""() => {
                     const dateVal = (document.getElementById('loadingDate')?.value || '').trim();
                     let timeVal = (document.getElementById('loadingTime')?.value || '').trim();
                     if (!timeVal) {
@@ -5516,8 +5510,7 @@ class EnhancedWaybillManager:
                             }
                         }
                     } catch(e){}
-                }"""
-            )
+                }""")
         except Exception:
             pass
 
@@ -5625,9 +5618,7 @@ class EnhancedWaybillManager:
                     msg = submit_state.get("message") or ""
                     result_code = submit_state.get("result_code")
                     is_road_waybill_active = (
-                        str(result_code) == "4041"
-                        or "بارنامه جاده ای فعال" in msg
-                        or "بارنامه جاده‌ای فعال" in msg
+                        str(result_code) == "4041" or "بارنامه جاده ای فعال" in msg or "بارنامه جاده‌ای فعال" in msg
                     )
                     if is_road_waybill_active:
                         clean_msg = (
@@ -5923,9 +5914,7 @@ class EnhancedWaybillManager:
             detected, evidence = await self._detect_otp_required_with_evidence()
             if not detected:
                 # Wait briefly (up to 3s) for modal animation if not immediately detected
-                otp_selectors = (
-                    "input#sms-code, div.otp-challenge, #submitOtp, input[name='otp'], .otp-box, #modalOtp, #divOtp, #FormSendOtpCode"
-                )
+                otp_selectors = "input#sms-code, div.otp-challenge, #submitOtp, input[name='otp'], .otp-box, #modalOtp, #divOtp, #FormSendOtpCode"
                 try:
                     candidate = await self.page.wait_for_selector(otp_selectors, timeout=3000)
                     if candidate is not None:
@@ -5966,8 +5955,7 @@ class EnhancedWaybillManager:
         closed unless a concrete OTP_FREE observation exists.
         """
         try:
-            result = await self.page.evaluate(
-                """async () => {
+            result = await self.page.evaluate("""async () => {
                     try {
                         const response = await fetch('/Barname/Document/GetCostSettings', {
                             method: 'GET',
@@ -6005,8 +5993,7 @@ class EnhancedWaybillManager:
                             authoritative_for_otp_free: false,
                         };
                     }
-                }"""
-            )
+                }""")
         except Exception as exc:
             logger.debug("passive_otp_settings_probe_failed", extra={"extra_fields": {"error": str(exc)}})
             return {
@@ -6015,12 +6002,16 @@ class EnhancedWaybillManager:
                 "error": str(exc)[:240],
                 "authoritative_for_otp_free": False,
             }
-        return result if isinstance(result, dict) else {
-            "request_ok": False,
-            "status_code": None,
-            "error": "passive OTP settings response was not an object",
-            "authoritative_for_otp_free": False,
-        }
+        return (
+            result
+            if isinstance(result, dict)
+            else {
+                "request_ok": False,
+                "status_code": None,
+                "error": "passive OTP settings response was not an object",
+                "authoritative_for_otp_free": False,
+            }
+        )
 
     async def _inspect_final_submission_stage(self) -> dict[str, Any]:
         """Read final-stage readiness without submitting or requesting an SMS.
@@ -6261,8 +6252,7 @@ class EnhancedWaybillManager:
         # This draws the exact pixel bitmap loaded in the <img> element to a canvas
         # and extracts png base64 without any screenshot scaling, DPR, or bounding-box artifacts.
         try:
-            canvas_b64 = await self.page.evaluate(
-                """() => {
+            canvas_b64 = await self.page.evaluate("""() => {
                     const selectors = [
                         '.dntCaptcha img',
                         '#dntCaptchaImg',
@@ -6305,8 +6295,7 @@ class EnhancedWaybillManager:
                     } catch (e) {
                         return null;
                     }
-                }"""
-            )
+                }""")
             if canvas_b64 and len(canvas_b64) > 100:
                 return canvas_b64
         except Exception:
@@ -6861,14 +6850,12 @@ class EnhancedWaybillManager:
             return True
 
         try:
-            has_tracking_or_doc = await self.page.evaluate(
-                """() => {
+            has_tracking_or_doc = await self.page.evaluate("""() => {
                     const tracking = (document.getElementById('TrackingCodeNumber')?.value || '').trim();
                     const docId = (document.getElementById('DocumentId')?.value || '').trim();
                     const isTab10Active = document.querySelector('#pills-10-tab.active, #pills-10.active, .tab-pane.active#pills-10') !== null;
                     return Boolean(tracking || (docId && isTab10Active));
-                }"""
-            )
+                }""")
             if has_tracking_or_doc:
                 return True
         except Exception:
@@ -6991,8 +6978,7 @@ class EnhancedWaybillManager:
 
         # Direct DOM evaluation for input values
         try:
-            dom_tracking = await self.page.evaluate(
-                """() => {
+            dom_tracking = await self.page.evaluate("""() => {
                     const el = document.getElementById('TrackingCodeNumber')
                         || document.getElementById('TrackingCode')
                         || document.querySelector('[name="printId"]')
@@ -7001,8 +6987,7 @@ class EnhancedWaybillManager:
                         return (el.value || el.textContent || el.innerText || '').trim();
                     }
                     return '';
-                }"""
-            )
+                }""")
             if isinstance(dom_tracking, str) and dom_tracking:
                 clean_dom_tracking = self._to_english_digits(dom_tracking)
                 codes = re.findall(r"\d{6,}", clean_dom_tracking)

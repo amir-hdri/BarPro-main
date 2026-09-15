@@ -15,6 +15,7 @@ class _Response:
     def json():
         return {"success": True, "data": {"trackingCode": "UTC-12345"}}
 
+
 class _AsyncClient:
     async def __aenter__(self):
         return self
@@ -49,6 +50,7 @@ async def test_http_submit_adapter_does_not_invent_tracking_code(monkeypatch):
 
     assert result.classification.outcome == SubmitOutcome.SUCCESS
     assert "tracking_code" not in result.raw_payload
+
 
 def test_tracking_first_ack_contract_is_worker_authoritative():
     """Worker code-present path: ack fields, no reconciliation scheduling.

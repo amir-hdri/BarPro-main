@@ -1399,9 +1399,7 @@ async def _execute_job(
             if result_status == TaskStatus.SUCCESS.value:
                 result_payload = result.get("result")
                 tracking_code = (
-                    str(result_payload.get("tracking_code") or "").strip()
-                    if isinstance(result_payload, dict)
-                    else ""
+                    str(result_payload.get("tracking_code") or "").strip() if isinstance(result_payload, dict) else ""
                 )
                 doc_id = None
                 if isinstance(result_payload, dict) and result_payload.get("document_id"):
@@ -1416,9 +1414,7 @@ async def _execute_job(
                     # CRITICAL REDLINE: SUCCESS without tracking code is forbidden -> downgrade to UNKNOWN
                     result_status = TaskStatus.UNKNOWN.value
                     result["status"] = TaskStatus.UNKNOWN.value
-                    result["error"] = (
-                        "Portal success response did not include a tracking code; reconciliation required"
-                    )
+                    result["error"] = "Portal success response did not include a tracking code; reconciliation required"
                     result["error_category"] = ErrorCategory.SUBMISSION_UNCONFIRMED.value
                     job.mutation_status = "dispatched" if doc_id else "ambiguous"
                     provisional = dict(result_payload or {})
@@ -1507,9 +1503,7 @@ async def _execute_job(
                 or result.get("error_category") == ErrorCategory.SUBMISSION_UNCONFIRMED.value
             ):
                 result_payload = result.get("result") if isinstance(result.get("result"), dict) else {}
-                document_id = str(
-                    result.get("document_id") or result_payload.get("document_id") or ""
-                ).strip()
+                document_id = str(result.get("document_id") or result_payload.get("document_id") or "").strip()
                 if document_id and not job.document_id:
                     job.document_id = document_id
                 otp_required = bool(

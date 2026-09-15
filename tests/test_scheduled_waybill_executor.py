@@ -136,17 +136,13 @@ async def _run_with_mocks(async_db, bot_result_dict):
             "app.services.scheduled_waybill_executor.get_proxy_rotator",
             return_value=MagicMock(get_next=AsyncMock(return_value=None)),
         ),
-        patch(
-            "app.services.scheduled_waybill_executor.WaybillAutomationBot"
-        ) as bot_cls,
+        patch("app.services.scheduled_waybill_executor.WaybillAutomationBot") as bot_cls,
     ):
         bot_instance = MagicMock()
         bot_instance.execute_waybill_job = AsyncMock(side_effect=_fake_execute)
         bot_cls.return_value = bot_instance
 
-        result = await _execute_single_job(
-            client, driver, job, session, attempt=1, driver_password="pw"
-        )
+        result = await _execute_single_job(client, driver, job, session, attempt=1, driver_password="pw")
 
     return result, job, bot_calls
 

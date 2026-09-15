@@ -1,6 +1,5 @@
 """Unit tests for pure distance/time helpers (no Postgres/Redis/Neshan needed)."""
 
-
 import pytest
 
 from app.core.distance import estimate_time, haversine, road_estimate
@@ -14,9 +13,7 @@ def test_haversine_isfahan_kashan():
 
 
 def test_haversine_is_symmetric():
-    assert haversine(35.0, 51.0, 36.0, 52.0) == pytest.approx(
-        haversine(36.0, 52.0, 35.0, 51.0)
-    )
+    assert haversine(35.0, 51.0, 36.0, 52.0) == pytest.approx(haversine(36.0, 52.0, 35.0, 51.0))
 
 
 def test_haversine_zero_distance():

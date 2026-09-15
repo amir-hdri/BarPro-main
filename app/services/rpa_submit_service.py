@@ -370,9 +370,7 @@ class RPAHttpSubmitService:
                         # reconciliation is the only allowed next step.
                         from app.schemas.task import build_missing_tracking_result
 
-                        res_json.update(
-                            build_missing_tracking_result(document_id=raw_result.get("document_id"))
-                        )
+                        res_json.update(build_missing_tracking_result(document_id=raw_result.get("document_id")))
                         reconciliation_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=15)
                         JobStateMachine.transition(
                             session,

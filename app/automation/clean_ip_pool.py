@@ -1276,8 +1276,7 @@ class CleanIPPoolManager:
         ips = [
             record
             for record in await self.get_all_clean_ips()
-            if record.is_operational_iranian_egress
-            and (protocol_filter is None or record.protocol in protocol_filter)
+            if record.is_operational_iranian_egress and (protocol_filter is None or record.protocol in protocol_filter)
         ]
         if not ips:
             return None

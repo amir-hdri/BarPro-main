@@ -171,6 +171,7 @@ async def test_item5_curl_cffi_post_uses_data_bytes():
 @pytest.mark.asyncio
 async def test_item6_refresh_contract_uses_get_with_query_param():
     """Verify refresh uses GET /Account/GetTokenByRefreshToken with query parameter."""
+
     class FakeGetClient:
         def __init__(self):
             self.calls = []
@@ -231,6 +232,7 @@ def test_item7_security_headers_service_password_and_security_key():
 @pytest.mark.asyncio
 async def test_item8_otp_validation_range():
     """Verify issue_document_by_otp accepts 4 to 8 digit codes and rejects invalid formats."""
+
     class FakeOtpClient:
         async def post(self, url, **kwargs):
             resp = MagicMock()
@@ -316,8 +318,10 @@ async def test_item11_fail_closed_proxy_guard():
 
     from app.automation.worker_proxy import ProxyUnavailableError
 
-    with patch.dict(os.environ, {"ENVIRONMENT": "production"}), \
-         patch("app.api.routes.shipping_gps.get_worker_proxy_url", return_value=None):
+    with (
+        patch.dict(os.environ, {"ENVIRONMENT": "production"}),
+        patch("app.api.routes.shipping_gps.get_worker_proxy_url", return_value=None),
+    ):
 
         proxy_url = None
         env = (os.environ.get("ENVIRONMENT") or "").lower()
@@ -344,10 +348,12 @@ async def test_item12_session_vault_driver_token_reuse():
     """Verify get_or_login_client reuses cached token from Redis without solving CAPTCHA."""
     from app.automation import gps_shipping_manager
 
-    with patch.object(gps_shipping_manager, "get_cached_token", new=AsyncMock(return_value="cached_jwt_token_valid")), \
-         patch.object(gps_shipping_manager, "_get_redis", new=AsyncMock(return_value=None)), \
-         patch.object(UtcmsMobileClient, "auto_solve_captcha", new=AsyncMock()) as mock_captcha, \
-         patch.object(UtcmsMobileClient, "login", new=AsyncMock()) as mock_login:
+    with (
+        patch.object(gps_shipping_manager, "get_cached_token", new=AsyncMock(return_value="cached_jwt_token_valid")),
+        patch.object(gps_shipping_manager, "_get_redis", new=AsyncMock(return_value=None)),
+        patch.object(UtcmsMobileClient, "auto_solve_captcha", new=AsyncMock()) as mock_captcha,
+        patch.object(UtcmsMobileClient, "login", new=AsyncMock()) as mock_login,
+    ):
 
         client = await gps_shipping_manager.get_or_login_client(
             national_code="0012345678",

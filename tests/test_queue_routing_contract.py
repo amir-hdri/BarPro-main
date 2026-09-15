@@ -1091,9 +1091,9 @@ def test_model_b_deploy_paths_remove_stale_model_a_containers():
             text,
         )
         assert worker_stop is not None
-        assert worker_stop.start() < text.index("--profile model-a stop squid_2 squid_3"), (
-            f"{path} must drain Celery before stopping its proxy"
-        )
+        assert worker_stop.start() < text.index(
+            "--profile model-a stop squid_2 squid_3"
+        ), f"{path} must drain Celery before stopping its proxy"
 
 
 def test_version_audit_fails_closed_on_unexpected_running_containers():
@@ -1165,9 +1165,9 @@ def test_cd_workflow_uses_compose_v2_and_registry_images():
         line for line in cd_text.splitlines() if "docker compose " in line and not line.strip().startswith("#")
     ]
     assert compose_invocations, "cd-deploy.yml must contain docker compose invocations"
-    assert "run --rm --no-deps backend python -c" in cd_text, (
-        "cd-deploy.yml must run the advisory-lock migration entry point with --no-deps."
-    )
+    assert (
+        "run --rm --no-deps backend python -c" in cd_text
+    ), "cd-deploy.yml must run the advisory-lock migration entry point with --no-deps."
     assert "render_squid_configs.sh" in cd_text, (
         "cd-deploy.yml must render squid configs before starting the stack " "(proxy.yml mounts the runtime files)."
     )

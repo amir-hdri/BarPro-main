@@ -98,14 +98,10 @@ def _load_items(cargo: Mapping[str, Any]) -> list[dict[str, Any]]:
         item = _mapping(raw_item)
         result.append(
             {
-                "productId": _required_alias(
-                    item, ("product_id", "productId"), f"شناسه کالا در محموله {index}"
-                ),
+                "productId": _required_alias(item, ("product_id", "productId"), f"شناسه کالا در محموله {index}"),
                 # ``wheight`` is the misspelled key used by the APK DTO.
                 "wheight": _required_alias(item, ("weight", "wheight"), f"وزن محموله {index}"),
-                "packTypeId": _required_alias(
-                    item, ("pack_type_id", "packTypeId"), f"شناسه بسته‌بندی محموله {index}"
-                ),
+                "packTypeId": _required_alias(item, ("pack_type_id", "packTypeId"), f"شناسه بسته‌بندی محموله {index}"),
                 "description": str(_value(item, "description") or "").strip(),
                 "boxNum": _required_alias(item, ("count", "box_num", "boxNum"), f"تعداد بسته در محموله {index}"),
             }
@@ -217,9 +213,7 @@ def build_mobile_document_payload(
         "destination": _location_payload(destination, "مقصد"),
         "sender": _party_payload(sender, "فرستنده"),
         "receiver": _party_payload(receiver, "گیرنده"),
-        "driverNationalCode": _required_alias(
-            vehicle, ("driver_national_code", "driverNationalCode"), "کد ملی راننده"
-        ),
+        "driverNationalCode": _required_alias(vehicle, ("driver_national_code", "driverNationalCode"), "کد ملی راننده"),
         "truck": {
             "tagType": _required_alias(vehicle, ("tag_type", "tagType"), "نوع پلاک"),
             "t1": _required_alias({"value": t1}, ("value",), "بخش اول پلاک"),
@@ -244,7 +238,9 @@ def build_mobile_document_payload(
         "sendSMS": send_sms,
         "docID": doc_id,
         "isDraft": is_draft,
-        "selfDeclaredTimeOfStartShipment": _value(payload, "self_declared_time_of_start_shipment", "selfDeclaredTimeOfStartShipment"),
+        "selfDeclaredTimeOfStartShipment": _value(
+            payload, "self_declared_time_of_start_shipment", "selfDeclaredTimeOfStartShipment"
+        ),
     }
     if cap_token and cap_token.strip():
         body["capToken"] = cap_token.strip()

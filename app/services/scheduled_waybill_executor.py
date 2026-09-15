@@ -247,9 +247,7 @@ async def _execute_single_job(
             if status_str == "success":
                 result_payload = result.get("result")
                 tracking_code = (
-                    str(result_payload.get("tracking_code") or "").strip()
-                    if isinstance(result_payload, dict)
-                    else ""
+                    str(result_payload.get("tracking_code") or "").strip() if isinstance(result_payload, dict) else ""
                 )
                 if not tracking_code:
                     # Success-shaped response without a tracking code: the
@@ -272,7 +270,10 @@ async def _execute_single_job(
                         "mutation_status": "dispatched" if doc_id else "ambiguous",
                         "needs_reconciliation": True,
                     }
-                    job.result_json = {**(result_payload if isinstance(result_payload, dict) else {}), **missing_contract}
+                    job.result_json = {
+                        **(result_payload if isinstance(result_payload, dict) else {}),
+                        **missing_contract,
+                    }
                     if doc_id:
                         job.document_id = doc_id
                     job.mutation_status = "dispatched" if doc_id else "ambiguous"

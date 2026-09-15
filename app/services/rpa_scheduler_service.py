@@ -180,6 +180,7 @@ class RPASchedulerService:
             await session.refresh(job)
             try:
                 from app.workers.celery_app import celery_app
+
                 if celery_app is not None:
                     celery_app.send_task(
                         "orchestrator.scheduler.run",
@@ -439,9 +440,11 @@ class RPASchedulerService:
                                     job.job_id,
                                     JOB_WAITING_SUBMISSION_WINDOW,
                                     {
-                                        "reason": "gate_closed_otp_required"
-                                        if gate_state is not None and gate_state.value == "otp_required"
-                                        else "gate_closed_unknown",
+                                        "reason": (
+                                            "gate_closed_otp_required"
+                                            if gate_state is not None and gate_state.value == "otp_required"
+                                            else "gate_closed_unknown"
+                                        ),
                                         "retry_at": retry_at.isoformat(),
                                     },
                                 )

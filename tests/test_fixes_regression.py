@@ -8,6 +8,7 @@ Guards the code-level fixes so they cannot silently regress:
   3. ``JOB_TIMEOUT_SECONDS`` must stay below ``CELERY_TASK_TIME_LIMIT`` so the
      graceful ``asyncio.wait_for`` fires before Celery's hard SIGKILL.
 """
+
 from app.core.config import utcms_config
 from app.orchestrator.state_machine import ALLOWED_TRANSITIONS, JobStatus
 

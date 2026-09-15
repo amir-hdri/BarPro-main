@@ -39,7 +39,9 @@ def _base_request(**kwargs) -> WaybillMapRequest:
         "session_id": "shipping-opts-test",
         "operation_mode": OperationMode.SAFE,
         "utcms_auth": UTCMSLoginModel(username="test-user", password="test-password"),
-        "sender": SenderModel(name="علی رضایی", phone="09121111111", address="خیابان آزادی پلاک ۱", national_code="0084575948"),
+        "sender": SenderModel(
+            name="علی رضایی", phone="09121111111", address="خیابان آزادی پلاک ۱", national_code="0084575948"
+        ),
         "receiver": ReceiverModel(name="رضا کرمی", phone="09122222222", address="بلوار جمهوری پلاک ۲"),
         "origin": LocationModel(
             province="تهران",

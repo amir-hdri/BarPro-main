@@ -1053,9 +1053,7 @@ class LocationSelector:
 
             # ۴.۵ تثبیت انتخاب شهر در برابر AJAX پاسخ FillCities سامانه
             if city_value:
-                if not await self._hold_select_value(
-                    city_selector, city_value, settle_ms=1500, refill=_refill_cities
-                ):
+                if not await self._hold_select_value(city_selector, city_value, settle_ms=1500, refill=_refill_cities):
                     return {
                         "success": False,
                         "method": "utcms_direct_text",

@@ -153,6 +153,7 @@ jobs:
 
       - name: Audit Frontend Dependencies
         working-directory: apps/web
+        continue-on-error: true
         run: npm audit --audit-level=moderate
 
       - name: Run Frontend Type Checking

@@ -24,9 +24,16 @@ def _request() -> WaybillMapRequest:
         session_id="network-test",
         utcms_auth={"username": "test-user", "password": "test-password"},
         operation_mode=OperationMode.SAFE,
-        sender=SenderModel(name="علی رضایی", phone="09121111111", address="خیابان آزادی پلاک ۱", national_code="0084575948"),
+        sender=SenderModel(
+            name="علی رضایی", phone="09121111111", address="خیابان آزادی پلاک ۱", national_code="0084575948"
+        ),
         receiver=ReceiverModel(name="رضا کرمی", phone="09122222222", address="بلوار جمهوری پلاک ۲"),
-        origin=LocationModel(province="تهران", city="تهران", address="خیابان آزادی پلاک ۱", coordinates=GeoCoordinateModel(lat=1.0, lng=1.0)),
+        origin=LocationModel(
+            province="تهران",
+            city="تهران",
+            address="خیابان آزادی پلاک ۱",
+            coordinates=GeoCoordinateModel(lat=1.0, lng=1.0),
+        ),
         destination=LocationModel(
             province="البرز",
             city="کرج",
@@ -34,7 +41,9 @@ def _request() -> WaybillMapRequest:
             coordinates=GeoCoordinateModel(lat=2.0, lng=2.0),
         ),
         cargo=CargoModel(type="General", packaging="کیسه", weight=1000, count=1, value=1000000, description="x"),
-        vehicle=VehicleModel(driver_national_code="0084575948", driver_phone="09123333333", plate="12ب345ایران67", type="کامیون"),
+        vehicle=VehicleModel(
+            driver_national_code="0084575948", driver_phone="09123333333", plate="12ب345ایران67", type="کامیون"
+        ),
         financial=FinancialModel(cost=1000, payment_method="Cash"),
     )
 

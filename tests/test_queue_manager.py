@@ -15,10 +15,25 @@ from app.schemas.waybill import WaybillMapRequest
 def _request_payload():
     return {
         "session_id": "queue-test",
-        "sender": {"name": "علی رضایی", "phone": "09121111111", "address": "خیابان آزادی پلاک ۱", "national_code": "0084575948"},
+        "sender": {
+            "name": "علی رضایی",
+            "phone": "09121111111",
+            "address": "خیابان آزادی پلاک ۱",
+            "national_code": "0084575948",
+        },
         "receiver": {"name": "رضا کرمی", "phone": "09122222222", "address": "بلوار جمهوری پلاک ۲"},
-        "origin": {"province": "تهران", "city": "تهران", "address": "خیابان آزادی پلاک ۱", "coordinates": {"lat": 1, "lng": 1}},
-        "destination": {"province": "البرز", "city": "کرج", "address": "بلوار جمهوری پلاک ۲", "coordinates": {"lat": 2, "lng": 2}},
+        "origin": {
+            "province": "تهران",
+            "city": "تهران",
+            "address": "خیابان آزادی پلاک ۱",
+            "coordinates": {"lat": 1, "lng": 1},
+        },
+        "destination": {
+            "province": "البرز",
+            "city": "کرج",
+            "address": "بلوار جمهوری پلاک ۲",
+            "coordinates": {"lat": 2, "lng": 2},
+        },
         "cargo": {"type": "مصالح", "packaging": "فله", "weight": 1000, "value": 1000000},
         "vehicle": {"driver_national_code": "0084575948", "driver_phone": "09123333333", "plate": "79ع989ایران84"},
         "financial": {},

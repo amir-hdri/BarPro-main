@@ -48,7 +48,12 @@ async def test_create_waybill_leaks_sensitive_info():
     payload = {
         "session_id": "test_session",
         "utcms_auth": {"username": "test-user", "password": "test-password"},
-        "sender": {"name": "علی رضایی", "phone": "09123456789", "address": "خیابان آزادی پلاک ۱", "national_code": "0084575948"},
+        "sender": {
+            "name": "علی رضایی",
+            "phone": "09123456789",
+            "address": "خیابان آزادی پلاک ۱",
+            "national_code": "0084575948",
+        },
         "receiver": {"name": "رضا کرمی", "phone": "09129876543", "address": "بلوار جمهوری پلاک ۲"},
         "origin": {
             "province": "تهران",
@@ -62,7 +67,14 @@ async def test_create_waybill_leaks_sensitive_info():
             "address": "بلوار جمهوری پلاک ۲",
             "coordinates": {"lat": 32.6546, "lng": 51.6680},
         },
-        "cargo": {"type": "مصالح", "packaging": "فله", "weight": 1000, "value": 1000000, "count": 1, "description": "Test"},
+        "cargo": {
+            "type": "مصالح",
+            "packaging": "فله",
+            "weight": 1000,
+            "value": 1000000,
+            "count": 1,
+            "description": "Test",
+        },
         "vehicle": {
             "driver_national_code": "0084575948",
             "driver_phone": "09123333333",

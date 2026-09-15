@@ -193,9 +193,7 @@ async def test_scheduler_releases_jobs_when_gate_opens():
         (TaskStatus.CANCELLED.value, []),
     ],
 )
-async def test_route_chain_never_dispatches_downstream_before_predecessor_success(
-    predecessor_status, expected_job_ids
-):
+async def test_route_chain_never_dispatches_downstream_before_predecessor_success(predecessor_status, expected_job_ids):
     """A chain queues only the first leg until its predecessor is reconciled SUCCESS."""
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
     async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)

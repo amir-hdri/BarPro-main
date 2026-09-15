@@ -206,10 +206,10 @@ async def test_login_and_tracking_use_sanitized_response_shape():
             return {
                 "resultCode": 200,
                 "obj": {
-                "token": "token-1",
-                "refreshToken": "refresh-1",
-                "tokenExpireDate": "2026-09-10T12:00:00",
-                "capToken": "secret-cap",
+                    "token": "token-1",
+                    "refreshToken": "refresh-1",
+                    "tokenExpireDate": "2026-09-10T12:00:00",
+                    "capToken": "secret-cap",
                 },
             }
 
@@ -244,6 +244,7 @@ def test_client_initialization_with_proxy():
 @pytest.mark.asyncio
 async def test_post_uses_proxy_when_creating_client():
     with patch("app.automation.utcms_mobile_client.cc_requests.AsyncSession") as mock_client_cls:
+
         class _ProxyFakeResponse:
             status_code = 200
 
@@ -263,7 +264,9 @@ async def test_post_uses_proxy_when_creating_client():
         mock_client_cls.assert_called_once_with(
             proxies={"http": "http://127.0.0.1:3128", "https": "http://127.0.0.1:3128"},
             timeout=client.timeout,
-            allow_redirects=False, impersonate='chrome120', default_headers=False,
+            allow_redirects=False,
+            impersonate="chrome120",
+            default_headers=False,
         )
 
 
@@ -271,7 +274,10 @@ async def test_post_uses_proxy_when_creating_client():
 async def test_auto_solve_captcha_success():
     class FakeCaptchaProvider(CaptchaProvider):
         async def solve_text_captcha(self, image_base64: str) -> CaptchaResult:
-            assert image_base64 == "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+            assert (
+                image_base64
+                == "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+            )
             return CaptchaResult(solved=True, value="42", provider="mock")
 
     class FakeResponseObj:
@@ -358,10 +364,10 @@ async def test_cap_pow_matches_apk_challenge_and_redeem_contract():
                 return FakeResponse({"challenge": [[salt, target]], "token": token})
             return FakeResponse({"success": True, "token": "redeemed-token", "expires": "2099-01-01T00:00:00Z"})
 
-    with patch.object(utcms_config, "UTCMS_CAPTCHA_POW_API_ENDPOINT", "https://captcha.example/"), patch.object(
-        utcms_config, "UTCMS_CAPTCHA_POW_SITE_KEY", site_key
-    ), patch.object(
-        utcms_config, "UTCMS_CAPTCHA_POW_MAX_NONCE", 10
+    with (
+        patch.object(utcms_config, "UTCMS_CAPTCHA_POW_API_ENDPOINT", "https://captcha.example/"),
+        patch.object(utcms_config, "UTCMS_CAPTCHA_POW_SITE_KEY", site_key),
+        patch.object(utcms_config, "UTCMS_CAPTCHA_POW_MAX_NONCE", 10),
     ):
         client = UtcmsMobileClient(base_url="https://example.invalid/API", http_client=FakeClient())
         result = await client.solve_cap_pow()
@@ -617,9 +623,9 @@ def test_mobile_headers_include_waf_evasion_fields():
     assert "Android" in headers["User-Agent"], "User-Agent must identify as Android device"
     assert "Chrome/120" in headers["User-Agent"], "User-Agent must match curl_cffi impersonate=chrome120"
 
-    assert headers.get("Accept-Language", "").startswith("fa-IR"), (
-        "Accept-Language must start with fa-IR for Iranian locale"
-    )
+    assert headers.get("Accept-Language", "").startswith(
+        "fa-IR"
+    ), "Accept-Language must start with fa-IR for Iranian locale"
     assert "Accept-Encoding" in headers, "Accept-Encoding is required for WAF evasion"
     assert "br" in headers["Accept-Encoding"], "Accept-Encoding must include brotli (br)"
 
@@ -627,9 +633,9 @@ def test_mobile_headers_include_waf_evasion_fields():
     assert headers.get("Accept") == "application/json, text/plain, */*"
 
     # React Native Axios/OkHttp native networking never sends X-Requested-With
-    assert "X-Requested-With" not in headers, (
-        "X-Requested-With must NOT be sent; official APK has 0 occurrences and sending it is an anomaly"
-    )
+    assert (
+        "X-Requested-With" not in headers
+    ), "X-Requested-With must NOT be sent; official APK has 0 occurrences and sending it is an anomaly"
 
     # Security headers from _headers() must still be intact
     assert "ServicePassword" in headers
@@ -695,6 +701,7 @@ async def test_session_creation_uses_default_headers_false_and_no_content_kwargs
 @pytest.mark.asyncio
 async def test_mobile_refresh_uses_get_with_query_param():
     """Refresh token in official APK is a GET request with ?refreshToken= query param."""
+
     class FakeGetClient:
         async def get(self, url, **kwargs):
             assert url.endswith("/Account/GetTokenByRefreshToken")
@@ -707,7 +714,7 @@ async def test_mobile_refresh_uses_get_with_query_param():
                     "token": "new-access-token",
                     "refreshToken": "new-refresh-token",
                     "tokenExpireDate": "2026-09-15T00:00:00",
-                }
+                },
             }
             return resp
 
@@ -715,4 +722,3 @@ async def test_mobile_refresh_uses_get_with_query_param():
     auth = await client.refresh("test-refresh-token")
     assert auth.token == "new-access-token"
     assert auth.refresh_token == "new-refresh-token"
-
