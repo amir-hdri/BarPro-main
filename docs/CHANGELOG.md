@@ -32,7 +32,7 @@
 - **Realigned `Accept` Header to Axios Baseline (`app/automation/utcms_mobile_client.py`)**:
   Updated baseline `Accept` header to `application/json, text/plain, */*` matching official Axios defaults at Hermes offset 637068.
 - **Updated Default Mobile Base API URL (`app/core/config.py`)**:
-  Changed default `UTCMS_MOBILE_API_BASE_URL` from `https://mobservices-barname.utcms.ir/baarnameh_sd/API` to `https://cptch.utcms.ir` (confirmed primary host at Hermes offset 638179).
+  Changed default `UTCMS_MOBILE_API_BASE_URL` from `https://mobservices-barname.utcms.ir/baarnameh_sd/API` to `https://cptch.utcms.ir` (Hermes offset 638179). Corrected 2026-09-15 in `0771ed9`: empirical probe showed `cptch` serves only CapJS (`UserLoginV2` → HTTP 404), so the transactional base reverted to `mobservices-barname`; current dual-host split is `app/core/config.py:168-184`.
 - **Fixed `_post()` Argument Bug in `curl_cffi` (`app/automation/utcms_mobile_client.py`)**:
   Corrected `request_kwargs["content"]` to `request_kwargs["data"]` in `_post()`, resolving runtime `TypeError` on production calls.
 - **Converted `refresh()` Contract to GET with Query Param (`app/automation/utcms_mobile_client.py`)**:
@@ -42,7 +42,7 @@
 - **Added APK Helper Endpoints (`app/automation/utcms_mobile_client.py`)**:
   Implemented `get_current_shamsi_date()`, `get_document_pdf_v2()`, and `revoke_document()`.
 - **Added Verification Test Suite (`tests/test_audit_verification_goal.py`)**:
-  Created exhaustive 15-test audit suite with wire captures verifying all 13 items end-to-end (all 74 contract and regression tests passing).
+  Created 15-test audit suite with wire captures verifying 13 items end-to-end (snapshot at the time: 74 contract/regression tests passing; per-checkout counts are authoritative).
 
   ## [2.9.12] - 2026-09-14
 
