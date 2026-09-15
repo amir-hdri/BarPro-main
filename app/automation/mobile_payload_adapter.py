@@ -145,8 +145,39 @@ def validate_mobile_source_payload(payload: Mapping[str, Any]) -> list[str]:
     return errors
 
 
+PLATE_LETTER_CODES: dict[str, int] = {
+    "الف": 1,
+    "ب": 2,
+    "پ": 3,
+    "ت": 4,
+    "ث": 5,
+    "ج": 6,
+    "د": 7,
+    "ز": 8,
+    "س": 9,
+    "ش": 10,
+    "ص": 11,
+    "ط": 12,
+    "ع": 21,
+    "ف": 22,
+    "ق": 23,
+    "ک": 24,
+    "گ": 25,
+    "ل": 26,
+    "م": 27,
+    "ن": 28,
+    "و": 29,
+    "ه": 30,
+    "ی": 31,
+}
+
+
 def build_mobile_document_payload(
-    payload: Mapping[str, Any], *, token: str, cap_token: str | None = None
+    payload: Mapping[str, Any],
+    *,
+    token: str,
+    cap_token: str | None = None,
+    is_draft: bool = False,
 ) -> dict[str, Any]:
     """Build InsertDocumentHagigiV3 body from a normalized BarPro payload."""
 
@@ -165,7 +196,7 @@ def build_mobile_document_payload(
     errors = validate_mobile_source_payload(payload)
     if errors:
         raise ValueError("، ".join(errors))
-    is_draft = bool(payload.get("is_draft", False))
+    is_draft = bool(is_draft or payload.get("is_draft", False))
     if not is_draft and not str(cap_token or "").strip():
         raise ValueError("CAPTCHA صدور برای سند نهایی transport موبایل الزامی است")
 
@@ -178,8 +209,9 @@ def build_mobile_document_payload(
     t2 = _value(vehicle, "t2")
     t3 = _value(vehicle, "t3")
     t4 = _value(vehicle, "t4")
-    if (t1 is None or t2 is None or t3 is None or t4 is None) and _value(vehicle, "plate"):
-        plate_str = str(_value(vehicle, "plate") or "")
+
+    plate_str = str(_value(vehicle, "plate", "plate_number") or "")
+    if plate_str:
         norm = plate_str.strip().replace(" ", "").replace("‌", "").replace("ایران", "")
         for idx, digit in enumerate("۰۱۲۳۴۵۶۷۸۹"):
             norm = norm.replace(digit, str(idx))
@@ -187,25 +219,34 @@ def build_mobile_document_payload(
             norm = norm.replace(digit, str(idx))
         match = re.fullmatch(r"(\d{2})([^\d]+)(\d{3})(\d{2})", norm)
         if match:
-            # APK field order follows the natural Iranian plate layout:
-            # two digits, letter, three digits, Iran/serial digits.
-            t1 = t1 or match.group(1)
-            t2 = t2 or match.group(2)
-            t3 = t3 or match.group(3)
-            t4 = t4 or match.group(4)
-            supplied = (t1, t2, t3, t4)
-            natural = match.groups()
-            if all(value is not None for value in supplied) and tuple(str(value) for value in supplied) != natural:
-                raise ValueError("اجزای پلاک با قالب واقعی پلاک ایران مطابقت ندارد")
+            # Match groups: (first_digits, letter, center_digits, iran_digits)
+            # ASP.NET Core TruckDto wire format corresponds to UTCMS irTagPart fields:
+            # t1: iran (str), t2: first digits (int), t3: letter code (int), t4: center digits (str)
+            first_digits, letter, center_digits, iran_digits = match.groups()
+            letter_code = PLATE_LETTER_CODES.get(letter, letter)
+            t1 = iran_digits
+            t2 = int(first_digits)
+            t3 = int(letter_code) if str(letter_code).isdigit() else letter_code
+            t4 = center_digits
+    elif t1 is not None and t2 is not None and t3 is not None and t4 is not None:
+        # Check if caller passed natural order (t1=first, t2=letter, t3=center, t4=iran)
+        if isinstance(t2, str) and not t2.isdigit():
+            letter_code = PLATE_LETTER_CODES.get(t2, 21)
+            t1, t2, t3, t4 = str(t4), int(t1), int(letter_code), str(t3)
+        else:
+            try:
+                t2 = int(t2)
+                t3 = int(t3)
+            except (ValueError, TypeError):
+                pass
 
-    raw_tag_type = _required_alias(vehicle, ("tag_type", "tagType"), "نوع پلاک")
-    tag_type_bool = bool(raw_tag_type in (1, True, "1", "true", "True"))
-
-    t3_val = _required_alias({"value": t3}, ("value",), "سه رقم پلاک")
-    try:
-        t3_clean: Any = int(t3_val)
-    except (ValueError, TypeError):
-        t3_clean = t3_val
+    raw_tag_type = _value(vehicle, "tag_type", "tagType")
+    tag_type_bool = bool(
+        _value(vehicle, "has_free_zone", "is_free_zone", "free_zone")
+        or (raw_tag_type is True)
+        or (isinstance(raw_tag_type, str) and raw_tag_type.lower() in ("true", "free_zone", "منطقه آزاد"))
+        or raw_tag_type == 2
+    )
 
     bearing_cost = _value(financial, "bearing_cost", "bearingCost")
     pre_rent = _value(financial, "pre_rent", "preRent")
@@ -236,10 +277,10 @@ def build_mobile_document_payload(
         "driverNationalCode": _required_alias(vehicle, ("driver_national_code", "driverNationalCode"), "کد ملی راننده"),
         "truck": {
             "tagType": tag_type_bool,
-            "t1": str(_required_alias({"value": t1}, ("value",), "بخش اول پلاک")),
-            "t2": str(_required_alias({"value": t2}, ("value",), "حرف پلاک")),
-            "t3": t3_clean,
-            "t4": str(_required_alias({"value": t4}, ("value",), "بخش چهارم پلاک")),
+            "t1": str(_required_alias({"value": t1}, ("value",), "بخش اول پلاک (کد ایران)")),
+            "t2": _required_alias({"value": t2}, ("value",), "دو رقم اول پلاک"),
+            "t3": _required_alias({"value": t3}, ("value",), "کد حرف پلاک"),
+            "t4": str(_required_alias({"value": t4}, ("value",), "سه رقم پلاک")),
             "capacity": _required_alias(vehicle, ("capacity",), "ظرفیت خودرو"),
             "haveCertificate": bool(_value(vehicle, "have_certificate", "haveCertificate")),
             "have3rdInsurance": bool(_value(vehicle, "have_3rd_insurance", "have3rdInsurance")),

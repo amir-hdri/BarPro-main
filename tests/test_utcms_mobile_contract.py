@@ -267,6 +267,7 @@ async def test_post_uses_proxy_when_creating_client():
             allow_redirects=False,
             impersonate="chrome120",
             default_headers=False,
+            verify=False,
         )
 
 
@@ -537,11 +538,11 @@ def test_mobile_payload_matches_deep_analysis_schema_complete():
     assert body["insurance"]["insuranceCover"] is True
 
     # Verify truck
-    assert body["truck"]["tagType"] is True
-    assert body["truck"]["t1"] == "12"
-    assert body["truck"]["t2"] == "ب"
-    assert body["truck"]["t3"] == 345
-    assert body["truck"]["t4"] == "11"
+    assert body["truck"]["tagType"] is False
+    assert body["truck"]["t1"] == "11"
+    assert body["truck"]["t2"] == 12
+    assert body["truck"]["t3"] == 2
+    assert body["truck"]["t4"] == "345"
     assert body["truck"]["capacity"] == 10
     assert body["truck"]["type"] == "کامیون"
 
@@ -599,10 +600,10 @@ def test_plate_parsing_fallback_in_truck():
         "have_3rd_insurance": True,
     }
     body = build_mobile_document_payload(payload, token="tok-1", cap_token="cap-1")
-    assert body["truck"]["t1"] == "12"
-    assert body["truck"]["t2"] == "ع"
-    assert body["truck"]["t3"] == 345
-    assert body["truck"]["t4"] == "67"
+    assert body["truck"]["t1"] == "67"
+    assert body["truck"]["t2"] == 12
+    assert body["truck"]["t3"] == 21
+    assert body["truck"]["t4"] == "345"
 
 
 def test_mobile_headers_include_waf_evasion_fields():
@@ -691,6 +692,7 @@ async def test_session_creation_uses_default_headers_false_and_no_content_kwargs
             allow_redirects=False,
             impersonate="chrome120",
             default_headers=False,
+            verify=False,
         )
         # Verify post received data= and NOT content=
         _, post_kwargs = mock_instance.post.call_args

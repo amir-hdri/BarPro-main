@@ -106,6 +106,7 @@ class UtcmsMobileClient:
         proxy_url: str | None = None,
         http_client: Any | None = None,
         now: Callable[[], datetime] | None = None,
+        verify: bool = False,
     ) -> None:
         self.base_url = (base_url or utcms_config.UTCMS_MOBILE_API_BASE_URL).rstrip("/")
         self.token = token
@@ -113,6 +114,7 @@ class UtcmsMobileClient:
         self.proxy_url = proxy_url
         self._http_client = http_client
         self._now = now or (lambda: datetime.now(ZoneInfo("Asia/Tehran")))
+        self.verify = verify
 
     @classmethod
     def _mobile_base_headers(cls) -> dict[str, str]:
@@ -158,6 +160,7 @@ class UtcmsMobileClient:
                 allow_redirects=False,
                 impersonate="chrome120",
                 default_headers=False,
+                verify=self.verify,
             )
         try:
             # For GET requests, SecurityKey is MD5 of empty JSON or params
@@ -215,6 +218,7 @@ class UtcmsMobileClient:
                 allow_redirects=False,
                 impersonate="chrome120",
                 default_headers=False,
+                verify=self.verify,
             )
         try:
             # Sign exactly the UTF-8 bytes sent to UTCMS.  Contract-test fakes
@@ -369,6 +373,7 @@ class UtcmsMobileClient:
                 allow_redirects=False,
                 impersonate="chrome120",
                 default_headers=False,
+                verify=self.verify,
             )
         try:
             try:
