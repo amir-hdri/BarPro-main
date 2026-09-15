@@ -6,6 +6,8 @@
 - [قوانین و رفتار الزامی ربات در مواجهه با UTCMS](UTCMS_BOT_BEHAVIOR_CONTRACT.md) — مرجع واحد خطوط قرمز، قرارداد session/transport، گیت زنده بودن فرم، read-back فیلدها و پروتکل dry-run
 - [قرارداد و محدودیت‌های UTCMS](UTCMS_CONSTRAINTS.md) — فیلدهای اجباری، CAPTCHA، IP/WAF، زمان‌بندی، صف‌ها و معیار اثبات ثبت
 - [قابلیت چندمسیره + فاصله/زمان](MULTI_ROUTE_FEATURE.md) — قالب مسیر، دستهٔ چندمسیره و محاسبهٔ فاصله/زمان جاده‌ای
+- [طرح جایگزینی Android سروری و FakeTraveler](ANDROID_CLIENT_IMPLEMENTATION_PLAN.md) — معماری هدف جایگزین GPS با شبیه‌ساز Redroid سرور، قرارداد FakeTraveler و پل مشاهده
+- [گزارش ممیزی کلاینت موبایل و گریز از WAF](UTCMS_MOBILE_AND_WAF_AUDIT_REPORT.md) — تحلیل عینی باینری APK، بایت‌کد هرمس، تفکیک دو هاست cptch و mobservices و رفع باگ‌های انتقال
 - [Runbook قطعی/اختلال UTCMS](runbook_utcms_outage.md)
 - [راهنمای افزودن Worker جدید](adding_new_worker.md) — مرجع واحد onboarding ورکر (فایروال، Squid، compose)
 - [گزارش وضعیت عملیاتی 2026-09-02](OPERATIONS_STATUS_2026-09-02.md) — snapshot زندهٔ ناوگان، Imageها، jobها، Gate و IP pool

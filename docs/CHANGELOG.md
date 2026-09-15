@@ -2,7 +2,26 @@
   
   All notable changes to the UTCMS Automation System.
 
-  ## [2.9.13] - 2026-09-14
+  ## [2.9.14] - 2026-09-15
+
+### Added — Virtual Android Observation Bridge & Verified Dual-Host Mobile Architecture
+
+- **Dual-Host Mobile Architecture Alignment (`app/core/config.py`, `docs/UTCMS_MOBILE_AND_WAF_AUDIT_REPORT.md`)**:
+  Separated CapJS PoW challenge endpoint (`https://cptch.utcms.ir/`) from live business API endpoint (`https://mobservices-barname.utcms.ir/baarnameh_sd/API`). Live wire inspection and server testing confirmed that `cptch.utcms.ir` serves exclusively the CapJS PoW mathematical challenge/redeem service (returning HTTP 404 for ASP.NET endpoints like `UserLoginV2`), while `mobservices-barname.utcms.ir` is the active host for mobile login, documents, and fleet queries.
+- **Live-Fire End-to-End Verification on Central Production Server (`87.107.5.238`)**:
+  Executed real driver authentication flow (`1752641744`) through Iranian Squid proxy (`http://172.20.0.1:3128`) without WAF blocks (0% HTTP 444 / 408):
+  1. Solved CapJS PoW on `cptch.utcms.ir`.
+  2. Authenticated on `mobservices-barname.utcms.ir/baarnameh_sd/API/Account/UserLoginV2` with HTTP 200 OK.
+  3. Cached driver JWT in Redis Session Vault with TTL 6731s (~112 min), eliminating redundant login and CAPTCHA overhead and eradicating HTTP 429 login rate limits.
+  4. Successfully retrieved driver fleet (`vin=IRGC761H07Y582039`).
+- **Virtual Android Client Bridge Phase 1 (`app/android_bridge/`)**:
+  Added an opt-in, lightweight observation bridge for server-side virtual Android (Redroid) running on Linux (no physical phones required). Features zero heavy dependencies (no DB, SQLModel, or ML imports), explicit ADB serial requirement (`ANDROID_BRIDGE_SERIAL`), package verification for official APK (`com.baarnameshahri`) and FakeTraveler (`cl.coders.faketraveler`), and UI hierarchy layout inspection. Covered by 57 dedicated unit tests (`tests/test_android_bridge.py`, `tests/test_shipping_gps_runtime.py`).
+- **GPS Target Architecture Migration Plan (`docs/ANDROID_CLIENT_IMPLEMENTATION_PLAN.md`)**:
+  Documented the future migration of GPS shipping from Python HTTP emulation to FakeTraveler location injection (`cl.coders.faketraveler` via `geo:` Intent) driven by official UTCMS app in Redroid. Enforced security boundary: no `privileged: true` in containers.
+- **Test Suite Pass**:
+  Full test regression passed 100/100 tests locally and in CI.
+
+## [2.9.13] - 2026-09-14
 
 ### Fixed — Official APK Contract Alignment & Deep WAF Evasion
 
