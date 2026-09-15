@@ -247,9 +247,10 @@ async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any]
         pwd = decrypt_driver_password(driver.utcms_password_encrypted)
         # ── Session Vault: reuse cached token → refresh → login only as last resort ──
         # Previous code solved CAPTCHA and logged in on EVERY request, causing
-        # auth spam and 429 risk.  get_or_login_client() caches the driver JWT
-        # in Redis for ~115 min and tries refresh before a full login,
-        # dramatically reducing UTCMS auth traffic.
+        # auth spam and 429 risk.  get_or_login_client() caches the driver bearer
+        # token in Redis with a short TTL (default 240s) and the refresh token
+        # with TTL 7000s, trying refresh before a full login to reduce UTCMS
+        # auth traffic (it does not eliminate 429).
         proxy_url = get_worker_proxy_url()
         if proxy_url is None and (
             (os.environ.get("ENVIRONMENT") or "").lower() == "production"
