@@ -1015,7 +1015,22 @@ export default function HistoryPage() {
                         </div>
 
                         {/* GPS Shipping Route Map — exact user addresses */}
-                        {selectedJob.status === 'success' && (
+                        {selectedJob.status === 'success' && (() => {
+                          const originLat = selectedJobPayload?.originCoords?.lat;
+                          const originLng = selectedJobPayload?.originCoords?.lng;
+                          const destLat = selectedJobPayload?.destinationCoords?.lat;
+                          const destLng = selectedJobPayload?.destinationCoords?.lng;
+                          const hasAnchors =
+                            originLat !== undefined && originLng !== undefined &&
+                            destLat !== undefined && destLng !== undefined;
+                          if (!hasAnchors) {
+                            return (
+                              <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300 font-medium">
+                                این بارنامه مختصات GPS ندارد — چون قبل از اجباری شدن پین نقشه ثبت شده است. برای شروع/پایان حمل با GPS، مختصات مبدأ و مقصد باید موجود باشد.
+                              </div>
+                            );
+                          }
+                          return (
                           <div className="mt-4">
                             <ShippingRouteMap
                               jobId={selectedJob.job_id}
@@ -1026,29 +1041,14 @@ export default function HistoryPage() {
                               }
                               originAddress={selectedJobPayload?.originCity || ''}
                               destAddress={selectedJobPayload?.destinationCity || ''}
-                              originLat={
-                                typeof selectedJob.payload_json === 'object' && selectedJob.payload_json
-                                  ? Number((selectedJob.payload_json as Record<string, unknown>).originLat) || undefined
-                                  : undefined
-                              }
-                              originLng={
-                                typeof selectedJob.payload_json === 'object' && selectedJob.payload_json
-                                  ? Number((selectedJob.payload_json as Record<string, unknown>).originLng) || undefined
-                                  : undefined
-                              }
-                              destLat={
-                                typeof selectedJob.payload_json === 'object' && selectedJob.payload_json
-                                  ? Number((selectedJob.payload_json as Record<string, unknown>).destLat) || undefined
-                                  : undefined
-                              }
-                              destLng={
-                                typeof selectedJob.payload_json === 'object' && selectedJob.payload_json
-                                  ? Number((selectedJob.payload_json as Record<string, unknown>).destLng) || undefined
-                                  : undefined
-                              }
+                              originLat={originLat}
+                              originLng={originLng}
+                              destLat={destLat}
+                              destLng={destLng}
                             />
                           </div>
-                        )}
+                          );
+                        })()}
 
                         {/* Confirmed Tracking Code */}
                         {(() => {

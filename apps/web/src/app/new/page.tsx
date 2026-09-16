@@ -34,7 +34,7 @@ import { api } from "@/lib/api";
 import { canonicalizePlate, normalizeDigits } from "@/lib/plate";
 import { toPersianDigits } from "@/lib/format";
 import type { Driver, Plate, WaybillJob } from "@/lib/types";
-import { waybillSchema, type WaybillFormValues } from "@/schemas/waybillSchema";
+import { validatePinCoords, waybillSchema, type WaybillFormValues } from "@/schemas/waybillSchema";
 import { useSession } from "@/hooks/useSession";
 
 const initialForm: WaybillFormValues = {
@@ -436,6 +436,25 @@ export default function NewWaybillPage() {
     const cargoWeight = parsed.data.cargo_weight ? Number(parsed.data.cargo_weight) : undefined;
     const vehicleTypeVal = parsed.data.vehicle_type || "کامیون";
     const driverPhoneVal = selectedDriver?.phone || (parsed.data.driver_phone ? parsed.data.driver_phone : undefined);
+
+    // GPS anchor coordinates are mandatory for every new job: the pin must be
+    // placed on the interactive map (or picked from a favorite with stored
+    // coordinates). City-centre fallback is deliberately NOT applied here —
+    // a guessed coordinate would be submitted to UTCMS as a real anchor.
+    if (!validatePinCoords(originCoords)) {
+      const message = "مختصات مبدأ ثبت نشده است — لطفاً پین مبدأ را روی نقشه تعاملی بگذارید";
+      setServerError(message);
+      toast.error(message);
+      setCurrentStep(2);
+      return;
+    }
+    if (!validatePinCoords(destinationCoords)) {
+      const message = "مختصات مقصد ثبت نشده است — لطفاً پین مقصد را روی نقشه تعاملی بگذارید";
+      setServerError(message);
+      toast.error(message);
+      setCurrentStep(3);
+      return;
+    }
 
     const payload = {
       driver_national_code: parsed.data.driver_national_code,
@@ -870,8 +889,22 @@ export default function NewWaybillPage() {
                       className="px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-xs font-bold transition-all border border-cyan-500/30 flex items-center gap-1.5"
                     >
                       <MapPinIcon className="h-4 w-4" />
-                      <span>{showOriginMap ? "بستن نقشه" : "انتخاب پین روی نقشه تعاملی"}</span>
+                      <span>{showOriginMap ? "بستن نقشه" : "انتخاب پین روی نقشه تعاملی (الزامی)"}</span>
                     </button>
+                  </div>
+
+                  {/* وضعیت مختصات مبدأ — بدون پین، ثبت بارنامه ممکن نیست */}
+                  <div
+                    className={`mb-4 rounded-xl border px-3 py-2 text-xs font-medium ${
+                      originCoords
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                        : "border-rose-500/30 bg-rose-500/10 text-rose-300"
+                    }`}
+                    role="status"
+                  >
+                    {originCoords
+                      ? `مختصات مبدأ ثبت شد (${originCoords.lat.toFixed(5)}، ${originCoords.lng.toFixed(5)})`
+                      : "مختصات مبدأ هنوز ثبت نشده است — پین را روی نقشه بگذارید"}
                   </div>
 
                   {/* نقشه تعاملی Leaflet */}
@@ -976,8 +1009,22 @@ export default function NewWaybillPage() {
                       className="px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-xs font-bold transition-all border border-cyan-500/30 flex items-center gap-1.5"
                     >
                       <MapPinIcon className="h-4 w-4" />
-                      <span>{showDestinationMap ? "بستن نقشه" : "انتخاب پین روی نقشه تعاملی"}</span>
+                      <span>{showDestinationMap ? "بستن نقشه" : "انتخاب پین روی نقشه تعاملی (الزامی)"}</span>
                     </button>
+                  </div>
+
+                  {/* وضعیت مختصات مقصد — بدون پین، ثبت بارنامه ممکن نیست */}
+                  <div
+                    className={`mb-4 rounded-xl border px-3 py-2 text-xs font-medium ${
+                      destinationCoords
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                        : "border-rose-500/30 bg-rose-500/10 text-rose-300"
+                    }`}
+                    role="status"
+                  >
+                    {destinationCoords
+                      ? `مختصات مقصد ثبت شد (${destinationCoords.lat.toFixed(5)}، ${destinationCoords.lng.toFixed(5)})`
+                      : "مختصات مقصد هنوز ثبت نشده است — پین را روی نقشه بگذارید"}
                   </div>
 
                   {/* نقشه تعاملی Leaflet */}

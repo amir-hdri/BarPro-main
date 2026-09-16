@@ -361,18 +361,21 @@ export function parseQuotaData(quotaData: unknown): ParsedQuotaSummary {
 }
 
 export interface ParsedWaybillPayload {
-  plateNumber?: string | null;
-  originCity?: string | null;
-  destinationCity?: string | null;
-  cargoName?: string | null;
-  cargoWeight?: string | number | null;
-  cargoDescription?: string | null;
-  vehicleType?: string | null;
-  senderName?: string | null;
-  receiverName?: string | null;
-  driverPhone?: string | null;
-  driverNationalCode?: string | null;
-  notes?: string | null;
+  plateNumber: string | null;
+  originCity: string | null;
+  destinationCity: string | null;
+  cargoName: string | null;
+  cargoWeight: string | number | null;
+  cargoDescription: string | null;
+  vehicleType: string | null;
+  senderName: string | null;
+  receiverName: string | null;
+  driverPhone: string | null;
+  driverNationalCode: string | null;
+  notes: string | null;
+  /** Pin coordinates when the job carries real anchors (null = no GPS anchor). */
+  originCoords: { lat: number; lng: number } | null;
+  destinationCoords: { lat: number; lng: number } | null;
 }
 
 export function parseWaybillPayload(payloadJson: unknown): ParsedWaybillPayload {
@@ -389,6 +392,8 @@ export function parseWaybillPayload(payloadJson: unknown): ParsedWaybillPayload 
     driverPhone: null,
     driverNationalCode: null,
     notes: null,
+    originCoords: null,
+    destinationCoords: null,
   };
 
   if (!payloadJson) return result;
@@ -489,6 +494,71 @@ export function parseWaybillPayload(payloadJson: unknown): ParsedWaybillPayload 
   if (typeof payload.notes === 'string') {
     result.notes = payload.notes;
   }
+
+  // GPS anchors — real pins only. Flat originLat/originLng keys come first
+  // (legacy payloads), then metadata_json origin/destination `coordinates`
+  // mappings written by the new waybill form. Anything else stays null so
+  // the UI can warn that the job has no GPS anchor instead of guessing.
+  const numOrNull = (value: unknown): number | null => {
+    const num = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(num) ? num : null;
+  };
+  const coordsOrNull = (value: unknown): { lat: number; lng: number } | null => {
+    if (!value || typeof value !== 'object') return null;
+    const c = value as Record<string, unknown>;
+    const lat = numOrNull(c.lat ?? c.latitude);
+    const lng = numOrNull(c.lng ?? c.lon ?? c.longitude);
+    if (
+      lat === null ||
+      lng === null ||
+      lat < -90 ||
+      lat > 90 ||
+      lng < -180 ||
+      lng > 180 ||
+      (lat === 0 && lng === 0)
+    ) {
+      return null;
+    }
+    return { lat, lng };
+  };
+  const originLat = numOrNull(payload.originLat ?? payload.sourceLatM);
+  const originLng = numOrNull(payload.originLng ?? payload.sourceLngM ?? payload.sourceLonM);
+  const destLat = numOrNull(payload.destLat ?? payload.destLatM);
+  const destLng = numOrNull(payload.destLng ?? payload.destLngM ?? payload.destLonM);
+  let meta: Record<string, unknown> | null = null;
+  if (payload.metadata_json && typeof payload.metadata_json === 'object') {
+    meta = payload.metadata_json as Record<string, unknown>;
+  } else if (typeof payload.metadata_json === 'string') {
+    try {
+      const parsed = JSON.parse(payload.metadata_json);
+      if (parsed && typeof parsed === 'object') meta = parsed as Record<string, unknown>;
+    } catch {
+      meta = null;
+    }
+  }
+  const metaSection = (key: string): Record<string, unknown> | null => {
+    if (!meta) return null;
+    const section = meta[key];
+    return section && typeof section === 'object' ? (section as Record<string, unknown>) : null;
+  };
+  const metaOrigin = metaSection('origin') ?? metaSection('source');
+  const metaDest = metaSection('destination') ?? metaSection('dest');
+  const topOrigin = payload.origin && typeof payload.origin === 'object'
+    ? (payload.origin as Record<string, unknown>)
+    : null;
+  const topDest = payload.destination && typeof payload.destination === 'object'
+    ? (payload.destination as Record<string, unknown>)
+    : null;
+  result.originCoords =
+    (originLat !== null && originLng !== null ? { lat: originLat, lng: originLng } : null) ??
+    coordsOrNull(metaOrigin?.coordinates) ??
+    coordsOrNull(topOrigin?.coordinates) ??
+    null;
+  result.destinationCoords =
+    (destLat !== null && destLng !== null ? { lat: destLat, lng: destLng } : null) ??
+    coordsOrNull(metaDest?.coordinates) ??
+    coordsOrNull(topDest?.coordinates) ??
+    null;
 
   return result;
 }

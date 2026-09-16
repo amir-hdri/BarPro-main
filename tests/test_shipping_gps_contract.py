@@ -144,6 +144,36 @@ def test_submission_bridge_rejects_missing_coordinates_instead_of_inventing_them
     validate_submission_coordinates("sourceLatM=35.6892&sourceLonM=51.389&destLatM=32.65&destLonM=51.66")
 
 
+def test_extract_coordinates_accepts_nested_metadata_coordinates() -> None:
+    """The web form stores pin coordinates inside metadata_json origin/destination.
+
+    The GPS extractor must read the ``coordinates`` mapping (and the
+    top-level dict ``origin``/``destination`` locations the API accepts),
+    not only the flat ``originLat``/``sourceLatM`` keys.
+    """
+    from app.automation.gps_shipping_manager import extract_coordinates_from_payload
+
+    nested = extract_coordinates_from_payload(
+        {
+            "metadata_json": {
+                "origin": {"city": "x", "address": "a", "coordinates": {"lat": 35.1, "lng": 51.2}},
+                "destination": {"city": "y", "address": "b", "coordinates": {"lat": 36.1, "lng": 52.2}},
+            }
+        }
+    )
+    assert (nested["origin_lat"], nested["origin_lng"]) == (35.1, 51.2)
+    assert (nested["dest_lat"], nested["dest_lng"]) == (36.1, 52.2)
+
+    top_level = extract_coordinates_from_payload(
+        {
+            "origin": {"city": "x", "coordinates": {"lat": 35.1, "lng": 51.2}},
+            "destination": {"city": "y", "coordinates": {"lat": 36.1, "lng": 52.2}},
+        }
+    )
+    assert (top_level["origin_lat"], top_level["origin_lng"]) == (35.1, 51.2)
+    assert (top_level["dest_lat"], top_level["dest_lng"]) == (36.1, 52.2)
+
+
 def test_document_ids_are_extracted_from_job_and_result_without_accepting_ambiguity() -> None:
     job = SimpleNamespace(document_id="doc-123", result_json={"document_id": "doc-123"})
     assert _document_ids(job, {"docNo": "doc-123"}) == {"doc-123"}

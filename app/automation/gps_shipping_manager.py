@@ -351,20 +351,78 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
             meta = json.loads(meta)
         except Exception:
             meta = {}
-    origin_meta = meta.get("origin") or meta.get("source") or {}
+    origin_meta_raw = meta.get("origin") or meta.get("source") or {}
+    origin_meta: dict[str, Any] = origin_meta_raw if isinstance(origin_meta_raw, dict) else {}
+    origin_meta_coords_raw = origin_meta.get("coordinates")
+    origin_meta_coords: dict[str, Any] = origin_meta_coords_raw if isinstance(origin_meta_coords_raw, dict) else {}
+    top_origin_raw = payload.get("origin")
+    top_origin: dict[str, Any] = top_origin_raw if isinstance(top_origin_raw, dict) else {}
+    top_origin_coords_raw = top_origin.get("coordinates")
+    top_origin_coords: dict[str, Any] = top_origin_coords_raw if isinstance(top_origin_coords_raw, dict) else {}
     if origin_lat is None:
-        origin_lat = _float(origin_meta.get("lat") or origin_meta.get("latitude"))
+        origin_lat = _float(
+            origin_meta_coords.get("lat")
+            or origin_meta_coords.get("latitude")
+            or top_origin_coords.get("lat")
+            or top_origin_coords.get("latitude")
+            or origin_meta.get("lat")
+            or origin_meta.get("latitude")
+            or top_origin.get("lat")
+            or top_origin.get("latitude")
+        )
     if origin_lng is None:
-        origin_lng = _float(origin_meta.get("lng") or origin_meta.get("lon") or origin_meta.get("longitude"))
+        origin_lng = _float(
+            origin_meta_coords.get("lng")
+            or origin_meta_coords.get("lon")
+            or origin_meta_coords.get("longitude")
+            or top_origin_coords.get("lng")
+            or top_origin_coords.get("lon")
+            or top_origin_coords.get("longitude")
+            or origin_meta.get("lng")
+            or origin_meta.get("lon")
+            or origin_meta.get("longitude")
+            or top_origin.get("lng")
+            or top_origin.get("lon")
+            or top_origin.get("longitude")
+        )
 
     # ── Destination coordinates ──
     dest_lat = _float(payload.get("destLat") or payload.get("destLatM"))
     dest_lng = _float(payload.get("destLng") or payload.get("destLngM") or payload.get("destLonM"))
-    dest_meta = meta.get("destination") or meta.get("dest") or {}
+    dest_meta_raw = meta.get("destination") or meta.get("dest") or {}
+    dest_meta: dict[str, Any] = dest_meta_raw if isinstance(dest_meta_raw, dict) else {}
+    dest_meta_coords_raw = dest_meta.get("coordinates")
+    dest_meta_coords: dict[str, Any] = dest_meta_coords_raw if isinstance(dest_meta_coords_raw, dict) else {}
+    top_dest_raw = payload.get("destination")
+    top_dest: dict[str, Any] = top_dest_raw if isinstance(top_dest_raw, dict) else {}
+    top_dest_coords_raw = top_dest.get("coordinates")
+    top_dest_coords: dict[str, Any] = top_dest_coords_raw if isinstance(top_dest_coords_raw, dict) else {}
     if dest_lat is None:
-        dest_lat = _float(dest_meta.get("lat") or dest_meta.get("latitude"))
+        dest_lat = _float(
+            dest_meta_coords.get("lat")
+            or dest_meta_coords.get("latitude")
+            or top_dest_coords.get("lat")
+            or top_dest_coords.get("latitude")
+            or dest_meta.get("lat")
+            or dest_meta.get("latitude")
+            or top_dest.get("lat")
+            or top_dest.get("latitude")
+        )
     if dest_lng is None:
-        dest_lng = _float(dest_meta.get("lng") or dest_meta.get("lon") or dest_meta.get("longitude"))
+        dest_lng = _float(
+            dest_meta_coords.get("lng")
+            or dest_meta_coords.get("lon")
+            or dest_meta_coords.get("longitude")
+            or top_dest_coords.get("lng")
+            or top_dest_coords.get("lon")
+            or top_dest_coords.get("longitude")
+            or dest_meta.get("lng")
+            or dest_meta.get("lon")
+            or dest_meta.get("longitude")
+            or top_dest.get("lng")
+            or top_dest.get("lon")
+            or top_dest.get("longitude")
+        )
 
     # ── Addresses — EXACT user input ──
     origin_city = str(

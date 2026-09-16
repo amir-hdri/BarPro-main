@@ -90,3 +90,24 @@ export const waybillSchema = z.object({
 });
 
 export type WaybillFormValues = z.input<typeof waybillSchema>;
+export interface MapCoords {
+  lat: number;
+  lng: number;
+}
+
+/** Validate raw pin coordinates (map pin / favorite / city lookup) before submit. */
+export function validatePinCoords(value: unknown): value is MapCoords {
+  if (!value || typeof value !== "object") return false;
+  const coords = value as Record<string, unknown>;
+  const lat = Number(coords.lat);
+  const lng = Number(coords.lng);
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180 &&
+    !(lat === 0 && lng === 0)
+  );
+}
