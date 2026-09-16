@@ -303,7 +303,15 @@ BarPro/
 │   ├── services/           # Business logic layer
 │   ├── workers/            # Celery tasks (waybill_worker, phase1_tasks, tasks)
 │   ├── realtime/           # WebSocket event hub
-│   └── rpa/                # RPA services (auth, submit, scheduler)
+│   ├── rpa/                # RPA services (auth, submit, scheduler)
+│   └── travel/             # Travel simulation engine (GPS, route, speed, clock)
+│       ├── geometry.py     # Spherical geometry (haversine, polyline, PathIndex)
+│       ├── route.py        # RouteGeometry, RouteSegment
+│       ├── speed.py        # SpeedProfile, SpeedSolution (kinematic solver)
+│       ├── clock.py        # TravelClock (monotonic, pause-aware)
+│       ├── state.py        # TravelStatus state machine
+│       ├── engine.py       # TravelEngine → TravelSample (drift-free)
+│       └── providers.py    # FakeGpsProvider → Android/Redroid
 ├── apps/web/               # Frontend (Next.js 15)
 │   └── src/
 │       ├── app/            # App Router pages

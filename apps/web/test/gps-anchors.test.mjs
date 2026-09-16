@@ -37,7 +37,14 @@ test('real pins are accepted', () => {
 });
 
 // Mirror of the GPS-anchor extraction order in @/lib/format.ts
-// (flat originLat keys first, then metadata coordinates, never a guess).
+// Priority matches backend _resolve_nested_coords:
+//   1. metadata_json.*.coordinates  (new waybill form)
+//   2. payload.*.coordinates        (API dict)
+//   3. flat keys originLat/destLat  (legacy)
+//
+// ⚠️ SYNC GUARD: If the extraction order in format.ts parseWaybillPayload
+// changes, this mirror function AND the backend _resolve_nested_coords in
+// app/automation/gps_shipping_manager.py must change too.
 function extractAnchors(payload) {
   const numOrNull = (value) => {
     const num = typeof value === 'number' ? value : Number(value);
@@ -64,13 +71,15 @@ function extractAnchors(payload) {
   const metaDest = meta?.destination ?? null;
   return {
     origin:
+      coordsOrNull(metaOrigin?.coordinates) ??
       (numOrNull(payload.originLat) !== null && numOrNull(payload.originLng) !== null
         ? { lat: numOrNull(payload.originLat), lng: numOrNull(payload.originLng) }
-        : null) ?? coordsOrNull(metaOrigin?.coordinates) ?? null,
+        : null) ?? null,
     destination:
+      coordsOrNull(metaDest?.coordinates) ??
       (numOrNull(payload.destLat) !== null && numOrNull(payload.destLng) !== null
         ? { lat: numOrNull(payload.destLat), lng: numOrNull(payload.destLng) }
-        : null) ?? coordsOrNull(metaDest?.coordinates) ?? null,
+        : null) ?? null,
   };
 }
 
@@ -90,4 +99,15 @@ test('anchor extraction stays null for legacy jobs without pins', () => {
   const anchors = extractAnchors({ origin: 'مشهد', destination: 'تهران' });
   assert.equal(anchors.origin, null);
   assert.equal(anchors.destination, null);
+});
+
+test('metadata coordinates take precedence over flat keys', () => {
+  const anchors = extractAnchors({
+    originLat: 35.0, originLng: 51.0,  // legacy flat keys
+    metadata_json: {
+      origin: { coordinates: { lat: 36.29, lng: 59.6 } },  // new form — takes priority
+    },
+  });
+  // Metadata wins because it represents the actual map pin the user placed.
+  assert.deepEqual(anchors.origin, { lat: 36.29, lng: 59.6 });
 });

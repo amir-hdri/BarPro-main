@@ -549,15 +549,19 @@ export function parseWaybillPayload(payloadJson: unknown): ParsedWaybillPayload 
   const topDest = payload.destination && typeof payload.destination === 'object'
     ? (payload.destination as Record<string, unknown>)
     : null;
+  // GPS anchors — priority matches backend _resolve_nested_coords:
+  //   1. metadata_json.*.coordinates  (new waybill form)
+  //   2. payload.*.coordinates        (API dict)
+  //   3. flat keys originLat/destLat  (legacy)
   result.originCoords =
-    (originLat !== null && originLng !== null ? { lat: originLat, lng: originLng } : null) ??
     coordsOrNull(metaOrigin?.coordinates) ??
     coordsOrNull(topOrigin?.coordinates) ??
+    (originLat !== null && originLng !== null ? { lat: originLat, lng: originLng } : null) ??
     null;
   result.destinationCoords =
-    (destLat !== null && destLng !== null ? { lat: destLat, lng: destLng } : null) ??
     coordsOrNull(metaDest?.coordinates) ??
     coordsOrNull(topDest?.coordinates) ??
+    (destLat !== null && destLng !== null ? { lat: destLat, lng: destLng } : null) ??
     null;
 
   return result;

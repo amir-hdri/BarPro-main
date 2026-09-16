@@ -340,91 +340,84 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         except (TypeError, ValueError):
             return None
 
-    # ── Origin coordinates ──
-    origin_lat = _float(payload.get("originLat") or payload.get("sourceLatM"))
-    origin_lng = _float(payload.get("originLng") or payload.get("sourceLngM") or payload.get("sourceLonM"))
+    def _safe_dict(raw: Any) -> dict[str, Any]:
+        return raw if isinstance(raw, dict) else {}
 
-    # Try nested metadata_json
+    def _resolve_nested_coords(
+        flat_lat: float | None,
+        flat_lng: float | None,
+        meta_section: dict[str, Any],
+        top_section: dict[str, Any],
+    ) -> tuple[float | None, float | None]:
+        """Read lat/lng from nested or flat sources — first match wins.
+
+        Priority (matches the new waybill form which writes real pins into
+        metadata_json.*.coordinates):
+          1. meta_section.coordinates.{lat,lng}
+          2. top_section.coordinates.{lat,lng}
+          3. meta_section.{lat,lng}       (legacy)
+          4. top_section.{lat,lng}        (legacy)
+        """
+        meta_coords = _safe_dict(meta_section.get("coordinates"))
+        top_coords = _safe_dict(top_section.get("coordinates"))
+        lat = flat_lat
+        if lat is None:
+            lat = _float(
+                meta_coords.get("lat")
+                or meta_coords.get("latitude")
+                or top_coords.get("lat")
+                or top_coords.get("latitude")
+                or meta_section.get("lat")
+                or meta_section.get("latitude")
+                or top_section.get("lat")
+                or top_section.get("latitude")
+            )
+        lng = flat_lng
+        if lng is None:
+            lng = _float(
+                meta_coords.get("lng")
+                or meta_coords.get("lon")
+                or meta_coords.get("longitude")
+                or top_coords.get("lng")
+                or top_coords.get("lon")
+                or top_coords.get("longitude")
+                or meta_section.get("lng")
+                or meta_section.get("lon")
+                or meta_section.get("longitude")
+                or top_section.get("lng")
+                or top_section.get("lon")
+                or top_section.get("longitude")
+            )
+        return lat, lng
+
+    # ── Parse metadata_json once ──
     meta = payload.get("metadata_json") or {}
     if isinstance(meta, str):
         try:
             meta = json.loads(meta)
         except Exception:
             meta = {}
-    origin_meta_raw = meta.get("origin") or meta.get("source") or {}
-    origin_meta: dict[str, Any] = origin_meta_raw if isinstance(origin_meta_raw, dict) else {}
-    origin_meta_coords_raw = origin_meta.get("coordinates")
-    origin_meta_coords: dict[str, Any] = origin_meta_coords_raw if isinstance(origin_meta_coords_raw, dict) else {}
-    top_origin_raw = payload.get("origin")
-    top_origin: dict[str, Any] = top_origin_raw if isinstance(top_origin_raw, dict) else {}
-    top_origin_coords_raw = top_origin.get("coordinates")
-    top_origin_coords: dict[str, Any] = top_origin_coords_raw if isinstance(top_origin_coords_raw, dict) else {}
-    if origin_lat is None:
-        origin_lat = _float(
-            origin_meta_coords.get("lat")
-            or origin_meta_coords.get("latitude")
-            or top_origin_coords.get("lat")
-            or top_origin_coords.get("latitude")
-            or origin_meta.get("lat")
-            or origin_meta.get("latitude")
-            or top_origin.get("lat")
-            or top_origin.get("latitude")
-        )
-    if origin_lng is None:
-        origin_lng = _float(
-            origin_meta_coords.get("lng")
-            or origin_meta_coords.get("lon")
-            or origin_meta_coords.get("longitude")
-            or top_origin_coords.get("lng")
-            or top_origin_coords.get("lon")
-            or top_origin_coords.get("longitude")
-            or origin_meta.get("lng")
-            or origin_meta.get("lon")
-            or origin_meta.get("longitude")
-            or top_origin.get("lng")
-            or top_origin.get("lon")
-            or top_origin.get("longitude")
-        )
+
+    # ── Origin coordinates ──
+    origin_lat, origin_lng = _resolve_nested_coords(
+        flat_lat=_float(payload.get("originLat") or payload.get("sourceLatM")),
+        flat_lng=_float(payload.get("originLng") or payload.get("sourceLngM") or payload.get("sourceLonM")),
+        meta_section=_safe_dict(meta.get("origin") or meta.get("source")),
+        top_section=_safe_dict(payload.get("origin")),
+    )
 
     # ── Destination coordinates ──
-    dest_lat = _float(payload.get("destLat") or payload.get("destLatM"))
-    dest_lng = _float(payload.get("destLng") or payload.get("destLngM") or payload.get("destLonM"))
-    dest_meta_raw = meta.get("destination") or meta.get("dest") or {}
-    dest_meta: dict[str, Any] = dest_meta_raw if isinstance(dest_meta_raw, dict) else {}
-    dest_meta_coords_raw = dest_meta.get("coordinates")
-    dest_meta_coords: dict[str, Any] = dest_meta_coords_raw if isinstance(dest_meta_coords_raw, dict) else {}
-    top_dest_raw = payload.get("destination")
-    top_dest: dict[str, Any] = top_dest_raw if isinstance(top_dest_raw, dict) else {}
-    top_dest_coords_raw = top_dest.get("coordinates")
-    top_dest_coords: dict[str, Any] = top_dest_coords_raw if isinstance(top_dest_coords_raw, dict) else {}
-    if dest_lat is None:
-        dest_lat = _float(
-            dest_meta_coords.get("lat")
-            or dest_meta_coords.get("latitude")
-            or top_dest_coords.get("lat")
-            or top_dest_coords.get("latitude")
-            or dest_meta.get("lat")
-            or dest_meta.get("latitude")
-            or top_dest.get("lat")
-            or top_dest.get("latitude")
-        )
-    if dest_lng is None:
-        dest_lng = _float(
-            dest_meta_coords.get("lng")
-            or dest_meta_coords.get("lon")
-            or dest_meta_coords.get("longitude")
-            or top_dest_coords.get("lng")
-            or top_dest_coords.get("lon")
-            or top_dest_coords.get("longitude")
-            or dest_meta.get("lng")
-            or dest_meta.get("lon")
-            or dest_meta.get("longitude")
-            or top_dest.get("lng")
-            or top_dest.get("lon")
-            or top_dest.get("longitude")
-        )
+    dest_lat, dest_lng = _resolve_nested_coords(
+        flat_lat=_float(payload.get("destLat") or payload.get("destLatM")),
+        flat_lng=_float(payload.get("destLng") or payload.get("destLngM") or payload.get("destLonM")),
+        meta_section=_safe_dict(meta.get("destination") or meta.get("dest")),
+        top_section=_safe_dict(payload.get("destination")),
+    )
 
     # ── Addresses — EXACT user input ──
+    # Reuse meta sections for city/address fallback lookup.
+    origin_meta = _safe_dict(meta.get("origin") or meta.get("source"))
+    dest_meta = _safe_dict(meta.get("destination") or meta.get("dest"))
     origin_city = str(
         payload.get("origin")
         or payload.get("citySourceMap")
