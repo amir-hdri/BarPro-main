@@ -56,9 +56,13 @@ docker compose exec postgres psql -U barpro -d barpro_db -c "SELECT * FROM utcms
 
 ### ب) تنظیم دستی وضعیت (Manual Override)
 
-این بخش فقط برای dry-run یا تست کنترل‌شده است و مجوز ثبت زنده یا جایگزین observation واقعی سامانه نیست. برای تولید، manual override نباید فعال باشد.
+باز کردن دستی Gate فقط در محیط غیرتولیدی برای تست کنترل‌شده است و جایگزین
+observation واقعی سامانه نیست. در production، مقدار دستی `otp_free` نادیده
+گرفته می‌شود؛ بستن اضطراری Gate همچنان مجاز است. کش `otp_free` باید TTL مثبت
+و metadata دارای `observed_at` و `valid_until` معتبر داشته باشد. کش حافظه نیز
+هرگز از `valid_until` شاهد اصلی فراتر نمی‌رود.
 ```bash
-# باز کردن موقت دروازه برای تست زنده یک Job کنترل‌شده (مثلاً برای ۱۰ دقیقه)
+# فقط محیط غیرتولیدی؛ این دستور مجوز ثبت زنده ایجاد نمی‌کند
 redis-cli SETEX rpa:gate:manual_override 600 "otp_free"
 
 # بستن فوری دروازه در شرایط اضطراری

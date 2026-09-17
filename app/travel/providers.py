@@ -35,9 +35,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import re
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -51,9 +53,11 @@ from app.android_bridge.client import (
     _run_command,
 )
 from app.travel.engine import TravelSample
+from app.travel.geometry import haversine_km
 
 __all__ = [
     "AndroidFakeGpsProvider",
+    "AndroidLocationObservation",
     "FakeGpsProvider",
     "GpsDispatch",
     "GpsProviderError",
@@ -83,6 +87,24 @@ class GpsProviderError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class AndroidLocationObservation:
+    """A real Android read-back of a virtual fix, never an engine waypoint.
+
+    An observer must read the Android location provider (or the consuming app),
+    preserving the fix time separately from the read time. There is no bundled
+    observer yet: injection fails closed until an integration supplies one.
+    """
+
+    latitude: float
+    longitude: float
+    serial: str
+    provider: str
+    is_mock: bool
+    sampled_at: datetime
+    observed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class GpsDispatch:
     """Outcome of handing one coordinate to a provider."""
 
@@ -94,9 +116,13 @@ class GpsDispatch:
     dispatched_at: datetime
     latency_ms: float
     reason: str = ""
+    device_serial: str | None = None
+    location_provider: str | None = None
+    sampled_at: datetime | None = None
+    observed_at: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "accepted": self.accepted,
             "provider": self.provider,
             "provenance": self.provenance,
@@ -106,6 +132,14 @@ class GpsDispatch:
             "latency_ms": round(self.latency_ms, 3),
             "reason": self.reason,
         }
+        if self.observed_at is not None:
+            result.update(
+                device_serial=self.device_serial,
+                location_provider=self.location_provider,
+                sampled_at=self.sampled_at.isoformat() if self.sampled_at is not None else None,
+                observed_at=self.observed_at.isoformat(),
+            )
+        return result
 
 
 class FakeGpsProvider(ABC):
@@ -237,9 +271,11 @@ class AndroidFakeGpsProvider(FakeGpsProvider):
         bridge: AndroidBridge | None = None,
         runner: CommandRunner = _run_command,
         min_interval_s: float = 1.0,
+        location_observer: Callable[[], Awaitable[AndroidLocationObservation]] | None = None,
     ) -> None:
         self._config = config
         self._runner = runner
+        self._location_observer = location_observer
         self._min_interval_s = max(0.0, min_interval_s)
         self._bridge = bridge or AndroidBridge(
             BridgeConfig(
@@ -254,6 +290,7 @@ class AndroidFakeGpsProvider(FakeGpsProvider):
         )
         self._started = False
         self._applied = False
+        self._outcome_unknown = False
         self._last_publish = 0.0
         self._lock = asyncio.Lock()
 
@@ -276,30 +313,71 @@ class AndroidFakeGpsProvider(FakeGpsProvider):
         began = time.perf_counter()
         if not self._started:
             return self._reject(sample, began, "provider_not_started")
+        if self._location_observer is None:
+            return self._reject(sample, began, "location_readback_unavailable")
 
         # Serialise: two overlapping Stop/Apply sequences would desynchronise
         # the toggle and leave the mock provider off.
         async with self._lock:
+            if self._outcome_unknown:
+                return self._reject(sample, began, "injection_outcome_unknown")
             now = time.monotonic()
             if self._min_interval_s and now - self._last_publish < self._min_interval_s:
                 return self._reject(sample, began, "rate_limited")
             try:
-                await self._apply_coordinate(sample.latitude, sample.longitude)
+                attempted_at = datetime.now(UTC)
+                self._outcome_unknown = True
+                applied_at = await self._apply_coordinate(sample.latitude, sample.longitude)
+                async with asyncio.timeout(self._config.command_timeout):
+                    observation = await self._location_observer()
+                self._validate_observation(observation, sample, applied_at)
+            except TimeoutError:
+                return self._reject(sample, began, "location_readback_timeout")
             except (BridgeError, GpsProviderError) as exc:
                 return self._reject(sample, began, str(exc) or "injection_failed")
+            self._outcome_unknown = False
             self._last_publish = time.monotonic()
 
         return GpsDispatch(
             accepted=True,
             provider=self.name,
             provenance=self.provenance,
-            latitude=sample.latitude,
-            longitude=sample.longitude,
-            dispatched_at=sample.timestamp,
+            latitude=observation.latitude,
+            longitude=observation.longitude,
+            dispatched_at=attempted_at,
             latency_ms=(time.perf_counter() - began) * 1000.0,
+            device_serial=observation.serial,
+            location_provider=observation.provider,
+            sampled_at=observation.sampled_at,
+            observed_at=observation.observed_at,
         )
 
-    async def _apply_coordinate(self, lat: float, lon: float) -> None:
+    def _validate_observation(
+        self, observation: AndroidLocationObservation, sample: TravelSample, applied_at: datetime
+    ) -> None:
+        if not isinstance(observation, AndroidLocationObservation):
+            raise GpsProviderError("location_readback_invalid")
+        if (
+            observation.serial != self._config.serial
+            or observation.is_mock is not True
+            or not isinstance(observation.provider, str)
+            or not observation.provider.strip()
+            or not math.isfinite(observation.latitude)
+            or not math.isfinite(observation.longitude)
+            or not -90 <= observation.latitude <= 90
+            or not -180 <= observation.longitude <= 180
+        ):
+            raise GpsProviderError("location_readback_invalid")
+        if (
+            observation.sampled_at.tzinfo is None
+            or observation.observed_at.tzinfo is None
+            or not applied_at <= observation.sampled_at <= observation.observed_at <= datetime.now(UTC)
+        ):
+            raise GpsProviderError("location_readback_stale")
+        if haversine_km(observation.latitude, observation.longitude, sample.latitude, sample.longitude) > 0.005:
+            raise GpsProviderError("location_readback_mismatch")
+
+    async def _apply_coordinate(self, lat: float, lon: float) -> datetime:
         # 1. If the mock is running, stop it — the form is ignored while active.
         if self._applied:
             await self._click_apply_stop(expect=_STOP_LABELS)
@@ -316,10 +394,11 @@ class AndroidFakeGpsProvider(FakeGpsProvider):
             _FAKETRAVELER_ACTIVITY,
         )
         # 3. Press Apply to start the mock provider at the new point.
-        await self._click_apply_stop(expect=_APPLY_LABELS)
+        applied_at = await self._click_apply_stop(expect=_APPLY_LABELS)
         self._applied = True
+        return applied_at
 
-    async def _click_apply_stop(self, *, expect: frozenset[str]) -> None:
+    async def _click_apply_stop(self, *, expect: frozenset[str]) -> datetime:
         """Tap the Apply/Stop button, refusing to click the wrong state."""
         node = None
         if self._config.verify_button_state:
@@ -330,14 +409,20 @@ class AndroidFakeGpsProvider(FakeGpsProvider):
         if node is None or node.bounds is None:
             raise GpsProviderError("apply_button_not_locatable")
         left, top, right, bottom = node.bounds
+        tapped_at = datetime.now(UTC)
         await self._adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+        after = await self._bridge.layout()
+        expected_after = _STOP_LABELS if expect == _APPLY_LABELS else _APPLY_LABELS
+        if after.require_unique(resource_id=_APPLY_STOP_BUTTON).text not in expected_after:
+            raise GpsProviderError("apply_button_postcondition_failed")
+        return tapped_at
 
     def _reject(self, sample: TravelSample, began: float, reason: str) -> GpsDispatch:
         logger.warning("gps_dispatch_rejected provider=%s reason=%s", self.name, reason)
         return GpsDispatch(
             accepted=False,
             provider=self.name,
-            provenance=self.provenance,
+            provenance=PROVENANCE_SIMULATED,
             latitude=sample.latitude,
             longitude=sample.longitude,
             dispatched_at=sample.timestamp,

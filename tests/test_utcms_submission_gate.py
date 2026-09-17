@@ -1,7 +1,9 @@
 """Unit and integration tests for UTCMSSubmissionGate."""
 
-from datetime import datetime
-from unittest.mock import AsyncMock, patch
+import json
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -169,3 +171,152 @@ async def test_explicit_otp_needed_false_opens_gate(gate):
         )
         assert state == GateStateValue.OTP_FREE
         mock_record.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "ttl,meta_kind", [(-1, "fresh"), (0, "fresh"), (300, "missing"), (300, "expired"), (300, "mismatch")]
+)
+async def test_unverified_cached_exemption_cannot_open_gate(gate, ttl, meta_kind):
+    now = datetime.now(UTC)
+    meta = {
+        "state": "otp_required" if meta_kind == "mismatch" else "otp_free",
+        "observed_at": (now - timedelta(minutes=1)).isoformat(),
+        "valid_until": (now + timedelta(seconds=-1 if meta_kind == "expired" else 300)).isoformat(),
+    }
+    cache = {gate.KEY_STATE: "otp_free", gate.KEY_META: None if meta_kind == "missing" else json.dumps(meta)}
+    redis = AsyncMock()
+    redis.get.side_effect = lambda key: cache.get(key)
+    redis.ttl.return_value = ttl
+    with (
+        patch("app.services.utcms_submission_gate.redis_manager.get", return_value=redis),
+        patch("app.services.utcms_submission_gate.async_session_factory", side_effect=RuntimeError("db unavailable")),
+    ):
+        assert await gate.is_submission_allowed() is False
+
+
+async def test_fresh_expiring_observation_opens_gate(gate):
+    now = datetime.now(UTC)
+    cache = {
+        gate.KEY_STATE: "otp_free",
+        gate.KEY_META: json.dumps(
+            {
+                "state": "otp_free",
+                "observed_at": now.isoformat(),
+                "valid_until": (now + timedelta(minutes=5)).isoformat(),
+            }
+        ),
+    }
+    redis = AsyncMock()
+    redis.get.side_effect = lambda key: cache.get(key)
+    redis.ttl.return_value = 300
+    with patch("app.services.utcms_submission_gate.redis_manager.get", return_value=redis):
+        assert await gate.is_submission_allowed() is True
+
+
+async def test_production_manual_override_cannot_grant_exemption(gate, monkeypatch):
+    monkeypatch.setattr(utcms_config, "ENVIRONMENT", "production")
+    redis = AsyncMock()
+    redis.get.side_effect = lambda key: "otp_free" if key == gate.KEY_MANUAL_OVERRIDE else None
+    with (
+        patch("app.services.utcms_submission_gate.redis_manager.get", return_value=redis),
+        patch("app.services.utcms_submission_gate.async_session_factory", side_effect=RuntimeError("db unavailable")),
+    ):
+        assert await gate.is_submission_allowed() is False
+
+
+def observation_session(observation):
+    session = AsyncMock()
+    result = MagicMock()
+    result.first.return_value = observation
+    session.exec.return_value = result
+    factory = MagicMock()
+    factory.return_value.__aenter__ = AsyncMock(return_value=session)
+    factory.return_value.__aexit__ = AsyncMock(return_value=None)
+    return factory
+
+
+async def test_database_observation_does_not_extend_memory_expiry(gate):
+    now = datetime.now(UTC)
+    valid_until = now + timedelta(seconds=1)
+    observation = SimpleNamespace(
+        state="otp_free",
+        observed_at=(now - timedelta(minutes=1)).replace(tzinfo=None),
+        valid_until=valid_until.replace(tzinfo=None),
+        source="probe_confirmed",
+        worker_id="test-worker",
+    )
+    with (
+        patch("app.services.utcms_submission_gate.redis_manager.get", return_value=None),
+        patch("app.services.utcms_submission_gate.async_session_factory", observation_session(observation)),
+    ):
+        assert await gate.is_submission_allowed() is True
+    assert gate._memory_state_expires_at <= valid_until.timestamp()
+    with (
+        patch("app.services.utcms_submission_gate.redis_manager.get", return_value=None),
+        patch("app.services.utcms_submission_gate.async_session_factory", side_effect=RuntimeError("db unavailable")),
+        patch("app.services.utcms_submission_gate.time.time", return_value=valid_until.timestamp() + 1),
+    ):
+        assert await gate.is_submission_allowed() is False
+
+
+@pytest.mark.parametrize("observed_offset,valid_offset", [(300, 600), (300, 100), (-300, -1)])
+async def test_database_requires_current_consistent_observation(gate, observed_offset, valid_offset):
+    now = datetime.now(UTC).replace(tzinfo=None)
+    observation = SimpleNamespace(
+        state="otp_free",
+        observed_at=now + timedelta(seconds=observed_offset),
+        valid_until=now + timedelta(seconds=valid_offset),
+        source="probe_confirmed",
+        worker_id="test-worker",
+    )
+    with (
+        patch("app.services.utcms_submission_gate.redis_manager.get", return_value=None),
+        patch("app.services.utcms_submission_gate.async_session_factory", observation_session(observation)),
+    ):
+        assert await gate.is_submission_allowed() is False
+
+
+@pytest.mark.parametrize("meta_kind", ["missing", "expired", "future", "mismatch", "inconsistent"])
+async def test_memory_flag_cannot_open_gate_without_current_matching_evidence(gate, meta_kind):
+    now = datetime.now(UTC)
+    gate._memory_state = "otp_free"
+    gate._memory_state_expires_at = now.timestamp() + 300
+    gate._memory_meta = (
+        {}
+        if meta_kind == "missing"
+        else {
+            "state": "otp_required" if meta_kind == "mismatch" else "otp_free",
+            "observed_at": (
+                now + timedelta(seconds=600 if meta_kind in {"future", "inconsistent"} else -60)
+            ).isoformat(),
+            "valid_until": (
+                now + timedelta(seconds=-1 if meta_kind == "expired" else 900 if meta_kind == "future" else 300)
+            ).isoformat(),
+        }
+    )
+    with (
+        patch("app.services.utcms_submission_gate.redis_manager.get", return_value=None),
+        patch("app.services.utcms_submission_gate.async_session_factory", side_effect=RuntimeError("db unavailable")),
+    ):
+        assert await gate.is_submission_allowed() is False
+
+
+async def test_valid_memory_evidence_remains_available_during_redis_outage(gate):
+    now = datetime.now(UTC)
+    observation = SimpleNamespace(
+        state="otp_free",
+        observed_at=(now - timedelta(seconds=1)).replace(tzinfo=None),
+        valid_until=(now + timedelta(seconds=30)).replace(tzinfo=None),
+        source="probe_confirmed",
+        worker_id="test-worker",
+    )
+    with (
+        patch("app.services.utcms_submission_gate.redis_manager.get", return_value=None),
+        patch("app.services.utcms_submission_gate.async_session_factory", observation_session(observation)),
+    ):
+        assert await gate.is_submission_allowed() is True
+    with (
+        patch("app.services.utcms_submission_gate.redis_manager.get", return_value=None),
+        patch("app.services.utcms_submission_gate.async_session_factory", side_effect=RuntimeError("db unavailable")),
+    ):
+        assert await gate.is_submission_allowed() is True

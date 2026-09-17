@@ -206,6 +206,23 @@ class TestSpeedSolution:
 
 @pytest.mark.unit
 class TestKinematicConsistency:
+    def test_two_node_short_route_accelerates_and_brakes(self) -> None:
+        profile = SpeedProfile(rules=[SpeedRule(0, 0.1, 120)], min_kmh=1, max_kmh=120, accel_mps2=0.5, decel_mps2=0.5)
+        solution = profile.solve([0, 0.1])
+        # A symmetric rest-to-rest 100 m trip at 0.5 m/s² takes sqrt(800) s.
+        assert solution.total_seconds == pytest.approx(28.2842712475)
+        assert solution.distance_at_time(14.1421356237) == pytest.approx(0.05)
+        assert solution.speed_kmh_at_time(14.1421356237) == pytest.approx(25.4558441227)
+        assert solution.time_at_distance(0.05) == pytest.approx(14.1421356237)
+
+    def test_two_node_route_cruises_between_acceleration_and_braking(self) -> None:
+        profile = SpeedProfile(rules=[SpeedRule(0, 1, 36)], min_kmh=1, max_kmh=36, accel_mps2=0.5, decel_mps2=0.5)
+        solution = profile.solve([0, 1])
+        # 20 s/100 m accelerating, 80 s/800 m cruising, 20 s/100 m braking.
+        assert solution.total_seconds == pytest.approx(120)
+        assert solution.distance_at_time(60) == pytest.approx(0.5)
+        assert solution.speed_kmh_at_time(60) == pytest.approx(36)
+
     def test_very_short_route(self) -> None:
         profile = SpeedProfile(
             rules=[SpeedRule(start_km=0.0, end_km=2.0, target_kmh=120.0)],

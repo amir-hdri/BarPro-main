@@ -168,6 +168,21 @@ class TestRouteGeometryValidate:
 
 @pytest.mark.unit
 class TestRouteGeometryToFromDict:
+    def test_snapshot_preserves_full_coordinate_precision(self) -> None:
+        points = [GeoPoint(35.1234567, 51.1234567), GeoPoint(35.1334567, 51.1234567)]
+        restored = RouteGeometry.from_dict(RouteGeometry.from_points(points).to_dict())
+        assert restored.points == points
+
+    def test_submetre_route_snapshot_does_not_collapse(self) -> None:
+        points = [GeoPoint(35.000001, 51.000001), GeoPoint(35.000004, 51.000004)]
+        restored = RouteGeometry.from_dict(RouteGeometry.from_points(points).to_dict())
+        assert restored.points == points
+
+    def test_legacy_polyline_snapshot_still_loads(self) -> None:
+        restored = RouteGeometry.from_dict({"polyline": "_p~iF~ps|U_ulLnnqC_mqNvxq`@", "source": "legacy"})
+        assert restored.start == GeoPoint(38.5, -120.2)
+        assert restored.end == GeoPoint(43.252, -126.453)
+
     def test_round_trip(self) -> None:
         route = RouteGeometry.from_points([TEHRAN, QOM, ISFAHAN])
         route.segments = [

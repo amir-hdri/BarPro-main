@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import math
+import re
 import secrets
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -333,15 +334,23 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """
 
     def _float(v: Any) -> float | None:
-        if v is None:
+        if not isinstance(v, (int, float, str)) or isinstance(v, bool):
             return None
+        if isinstance(v, str):
+            v = v.strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
+            if not re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", v):
+                return None
         try:
-            return float(v)
-        except (TypeError, ValueError):
+            value = float(v)
+            return value if math.isfinite(value) else None
+        except (TypeError, ValueError, OverflowError):
             return None
 
     def _safe_dict(raw: Any) -> dict[str, Any]:
         return raw if isinstance(raw, dict) else {}
+
+    def _first(*values: Any) -> Any:
+        return next((value for value in values if value is not None), None)
 
     def _resolve_nested_coords(
         flat_lat: float | None,
@@ -349,75 +358,61 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         meta_section: dict[str, Any],
         top_section: dict[str, Any],
     ) -> tuple[float | None, float | None]:
-        """Read lat/lng from nested or flat sources — first match wins.
+        """Select one complete valid pair; never mix coordinates across sources.
 
         Priority (matches the new waybill form which writes real pins into
         metadata_json.*.coordinates):
           1. meta_section.coordinates.{lat,lng}
           2. top_section.coordinates.{lat,lng}
-          3. meta_section.{lat,lng}       (legacy)
-          4. top_section.{lat,lng}        (legacy)
+          3. flat coordinates           (legacy)
+          4. meta_section.{lat,lng}      (legacy)
+          5. top_section.{lat,lng}       (legacy)
         """
-        meta_coords = _safe_dict(meta_section.get("coordinates"))
-        top_coords = _safe_dict(top_section.get("coordinates"))
-        lat = flat_lat
-        if lat is None:
-            lat = _float(
-                meta_coords.get("lat")
-                or meta_coords.get("latitude")
-                or top_coords.get("lat")
-                or top_coords.get("latitude")
-                or meta_section.get("lat")
-                or meta_section.get("latitude")
-                or top_section.get("lat")
-                or top_section.get("latitude")
-            )
-        lng = flat_lng
-        if lng is None:
-            lng = _float(
-                meta_coords.get("lng")
-                or meta_coords.get("lon")
-                or meta_coords.get("longitude")
-                or top_coords.get("lng")
-                or top_coords.get("lon")
-                or top_coords.get("longitude")
-                or meta_section.get("lng")
-                or meta_section.get("lon")
-                or meta_section.get("longitude")
-                or top_section.get("lng")
-                or top_section.get("lon")
-                or top_section.get("longitude")
-            )
-        return lat, lng
+        for raw in (
+            meta_section.get("coordinates"),
+            top_section.get("coordinates"),
+            {"lat": flat_lat, "lng": flat_lng},
+            meta_section,
+            top_section,
+        ):
+            coords = _safe_dict(raw)
+            lat = _float(_first(coords.get("lat"), coords.get("latitude")))
+            lng = _float(_first(coords.get("lng"), coords.get("lon"), coords.get("longitude")))
+            if lat is not None and lng is not None and -90 <= lat <= 90 and -180 <= lng <= 180 and (lat, lng) != (0, 0):
+                return lat, lng
+        return None, None
 
     # ── Parse metadata_json once ──
     meta = payload.get("metadata_json") or {}
     if isinstance(meta, str):
         try:
             meta = json.loads(meta)
-        except Exception:
+        except (TypeError, json.JSONDecodeError):
+            logger.debug("gps_payload_metadata_invalid_json")
             meta = {}
+    meta = _safe_dict(meta)
+    # A canonical object (even an empty one) takes precedence over its alias.
+    origin_meta = next((meta[key] for key in ("origin", "source") if isinstance(meta.get(key), dict)), {})
+    dest_meta = next((meta[key] for key in ("destination", "dest") if isinstance(meta.get(key), dict)), {})
 
     # ── Origin coordinates ──
     origin_lat, origin_lng = _resolve_nested_coords(
-        flat_lat=_float(payload.get("originLat") or payload.get("sourceLatM")),
-        flat_lng=_float(payload.get("originLng") or payload.get("sourceLngM") or payload.get("sourceLonM")),
-        meta_section=_safe_dict(meta.get("origin") or meta.get("source")),
+        flat_lat=_float(_first(payload.get("originLat"), payload.get("sourceLatM"))),
+        flat_lng=_float(_first(payload.get("originLng"), payload.get("sourceLngM"), payload.get("sourceLonM"))),
+        meta_section=origin_meta,
         top_section=_safe_dict(payload.get("origin")),
     )
 
     # ── Destination coordinates ──
     dest_lat, dest_lng = _resolve_nested_coords(
-        flat_lat=_float(payload.get("destLat") or payload.get("destLatM")),
-        flat_lng=_float(payload.get("destLng") or payload.get("destLngM") or payload.get("destLonM")),
-        meta_section=_safe_dict(meta.get("destination") or meta.get("dest")),
+        flat_lat=_float(_first(payload.get("destLat"), payload.get("destLatM"))),
+        flat_lng=_float(_first(payload.get("destLng"), payload.get("destLngM"), payload.get("destLonM"))),
+        meta_section=dest_meta,
         top_section=_safe_dict(payload.get("destination")),
     )
 
     # ── Addresses — EXACT user input ──
     # Reuse meta sections for city/address fallback lookup.
-    origin_meta = _safe_dict(meta.get("origin") or meta.get("source"))
-    dest_meta = _safe_dict(meta.get("destination") or meta.get("dest"))
     origin_city = str(
         payload.get("origin")
         or payload.get("citySourceMap")

@@ -139,6 +139,8 @@ class TravelEngine:
         # the speed curve to the geometry (PHASE 7).
         self._solution: SpeedSolution = profile.solve(route.index.cumulative_km)
         self._clock = clock or TravelClock()
+        if status in (TravelStatus.IDLE, TravelStatus.ROUTE_READY):
+            self._clock.pause(now=self._clock.started_at)
         self._status = status
         self._altitude_m = float(altitude_m)
         self._error_reason = error_reason
@@ -219,9 +221,9 @@ class TravelEngine:
         """Begin travel. Resets the clock's origin to *now*."""
         self._status = assert_transition(self._status, TravelStatus.TRAVEL_STARTED)
         self._clock = TravelClock(
-            started_at=now if now is not None else self._clock._now_fn(),
+            started_at=now if now is not None else self._clock.now_fn(),
             time_scale=self._clock.time_scale,
-            now_fn=self._clock._now_fn,
+            now_fn=self._clock.now_fn,
         )
         return self.sample(now=now)
 
@@ -278,7 +280,7 @@ class TravelEngine:
         ``TRAVEL_STARTED``/``RESUMED`` become ``MOVING`` once motion is under
         way, and ``MOVING`` becomes ``ARRIVED`` at the end of the route.
         """
-        stamp = now if now is not None else self._clock._now_fn()
+        stamp = now if now is not None else self._clock.now_fn()
         # Paused/terminal travels must not consume clock time.
         if self._status in (TravelStatus.PAUSED, TravelStatus.CANCELLED, TravelStatus.ERROR):
             elapsed = self._clock.peek_elapsed_s(now=stamp)
@@ -287,6 +289,9 @@ class TravelEngine:
 
         total_s = self._solution.total_seconds
         total_km = self._route.total_distance_km
+        # An arrival sample is terminal, including its elapsed time. The wall
+        # clock continues to let ETA retain the actual arrival instant.
+        elapsed = min(elapsed, total_s)
 
         distance_km = self._solution.distance_at_time(elapsed)
         position = self._route.index.position_at(distance_km)
@@ -296,6 +301,9 @@ class TravelEngine:
         progress = 0.0 if total_km <= 0 else min(1.0, distance_km / total_km)
 
         self._advance_status(remaining_km=remaining_km, elapsed=elapsed)
+        point = self._route.start if distance_km <= 0 else position.point
+        if self._status is TravelStatus.ARRIVED:
+            point = self._route.end
         # A paused or stopped vehicle is not moving, whatever the curve says.
         if self._status in (
             TravelStatus.PAUSED,
@@ -309,8 +317,8 @@ class TravelEngine:
         return TravelSample(
             timestamp=stamp,
             status=self._status,
-            latitude=position.point.lat,
-            longitude=position.point.lon,
+            latitude=point.lat,
+            longitude=point.lon,
             bearing_deg=position.bearing_deg,
             altitude_m=self._altitude_m,
             speed_kmh=speed_kmh,
@@ -331,9 +339,7 @@ class TravelEngine:
             else:
                 self._status = assert_transition(self._status, TravelStatus.MOVING)
             return
-        if self._status is TravelStatus.MOVING and (
-            remaining_km <= ARRIVAL_TOLERANCE_KM or elapsed >= self._solution.total_seconds
-        ):
+        if self._status is TravelStatus.MOVING and (elapsed >= self._solution.total_seconds):
             self._status = assert_transition(self._status, TravelStatus.ARRIVED)
 
     # ── PHASE 12 / 33 / 34 verification ──

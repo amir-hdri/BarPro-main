@@ -233,3 +233,36 @@ def test_travel_sample_to_dict(test_engine: TravelEngine) -> None:
     assert d["altitude_source"] == "nominal"
     assert round(d["lat"], 7) == d["lat"]
     assert round(d["lon"], 7) == d["lon"]
+
+
+def test_ready_route_stays_at_origin_until_start(mock_clock) -> None:
+    engine = TravelEngine.build(RouteGeometry.from_points([(35, 51), (35.01, 51)]), now_fn=mock_clock.now)
+    mock_clock.advance(30)
+    sample = engine.sample()
+    assert sample.status == TravelStatus.ROUTE_READY
+    assert sample.distance_traveled_km == 0
+    assert sample.elapsed_s == 0
+    assert sample.speed_kmh == 0
+    assert (sample.latitude, sample.longitude) == (35, 51)
+    cancelled = engine.cancel()
+    assert cancelled.distance_traveled_km == 0
+
+
+def test_arrival_waits_for_endpoint_and_terminal_sample_stays_fixed(mock_clock) -> None:
+    engine = TravelEngine.build(RouteGeometry.from_points([(35, 51), (35.01, 51)]), now_fn=mock_clock.now)
+    engine.start()
+    mock_clock.advance(engine.solution.time_at_distance(engine.route_distance_km - 0.005))
+    approaching = engine.sample()
+    assert approaching.status == TravelStatus.MOVING
+    assert approaching.speed_kmh > 0
+    mock_clock.advance(approaching.remaining_s + 1)
+    arrived = engine.sample()
+    assert arrived.status == TravelStatus.ARRIVED
+    assert (arrived.latitude, arrived.longitude) == (35.01, 51)
+    assert arrived.remaining_distance_km == 0
+    assert arrived.elapsed_s == arrived.total_duration_s
+    mock_clock.advance(60)
+    later = engine.sample()
+    assert later.distance_traveled_km == arrived.distance_traveled_km
+    assert later.elapsed_s == arrived.elapsed_s
+    assert later.eta == arrived.eta

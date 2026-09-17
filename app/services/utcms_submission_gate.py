@@ -94,8 +94,11 @@ class UTCMSSubmissionGate:
                 if override:
                     try:
                         state_val = GateStateValue(override)
-                        set_gate_state_metric(state_val.value)
-                        return state_val
+                        if state_val == GateStateValue.OTP_FREE and utcms_config.ENVIRONMENT == "production":
+                            logger.warning("utcms_gate_ignored_production_open_override")
+                        else:
+                            set_gate_state_metric(state_val.value)
+                            return state_val
                     except ValueError:
                         pass
             except Exception:
@@ -109,8 +112,12 @@ class UTCMSSubmissionGate:
                 if cached:
                     try:
                         state_val = GateStateValue(cached)
-                        set_gate_state_metric(state_val.value)
-                        return state_val
+                        if state_val != GateStateValue.OTP_FREE or self._cached_exemption_is_current(
+                            await redis.ttl(self.KEY_STATE), await redis.get(self.KEY_META)
+                        ):
+                            set_gate_state_metric(state_val.value)
+                            return state_val
+                        logger.warning("utcms_gate_ignored_unverified_cached_exemption")
                     except ValueError:
                         pass
             except Exception:
@@ -120,8 +127,9 @@ class UTCMSSubmissionGate:
             if time.time() < self._memory_state_expires_at:
                 try:
                     state_val = GateStateValue(self._memory_state)
-                    set_gate_state_metric(state_val.value)
-                    return state_val
+                    if self._observation_is_current(state_val, self._memory_meta):
+                        set_gate_state_metric(state_val.value)
+                        return state_val
                 except ValueError:
                     pass
 
@@ -135,13 +143,29 @@ class UTCMSSubmissionGate:
                 now_utc = datetime.now(UTC).replace(tzinfo=None)
                 if latest_obs and latest_obs.valid_until and latest_obs.valid_until > now_utc:
                     state_val = GateStateValue(latest_obs.state)
+                    meta = {
+                        "state": state_val.value,
+                        "observed_at": latest_obs.observed_at.isoformat(),
+                        "valid_until": latest_obs.valid_until.isoformat(),
+                        "source": latest_obs.source,
+                        "worker_id": latest_obs.worker_id,
+                    }
+                    if not self._observation_is_current(state_val, meta):
+                        set_gate_state_metric(GateStateValue.UNKNOWN.value)
+                        return GateStateValue.UNKNOWN
                     # Prime Redis cache
                     ttl = max(10, int((latest_obs.valid_until - now_utc).total_seconds()))
                     if redis is not None:
                         await redis.set(self.KEY_STATE, state_val.value, ex=ttl)
+                        await redis.set(
+                            self.KEY_META,
+                            json.dumps(meta),
+                            ex=ttl,
+                        )
                     else:
                         self._memory_state = state_val.value
-                        self._memory_state_expires_at = time.time() + ttl
+                        self._memory_state_expires_at = latest_obs.valid_until.replace(tzinfo=UTC).timestamp()
+                        self._memory_meta = meta
                     set_gate_state_metric(state_val.value)
                     return state_val
         except Exception:
@@ -162,6 +186,31 @@ class UTCMSSubmissionGate:
         )
         set_gate_state_metric(GateStateValue.UNKNOWN.value)
         return GateStateValue.UNKNOWN
+
+    @staticmethod
+    def _cached_exemption_is_current(ttl: int, raw_meta: str | bytes | None) -> bool:
+        """An unbounded Redis flag is not a current UTCMS observation."""
+        if ttl <= 0 or not raw_meta:
+            return False
+        return UTCMSSubmissionGate._observation_is_current(GateStateValue.OTP_FREE, raw_meta)
+
+    @staticmethod
+    def _observation_is_current(state: GateStateValue, raw_meta: dict[str, Any] | str | bytes | None) -> bool:
+        """Apply the same evidence window to Redis, memory, and DB decisions."""
+        try:
+            meta = raw_meta if isinstance(raw_meta, dict) else json.loads(raw_meta)
+            if not isinstance(meta, dict) or meta.get("state") != state.value:
+                return False
+            observed_at = datetime.fromisoformat(meta["observed_at"])
+            valid_until = datetime.fromisoformat(meta["valid_until"])
+            if observed_at.tzinfo is None:
+                observed_at = observed_at.replace(tzinfo=UTC)
+            if valid_until.tzinfo is None:
+                valid_until = valid_until.replace(tzinfo=UTC)
+            return observed_at <= datetime.now(UTC) < valid_until
+        except (KeyError, TypeError, ValueError):
+            logger.debug("utcms_gate_cached_observation_metadata_invalid")
+            return False
 
     async def is_submission_allowed(self) -> bool:
         """Check if submitting a waybill is currently permitted.
@@ -203,18 +252,18 @@ class UTCMSSubmissionGate:
             await session.commit()
 
         # Update Redis cache
+        meta = {
+            "state": state.value,
+            "observed_at": now_utc.isoformat(),
+            "valid_until": valid_until.isoformat(),
+            "next_probe_at": next_probe_at.isoformat(),
+            "source": source,
+            "worker_id": worker_id,
+        }
         redis = await redis_manager.get()
         if redis is not None:
             try:
                 await redis.set(self.KEY_STATE, state.value, ex=validity)
-                meta = {
-                    "state": state.value,
-                    "observed_at": now_utc.isoformat(),
-                    "valid_until": valid_until.isoformat(),
-                    "next_probe_at": next_probe_at.isoformat(),
-                    "source": source,
-                    "worker_id": worker_id,
-                }
                 await redis.set(self.KEY_META, json.dumps(meta), ex=validity)
 
                 if state == GateStateValue.OTP_REQUIRED:
@@ -222,15 +271,12 @@ class UTCMSSubmissionGate:
             except Exception:
                 logger.warning("utcms_gate_redis_observation_write_failed", exc_info=True)
                 self._memory_state = state.value
-                self._memory_state_expires_at = time.time() + validity
+                self._memory_state_expires_at = valid_until.replace(tzinfo=UTC).timestamp()
+                self._memory_meta = meta
         else:
             self._memory_state = state.value
-            self._memory_state_expires_at = time.time() + validity
-            self._memory_meta = {
-                "state": state.value,
-                "observed_at": now_utc.isoformat(),
-                "valid_until": valid_until.isoformat(),
-            }
+            self._memory_state_expires_at = valid_until.replace(tzinfo=UTC).timestamp()
+            self._memory_meta = meta
 
         set_gate_state_metric(state.value)
 

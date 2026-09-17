@@ -1,0 +1,20 @@
+[
+  {"name":"metadata beats conflicting flat and top-level pins","payload":{"originLat":35,"originLng":51,"destLat":32,"destLng":52,"origin":{"coordinates":{"lat":34,"lng":50}},"metadata_json":{"origin":{"coordinates":{"lat":36.29,"lng":59.6}},"destination":{"coordinates":{"lat":35.68,"lng":51.38}}}},"origin":{"lat":36.29,"lng":59.6},"destination":{"lat":35.68,"lng":51.38}},
+  {"name":"top-level beats legacy flat pins","payload":{"originLat":35,"originLng":51,"origin":{"coordinates":{"latitude":36.29,"longitude":59.6}},"destination":{"coordinates":{"lat":35.68,"lon":51.38}}},"origin":{"lat":36.29,"lng":59.6},"destination":{"lat":35.68,"lng":51.38}},
+  {"name":"partial pairs never combine different sources","payload":{"originLat":35,"metadata_json":{"origin":{"coordinates":{"lng":59.6}}}},"origin":null,"destination":null},
+  {"name":"invalid metadata falls back to complete flat pair","payload":{"originLat":35.1,"originLng":51.2,"metadata_json":{"origin":{"coordinates":{"lat":100,"lng":59.6}}}},"origin":{"lat":35.1,"lng":51.2},"destination":null},
+  {"name":"invalid flat pins are rejected","payload":{"originLat":100,"originLng":51,"destLat":35,"destLng":181},"origin":null,"destination":null},
+  {"name":"nulls and blanks are not zero coordinates","payload":{"originLat":null,"originLng":51,"metadata_json":{"destination":{"coordinates":{"lat":" ","lng":51}}}},"origin":null,"destination":null},
+  {"name":"zero latitude is preserved","payload":{"originLat":0,"originLng":51,"destLat":35,"destLng":0},"origin":{"lat":0,"lng":51},"destination":{"lat":35,"lng":0}},
+  {"name":"null island is rejected","payload":{"originLat":0,"originLng":0},"origin":null,"destination":null},
+  {"name":"legacy section pins remain supported","payload":{"metadata_json":{"source":{"lat":35.1,"lon":51.2},"dest":{"latitude":36.1,"longitude":52.2}}},"origin":{"lat":35.1,"lng":51.2},"destination":{"lat":36.1,"lng":52.2}},
+  {"name":"JSON metadata uses the same priority","payload":{"originLat":35,"originLng":51,"metadata_json":"{\"origin\":{\"coordinates\":{\"lat\":36.29,\"lng\":59.6}}}"},"origin":{"lat":36.29,"lng":59.6},"destination":null},
+  {"name":"non-object metadata is ignored","payload":{"originLat":35.1,"originLng":51.2,"metadata_json":"[]"},"origin":{"lat":35.1,"lng":51.2},"destination":null},
+  {"name":"boolean coordinates are not numbers","payload":{"originLat":true,"originLng":51},"origin":null,"destination":null},
+  {"name":"empty canonical section takes precedence over alias","payload":{"metadata_json":{"origin":{},"source":{"coordinates":{"lat":35.1,"lng":51.2}},"destination":{},"dest":{"coordinates":{"lat":36.1,"lng":52.2}}}},"origin":null,"destination":null},
+  {"name":"invalid canonical section falls back to object alias","payload":{"metadata_json":{"origin":"invalid","source":{"coordinates":{"lat":35.1,"lng":51.2}},"destination":[],"dest":{"coordinates":{"lat":36.1,"lng":52.2}}}},"origin":{"lat":35.1,"lng":51.2},"destination":{"lat":36.1,"lng":52.2}},
+  {"name":"Persian and Arabic decimal digits normalize consistently","payload":{"originLat":"۳۵.۱","originLng":"۵۱.۲","destLat":"٣٦.١","destLng":"٥٢.٢"},"origin":{"lat":35.1,"lng":51.2},"destination":{"lat":36.1,"lng":52.2}},
+  {"name":"hexadecimal and underscore numeric strings are rejected","payload":{"originLat":"0x23","originLng":"0x33","destLat":"3_5","destLng":"5_1"},"origin":null,"destination":null},
+  {"name":"decimal exponents and signs are accepted","payload":{"originLat":" +3.51e1 ","originLng":".512E2","destLat":"-3.61e1","destLng":"52."},"origin":{"lat":35.1,"lng":51.2},"destination":{"lat":-36.1,"lng":52}},
+  {"name":"nonfinite coordinates are rejected","payload":{"originLat":"Infinity","originLng":51,"destLat":"NaN","destLng":52},"origin":null,"destination":null}
+]

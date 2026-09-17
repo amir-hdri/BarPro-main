@@ -495,11 +495,17 @@ export function parseWaybillPayload(payloadJson: unknown): ParsedWaybillPayload 
     result.notes = payload.notes;
   }
 
-  // GPS anchors — real pins only. Flat originLat/originLng keys come first
-  // (legacy payloads), then metadata_json origin/destination `coordinates`
-  // mappings written by the new waybill form. Anything else stays null so
-  // the UI can warn that the job has no GPS anchor instead of guessing.
+  // GPS anchors — prefer the new form's metadata pins, then legacy sources.
+  // Keep the decimal grammar and pair selection aligned with the backend.
   const numOrNull = (value: unknown): number | null => {
+    if (typeof value !== 'number' && typeof value !== 'string') return null;
+    if (typeof value === 'string') {
+      const normalized = value.trim()
+        .replace(/[۰-۹]/g, digit => String(digit.charCodeAt(0) - 0x06f0))
+        .replace(/[٠-٩]/g, digit => String(digit.charCodeAt(0) - 0x0660));
+      if (!/^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/.test(normalized)) return null;
+      value = normalized;
+    }
     const num = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(num) ? num : null;
   };
@@ -539,7 +545,8 @@ export function parseWaybillPayload(payloadJson: unknown): ParsedWaybillPayload 
   const metaSection = (key: string): Record<string, unknown> | null => {
     if (!meta) return null;
     const section = meta[key];
-    return section && typeof section === 'object' ? (section as Record<string, unknown>) : null;
+    return section && typeof section === 'object' && !Array.isArray(section)
+      ? (section as Record<string, unknown>) : null;
   };
   const metaOrigin = metaSection('origin') ?? metaSection('source');
   const metaDest = metaSection('destination') ?? metaSection('dest');
@@ -556,12 +563,16 @@ export function parseWaybillPayload(payloadJson: unknown): ParsedWaybillPayload 
   result.originCoords =
     coordsOrNull(metaOrigin?.coordinates) ??
     coordsOrNull(topOrigin?.coordinates) ??
-    (originLat !== null && originLng !== null ? { lat: originLat, lng: originLng } : null) ??
+    coordsOrNull({ lat: originLat, lng: originLng }) ??
+    coordsOrNull(metaOrigin) ??
+    coordsOrNull(topOrigin) ??
     null;
   result.destinationCoords =
     coordsOrNull(metaDest?.coordinates) ??
     coordsOrNull(topDest?.coordinates) ??
-    (destLat !== null && destLng !== null ? { lat: destLat, lng: destLng } : null) ??
+    coordsOrNull({ lat: destLat, lng: destLng }) ??
+    coordsOrNull(metaDest) ??
+    coordsOrNull(topDest) ??
     null;
 
   return result;

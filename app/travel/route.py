@@ -281,6 +281,9 @@ class RouteGeometry:
     def to_dict(self) -> dict[str, Any]:
         return {
             "polyline": self.encode(),
+            # Polyline5 is convenient for display but loses user-pin precision.
+            # Recovery must rebuild the original geometry and speed solution.
+            "points": [[point.lat, point.lon] for point in self.points],
             "source": self.source,
             "provider_duration_s": round(self.provider_duration_s, 3),
             "total_distance_km": round(self.total_distance_km, 6),
@@ -290,6 +293,13 @@ class RouteGeometry:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RouteGeometry:
+        if "points" in data:
+            return cls.from_points(
+                data["points"],
+                segments=[RouteSegment.from_dict(seg) for seg in data.get("segments") or []],
+                source=str(data.get("source") or "unknown"),
+                provider_duration_s=float(data.get("provider_duration_s") or 0.0),
+            )
         return cls.from_encoded(
             data["polyline"],
             segments=[RouteSegment.from_dict(seg) for seg in data.get("segments") or []],

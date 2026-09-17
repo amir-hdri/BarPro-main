@@ -259,6 +259,24 @@ class SpeedProfile:
         if len(nodes) < 2:
             raise ValueError("path has zero length; cannot solve a speed profile")
 
+        if len(nodes) == 2:
+            # Rest at both endpoints needs an interior acceleration/braking
+            # junction. A duration alone cannot represent movement between two
+            # zero speeds. Include a cruise interval when the target is reached.
+            length_m = nodes[-1] * 1000.0
+            apex_km = nodes[-1] * self.decel_mps2 / (self.accel_mps2 + self.decel_mps2)
+            target = min(self.target_kmh_at(apex_km), self.max_kmh) * KMH_TO_MPS
+            peak = min(
+                target,
+                math.sqrt(2 * length_m * self.accel_mps2 * self.decel_mps2 / (self.accel_mps2 + self.decel_mps2)),
+            )
+            accelerate_km = peak * peak / (2 * self.accel_mps2) / 1000.0
+            brake_km = nodes[-1] - peak * peak / (2 * self.decel_mps2) / 1000.0
+            nodes = [0.0, accelerate_km]
+            if brake_km - accelerate_km > 1e-9:
+                nodes.append(brake_km)
+            nodes.append(length_m / 1000.0)
+
         count = len(nodes)
         # 1. per-node target, in m/s
         speeds = [min(self.target_kmh_at(s), self.max_kmh) * KMH_TO_MPS for s in nodes]
@@ -284,11 +302,7 @@ class SpeedProfile:
             ds = (nodes[i] - nodes[i - 1]) * 1000.0
             v_sum = speeds[i - 1] + speeds[i]
             if v_sum <= 1e-9:
-                # Both ends at rest across a real gap: only possible on a route
-                # too short to accelerate out of. Fall back to the crawl speed
-                # so the trip still terminates.
-                crawl = MIN_MOVING_KMH * KMH_TO_MPS
-                times.append(times[-1] + ds / crawl)
+                raise ValueError("nonzero distance cannot be traversed with zero endpoint speeds")
             else:
                 times.append(times[-1] + 2 * ds / v_sum)
 

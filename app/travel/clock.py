@@ -16,6 +16,7 @@ but it can never run backwards and rewind the vehicle.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -56,19 +57,22 @@ class TravelClock:
         paused_at: datetime | None = None,
         paused_total_s: float = 0.0,
         time_scale: float = 1.0,
+        elapsed_floor_s: float = 0.0,
         now_fn: Callable[[], datetime] | None = None,
     ) -> None:
         if time_scale <= 0 or time_scale > MAX_TIME_SCALE:
             raise ValueError(f"time_scale must be in (0, {MAX_TIME_SCALE}]; got {time_scale}")
         if paused_total_s < 0:
             raise ValueError("paused_total_s cannot be negative")
+        if not math.isfinite(elapsed_floor_s) or elapsed_floor_s < 0:
+            raise ValueError("elapsed_floor_s must be finite and non-negative")
 
         self._now_fn: Callable[[], datetime] = now_fn or _utcnow
         self._started_at: datetime = _as_utc(started_at) if started_at else self._now_fn()
         self._paused_at: datetime | None = _as_utc(paused_at) if paused_at else None
         self._paused_total_s: float = float(paused_total_s)
         self._time_scale: float = float(time_scale)
-        self._floor_s: float = 0.0
+        self._floor_s: float = float(elapsed_floor_s)
         self._drift_corrections: int = 0
 
     # ── reading ──
@@ -93,11 +97,11 @@ class TravelClock:
 
     def _raw_elapsed_s(self, now: datetime | None = None) -> float:
         current = _as_utc(now) if now else self._now_fn()
-        wall = (current - self._started_at).total_seconds()
-        paused = self._paused_total_s
-        if self._paused_at is not None:
-            paused += max(0.0, (current - self._paused_at).total_seconds())
-        return max(0.0, (wall - paused) * self._time_scale)
+        # A paused reading depends on the pause instant, never on current wall
+        # time. In particular, a backwards NTP step must not move a parked point.
+        effective = self._paused_at if self._paused_at is not None else current
+        wall = (effective - self._started_at).total_seconds()
+        return max(0.0, (wall - self._paused_total_s) * self._time_scale)
 
     # ── pause / resume (PHASE 14) ──
 
@@ -105,7 +109,9 @@ class TravelClock:
         """Stop the clock. Idempotent — pausing twice does not double-count."""
         if self._paused_at is not None:
             return
-        self._paused_at = _as_utc(now) if now else self._now_fn()
+        current = _as_utc(now) if now else self._now_fn()
+        self.elapsed_s(now=current)
+        self._paused_at = current
 
     def resume(self, *, now: datetime | None = None) -> None:
         """Restart the clock, banking the paused interval. Idempotent."""
@@ -139,6 +145,11 @@ class TravelClock:
         return self._time_scale
 
     @property
+    def now_fn(self) -> Callable[[], datetime]:
+        """The wall-clock source, so a restarted clock can inherit it (tests)."""
+        return self._now_fn
+
+    @property
     def drift_corrections(self) -> int:
         """How many times a backwards wall-clock step was suppressed."""
         return self._drift_corrections
@@ -162,6 +173,7 @@ class TravelClock:
             "paused_at": self._paused_at.isoformat() if self._paused_at else None,
             "paused_total_s": round(self._paused_total_s, 6),
             "time_scale": self._time_scale,
+            "elapsed_floor_s": self._floor_s,
         }
 
     @classmethod
@@ -172,6 +184,7 @@ class TravelClock:
             paused_at=datetime.fromisoformat(paused_raw) if paused_raw else None,
             paused_total_s=float(data.get("paused_total_s") or 0.0),
             time_scale=float(data.get("time_scale") or 1.0),
+            elapsed_floor_s=float(data.get("elapsed_floor_s", 0.0)),
             now_fn=now_fn,
         )
 
