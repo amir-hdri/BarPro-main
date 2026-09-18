@@ -299,8 +299,26 @@ async def _execute_single_job(
                     # operator immediately, DB stays UNKNOWN (NOT success —
                     # the three-witness rule still gates status=success), and
                     # NO reconciliation scheduling: the code is off the
-                    # critical path.
-                    job.result_json = dict(result_payload or {})
+                    # critical path. The persisted payload is normalized
+                    # through the shared contract (like the worker) so
+                    # dispatcher/reconciliation gates always see
+                    # confirmation_status even when the bot returns a raw
+                    # tracking code without contract keys.
+                    from app.schemas.task import build_tracking_received_result
+
+                    payload_details = dict(result_payload or {})
+                    payload_details.pop("tracking_code", None)
+                    ack_result = build_tracking_received_result(tracking_code, **payload_details)
+                    doc_id = None
+                    if isinstance(result_payload, dict) and result_payload.get("document_id"):
+                        doc_id = str(result_payload["document_id"])
+                    elif str(result.get("document_id") or "").strip():
+                        doc_id = str(result["document_id"])
+                    if doc_id:
+                        ack_result["document_id"] = doc_id
+                        if not job.document_id:
+                            job.document_id = doc_id
+                    job.result_json = ack_result
                     job.mutation_status = "dispatched"
                     if not job.mutation_at:
                         job.mutation_at = _utcnow()
@@ -340,6 +358,7 @@ async def _execute_single_job(
                         "status": TaskStatus.UNKNOWN.value,
                         "mutation_status": "dispatched",
                         "operator_acknowledged": True,
+                        "needs_reconciliation": False,
                     }
             if (
                 status_str == TaskStatus.UNKNOWN.value

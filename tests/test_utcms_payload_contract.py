@@ -1,3 +1,5 @@
+import logging
+
 from app.automation.multitenant_payload_adapter import (
     build_enhanced_waybill_payload,
     validate_enhanced_waybill_payload,
@@ -105,3 +107,42 @@ def test_mixed_shape_payload_normalizes_compact_locations_without_value_error() 
     assert normalized["origin"]["city"] == "سقز"
     assert normalized["destination"]["city"] == "بانه"
     assert normalized["sender"]["phone"] == "09121234567"
+
+
+def _compact_payload_without_fare() -> dict:
+    return {
+        "origin": "کردستان، سقز، بزرگراه سقز-دیواندره",
+        "destination": "کردستان، سقز، خیابان بهارستان",
+        "cargo_type": "مصالح",
+        "cargo_weight": 15,
+        "cargo_value": "35000000",
+        "cargo_description": "فله",
+        "plate_number": "86ع335ایران51",
+        "driver_national_code": "3720285359",
+        "metadata_json": {
+            "sender": {"name": "امید صالحی"},
+            "receiver": {"name": "حامد حسین زاده"},
+            "cargo": {"packaging": "فله"},
+        },
+    }
+
+
+def test_missing_fare_applies_documented_default_loudly(caplog) -> None:
+    """No fare anywhere → 5,000,000 default (UTCMS 4025) + warning, never silent."""
+    with caplog.at_level(logging.WARNING, logger="app.automation.multitenant_payload_adapter"):
+        normalized = build_enhanced_waybill_payload(_compact_payload_without_fare())
+
+    assert normalized["financial"]["cost"] == "5000000"
+    assert "default_fare_applied" in caplog.text
+
+
+def test_explicit_fare_never_warns(caplog) -> None:
+    """Job data of 5,000,000 is data, not a default — no warning."""
+    payload = _compact_payload_without_fare()
+    payload["fare"] = "5000000"
+
+    with caplog.at_level(logging.WARNING, logger="app.automation.multitenant_payload_adapter"):
+        normalized = build_enhanced_waybill_payload(payload)
+
+    assert normalized["financial"]["cost"] == "5000000"
+    assert "default_fare_applied" not in caplog.text

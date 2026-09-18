@@ -222,3 +222,25 @@ async def test_executor_ack_matches_worker_contract(async_db):
     assert persisted["operator_acknowledged"] == ack["operator_acknowledged"]
     assert persisted["requires_reconciliation"] == ack["requires_reconciliation"]
     assert persisted["requires_resubmission"] == ack["requires_resubmission"]
+
+
+@pytest.mark.asyncio
+async def test_raw_bot_tracking_code_normalized_to_worker_contract(async_db):
+    """A bot that returns a RAW tracking code (no contract keys) must still
+    persist the full worker ack contract. Dispatcher/reconciliation gates
+    read result_json.confirmation_status — a missing key hides the ack and
+    risks a duplicate submission."""
+    result, job, _ = await _run_with_mocks(
+        async_db,
+        _bot_result("success", {"tracking_code": "UTC-RAW-1", "document_id": "214000002"}),
+    )
+
+    persisted = job.result_json
+    assert persisted["tracking_code"] == "UTC-RAW-1"
+    assert persisted["confirmation_status"] == "tracking_received"
+    assert persisted["operator_acknowledged"] is True
+    assert persisted["requires_reconciliation"] is False
+    assert persisted["requires_resubmission"] is False
+    assert persisted["document_id"] == "214000002"
+    assert job.document_id == "214000002"
+    assert result["operator_acknowledged"] is True

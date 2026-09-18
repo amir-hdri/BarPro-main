@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import re
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 PLACEHOLDER_VALUES = {":x:", ":x", "x", "X", "", "-", "null", "None", "none"}
 
@@ -367,15 +370,22 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             else dict(_metadata_section(metadata, "financial"))
         )
         if not financial.get("cost") and not financial.get("fare"):
-            extracted_cost = _first_value(
+            provided_cost = _first_value(
                 payload.get("fare"),
                 payload.get("cost"),
                 payload.get("rent"),
                 financial_meta.get("fare"),
                 financial_meta.get("cost"),
                 metadata.get("financial_cost"),
-                "5000000",
             )
+            if provided_cost is None:
+                # UTCMS rejects an empty fare (error 4025), so the documented
+                # 5,000,000 Rials default applies — but it must be LOUD, never
+                # a silent substitution for missing job data.
+                logger.warning("default_fare_applied")
+                extracted_cost = "5000000"
+            else:
+                extracted_cost = provided_cost
             financial["cost"] = extracted_cost
         if not financial.get("fare") and financial.get("cost"):
             financial["fare"] = (
@@ -441,6 +451,22 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
     default_sender_name = _first_value(sender_meta.get("name"), metadata.get("company_name"))
     default_receiver_name = _first_value(receiver_meta.get("name"), metadata.get("customer_name"))
 
+    compact_cost = _first_value(
+        financial_meta.get("cost"),
+        financial_meta.get("fare"),
+        financial_meta.get("rent"),
+        payload.get("fare"),
+        payload.get("cost"),
+        payload.get("rent"),
+        metadata.get("financial_cost"),
+    )
+    if compact_cost is None:
+        # UTCMS rejects an empty fare (error 4025): the documented
+        # 5,000,000 Rials default applies — logged loudly, never a silent
+        # substitution for missing job data.
+        logger.warning("default_fare_applied")
+        compact_cost = "5000000"
+
     return {
         "route_source": "user_text",
         "location_mode": "user_text",
@@ -500,16 +526,7 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "type": vehicle_type or None,
         },
         "financial": {
-            "cost": _first_value(
-                financial_meta.get("cost"),
-                financial_meta.get("fare"),
-                financial_meta.get("rent"),
-                payload.get("fare"),
-                payload.get("cost"),
-                payload.get("rent"),
-                metadata.get("financial_cost"),
-                "5000000",
-            ),
+            "cost": compact_cost,
             "payment_method": _first_value(
                 financial_meta.get("payment_method"),
                 metadata.get("payment_method"),

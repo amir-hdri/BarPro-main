@@ -1224,7 +1224,12 @@ class UtcmsHttpBrowserBridge:
                                 body_str,
                             )
                             # Auto-heal empty rent
-                            body_str = re.sub(r"(?<=[\?&])rent=(?=&|$)", "rent=5000000", body_str)
+                            healed_body = re.sub(r"(?<=[\?&])rent=(?=&|$)", "rent=5000000", body_str)
+                            if healed_body != body_str:
+                                # UTCMS error 4025 default — logged loudly so a
+                                # default is never a silent substitution.
+                                logger.warning("default_fare_applied_transport_autoheal")
+                                body_str = healed_body
                             # Empty or malformed coordinates are a payload error,
                             # never an opportunity to invent an origin/destination.
                             validate_submission_coordinates(body_str)

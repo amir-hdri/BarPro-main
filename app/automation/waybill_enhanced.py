@@ -4383,13 +4383,17 @@ class EnhancedWaybillManager:
     async def _fill_financial_info(self, financial: dict[str, Any]):
         """پر کردن اطلاعات مالی"""
         await self._wait_for_loading_overlays_to_disappear()
-        cost = (
-            financial.get("cost")
-            or financial.get("fare")
-            or financial.get("fare_amount")
-            or financial.get("rent")
-            or "5000000"
+        provided_cost = (
+            financial.get("cost") or financial.get("fare") or financial.get("fare_amount") or financial.get("rent")
         )
+        if provided_cost:
+            cost = provided_cost
+        else:
+            # UTCMS rejects an empty fare (error 4025): the documented
+            # 5,000,000 Rials default applies, logged loudly so the operator
+            # always knows a default — not job data — was submitted.
+            logger.warning("default_fare_applied", extra={"extra_fields": {"field": "هزینه حمل"}})
+            cost = "5000000"
         await self._fill_with_fallback(
             [
                 'input[name="txtkeraye"]',
@@ -4644,6 +4648,20 @@ class EnhancedWaybillManager:
             return True
         return EnhancedWaybillManager._normalize_text(actual) == EnhancedWaybillManager._normalize_text(expected)
 
+    async def _select_readback_confirms(self, selector: str, expected: str) -> bool | None:
+        """Confirm a programmatic select against the live DOM.
+
+        True = the expected option is selected; False = another option is
+        selected (the select did not stick); None = unreadable, inconclusive
+        (callers keep legacy success — Playwright already raises on no-match).
+        """
+        readback = await self._read_select_value(selector)
+        if readback is None:
+            return None
+        if self._fill_readback_matches(expected, readback[0]) or self._fill_readback_matches(expected, readback[1]):
+            return True
+        return False
+
     async def _fill_with_fallback(
         self,
         selectors,
@@ -4888,10 +4906,22 @@ class EnhancedWaybillManager:
 
         try:
             await locator.select_option(label=value_text)
+            if await self._select_readback_confirms(selector, value_text) is False:
+                logger.warning(
+                    "dropdown_readback_mismatch",
+                    extra={"extra_fields": {"selector": selector, "via": "label"}},
+                )
+                return False
             return True
         except Exception:
             try:
                 await locator.select_option(value=value_text)
+                if await self._select_readback_confirms(selector, value_text) is False:
+                    logger.warning(
+                        "dropdown_readback_mismatch",
+                        extra={"extra_fields": {"selector": selector, "via": "value"}},
+                    )
+                    return False
                 return True
             except Exception:
                 logger.warning("waybill_enhanced_silent_error", exc_info=True)

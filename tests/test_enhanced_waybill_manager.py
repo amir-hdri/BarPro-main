@@ -313,6 +313,19 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         self.assertIn("financial:هزینه حمل", inventory)
         self.assertEqual(inventory["financial:هزینه حمل"]["value_summary"], "1000")
 
+    async def test_fill_financial_info_missing_fare_applies_default_loudly(self):
+        """No fare in job data → documented 5,000,000 default (UTCMS 4025)
+        is filled AND a warning is logged — never a silent substitution."""
+        self.manager._set_active_pill("financial")
+
+        with self.assertLogs("app.automation.waybill_enhanced", level="WARNING") as logs:
+            await self.manager._fill_financial_info({})
+
+        self.assertTrue(any("default_fare_applied" in message for message in logs.output))
+        inventory = self.manager._selector_inventory
+        self.assertIn("financial:هزینه حمل", inventory)
+        self.assertEqual(inventory["financial:هزینه حمل"]["value_summary"], "5000000")
+
     async def test_submit_waybill_tracking_extraction(self):
         """Test extraction of tracking code from different sources."""
         # 1. Test extraction from element text
@@ -536,6 +549,42 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         result = await self.manager._select_dropdown("#ddBoxType", "پالت")
 
         self.assertFalse(result)
+
+    async def test_select_dropdown_fast_path_label_confirms_readback(self):
+        """select_option(label=...) succeeds and the DOM read-back shows the
+        same option — the fast path stays green when the select sticks."""
+        locator = AsyncMock()
+        locator.select_option = AsyncMock(return_value=["پالت"])
+        self.manager.smart_locator.locate = AsyncMock(return_value=locator)
+        self.mock_page.eval_on_selector = AsyncMock(return_value={"value": "2", "text": "پالت"})
+
+        result = await self.manager._select_dropdown("#ddBoxType", "پالت")
+
+        self.assertTrue(result)
+
+    async def test_select_dropdown_fast_path_label_rejects_contradicted_readback(self):
+        """select_option(label=...) succeeds but the DOM read-back shows
+        another option — a silent no-stick select must be rejected."""
+        locator = AsyncMock()
+        locator.select_option = AsyncMock(return_value=["پالت"])
+        self.manager.smart_locator.locate = AsyncMock(return_value=locator)
+        self.mock_page.eval_on_selector = AsyncMock(return_value={"value": "1", "text": "فله"})
+
+        result = await self.manager._select_dropdown("#ddBoxType", "پالت")
+
+        self.assertFalse(result)
+
+    async def test_select_dropdown_fast_path_unreadable_readback_keeps_legacy_success(self):
+        """Read-back unavailable (None) is inconclusive — Playwright raises
+        on no-match, so its success stands as the evidence (legacy accept)."""
+        locator = AsyncMock()
+        locator.select_option = AsyncMock(return_value=["پالت"])
+        self.manager.smart_locator.locate = AsyncMock(return_value=locator)
+        self.mock_page.eval_on_selector = AsyncMock(side_effect=Exception("unreadable"))
+
+        result = await self.manager._select_dropdown("#ddBoxType", "پالت")
+
+        self.assertTrue(result)
 
     async def test_select_option_by_fragments_ignores_substring_plate(self):
         """Fragments ['11','ب','12','345'] must NOT match plate 3459 listed
