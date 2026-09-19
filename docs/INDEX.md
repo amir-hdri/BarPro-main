@@ -11,6 +11,7 @@
 - [Runbook قطعی/اختلال UTCMS](runbook_utcms_outage.md)
 - [راهنمای افزودن Worker جدید](adding_new_worker.md) — مرجع واحد onboarding ورکر (فایروال، Squid، compose)
 - [گزارش وضعیت عملیاتی 2026-09-02](OPERATIONS_STATUS_2026-09-02.md) — snapshot زندهٔ ناوگان، Imageها، jobها، Gate و IP pool
+- [گزارش وضعیت عملیاتی 2026-09-19](OPERATIONS_STATUS_2026-09-19.md) — فیکس‌های ack/read-back/fare، گیت خالی، خطاهای لاگین زنده پورتال، فعال‌سازی ALLOW_LIVE_SUBMIT
 
 Use this index for current operational documentation. Older historical reports remain under `docs/archive/` and should not be treated as deployment instructions.
 
