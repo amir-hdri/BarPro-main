@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.automation import gps_shipping_manager as manager
+from app.automation.utcms_mobile_client import UtcmsMobileApiError
 
 
 @pytest.mark.asyncio
@@ -109,3 +110,88 @@ def test_mobile_authentication_error_is_strictly_classified():
 
     assert manager.is_mobile_authentication_error(Error()) is True
     assert manager.is_mobile_authentication_error(OtherError()) is False
+
+
+def _vault_fakes(monkeypatch, fake_client_cls):
+    monkeypatch.setattr("app.automation.utcms_mobile_client.UtcmsMobileClient", fake_client_cls)
+    monkeypatch.setattr(manager, "_get_redis", lambda: asyncio.sleep(0, result=None))
+    monkeypatch.setattr(manager, "get_cached_token", lambda _: asyncio.sleep(0, result=None))
+    monkeypatch.setattr(manager, "get_cached_refresh_token", lambda _: asyncio.sleep(0, result=None))
+    monkeypatch.setattr(manager, "cache_token", lambda *args, **kwargs: asyncio.sleep(0))
+
+
+@pytest.mark.asyncio
+async def test_get_or_login_client_retries_transient_non_json_failure(monkeypatch):
+    """First login attempt hits a transient non-JSON blip (as seen live) —
+    the client must retry once and succeed, not fail the whole attempt."""
+    calls: list[str] = []
+    attempts = {"n": 0}
+
+    class FakeClient:
+        def __init__(self, *, token=None, proxy_url=None):
+            self.token = token
+
+        @staticmethod
+        def cap_token_from_solution(value):
+            return value[1]
+
+        async def auto_solve_captcha(self, form_id):
+            calls.append("captcha")
+            return "", "fresh-cap"
+
+        async def login(self, national_code, password, cap_token):
+            calls.append("login")
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise UtcmsMobileApiError("UTCMS mobile API returned non-JSON response", status_code=502)
+            self.token = "second-token"
+            return SimpleNamespace(token="second-token", refresh_token=None, expires_at=None)
+
+    _vault_fakes(monkeypatch, FakeClient)
+    monkeypatch.setattr(manager, "LOGIN_RETRY_DELAY_SECONDS", 0.0)
+
+    client = await manager.get_or_login_client("003", "password", force_reauth=True)
+
+    assert client.token == "second-token"
+    assert calls == ["captcha", "login", "captcha", "login"]
+
+
+@pytest.mark.asyncio
+async def test_get_or_login_client_does_not_retry_authoritative_rejection(monkeypatch):
+    """Portal business rejection (result_code set, e.g. code 1) is final —
+    retrying would burn budget and risk lockout."""
+    calls: list[str] = []
+
+    class FakeClient:
+        def __init__(self, *, token=None, proxy_url=None):
+            self.token = token
+
+        @staticmethod
+        def cap_token_from_solution(value):
+            return value[1]
+
+        async def auto_solve_captcha(self, form_id):
+            calls.append("captcha")
+            return "", "fresh-cap"
+
+        async def login(self, national_code, password, cap_token):
+            calls.append("login")
+            raise UtcmsMobileApiError("UTCMS mobile login failed: خطا در سامانه (code: 1)", result_code=1)
+
+    _vault_fakes(monkeypatch, FakeClient)
+
+    with pytest.raises(UtcmsMobileApiError):
+        await manager.get_or_login_client("004", "password", force_reauth=True)
+
+    assert calls == ["captcha", "login"]
+
+
+def test_transient_login_error_classifier():
+    assert manager._is_transient_login_error(UtcmsMobileApiError("transport failed")) is True
+    assert manager._is_transient_login_error(UtcmsMobileApiError("non-JSON response")) is True
+    assert manager._is_transient_login_error(UtcmsMobileApiError("rejected", status_code=429)) is True
+    assert manager._is_transient_login_error(UtcmsMobileApiError("rejected", status_code=503)) is True
+    assert manager._is_transient_login_error(UtcmsMobileApiError("denied", status_code=401)) is False
+    assert manager._is_transient_login_error(UtcmsMobileApiError("blocked", status_code=444)) is False
+    assert manager._is_transient_login_error(UtcmsMobileApiError("nope", result_code=1)) is False
+    assert manager._is_transient_login_error(ValueError("boom")) is False
