@@ -586,6 +586,22 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result)
 
+    async def test_final_captcha_accepts_single_digit_math_answer(self):
+        """Live 2026-09-19: submit challenge was single-digit math; the CNN
+        solved '8'/'7' correctly but min_len=2 rejected them, so submit
+        never fired. Math answers (0-18) are legitimately 1-2 chars."""
+        min_len = self.manager._final_captcha_min_length()
+        self.assertEqual(self.manager._normalize_captcha_solution("8", minimum_length=min_len), "8")
+        self.assertEqual(self.manager._normalize_captcha_solution("7", minimum_length=min_len), "7")
+        self.assertEqual(self.manager._normalize_captcha_solution("18", minimum_length=min_len), "18")
+
+    async def test_final_captcha_still_rejects_garbage(self):
+        """Shortening the minimum must not admit empty/non-numeric answers."""
+        min_len = self.manager._final_captcha_min_length()
+        self.assertIsNone(self.manager._normalize_captcha_solution("", minimum_length=min_len))
+        self.assertIsNone(self.manager._normalize_captcha_solution(None, minimum_length=min_len))
+        self.assertIsNone(self.manager._normalize_captcha_solution("ab", minimum_length=min_len))
+
     async def test_select_option_by_fragments_ignores_substring_plate(self):
         """Fragments ['11','ب','12','345'] must NOT match plate 3459 listed
         first — only the whole-token owner is selected."""

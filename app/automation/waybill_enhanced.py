@@ -6160,10 +6160,11 @@ class EnhancedWaybillManager:
         return max(0.0, min(1.0, float(utcms_config.CAPTCHA_MATH_MIN_CONFIDENCE)))
 
     def _final_captcha_min_length(self) -> int:
-        # UTCMS final-submit challenges are multi-digit; keep the generic
-        # provider minimum (which may be 1 for other captcha surfaces) from
-        # admitting a one-character final answer.
-        return max(2, int(getattr(utcms_config, "CAPTCHA_VALUE_MIN_LENGTH", 1)))
+        # Final-submit challenges are single-digit MATH (answers 0-18, i.e.
+        # 1-2 chars). Live 2026-09-19 proved min_len=2 rejects CORRECT
+        # single-digit CNN answers ('8', '7'), killing the submit. Pattern,
+        # max-length and confidence gates still reject garbage.
+        return max(1, int(getattr(utcms_config, "CAPTCHA_VALUE_MIN_LENGTH", 1)))
 
     def _hint_candidates_from_text(self, raw_text: str | None) -> list[str]:
         text = (raw_text or "").strip()
