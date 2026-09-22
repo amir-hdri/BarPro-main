@@ -95,7 +95,13 @@ class LocalOcrCaptchaProvider(CaptchaProvider):
     @staticmethod
     def _decode_image(image_base64: str) -> np.ndarray | None:
         try:
-            image_bytes = base64.b64decode(image_base64, validate=True)
+            cleaned = str(image_base64).strip()
+            if "," in cleaned:
+                cleaned = cleaned.split(",", 1)[1]
+            pad = len(cleaned) % 4
+            if pad:
+                cleaned += "=" * (4 - pad)
+            image_bytes = base64.b64decode(cleaned)
         except (ValueError, binascii.Error):
             return None
 
