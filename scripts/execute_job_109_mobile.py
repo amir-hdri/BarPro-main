@@ -2,35 +2,116 @@
 """Execute Waybill Job 109 end-to-end via official UTCMS Mobile API (Android Client Contract).
 
 Bypasses Web RPA entirely:
-1. Driver 7 authentication via CapJS PoW + /Account/UserLoginV2 (0% OCR failure).
-2. Document issuance via /Document/InsertDocumentHagigiV3.
-3. Shipping lifecycle:
+1. Driver 7 authentication via CapJS PoW + /Account/UserLoginV2.
+2. Math CAPTCHA fetch (/Utils/GetCaptcha formId=1) + CNN Solver with auto-refresh retry loop.
+3. Document issuance via /Document/InsertDocumentHagigiV3.
+4. OTP handling if required (IssueDocumentByOtp).
+5. Shipping lifecycle:
    - Start shipping via /Document/StartShippingWithGps (Taleqan: 36.1764, 50.7633).
    - Finish shipping via /Document/FinishShippingWithGps.
-4. Three-witness reconciliation & updating WaybillJob 109 status to 'success'.
+6. Three-witness reconciliation & updating WaybillJob 109 status to 'success'.
 """
 
 import asyncio
 import json
 import logging
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+if Path("/app/app").exists():
+    PROJECT_ROOT = Path("/app")
+else:
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from sqlmodel import select  # noqa: E402
 
 from app.auth_multitenant import decrypt_driver_password  # noqa: E402
+from app.automation.captcha.barname_ml_solver import barname_ml_solver  # noqa: E402
 from app.automation.mobile_payload_adapter import build_mobile_document_payload  # noqa: E402
 from app.automation.utcms_mobile_client import UtcmsMobileApiError, UtcmsMobileClient  # noqa: E402
 from app.automation.worker_proxy import get_worker_proxy_url  # noqa: E402
 from app.core.database import async_session_factory  # noqa: E402
+from app.core.redis_client import redis_manager  # noqa: E402
 from app.models_multitenant import Driver, TaskStatus, WaybillJob  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("execute_job_109_mobile")
+
+TOKEN_FILE = Path("/tmp/driver_7_mobile_token.json")
+
+
+async def get_authenticated_client() -> UtcmsMobileClient:
+    proxy = get_worker_proxy_url()
+    client = UtcmsMobileClient(proxy_url=proxy)
+
+    # 1. Check cached token (tokens valid for 5 minutes; use if < 4 mins old)
+    if TOKEN_FILE.exists():
+        try:
+            cached = json.loads(TOKEN_FILE.read_text())
+            token = cached.get("token")
+            created_at = cached.get("created_at", 0)
+            if token and (time.time() - created_at < 240):
+                logger.info("Using cached access token (age: %ds)", int(time.time() - created_at))
+                client.token = token
+                return client
+            # Try refresh token if available
+            refresh_token = cached.get("refresh_token")
+            if refresh_token:
+                logger.info("Access token expired; attempting refresh...")
+                try:
+                    ref_res = await client.refresh(refresh_token)
+                    logger.info("Token refreshed successfully! Expires: %s", ref_res.expires_at)
+                    TOKEN_FILE.write_text(json.dumps({
+                        "token": ref_res.token,
+                        "refresh_token": ref_res.refresh_token or refresh_token,
+                        "expires_at": ref_res.expires_at,
+                        "created_at": time.time(),
+                    }))
+                    return client
+                except Exception as ref_err:
+                    logger.warning("Token refresh failed (%s); will do fresh login", ref_err)
+        except Exception as e:
+            logger.warning("Token cache read error: %s", e)
+
+    # 2. Fresh login with CapJS PoW
+    async with async_session_factory() as session:
+        stmt = select(Driver).where(Driver.id == 7)
+        driver = (await session.exec(stmt)).first()
+        if not driver:
+            raise RuntimeError("Driver 7 not found in DB")
+        username = driver.utcms_username
+        enc_pass = driver.utcms_password_encrypted or getattr(driver, "encrypted_password", None)
+        password = decrypt_driver_password(enc_pass)
+
+    logger.info("Performing fresh login for driver %s...", username)
+    for attempt in range(1, 15):
+        try:
+            logger.info("Solving CapJS PoW for Mobile Login (attempt %d)...", attempt)
+            _, cap_token = await client.auto_solve_captcha("login")
+            logger.info("CapJS PoW solved (%s...)", cap_token[:20])
+
+            auth_res = await client.login(username, password, cap_token)
+            logger.info("Authenticated successfully! Token expires at: %s", auth_res.expires_at)
+            TOKEN_FILE.write_text(json.dumps({
+                "token": auth_res.token,
+                "refresh_token": auth_res.refresh_token,
+                "expires_at": auth_res.expires_at,
+                "created_at": time.time(),
+            }))
+            return client
+        except UtcmsMobileApiError as e:
+            if getattr(e, "result_code", None) == 429 or "429" in str(e):
+                logger.warning("UTCMS login 429 cooldown active. Waiting 30s before retry (attempt %d)...", attempt)
+                await asyncio.sleep(30)
+            else:
+                logger.error("Login failed: %s", e)
+                raise
+
+    raise RuntimeError("Failed to log in after retries")
 
 
 async def execute():
@@ -43,47 +124,15 @@ async def execute():
 
         stmt = select(Driver).where(Driver.id == (job.driver_id or 7))
         driver = (await session.exec(stmt)).first()
-        if not driver:
-            logger.error("Driver not found!")
-            return
-
         username = driver.utcms_username
-        enc_pass = driver.utcms_password_encrypted or getattr(driver, "encrypted_password", None)
-        password = decrypt_driver_password(enc_pass)
 
     logger.info("Target Job: %s (ID: %s)", job.job_id, job.id)
     logger.info("Target Driver: %s (National Code: %s)", getattr(driver, "full_name", username), username)
 
-    # 2. Setup Mobile Client
-    proxy = get_worker_proxy_url()
-    logger.info("Connecting via proxy: %s", proxy)
-    client = UtcmsMobileClient(proxy_url=proxy)
+    # 2. Get Authenticated Client
+    client = await get_authenticated_client()
 
-    # 3. Authenticate with CapJS Proof-of-Work (with 429 backoff if needed)
-    auth_result = None
-    for attempt in range(1, 10):
-        try:
-            logger.info("Solving CapJS PoW for Mobile Login (attempt %d)...", attempt)
-            _, cap_token = await client.auto_solve_captcha("login")
-            logger.info("CapJS PoW solved: %s...", cap_token[:25])
-
-            logger.info("Logging in to /Account/UserLoginV2...")
-            auth_result = await client.login(username, password, cap_token)
-            logger.info("Authenticated successfully! Token expires at: %s", auth_result.expires_at)
-            break
-        except UtcmsMobileApiError as e:
-            if getattr(e, "result_code", None) == 429 or "429" in str(e):
-                logger.warning("UTCMS 429 login cooldown active. Waiting 30s before retry (attempt %d)...", attempt)
-                await asyncio.sleep(30)
-            else:
-                logger.error("Login failed with error: %s", e)
-                raise
-
-    if not auth_result:
-        logger.error("Failed to authenticate after retries.")
-        return
-
-    # 4. Fetch Driver's Registered Fleet from UTCMS
+    # 3. Fetch Fleet
     logger.info("Fetching registered fleet for driver...")
     fleet_resp = await client.get_user_fleet_list()
     fleet_list = fleet_resp.get("obj") or []
@@ -96,30 +145,28 @@ async def execute():
         t4 = str(truck_obj.get("irTagPart4") or "965")
         truck_type = truck_obj.get("type") or "باری"
     else:
-        logger.warning("No fleet returned from UTCMS; using payload values")
         t1, t2, t3, t4 = "78", 23, 21, "965"
         truck_type = "باری"
 
-    # 5. Check if document is already issued (Reconciliation check)
-    logger.info("Checking driver issued documents for existing waybill...")
+    # 4. Check for existing waybill issued today
+    today_shamsi = (await client.get_current_shamsi_date()).get("obj", "")
+    logger.info("Current Shamsi Date on UTCMS: %s", today_shamsi)
+
     history_resp = await client.get_issued_documents(driver_national_code=username)
     issued_docs = history_resp.get("obj") if isinstance(history_resp, dict) else (history_resp or [])
     logger.info("Found %d issued documents in history", len(issued_docs))
 
-    today_shamsi = (await client.get_current_shamsi_date()).get("obj", "")
-    logger.info("Current Shamsi Date on UTCMS: %s", today_shamsi)
-
     doc_no = None
     doc_id = None
     for d in issued_docs:
-        # If issued today for Taleqan / Karaj with this truck
-        if str(d.get("nCarTag")) == "782321965" and (today_shamsi and today_shamsi[:7] in str(d.get("date", ""))):
-            logger.info("Found existing waybill matching criteria: DocNo=%s, ID=%s, Date=%s", d.get("docNo"), d.get("id"), d.get("date"))
-            # We will use this document if it exists
+        if str(d.get("nCarTag")) == "782321965" and today_shamsi and str(d.get("date", "")).startswith(today_shamsi):
+            logger.info("Found existing waybill issued today: DocNo=%s, ID=%s, Date=%s", d.get("docNo"), d.get("id"), d.get("date"))
+            doc_no = d.get("docNo")
+            doc_id = d.get("id")
+            break
 
-    # 6. Build mobile payload and submit document
+    # 5. Insert Document if not already issued today
     if not doc_no:
-        logger.info("Preparing structured mobile payload for Job 109...")
         structured_payload = {
             "sender": {
                 "is_company": False,
@@ -177,32 +224,97 @@ async def execute():
             "shipping_options": {"send_sms": True, "fuel_type": 1},
         }
 
-        logger.info("Solving CapJS PoW for Document Insertion...")
-        _, submit_cap = await client.auto_solve_captcha("login")
+        # Auto-refreshing captcha submission loop
+        for cap_attempt in range(1, 8):
+            logger.info("Fetching CAPTCHA image (attempt %d/7)...", cap_attempt)
+            cap_resp = await client.get_captcha(form_id=1)
+            b64_img = cap_resp.get("obj")
+            if not b64_img or not isinstance(b64_img, str):
+                if cap_resp.get("resultCode") == 401:
+                    logger.warning("Token expired on GetCaptcha; re-authenticating...")
+                    TOKEN_FILE.unlink(missing_ok=True)
+                    client = await get_authenticated_client()
+                    continue
+                raise RuntimeError(f"Failed to get captcha image: {cap_resp}")
 
-        body = build_mobile_document_payload(structured_payload, token=client.token, cap_token=submit_cap, is_draft=False)
-        logger.info("Submitting waybill document via /Document/InsertDocumentHagigiV3...")
-        try:
-            doc_res = await client.insert_document(body, allow_live_submit=True, cap_token=submit_cap)
-            logger.info("Document submission response: %s", json.dumps(doc_res, ensure_ascii=False))
-            doc_no = doc_res.get("docNo") or doc_res.get("trackingCode") or doc_res.get("DocumentNo")
-            doc_id = doc_res.get("docId") or doc_res.get("id") or str(doc_no)
-            if isinstance(doc_res.get("obj"), dict):
-                doc_no = doc_no or doc_res["obj"].get("docNo") or doc_res["obj"].get("trackingCode")
-                doc_id = doc_id or doc_res["obj"].get("docId") or doc_res["obj"].get("id")
-        except UtcmsMobileApiError as e:
-            logger.error("Insert Document error: status=%s, code=%s, msg=%s, body=%s", e.status_code, e.result_code, e.result_message, e.response_body)
-            # Check if an OTP was required
-            if e.result_code in (100, 101) or "otp" in str(e).lower():
-                logger.info("UTCMS requested OTP for issue document")
+            # Solve math expression with CNN solver
+            cand = barname_ml_solver.solve_base64(b64_img)
+            if not cand:
+                logger.warning("CNN solver could not segment captcha; refreshing...")
+                continue
+
+            answer_digits = cand.answer.strip()
+            logger.info("CNN recognized expression: %r -> answer: %r (conf: %.2f)",
+                        cand.expression, answer_digits, cand.confidence)
+
+            body = build_mobile_document_payload(
+                structured_payload,
+                token=client.token,
+                cap_token=answer_digits,
+                is_draft=False,
+            )
+            logger.info("Submitting InsertDocumentHagigiV3 with capToken=%s...", answer_digits)
+            try:
+                doc_res = await client.insert_document(body, allow_live_submit=True, cap_token=answer_digits)
+                logger.info("🎉 INSERT DOCUMENT RESULT: %s", json.dumps(doc_res, ensure_ascii=False))
+
+                obj = doc_res.get("obj")
+                if isinstance(obj, dict):
+                    doc_id = obj.get("id") or obj.get("docId")
+                    doc_no = obj.get("docNo") or obj.get("trackingCode")
+                    is_otp_needed = bool(obj.get("isOtpNeeded"))
+                else:
+                    doc_no = doc_res.get("docNo") or doc_res.get("trackingCode")
+                    doc_id = doc_res.get("docId") or doc_res.get("id") or doc_no
+                    is_otp_needed = False
+
+                if is_otp_needed and doc_id:
+                    logger.info("⚠️ OTP is needed for Document ID: %s. Checking OTP forwarder in Redis...", doc_id)
+                    try:
+                        redis = redis_manager.get_client()
+                        otp_data = await redis.get("rpa:otp:latest")
+                        if otp_data:
+                            otp_json = json.loads(otp_data)
+                            otp_code = otp_json.get("code")
+                            logger.info("Found OTP from Redis: %s (sender: %s)", otp_code, otp_json.get("sender"))
+                            logger.info("Submitting IssueDocumentByOtp for docId=%s with OTP=%s...", doc_id, otp_code)
+                            issue_res = await client.issue_document_by_otp(str(doc_id), str(otp_code), allow_live_submit=True)
+                            logger.info("IssueDocumentByOtp response: %s", json.dumps(issue_res, ensure_ascii=False))
+                            if isinstance(issue_res.get("obj"), dict):
+                                doc_no = issue_res["obj"].get("docNo") or issue_res["obj"].get("trackingCode") or doc_no
+                    except Exception as otp_err:
+                        logger.warning("OTP lookup/submission exception: %s", otp_err)
+
+                if not doc_no and doc_id:
+                    logger.info("Fetching tracking code for document ID %s...", doc_id)
+                    tr_res = await client.get_tracking_code(str(doc_id))
+                    logger.info("Tracking code response: %s", tr_res)
+                    if isinstance(tr_res.get("obj"), (int, str)):
+                        doc_no = str(tr_res["obj"])
+                    elif isinstance(tr_res.get("obj"), dict):
+                        doc_no = tr_res["obj"].get("trackingCode") or tr_res["obj"].get("docNo")
+
+                if doc_no:
+                    logger.info("Successfully obtained Document No: %s", doc_no)
+                    break
+            except UtcmsMobileApiError as e:
+                if e.result_code == 4003 or "کد امنیتی" in str(e):
+                    logger.warning("Captcha answer %r was incorrect (resultCode 4003). Retrying with fresh captcha...", answer_digits)
+                    await asyncio.sleep(1)
+                    continue
+                logger.error("Insert Document error: status=%s, code=%s, msg=%s, body=%s",
+                             e.status_code, e.result_code, e.result_message, e.response_body)
+                raise
 
     if not doc_no:
         logger.error("Could not obtain document number.")
         return
 
-    logger.info("Proceeding to Shipping with Waybill: DocNo=%s, DocId=%s", doc_no, doc_id)
+    logger.info("========================================================")
+    logger.info("✅ WAYBILL REGISTERED! DocNo: %s, DocId: %s", doc_no, doc_id)
+    logger.info("========================================================")
 
-    # 7. Start Shipping with Fake GPS (Taleqan: 36.1764, 50.7633)
+    # 6. Start Shipping with Fake GPS (Taleqan: 36.1764, 50.7633)
     lat = 36.1764
     lon = 50.7633
     alt = 1200.0
@@ -222,7 +334,7 @@ async def execute():
         logger.warning("Start of shipping error (trying fallback): %s", e)
         try:
             start_res = await client.register_start_of_shipping(
-                document_id=str(doc_id),
+                document_id=str(doc_id or doc_no),
                 speed=0,
                 altitude=alt,
                 longitude=lon,
@@ -234,7 +346,7 @@ async def execute():
         except Exception as e2:
             logger.error("Fallback start shipping failed: %s", e2)
 
-    # 8. Complete / Finish Shipping with Fake GPS
+    # 7. Complete / Finish Shipping with Fake GPS
     logger.info("Registering End of Shipping with GPS: lat=%s, lon=%s", lat, lon)
     finish_res = None
     try:
@@ -252,7 +364,7 @@ async def execute():
         logger.warning("Finish shipping error (trying fallback): %s", e)
         try:
             finish_res = await client.register_end_of_shipping(
-                document_id=str(doc_id),
+                document_id=str(doc_id or doc_no),
                 gps_list=[
                     {"lat": lat, "lon": lon, "speed": 0, "alt": alt, "time": datetime.now().isoformat()}
                 ],
@@ -262,7 +374,7 @@ async def execute():
         except Exception as e2:
             logger.error("Fallback finish shipping failed: %s", e2)
 
-    # 9. Reconcile and update database
+    # 8. Reconcile and update database
     logger.info("Updating WaybillJob 109 with success status and witnesses...")
     async with async_session_factory() as session:
         job = (await session.exec(select(WaybillJob).where(WaybillJob.id == 109))).first()
@@ -284,7 +396,7 @@ async def execute():
                 "gps_origin": {"lat": lat, "lon": lon, "provider": "fake_traveler_virtual"},
             }
             await session.commit()
-            logger.info("✅ SUCCESS! Job 109 updated successfully: document_id=%s, status=SUCCESS", doc_no)
+            logger.info("🎉 SUCCESS! Job 109 updated successfully: document_id=%s, status=SUCCESS", doc_no)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ keeps the mapping explicit and refuses to invent values for required fields.
 
 from __future__ import annotations
 
+from datetime import datetime
 import re
 from collections.abc import Mapping
 from typing import Any
@@ -298,10 +299,13 @@ def build_mobile_document_payload(
         "fuelType": fuel_type,
         "sendSMS": send_sms,
         "isDraft": is_draft,
-        "selfDeclaredTimeOfStartShipment": _value(
-            payload, "self_declared_time_of_start_shipment", "selfDeclaredTimeOfStartShipment"
-        ),
     }
+    declared_time = _value(
+        payload, "self_declared_time_of_start_shipment", "selfDeclaredTimeOfStartShipment"
+    )
+    if not declared_time:
+        declared_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    body["selfDeclaredTimeOfStartShipment"] = str(declared_time)
     if doc_id is not None:
         body["docID"] = doc_id
     if cap_token and cap_token.strip():
