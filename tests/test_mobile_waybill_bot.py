@@ -507,3 +507,51 @@ async def test_waybill_worker_executes_mobile_without_browser(async_db):
         assert updated_job.document_id == "doc-worker-1"
         assert updated_job.result_json["tracking_code"] == "TRK-WORKER-777"
         assert updated_job.result_json["document_id"] == "doc-worker-1"
+
+
+@pytest.mark.asyncio
+async def test_submit_otp_success_and_state_machine_transition(async_db):
+    session, job, client, driver = async_db
+    job.status = TaskStatus.UNKNOWN.value
+    job.result_json = {"document_id": "doc-otp-123", "transport": "mobile"}
+    job.last_error = "سند در سامانه UTCMS با شناسه doc-otp-123 ایجاد شد؛ منتظر دریافت کد یکبار مصرف (OTP) راننده است"
+    job.error_category = "otp_required"
+    session.add(job)
+    await session.commit()
+
+    from app.services.waybill_job_service import WaybillJobService
+
+    user_context = {"role": "client", "user": client, "client_id": client.id}
+
+    mock_mobile_client = MagicMock()
+    mock_mobile_client.token = "fake-token"
+    mock_mobile_client.auto_solve_captcha = AsyncMock(return_value=("5", "5"))
+    mock_mobile_client.login = AsyncMock(return_value=MagicMock(token="fake-token"))
+    mock_mobile_client.issue_document_by_otp = AsyncMock(
+        return_value={"resultCode": 200, "obj": {"docNo": "TRK-FINAL-OTP-888"}}
+    )
+    mock_mobile_client.extract_tracking_code = MagicMock(return_value="TRK-FINAL-OTP-888")
+
+    with (
+        patch("app.core.redis_client.redis_manager.get", new_callable=AsyncMock, return_value=None),
+        patch("app.automation.utcms_mobile_client.UtcmsMobileClient", return_value=mock_mobile_client),
+        patch("app.auth_multitenant.decrypt_driver_password", return_value="plain-pw"),
+    ):
+        updated = await WaybillJobService.submit_otp(user_context, job.job_id, session, "12345")
+
+    assert updated.status == TaskStatus.SUCCESS.value
+    assert updated.result_json["tracking_code"] == "TRK-FINAL-OTP-888"
+    assert updated.operator_acknowledged is True
+    mock_mobile_client.issue_document_by_otp.assert_awaited_once_with(
+        "doc-otp-123", "12345", allow_live_submit=True
+    )
+
+    # Verify database persistence and JobStateMachine constraints
+    async with AsyncSession(session.bind) as check_session:
+        db_job = (await check_session.exec(select(WaybillJob).where(WaybillJob.job_id == job.job_id))).first()
+        assert db_job is not None
+        assert db_job.status == TaskStatus.SUCCESS.value
+        assert db_job.result_json["tracking_code"] == "TRK-FINAL-OTP-888"
+        assert db_job.mutation_status == "confirmed"
+        assert db_job.reconciled_at is not None
+

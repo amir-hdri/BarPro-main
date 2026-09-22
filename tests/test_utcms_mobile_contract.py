@@ -329,7 +329,17 @@ async def test_auto_solve_captcha_error_handling():
 
     client2 = UtcmsMobileClient(base_url="https://example.invalid/API", http_client=FakeClientEmptyToken())
     with pytest.raises(UtcmsMobileApiError, match="returned no capToken"):
-        await client2.auto_solve_captcha()
+        await client2.auto_solve_captcha(require_cap_token=True)
+
+    class FakeProvider(CaptchaProvider):
+        async def solve_text_captcha(self, image_base64: str) -> CaptchaResult:
+            return CaptchaResult(solved=True, value="42", provider="mock")
+
+    # When require_cap_token=False (issuance default), solved value is used as capToken
+    with patch("app.automation.captcha.get_captcha_provider", return_value=FakeProvider()):
+        sol, tok = await client2.auto_solve_captcha()
+        assert sol == "42"
+        assert tok == "42"
 
     class FakeClientValid:
         async def post(self, url, **kwargs):

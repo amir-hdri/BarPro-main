@@ -57,6 +57,7 @@ from app.schemas.multitenant import (
     WaybillJobResponse,
     WaybillJobUpdateRequest,
     WaybillRetryRequest,
+    WaybillSubmitOtpRequest,
 )
 from app.services.client_service import ClientService
 from app.services.driver_schedule_service import DriverScheduleService
@@ -561,6 +562,17 @@ async def requeue_waybill_job(
 ):
     """Alias endpoint for manual requeue so operations can distinguish it from automatic retries."""
     return await WaybillJobService.retry_job(user_context, job_id, session, request)
+
+
+@router.post("/waybill-jobs/{job_id}/submit-otp", response_model=WaybillJobResponse)
+async def submit_waybill_job_otp(
+    job_id: str,
+    request: WaybillSubmitOtpRequest,
+    user_context: dict = Depends(get_current_user_or_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Submit SMS OTP verification code for a waybill job waiting for driver OTP."""
+    return await WaybillJobService.submit_otp(user_context, job_id, session, request.otp_code)
 
 
 @router.get("/waybill-jobs/{job_id}", response_model=WaybillJobResponse)

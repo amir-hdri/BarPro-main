@@ -745,6 +745,12 @@ class WaybillRetryRequest(BaseModel):
     retry_with_overrides: dict[str, Any] | None = None
 
 
+class WaybillSubmitOtpRequest(BaseModel):
+    """Request to submit an SMS OTP code for a waybill waiting for driver OTP."""
+
+    otp_code: str = Field(..., min_length=4, max_length=8, description="کد یکبار مصرف ارسالی به راننده")
+
+
 class WaybillJobUpdateRequest(BaseModel):
     """Update request for an existing waybill job."""
 

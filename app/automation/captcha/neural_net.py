@@ -36,7 +36,7 @@ _IMG_SIZE = 28
 _FLAT_SIZE = _IMG_SIZE * _IMG_SIZE
 
 _MODEL_DIR = Path(__file__).parent / "_model_cache"
-_MODEL_VERSION = "v12_torch"
+_MODEL_VERSION = "v13_torch"
 
 _DEVICE = torch.device("cpu")
 
@@ -184,6 +184,8 @@ def _discover_fonts() -> list[str]:
         "/System/Library/Fonts/Supplemental/Tahoma.ttf",
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Italic.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
         "/System/Library/Fonts/Supplemental/Courier New.ttf",
         "/System/Library/Fonts/Supplemental/Verdana.ttf",
         "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
@@ -191,8 +193,11 @@ def _discover_fonts() -> list[str]:
         "/System/Library/Fonts/Supplemental/Georgia.ttf",
         "/System/Library/Fonts/Helvetica.ttc",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf",
     ]
     found: list[str] = []
     for path in candidates:
@@ -222,11 +227,8 @@ def _render_char_on_canvas(
     draw.text((off_x, off_y), char, fill=fill_val, font=font)
 
     if is_operator:
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                if dx == 0 and dy == 0:
-                    continue
-                draw.text((off_x + dx, off_y + dy), char, fill=fill_val, font=font)
+        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            draw.text((off_x + dx, off_y + dy), char, fill=fill_val, font=font)
 
 
 def _augment_image(arr: np.ndarray, rng: np.random.RandomState) -> np.ndarray:
@@ -236,6 +238,11 @@ def _augment_image(arr: np.ndarray, rng: np.random.RandomState) -> np.ndarray:
     center = (_IMG_SIZE / 2, _IMG_SIZE / 2)
     rot_mat = cv2.getRotationMatrix2D(center, angle, scale)
     arr = cv2.warpAffine(arr, rot_mat, (_IMG_SIZE, _IMG_SIZE), borderValue=255, flags=cv2.INTER_LINEAR)
+
+    if rng.random() < 0.5:
+        shear = rng.uniform(-0.35, 0.2)
+        M = np.array([[1, shear, -shear * (_IMG_SIZE / 2)], [0, 1, 0]], dtype=np.float32)
+        arr = cv2.warpAffine(arr, M, (_IMG_SIZE, _IMG_SIZE), borderValue=255.0)
 
     noise_level = rng.uniform(3, 25)
     arr = arr + rng.randn(_IMG_SIZE, _IMG_SIZE).astype(np.float32) * noise_level

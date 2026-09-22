@@ -8,7 +8,7 @@ import re
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.core.redis_client import redis_manager
@@ -239,6 +239,12 @@ async def submit_manual_otp(req: ManualOtpRequest) -> dict[str, Any]:
         phone=req.phone or "",
     )
 
+    if req.job_id:
+        r = await redis_manager.get()
+        if r:
+            payload_json = json.dumps(stored, ensure_ascii=False)
+            await r.set(f"rpa:otp:job:{req.job_id}", payload_json, ex=DEFAULT_OTP_TTL)
+
     logger.info(
         "manual_otp_submitted",
         extra={"extra_fields": {"code": code, "phone": req.phone, "job_id": req.job_id}},
@@ -248,6 +254,7 @@ async def submit_manual_otp(req: ManualOtpRequest) -> dict[str, Any]:
         "status": "success",
         "message": "Manual OTP received and stored in Redis",
         "code": code,
+        "job_id": req.job_id,
         "received_at": stored.get("received_at"),
     }
 
@@ -276,7 +283,7 @@ async def get_latest_otp() -> dict[str, Any]:
             "expires_in_seconds": max(0, round(data.get("expires_at", now) - now, 1)),
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to decode OTP data: {exc}")
+        raise HTTPException(status_code=500, detail=f"Failed to decode OTP data: {exc}") from exc
 
 
 @router.get("/securesms-config", summary="Configuration guide for SecureSMS Forwarder on Android")

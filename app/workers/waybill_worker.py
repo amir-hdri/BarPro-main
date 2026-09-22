@@ -1212,10 +1212,15 @@ async def _execute_job(
                 await _assert_still_valid(execution_id, fencing_token)
 
             # Submission Gate Check: only an explicit live OTP_FREE observation
-            # permits mutation. Clock predictions must not turn an unknown
-            # state into a fixed overnight wait.
+            # permits mutation for standard Web RPA.
+            # When transport is 'mobile' or 'shadow' (which natively handles the driver OTP challenge
+            # via IssueDocumentByOtp), or when the job explicitly allows OTP flow,
+            # we do not block pre-execution at the gate so it can proceed to document registration and OTP challenge.
+            is_mobile_transport = utcms_config.UTCMS_TRANSPORT in {"mobile", "shadow"} or (isinstance(payload, dict) and payload.get("transport") == "mobile")
+            allow_otp_flow = bool((isinstance(payload, dict) and payload.get("allow_otp_flow")) or is_mobile_transport)
+
             gate_state = await utcms_submission_gate.get_state()
-            if gate_state.value != "otp_free":
+            if gate_state.value != "otp_free" and not allow_otp_flow:
                 logger.info(
                     "gate_closed_pre_execution_transition",
                     extra={"extra_fields": {"job_id": job_id, "driver_id": driver.id}},

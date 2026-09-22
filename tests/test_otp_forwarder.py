@@ -1,5 +1,6 @@
 import pytest
-from app.api.routes.otp_forwarder import extract_otp_code, normalize_to_english_digits, clean_phone_number
+
+from app.api.routes.otp_forwarder import clean_phone_number, extract_otp_code, normalize_to_english_digits
 
 
 def test_normalize_digits():
@@ -38,3 +39,22 @@ def test_clean_phone_number():
     assert clean_phone_number("+989123612956") == "09123612956"
     assert clean_phone_number("۹۸۹۱۲۳۶۱۲۹۵۶") == "09123612956"
     assert clean_phone_number("20007777") == "20007777"
+
+
+@pytest.mark.asyncio
+async def test_submit_manual_otp_stores_redis():
+    from unittest.mock import AsyncMock, patch
+
+    from app.api.routes.otp_forwarder import ManualOtpRequest, submit_manual_otp
+
+    mock_redis = AsyncMock()
+    with patch("app.core.redis_client.redis_manager.get", new_callable=AsyncMock, return_value=mock_redis):
+        req = ManualOtpRequest(code="۵۴۳۲۱", phone="09121234567", job_id="job-test-123")
+        res = await submit_manual_otp(req)
+
+    assert res["status"] == "success"
+    assert res["code"] == "54321"
+    assert res["job_id"] == "job-test-123"
+    # Verify set called for rpa:otp:latest and rpa:otp:job:job-test-123
+    assert mock_redis.set.await_count >= 2
+

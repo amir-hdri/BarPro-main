@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import re
 from typing import Any
 
 from playwright.async_api import BrowserContext, Page
@@ -332,6 +335,14 @@ class WaybillAutomationBot:
                     logger.warning("Mobile fleet query/matching failed: %s", exc)
 
             issue_cap_token = str(payload.get("mobile_issue_cap_token") or payload.get("issue_cap_token") or "").strip()
+            if not issue_cap_token and hasattr(client, "auto_solve_captcha"):
+                try:
+                    logger.info("Attempting auto_solve_captcha for mobile document issuance (form_id=1)")
+                    _, issue_cap_token = await client.auto_solve_captcha(form_id=1)
+                    logger.info("Auto-solved issuance captcha: answer=%s", issue_cap_token)
+                except Exception as exc:
+                    logger.warning("Mobile auto_solve_captcha for issuance failed: %s", exc)
+
             # Build the exact APK DTO even for shadow/dry-run. This validates
             # every server ID and required field without dispatching a mutation.
             mobile_body = build_mobile_document_payload(
@@ -412,11 +423,37 @@ class WaybillAutomationBot:
                 result["steps"].append({"step": "mobile_dry_run", "status": "success"})
                 return result
 
-            response = await client.insert_document(
-                normalized_payload,
-                allow_live_submit=True,
-                cap_token=issue_cap_token or None,
-            )
+            max_insert_attempts = 4
+            last_insert_exc = None
+            response = None
+            for ins_attempt in range(1, max_insert_attempts + 1):
+                try:
+                    response = await client.insert_document(
+                        normalized_payload,
+                        allow_live_submit=True,
+                        cap_token=issue_cap_token or None,
+                    )
+                    break
+                except UtcmsMobileApiError as exc:
+                    last_insert_exc = exc
+                    if (exc.result_code == 4003 or "کد امنیتی" in str(exc)) and ins_attempt < max_insert_attempts:
+                        logger.warning(
+                            "Issuance captcha rejected (code 4003, attempt %d/%d). Refreshing captcha...",
+                            ins_attempt,
+                            max_insert_attempts,
+                        )
+                        try:
+                            _, issue_cap_token = await client.auto_solve_captcha(form_id=1)
+                            continue
+                        except Exception:
+                            pass
+                    raise
+
+            if response is None:
+                if last_insert_exc:
+                    raise last_insert_exc
+                raise UtcmsMobileApiError("ثبت سند در سامانه موبایل پاسخی برنگرداند")
+
             document_id = client.extract_document_id(response)
             tracking_code = client.extract_tracking_code(response)
             otp_required = client.extract_otp_required(response)
@@ -427,9 +464,74 @@ class WaybillAutomationBot:
                 result["tracking_code"] = tracking_code
 
             if otp_required is True:
+                # Check if OTP code arrived in Redis from the driver forwarder webhook or direct payload
+                otp_code = str(payload.get("driver_otp") or payload.get("otp_code") or payload.get("otp") or "").strip() or None
+                try:
+                    from app.core.redis_client import redis_manager
+                    redis = await redis_manager.get()
+                    if redis is not None:
+                        # Cache pending document session for operator manual submit if needed
+                        if document_id and job_id:
+                            session_cache = {
+                                "document_id": str(document_id),
+                                "token": getattr(auth, "token", ""),
+                                "username": username,
+                            }
+                            await redis.set(f"rpa:job:pending_doc:{job_id}", json.dumps(session_cache), ex=3600)
+
+                        if not otp_code:
+                            driver_phone = str(normalized_payload.get("vehicle", {}).get("driver_mobile") or "").strip()
+                            keys_to_check = ["rpa:otp:latest"]
+                            if job_id:
+                                keys_to_check.insert(0, f"rpa:otp:job:{job_id}")
+                            if driver_phone:
+                                clean_dp = re.sub(r"[^\d]", "", driver_phone)
+                                if clean_dp:
+                                    keys_to_check.append(f"rpa:otp:phone:{clean_dp}")
+
+                            for _ in range(8):
+                                for k in keys_to_check:
+                                    otp_raw = await redis.get(k)
+                                    if otp_raw:
+                                        try:
+                                            otp_data = json.loads(otp_raw)
+                                            code_val = str(otp_data.get("code") or "").strip()
+                                            if code_val and code_val.isdigit():
+                                                otp_code = code_val
+                                                logger.info("Received OTP from Redis (%s): %s", k, otp_code)
+                                                break
+                                        except Exception:
+                                            pass
+                                if otp_code:
+                                    break
+                                await asyncio.sleep(2)
+                except Exception as redis_exc:
+                    logger.warning("Redis OTP lookup failed: %s", redis_exc)
+
+                if otp_code and document_id:
+                    logger.info("Submitting IssueDocumentByOtp for docId=%s with OTP=%s", document_id, otp_code)
+                    try:
+                        issue_res = await client.issue_document_by_otp(str(document_id), str(otp_code), allow_live_submit=True)
+                        otp_tracking = client.extract_tracking_code(issue_res) or (
+                            issue_res.get("obj", {}).get("docNo") if isinstance(issue_res.get("obj"), dict) else None
+                        )
+                        if otp_tracking:
+                            result["status"] = TaskStatus.SUCCESS.value
+                            result["mutation_status"] = "dispatched"
+                            result["tracking_code"] = str(otp_tracking)
+                            result["result"] = build_tracking_received_result(
+                                str(otp_tracking),
+                                document_id=document_id,
+                                transport="mobile",
+                            )
+                            result["steps"].append({"step": "mobile_issue_by_otp", "status": "success"})
+                            return result
+                    except Exception as issue_exc:
+                        logger.warning("IssueDocumentByOtp call failed: %s", issue_exc)
+
                 result.update(
                     status=TaskStatus.UNKNOWN.value,
-                    error="UTCMS برای صدور نهایی OTP خواسته است؛ ورود اپراتوری لازم است",
+                    error=f"سند در سامانه UTCMS با شناسه {document_id} ایجاد شد؛ منتظر دریافت کد یکبار مصرف (OTP) راننده است",
                     error_category="otp_required",
                     mutation_status="dispatched" if document_id else "ambiguous",
                     needs_reconciliation=True,
@@ -443,7 +545,7 @@ class WaybillAutomationBot:
                 )
                 if document_id:
                     result["document_id"] = document_id
-                result["steps"].append({"step": "mobile_otp_required", "status": "operator_action"})
+                result["steps"].append({"step": "mobile_otp_required", "status": "waiting_driver_otp"})
                 return result
             if tracking_code:
                 result["status"] = TaskStatus.SUCCESS.value

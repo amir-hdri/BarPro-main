@@ -174,7 +174,11 @@ async def _execute_single_job(
     )
     job_id = job.job_id
 
-    if not await utcms_submission_gate.is_submission_allowed():
+    payload = job.payload_json if isinstance(job.payload_json, dict) else {}
+    is_mobile_transport = utcms_config.UTCMS_TRANSPORT in {"mobile", "shadow"} or payload.get("transport") == "mobile"
+    allow_otp_flow = bool(payload.get("allow_otp_flow") or is_mobile_transport)
+
+    if not await utcms_submission_gate.is_submission_allowed() and not allow_otp_flow:
         retry_at = _utcnow() + timedelta(seconds=utcms_config.GATE_PROBE_INTERVAL_SECONDS)
         gate_state = await utcms_submission_gate.get_state()
         gate_category = "otp_required" if gate_state.value == "otp_required" else "gate_unknown"

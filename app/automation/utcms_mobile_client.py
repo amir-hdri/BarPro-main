@@ -436,7 +436,7 @@ class UtcmsMobileClient:
             if owns_client:
                 await client.close()
 
-    async def auto_solve_captcha(self, form_id: int = 1) -> tuple[str, str]:
+    async def auto_solve_captcha(self, form_id: int = 1, *, require_cap_token: bool = False) -> tuple[str, str]:
         """Fetch, decode and solve CAPTCHA via configured provider. Returns (solution_text, cap_token)."""
         if str(form_id).lower() == "login":
             # Mirror the APK exactly: the site key is dynamic server config,
@@ -451,7 +451,7 @@ class UtcmsMobileClient:
 
         if not image_base64:
             raise UtcmsMobileApiError("UTCMS mobile get_captcha returned no image data")
-        if not cap_token:
+        if require_cap_token and not cap_token:
             raise UtcmsMobileApiError("UTCMS mobile get_captcha returned no capToken")
 
         provider = get_captcha_provider()
@@ -462,7 +462,11 @@ class UtcmsMobileClient:
         if not result.solved or not result.value:
             raise UtcmsMobileApiError(f"Failed to solve mobile CAPTCHA: {result.error or 'unsolved'}")
 
-        return result.value.strip(), cap_token
+        solution = result.value.strip()
+        if not cap_token:
+            cap_token = solution
+
+        return solution, cap_token
 
     @staticmethod
     def cap_token_from_solution(value: Any) -> str:
@@ -765,13 +769,15 @@ class UtcmsMobileClient:
                 "fileContent",
                 "captcha",
                 "base64",
+                "obj",
             ):
                 val = item.get(key)
                 if isinstance(val, str) and val.strip():
                     raw = val.strip()
                     if "," in raw and ("data:image" in raw or "base64" in raw):
                         return raw.split(",", 1)[-1].strip()
-                    return raw
+                    if key != "obj" or len(raw) > 50:
+                        return raw
         return None
 
     @staticmethod

@@ -325,10 +325,108 @@ class BarnameMlCaptchaSolver:
             if best_candidate is None or candidate.confidence > best_candidate.confidence:
                 best_candidate = candidate
 
-        if best_candidate is not None and best_candidate.confidence < 0.60:
+        if best_candidate is not None and best_candidate.confidence >= 0.60:
+            return best_candidate
+
+        multi_candidate = self._solve_multidigit_or_noisy(image)
+        if multi_candidate is not None and multi_candidate.confidence >= 0.60:
+            return multi_candidate
+
+        return best_candidate if (best_candidate is not None and best_candidate.confidence >= 0.60) else None
+
+    def _solve_multidigit_or_noisy(self, image: np.ndarray) -> MlMathCaptchaCandidate | None:
+        """Solve multi-digit or noise-distorted math captchas (e.g. 17+15) via neural net."""
+        try:
+            from app.automation.captcha.neural_net import get_model
+        except Exception:
             return None
 
-        return best_candidate
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image.copy()
+        binary = (gray < 100).astype(np.uint8) * 255
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        closed[:, :5] = 0
+        closed[:, -5:] = 0
+        closed[:5, :] = 0
+        closed[-5:, :] = 0
+
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(closed)
+        comps: list[tuple[int, np.ndarray]] = []
+        for i in range(1, num_labels):
+            x, y, w, h, area = stats[i]
+            if area > 30 and h >= 8 and w >= 4:
+                roi = closed[y : y + h, x : x + w]
+                comps.append((x, roi))
+        comps.sort(key=lambda c: c[0])
+
+        if len(comps) < 3 or len(comps) > 6:
+            return None
+
+        from app.automation.captcha.neural_net import _CHAR_TO_IDX, get_model
+
+        model = get_model()
+        plus_idx = _CHAR_TO_IDX["+"]
+
+        probs_list = []
+        for _, roi in comps:
+            h, w = roi.shape
+            scale = 20.0 / max(h, w)
+            nw, nh = max(1, int(w * scale)), max(1, int(h * scale))
+            resized = cv2.resize(roi, (nw, nh), interpolation=cv2.INTER_AREA)
+            canvas = np.zeros((28, 28), dtype=np.float32)
+            xoff = (28 - nw) // 2
+            yoff = (28 - nh) // 2
+            canvas[yoff : yoff + nh, xoff : xoff + nw] = (resized > 128).astype(np.float32)
+
+            with torch.no_grad():
+                out = model._model(torch.from_numpy(canvas.reshape(1, 1, 28, 28)))
+                probs = torch.softmax(out, dim=1)[0]
+            probs_list.append(probs)
+
+        n = len(probs_list)
+        # Operator cannot be first or last symbol in an arithmetic equation
+        best_op_pos = max(range(1, n - 1), key=lambda i: float(probs_list[i][plus_idx]))
+        op_conf = float(probs_list[best_op_pos][plus_idx])
+        if op_conf < 0.40:
+            return None
+
+        chars: list[str] = []
+        confs: list[float] = []
+
+        left_digits: list[str] = []
+        for i in range(0, best_op_pos):
+            best_d = max("0123456789", key=lambda d: float(probs_list[i][_CHAR_TO_IDX[d]]))
+            conf = float(probs_list[i][_CHAR_TO_IDX[best_d]])
+            left_digits.append(best_d)
+            chars.append(best_d)
+            confs.append(conf)
+
+        chars.append("+")
+        confs.append(op_conf)
+
+        right_digits: list[str] = []
+        for i in range(best_op_pos + 1, n):
+            best_d = max("0123456789", key=lambda d: float(probs_list[i][_CHAR_TO_IDX[d]]))
+            conf = float(probs_list[i][_CHAR_TO_IDX[best_d]])
+            right_digits.append(best_d)
+            chars.append(best_d)
+            confs.append(conf)
+
+        left_part = "".join(left_digits)
+        right_part = "".join(right_digits)
+        if not left_part or not right_part:
+            return None
+
+        ans = str(int(left_part) + int(right_part))
+        expr = f"{left_part}+{right_part}"
+        avg_conf = sum(confs) / len(confs)
+        return MlMathCaptchaCandidate(
+            expression=expr,
+            answer=ans,
+            confidence=avg_conf,
+            characters=tuple(chars),
+            confidences=tuple(confs),
+        )
 
     def solve_base64(self, image_base64: str) -> MlMathCaptchaCandidate | None:
         if not image_base64 or not str(image_base64).strip():

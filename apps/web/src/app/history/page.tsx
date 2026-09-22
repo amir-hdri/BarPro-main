@@ -50,6 +50,7 @@ import {
   Filter,
   Fuel,
   Gauge,
+  Key,
   ListChecks,
   MapPin,
   MoreVertical,
@@ -72,6 +73,7 @@ const JobCard = memo(function JobCard({
   onActionMenuClose,
   onEditModalOpen,
   onDeleteModalOpen,
+  onOtpModalOpen,
   isAdmin,
 }: {
   job: WaybillJob;
@@ -84,6 +86,7 @@ const JobCard = memo(function JobCard({
   onActionMenuClose: (e: React.MouseEvent) => void;
   onEditModalOpen: (job: WaybillJob, e: React.MouseEvent) => void;
   onDeleteModalOpen: (jobId: string, e: React.MouseEvent) => void;
+  onOtpModalOpen: (job: WaybillJob, e: React.MouseEvent) => void;
   isAdmin: boolean;
 }) {
   const payload = parseWaybillPayload(job.payload_json);
@@ -98,6 +101,22 @@ const JobCard = memo(function JobCard({
     const jobId = e.currentTarget.dataset.jobId;
     if (jobId) void onRetry(jobId);
   };
+
+  const handleOtpClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    onOtpModalOpen(job, e);
+  };
+
+  const isOtpPending = Boolean(
+    job.error_category === 'otp_required' ||
+      (job.last_error &&
+        (job.last_error.includes('OTP') ||
+          job.last_error.includes('کد یکبار مصرف') ||
+          job.last_error.includes('رمز یکبار مصرف'))) ||
+      (typeof job.result_json === 'object' &&
+        job.result_json !== null &&
+        (job.result_json as Record<string, unknown>).otp_required === true)
+  );
 
   const handleActionOpen = (e: React.MouseEvent<HTMLButtonElement>) => {
     const jobId = e.currentTarget.dataset.jobId;
@@ -123,20 +142,24 @@ const JobCard = memo(function JobCard({
       data-job-id={job.job_id}
       onClick={handleClick}
       className={[
-        'group w-full cursor-pointer rounded-2xl border p-5 text-right transition-all duration-200',
+        'group relative rounded-2xl border p-4 transition-all duration-200 cursor-pointer',
         selectedJobId === job.job_id
-          ? 'border-cyan-500/30 bg-slate-950/60 shadow-[0_0_15px_rgba(6,182,212,0.1)]'
-          : 'border-white/5 bg-slate-950/30 hover:border-white/10 hover:bg-slate-950/50 hover:shadow-md',
+          ? 'border-cyan-500/50 bg-slate-900/90 shadow-lg shadow-cyan-500/10'
+          : 'border-white/5 bg-slate-900/40 hover:border-white/15 hover:bg-slate-900/60',
       ].join(' ')}
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <p className={['font-black transition-colors', selectedJobId === job.job_id ? 'text-cyan-400' : 'text-white group-hover:text-cyan-400'].join(' ')}>
-            {job.driver_name ? `ثبت بارنامه برای ${job.driver_name}` : `عملیات ثبت بارنامه`}
-          </p>
-          {isAdmin && job.client_name && (
-            <p className="text-xs font-bold text-cyan-400 mt-0.5">مشتری: {job.client_name} ({job.client_code})</p>
-          )}
+          <div className="flex items-center gap-2">
+            <h3 className="font-bold text-white text-sm">
+              {job.driver_name ? `راننده: ${job.driver_name}` : 'کار بدون راننده مشخص'}
+            </h3>
+            {job.source && (
+              <span className="rounded bg-white/5 border border-white/5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                {job.source}
+              </span>
+            )}
+          </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-medium text-slate-400">
             <span className="font-mono bg-slate-950/60 border border-white/5 text-slate-300 px-1.5 py-0.5 rounded">شناسه: #{job.job_id.slice(0, 8)}</span>
             <span>•</span>
@@ -144,7 +167,19 @@ const JobCard = memo(function JobCard({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {(job.status === 'failed' || job.status === 'needs_review' || job.status === 'waiting_auth' || job.status === 'waiting_retry') && (
+          {isOtpPending && (
+            <button
+              data-job-id={job.job_id}
+              onClick={handleOtpClick}
+              className="rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3.5 py-2 text-[11px] shadow-sm transition flex items-center gap-1.5 touch-target focus:outline-none focus:ring-2 focus:ring-amber-400 animate-pulse"
+              aria-label="ورود رمز یکبار مصرف پیامکی راننده"
+            >
+              <Key className="h-3.5 w-3.5" />
+              ورود کد OTP
+            </button>
+          )}
+
+          {(job.status === 'failed' || job.status === 'needs_review' || job.status === 'waiting_auth' || job.status === 'waiting_retry') && !isOtpPending && (
             <button
               data-job-id={job.job_id}
               onClick={handleRetryClick}
@@ -214,6 +249,21 @@ const JobCard = memo(function JobCard({
               {payload.cargoName} {payload.cargoWeight ? `(${toPersianDigitsPreserveZero(payload.cargoWeight)} تن)` : ''}
             </span>
           )}
+        </div>
+      )}
+
+      {isOtpPending && (
+        <div className="mt-3 rounded-xl bg-amber-500/15 border border-amber-500/30 p-3 text-xs text-amber-300 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Key className="h-4 w-4 text-amber-400 shrink-0" />
+            <span>سند در سامانه UTCMS ایجاد شده و منتظر دریافت رمز یکبار مصرف (OTP) پیامکی راننده است.</span>
+          </div>
+          <button
+            onClick={handleOtpClick}
+            className="rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 text-xs transition touch-target focus:outline-none focus:ring-2 focus:ring-amber-400"
+          >
+            ورود و ثبت کد OTP
+          </button>
         </div>
       )}
 
@@ -406,6 +456,12 @@ export default function HistoryPage() {
   });
   const [editError, setEditError] = useState<string | null>(null);
   const [editSuccess, setEditSuccess] = useState<string | null>(null);
+
+  // Driver OTP Submission state
+  const [otpModalOpen, setOtpModalOpen] = useState(false);
+  const [otpJob, setOtpJob] = useState<WaybillJob | null>(null);
+  const [otpCodeInput, setOtpCodeInput] = useState('');
+  const [isSubmittingOtp, setIsSubmittingOtp] = useState(false);
 
   // Load Waybill Jobs
   const loadJobs = useCallback(async () => {
@@ -611,6 +667,42 @@ export default function HistoryPage() {
       setDeleteError(response.error || 'حذف ناموفق بود');
     }
   }, [loadJobs, handleDeleteModalClose]);
+
+  const handleOtpModalOpen = useCallback((job: WaybillJob, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOtpJob(job);
+    setOtpCodeInput('');
+    setOtpModalOpen(true);
+  }, []);
+
+  const handleOtpModalClose = useCallback(() => {
+    setOtpModalOpen(false);
+    setOtpJob(null);
+    setOtpCodeInput('');
+    setIsSubmittingOtp(false);
+  }, []);
+
+  const handleSubmitOtp = useCallback(async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!otpJob) return;
+    const cleanCode = otpCodeInput.trim();
+    if (cleanCode.length < 4 || cleanCode.length > 8) {
+      toast.error('کد یکبار مصرف باید بین ۴ تا ۸ رقم باشد');
+      return;
+    }
+    setIsSubmittingOtp(true);
+    const response = await api.post(`/api/v1/waybill-jobs/${otpJob.job_id}/submit-otp`, {
+      otp_code: cleanCode,
+    });
+    setIsSubmittingOtp(false);
+    if (response.success) {
+      toast.success('بارنامه با موفقیت صادر و نهایی شد.');
+      handleOtpModalClose();
+      await loadJobs();
+    } else {
+      toast.error(response.error || 'ثبت کد OTP با خطا مواجه شد');
+    }
+  }, [otpJob, otpCodeInput, handleOtpModalClose, loadJobs]);
 
   const handleEditModalOpen = useCallback((job: WaybillJob, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -871,6 +963,7 @@ export default function HistoryPage() {
                         onActionMenuClose={handleActionMenuClose}
                         onEditModalOpen={handleEditModalOpen}
                         onDeleteModalOpen={handleDeleteModalOpen}
+                        onOtpModalOpen={handleOtpModalOpen}
                         isAdmin={isAdmin}
                       />
                     ))}
@@ -1627,6 +1720,99 @@ export default function HistoryPage() {
                      ذخیره تغییرات
                    </button>
                  </div>
+              </div>
+            </div>
+          )}
+
+          {/* Driver OTP Submission Modal */}
+          {otpModalOpen && otpJob && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 overflow-y-auto"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="otp-modal-title"
+              aria-describedby="otp-modal-desc"
+              onClick={handleOtpModalClose}
+            >
+              <div
+                className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-slate-900 p-6 shadow-2xl relative my-8"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-4">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/20 text-amber-400">
+                      <Key className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 id="otp-modal-title" className="text-sm font-bold text-white">
+                        تأیید و صدور بارنامه با رمز یکبار مصرف
+                      </h3>
+                      <p id="otp-modal-desc" className="text-[11px] text-slate-400 mt-0.5">
+                        شناسه سند UTCMS: #{otpJob.job_id.slice(0, 8)}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleOtpModalClose}
+                    className="p-2 text-slate-400 hover:text-slate-200 rounded-xl hover:bg-white/5 transition touch-target focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    aria-label="بستن"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSubmitOtp}>
+                  <div className="space-y-4">
+                    <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3.5 text-xs text-amber-300">
+                      سامانه UTCMS پیامک حاوی کد تایید را به تلفن همراه راننده ارسال کرده است. لطفاً کد دریافتی را وارد نمایید.
+                    </div>
+
+                    <div>
+                      <label htmlFor="otp-code-input" className="block text-xs font-bold text-slate-300 mb-2">
+                        کد یکبار مصرف (OTP پیامکی)
+                      </label>
+                      <input
+                        id="otp-code-input"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        autoComplete="one-time-code"
+                        autoFocus
+                        required
+                        dir="ltr"
+                        placeholder="• • • • •"
+                        value={otpCodeInput}
+                        onChange={(e) => setOtpCodeInput(e.target.value)}
+                        className="w-full text-center tracking-widest text-2xl font-mono font-bold rounded-xl border border-white/10 bg-slate-950 px-4 py-3.5 text-amber-400 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 touch-target"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={handleOtpModalClose}
+                      disabled={isSubmittingOtp}
+                      className="rounded-xl bg-slate-950 border border-white/5 px-5 py-3 text-xs font-bold text-slate-300 touch-target hover:bg-white/5 transition focus:outline-none focus:ring-2 focus:ring-white disabled:opacity-50"
+                    >
+                      انصراف
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmittingOtp || otpCodeInput.trim().length < 4}
+                      className="rounded-xl bg-amber-500 px-6 py-3 text-xs font-bold text-slate-950 hover:bg-amber-400 transition touch-target focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {isSubmittingOtp ? (
+                        <>
+                          <RotateCcw className="h-4 w-4 animate-spin" />
+                          در حال صدور بارنامه...
+                        </>
+                      ) : (
+                        'تأیید و صدور بارنامه'
+                      )}
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           )}

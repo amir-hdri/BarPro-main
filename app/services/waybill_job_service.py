@@ -479,6 +479,198 @@ class WaybillJobService:
         await session.refresh(job)
         return WaybillJobResponse.model_validate(job)
 
+    @classmethod
+    async def submit_otp(
+        cls,
+        user_context: dict,
+        job_id: str,
+        session: AsyncSession,
+        otp_code: str,
+    ) -> WaybillJobResponse:
+        """Submit SMS OTP verification code for a waybill job waiting for driver OTP."""
+        import re
+        import time
+
+        if isinstance(user_context, Client):
+            user_context = {"role": "client", "user": user_context}
+        role = user_context["role"]
+
+        if role == "master_admin":
+            job_stmt = select(WaybillJob).where(WaybillJob.job_id == job_id)
+        else:
+            client = user_context["user"]
+            job_stmt = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
+
+        job = (await session.exec(job_stmt)).first()
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="کار بارنامه یافت نشد",
+            )
+
+        clean_code = str(otp_code or "").strip()
+        from app.api.routes.otp_forwarder import normalize_to_english_digits
+
+        clean_code = normalize_to_english_digits(clean_code)
+        if not clean_code or not (4 <= len(clean_code) <= 8):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="کد یکبار مصرف باید بین ۴ تا ۸ رقم باشد",
+            )
+
+        # 1. Resolve document_id from result_json, payload_json, or last_error
+        document_id = None
+        res_data = job.result_json if isinstance(job.result_json, dict) else {}
+        if isinstance(job.result_json, str):
+            try:
+                res_data = json.loads(job.result_json)
+            except Exception:
+                res_data = {}
+        document_id = res_data.get("document_id")
+
+        if not document_id:
+            payload_data = job.payload_json if isinstance(job.payload_json, dict) else {}
+            if isinstance(job.payload_json, str):
+                try:
+                    payload_data = json.loads(job.payload_json)
+                except Exception:
+                    payload_data = {}
+            document_id = payload_data.get("document_id") or payload_data.get("docId")
+
+        if not document_id and job.last_error:
+            m = re.search(r"شناسه\s*(\d+)", job.last_error)
+            if m:
+                document_id = m.group(1)
+
+        if not document_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="شناسه سند ثبتی (docId) در سامانه UTCMS برای این کار یافت نشد.",
+            )
+
+        # 2. Store OTP in Redis for any workers polling
+        from app.core.redis_client import redis_manager
+
+        r = await redis_manager.get()
+        if r:
+            otp_payload = json.dumps({"code": clean_code, "job_id": job_id, "received_at": time.time()})
+            await r.set(f"rpa:otp:job:{job_id}", otp_payload, ex=300)
+            await r.set("rpa:otp:latest", otp_payload, ex=300)
+
+        # 3. Retrieve or create authenticated UtcmsMobileClient
+        from app.automation.utcms_mobile_client import UtcmsMobileApiError, UtcmsMobileClient
+
+        mobile_client = None
+        if r:
+            cached_session_raw = await r.get(f"rpa:job:pending_doc:{job_id}")
+            if cached_session_raw:
+                try:
+                    session_info = json.loads(cached_session_raw)
+                    token = session_info.get("token")
+                    if token:
+                        mobile_client = UtcmsMobileClient(token=token)
+                except Exception:
+                    pass
+
+        if not mobile_client or not mobile_client.token:
+            driver = await session.get(Driver, job.driver_id) if job.driver_id else None
+            if not driver:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="اطلاعات راننده برای اتصال به UTCMS یافت نشد.",
+                )
+            from app.auth_multitenant import decrypt_driver_password
+
+            plain_password = decrypt_driver_password(driver.utcms_password_encrypted)
+            mobile_client = UtcmsMobileClient()
+            _, cap_token = await mobile_client.auto_solve_captcha(form_id="login")
+            login_user = driver.utcms_username or driver.driver_national_code
+            await mobile_client.login(login_user, plain_password, cap_token)
+
+        # 4. Call IssueDocumentByOtp
+        try:
+            issue_res = await mobile_client.issue_document_by_otp(
+                str(document_id), str(clean_code), allow_live_submit=True
+            )
+        except UtcmsMobileApiError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"خطا در صدور بارنامه با OTP: {exc.message or exc}",
+            ) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"خطای ارتباط با سامانه UTCMS: {exc}",
+            ) from exc
+
+        tracking_code = mobile_client.extract_tracking_code(issue_res) or (
+            issue_res.get("obj", {}).get("docNo") if isinstance(issue_res.get("obj"), dict) else None
+        )
+        if not tracking_code:
+            err_msg = (
+                issue_res.get("meta", {}).get("message")
+                or issue_res.get("message")
+                or "پاسخ ناموفق از سامانه UTCMS"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"سامانه UTCMS کد یکبار مصرف را نپذیرفت: {err_msg}",
+            )
+
+        # 5. Transition state to SUCCESS with confirmed mutation
+        from app.schemas.task import build_tracking_received_result
+
+        now = datetime.now(UTC).replace(tzinfo=None)
+        result_payload = build_tracking_received_result(
+            str(tracking_code),
+            document_id=str(document_id),
+            transport="mobile",
+        )
+
+        # State transition: unknown -> reconciling -> success
+        if job.status == TaskStatus.UNKNOWN.value:
+            JobStateMachine.transition(session, job, TaskStatus.RECONCILING.value)
+
+        JobStateMachine.transition(
+            session,
+            job,
+            TaskStatus.SUCCESS.value,
+            mutation_status="confirmed",
+            document_id=str(document_id),
+            reconciled_at=now,
+            result_json=result_payload,
+            finished_at=now,
+            updated_at=now,
+            last_error=None,
+            error_category=None,
+        )
+
+        session.add(
+            DomainEvent(
+                event_id=f"evt_otp_{uuid.uuid4().hex[:24]}",
+                event_type="waybill.issued_by_otp",
+                client_id=job.client_id,
+                driver_id=job.driver_id,
+                job_id=job.job_id,
+                payload_json=json.dumps(
+                    {"tracking_code": str(tracking_code), "document_id": str(document_id)}, ensure_ascii=False
+                ),
+            )
+        )
+        session.add(
+            WaybillTaskLog(
+                job_id=job.job_id,
+                client_id=job.client_id,
+                step="issue_by_otp",
+                status=TaskStatus.SUCCESS.value,
+                message=f"بارنامه با کد رهگیری {tracking_code} و شناسه سند {document_id} صادر شد",
+                details_json={"tracking_code": str(tracking_code), "document_id": str(document_id)},
+            )
+        )
+        await session.commit()
+        await session.refresh(job)
+        return WaybillJobResponse.model_validate(job)
+
     @staticmethod
     async def get_job_timeline(
         user_context: dict,

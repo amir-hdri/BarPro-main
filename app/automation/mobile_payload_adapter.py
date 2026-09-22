@@ -6,9 +6,9 @@ keeps the mapping explicit and refuses to invent values for required fields.
 
 from __future__ import annotations
 
-from datetime import datetime
 import re
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 
 

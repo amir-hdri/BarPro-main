@@ -419,7 +419,11 @@ class RPASchedulerService:
                             )
                     else:
                         # Session is ready -> verify UTCMS Submission Gate before queuing for submit
-                        if not is_gate_open:
+                        is_mobile_job = utcms_config.UTCMS_TRANSPORT in {"mobile", "shadow"} or (
+                            isinstance(job.payload_json, dict)
+                            and (job.payload_json.get("transport") == "mobile" or job.payload_json.get("allow_otp_flow"))
+                        )
+                        if not is_gate_open and not is_mobile_job:
                             if persist and job.status != TaskStatus.WAITING_SUBMISSION_WINDOW.value:
                                 retry_at = now + timedelta(seconds=utcms_config.GATE_PROBE_INTERVAL_SECONDS)
                                 driver.runtime_status = DriverStatus.READY.value
