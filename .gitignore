@@ -71,7 +71,8 @@ apps/web/public/workbox-*.js
 .playwright-home/
 fuel captcha/
 login captch/
-app/automation/captcha/_model_cache/
+app/automation/captcha/_model_cache/*
+!app/automation/captcha/_model_cache/*.pkl
 
 # ML model files
 *.keras

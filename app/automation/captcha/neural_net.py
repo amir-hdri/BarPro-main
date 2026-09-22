@@ -342,17 +342,37 @@ def _model_cache_path() -> Path:
 
 def _load_or_train_model() -> MiniMLP:
     cache_path = _model_cache_path()
-    if cache_path.exists():
-        try:
-            with open(cache_path, "rb") as fh:
-                state_dict = torch.load(fh, map_location=_DEVICE, weights_only=True)
-            model = MiniMLP()
-            model._model.load_state_dict(state_dict)
-            model._model.eval()
-            logger.info("neural_captcha_model_loaded", extra={"extra_fields": {"path": str(cache_path)}})
-            return model
-        except Exception:
-            logger.warning("neural_captcha_cache_corrupt")
+    assets_dir = Path(__file__).parent / "assets"
+
+    candidate_paths: list[Path] = [
+        cache_path,
+        assets_dir / f"captcha_cnn_{_MODEL_VERSION}.pkl",
+        assets_dir / "captcha_cnn_v13_torch.pkl",
+    ]
+
+    if _MODEL_DIR.exists():
+        candidate_paths.extend(sorted(_MODEL_DIR.glob(f"captcha_cnn_{_MODEL_VERSION}_*.pkl"), reverse=True))
+        candidate_paths.extend(sorted(_MODEL_DIR.glob("captcha_cnn_*.pkl"), reverse=True))
+    if assets_dir.exists():
+        candidate_paths.extend(sorted(assets_dir.glob("captcha_cnn*.pkl"), reverse=True))
+
+    seen: set[str] = set()
+    for path in candidate_paths:
+        path_str = str(path)
+        if path_str in seen:
+            continue
+        seen.add(path_str)
+        if path.is_file() and path.stat().st_size > 100_000:
+            try:
+                with open(path, "rb") as fh:
+                    state_dict = torch.load(fh, map_location=_DEVICE, weights_only=True)
+                model = MiniMLP()
+                model._model.load_state_dict(state_dict)
+                model._model.eval()
+                logger.info("neural_captcha_model_loaded", extra={"extra_fields": {"path": str(path)}})
+                return model
+            except Exception as exc:
+                logger.warning("neural_captcha_cache_load_failed", extra={"extra_fields": {"path": str(path), "error": str(exc)}})
 
     logger.info("neural_captcha_training_start")
     images, labels = _generate_training_data(num_per_class=500)
