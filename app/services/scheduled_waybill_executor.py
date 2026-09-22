@@ -211,6 +211,10 @@ async def _execute_single_job(
     mobile_transport = utcms_config.UTCMS_TRANSPORT in {"mobile", "shadow"}
     proxy_info = None if mobile_transport else await get_proxy_rotator().get_next()
     proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
+    if not mobile_transport and not proxy_dict:
+        from app.automation.worker_proxy import get_playwright_proxy
+
+        proxy_dict = get_playwright_proxy()
 
     async with managed_browser_session(
         auth_state_path=auth_state_path,

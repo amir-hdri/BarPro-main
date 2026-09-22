@@ -106,7 +106,9 @@ def validate_submission_coordinates(body: str) -> None:
         if not raw:
             continue
         try:
-            if not math.isfinite(float(raw)):
+            val = float(raw)
+            # UTCMS rejects 0 coordinates as "مختصات انتخابی نامعتبر میباشند!"
+            if not math.isfinite(val) or abs(val) < 0.001:
                 invalid.append(key)
         except ValueError:
             invalid.append(key)

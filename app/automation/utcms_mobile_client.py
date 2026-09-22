@@ -21,10 +21,20 @@ from app.core.config import utcms_config
 class UtcmsMobileApiError(RuntimeError):
     """A sanitized mobile API failure; response bodies are never logged."""
 
-    def __init__(self, message: str, *, status_code: int | None = None, result_code: Any = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        result_code: Any = None,
+        result_message: str | None = None,
+        response_body: Any = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.result_code = result_code
+        self.result_message = result_message
+        self.response_body = response_body
 
 
 @dataclass(slots=True)
@@ -268,10 +278,13 @@ class UtcmsMobileClient:
             result_code = decoded.get("resultCode")
             status_code = int(getattr(response, "status_code", 0) or 0)
             if status_code < 200 or status_code >= 300 or result_code in {3000, 3001}:
+                res_msg = decoded.get("resultMessage") if isinstance(decoded, dict) else None
                 raise UtcmsMobileApiError(
-                    "UTCMS mobile API rejected the request",
+                    f"UTCMS mobile API rejected the request: status={status_code}, result_code={result_code}, msg={res_msg}",
                     status_code=status_code,
                     result_code=result_code,
+                    result_message=res_msg,
+                    response_body=decoded,
                 )
             return decoded
         finally:
@@ -532,7 +545,12 @@ class UtcmsMobileClient:
     ) -> dict[str, Any]:
         if not allow_live_submit:
             raise PermissionError("ALLOW_LIVE_SUBMIT must be explicitly enabled for mobile mutation")
-        body = build_mobile_document_payload(payload, token=self.token or "", cap_token=cap_token)
+        if "token" in payload and "load" in payload and "source" in payload:
+            body = dict(payload)
+            if self.token:
+                body["token"] = self.token
+        else:
+            body = build_mobile_document_payload(payload, token=self.token or "", cap_token=cap_token)
         return await self._post("/Document/InsertDocumentHagigiV3", body)
 
     async def issue_document_by_otp(self, document_id: str, code: str, *, allow_live_submit: bool) -> dict[str, Any]:

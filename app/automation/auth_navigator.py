@@ -148,14 +148,14 @@ class AuthNavigator:
     # ------------------------------------------------------------------
 
     def candidate_login_urls(self, override_login_url: str | None = None) -> list[str]:
-        # Only ever target the canonical UTCMS login URL. Historically the
-        # code walked a list of candidate paths (/Login, /Account/Login, ...)
-        # and on a flaky WAF connection the first failed attempt cascaded into
-        # the next wrong URL. We now retry the SAME correct URL (see
-        # goto_with_retry) instead of hopping to a different path.
-        if override_login_url:
-            return [override_login_url.strip()]
-        return [utcms_config.LOGIN_URL.strip()]
+        target = (override_login_url or utcms_config.LOGIN_URL).strip()
+        candidates = [target]
+        # Canonical UTCMS login URL is /Account/Login; /Barname/Account/Login frequently returns 408
+        if "/Barname/Account/Login" in target:
+            candidates.append(target.replace("/Barname/Account/Login", "/Account/Login"))
+        elif "/Account/Login" not in target:
+            candidates.append("https://barname.utcms.ir/Account/Login")
+        return list(dict.fromkeys(candidates))
 
     async def looks_like_login_page(self) -> bool:
         if is_login_url(await self.current_url()):

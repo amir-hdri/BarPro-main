@@ -284,12 +284,12 @@ async def test_captcha_rejection_after_submit_is_reconciliation_only_without_ret
     manager._refresh_submit_captcha.assert_not_awaited()
 
 
-def test_final_submit_captcha_rejects_one_character_solution() -> None:
+def test_final_submit_captcha_accepts_single_digit_math_solution() -> None:
     from app.automation.waybill_enhanced import EnhancedWaybillManager
 
     manager = EnhancedWaybillManager(MagicMock(), MagicMock())
 
-    assert manager._normalize_captcha_solution("3", minimum_length=manager._final_captcha_min_length()) is None
+    assert manager._normalize_captcha_solution("3", minimum_length=manager._final_captcha_min_length()) == "3"
     assert manager._normalize_captcha_solution("30", minimum_length=manager._final_captcha_min_length()) == "30"
 
 

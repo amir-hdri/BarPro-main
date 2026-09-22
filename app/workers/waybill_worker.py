@@ -1250,7 +1250,7 @@ async def _execute_job(
                     "error_category": "otp_required" if gate_state.value == "otp_required" else "gate_unknown",
                 }
 
-            job_timeout = getattr(utcms_config, "JOB_TIMEOUT_SECONDS", 330)
+            job_timeout = getattr(utcms_config, "JOB_TIMEOUT_SECONDS", 900)
             if utcms_config.UTCMS_TRANSPORT in {"mobile", "shadow"}:
                 worker_proxy_url = get_worker_proxy_url()
                 bot = WaybillAutomationBot(page=None, context=None, proxy_url=worker_proxy_url)

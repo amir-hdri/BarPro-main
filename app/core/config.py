@@ -475,6 +475,7 @@ class UTCMSConfig:
         self.NIGHT_SUBMISSION_MAX_ATTEMPTS = int(os.getenv("NIGHT_SUBMISSION_MAX_ATTEMPTS", "3"))
         self.GATE_OBSERVATION_VALIDITY_SECONDS = int(os.getenv("GATE_OBSERVATION_VALIDITY_SECONDS", "1800"))
         self.GATE_BURST_DISPATCH_JITTER_MAX_SECONDS = float(os.getenv("GATE_BURST_DISPATCH_JITTER_MAX_SECONDS", "3.0"))
+        self.UTCMS_OTP_WAIT_TIMEOUT_SECONDS = int(os.getenv("UTCMS_OTP_WAIT_TIMEOUT_SECONDS", "120"))
 
         # Clean IP Pool & Egress Proxy Configuration
         self.EGRESS_PROXY_MODE = _validated_choice(

@@ -214,7 +214,7 @@ class RPASchedulerService:
                             ]
                         ),
                     )
-                    .with_for_update(skip_locked=True)
+                    .with_for_update(of=WaybillJob, skip_locked=True)
                     .order_by(col(WaybillJob.priority).desc(), col(WaybillJob.created_at).asc())
                 )
             ).all()

@@ -10,11 +10,12 @@ import os
 import random
 import re
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
-from playwright.async_api import BrowserContext, Page
+from playwright.async_api import BrowserContext, Page, Response
 
 from app.automation.browser import PageInteractor
 from app.automation.captcha import captcha_engine, get_captcha_provider
@@ -1520,12 +1521,24 @@ class EnhancedWaybillManager:
             return False
         return not await self._is_inside_closed_modal(selector)
 
-    async def _wait_for_response_match(self, matcher, timeout_ms: int = 15000):
-        if not hasattr(self.page, "wait_for_response"):
-            return None
+    async def _wait_for_response_match(
+        self, matcher: Callable[[Response], bool], timeout_ms: int = 15000
+    ) -> asyncio.Task[Response] | None:
         try:
-            return asyncio.create_task(self.page.wait_for_response(matcher, timeout=timeout_ms))
+            # Python Playwright exposes expect_response, not wait_for_response.
+            # Construct it before the click so even an immediate response is captured.
+            response_waiter = self.page.expect_response(matcher, timeout=timeout_ms)
+
+            async def wait_for_response() -> Response:
+                async with response_waiter as response_info:
+                    return await response_info.value
+
+            task = asyncio.create_task(wait_for_response())
+            # Enter the context before returning so cancellation also cleans it up.
+            await asyncio.sleep(0)
+            return task
         except Exception:
+            logger.warning("submit_response_watcher_setup_failed", exc_info=True)
             return None
 
     @staticmethod
@@ -5215,25 +5228,93 @@ class EnhancedWaybillManager:
             return {"success": True, "handled": False, "document_id": (submit_state or {}).get("document_id")}
 
         otp_selectors = [
+            "#GetOptCodeModal.show input[name='otp']",
+            "#GetOptCodeModal.show input[id='otp']",
+            "#GetOptCodeModal.show #otp",
             ".modal.show input[name='otp']",
             ".modal.show input[id='otp']",
+            ".modal.show #otp",
             "input[name='otp']",
             "input[id='otp']",
+            "#otp",
             ".otp-box",
         ]
 
+        # Wait briefly for modal to appear in DOM
         otp_selector = None
-        for selector in otp_selectors:
-            try:
-                await self.smart_locator.locate(self.page, [selector], timeout=1200)
-                otp_selector = selector
+        for _ in range(5):
+            for selector in otp_selectors:
+                try:
+                    await self.smart_locator.locate(self.page, [selector], timeout=1000)
+                    otp_selector = selector
+                    break
+                except Exception:
+                    continue
+            if otp_selector:
                 break
-            except Exception:
-                continue
+            await asyncio.sleep(0.5)
 
         if not otp_selector:
-            logger.warning("otp_field_not_found", extra={"extra_fields": {}})
-            return {"success": False, "handled": True, "document_id": (submit_state or {}).get("document_id")}
+            otp_selector = "#otp"
+
+        # If no OTP code was pre-provided, wait for it from SecureSMS Forwarder via Redis
+        if not otp_value:
+            from app.core.redis_client import redis_manager
+
+            wait_timeout = getattr(utcms_config, "UTCMS_OTP_WAIT_TIMEOUT_SECONDS", 120)
+            wait_start = time.time()
+            doc_id = (submit_state or {}).get("document_id")
+
+            logger.info(
+                "otp_waiting_for_forwarder",
+                extra={"extra_fields": {"timeout_seconds": wait_timeout, "document_id": doc_id}},
+            )
+
+            deadline = wait_start + wait_timeout
+            r = await redis_manager.get()
+
+            while time.time() < deadline:
+                # 1. Check Redis for OTP from SecureSMS Forwarder / Webhook
+                if r:
+                    try:
+                        raw_data = await r.get("rpa:otp:latest")
+                        if raw_data:
+                            otp_entry = json.loads(raw_data)
+                            recv_at = float(otp_entry.get("received_at", 0))
+                            # Accept OTP if received within 15s before wait_start or during waiting
+                            if recv_at >= (wait_start - 15.0):
+                                candidate_code = str(otp_entry.get("code", "")).strip()
+                                if candidate_code:
+                                    otp_value = candidate_code
+                                    logger.info(
+                                        "otp_acquired_from_forwarder",
+                                        extra={
+                                            "extra_fields": {
+                                                "code": otp_value,
+                                                "elapsed": round(time.time() - wait_start, 1),
+                                                "sender": otp_entry.get("sender"),
+                                            }
+                                        },
+                                    )
+                                    break
+                    except Exception as redis_err:
+                        logger.warning("redis_otp_check_failed: %s", redis_err)
+
+                # 2. Check if manually typed into DOM
+                if otp_selector:
+                    try:
+                        dom_val = await self.page.eval_on_selector(
+                            otp_selector,
+                            "el => (el.value || '').trim()",
+                        )
+                        if dom_val and len(dom_val) >= 4:
+                            otp_value = dom_val
+                            logger.info("otp_acquired_from_dom", extra={"extra_fields": {"code": otp_value}})
+                            break
+                    except Exception:
+                        pass
+
+                await asyncio.sleep(1.0)
 
         if otp_value:
             filled = await self._fill_otp_value(otp_value)
@@ -5241,7 +5322,7 @@ class EnhancedWaybillManager:
                 logger.warning("otp_fill_failed", extra={"extra_fields": {"selector": otp_selector}})
                 return {"success": False, "handled": True, "document_id": (submit_state or {}).get("document_id")}
 
-            otp_timeout_ms = min(max(10000, utcms_config.PAGE_NAVIGATION_TIMEOUT), 30000)
+            otp_timeout_ms = min(max(15000, utcms_config.PAGE_NAVIGATION_TIMEOUT), 45000)
             otp_response_task = await self._wait_for_response_match(
                 self._is_otp_submit_response,
                 timeout_ms=otp_timeout_ms,
@@ -5249,9 +5330,13 @@ class EnhancedWaybillManager:
             # کلیک تایید OTP
             otp_submit_selectors = [
                 "#submitOtp",
+                "button#submitOtp",
+                ".modal.show #submitOtp",
+                "button:has-text('تایید')",
+                "button:has-text('تأیید')",
             ]
             otp_clicked, post_click_err = await self._click_once_no_retry(
-                otp_submit_selectors, "تایید OTP", wait_after_seconds=0.2
+                otp_submit_selectors, "تایید OTP", wait_after_seconds=0.5
             )
             if not otp_clicked:
                 await self._cancel_response_task(otp_response_task)
@@ -5276,10 +5361,11 @@ class EnhancedWaybillManager:
                 }
 
             try:
+                await self._wait_for_loading_overlays_to_disappear(timeout_ms=otp_timeout_ms)
                 await self._wait_for_network_settle(primary_timeout_ms=otp_timeout_ms, fallback_sleep_seconds=1.5)
                 payload = await self._consume_json_response(
                     otp_response_task,
-                    timeout_seconds=max(10.0, otp_timeout_ms / 1000),
+                    timeout_seconds=max(15.0, otp_timeout_ms / 1000),
                 )
             except Exception as response_err:
                 logger.warning(
@@ -5313,11 +5399,16 @@ class EnhancedWaybillManager:
                     "message": "پاسخ سرور برای تایید OTP دریافت نشد",
                 }
             if otp_state["success"]:
+                doc_id = otp_state.get("document_id") or (submit_state or {}).get("document_id")
+                tracking_code = otp_state.get("tracking_code")
+                if not tracking_code and doc_id:
+                    tracking_code = await self._fetch_tracking_code_by_document_id(doc_id)
                 return {
                     "success": True,
                     "handled": True,
                     "mutation_dispatched": True,
-                    "document_id": otp_state.get("document_id") or (submit_state or {}).get("document_id"),
+                    "document_id": doc_id,
+                    "tracking_code": tracking_code,
                 }
             self.last_error = otp_state["message"] or "ارسال OTP ناموفق بود"
             return {
@@ -5328,38 +5419,19 @@ class EnhancedWaybillManager:
                 "message": self.last_error,
             }
 
-        # انتظار برای ورود دستی OTP
-        if utcms_config.HEADLESS:
-            return {
-                "success": False,
-                "handled": True,
-                "status": "unknown",
-                "mutation_status": "ambiguous",
-                "error_category": "submission_unconfirmed",
-                "needs_reconciliation": True,
-                "mutation_dispatched": True,
-                "document_id": (submit_state or {}).get("document_id"),
-                "message": "سامانه پس از dispatch کد OTP خواست؛ نتیجه فقط با History قابل تایید است",
-            }
-
-        timeout_seconds = max(60, utcms_config.UTCMS_MANUAL_CAPTCHA_TIMEOUT_SECONDS)
-        poll_seconds = max(0.5, utcms_config.UTCMS_MANUAL_CAPTCHA_POLL_SECONDS)
-        deadline = asyncio.get_running_loop().time() + timeout_seconds
-        logger.info("otp_waiting_for_manual_input", extra={"extra_fields": {"timeout": timeout_seconds}})
-
-        while asyncio.get_running_loop().time() < deadline:
-            try:
-                value = await self.page.eval_on_selector(
-                    otp_selector,
-                    "el => (el.value || '').trim()",
-                )
-                if value:
-                    return {"success": True, "handled": True, "document_id": (submit_state or {}).get("document_id")}
-            except Exception:
-                logger.warning("waybill_enhanced_silent_error", exc_info=True)
-            await asyncio.sleep(poll_seconds)
-
-        raise WaybillError("OTP در بازه زمانی مجاز وارد نشد")
+        # If no OTP received within the timeout window
+        wait_timeout = getattr(utcms_config, "UTCMS_OTP_WAIT_TIMEOUT_SECONDS", 120)
+        return {
+            "success": False,
+            "handled": True,
+            "status": "unknown",
+            "mutation_status": "ambiguous",
+            "error_category": "submission_unconfirmed",
+            "needs_reconciliation": True,
+            "mutation_dispatched": True,
+            "document_id": (submit_state or {}).get("document_id"),
+            "message": f"سامانه پس از dispatch کد OTP خواست؛ کد پیامکی ظرف {wait_timeout} ثانیه از فورواردر دریافت نشد",
+        }
 
     async def _submit_waybill(self, otp_value: str | None = None, job_id: str | None = None) -> dict[str, Any]:
         """ثبت فرم بارنامه (با پشتیبانی OTP و captcha + Self-Healing)"""
@@ -5614,6 +5686,7 @@ class EnhancedWaybillManager:
             # If an error occurred after the click was dispatched (e.g. TargetClosedError),
             # the HTTP POST may already have been sent.  Route to UNKNOWN for reconciliation.
             if post_click_err is not None:
+                await self._cancel_response_task(submit_response_task)
                 logger.warning(
                     "mutation_submit_post_click_error_route_to_unknown",
                     extra={"extra_fields": {"error": str(post_click_err), "job_id": job_id}},
@@ -5630,11 +5703,12 @@ class EnhancedWaybillManager:
 
             try:
                 await self._wait_for_network_settle(primary_timeout_ms=submit_timeout_ms, fallback_sleep_seconds=2.0)
+                await self._wait_for_loading_overlays_to_disappear(timeout_ms=submit_timeout_ms)
                 await asyncio.sleep(0.1)
 
                 submit_payload = await self._consume_json_response(
                     submit_response_task,
-                    timeout_seconds=max(12.0, submit_timeout_ms / 1000),
+                    timeout_seconds=max(45.0, submit_timeout_ms / 1000),
                 )
                 submit_state = self._parse_register_submit_payload(submit_payload)
                 if submit_state is not None and submit_state.get("is_otp_needed") is True:
@@ -5732,30 +5806,20 @@ class EnhancedWaybillManager:
                     await self._wait_for_network_settle(primary_timeout_ms=12000, fallback_sleep_seconds=2.0)
 
                 # ── Step 5: OTP Detect & Graceful Exit (Self-Healing) ──
-                # After successful submit, check if an OTP/SMS challenge appeared.
-                # If OTP modal is detected → graceful exit with OTP_BACKOFF status.
-                # If NOT detected → submission was successful, proceed normally.
-                otp_backoff_result = await self._check_otp_after_submit()
-                if otp_backoff_result is not None:
-                    return otp_backoff_result
+                # After successful submit, check if an unhandled OTP/SMS challenge appeared.
+                # If OTP modal was already handled by Step 4, skip this check.
+                if not (otp_state or {}).get("handled"):
+                    otp_backoff_result = await self._check_otp_after_submit()
+                    if otp_backoff_result is not None:
+                        return otp_backoff_result
 
                 # ── Step 6: Extract tracking code ──
                 document_id = (otp_state or {}).get("document_id") or (submit_state or {}).get("document_id")
-                tracking_code = (otp_state or {}).get("tracking_code") or (submit_state or {}).get("tracking_code")
-                submission_confirmed = False
-
-                # Poll up to 10 seconds for showTrackingCode AJAX to finish and populate the DOM
-                for _wait_step in range(10):
-                    if not tracking_code:
-                        tracking_code = await self._extract_tracking_code(document_id=document_id)
-                    submission_confirmed = await self._is_submission_successful()
-                    if tracking_code or submission_confirmed:
-                        break
-                    # If a genuine visible error appears on the form, stop waiting early
-                    form_errors = await self._extract_form_errors()
-                    if form_errors:
-                        break
-                    await asyncio.sleep(1.0)
+                tracking_code = await self._wait_for_tracking_code(
+                    document_id=document_id,
+                    tracking_code=(otp_state or {}).get("tracking_code") or (submit_state or {}).get("tracking_code"),
+                )
+                submission_confirmed = bool(tracking_code)
 
                 # A tracking code is only a provisional witness.  History/Search
                 # reconciliation must still confirm the final state; callers map
@@ -5824,6 +5888,8 @@ class EnhancedWaybillManager:
                     "message": f"Submit dispatched but post-dispatch exception: {post_submit_exc}",
                     "needs_reconciliation": True,
                 }
+            finally:
+                await self._cancel_response_task(submit_response_task)
 
         # Capture waybill screenshot on success
         waybill_screenshot = None
@@ -5854,7 +5920,50 @@ class EnhancedWaybillManager:
             "waybill_screenshot": waybill_screenshot,
         }
 
-    async def _wait_for_loading_overlays_to_disappear(self, timeout_ms: int = 15000) -> None:
+    async def _wait_for_tracking_code(
+        self,
+        document_id: Any | None = None,
+        tracking_code: str | None = None,
+        timeout_seconds: float = 60.0,
+    ) -> str | None:
+        """Observe a dispatched submission without another click or navigation.
+
+        Loading masks and tracking reads share one bounded budget. A success
+        banner or document ID alone must not end the wait for the actual code.
+        The caller still requires History/Search reconciliation after this.
+        """
+        if tracking_code:
+            return tracking_code
+
+        started = time.monotonic()
+        deadline = started + timeout_seconds
+        try:
+            # Bound slow JS/GET reads too; a poll count alone cannot do that.
+            async with asyncio.timeout(timeout_seconds):
+                await self._wait_for_loading_overlays_to_disappear(timeout_ms=int(timeout_seconds * 1000))
+                while time.monotonic() < deadline:
+                    tracking_code = await self._extract_tracking_code(document_id=document_id)
+                    if tracking_code:
+                        return tracking_code
+                    if await self._extract_form_errors():
+                        return None
+                    await asyncio.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
+        except TimeoutError:
+            logger.debug("submit_tracking_observation_deadline_reached")
+
+        logger.warning(
+            "submit_tracking_observation_timeout",
+            extra={
+                "extra_fields": {
+                    "elapsed_seconds": round(time.monotonic() - started, 2),
+                    "document_id_present": bool(document_id),
+                    "action": "reconcile_only",
+                }
+            },
+        )
+        return None
+
+    async def _wait_for_loading_overlays_to_disappear(self, timeout_ms: int = 45000) -> None:
         """Wait for Iranian government style 'لطفا صبر کنید' or other loading masks to disappear."""
         # Use single browser-side JS evaluation to avoid multiple Py-JS roundtrips for 15+ selectors.
         js_check = """

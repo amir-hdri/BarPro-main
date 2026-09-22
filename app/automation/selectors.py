@@ -188,8 +188,8 @@ class AuthSelectors:
     """انتخابگرهای مربوط به احراز هویت"""
 
     LOGIN_PATH_CANDIDATES = (
-        "/Barname/Account/Login",
         "/Account/Login",
+        "/Barname/Account/Login",
         "/Barname/Login",
         "/Login",
     )

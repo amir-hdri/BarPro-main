@@ -630,6 +630,10 @@ class RPAHttpSubmitService:
             await browser_manager.initialize()
             proxy_info = await get_proxy_rotator().get_next()
             proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None
+            if not proxy_dict:
+                from app.automation.worker_proxy import get_playwright_proxy
+
+                proxy_dict = get_playwright_proxy()
             internal_session_id, context = await browser_manager.create_context(
                 auth_state_path=auth_state_path, proxy_dict=proxy_dict
             )

@@ -20,6 +20,7 @@ from app.api.routes import (
     location,
     management,
     multitenant,
+    otp_forwarder,
     realtime,
     reports,
     route_templates,
@@ -332,6 +333,8 @@ def _rate_limit_rule_for_path(path: str) -> str:
         return "waybill"
     if _matches_route_prefix(path, "/api/v1/drivers"):
         return "driver"
+    if _matches_route_prefix(path, "/api/v1/otp"):
+        return "public"
     if _matches_route_prefix(path, "/api/v1"):
         return "tenant"
     return "public"
@@ -427,6 +430,7 @@ app.include_router(admin_alerts.router)
 app.include_router(admin_reporting.router)
 app.include_router(user_reporting.router)
 app.include_router(shipping_gps.router)
+app.include_router(otp_forwarder.router)
 
 
 @app.exception_handler(UTCMSException)

@@ -13,6 +13,53 @@ logger = logging.getLogger(__name__)
 PLACEHOLDER_VALUES = {":x:", ":x", "x", "X", "", "-", "null", "None", "none"}
 
 
+def _extract_valid_coordinates(source: dict[str, Any] | None) -> dict[str, float] | None:
+    """Extract valid lat/lng coordinates from a dict, returning None if invalid."""
+    if not isinstance(source, dict):
+        return None
+    coords = source.get("coordinates")
+    if isinstance(coords, dict):
+        lat = coords.get("lat", coords.get("latitude"))
+        lng = coords.get("lng", coords.get("lon", coords.get("longitude")))
+        try:
+            lat_f, lng_f = float(lat), float(lng)
+            if math.isfinite(lat_f) and math.isfinite(lng_f) and lat_f != 0.0 and lng_f != 0.0:
+                return {"lat": lat_f, "lng": lng_f}
+        except (TypeError, ValueError):
+            pass
+    # Try flat lat/lng keys
+    lat = source.get("lat", source.get("latitude"))
+    lng = source.get("lng", source.get("lon", source.get("longitude")))
+    if lat is not None and lng is not None:
+        try:
+            lat_f, lng_f = float(lat), float(lng)
+            if math.isfinite(lat_f) and math.isfinite(lng_f) and lat_f != 0.0 and lng_f != 0.0:
+                return {"lat": lat_f, "lng": lng_f}
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def _preserve_coordinates(location_dict: dict[str, Any], metadata_section: dict[str, Any]) -> None:
+    """Keep valid coordinates in location_dict; fall back to metadata if needed.
+
+    The UTCMS form submission requires non-zero destLatM/destLonM and
+    sourceLatM/sourceLonM.  When the original payload or metadata provides
+    explicit coordinates, they must be preserved so the location_selector can
+    inject them into the browser JS globals.
+    """
+    existing = _extract_valid_coordinates(location_dict)
+    if existing:
+        location_dict["coordinates"] = existing
+        return
+    from_meta = _extract_valid_coordinates(metadata_section)
+    if from_meta:
+        location_dict["coordinates"] = from_meta
+        return
+    # No valid coordinates available — leave as None
+    location_dict["coordinates"] = None
+
+
 def _metadata_section(metadata: dict[str, Any], key: str) -> dict[str, Any]:
     value = metadata.get(key)
     return value if isinstance(value, dict) else {}
@@ -397,12 +444,16 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             else dict(_metadata_section(metadata, "shipping_options"))
         )
 
-        # Enforce user_text mode: coordinates are nullified
-        origin_dict["coordinates"] = None
+        # Preserve explicit coordinates from the payload so that the location
+        # selector can inject them into the UTCMS JS globals (LatSource,
+        # LngSource, LatDestination, LngDestination).  Without these the form
+        # submission sends destLatM=0&destLonM=0 and UTCMS rejects with
+        # "مختصات انتخابی نامعتبر میباشند!".
+        _preserve_coordinates(origin_dict, origin_meta)
         origin_dict["location_mode"] = "user_text"
         origin_dict["route_source"] = "user_text"
 
-        dest_dict["coordinates"] = None
+        _preserve_coordinates(dest_dict, destination_meta)
         dest_dict["location_mode"] = "user_text"
         dest_dict["route_source"] = "user_text"
 
@@ -491,7 +542,7 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "city": origin_city,
             "district": _first_value(origin_meta.get("district")),
             "address": str(_first_value(origin_address, metadata.get("origin_address")) or ""),
-            "coordinates": None,
+            "coordinates": _extract_valid_coordinates(origin_meta),
             "route_source": "user_text",
             "location_mode": "user_text",
         },
@@ -500,7 +551,7 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "city": destination_city,
             "district": _first_value(destination_meta.get("district")),
             "address": str(_first_value(destination_address, metadata.get("destination_address")) or ""),
-            "coordinates": None,
+            "coordinates": _extract_valid_coordinates(destination_meta),
             "route_source": "user_text",
             "location_mode": "user_text",
         },

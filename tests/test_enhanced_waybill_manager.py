@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 # Add app to path
@@ -407,6 +408,69 @@ class TestEnhancedWaybillManager(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["mutation_status"], "ambiguous")
         self.assertTrue(result["needs_reconciliation"])
         self.assertIn("اعتبارسنجی فرم ناموفق بود", result["message"])
+
+    async def test_submit_waits_for_delayed_tracking_despite_success_marker(self):
+        """An early success banner must not hide a tracking code arriving 25s later."""
+        for success_marker in (False, True):
+            with self.subTest(success_marker=success_marker):
+                clock = SimpleNamespace(elapsed=0.0)
+
+                async def advance(seconds, clock=clock):
+                    clock.elapsed += seconds
+
+                self.manager._wait_for_loading_overlays_to_disappear = AsyncMock()
+                self.manager._extract_tracking_code = AsyncMock(
+                    side_effect=lambda clock=clock, **kwargs: "987654321" if clock.elapsed >= 25 else None
+                )
+                self.manager._is_submission_successful = AsyncMock(return_value=success_marker)
+                self.manager._extract_form_errors = AsyncMock(return_value=None)
+                self.manager._click_once_no_retry.reset_mock()
+
+                with (
+                    patch(
+                        "app.automation.waybill_enhanced.time",
+                        SimpleNamespace(monotonic=lambda clock=clock: clock.elapsed),
+                    ),
+                    patch("app.automation.waybill_enhanced.asyncio.sleep", side_effect=advance),
+                    patch("app.automation.waybill_enhanced.utcms_config.WAYBILL_SUCCESS_SCREENSHOT_ENABLED", False),
+                ):
+                    result = await self.manager._submit_waybill()
+
+                self.assertEqual(result.get("tracking_code"), "987654321")
+                self.assertEqual(result["confirmation_status"], "pending_history_reconciliation")
+                self.manager._click_once_no_retry.assert_awaited_once()
+
+    async def test_submit_overlay_and_tracking_share_bounded_wait(self):
+        """A persistent mask consumes the observation budget without another submit."""
+        elapsed = 0.0
+        observation_started = None
+
+        async def advance(seconds):
+            nonlocal elapsed
+            elapsed += seconds
+
+        async def loading_mask(timeout_ms):
+            nonlocal observation_started
+            observation_started = elapsed
+            await advance(timeout_ms / 1000)
+
+        self.manager._wait_for_loading_overlays_to_disappear = AsyncMock(side_effect=loading_mask)
+        self.manager._extract_tracking_code = AsyncMock(return_value=None)
+        self.manager._is_submission_successful = AsyncMock(return_value=True)
+        self.manager._extract_form_errors = AsyncMock(return_value=None)
+
+        with (
+            patch("app.automation.waybill_enhanced.time", SimpleNamespace(monotonic=lambda: elapsed)),
+            patch("app.automation.waybill_enhanced.asyncio.sleep", side_effect=advance),
+        ):
+            result = await self.manager._submit_waybill()
+
+        self.assertIsNotNone(observation_started)
+        self.assertLessEqual(elapsed - observation_started, 60)
+        self.assertEqual(result["status"], "unknown")
+        self.assertEqual(result["mutation_status"], "ambiguous")
+        self.assertTrue(result["needs_reconciliation"])
+        self.manager._click_once_no_retry.assert_awaited_once()
 
     async def test_create_waybill_generic_error(self):
         """Test handling of unexpected exceptions."""
