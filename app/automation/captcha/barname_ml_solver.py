@@ -325,14 +325,20 @@ class BarnameMlCaptchaSolver:
             if best_candidate is None or candidate.confidence > best_candidate.confidence:
                 best_candidate = candidate
 
+        multi_candidate = self._solve_multidigit_or_noisy(image)
+        if multi_candidate is not None and len(multi_candidate.characters) >= 4 and multi_candidate.confidence >= 0.60:
+            return multi_candidate
+
         if best_candidate is not None and best_candidate.confidence >= 0.60:
             return best_candidate
 
-        multi_candidate = self._solve_multidigit_or_noisy(image)
         if multi_candidate is not None and multi_candidate.confidence >= 0.60:
             return multi_candidate
 
-        return best_candidate if (best_candidate is not None and best_candidate.confidence >= 0.60) else None
+        if best_candidate is not None and multi_candidate is not None:
+            return max([best_candidate, multi_candidate], key=lambda c: c.confidence)
+
+        return best_candidate or multi_candidate
 
     def _solve_multidigit_or_noisy(self, image: np.ndarray) -> MlMathCaptchaCandidate | None:
         """Solve multi-digit or noise-distorted math captchas (e.g. 17+15) via neural net."""
@@ -431,8 +437,14 @@ class BarnameMlCaptchaSolver:
     def solve_base64(self, image_base64: str) -> MlMathCaptchaCandidate | None:
         if not image_base64 or not str(image_base64).strip():
             return None
+        cleaned = str(image_base64).strip()
+        if "," in cleaned:
+            cleaned = cleaned.split(",", 1)[1]
+        pad = len(cleaned) % 4
+        if pad:
+            cleaned += "=" * (4 - pad)
         try:
-            image_bytes = base64.b64decode(image_base64, validate=True)
+            image_bytes = base64.b64decode(cleaned)
         except (ValueError, binascii.Error):
             return None
         buffer = np.frombuffer(image_bytes, dtype=np.uint8)

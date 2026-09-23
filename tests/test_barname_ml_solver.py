@@ -54,3 +54,14 @@ def test_barname_ml_solver_supports_digit_nine_in_expression(monkeypatch):
     assert result.expression == "9+0"
     assert result.answer == "9"
     assert result.characters == ("9", "plus", "0")
+
+
+def test_barname_ml_solver_solves_multidigit_equation():
+    import cv2
+    img = cv2.imread("/tmp/live_cap.png")
+    if img is not None:
+        result = barname_ml_solver.solve_image(img)
+        assert result is not None
+        assert result.expression == "37+2"
+        assert result.answer == "39"
+        assert result.characters == ("3", "7", "+", "2")
