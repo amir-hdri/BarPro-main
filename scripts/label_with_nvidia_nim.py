@@ -66,8 +66,23 @@ def label_single_image(image_path: Path, api_key: str, model: str = DEFAULT_MODE
         "max_tokens": 100,
     }
 
-    resp = requests.post(NVIDIA_BASE_URL, headers=headers, json=payload, timeout=25)
-    resp.raise_for_status()
+    resp = None
+    for attempt in range(1, 4):
+        try:
+            resp = requests.post(NVIDIA_BASE_URL, headers=headers, json=payload, timeout=25)
+            if resp.status_code in (429, 500, 502, 503, 504):
+                time.sleep(1.5 * attempt)
+                continue
+            resp.raise_for_status()
+            break
+        except Exception as post_err:
+            if attempt == 3:
+                raise
+            time.sleep(1.5 * attempt)
+
+    if resp is None:
+        raise RuntimeError("No response received from NVIDIA NIM")
+
     data = resp.json()
     content = data["choices"][0]["message"]["content"].strip()
 

@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
+
+from app.core.distance import estimate_time, road_estimate
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -306,6 +308,32 @@ def build_mobile_document_payload(
     if not declared_time:
         declared_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     body["selfDeclaredTimeOfStartShipment"] = str(declared_time)
+
+    estimated_end = _value(payload, "estimated_time_of_end_shipment", "estimatedTimeOfEndShipment")
+    if not estimated_end:
+        try:
+            start_dt = datetime.fromisoformat(str(declared_time))
+        except Exception:
+            start_dt = datetime.now()
+
+        # Calculate duration based on distance if coordinates exist
+        s_lat = body.get("source", {}).get("lat")
+        s_lon = body.get("source", {}).get("lon")
+        d_lat = body.get("destination", {}).get("lat")
+        d_lon = body.get("destination", {}).get("lon")
+        duration_min = 40.0
+        if s_lat is not None and s_lon is not None and d_lat is not None and d_lon is not None:
+            try:
+                dist_km = road_estimate(float(s_lat), float(s_lon), float(d_lat), float(d_lon))
+                is_urb = bool(body.get("source", {}).get("city") == body.get("destination", {}).get("city"))
+                calc_min = estimate_time(dist_km, is_urban=is_urb)
+                if calc_min > 0:
+                    duration_min = max(20.0, calc_min)
+            except Exception:
+                pass
+        estimated_end = (start_dt + timedelta(minutes=duration_min)).strftime("%Y-%m-%dT%H:%M:%S")
+    body["estimatedTimeOfEndShipment"] = str(estimated_end)
+
     if doc_id is not None:
         body["docID"] = doc_id
     if cap_token and cap_token.strip():

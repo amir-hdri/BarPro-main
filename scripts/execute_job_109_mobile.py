@@ -231,19 +231,19 @@ async def execute():
                 "city": "طالقان",
                 "address": "طالقان، میر، جاده انجیلاق کلارود اسفاران، پرگه",
                 "postal_code": "3361111111",
-                "lat": 36.1764,
-                "lon": 50.7633,
+                "lat": 36.2611,
+                "lon": 50.4423,
             },
             "destination": {
                 "province": "البرز",
                 "city": "طالقان",
                 "address": "طالقان، کشرود، مسیر اختصاصی سد، جاده نسا سفلی",
                 "postal_code": "3362222222",
-                "lat": 36.1764,
-                "lon": 50.7633,
+                "lat": 36.1696,
+                "lon": 50.6119,
             },
             "cargo": {
-                "items": [{"product_id": 17, "pack_type_id": 3, "weight": 20000, "count": 1, "description": "آجر"}],
+                "items": [{"product_id": 10956, "pack_type_id": 18074, "weight": 20, "count": 1, "description": "آجر"}],
                 "value": 35000000,
             },
             "vehicle": {
@@ -264,7 +264,35 @@ async def execute():
             "shipping_options": {"send_sms": True, "fuel_type": 1},
         }
 
-        # Auto-refreshing captcha submission loop
+        # Step A: Ensure we have a valid draft document on UTCMS
+        draft_id = None
+        try:
+            check_draft = await client.get_document("225401554")
+            if check_draft.get("resultCode") == 200 and check_draft.get("obj", {}).get("status") == 0:
+                draft_id = 225401554
+                logger.info("Found active draft 225401554 on UTCMS; attaching as doc_id")
+        except Exception as draft_err:
+            logger.warning("Could not verify draft 225401554: %s", draft_err)
+
+        if not draft_id:
+            logger.info("Creating fresh draft document on UTCMS...")
+            draft_payload = build_mobile_document_payload(
+                structured_payload,
+                token=client.token,
+                is_draft=True,
+            )
+            draft_res = await client.insert_document(draft_payload, allow_live_submit=True)
+            logger.info("Draft creation response: %s", draft_res)
+            obj = draft_res.get("obj") or {}
+            draft_id = obj.get("id") or obj.get("docId") or draft_res.get("docId")
+            if not draft_id:
+                raise RuntimeError(f"Failed to create draft on UTCMS: {draft_res}")
+            logger.info("Created draft document ID=%s", draft_id)
+
+        structured_payload["doc_id"] = draft_id
+        doc_id = draft_id
+
+        # Step B: Auto-refreshing captcha submission loop to finalize the document
         for cap_attempt in range(1, 8):
             logger.info("Fetching CAPTCHA image (attempt %d/7)...", cap_attempt)
             cap_resp = await client.get_captcha(form_id=1)
@@ -279,17 +307,45 @@ async def execute():
 
             # Solve math expression with CNN solver
             cand = barname_ml_solver.solve_base64(b64_img)
-            if not cand:
-                logger.warning("CNN solver could not segment captcha; refreshing...")
-                continue
+            answer_digits = None
+            if cand and cand.confidence >= 0.80:
+                answer_digits = cand.answer.strip()
+                logger.info(
+                    "CNN recognized expression: %r -> answer: %r (conf: %.2f)",
+                    cand.expression,
+                    answer_digits,
+                    cand.confidence,
+                )
+            else:
+                logger.info(
+                    "CNN confidence low or unsegmented (%s); falling back to NVIDIA NIM Vision...",
+                    getattr(cand, "confidence", 0.0),
+                )
+                import os
+                nim_key = os.getenv("NVIDIA_API_KEY", "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")
+                if nim_key:
+                    try:
+                        import base64
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_f:
+                            tmp_f.write(base64.b64decode(b64_img))
+                            tmp_p = Path(tmp_f.name)
+                        from scripts.label_with_nvidia_nim import label_single_image
+                        res = label_single_image(tmp_p, nim_key)
+                        tmp_p.unlink(missing_ok=True)
+                        if res.get("answer"):
+                            answer_digits = str(res["answer"]).strip()
+                            logger.info("NVIDIA NIM recognized expression: %r -> answer: %r", res.get("expression"), answer_digits)
+                    except Exception as nim_err:
+                        logger.warning("NVIDIA NIM fallback failed: %s", nim_err)
 
-            answer_digits = cand.answer.strip()
-            logger.info(
-                "CNN recognized expression: %r -> answer: %r (conf: %.2f)",
-                cand.expression,
-                answer_digits,
-                cand.confidence,
-            )
+            if not answer_digits and cand:
+                answer_digits = cand.answer.strip()
+                logger.info("Falling back to CNN best guess: %r -> %r (conf: %.2f)", cand.expression, answer_digits, cand.confidence)
+
+            if not answer_digits:
+                logger.warning("No solver produced an answer; refreshing captcha...")
+                continue
 
             body = build_mobile_document_payload(
                 structured_payload,
@@ -297,7 +353,7 @@ async def execute():
                 cap_token=answer_digits,
                 is_draft=False,
             )
-            logger.info("Submitting InsertDocumentHagigiV3 with capToken=%s...", answer_digits)
+            logger.info("Submitting final document (docID=%s) with capToken=%s...", doc_id, answer_digits)
             insert_raw = None
             try:
                 doc_res = await client.insert_document(body, allow_live_submit=True, cap_token=answer_digits)
