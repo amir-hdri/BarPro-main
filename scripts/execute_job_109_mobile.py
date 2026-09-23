@@ -120,6 +120,12 @@ async def get_authenticated_client() -> UtcmsMobileClient:
                 # fresh PoW, then fail closed.
                 logger.warning("UTCMS login code-1 transient; one retry with fresh PoW (attempt %d)...", attempt)
                 await asyncio.sleep(10)
+            elif "transport failed" in str(e) and attempt <= 3:
+                # UTCMS/login endpoint intermittently accepts the connection
+                # but never responds (curl 28, 0 bytes). Retry bounded with a
+                # fresh PoW; business rejections still fail fast below.
+                logger.warning("UTCMS login transport failed; retrying with fresh PoW (attempt %d/3)...", attempt)
+                await asyncio.sleep(10 * attempt)
             else:
                 logger.error("Login failed: %s", e)
                 raise
@@ -161,13 +167,31 @@ async def execute():
         t1, t2, t3, t4 = "78", 23, 21, "965"
         truck_type = "باری"
 
-    # 4. Check for existing waybill issued today
-    today_shamsi = (await client.get_current_shamsi_date()).get("obj", "")
-    logger.info("Current Shamsi Date on UTCMS: %s", today_shamsi)
-
-    history_resp = await client.get_issued_documents(driver_national_code=username)
-    issued_docs = history_resp.get("obj") if isinstance(history_resp, dict) else (history_resp or [])
-    logger.info("Found %d issued documents in history", len(issued_docs))
+    # 4. Check for existing waybill issued today.
+    # Fail closed if these reads keep failing: inserting without the history
+    # check risks a duplicate document, so a transient timeout must retry
+    # here instead of crashing (or skipping the check).
+    today_shamsi = ""
+    issued_docs: list = []
+    last_read_error: Exception | None = None
+    for read_attempt in range(1, 4):
+        try:
+            today_shamsi = (await client.get_current_shamsi_date()).get("obj", "")
+            logger.info("Current Shamsi Date on UTCMS: %s", today_shamsi)
+            history_resp = await client.get_issued_documents(driver_national_code=username)
+            issued_docs = history_resp.get("obj") if isinstance(history_resp, dict) else (history_resp or [])
+            logger.info("Found %d issued documents in history", len(issued_docs))
+            last_read_error = None
+            break
+        except Exception as read_exc:
+            last_read_error = read_exc
+            logger.warning("Pre-insert read failed (attempt %d/3): %s", read_attempt, read_exc)
+            await asyncio.sleep(5 * read_attempt)
+    if last_read_error is not None:
+        logger.error(
+            "Pre-insert reads failed after retries; refusing insert without history check: %s", last_read_error
+        )
+        return
 
     doc_no = None
     doc_id = None

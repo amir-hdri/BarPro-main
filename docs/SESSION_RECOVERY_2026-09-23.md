@@ -150,6 +150,52 @@
   14:38، رد 14:44، سپس 429+timeout) — مشکل سمت UTCMS/مسیر است، نه کد ما.
   تلاش زندهٔ بیشتر تا رفع cooldown و پایداری endpoint ممنوع‌المنطق است.
 
+## گزارش کامل موانع ثبت بارنامه — 2026-09-23، ساعت 15:17+0330 (پایانی)
+
+وضعیت نهایی Job 109 در DB: `status=needs_review`، `attempt=3`،
+`document_id=None`، `error_category=AUTH_FAILURE` — یعنی **هیچ ثبت کاذب،
+هیچ دوباره‌ارسالی و هیچ دست‌کاری DB** در همهٔ اجراهای امروز رخ نداد.
+
+### موانع سمت UTCMS / مسیر (غیرقابل فیکس در کد ما)
+
+| # | مانع | سند |
+|---|------|-----|
+| M1 | رد login با `code 1` تهی (`obj: null`) — ناپایدار: رد 13:55، قبول 14:38 و 15:07، رد 14:44 | `/tmp/live_e2e_probe_20260923.log`، `/tmp/live_e2e_probe_20260923_d.log`، `login_rejected … sanitized_body={"resultCode": 1, … "obj": null}` |
+| M2 | انقضای سشن وسط حلقه: توکن ~۵ دقیقه، حلقهٔ ۸تلاشه طولانی‌تر → `401` «ورود شما منقضی شده است» | `/tmp/barpro_live_e2e/20260923T111201Z_result.json` (`rejection_body` کامل) |
+| M3 | رد `4003` روی جوابِ به‌ظاهر درست (`0+6=6`، conf=0.61) — تصویر واقعی در artifact است و باید چشم‌بازبینی شود | `/tmp/captcha_rejections/20260923T144152.json` + `.png` (۱۵۹۳ بایت) |
+| M4 | timeout انتقالی curl-28 (20s, 0 bytes) روی `UserLoginV2` و `GetCurrentShamsiDate` — متناوب، نه دائم (لاگین 15:07 و history خوانی 15:10 موفق بودند) | `/tmp/execute_job_109_20260923.log`، `/tmp/execute_job_109_20260923_b.log`، `/tmp/live_e2e_probe_20260923_e.log` |
+| M5 | محدودیت نرخ login در سطح اکانت (`429` فارسی «به حد مجاز رسیده») — با تکرار تلاش‌های ما تشدید شد؛ تلاش 15:14–15:16 سه‌بار پیاپی 429 خورد | `/tmp/execute_job_109_20260923_c.log` (سه `429` + سه cooldown) |
+| M6 | `GetCaptcha` گاهی بدون تصویر برمی‌گردد (۲ بار در اجرای 14:41) — گذرا، با retry حل شد | `/tmp/live_e2e_probe_20260923_c.log` (`captcha_solve_failed … no image data`) |
+
+### موانع سمت کد ما (همه برطرف، deploy و verify شدند)
+
+| # | مشکل | فیکس + سند کد |
+|---|------|---------------|
+| F1 | لاگر «🎉 SUCCESS» بدون بررسی `resultCode` و با `doc_no` خالی | گیت سه‌شرطی `resultCode+docId(+OTP)` در `scripts/execute_job_109_mobile.py:397-494` |
+| F2 | `insert_document` روی HTTP 200 + `resultCode=4003` بی‌صدا برمی‌گشت؛ حلقهٔ retry هیچ‌وقت آتش نمی‌گرفت | `require_successful_mutation` در `utcms_mobile_client.py:98-112` + اعمال در `insert_document:593` و `issue_document_by_otp:601` |
+| F3 | پیام و body ردها (مثل 401) گم می‌شد | همان گیت اکنون `result_message` و `response_body` sanitizeشده نگه می‌دارد؛ تست `test_mutation_gate_keeps_server_message_and_sanitized_body` |
+| F4 | login روی `code 1` هیچ envelope نگه نمی‌داشت | لاگ `mobile_login_rejected` + `response_body` در `utcms_mobile_client.py:512-542`؛ تست مرتبط |
+| F5 | fallback بی‌صدای کلید PoW | لاگ `cap_site_key_*` در `utcms_mobile_client.py:382-390`؛ تست مرتبط |
+| F6 | کرش اسکریپت روی timeout خوانش‌های پیش-insert (تاریخ/تاریخچه) | retry سه‌بارهٔ fail-closed در `execute_job_109_mobile.py:238-258` (بدون تاریخچه، insert ممنوع) |
+| F7 | کرش روی timeout خود login | retry محدود transport (تا تلاش ۳) در هر دو اسکریپت |
+| F8 | مرگ روی 401-انقضا وسط حلقه | re-login محدود (۳ لاگین/۷ تلاش) در هر دو اسکریپت |
+| F9 | نبود artifact سمت‌به‌سمت کپچا | `debug_artifacts.py` + `dump_captcha_rejection`؛ امروز ۱ JSON + ۱ PNG واقعی تولید شد |
+
+### چرا ثبت امروز کامل نشد (زنجیرهٔ علی)
+
+1. ناپایداری login (M1/M4) + انقضای سریع سشن (M2) یعنی هر اجرا چند login می‌خواهد؛
+2. هر login اضافه ما را به سقف 429 اکانت (M5) نزدیک‌تر کرد؛
+3. در 15:14–15:16 اکانت رسماً rate-limit شد و بعد endpoint روی timeout رفت؛
+4. ادامهٔ تلاش در این وضعیت = تشدید 429 بدون هیچ شانس insert. توقف، تصمیم درست بود.
+
+### پیش‌شرط‌های تلاش بعدی (به ترتیب)
+
+1. گذشتن cooldown ورود اکانت درایور 7 (پیام UTCMS: «تا لحظاتی دیگر»)؛
+2. پایداری endpoint (یک login + یک `GetCurrentShamsiDate` بدون timeout)؛
+3. کد OTP راننده در Redis (`rpa:otp:latest`) آماده باشد اگر `isOtpNeeded=true` برگشت؛
+4. بازبینی چشمی `20260923T144152.png` در برابر `expression=0+6` برای بستن پروندهٔ M3؛
+5. فقط **یک** اجرای `execute_job_109_mobile.py`، نه حلقهٔ تلاش.
+
 ## پذیرش و کار باقی‌مانده
 
 - اثبات ثبت واقعی جدید نیاز به اجرای زنده و دریافت `docId` + `resultCode`

@@ -151,6 +151,11 @@ async def _login(client: UtcmsMobileClient) -> UtcmsMobileClient:
                 # fail-closed instead of hammering the login endpoint.
                 logger.warning("login_code1_transient_retry attempt=%d", attempt)
                 await asyncio.sleep(10)
+            elif "transport failed" in str(e) and attempt <= 3:
+                # Intermittent curl-28 timeouts with 0 bytes received: retry
+                # bounded with a fresh PoW; business rejections fail fast.
+                logger.warning("login_transport_retry attempt=%d", attempt)
+                await asyncio.sleep(10 * attempt)
             else:
                 # Fail closed on any other login rejection (e.g. code 1
                 # "خطا در سامانه"), but keep the sanitized server envelope so
