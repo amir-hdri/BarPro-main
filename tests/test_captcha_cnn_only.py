@@ -149,3 +149,39 @@ class TestCnnOnlyImplementation:
         from app.automation.captcha.cnn_provider import barname_ml_solver as solver2
 
         assert solver1 is solver2  # Same singleton
+
+    def test_solve_subtraction_equation_mocked(self):
+        """Test CNN provider correctly handles subtraction answers."""
+        mock_candidate = MlMathCaptchaCandidate(
+            expression="54-9",
+            answer="45",
+            confidence=0.86,
+            characters=("5", "4", "-", "9"),
+            confidences=(0.96, 0.87, 0.96, 0.65),
+        )
+
+        with patch.object(barname_ml_solver, "solve_base64", return_value=mock_candidate):
+            provider = CnnCaptchaProvider()
+            result = asyncio.run(provider.solve_text_captcha("fake_base64_image"))
+
+        assert result.solved is True
+        assert result.value == "45"
+        assert result.provider == "cnn"
+
+    def test_solve_image_subtraction_live_artifact(self):
+        """Test solver on the real UTCMS artifact 54 - 9 = 45 if available."""
+        from pathlib import Path
+
+        import cv2
+
+        artifact_path = Path("/tmp/20260923T144152.png")
+        if not artifact_path.exists():
+            return
+
+        img = cv2.imread(str(artifact_path))
+        candidate = barname_ml_solver.solve_image(img)
+        assert candidate is not None
+        assert candidate.expression == "54-9"
+        assert candidate.answer == "45"
+        assert candidate.confidence > 0.70
+

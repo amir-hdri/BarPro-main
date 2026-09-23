@@ -329,27 +329,23 @@ class BarnameMlCaptchaSolver:
         if multi_candidate is not None and len(multi_candidate.characters) >= 4 and multi_candidate.confidence >= 0.60:
             return multi_candidate
 
-        if best_candidate is not None and best_candidate.confidence >= 0.60:
-            return best_candidate
+        candidates = [c for c in (best_candidate, multi_candidate) if c is not None]
+        if candidates:
+            return max(candidates, key=lambda c: c.confidence)
 
-        if multi_candidate is not None and multi_candidate.confidence >= 0.60:
-            return multi_candidate
-
-        if best_candidate is not None and multi_candidate is not None:
-            return max([best_candidate, multi_candidate], key=lambda c: c.confidence)
-
-        return best_candidate or multi_candidate
+        return None
 
     def _solve_multidigit_or_noisy(self, image: np.ndarray) -> MlMathCaptchaCandidate | None:
-        """Solve multi-digit or noise-distorted math captchas (e.g. 17+15) via neural net."""
+        """Solve multi-digit or noise-distorted math captchas (e.g. 17+15, 54-9) via neural net."""
         try:
-            from app.automation.captcha.neural_net import get_model
+            from app.automation.captcha.neural_net import _CHAR_SET, _CHAR_TO_IDX, get_model
         except Exception:
             return None
 
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image.copy()
         binary = (gray < 100).astype(np.uint8) * 255
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        # Vertical closing bridges horizontal interference cuts without merging horizontally adjacent characters
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 3))
         closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
         closed[:, :5] = 0
         closed[:, -5:] = 0
@@ -360,7 +356,8 @@ class BarnameMlCaptchaSolver:
         comps: list[tuple[int, np.ndarray]] = []
         for i in range(1, num_labels):
             x, y, w, h, area = stats[i]
-            if area > 30 and h >= 8 and w >= 4:
+            # h >= 3 allows minus sign (height ~4) to be kept while filtering small noise
+            if area >= 15 and h >= 3 and w >= 4:
                 roi = closed[y : y + h, x : x + w]
                 comps.append((x, roi))
         comps.sort(key=lambda c: c[0])
@@ -368,10 +365,10 @@ class BarnameMlCaptchaSolver:
         if len(comps) < 3 or len(comps) > 6:
             return None
 
-        from app.automation.captcha.neural_net import _CHAR_TO_IDX, get_model
-
         model = get_model()
-        plus_idx = _CHAR_TO_IDX["+"]
+        plus_idx = _CHAR_TO_IDX.get("+")
+        minus_idx = _CHAR_TO_IDX.get("-")
+        digit_indices = [_CHAR_TO_IDX[str(d)] for d in range(10) if str(d) in _CHAR_TO_IDX]
 
         probs_list = []
         for _, roi in comps:
@@ -386,14 +383,29 @@ class BarnameMlCaptchaSolver:
 
             with torch.no_grad():
                 out = model._model(torch.from_numpy(canvas.reshape(1, 1, 28, 28)))
-                probs = torch.softmax(out, dim=1)[0]
+                probs = torch.softmax(out, dim=1)[0].numpy()
             probs_list.append(probs)
 
         n = len(probs_list)
         # Operator cannot be first or last symbol in an arithmetic equation
-        best_op_pos = max(range(1, n - 1), key=lambda i: float(probs_list[i][plus_idx]))
-        op_conf = float(probs_list[best_op_pos][plus_idx])
-        if op_conf < 0.40:
+        best_op = None
+        best_op_pos = -1
+        best_op_score = -1.0
+        for pos in range(1, n - 1):
+            if plus_idx is not None:
+                p_plus = float(probs_list[pos][plus_idx])
+                if p_plus > best_op_score:
+                    best_op_score = p_plus
+                    best_op = "+"
+                    best_op_pos = pos
+            if minus_idx is not None:
+                p_minus = float(probs_list[pos][minus_idx])
+                if p_minus > best_op_score:
+                    best_op_score = p_minus
+                    best_op = "-"
+                    best_op_pos = pos
+
+        if best_op_score < 0.25 or best_op is None:
             return None
 
         chars: list[str] = []
@@ -401,21 +413,23 @@ class BarnameMlCaptchaSolver:
 
         left_digits: list[str] = []
         for i in range(0, best_op_pos):
-            best_d = max("0123456789", key=lambda d: float(probs_list[i][_CHAR_TO_IDX[d]]))
-            conf = float(probs_list[i][_CHAR_TO_IDX[best_d]])
-            left_digits.append(best_d)
-            chars.append(best_d)
+            d_idx = max(digit_indices, key=lambda idx: float(probs_list[i][idx]))
+            d_char = _CHAR_SET[d_idx]
+            conf = float(probs_list[i][d_idx])
+            left_digits.append(d_char)
+            chars.append(d_char)
             confs.append(conf)
 
-        chars.append("+")
-        confs.append(op_conf)
+        chars.append(best_op)
+        confs.append(best_op_score)
 
         right_digits: list[str] = []
         for i in range(best_op_pos + 1, n):
-            best_d = max("0123456789", key=lambda d: float(probs_list[i][_CHAR_TO_IDX[d]]))
-            conf = float(probs_list[i][_CHAR_TO_IDX[best_d]])
-            right_digits.append(best_d)
-            chars.append(best_d)
+            d_idx = max(digit_indices, key=lambda idx: float(probs_list[i][idx]))
+            d_char = _CHAR_SET[d_idx]
+            conf = float(probs_list[i][d_idx])
+            right_digits.append(d_char)
+            chars.append(d_char)
             confs.append(conf)
 
         left_part = "".join(left_digits)
@@ -423,8 +437,14 @@ class BarnameMlCaptchaSolver:
         if not left_part or not right_part:
             return None
 
-        ans = str(int(left_part) + int(right_part))
-        expr = f"{left_part}+{right_part}"
+        try:
+            left_val = int(left_part)
+            right_val = int(right_part)
+            ans = str(left_val + right_val if best_op == "+" else left_val - right_val)
+        except ValueError:
+            return None
+
+        expr = f"{left_part}{best_op}{right_part}"
         avg_conf = sum(confs) / len(confs)
         return MlMathCaptchaCandidate(
             expression=expr,
