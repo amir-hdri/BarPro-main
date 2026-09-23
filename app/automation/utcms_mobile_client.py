@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import time
 from collections.abc import Callable
@@ -16,6 +17,8 @@ from curl_cffi import requests as cc_requests
 
 from app.automation.mobile_payload_adapter import build_mobile_document_payload
 from app.core.config import utcms_config
+
+logger = logging.getLogger(__name__)
 
 
 class UtcmsMobileApiError(RuntimeError):
@@ -105,9 +108,14 @@ def require_successful_mutation(response: Any, operation: str) -> dict[str, Any]
         raise UtcmsMobileApiError(f"UTCMS {operation} returned an invalid response envelope")
     result_code = response.get("resultCode")
     if str(result_code).strip() != "200":
+        # Keep the server's own message and the sanitized envelope: a bare
+        # code (e.g. 401 on InsertDocument) is not classifiable on its own.
+        res_msg = response.get("resultMessage") or "business rejection"
         raise UtcmsMobileApiError(
-            f"UTCMS {operation} business rejection",
+            f"UTCMS {operation} business rejection: {res_msg} (code: {result_code})",
             result_code=result_code,
+            result_message=str(res_msg)[:200],
+            response_body=_sanitize(response),
         )
     return response
 
@@ -143,6 +151,8 @@ class UtcmsMobileClient:
         self._http_client = http_client
         self._now = now or (lambda: datetime.now(ZoneInfo("Asia/Tehran")))
         self.verify = utcms_config.UTCMS_MOBILE_TLS_VERIFY if verify is None else verify
+        # Last image+prediction from auto_solve_captcha, for 4003 rejection artifacts.
+        self.last_captcha_debug: dict[str, Any] | None = None
         if (os.environ.get("ENVIRONMENT") or "").lower() == "production" and not self.verify:
             raise ValueError("TLS verification cannot be disabled in production")
 
@@ -382,9 +392,11 @@ class UtcmsMobileClient:
             obj = _unwrap_obj(settings)
             key = str(obj.get("capSiteKey") or "").strip()
             if key:
+                logger.info("cap_site_key_source=live key_present=True")
                 return key
-        except Exception:
-            pass
+            logger.warning("cap_site_key_source=live_but_empty falling_back_to_config")
+        except Exception as exc:
+            logger.warning("cap_site_key_live_fetch_failed error=%s falling_back_to_config", type(exc).__name__)
         return utcms_config.UTCMS_CAPTCHA_POW_SITE_KEY
 
     def _cap_pow_base(self, site_key: str | None = None) -> str:
@@ -466,7 +478,37 @@ class UtcmsMobileClient:
         if not cap_token:
             cap_token = solution
 
+        # Keep image + prediction for side-by-side 4003 rejection artifacts.
+        self.last_captcha_debug = {
+            "image_base64": image_base64,
+            "solution": solution,
+            "provider": result.provider,
+            "meta": dict(result.meta or {}),
+            "form_id": form_id,
+        }
         return solution, cap_token
+
+    def dump_captcha_rejection(
+        self, result_code: Any, *, directory: Any = None, extra: dict[str, Any] | None = None
+    ) -> Any:
+        """Persist the last solved CAPTCHA image beside its model prediction after a server rejection."""
+        debug = getattr(self, "last_captcha_debug", None)
+        if not debug:
+            return None
+        from app.automation.captcha.debug_artifacts import save_rejection_artifact
+
+        meta = debug.get("meta") or {}
+        return save_rejection_artifact(
+            debug.get("image_base64") or "",
+            prediction=debug.get("solution"),
+            result_code=result_code,
+            provider=debug.get("provider"),
+            expression=meta.get("expression"),
+            confidence=meta.get("confidence"),
+            form_id=debug.get("form_id"),
+            directory=directory,
+            extra=extra,
+        )
 
     @staticmethod
     def cap_token_from_solution(value: Any) -> str:
@@ -482,8 +524,27 @@ class UtcmsMobileClient:
         response = await self._post("/Account/UserLoginV2", body)
         res_code = response.get("resultCode")
         res_msg = response.get("resultMessage") or "خطای نامشخص"
-        if res_code != 200:
-            raise UtcmsMobileApiError(f"UTCMS mobile login failed: {res_msg} (code: {res_code})", result_code=res_code)
+        if str(res_code).strip() != "200":
+            # Generic UTCMS login rejections (e.g. resultCode=1 "خطا در سامانه")
+            # carry no actionable detail in message/code alone, so persist the
+            # sanitized envelope shape for root-cause analysis. Secrets are
+            # redacted by _sanitize; values that could identify the credential
+            # material never reach the logs.
+            obj = _unwrap_obj(response)
+            logger.warning(
+                "mobile_login_rejected result_code=%s message=%s top_keys=%s obj_keys=%s obj_present=%s",
+                res_code,
+                str(res_msg)[:200],
+                sorted(str(k) for k in response.keys()),
+                sorted(str(k) for k in obj.keys()) if isinstance(obj, dict) else [],
+                bool(obj),
+            )
+            raise UtcmsMobileApiError(
+                f"UTCMS mobile login failed: {res_msg} (code: {res_code})",
+                result_code=res_code,
+                result_message=str(res_msg)[:200],
+                response_body=_sanitize(response),
+            )
         obj = _unwrap_obj(response)
         token = str(obj.get("token") or obj.get("bearerToken") or response.get("token") or "").strip()
         if not token:
@@ -555,14 +616,18 @@ class UtcmsMobileClient:
                 body["token"] = self.token
         else:
             body = build_mobile_document_payload(payload, token=self.token or "", cap_token=cap_token)
-        return await self._post("/Document/InsertDocumentHagigiV3", body)
+        response = await self._post("/Document/InsertDocumentHagigiV3", body)
+        # HTTP 200 + business resultCode 4003 (wrong captcha) must raise so
+        # callers' 4003 retry loops actually fire.
+        return require_successful_mutation(response, "InsertDocument")
 
     async def issue_document_by_otp(self, document_id: str, code: str, *, allow_live_submit: bool) -> dict[str, Any]:
         if not allow_live_submit:
             raise PermissionError("ALLOW_LIVE_SUBMIT must be explicitly enabled for mobile OTP mutation")
         if not code or not code.isdigit() or not (4 <= len(code) <= 8):
             raise ValueError("کد OTP باید بین ۴ تا ۸ رقم باشد")
-        return await self._post("/Document/IssueDocumentByOtp", {"docId": document_id, "code": code})
+        response = await self._post("/Document/IssueDocumentByOtp", {"docId": document_id, "code": code})
+        return require_successful_mutation(response, "IssueDocumentByOtp")
 
     async def resend_otp(self, document_id: str, *, allow_live_submit: bool) -> dict[str, Any]:
         if not allow_live_submit:

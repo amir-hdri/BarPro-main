@@ -73,6 +73,18 @@ fuel captcha/
 login captch/
 app/automation/captcha/_model_cache/*
 !app/automation/captcha/_model_cache/*.pkl
+# stale local train cache — only the tracked v13 weights are kept in git
+app/automation/captcha/_model_cache/captcha_cnn_v12_*.pkl
+
+# Secrets backups must never be tracked
+.env.bak
+.env.bak.*
+*.env.bak
+.env.*.bak
+
+# Local live-probe scratch (kept out of git; run on server only)
+test_insert_live_otp.py
+scripts/test_insert_live_otp.py
 
 # ML model files
 *.keras

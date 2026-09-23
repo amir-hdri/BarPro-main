@@ -65,12 +65,16 @@ async def get_authenticated_client() -> UtcmsMobileClient:
                 try:
                     ref_res = await client.refresh(refresh_token)
                     logger.info("Token refreshed successfully! Expires: %s", ref_res.expires_at)
-                    TOKEN_FILE.write_text(json.dumps({
-                        "token": ref_res.token,
-                        "refresh_token": ref_res.refresh_token or refresh_token,
-                        "expires_at": ref_res.expires_at,
-                        "created_at": time.time(),
-                    }))
+                    TOKEN_FILE.write_text(
+                        json.dumps(
+                            {
+                                "token": ref_res.token,
+                                "refresh_token": ref_res.refresh_token or refresh_token,
+                                "expires_at": ref_res.expires_at,
+                                "created_at": time.time(),
+                            }
+                        )
+                    )
                     return client
                 except Exception as ref_err:
                     logger.warning("Token refresh failed (%s); will do fresh login", ref_err)
@@ -96,17 +100,26 @@ async def get_authenticated_client() -> UtcmsMobileClient:
 
             auth_res = await client.login(username, password, cap_token)
             logger.info("Authenticated successfully! Token expires at: %s", auth_res.expires_at)
-            TOKEN_FILE.write_text(json.dumps({
-                "token": auth_res.token,
-                "refresh_token": auth_res.refresh_token,
-                "expires_at": auth_res.expires_at,
-                "created_at": time.time(),
-            }))
+            TOKEN_FILE.write_text(
+                json.dumps(
+                    {
+                        "token": auth_res.token,
+                        "refresh_token": auth_res.refresh_token,
+                        "expires_at": auth_res.expires_at,
+                        "created_at": time.time(),
+                    }
+                )
+            )
             return client
         except UtcmsMobileApiError as e:
             if getattr(e, "result_code", None) == 429 or "429" in str(e):
                 logger.warning("UTCMS login 429 cooldown active. Waiting 30s before retry (attempt %d)...", attempt)
                 await asyncio.sleep(30)
+            elif str(getattr(e, "result_code", None)) == "1" and attempt == 1:
+                # Same flaky bare code-1 class as the probe: one retry with
+                # fresh PoW, then fail closed.
+                logger.warning("UTCMS login code-1 transient; one retry with fresh PoW (attempt %d)...", attempt)
+                await asyncio.sleep(10)
             else:
                 logger.error("Login failed: %s", e)
                 raise
@@ -160,7 +173,12 @@ async def execute():
     doc_id = None
     for d in issued_docs:
         if str(d.get("nCarTag")) == "782321965" and today_shamsi and str(d.get("date", "")).startswith(today_shamsi):
-            logger.info("Found existing waybill issued today: DocNo=%s, ID=%s, Date=%s", d.get("docNo"), d.get("id"), d.get("date"))
+            logger.info(
+                "Found existing waybill issued today: DocNo=%s, ID=%s, Date=%s",
+                d.get("docNo"),
+                d.get("id"),
+                d.get("date"),
+            )
             doc_no = d.get("docNo")
             doc_id = d.get("id")
             break
@@ -201,9 +219,7 @@ async def execute():
                 "lon": 50.7633,
             },
             "cargo": {
-                "items": [
-                    {"product_id": 17, "pack_type_id": 3, "weight": 20000, "count": 1, "description": "آجر"}
-                ],
+                "items": [{"product_id": 17, "pack_type_id": 3, "weight": 20000, "count": 1, "description": "آجر"}],
                 "value": 35000000,
             },
             "vehicle": {
@@ -244,8 +260,12 @@ async def execute():
                 continue
 
             answer_digits = cand.answer.strip()
-            logger.info("CNN recognized expression: %r -> answer: %r (conf: %.2f)",
-                        cand.expression, answer_digits, cand.confidence)
+            logger.info(
+                "CNN recognized expression: %r -> answer: %r (conf: %.2f)",
+                cand.expression,
+                answer_digits,
+                cand.confidence,
+            )
 
             body = build_mobile_document_payload(
                 structured_payload,
@@ -254,22 +274,46 @@ async def execute():
                 is_draft=False,
             )
             logger.info("Submitting InsertDocumentHagigiV3 with capToken=%s...", answer_digits)
+            insert_raw = None
             try:
                 doc_res = await client.insert_document(body, allow_live_submit=True, cap_token=answer_digits)
-                logger.info("🎉 INSERT DOCUMENT RESULT: %s", json.dumps(doc_res, ensure_ascii=False))
+                insert_raw = doc_res
+                insert_code = str(doc_res.get("resultCode", "")).strip()
+                logger.info("INSERT resultCode=%s raw=%s", insert_code, json.dumps(doc_res, ensure_ascii=False))
+                if insert_code not in {"0", "200"}:
+                    # Client normally raises via require_successful_mutation; keep a hard guard.
+                    if insert_code == "4003" or "کد امنیتی" in str(doc_res.get("resultMessage") or ""):
+                        raise UtcmsMobileApiError(
+                            "InsertDocument captcha rejected",
+                            result_code=doc_res.get("resultCode"),
+                            result_message=doc_res.get("resultMessage"),
+                        )
+                    raise UtcmsMobileApiError(
+                        f"InsertDocument business rejection: {insert_code}",
+                        result_code=doc_res.get("resultCode"),
+                        result_message=doc_res.get("resultMessage"),
+                    )
 
                 obj = doc_res.get("obj")
                 if isinstance(obj, dict):
-                    doc_id = obj.get("id") or obj.get("docId")
+                    doc_id = obj.get("id") or obj.get("docId") or obj.get("documentId")
                     doc_no = obj.get("docNo") or obj.get("trackingCode")
                     is_otp_needed = bool(obj.get("isOtpNeeded"))
                 else:
                     doc_no = doc_res.get("docNo") or doc_res.get("trackingCode")
-                    doc_id = doc_res.get("docId") or doc_res.get("id") or doc_no
-                    is_otp_needed = False
+                    doc_id = doc_res.get("docId") or doc_res.get("id")
+                    is_otp_needed = bool(doc_res.get("isOtpNeeded"))
 
-                if is_otp_needed and doc_id:
-                    logger.info("⚠️ OTP is needed for Document ID: %s. Checking OTP forwarder in Redis...", doc_id)
+                if not doc_id:
+                    logger.error("Insert returned resultCode=%s but no document id — not success", insert_code)
+                    continue
+
+                otp_issue_ok = False
+                if is_otp_needed:
+                    logger.warning(
+                        "OTP required for Document ID: %s — success is NOT claimed until IssueDocumentByOtp returns tracking.",
+                        doc_id,
+                    )
                     try:
                         redis = redis_manager.get_client()
                         otp_data = await redis.get("rpa:otp:latest")
@@ -277,41 +321,105 @@ async def execute():
                             otp_json = json.loads(otp_data)
                             otp_code = otp_json.get("code")
                             logger.info("Found OTP from Redis: %s (sender: %s)", otp_code, otp_json.get("sender"))
-                            logger.info("Submitting IssueDocumentByOtp for docId=%s with OTP=%s...", doc_id, otp_code)
-                            issue_res = await client.issue_document_by_otp(str(doc_id), str(otp_code), allow_live_submit=True)
-                            logger.info("IssueDocumentByOtp response: %s", json.dumps(issue_res, ensure_ascii=False))
-                            if isinstance(issue_res.get("obj"), dict):
-                                doc_no = issue_res["obj"].get("docNo") or issue_res["obj"].get("trackingCode") or doc_no
+                            issue_res = await client.issue_document_by_otp(
+                                str(doc_id), str(otp_code), allow_live_submit=True
+                            )
+                            issue_code = str(issue_res.get("resultCode", "")).strip()
+                            logger.info(
+                                "IssueDocumentByOtp resultCode=%s raw=%s",
+                                issue_code,
+                                json.dumps(issue_res, ensure_ascii=False),
+                            )
+                            if issue_code in {"0", "200"}:
+                                otp_issue_ok = True
+                                if isinstance(issue_res.get("obj"), dict):
+                                    doc_no = (
+                                        issue_res["obj"].get("docNo") or issue_res["obj"].get("trackingCode") or doc_no
+                                    )
+                            else:
+                                logger.error("IssueDocumentByOtp rejected resultCode=%s — not success", issue_code)
+                        else:
+                            logger.warning("No OTP in Redis (rpa:otp:latest); document not fully issued")
                     except Exception as otp_err:
                         logger.warning("OTP lookup/submission exception: %s", otp_err)
+
+                    if is_otp_needed and not otp_issue_ok:
+                        logger.error(
+                            "STOP: OTP challenge open for docId=%s without verified IssueDocumentByOtp — refusing SUCCESS",
+                            doc_id,
+                        )
+                        return
 
                 if not doc_no and doc_id:
                     logger.info("Fetching tracking code for document ID %s...", doc_id)
                     tr_res = await client.get_tracking_code(str(doc_id))
                     logger.info("Tracking code response: %s", tr_res)
-                    if isinstance(tr_res.get("obj"), (int, str)):
-                        doc_no = str(tr_res["obj"])
-                    elif isinstance(tr_res.get("obj"), dict):
-                        doc_no = tr_res["obj"].get("trackingCode") or tr_res["obj"].get("docNo")
+                    if str(tr_res.get("resultCode", "")).strip() in {"0", "200"}:
+                        if isinstance(tr_res.get("obj"), (int, str)):
+                            doc_no = str(tr_res["obj"])
+                        elif isinstance(tr_res.get("obj"), dict):
+                            doc_no = tr_res["obj"].get("trackingCode") or tr_res["obj"].get("docNo")
 
-                if doc_no:
-                    logger.info("Successfully obtained Document No: %s", doc_no)
+                if doc_id and doc_no:
+                    logger.info("Verified registration: docId=%s docNo=%s", doc_id, doc_no)
                     break
             except UtcmsMobileApiError as e:
-                if e.result_code == 4003 or "کد امنیتی" in str(e):
-                    logger.warning("Captcha answer %r was incorrect (resultCode 4003). Retrying with fresh captcha...", answer_digits)
+                if str(e.result_code) == "401" or "منقضی" in str(e):
+                    # UTCMS session expired mid-loop ("ورود شما منقضی شده
+                    # است"): re-authenticate and retry. Each retry consumes
+                    # one of the 7 bounded captcha attempts, so this cannot
+                    # loop forever.
+                    logger.warning("Insert session expired (401); re-authenticating and retrying...")
+                    try:
+                        TOKEN_FILE.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                    client = await get_authenticated_client()
                     await asyncio.sleep(1)
                     continue
-                logger.error("Insert Document error: status=%s, code=%s, msg=%s, body=%s",
-                             e.status_code, e.result_code, e.result_message, e.response_body)
+                if e.result_code == 4003 or "کد امنیتی" in str(e) or str(e.result_code) == "4003":
+                    logger.warning(
+                        "Captcha answer %r was rejected (resultCode %s). Saving image+prediction artifact and retrying...",
+                        answer_digits,
+                        e.result_code,
+                    )
+                    try:
+                        from app.automation.captcha.debug_artifacts import save_rejection_artifact
+
+                        save_rejection_artifact(
+                            b64_img,
+                            prediction=answer_digits,
+                            result_code=e.result_code,
+                            provider="cnn",
+                            expression=cand.expression,
+                            confidence=float(cand.confidence),
+                            form_id=1,
+                            extra={"script": "execute_job_109_mobile", "attempt": cap_attempt},
+                        )
+                    except Exception as art_exc:
+                        logger.warning("captcha artifact save failed: %s", art_exc)
+                    if insert_raw is None:
+                        # response body may only be on the exception
+                        pass
+                    await asyncio.sleep(1)
+                    continue
+                logger.error(
+                    "Insert Document error: status=%s, code=%s, msg=%s, body=%s",
+                    e.status_code,
+                    e.result_code,
+                    e.result_message,
+                    e.response_body,
+                )
                 raise
 
-    if not doc_no:
-        logger.error("Could not obtain document number.")
+    if not (doc_id and doc_no):
+        logger.error("FAILED (no false success): doc_id=%r doc_no=%r — not updating job to SUCCESS", doc_id, doc_no)
         return
 
     logger.info("========================================================")
-    logger.info("✅ WAYBILL REGISTERED! DocNo: %s, DocId: %s", doc_no, doc_id)
+    logger.info(
+        "VERIFIED WAYBILL REGISTERED (resultCode success + docId + docNo): DocNo: %s, DocId: %s", doc_no, doc_id
+    )
     logger.info("========================================================")
 
     # 6. Start Shipping with Fake GPS (Taleqan: 36.1764, 50.7633)
@@ -365,23 +473,25 @@ async def execute():
         try:
             finish_res = await client.register_end_of_shipping(
                 document_id=str(doc_id or doc_no),
-                gps_list=[
-                    {"lat": lat, "lon": lon, "speed": 0, "alt": alt, "time": datetime.now().isoformat()}
-                ],
+                gps_list=[{"lat": lat, "lon": lon, "speed": 0, "alt": alt, "time": datetime.now().isoformat()}],
                 allow_live_submit=True,
             )
             logger.info("Finish shipping (v2) response: %s", finish_res)
         except Exception as e2:
             logger.error("Fallback finish shipping failed: %s", e2)
 
-    # 8. Reconcile and update database
+    # 8. Reconcile and update database — ONLY after verified docId+docNo
+    if not (doc_id and doc_no):
+        logger.error("Refusing DB SUCCESS: missing verified doc_id/doc_no (doc_id=%r doc_no=%r)", doc_id, doc_no)
+        return
+
     logger.info("Updating WaybillJob 109 with success status and witnesses...")
     async with async_session_factory() as session:
         job = (await session.exec(select(WaybillJob).where(WaybillJob.id == 109))).first()
         if job:
             job.status = TaskStatus.SUCCESS.value
             job.mutation_status = "confirmed"
-            job.document_id = str(doc_no)
+            job.document_id = str(doc_id)
             job.last_error = None
             job.error_category = None
             job.reconciled_at = datetime.now(UTC).replace(tzinfo=None)
@@ -391,12 +501,19 @@ async def execute():
                 "document_id": str(doc_id),
                 "tracking_code": str(doc_no),
                 "transport": "android_mobile_client",
+                "verified_result_code": True,
                 "start_shipping": start_res,
                 "finish_shipping": finish_res,
                 "gps_origin": {"lat": lat, "lon": lon, "provider": "fake_traveler_virtual"},
             }
             await session.commit()
-            logger.info("🎉 SUCCESS! Job 109 updated successfully: document_id=%s, status=SUCCESS", doc_no)
+            logger.info(
+                "VERIFIED SUCCESS: Job 109 document_id=%s doc_no=%s status=SUCCESS (docId+docNo present, business resultCode ok)",
+                doc_id,
+                doc_no,
+            )
+        else:
+            logger.error("Job 109 not found during final update — no DB write")
 
 
 if __name__ == "__main__":

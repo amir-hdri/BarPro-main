@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -8,6 +9,7 @@ class CaptchaResult:
     provider: str
     value: str | None = None
     error: str | None = None
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 class CaptchaProvider(ABC):

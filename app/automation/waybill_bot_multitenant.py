@@ -443,6 +443,15 @@ class WaybillAutomationBot:
                             max_insert_attempts,
                         )
                         try:
+                            dump = getattr(client, "dump_captcha_rejection", None)
+                            if callable(dump):
+                                dump(
+                                    exc.result_code,
+                                    extra={"attempt": ins_attempt, "form_id": 1},
+                                )
+                        except Exception as dump_exc:
+                            logger.debug("captcha rejection artifact failed: %s", dump_exc)
+                        try:
                             _, issue_cap_token = await client.auto_solve_captcha(form_id=1)
                             continue
                         except Exception:
@@ -465,9 +474,13 @@ class WaybillAutomationBot:
 
             if otp_required is True:
                 # Check if OTP code arrived in Redis from the driver forwarder webhook or direct payload
-                otp_code = str(payload.get("driver_otp") or payload.get("otp_code") or payload.get("otp") or "").strip() or None
+                otp_code = (
+                    str(payload.get("driver_otp") or payload.get("otp_code") or payload.get("otp") or "").strip()
+                    or None
+                )
                 try:
                     from app.core.redis_client import redis_manager
+
                     redis = await redis_manager.get()
                     if redis is not None:
                         # Cache pending document session for operator manual submit if needed
@@ -511,7 +524,9 @@ class WaybillAutomationBot:
                 if otp_code and document_id:
                     logger.info("Submitting IssueDocumentByOtp for docId=%s with OTP=%s", document_id, otp_code)
                     try:
-                        issue_res = await client.issue_document_by_otp(str(document_id), str(otp_code), allow_live_submit=True)
+                        issue_res = await client.issue_document_by_otp(
+                            str(document_id), str(otp_code), allow_live_submit=True
+                        )
                         otp_tracking = client.extract_tracking_code(issue_res) or (
                             issue_res.get("obj", {}).get("docNo") if isinstance(issue_res.get("obj"), dict) else None
                         )

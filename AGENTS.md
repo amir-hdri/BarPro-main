@@ -246,12 +246,24 @@ URL/Data URI and has no direct tracking-code column.
   `START_MINUTE=30`) is a configurable **prediction** of
   `OTP_REQUIRED`, not a guaranteed UTCMS schedule. Only a current
   `OTP_FREE` observation permits submission; unknown/degraded states fail closed.
+- **Documented exception (mobile/OTP transport, 2026-09-23):** when
+  `UTCMS_TRANSPORT` is `mobile`/`shadow`, or the job payload sets
+  `transport=mobile` or `allow_otp_flow=true`, the pre-mutation gate may be
+  skipped so execution can create the document and receive the driver OTP
+  challenge (`isOtpNeeded`), then complete via `IssueDocumentByOtp`. Web RPA
+  without that flag remains fail-closed on `otp_required` / `gate_unknown`.
+  This is an intentional contract change from pure `OTP_FREE`-only mutation;
+  do not remove the flag without restoring fail-closed behavior for mobile.
 - `CAPTCHA_PROVIDER=auto` uses CNN → PyTorch Fuel CRNN → Keras → Enhanced OCR →
   Local OCR.
 - Keras lazy-loads and runs in-process in each Worker. `KERAS_PYTHON_PATH` is a
   legacy compatibility setting and is not consumed by the current solver.
 - Accuracy and latency numbers require a versioned benchmark artifact; do not copy
   unsupported percentages into operational documentation.
+- On UTCMS business rejection `4003` (wrong captcha), the mobile client must
+  raise so retry loops fire; rejection artifacts (image + model prediction)
+  are written under `/tmp/captcha_rejections/` via
+  `app/automation/captcha/debug_artifacts.py`.
 
 ## Common Pitfalls
 
