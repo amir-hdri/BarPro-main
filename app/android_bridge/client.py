@@ -292,8 +292,7 @@ class AndroidBridge:
     async def probe(self) -> DeviceObservation:
         self._require_enabled()
         try:
-            async with asyncio.timeout(self.config.observation_timeout):
-                return await self._probe()
+            return await asyncio.wait_for(self._probe(), timeout=self.config.observation_timeout)
         except TimeoutError:
             raise BridgeError("observation_timeout") from None
 
