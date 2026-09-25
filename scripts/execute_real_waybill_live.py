@@ -195,13 +195,10 @@ async def main() -> None:
     # Update Job in PostgreSQL to confirmed success
     async with async_session_factory() as session:
         job = (await session.exec(select(WaybillJob).where(WaybillJob.id == db_job_id))).first()
-        if job:
             JobStateMachine.transition(
                 session,
                 job,
                 TaskStatus.SUCCESS.value,
-                document_id=str(doc_id),
-                tracking_code=str(tracking_code),
                 mutation_status="confirmed",
                 reconciled_at=_utcnow_naive(),
                 finished_at=_utcnow_naive(),
