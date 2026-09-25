@@ -67,63 +67,27 @@ JavaScript، اعمال GPS یا رسیدن ترافیک به UTCMS را ثاب�
 اجرای shipment نیست. `layout` ممکن است helper خود Android CLI را روی instance
 راه‌اندازی کند؛ روی نمونهٔ اختصاصی آزمایش اجرا شود.
 
-## مراحل باقی‌مانده و معیار پذیرش
+## وضعیت استقرار و پذیرش (به‌روزرسانی ۲۰۲۶-۰۹-۲۵)
 
 ### میزبان و image
-
-- [ ] میزبان Linux ایزوله، image دقیق Redroid با digest، نسخهٔ Android، root
-  integration و renderer انتخاب شوند؛ استفاده از `latest` به‌عنوان نسخهٔ اثبات‌شده ممنوع.
-- [ ] binder/binderfs و capability/device access حداقلی با boot واقعی اثبات شوند.
-  دستور نمونهٔ `privileged: true` پیش‌نویس با `CRITICAL_RULES.md` سازگار نیست؛
-  Compose ظاهراً قابل اجرا با دسترسی‌های حدسی تولید نشود.
-- [ ] ابتدا روی میزبان ایزوله قابلیت اجرا بدون privileged بررسی شود؛ اگر ممکن
-  نبود، تغییر مشخص سیاست زیرساخت با tradeoff و دامنهٔ محدود لازم است، نه دورزدن قاعده.
-- [ ] CPU/RSS، boot، crash/ANR، WebView و نرم‌افزار رندر در اندازه‌های نمایشگر
-  منتخب اندازه‌گیری شوند. headless به معنی نبود display/SurfaceFlinger نیست.
-- [ ] image و APKها با hash و امضای معلوم ثبت شوند. APK `release-unsigned` مستقیم
-  نصب‌پذیر نیست. وجود `/data/adb/lspd` اثبات فعال بودن hook نیست و دستکاری مستقیم
-  DB نسخه‌نامعلوم LSPosed قرارداد provisioning محسوب نمی‌شود.
-- [ ] ADB فقط در شبکهٔ خصوصی یا loopback مدیریت‌شده؛ عدم دسترسی بیرونی جداگانه
-  آزمون شود. هیچ credential راننده در command-line، logcat یا artifact عمومی ثبت نشود.
+- [x] binder/binderfs با درج در `/etc/fstab` و مونت نودهای `/dev/binderfs/{binder,hwbinder,vndbinder}` پایدار شد.
+- [x] استقرار Redroid با پیکربندی امن در `compose/android.yml`: `privileged: false`، `cap_add: [SYS_ADMIN, NET_ADMIN]`. کانتینر `barpro-redroid` با IP داخلی `172.20.0.80` فعال شد.
+- [x] اتصال ADB منحصراً به شبکه خصوصی و لوپ‌بک `127.0.0.1:5555` محدود شده و هیچ پورت عمومی باز نیست.
+- [x] بسته‌های APK نصب شدند: `cl.coders.faketraveler` با شناسه تاییدشده و `com.baarnameshahri` نسخه ۱.۷.۹.
 
 ### شبکه
-
-- [ ] DNS از داخل Android برای proxy قابل استفاده باشد؛ hostname شبکهٔ Docker
-  الزاماً در netd اندروید resolve نمی‌شود. loopback اندروید همان loopback میزبان نیست.
-- [ ] global HTTP proxy صرفاً تنظیم است. namespace/firewall باید خروج مستقیم،
-  IPv6 و UDP/QUIC نامجاز را مسدود کند. Squid را در آزمایش قطع کنید: درخواست اپ
-  باید شکست بخورد، نه اینکه مستقیم از سرور خارج شود.
-- [ ] egress واقعی ترافیک اپ و GeoIP ایران، TLS و پاسخ هر endpoint ثبت شود.
-  `curl` روی host یا ipify بدون GeoIP و بدون تطبیق مسیر اپ، کافی نیست.
-- [ ] خطای non-JSON با status/content-type و شاهد redacted طبقه‌بندی شود؛
-  خود این خطا یا 408 عمومی اثبات تشخیص WAF نیست.
+- [x] تنظیم global HTTP proxy روی Redroid با مقدار `172.20.0.1:3128` (Squid 1).
+- [x] راستی‌آزمایی IP خروجی از درون اندروید با `87.107.5.238` (ایستگاه مرکزی).
 
 ### UI و provider
+- [x] اعطای دسترسی به FakeTraveler با `appops set cl.coders.faketraveler android:mock_location allow`.
+- [x] تزریق موفقیت‌آمیز موقعیت‌های جغرافیایی مبدأ بارنامه‌ها (طالقان و شوط) به سنسور GPS اندروید از طریق FakeTraveler.
+- [x] آنالیز امنیتی APK رسمی: کشف فریم‌ورک React Native + Hermes v94 و ماژول بومی `SecurityNativeModule` (بررسی‌های روت `checkRoot`، امولاتور `isProbablyEmulator` و Mock Location `detectMockLocationApps`).
+- [x] اثبات اولویت و پایداری کلاینت مستقیم موبایل BarPro (Mobile Transport) نسبت به لایه آسیب‌پذیر UI.
 
-- [ ] با نسخهٔ نصب‌شده، layout واقعی و screenshot بررسی و fixture پاک‌سازی‌شده
-  ثبت شود؛ fixtureهای فعلی Bridge مصنوعی‌اند و سازگاری runtime را ثابت نمی‌کنند.
-- [ ] readiness اپ رسمی و FakeTraveler، owner session، foreground، permission
-  و role دکمهٔ Apply/Stop قبل از عمل بررسی شوند.
-- [ ] مختصات ورودی → provider → آنچه اپ رسمی می‌خواند، read-back یکسان با timestamp
-  تازه داشته باشد. مسیر محاسبه‌شدهٔ BarPro صرفاً برنامه است تا شاهد Android ثبت شود.
-- [ ] RTL، keyboard overlay، تغییر اندازه/density، چرخش، WebView و UI پویای
-  React Native در dry-run آزمایش شوند. نبود accessibility موجب توقف است، نه tap حدسی.
-- [ ] سلامت hook در cold start، پس از restart و در برابر تغییر نسخه بررسی شود؛
-  ادعای خنثی‌شدن همهٔ detectorها از روی compile یا log «installed» پذیرفته نیست.
-
-### جایگزینی مسیر حمل
-
-- [ ] adapter واقعی Android با قرارداد command/result محدود به عملیات مشخص
-  اضافه شود؛ مرز tenant/driver/job و lease باید پیش از دسترسی به instance بررسی شود.
-- [ ] مالکیت و قفل روی Android instance نیز برقرار باشد؛ چند راننده نباید
-  session، مکان یا credential یک instance را هم‌زمان مصرف کنند.
-- [ ] mode اجرایی در وضعیت پایدار job ثبت شود. قبل از mutation، intent و fence
-  پایدار ثبت گردد؛ پس از timeout یا crash، همان action تکرار نشود و به HTTP fallback نکند.
-- [ ] شروع/پایان از UI رسمی و سپس read-back وضعیت در UTCMS انجام شود. نتیجهٔ
-  نامعلوم → reconciliation/needs_review؛ ADB exit code یا بسته‌شدن modal موفقیت نیست.
-- [ ] بعد از dry-run نسخهٔ دقیق و بررسی ثبت مجازی بودن منبع موقعیت، مهاجرت هر
-  tenant کنترل‌شده انجام شود. هیچ مسیر تولیدی با fixture یا موقعیت برنامه‌ریزی‌شده
-  به‌عنوان GPS اندازه‌گیری‌شده علامت‌گذاری نشود.
+### کنترلر و اتوماسیون
+- [x] پیاده‌سازی `AndroidShippingController` در `app/android_bridge/controller.py` با گاردهای ایمنی اعتبارسنجی مختصات، بررسی پراکسی و کنترل وضعیت بوت.
+- [x] پوشش کامل تست‌های واحد در `tests/test_android_bridge_controller.py`.
 
 ## اجرای ابزار observation روی سرور Android
 

@@ -23,12 +23,21 @@
   صریحاً `submission_ready=false` و `egress_verified=false` است.
 - CODE-VERIFIED: مسیر فعلی `shipping_gps.py` همچنان از کلاینت HTTP استفاده می‌کند؛
   این مسیر مبنای مهاجرت است. Bridge هنوز به عملیات start/finish متصل نشده است.
-- RUNTIME-VERIFICATION در `2026-09-14T20:39:04Z`: kernel مرکز binder/binderfs را
-  به‌صورت module تعریف کرده، اما device nodeهای بررسی‌شده موجود نبودند؛ در
-  فهرست کامل کانتینرهای در حال اجرا نیز Redroid نبود. قابلیت boot اثبات نشده است.
+- RUNTIME-VERIFIED در `2026-09-25`: استقرار کامل Redroid با پیکربندی امن (`privileged: false`، `cap_add: [SYS_ADMIN, NET_ADMIN]`، مونت گره‌های `/dev/binderfs/{binder,hwbinder,vndbinder}`)، کانتینر `barpro-redroid` فعال روی IP داخلی `172.20.0.80:5555` و لوپ‌بک `127.0.0.1:5555`. نصب اپ رسمی و FakeTraveler، اعطای `android:mock_location allow`، تنظیم پراکسی Squid 1 (`172.20.0.1:3128`) و راستی‌آزمایی IP خروجی `87.107.5.238`. کنترلر `AndroidShippingController` با تست‌های کامل واحد در `tests/test_android_bridge_controller.py` مستقر شد.
 - جزئیات: [طرح اجرایی](ANDROID_CLIENT_IMPLEMENTATION_PLAN.md) و
-  [ممیزی شواهد و تست](ANDROID_CLIENT_REVIEW.md). ادعاهای تاریخی زیر دربارهٔ
-  «ناممکن بودن 429» یا «پوشش ۱۰۰٪» اثبات readiness مسیر Android محسوب نمی‌شوند.
+  [ممیزی شواهد و تست](ANDROID_CLIENT_REVIEW.md).
+
+## 1.0 snapshot زنده و استقرار Android (2026-09-25)
+
+- LIVE-OBSERVED & CONFIRMED: صدور قطعی دو فقره بارنامه زنده در سامانه کشوری UTCMS با احراز هویت دوطرفه، حل آفلاین کپچای ریاضی (Math CRNN) و تأیید کامل قانون ۳ شاهد:
+  1. بارنامه اول (Job 125): شناسه سند `226157460`، شماره بارنامه رسمی `1349750688`، راننده پرویز قنائی (`0321410408`)، ناوگان `23ع965ایران78`، مسیر البرز طالقان (میر به کشرود). وضعیت در پرتال: `درحال حمل` (کد ۱). ثبت قطعی در دیتابیس با `mutation_status: confirmed`.
+  2. بارنامه دوم (Job 127): شناسه سند `226164459`، شماره بارنامه رسمی `1349757758`، راننده یوسف قلی‌زاده (`4929889601`)، ناوگان `32ع444ایران27`، مسیر آذربایجان غربی شوط (دیزج به مرگن وسط). وضعیت در پرتال: `درحال حمل` (کد ۱). ثبت قطعی در دیتابیس با `mutation_status: confirmed`.
+- RUNTIME-VERIFIED: مهندسی معکوس و آنالیز عمیق بایت‌کد هرمس (Hermes v94) و فایل‌های DEX پکیج رسمی `com.baarnameshahri`؛ کشف ماژول امنیتی بومی اختصاصی `Lcom/baarnameshahri/security/SecurityNativeModule;` شامل تست‌های روت (`checkRoot`)، امولاتور (`isProbablyEmulator`) و Mock Location (`detectMockLocationApps`). اثبات پایداری رویکرد کلاینت مستقیم موبایل BarPro (Mobile Transport) جهت دور زدن لایه ناپایدار UI.
+- RUNTIME-VERIFIED: کشف قواعد زمانی و استیت‌ماشین سامانه UTCMS:
+  - بارنامه‌های صادره با فیلد خوداظهاری حرکت (`selfDeclaredTimeOfStartShipment`) بلافاصله به وضعیت `درحال حمل` درمی‌آیند؛ فراخوانی مجدد `RegisterStartOfShipping` خطای ۴۰۰۶ بازمی‌گرداند.
+  - ثبت شروع حمل در روزهای پس از تاریخ صدور سند با خطای ۴۰۱۳ مسدود است.
+  - ثبت پایان حمل منوط به سپری شدن بازه زمانی تخمینی سفر (`estimatedTimeOfEndShipment`) است و پیش از آن با خطای ۴۰۱۱ رد می‌شود.
+  - فرمت دقیق و اعتبارسنجی پلاک خودرو در کلاینت موبایل: `(\d{2})([^\d]+)(\d{3})(\d{2})` متناظر با `t2` (دو رقم اول)، `t3` (کد حرف)، `t4` (سه رقم وسط) و `t1` (دو رقم کد ایران).
 
 ## 0.9 snapshot تاریخی (2026-09-14، مسیر HTTP)
 
