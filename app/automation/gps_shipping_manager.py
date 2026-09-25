@@ -166,7 +166,6 @@ def normalize_city_name(name: str | None) -> str:
     """نرمال‌سازی نام شهر برای جستجوی دقیق مختصات."""
     if not name or not isinstance(name, str):
         return ""
-    import re
 
     cleaned = (
         name.strip()
@@ -513,22 +512,26 @@ async def get_cached_token(national_code: str) -> str | None:
 
 async def cache_token(national_code: str, token: str, ttl_seconds: int = 240) -> None:
     """Store driver UTCMS bearer token in Redis with TTL (default 240s < 5m expiry)."""
+    if not token or not str(token).strip():
+        return
     r = await _get_redis()
     if r is None:
         return
     try:
-        await r.set(DRIVER_TOKEN_KEY.format(national_code=national_code), token, ex=ttl_seconds)
+        await r.set(DRIVER_TOKEN_KEY.format(national_code=national_code), str(token).strip(), ex=ttl_seconds)
     except Exception as exc:
         logger.warning("cache_token_failed: %s", exc)
 
 
 async def cache_refresh_token(national_code: str, refresh_token: str, ttl_seconds: int = 7000) -> None:
     """Store refresh token with TTL (default 7000s < 120m expiry)."""
+    if not refresh_token or not str(refresh_token).strip():
+        return
     r = await _get_redis()
     if r is None:
         return
     try:
-        await r.set(DRIVER_REFRESH_KEY.format(national_code=national_code), refresh_token, ex=ttl_seconds)
+        await r.set(DRIVER_REFRESH_KEY.format(national_code=national_code), str(refresh_token).strip(), ex=ttl_seconds)
     except Exception as exc:
         logger.warning("cache_refresh_token_failed: %s", exc)
 
@@ -676,10 +679,10 @@ async def get_or_login_client(
                 return UtcmsMobileClient(token=cached, proxy_url=proxy_url)
 
             refresh = await get_cached_refresh_token(national_code)
-            if refresh:
+            if refresh and refresh.strip():
                 client = UtcmsMobileClient(proxy_url=proxy_url)
                 try:
-                    auth = await client.refresh(refresh)
+                    auth = await client.refresh(refresh.strip())
                     await cache_token(national_code, auth.token)
                     if auth.refresh_token:
                         await cache_refresh_token(national_code, auth.refresh_token)
@@ -687,6 +690,10 @@ async def get_or_login_client(
                     return client
                 except Exception as exc:
                     logger.warning("session_vault_refresh_failed: %s, falling back to login", exc)
+                    await invalidate_cached_session(national_code)
+
+            if not password or password in ("dummy", "") or str(password).strip() in ("dummy", ""):
+                raise ValueError(f"رمز عبور راننده برای کد ملی '{national_code}' معتبر نیست")
 
             client = UtcmsMobileClient(proxy_url=proxy_url)
             auth = await _solve_and_login_with_retry(client, national_code, password)
@@ -898,15 +905,19 @@ __all__ = [
     "ShippingStatePersistenceError",
     "cache_refresh_token",
     "cache_token",
+    "calculate_realistic_road_distance",
+    "estimate_travel_duration_hours",
     "extract_coordinates_from_payload",
+    "find_city_coordinates",
     "get_cached_refresh_token",
     "get_cached_token",
     "get_or_login_client",
-    "invalidate_cached_session",
-    "is_mobile_authentication_error",
     "haversine_km",
     "init_shipping",
     "interpolate_waypoints",
+    "invalidate_cached_session",
+    "is_mobile_authentication_error",
     "load_shipping_state",
+    "normalize_city_name",
     "save_shipping_state",
 ]

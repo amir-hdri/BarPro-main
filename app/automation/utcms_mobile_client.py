@@ -872,10 +872,34 @@ class UtcmsMobileClient:
     @staticmethod
     def extract_tracking_code(response: dict[str, Any]) -> str | None:
         obj = _unwrap_obj(response)
-        for key in ("trackingCode", "tracking_code", "docTrackingCode", "transportDocTrackingCode"):
+        raw_obj = response.get("obj") if isinstance(response, dict) else None
+        if isinstance(raw_obj, (str, int)) and str(raw_obj).strip().isdigit() and len(str(raw_obj).strip()) >= 5:
+            return str(raw_obj).strip()
+        for key in (
+            "trackingCode",
+            "tracking_code",
+            "docTrackingCode",
+            "transportDocTrackingCode",
+            "docNo",
+            "doc_no",
+            "DocNo",
+        ):
             value = obj.get(key)
             if value is not None and str(value).strip():
                 return str(value).strip()
+        for item in _iter_dicts(response):
+            for key in (
+                "trackingCode",
+                "tracking_code",
+                "docTrackingCode",
+                "transportDocTrackingCode",
+                "docNo",
+                "doc_no",
+                "DocNo",
+            ):
+                value = item.get(key)
+                if value is not None and str(value).strip():
+                    return str(value).strip()
         return None
 
     @staticmethod

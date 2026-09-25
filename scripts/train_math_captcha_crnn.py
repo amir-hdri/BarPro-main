@@ -25,8 +25,18 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATASET_DIR = PROJECT_ROOT / "datasets" / "math_captcha"
 IMAGES_DIR = DATASET_DIR / "images"
 LABELS_FILE = DATASET_DIR / "labels.json"
-MODEL_SAVE_PATH = PROJECT_ROOT / "app" / "automation" / "captcha" / "assets" / "math_captcha_crnn.pth"
-VOCAB_SAVE_PATH = PROJECT_ROOT / "app" / "automation" / "captcha" / "assets" / "math_captcha_vocab.json"
+MODEL_SAVE_PATH = Path(
+    os.getenv(
+        "MODEL_SAVE_PATH",
+        str(PROJECT_ROOT / "app" / "automation" / "captcha" / "assets" / "math_captcha_crnn.pth"),
+    )
+)
+VOCAB_SAVE_PATH = Path(
+    os.getenv(
+        "VOCAB_SAVE_PATH",
+        str(PROJECT_ROOT / "app" / "automation" / "captcha" / "assets" / "math_captcha_vocab.json"),
+    )
+)
 
 VOCAB = list("0123456789+-")
 CHAR_TO_IDX = {c: i for i, c in enumerate(VOCAB)}
@@ -179,6 +189,8 @@ def train_model():
                 }
             )
 
+    torch.manual_seed(1337)
+    np.random.seed(1337)
     random.seed(1337)
     random.shuffle(data)
 
@@ -195,11 +207,12 @@ def train_model():
 
     model = MathCRNN(num_classes=len(VOCAB) + 1).to(device)
     criterion = nn.CTCLoss(blank=BLANK_IDX, zero_infinity=True)
-    optimizer = optim.AdamW(model.parameters(), lr=0.002, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=35, eta_min=1e-5)
+    optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-4)
+    epochs = int(os.getenv("EPOCHS", "30"))
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-5)
 
-    epochs = 35
     best_acc = 0.0
+    best_state = None
 
     for epoch in range(1, epochs + 1):
         model.train()
@@ -215,7 +228,7 @@ def train_model():
 
             loss = criterion(logits, flat_targets, input_lengths, target_lengths)
             loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+            nn.utils.clip_norm = nn.utils.clip_grad_norm_(model.parameters(), 5.0)
             optimizer.step()
             train_loss += loss.item() * images.size(0)
 
@@ -232,7 +245,6 @@ def train_model():
                 logits = model(images)
                 decoded = decode_ctc(logits, VOCAB)
 
-                # Decode ground truth
                 cur = 0
                 for i, length in enumerate(target_lengths):
                     tgt_indices = flat_targets[cur : cur + length].tolist()
@@ -244,24 +256,29 @@ def train_model():
                     total_val += 1
 
         val_acc = val_correct / max(1, total_val)
-        if epoch % 5 == 0 or epoch == epochs or val_acc > best_acc:
+        if epoch % 2 == 0 or epoch == epochs or val_acc > best_acc:
             print(f"Epoch {epoch:02d}/{epochs:02d} | Train Loss: {train_loss:.4f} | Val Accuracy: {val_acc * 100:.2f}%")
 
-        if val_acc > best_acc and val_acc > 0.85:
+        if val_acc > best_acc:
             best_acc = val_acc
-            # Save checkpoint
-            MODEL_SAVE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            torch.save(
-                {
-                    "model_state": model.state_dict(),
-                    "vocab": VOCAB,
-                    "img_w": IMG_W,
-                    "img_h": IMG_H,
-                },
-                MODEL_SAVE_PATH,
-            )
-            with open(VOCAB_SAVE_PATH, "w", encoding="utf-8") as vf:
-                json.dump(VOCAB, vf)
+            best_state = {k: v.cpu() for k, v in model.state_dict().items()}
+
+    # Save best checkpoint
+    MODEL_SAVE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    save_state = best_state if best_state is not None else {k: v.cpu() for k, v in model.state_dict().items()}
+    torch.save(
+        {
+            "model_state": save_state,
+            "vocab": VOCAB,
+            "img_w": IMG_W,
+            "img_h": IMG_H,
+            "best_acc": best_acc,
+        },
+        MODEL_SAVE_PATH,
+    )
+    with open(VOCAB_SAVE_PATH, "w", encoding="utf-8") as vf:
+        json.dump(VOCAB, vf)
+
 
     print(f"Best Validation Accuracy: {best_acc * 100:.2f}%")
     print(f"Model saved to: {MODEL_SAVE_PATH}")

@@ -1256,7 +1256,7 @@ async def _execute_job(
                 }
 
             job_timeout = getattr(utcms_config, "JOB_TIMEOUT_SECONDS", 900)
-            if utcms_config.UTCMS_TRANSPORT in {"mobile", "shadow"}:
+            if is_mobile_transport:
                 worker_proxy_url = get_worker_proxy_url()
                 bot = WaybillAutomationBot(page=None, context=None, proxy_url=worker_proxy_url)
                 try:

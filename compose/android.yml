@@ -1,0 +1,44 @@
+version: "3.8"
+
+services:
+  redroid:
+    image: redroid/redroid:11.0.0-latest
+    container_name: barpro-redroid
+    restart: unless-stopped
+    privileged: false
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
+    security_opt:
+      - apparmor:unconfined
+      - seccomp:unconfined
+    devices:
+      - /dev/binderfs/binder:/dev/binder
+      - /dev/binderfs/hwbinder:/dev/hwbinder
+      - /dev/binderfs/vndbinder:/dev/vndbinder
+    volumes:
+      - barpro_redroid_data:/data
+    ports:
+      - "127.0.0.1:5555:5555"
+    networks:
+      barpro_platform:
+        ipv4_address: 172.20.0.80
+    command:
+      - androidboot.redroid_width=720
+      - androidboot.redroid_height=1280
+      - androidboot.redroid_dpi=240
+      - androidboot.redroid_fps=15
+      - androidboot.redroid_gpu_mode=guest
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  barpro_redroid_data:
+    name: barpro_redroid_data
+
+networks:
+  barpro_platform:
+    external: true

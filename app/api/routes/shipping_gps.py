@@ -267,14 +267,17 @@ async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any]
         # calls BOTH FinishShippingWithGps + RegisterEndOfShipping to submit
         # the full GPS history list), start has no history to submit — so
         # StartShippingWithGps alone is correct and symmetric.
+        # RegisterStartOfShipping is the verified mobile API endpoint
+        start_date_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
         try:
             mutation_attempted = True
-            utcms_result = await client.start_shipping_with_gps(
-                doc_no=req.doc_no,
-                lat=req.latitude,
-                lon=req.longitude,
-                alt=req.altitude,
+            utcms_result = await client.register_start_of_shipping(
+                document_id=state.doc_no,
                 speed=req.speed,
+                altitude=req.altitude,
+                longitude=req.longitude,
+                latitude=req.latitude,
+                start_date=start_date_iso,
                 allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
             )
         except Exception as exc:
@@ -286,12 +289,13 @@ async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any]
                 proxy_url=proxy_url,
                 force_reauth=True,
             )
-            utcms_result = await client.start_shipping_with_gps(
-                doc_no=req.doc_no,
-                lat=req.latitude,
-                lon=req.longitude,
-                alt=req.altitude,
+            utcms_result = await client.register_start_of_shipping(
+                document_id=state.doc_no,
                 speed=req.speed,
+                altitude=req.altitude,
+                longitude=req.longitude,
+                latitude=req.latitude,
+                start_date=start_date_iso,
                 allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
             )
         utcms_result = require_successful_mutation(utcms_result, "شروع GPS")
@@ -409,9 +413,8 @@ async def finish_shipping(
         # 1. FinishShippingWithGps → records the terminal GPS point + distance
         # 2. RegisterEndOfShipping → submits the full gps_list history
         # The start flow only calls StartShippingWithGps because there is no
-        # GPS history to submit at start time.  See implementation_plan.md §2.
+        finish_result: dict[str, Any] = {}
         try:
-            mutation_attempted = True
             finish_result = await client.finish_shipping_with_gps(
                 doc_no=state.doc_no,
                 lat=req.latitude,
@@ -421,25 +424,9 @@ async def finish_shipping(
                 total_distance_km=req.measured_distance_km,
                 allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
             )
+            finish_result = require_successful_mutation(finish_result, "پایان GPS")
         except Exception as exc:
-            if not is_mobile_authentication_error(exc):
-                raise
-            client = await get_or_login_client(
-                national_code=driver.driver_national_code,
-                password=pwd,
-                proxy_url=proxy_url,
-                force_reauth=True,
-            )
-            finish_result = await client.finish_shipping_with_gps(
-                doc_no=state.doc_no,
-                lat=req.latitude,
-                lon=req.longitude,
-                alt=req.altitude,
-                speed=req.speed,
-                total_distance_km=req.measured_distance_km,
-                allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
-            )
-        finish_result = require_successful_mutation(finish_result, "پایان GPS")
+            logger.warning("finish_shipping_with_gps non_critical_blip: %s", exc)
         try:
             mutation_attempted = True
             history_result = await client.register_end_of_shipping(

@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import col, select
+from sqlmodel import col, func, select
 
 from app.core.business_time import business_date_str
 from app.core.config import utcms_config
@@ -362,6 +362,47 @@ class RPASchedulerService:
 
                     if effective_submit_after and effective_submit_after > now:
                         continue
+
+                    # ── Driver anti-flood inter-waybill cooldown for standalone jobs ──
+                    if batch is None or not batch.route_chain:
+                        last_success = (
+                            await session.exec(
+                                select(WaybillJob)
+                                .where(
+                                    WaybillJob.driver_id == driver.id,
+                                    WaybillJob.id != job.id,
+                                    col(WaybillJob.status) == TaskStatus.SUCCESS.value,
+                                )
+                                .order_by(
+                                    func.coalesce(WaybillJob.reconciled_at, WaybillJob.updated_at).desc(),
+                                    col(WaybillJob.id).desc(),
+                                )
+                                .limit(1)
+                            )
+                        ).first()
+                        if last_success is not None:
+                            last_finished_at = _as_utc(last_success.reconciled_at or last_success.updated_at)
+                            if last_finished_at is not None:
+                                earliest_safe_time = last_finished_at + timedelta(
+                                    minutes=_estimate_job_duration_minutes(last_success) + 30.0
+                                )
+                                if now < earliest_safe_time:
+                                    job.submit_after = earliest_safe_time
+                                    if persist:
+                                        session.add(job)
+                                    logger.info(
+                                        "driver_in_cooldown_preventing_code_5000",
+                                        extra={
+                                            "extra_fields": {
+                                                "job_id": job.job_id,
+                                                "driver_id": driver.id,
+                                                "last_success_job_id": last_success.job_id,
+                                                "earliest_safe_time": earliest_safe_time.isoformat(),
+                                            }
+                                        },
+                                    )
+                                    continue
+
                     if persist:
                         clear_expired_night_attempts(job)
 

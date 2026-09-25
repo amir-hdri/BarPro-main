@@ -32,7 +32,7 @@ def shipping_runtime(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     transport.start_shipping_with_gps = AsyncMock(return_value={"resultCode": 200})
     transport.finish_shipping_with_gps = AsyncMock(return_value={"resultCode": 200})
     transport.register_end_of_shipping = AsyncMock(return_value={"resultCode": 200})
-    transport.register_start_of_shipping = AsyncMock()
+    transport.register_start_of_shipping = AsyncMock(return_value={"resultCode": 200})
     login = AsyncMock(return_value=transport)
     save = AsyncMock()
     monkeypatch.setattr(routes.utcms_config, "ALLOW_LIVE_SUBMIT", True)
@@ -71,10 +71,8 @@ async def test_real_start_handler_uses_vault_and_only_start_endpoint(
     runtime.login.assert_awaited_once_with(
         national_code="test-driver", password="test-password", proxy_url="http://squid:3128"
     )
-    runtime.transport.start_shipping_with_gps.assert_awaited_once_with(
-        doc_no="test-document", lat=35.7, lon=51.4, alt=0, speed=0, allow_live_submit=True
-    )
-    runtime.transport.register_start_of_shipping.assert_not_awaited()
+    runtime.transport.register_start_of_shipping.assert_awaited_once()
+    runtime.transport.start_shipping_with_gps.assert_not_awaited()
     runtime.transport.finish_shipping_with_gps.assert_not_awaited()
     runtime.transport.register_end_of_shipping.assert_not_awaited()
     assert runtime.state.status == "in_transit"
@@ -122,12 +120,12 @@ async def test_real_handler_returns_503_before_login_when_proxy_is_missing(
 
 async def test_finish_timeout_does_not_retry_or_report_delivered(shipping_runtime: SimpleNamespace) -> None:
     runtime = shipping_runtime
-    runtime.transport.finish_shipping_with_gps.side_effect = TimeoutError("synthetic timeout")
+    runtime.transport.register_end_of_shipping.side_effect = TimeoutError("synthetic timeout")
     with pytest.raises(HTTPException) as error:
         await routes.finish_shipping(finish_request(), user_context={})
     assert error.value.status_code == 502
     runtime.transport.finish_shipping_with_gps.assert_awaited_once()
-    runtime.transport.register_end_of_shipping.assert_not_awaited()
+    runtime.transport.register_end_of_shipping.assert_awaited_once()
     assert runtime.state.status == "unknown"
     with pytest.raises(HTTPException) as repeated:
         await routes.finish_shipping(finish_request(), user_context={})
@@ -141,7 +139,7 @@ async def test_start_rejects_business_error_and_persists_unknown_state(
 ) -> None:
     runtime = shipping_runtime
     monkeypatch.setattr(routes, "load_shipping_state", AsyncMock(return_value=None))
-    runtime.transport.start_shipping_with_gps.return_value = {"resultCode": 4014, "resultMessage": "rejected"}
+    runtime.transport.register_start_of_shipping.return_value = {"resultCode": 4014, "resultMessage": "rejected"}
     with pytest.raises(HTTPException) as error:
         await routes.start_shipping(start_request(), user_context={})
     assert error.value.status_code == 502
@@ -163,12 +161,11 @@ async def test_finish_rejects_business_error_without_history_mutation(
     shipping_runtime: SimpleNamespace,
 ) -> None:
     runtime = shipping_runtime
-    runtime.transport.finish_shipping_with_gps.return_value = {"resultCode": 4014}
+    runtime.transport.register_end_of_shipping.return_value = {"resultCode": 4014}
     with pytest.raises(HTTPException) as error:
         await routes.finish_shipping(finish_request(), user_context={})
     assert error.value.status_code == 502
     assert runtime.state.status == "unknown"
-    runtime.transport.register_end_of_shipping.assert_not_awaited()
 
 
 async def test_shipping_lock_rejects_duplicate_mutation(

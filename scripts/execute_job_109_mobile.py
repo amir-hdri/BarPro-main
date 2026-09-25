@@ -502,17 +502,19 @@ async def execute():
     )
     logger.info("========================================================")
 
-    # 6. Start Shipping with Fake GPS (Taleqan: 36.1764, 50.7633)
-    lat = 36.1764
-    lon = 50.7633
+    # 6. Start Shipping with Fake GPS (Taleqan Origin: Mir 36.2611, 50.4423)
+    orig_lat = structured_payload["origin"]["lat"]
+    orig_lon = structured_payload["origin"]["lon"]
+    dest_lat = structured_payload["destination"]["lat"]
+    dest_lon = structured_payload["destination"]["lon"]
     alt = 1200.0
-    logger.info("Registering Start of Shipping with GPS: lat=%s, lon=%s, alt=%s", lat, lon, alt)
+    logger.info("Registering Start of Shipping with GPS: lat=%s, lon=%s, alt=%s", orig_lat, orig_lon, alt)
     start_res = None
     try:
         start_res = await client.start_shipping_with_gps(
             doc_no=str(doc_no),
-            lat=lat,
-            lon=lon,
+            lat=orig_lat,
+            lon=orig_lon,
             alt=alt,
             speed=0.0,
             allow_live_submit=True,
@@ -525,8 +527,8 @@ async def execute():
                 document_id=str(doc_id or doc_no),
                 speed=0,
                 altitude=alt,
-                longitude=lon,
-                latitude=lat,
+                longitude=orig_lon,
+                latitude=orig_lat,
                 start_date=datetime.now().strftime("%Y/%m/%d %H:%M:%S"),
                 allow_live_submit=True,
             )
@@ -534,16 +536,16 @@ async def execute():
         except Exception as e2:
             logger.error("Fallback start shipping failed: %s", e2)
 
-    # 7. Complete / Finish Shipping with Fake GPS
-    logger.info("Registering End of Shipping with GPS: lat=%s, lon=%s", lat, lon)
+    # 7. Complete / Finish Shipping with Fake GPS (Taleqan Dest: Keshrud 36.1696, 50.6119, ~20.5 km)
+    logger.info("Registering End of Shipping with GPS: lat=%s, lon=%s, distance=20.5 km", dest_lat, dest_lon)
     finish_res = None
     try:
         finish_res = await client.finish_shipping_with_gps(
             doc_no=str(doc_no),
-            lat=lat,
-            lon=lon,
+            lat=dest_lat,
+            lon=dest_lon,
             alt=alt,
-            total_distance_km=0.5,
+            total_distance_km=20.5,
             speed=0.0,
             allow_live_submit=True,
         )

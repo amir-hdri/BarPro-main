@@ -29,6 +29,7 @@ async def test_scheduler_holds_jobs_when_gate_closed():
     with (
         patch("app.core.redis_client.redis_manager.get", new=AsyncMock(return_value=None)),
         patch("app.services.rpa_scheduler_service.async_session_factory", async_session),
+        patch.object(utcms_config, "UTCMS_TRANSPORT", "web"),
     ):
         async with async_session() as session:
             client = Client(
@@ -306,6 +307,7 @@ async def test_route_chain_waits_from_reconciled_completion_and_respects_open_ga
     with (
         patch("app.core.redis_client.redis_manager.get", new=AsyncMock(return_value=None)),
         patch("app.services.rpa_scheduler_service.async_session_factory", async_session),
+        patch.object(utcms_config, "UTCMS_TRANSPORT", "web"),
     ):
         async with async_session() as session:
             client = Client(

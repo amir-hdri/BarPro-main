@@ -472,6 +472,37 @@ class WaybillAutomationBot:
             if tracking_code:
                 result["tracking_code"] = tracking_code
 
+            # Immediate verification: if document_id exists, check if already active on UTCMS with tracking code
+            if document_id and not tracking_code:
+                try:
+                    doc_check = await client.get_document(str(document_id))
+                    chk_tracking = client.extract_tracking_code(doc_check)
+                    obj_check = doc_check.get("obj") if isinstance(doc_check.get("obj"), dict) else {}
+                    chk_status = str(obj_check.get("statusName") or "").strip()
+                    if chk_tracking and ("حمل" in chk_status or obj_check.get("status") == 1):
+                        logger.info(
+                            "Document %s confirmed active on UTCMS (docNo=%s, status=%s), bypassing OTP",
+                            document_id,
+                            chk_tracking,
+                            chk_status,
+                        )
+                        tracking_code = str(chk_tracking)
+                        result["tracking_code"] = tracking_code
+                        otp_required = False
+                except Exception as chk_exc:
+                    logger.debug("Immediate get_document check failed: %s", chk_exc)
+
+            if tracking_code:
+                result["status"] = TaskStatus.SUCCESS.value
+                result["mutation_status"] = "dispatched"
+                result["result"] = build_tracking_received_result(
+                    tracking_code,
+                    document_id=document_id,
+                    transport="mobile",
+                )
+                result["steps"].append({"step": "mobile_insert", "status": "success"})
+                return result
+
             if otp_required is True:
                 # Check if OTP code arrived in Redis from the driver forwarder webhook or direct payload
                 otp_code = (
@@ -630,7 +661,10 @@ class WaybillAutomationBot:
         from app.automation.browser import browser_manager
         from app.services.session_vault import session_vault
 
-        if utcms_config.UTCMS_TRANSPORT in {"mobile", "shadow"}:
+        is_mobile = utcms_config.UTCMS_TRANSPORT in {"mobile", "shadow"} or (
+            isinstance(payload, dict) and payload.get("transport") == "mobile"
+        )
+        if is_mobile:
             try:
                 return await self._execute_mobile_waybill_job(
                     username=username,

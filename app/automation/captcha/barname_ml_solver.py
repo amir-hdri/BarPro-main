@@ -283,14 +283,23 @@ class BarnameMlCaptchaSolver:
         return label, float(scores[label])
 
     def solve_image(self, image: np.ndarray) -> MlMathCaptchaCandidate | None:
-        self._ensure_loaded()
-        if not self._available:
-            return None
-
         # Aspect ratio check: Simple math captcha (X + Y) is never wider than 4.5 aspect ratio.
         # Persian word captchas (e.g. DNTCaptcha) are 6.0 to 12.0 aspect ratio.
         height, width = image.shape[:2]
         if height > 0 and (width / height) > 4.5:
+            return None
+
+        # 1. Primary solver: End-to-end MathCRNN solver (handles +, -, multi-digit operands, noise)
+        try:
+            from app.automation.captcha.math_crnn_solver import math_crnn_solver
+            crnn_cand = math_crnn_solver.solve_image(image)
+            if crnn_cand is not None and crnn_cand.confidence >= 0.40:
+                return crnn_cand
+        except Exception:
+            pass
+
+        self._ensure_loaded()
+        if not self._available:
             return None
 
         best_candidate: MlMathCaptchaCandidate | None = None

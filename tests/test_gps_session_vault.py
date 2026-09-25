@@ -195,3 +195,89 @@ def test_transient_login_error_classifier():
     assert manager._is_transient_login_error(UtcmsMobileApiError("blocked", status_code=444)) is False
     assert manager._is_transient_login_error(UtcmsMobileApiError("nope", result_code=1)) is False
     assert manager._is_transient_login_error(ValueError("boom")) is False
+
+
+@pytest.mark.asyncio
+async def test_get_or_login_client_invalidates_broken_refresh_token(monkeypatch):
+    """When client.refresh fails (transport/non-JSON error), it immediately
+    invalidates the cached session so doomed refresh attempts are not repeated."""
+    calls: list[str] = []
+    invalidated_codes: list[str] = []
+
+    class FakeClient:
+        def __init__(self, *, token=None, proxy_url=None):
+            self.token = token
+
+        @staticmethod
+        def cap_token_from_solution(value):
+            return value[1]
+
+        async def refresh(self, refresh_token):
+            calls.append("refresh")
+            raise UtcmsMobileApiError("UTCMS mobile API returned non-JSON response", status_code=502)
+
+        async def auto_solve_captcha(self, form_id):
+            calls.append("captcha")
+            return "", "fresh-cap"
+
+        async def login(self, national_code, password, cap_token):
+            calls.append("login")
+            self.token = "new-token-after-refresh-fail"
+            return SimpleNamespace(token=self.token, refresh_token="new-refresh-token", expires_at=None)
+
+    _vault_fakes(monkeypatch, FakeClient)
+    monkeypatch.setattr(manager, "get_cached_refresh_token", lambda _: asyncio.sleep(0, result="broken-refresh"))
+
+    orig_invalidate = manager.invalidate_cached_session
+
+    async def mock_invalidate(nc):
+        invalidated_codes.append(nc)
+        await orig_invalidate(nc)
+
+    monkeypatch.setattr(manager, "invalidate_cached_session", mock_invalidate)
+
+    client = await manager.get_or_login_client("005", "password")
+
+    assert client.token == "new-token-after-refresh-fail"
+    assert "005" in invalidated_codes
+    assert calls == ["refresh", "captcha", "login"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid_pwd", ["", "dummy", "   ", "  dummy  ", None])
+async def test_get_or_login_client_rejects_dummy_or_empty_password_before_login(monkeypatch, invalid_pwd):
+    """Ensure password is valid and non-empty (raise ValueError if password in ('dummy', ''))
+    before attempting login, preventing wasted CAPTCHA solves and UTCMS lockout."""
+    calls: list[str] = []
+
+    class FakeClient:
+        def __init__(self, *, token=None, proxy_url=None):
+            self.token = token
+
+        async def auto_solve_captcha(self, form_id):
+            calls.append("captcha")
+            return "", "cap"
+
+        async def login(self, national_code, password, cap_token):
+            calls.append("login")
+            return SimpleNamespace(token="token", refresh_token=None, expires_at=None)
+
+    _vault_fakes(monkeypatch, FakeClient)
+
+    with pytest.raises(ValueError, match="رمز عبور"):
+        await manager.get_or_login_client("006", invalid_pwd)
+
+    # Neither captcha solving nor login must be attempted
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_get_or_login_client_allows_dummy_pwd_if_cached_token_exists(monkeypatch):
+    """If a valid bearer token is already cached in Redis, get_or_login_client reuses it
+    and does not raise ValueError because no login is attempted."""
+    monkeypatch.setattr(manager, "_get_redis", lambda: asyncio.sleep(0, result=None))
+    monkeypatch.setattr(manager, "get_cached_token", lambda _: asyncio.sleep(0, result="already-cached-token"))
+
+    client = await manager.get_or_login_client("007", "dummy")
+    assert client.token == "already-cached-token"
+
