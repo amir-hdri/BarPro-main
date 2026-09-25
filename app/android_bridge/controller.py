@@ -6,6 +6,7 @@ the official UTCMS transport application (com.baarnameshahri).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from datetime import datetime
@@ -42,7 +43,7 @@ class AndroidShippingController:
         *,
         bridge: AndroidBridge | None = None,
         runner: CommandRunner = _run_command,
-        apply_button_coords: tuple[int, int] = (540, 1100),
+        apply_button_coords: tuple[int, int] = (487, 189),
         use_layout: bool = False,
     ) -> None:
         if bridge is not None:
@@ -142,8 +143,10 @@ class AndroidShippingController:
             f"geo:{lat},{lon}",
             f"{LOCATION_PACKAGE}/.MainActivity",
         )
+        await asyncio.sleep(0.5)
         # 2. Trigger apply button
         await self._trigger_apply_action()
+        await asyncio.sleep(0.5)
         # 3. Verify mock location registration
         await self._verify_mock_location_registered()
 

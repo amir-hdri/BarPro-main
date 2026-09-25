@@ -189,8 +189,8 @@ async def test_apply_location_intent_command_formatting():
         "shell",
         "input",
         "tap",
-        "540",
-        "1100",
+        "487",
+        "189",
     )
     assert expected_tap_call in calls
 
