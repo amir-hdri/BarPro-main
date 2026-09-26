@@ -1128,8 +1128,24 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
             logger.error("register_end_of_shipping failed for job %s: %s", job_id, exc)
             raise
 
-    if isinstance(res, dict) and res.get("resultCode") == 4011:
-        res["mode"] = "self_declared_auto_complete"
+    is_success = False
+    if isinstance(res, dict):
+        rc = res.get("resultCode")
+        rm = str(res.get("resultMessage") or "")
+        if rc in (200, 0):
+            is_success = True
+        elif rc == 4011 and "خوداظهاری" in rm:
+            res["mode"] = "self_declared_auto_complete"
+            is_success = True
+        elif rc == 429:
+            logger.warning("register_end_of_shipping rate limited (429) for job %s, will retry next tick", job_id)
+            return {"status": "rate_limited", "result": res}
+        else:
+            logger.warning("register_end_of_shipping returned non-success for job %s: code=%s msg=%s", job_id, rc, rm)
+            return {"status": "rejected", "result": res}
+
+    if not is_success:
+        return {"status": "failed", "result": res}
 
     state.status = "delivered"
     state.current_step = len(state.waypoints) - 1 if state.waypoints else 1

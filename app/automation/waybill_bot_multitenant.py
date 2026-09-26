@@ -628,7 +628,8 @@ class WaybillAutomationBot:
                     origin_lat = ship_state.origin_lat
                     origin_lng = ship_state.origin_lng
                     if doc_id_val and origin_lat and origin_lng:
-                        start_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                        from zoneinfo import ZoneInfo
+                        start_iso = datetime.now(ZoneInfo("Asia/Tehran")).strftime("%Y-%m-%dT%H:%M:%S")
                         logger.info(
                             "Triggering automated RegisterStartOfShipping: doc_id=%s, lat=%s, lng=%s, time=%s",
                             doc_id_val,

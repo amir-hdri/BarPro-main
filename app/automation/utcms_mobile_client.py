@@ -733,7 +733,7 @@ class UtcmsMobileClient:
         except UtcmsMobileApiError as exc:
             if getattr(exc, "status_code", None) == 404 or "404" in str(exc):
                 logger.info("StartShippingWithGps 404; falling back to RegisterStartOfShipping")
-                start_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                start_iso = datetime.now(ZoneInfo("Asia/Tehran")).strftime("%Y-%m-%dT%H:%M:%S")
                 return await self.register_start_of_shipping(
                     document_id=doc_no,
                     speed=speed,
