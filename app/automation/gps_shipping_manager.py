@@ -1086,20 +1086,21 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
         proxy_url=proxy_url,
     )
 
-    now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    now_iso = datetime.now(ZoneInfo("Asia/Tehran")).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     dest_point = {
         "Latitude": state.dest_lat,
         "Longitude": state.dest_lng,
         "Speed": 0.0,
         "Altitude": 1000.0,
         "DateTime": now_iso,
+        "Type": 3,
     }
     gps_evidence = list(state.gps_list or [])
     if not gps_evidence and state.origin_lat and state.origin_lng:
         start_iso = (
             state.created_at
             if state.created_at
-            else (datetime.now(UTC) - timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            else (datetime.now(ZoneInfo("Asia/Tehran")) - timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         )
         gps_evidence.append({
             "Latitude": state.origin_lat,
@@ -1107,6 +1108,7 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
             "Speed": 0.0,
             "Altitude": 1000.0,
             "DateTime": start_iso,
+            "Type": 1,
         })
     gps_evidence.append(dest_point)
 

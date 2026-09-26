@@ -689,17 +689,21 @@ class UtcmsMobileClient:
                     lon = pt.get("Longitude") if pt.get("Longitude") is not None else (pt.get("lon") or pt.get("lng"))
                     spd = pt.get("Speed") if pt.get("Speed") is not None else pt.get("speed", 0)
                     alt = pt.get("Altitude") if pt.get("Altitude") is not None else pt.get("alt", 0)
-                    dt = pt.get("DateTime") or pt.get("Date") or pt.get("ts") or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                    formatted_list.append({
+                    dt = pt.get("DateTime") or pt.get("Date") or pt.get("ts") or datetime.now(ZoneInfo("Asia/Tehran")).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                    item = {
                         "Latitude": float(lat) if lat is not None else 0.0,
                         "Longitude": float(lon) if lon is not None else 0.0,
                         "Speed": float(spd),
                         "Altitude": float(alt),
                         "DateTime": str(dt),
-                    })
+                    }
+                    pt_type = pt.get("Type") if pt.get("Type") is not None else (pt.get("type") or pt.get("waypoint_type"))
+                    if pt_type is not None:
+                        item["Type"] = int(pt_type)
+                    formatted_list.append(item)
         return await self._post(
             "/Document/RegisterEndOfShipping",
-            {"docId": parsed_doc_id, "gpsList": formatted_list or gps_list},
+            {"DocId": parsed_doc_id, "docId": parsed_doc_id, "gpsList": formatted_list or gps_list},
         )
 
     async def start_shipping_with_gps(
