@@ -187,6 +187,7 @@ async def main() -> None:
                     "tracking_code": tracking_code,
                 },
                 mutation_status="confirmed",
+                reconciled_at=_utcnow_naive(),
                 error_message=None,
             )
             await session.commit()
