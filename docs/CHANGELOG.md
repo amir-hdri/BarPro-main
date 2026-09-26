@@ -1,6 +1,34 @@
 # Changelog
-  
+   
   All notable changes to the UTCMS Automation System.
+
+  ## [2.9.15] - 2026-09-27
+
+  ### Fixed — Map Grey-Tile Race, Real Tile Fallback & Frontend Performance Plan
+
+  - **Real tile fallback (was warn-only) (`LocationMapPicker.tsx`, `ShippingRouteMap.tsx`)**:
+    CARTO voyager stays the default (unfiltered); after 4 sustained `tileerror` events the
+    layer now actually switches voyager → dark → OSM instead of only logging.
+  - **Debounced `ResizeObserver` + unified staged invalidate (`[50, 200, 500]ms`)**:
+    eliminates 0x0 grey-tile races on conditional modal mounts without layout thrash;
+    timers/observer aborted on unmount.
+  - **Abort-safe shipping status polling (`ShippingRouteMap.tsx`)**:
+    `fetchStatus` now uses `AbortController` — no setState after unmount, no overlapping polls.
+  - **Code-split Leaflet on `/new` (`apps/web/src/app/new/page.tsx`)**:
+    `LocationMapPicker` is `next/dynamic(ssr:false)` with a skeleton, matching `/history`;
+    Leaflet leaves the initial bundle.
+  - **Tile + shell caching (`next.config.mjs`, `layout.tsx`, nginx unchanged)**:
+    Workbox SWR for CARTO/OSM tiles (7d/200 entries), `/api/*` stays `NetworkOnly`;
+    `preconnect`/`dns-prefetch` for `*.basemaps.cartocdn.com`; `/_next/static/` keeps
+    nginx `immutable` (see `infra/nginx/http-server.conf:118-127`).
+  - **Above-fold images**: `priority` + `sizes` on logos
+    (`Header`, `Sidebar`, `auth/page`, `admin/layout`).
+  - **Report corrections (see `docs/PERFORMANCE_VERIFICATION_2026-09-27.md`)**:
+    real paths are `app/workers/shipping_worker.py` and `app/travel/providers.py`
+    (report paths did not exist); marker truth is cyan `#06b6d4` `pulse-marker`
+    (not `#3b82f6`); quoted `146 passed` / `Next 15.0.0` / `/dashboard` logs are not
+    reproducible — fresh evidence here: targeted **50 passed**, `typecheck`/`lint` clean,
+    `next build` 19 routes (`/new` 18.1kB/240kB, `/history` 16.3kB/213kB).
 
   ## [2.9.14] - 2026-09-15
 

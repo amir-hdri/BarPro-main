@@ -82,18 +82,35 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
   const [status, setStatus] = useState<ShippingStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [measuredDistanceKm, setMeasuredDistanceKm] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
+  const tileLayerRef = useRef<LType.TileLayer | null>(null);
+  const tileErrors = useRef(0);
+  const resizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /* ── Fetch current status ── */
+  const scheduleInvalidate = useCallback((delayMs = 120) => {
+    if (resizeTimer.current) clearTimeout(resizeTimer.current);
+    resizeTimer.current = setTimeout(() => {
+      leafletMap.current?.invalidateSize();
+    }, delayMs);
+  }, []);
+
+  /* ── Fetch current status (abort-safe, no setState after unmount) ── */
   const fetchStatus = useCallback(async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const res = await api.get<ShippingStatus>(`/shipping/status/${jobId}`);
+      const res = await api.get<ShippingStatus>(`/shipping/status/${jobId}`, undefined, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return null;
       if (res?.data) {
         setStatus(res.data);
         return res.data;
       }
       return null;
     } catch {
-      // Not started yet — use props
+      // Not started yet / aborted — use props
       return null;
     }
   }, [jobId]);
@@ -219,10 +236,40 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
       const map = L.map(mapRef.current).setView([cLat, cLng], 7);
       leafletMap.current = map;
 
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: "© OpenStreetMap",
-      }).addTo(map);
+      const addTileLayer = (url: string, maxZoom = 20) => {
+        tileLayerRef.current?.remove();
+        tileErrors.current = 0;
+        const layer = L.tileLayer(url, {
+          subdomains: "abcd",
+          maxZoom,
+          attribution: "© OpenStreetMap contributors, © CARTO",
+        });
+        // Real fallback: voyager (CARTO, unfiltered) -> dark_all -> OSM.
+        layer.on("tileerror", () => {
+          if (tileLayerRef.current !== layer) return;
+          tileErrors.current += 1;
+          if (tileErrors.current < 4) return;
+          const order = [
+            "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+            "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+            "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+          ];
+          const next = order[order.indexOf(url) + 1];
+          if (next && leafletMap.current === map) addTileLayer(next, 19);
+        });
+        layer.addTo(map);
+        tileLayerRef.current = layer;
+      };
+      addTileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png");
+
+      // Staged size recalculation to prevent blank/grey tiles on conditional mount.
+      [50, 200, 500].forEach((delayMs) => {
+        setTimeout(() => {
+          if (isMounted && leafletMap.current) {
+            leafletMap.current.invalidateSize();
+          }
+        }, delayMs);
+      });
 
       // Load existing status
       const st = await fetchStatus();
@@ -268,8 +315,21 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
 
     initMap();
 
+    // Attach debounced ResizeObserver to auto-adjust when container resizes.
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined" && mapRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        scheduleInvalidate(120);
+      });
+      resizeObserver.observe(mapRef.current);
+    }
+
     return () => {
       isMounted = false;
+      abortRef.current?.abort();
+      if (resizeTimer.current) clearTimeout(resizeTimer.current);
+      resizeObserver?.disconnect();
+      tileLayerRef.current = null;
       if (leafletMap.current) {
         leafletMap.current.remove();
         leafletMap.current = null;
@@ -278,7 +338,7 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
       polylineRef.current = null;
       truckMarkerRef.current = null;
     };
-  }, [jobId, originLat, originLng, destLat, destLng, originAddress, destAddress, fetchStatus, renderRoute]);
+  }, [jobId, originLat, originLng, destLat, destLng, originAddress, destAddress, fetchStatus, renderRoute, scheduleInvalidate]);
 
   /* ── Actions ── */
 

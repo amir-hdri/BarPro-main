@@ -130,6 +130,7 @@ export default function AuthPage() {
                 width={112}
                 height={112}
                 priority
+                sizes="112px"
                 className="w-28 h-auto object-contain z-10 transform transition-transform duration-500 group-hover:scale-110"
               />
             </div>

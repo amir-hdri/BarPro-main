@@ -25,6 +25,25 @@ const withPWA = withPWAInit({
           cacheName: "apis",
         },
       },
+      // Map tiles (CARTO voyager/dark + OSM fallback) are immutable raster
+      // assets: serve stale-while-revalidate so pan/zoom never blocks on network
+      // and sanction-related tile blips degrade gracefully.
+      {
+        urlPattern: ({ url }) =>
+          url.hostname.endsWith("basemaps.cartocdn.com") ||
+          url.hostname.endsWith("tile.openstreetmap.org"),
+        handler: "StaleWhileRevalidate",
+        options: {
+          cacheName: "map-tiles",
+          expiration: {
+            maxEntries: 200,
+            maxAgeSeconds: 7 * 24 * 60 * 60,
+          },
+          cacheableResponse: {
+            statuses: [0, 200],
+          },
+        },
+      },
     ],
   },
 });

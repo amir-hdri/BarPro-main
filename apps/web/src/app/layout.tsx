@@ -35,6 +35,13 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="fa" dir="rtl" className={`${vazirmatn.variable} ${rubik.variable}`} suppressHydrationWarning>
+      <head>
+        {/* Map tile CDN: preconnect once so first Leaflet paint never waits on DNS/TLS. */}
+        <link rel="preconnect" href="https://a.basemaps.cartocdn.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://b.basemaps.cartocdn.com" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://c.basemaps.cartocdn.com" />
+        <link rel="dns-prefetch" href="https://d.basemaps.cartocdn.com" />
+      </head>
       <body className="font-sans antialiased text-slate-200" suppressHydrationWarning>
         <QueryProvider>
           <ErrorBoundary>

@@ -60,7 +60,15 @@ export function Sidebar({ onNavigate, onClose }: SidebarProps) {
           <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                <div className="flex h-14 w-14 items-center justify-center rounded-[1.25rem] bg-gradient-to-br from-cyan-400 to-cyan-600 shadow-[0_0_30px_rgba(6,182,212,0.5)]">
-                 <Image src="/logo_white.svg" alt="BarPro" width={36} height={36} className="w-9 h-auto object-contain" />
+                  <Image
+                    src="/logo_white.svg"
+                    alt="BarPro"
+                    width={36}
+                    height={36}
+                    priority
+                    sizes="36px"
+                    className="w-9 h-auto object-contain"
+                  />
                </div>
                 <div>
                   <h1 className="text-2xl font-black text-white bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">BarPro</h1>

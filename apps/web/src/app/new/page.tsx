@@ -21,12 +21,22 @@ import { CheckCircleIcon } from "@heroicons/react/24/solid";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-hot-toast";
 
+import dynamic from "next/dynamic";
 import { AppShell } from "@/components/layout/AppShell";
 import { AuthGuard } from "@/components/layout/AuthGuard";
 import { PlateInput } from "@/components/PlateInput";
 import { ProvinceCitySelect } from "@/components/ProvinceCitySelect";
 import { SmartAddressInput } from "@/components/SmartAddressInput";
-import { LocationMapPicker } from "@/components/LocationMapPicker";
+// Leaflet is heavy (~150KB) and browser-only: split it out of the initial
+// /new bundle. Maps mount conditionally (showOriginMap/showDestinationMap),
+// so ssr:false + skeleton keeps First Load JS small and avoids grey 0x0 tiles.
+const LocationMapPicker = dynamic(
+  () => import("@/components/LocationMapPicker").then((mod) => mod.LocationMapPicker),
+  {
+    ssr: false,
+    loading: () => <div className="w-full h-80 rounded-xl bg-slate-950/60 animate-pulse border border-white/10" />,
+  }
+);
 import { FavoriteLocationPicker } from "@/components/FavoriteLocationPicker";
 import { RouteDistanceBadge } from "@/components/RouteDistanceBadge";
 import { ProgressBar } from "@/components/ProgressBar";

@@ -26,7 +26,15 @@ export function Header({ client, role, onLogout, onOpenMenu }: HeaderProps) {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <div className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 md:px-3 md:py-1 shadow-sm">
-                <Image src="/logo_white.svg" alt="BarPro" width={20} height={20} className="w-5 h-auto object-contain" />
+                <Image
+                  src="/logo_white.svg"
+                  alt="BarPro"
+                  width={20}
+                  height={20}
+                  priority
+                  sizes="20px"
+                  className="w-5 h-auto object-contain"
+                />
                 <span className="text-[9px] md:text-[10px] font-black text-emerald-400 tracking-wider">ربات سامانه ملی آنلاین</span>
               </div>
             </div>
