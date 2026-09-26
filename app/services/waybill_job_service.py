@@ -173,7 +173,7 @@ class WaybillJobService:
         job = await rpa_scheduler_service.create_job(
             client_id=client.id or 0,
             driver=driver,
-            payload=payload_dict,
+            payload=enhanced_payload,
             source=source,
             max_retries=request.max_retries,
             priority=request.priority,

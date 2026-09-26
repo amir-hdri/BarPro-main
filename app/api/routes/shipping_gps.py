@@ -268,11 +268,12 @@ async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any]
         # the full GPS history list), start has no history to submit — so
         # StartShippingWithGps alone is correct and symmetric.
         # RegisterStartOfShipping is the verified mobile API endpoint
-        start_date_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+        start_date_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        target_doc_id = state.doc_id or state.doc_no
         try:
             mutation_attempted = True
             utcms_result = await client.register_start_of_shipping(
-                document_id=state.doc_no,
+                document_id=target_doc_id,
                 speed=req.speed,
                 altitude=req.altitude,
                 longitude=req.longitude,
@@ -290,7 +291,7 @@ async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any]
                 force_reauth=True,
             )
             utcms_result = await client.register_start_of_shipping(
-                document_id=state.doc_no,
+                document_id=target_doc_id,
                 speed=req.speed,
                 altitude=req.altitude,
                 longitude=req.longitude,
@@ -427,10 +428,11 @@ async def finish_shipping(
             finish_result = require_successful_mutation(finish_result, "پایان GPS")
         except Exception as exc:
             logger.warning("finish_shipping_with_gps non_critical_blip: %s", exc)
+        target_doc_id = state.doc_id or state.doc_no
         try:
             mutation_attempted = True
             history_result = await client.register_end_of_shipping(
-                document_id=state.doc_no,
+                document_id=target_doc_id,
                 gps_list=state.gps_list,
                 allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
             )
@@ -444,7 +446,7 @@ async def finish_shipping(
                 force_reauth=True,
             )
             history_result = await client.register_end_of_shipping(
-                document_id=state.doc_no,
+                document_id=target_doc_id,
                 gps_list=state.gps_list,
                 allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
             )

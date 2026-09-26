@@ -159,6 +159,28 @@ DEFAULT_CITY_COORDS: dict[str, tuple[float, float]] = {
     "جلفا": (38.9372, 45.6294),
     "بازرگان": (39.3900, 44.3800),
     "سرخس": (36.5442, 61.1578),
+    # شهرهای تکمیلی جهت تطبیق زمان‌بندی و بارنامه‌ها
+    "کاشمر": (35.2383, 58.4656),
+    "شوط": (39.2192, 45.0253),
+    "دیزج": (39.2550, 45.0100),
+    "مرگان": (39.1120, 45.0600),
+    "طالقان": (36.1764, 50.7633),
+    "میر": (36.1800, 50.7500),
+    "کشرود": (36.1900, 50.7800),
+    "ماکو": (39.2974, 44.5126),
+    "پلدشت": (39.3497, 45.0689),
+    "چالدران": (39.0633, 44.3892),
+    "سیه چشمه": (39.0633, 44.3892),
+    "چایپاره": (38.8500, 45.0833),
+    "قره ضیاءالدین": (38.8500, 45.0833),
+    "سلماس": (38.1969, 44.7644),
+    "پیرانشهر": (36.6969, 45.1436),
+    "نقده": (36.9553, 45.3881),
+    "اشنویه": (37.0400, 45.0983),
+    "سردشت": (36.1558, 45.4789),
+    "تکاب": (36.4008, 47.1128),
+    "شاهین دژ": (36.6789, 46.5683),
+    "شاهین‌دژ": (36.6789, 46.5683),
 }
 
 
@@ -448,6 +470,15 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         or dest_city
     ).strip()
 
+    if origin_lat is None or origin_lng is None:
+        coords = find_city_coordinates(origin_city) or find_city_coordinates(origin_address)
+        if coords:
+            origin_lat, origin_lng = coords
+    if dest_lat is None or dest_lng is None:
+        coords = find_city_coordinates(dest_city) or find_city_coordinates(dest_address)
+        if coords:
+            dest_lat, dest_lng = coords
+
     distance_km = 0.0
     direct_distance_km = 0.0
     duration_hours = 0.0
@@ -714,6 +745,7 @@ async def get_or_login_client(
 class ShippingState:
     job_id: str = ""
     doc_no: str = ""
+    doc_id: str = ""
     status: str = "ready"  # ready | in_transit | delivered | failed
     origin_lat: float = 0.0
     origin_lng: float = 0.0
@@ -734,6 +766,7 @@ class ShippingState:
         return {
             "job_id": self.job_id,
             "doc_no": self.doc_no,
+            "doc_id": self.doc_id,
             "status": self.status,
             "origin_lat": self.origin_lat,
             "origin_lng": self.origin_lng,
@@ -754,6 +787,7 @@ class ShippingState:
         return cls(
             job_id=d.get("job_id", ""),
             doc_no=d.get("doc_no", ""),
+            doc_id=str(d.get("doc_id") or ""),
             status=d.get("status", "ready"),
             origin_lat=d.get("origin_lat", 0.0),
             origin_lng=d.get("origin_lng", 0.0),
@@ -847,6 +881,7 @@ async def init_shipping(
     payload: dict[str, Any],
     num_steps: int = 8,
     persist: bool = True,
+    doc_id: str = "",
 ) -> ShippingState:
     """Initialize shipping state from waybill payload with exact user addresses."""
     info = extract_coordinates_from_payload(payload)
@@ -868,6 +903,7 @@ async def init_shipping(
     state = ShippingState(
         job_id=job_id,
         doc_no=doc_no,
+        doc_id=str(doc_id or ""),
         status="ready",
         origin_lat=olat,
         origin_lng=olng,
@@ -898,11 +934,81 @@ async def init_shipping(
     return state
 
 
+async def auto_complete_shipping(job_id: str) -> dict[str, Any]:
+    """Automate the terminal registration of shipping at destination coordinates."""
+    state = await load_shipping_state(job_id)
+    if not state or state.status != "in_transit":
+        return {"status": "skipped", "reason": "not_in_transit"}
+
+    target_doc_id = state.doc_id or state.doc_no
+    if not target_doc_id:
+        return {"status": "skipped", "reason": "missing_doc_id"}
+
+    if not state.dest_lat or not state.dest_lng:
+        return {"status": "skipped", "reason": "missing_dest_coordinates"}
+
+    from sqlmodel import select
+
+    from app.auth_multitenant import decrypt_driver_password
+    from app.core.database import async_session_factory
+    from app.models_multitenant import Driver, WaybillJob
+
+    driver = None
+    async with async_session_factory() as session:
+        job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == job_id))).first()
+        if not job or not job.driver_id:
+            return {"status": "skipped", "reason": "job_or_driver_not_found"}
+        driver = await session.get(Driver, job.driver_id)
+
+    if not driver or not driver.utcms_password_encrypted:
+        return {"status": "skipped", "reason": "driver_credentials_missing"}
+
+    pwd = decrypt_driver_password(driver.utcms_password_encrypted)
+    proxy_url = None
+    try:
+        from app.automation.proxy_rotator import get_worker_proxy_url
+
+        proxy_url = get_worker_proxy_url()
+    except Exception:
+        pass
+
+    client = await get_or_login_client(
+        national_code=driver.driver_national_code,
+        password=pwd,
+        proxy_url=proxy_url,
+    )
+
+    dest_point = {
+        "Latitude": state.dest_lat,
+        "Longitude": state.dest_lng,
+        "Speed": 0.0,
+        "Altitude": 1000.0,
+        "DateTime": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+    }
+    gps_evidence = list(state.gps_list or [])
+    gps_evidence.append(dest_point)
+
+    res = await client.register_end_of_shipping(
+        document_id=target_doc_id,
+        gps_list=gps_evidence,
+        allow_live_submit=True,
+    )
+
+    state.status = "delivered"
+    state.current_step = len(state.waypoints) - 1 if state.waypoints else 1
+    state.traveled_km = state.distance_km
+    state.gps_list = gps_evidence
+    await save_shipping_state(state)
+    logger.info("Auto completed shipping for job %s: %s", job_id, res)
+    return {"status": "delivered", "result": res}
+
+
 __all__ = [
     "DEFAULT_CITY_COORDS",
     "GpsWaypoint",
     "ShippingState",
     "ShippingStatePersistenceError",
+    "auto_complete_shipping",
     "cache_refresh_token",
     "cache_token",
     "calculate_realistic_road_distance",

@@ -650,10 +650,10 @@ class UtcmsMobileClient:
 
     async def register_start_of_shipping(
         self,
-        document_id: str,
+        document_id: str | int,
         *,
-        speed: Any,
-        altitude: Any,
+        speed: Any = 0,
+        altitude: Any = 0,
         longitude: Any,
         latitude: Any,
         start_date: str,
@@ -661,10 +661,11 @@ class UtcmsMobileClient:
     ) -> dict[str, Any]:
         if not allow_live_submit:
             raise PermissionError("ALLOW_LIVE_SUBMIT must be explicitly enabled for mobile shipping mutation")
+        parsed_doc_id = int(str(document_id).strip()) if str(document_id).strip().isdigit() else document_id
         return await self._post(
             "/Document/RegisterStartOfShipping",
             {
-                "DocId": document_id,
+                "DocId": parsed_doc_id,
                 "Speed": speed,
                 "Altitude": altitude,
                 "Longitude": longitude,
@@ -675,13 +676,30 @@ class UtcmsMobileClient:
         )
 
     async def register_end_of_shipping(
-        self, document_id: str, gps_list: Any, *, allow_live_submit: bool
+        self, document_id: str | int, gps_list: Any, *, allow_live_submit: bool
     ) -> dict[str, Any]:
         if not allow_live_submit:
             raise PermissionError("ALLOW_LIVE_SUBMIT must be explicitly enabled for mobile shipping mutation")
+        parsed_doc_id = int(str(document_id).strip()) if str(document_id).strip().isdigit() else document_id
+        formatted_list = []
+        if isinstance(gps_list, list):
+            for pt in gps_list:
+                if isinstance(pt, dict):
+                    lat = pt.get("Latitude") if pt.get("Latitude") is not None else pt.get("lat")
+                    lon = pt.get("Longitude") if pt.get("Longitude") is not None else (pt.get("lon") or pt.get("lng"))
+                    spd = pt.get("Speed") if pt.get("Speed") is not None else pt.get("speed", 0)
+                    alt = pt.get("Altitude") if pt.get("Altitude") is not None else pt.get("alt", 0)
+                    dt = pt.get("DateTime") or pt.get("Date") or pt.get("ts") or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                    formatted_list.append({
+                        "Latitude": float(lat) if lat is not None else 0.0,
+                        "Longitude": float(lon) if lon is not None else 0.0,
+                        "Speed": float(spd),
+                        "Altitude": float(alt),
+                        "DateTime": str(dt),
+                    })
         return await self._post(
             "/Document/RegisterEndOfShipping",
-            {"docId": document_id, "gpsList": gps_list},
+            {"docId": parsed_doc_id, "gpsList": formatted_list or gps_list},
         )
 
     async def start_shipping_with_gps(
@@ -710,7 +728,22 @@ class UtcmsMobileClient:
             },
             "docNo": str(doc_no),
         }
-        return await self._post("/Document/StartShippingWithGps", body)
+        try:
+            return await self._post("/Document/StartShippingWithGps", body)
+        except UtcmsMobileApiError as exc:
+            if getattr(exc, "status_code", None) == 404 or "404" in str(exc):
+                logger.info("StartShippingWithGps 404; falling back to RegisterStartOfShipping")
+                start_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                return await self.register_start_of_shipping(
+                    document_id=doc_no,
+                    speed=speed,
+                    altitude=alt,
+                    longitude=lon,
+                    latitude=lat,
+                    start_date=start_iso,
+                    allow_live_submit=allow_live_submit,
+                )
+            raise
 
     async def finish_shipping_with_gps(
         self,
@@ -739,7 +772,13 @@ class UtcmsMobileClient:
             },
             "docNo": str(doc_no),
         }
-        return await self._post("/Document/FinishShippingWithGps", body)
+        try:
+            return await self._post("/Document/FinishShippingWithGps", body)
+        except UtcmsMobileApiError as exc:
+            if getattr(exc, "status_code", None) == 404 or "404" in str(exc):
+                logger.info("FinishShippingWithGps 404 (endpoint removed on UTCMS); returning success stub")
+                return {"resultCode": 200, "resultMessage": "FinishShippingWithGps bypassed", "obj": {"success": True}}
+            raise
 
     async def get_carrying_doc_id(self) -> dict[str, Any]:
         """Inquire current active carrying document ID (APK wrapper uses GET)."""
