@@ -171,6 +171,14 @@ def _build_beat_schedule() -> dict:
                     "expires": 50,
                 },
             },
+            "shipping-auto-complete-due": {
+                "task": "shipping.auto_complete_due_trips",
+                "schedule": crontab(minute="*/2"),
+                "options": {
+                    "queue": utcms_config.CELERY_WAYBILL_TASKS_QUEUE,
+                    "expires": 110,
+                },
+            },
         }
     )
 
@@ -185,7 +193,12 @@ def _build_celery() -> Celery | None:
         "utcms",
         broker=utcms_config.CELERY_BROKER_URL,
         backend=utcms_config.CELERY_RESULT_BACKEND,
-        include=["app.workers.tasks", "app.workers.phase1_tasks", "app.workers.waybill_worker"],
+        include=[
+            "app.workers.tasks",
+            "app.workers.phase1_tasks",
+            "app.workers.waybill_worker",
+            "app.workers.shipping_worker",
+        ],
     )
     app.conf.update(
         task_serializer="json",

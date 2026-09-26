@@ -1,6 +1,6 @@
 # قوانین و رفتار الزامی ربات BarPro در مواجهه با سامانه UTCMS
 
-**آخرین بازبینی: 2026-08-30**
+**آخرین بازبینی: 2026-09-26**
 **دامنه: `barname.utcms.ir` (صدور بارنامه) و `utcms.ir/ShowFuelQuota.aspx` (استعلام سوخت)**
 
 این سند مرجع واحد «رفتار الزامی ربات» است: هر قاعده‌ای که RPA باید در تعامل با
@@ -259,7 +259,7 @@ SSH_PASSWORD=***  python scripts/deploy_and_verify_all.py
 
 
 
-## 12. شبکه، اثرانگشت (TLS Fingerprint) و عبور از WAF
+## 13. شبکه، اثرانگشت (TLS Fingerprint) و عبور از WAF
 
 **تفکیک معماری از ۲۰۲۶-۰۹-۱۵:** در مسیر هدف GPS، FakeTraveler روی Android
 مجازیِ سرور موقعیت را تأمین می‌کند و اپ رسمی `com.baarnameshahri` با stack شبکهٔ
@@ -278,3 +278,56 @@ provider باید اثبات شوند. در نتیجهٔ مبهم Android، fall
    پراکسی‌های Squid باید کاملاً استتار شوند. در تمامی فایل‌های `squid.conf` دستورات `forwarded_for delete`، `via off` و `request_header_access X-Forwarded-For deny all` الزامی است. تزریق هرگونه IP کلاینت در هدرها به معنای مسدودسازی فوری توسط WAF است.
 3. **ساختار هدرها:**
    هدرهای `User-Agent`، `Accept-Encoding: gzip, deflate, br` و `Sec-Ch-Ua` به صورت اتوماتیک توسط لایه `curl_cffi` تنظیم می‌شوند تا هیچ‌گونه ناهنجاری (Anomaly) در لاگ‌های WAF ثبت نشود.
+
+## 14. قرارداد چرخه‌ی خودکار حمل و مسیریابی GPS (Automated Shipping Lifecycle Contract)
+
+**آخرین بازبینی: 2026-09-26** `CODE-VERIFIED` `LIVE-OBSERVED`
+
+این بخش قرارداد رفتاری و اجرایی ربات BarPro در چرخه خودکار حمل (Shipping Lifecycle) از لحظه صدور بارنامه تا خاتمه رسمی در مقصد را تعیین می‌کند:
+
+### ۱. شروع خودکار حمل در مختصات مبدأ بلافاصله پس از صدور سند (Immediate Start at Origin)
+- پیاده‌سازی: `_finalize_shipping_start` در [`app/automation/waybill_bot_multitenant.py`](../app/automation/waybill_bot_multitenant.py) و `init_shipping` در [`app/automation/gps_shipping_manager.py`](../app/automation/gps_shipping_manager.py). `CODE-VERIFIED`
+- **ماشه صدور (Trigger):** بلافاصله پس از صدور موفق بارنامه در سامانه UTCMS و دریافت کد رهگیری (`tracking_code`) و شناسه سند (`doc_id`).
+- **عملیات ثبت شروع:**
+  1. وضعیت اولیه‌ی حمل (`ShippingState`) با مختصات جغرافیایی واقعی مبدأ و مقصد، آدرس طرفین، زمان صدور (`created_at`) و تخمین زمان پایان (`estimated_end_at`) مقداردهی اولیه (`init_shipping`) می‌شود.
+  2. کلاینت متد `POST /Document/RegisterStartOfShipping` را با پارامترهای زیر فرامی‌خواند:
+     - `DocId`: شناسه عددی سند بارنامه؛
+     - `Speed`: مقدار عددی ۰؛
+     - `Altitude`: ارتفاع پیش‌فرض ۱۰۰۰ متر؛
+     - `Longitude` و `Latitude`: مختصات مبدأ بارنامه؛
+     - `StartDate`: زمان جاری در مبنای UTC با فرمت ایزو؛
+     - `havePermission`: مقدار `true`.
+  3. وضعیت حمل در حافظه به `in_transit` تغییر یافته و مرحله در انولوپ نتیجه (`steps`) ثبت می‌شود.
+  4. پایداری دوگانه: ثبت در Redis با کلید `utcms:shipping:job:{job_id}` (با TTL معادل ۷ روز) و ذخیره در رکورد `WaybillJob.result_json['_shipping_state']` در پایگاه داده Postgres.
+
+### ۲. پایش دوره‌ای زمان تخمینی سفر توسط Celery Beat (Periodic ETA Monitoring via Celery Beat)
+- پیاده‌سازی: وظیفه `shipping.auto_complete_due_trips` در زمان‌بند Celery Beat و متد `get_due_in_transit_jobs` در [`app/automation/gps_shipping_manager.py`](../app/automation/gps_shipping_manager.py). `CODE-VERIFIED`
+- **تناوب زمان‌بندی:** اجرای هر ۲ دقیقه یک‌بار (`crontab(minute="*/2")` یا بازه ۱۲۰ ثانیه).
+- **منطق ارزیابی سررسید موعد سفر:**
+  1. پایشگر تمامی بارهای فعال در وضعیت `in_transit` را از طریق اسکن کلیدهای Redis (`utcms:shipping:job:*`) و کوئری پایگاه داده (`WaybillJob.status == "in_transit"`) بدون تکرار شناسایی می‌کند.
+  2. برای هر بارنامه، زمان جاری UTC با فیلد `estimated_end_at` مقایسه می‌شود.
+  3. در صورتی که زمان جاری هنوز به موعد تخمینی نرسیده باشد (`now < estimated_end_at`)، عملیات ارسال متوقف مانده و وضعیت انتظار موعد (`waiting_eta`) بازگردانده می‌شود تا از ثبت زودهنگام و رد درخواست توسط UTCMS ممانعت گردد.
+  4. اعمال الزامات زمانی فیزیکی: حداقل بافر زمانی ۲۰ دقیقه برای مسافت‌های کوتاه و محاسبه خطی مسافت/سرعت (~۶۵ کیلومتر بر ساعت) برای سفرهای بین‌شهری.
+
+### ۳. ثبت رسیدن به مقصد با رد ردپای ۲-نقطه‌ای GPS (Destination Arrival with 2-Point GPS Trace)
+- پیاده‌سازی: متد `auto_complete_shipping` در [`app/automation/gps_shipping_manager.py`](../app/automation/gps_shipping_manager.py). `CODE-VERIFIED`
+- **ماشه خاتمه (Trigger):** فرارسیدن موعد تخمینی سفر (`now >= estimated_end_at`) در پایش دوره‌ای Beat یا فراخوانی با پرچم اجبار (`force=True`).
+- **الگوی شواهد ۲-نقطه‌ای (2-Point GPS Trace):**
+  سرور UTCMS برای خاتمه سفر نیازمند زنجیره شواهد موقعیت در قالب آرایه `gpsList` است. BarPro در نبود ردپای میانی دستگاه، شواهد ۲-نقطه‌ای پیوسته تولید و ارسال می‌کند:
+  - **نقطه ۱ (مبدأ):** مختصات مبدأ بارنامه (`origin_lat`, `origin_lng`) با زمان شروع (`created_at` / `start_date`)، سرعت ۰ و ارتفاع ۱۰۰۰.
+  - **نقطه ۲ (مقصد):** مختصات مقصد بارنامه (`dest_lat`, `dest_lng`) با زمان فرارسیدن (`now_iso`)، سرعت ۰ و ارتفاع ۱۰۰۰.
+- **فراخوانی متد پایان:** ارسال آرایه شواهد `gpsList` همراه با شناسه سند `docId` به اندپوینت `POST /Document/RegisterEndOfShipping`.
+- **نهایی‌سازی وضعیت:** با دریافت تأیید سرور، وضعیت `ShippingState` به `delivered` ارتقا یافته، وضعیت دیتابیس `WaybillJob.status` به `success` تغییر می‌یابد و زمان خاتمه سفر (`completed_at`) همراه با نتیجه در دیتابیس درج می‌شود.
+
+### ۴. رفتار در زمان خطا، Failover و انعطاف‌پذیری بیزینسی (Failover & Resilience)
+- **مدیریت خطای ۴۰۰۶ در شروع (Rule 4006):**
+  اگر بارنامه با خوداظهاری حرکت صادر شده باشد، در لحظه صدور در پرتال «درحال حمل» است. در این حالت `RegisterStartOfShipping` خطای ۴۰۰۶ («برای بارنامه نمی توان شروع حمل ثبت کرد») می‌دهد. ربات این خطا را به عنوان رویداد غیرکشنده (non-fatal) شناسایی کرده و بدون وقفه، وضعیت را به `in_transit` ارتقا می‌دهد. `LIVE-OBSERVED` `CODE-VERIFIED`
+- **مدیریت خطای ۴۰۱۱ در پایان (Rule 4011):**
+  در صورتی که ثبت پایان حمل با خطای بیزینس ۴۰۱۱ («پایان حمل بر اساس خوداظهاری تایید شد» یا مغایرت زمانی در خوداظهاری) مواجه شود، BarPro این پاسخ را به عنوان تکمیل موفق خوداظهاری (`mode="self_declared_auto_complete"` و `resultCode: 4011`) شناسایی می‌کند. وضعیت کار بلافاصله به `delivered` و `status=success` تغییر یافته و قفل راننده آزاد می‌شود. `LIVE-OBSERVED` `CODE-VERIFIED`
+- **Fallback خودکار اندپوینت‌های منسوخ ۴۰۴:**
+  اندپوینت‌های قدیمی `/Document/StartShippingWithGps` و `/Document/FinishShippingWithGps` در پرتال فعلی خطای ۴۰۴ می‌دهند. کلاینت BarPro خطای ۴۰۴ را دریافت و به‌طور خودکار به متدهای فعال `/Document/RegisterStartOfShipping` و `/Document/RegisterEndOfShipping` سوییچ می‌کند. `CODE-VERIFIED`
+- **تحمل اختلالات غیرکشنده (Non-fatal Blip Tolerance):**
+  بروز هرگونه خطای گذرا در ثبت GPS نباید وضعیت بارنامه تاییدشده در دیتابیس یا کد رهگیری اخذشده را مخدوش سازد. بارنامه صادرشده در سامانه رسمی پایدار است و چرخه ثبت GPS در تلاش‌های آتی Celery Beat تکمیل می‌گردد. `CODE-VERIFIED`
+- **پایداری دوگانه داده‌ها (Dual Persistence):**
+  همگام‌سازی دائمی وضعیت سفر بین Redis و Postgres مانع از دست رفتن داده‌های سفر در زمان ریستارت Redis یا از دست رفتن نشست‌ها می‌شود.
+

@@ -40,7 +40,7 @@ Frontend: Next.js 15 (TypeScript, Tailwind, React 19)
 
 ## Server Specifications
 
-### Server-side Android & Live Execution Status (2026-09-25)
+### Server-side Android, Automated Shipping Lifecycle & Live Execution Status (2026-09-26)
 
 - **Redroid & FakeTraveler Deployed**:
   - Container `barpro-redroid` is active on Central Server (`172.20.0.80:5555`, loopback `127.0.0.1:5555`) with `privileged: false`, `cap_add: [SYS_ADMIN, NET_ADMIN]`, binderfs nodes in `/dev/binderfs/`, and fstab persistence.
@@ -48,6 +48,13 @@ Frontend: Next.js 15 (TypeScript, Tailwind, React 19)
   - Squid 1 proxy configured on Redroid (`172.20.0.1:3128`), verified egress IP `87.107.5.238`.
   - Android Bridge controller (`app/android_bridge/controller.py`) implemented and verified.
   - Official APK decompilation revealed React Native + Hermes v94 + custom `SecurityNativeModule` with root, emulator, and mock-location checks. Direct Mobile Transport in Python remains the primary resilient path.
+- **Automated GPS Shipping Lifecycle & Periodic Beat Task (`shipping.auto_complete_due_trips`)**:
+  - Waybill issuance automatically triggers start of shipping at origin coordinates via `/Document/RegisterStartOfShipping` (`POST`, `speed=0`, `altitude=1000`, `havePermission=true`), initializing `ShippingState` in Redis (`utcms:shipping:job:{job_id}`) and DB envelope `WaybillJob.result_json['_shipping_state']`.
+  - New periodic shipping task `shipping.auto_complete_due_trips` runs in Celery Beat every 2 minutes (`crontab(minute="*/2")` / 120s schedule).
+  - Evaluates in-transit trips against physical ETA requirements (minimum 20-minute buffer for short routes, ~65 km/h proportional velocity for long routes).
+  - Terminal destination arrival registration is executed via `/Document/RegisterEndOfShipping` with a 2-point GPS trace (origin point with start timestamp + destination point with arrival timestamp).
+  - Legacy endpoints `/Document/StartShippingWithGps` and `/Document/FinishShippingWithGps` return 404 on current UTCMS and automatically fall back to `RegisterStartOfShipping` and `RegisterEndOfShipping`.
+  - Handled business rules: Rule 4006 (self-declared start non-fatal, retains `in_transit`) and Rule 4011 (self-declared end handling recorded as `mode="self_declared_auto_complete"` with `status="success"`).
 - **Live Confirmed Waybills on UTCMS**:
   - Waybill 1 (Job 125): Doc `226157460`, Track `1349750688`, Driver 7 (`0321410408`), Plate `23ع965ایران78`, Taleqan Mir to Keshrud. Status on UTCMS: `درحال حمل` (code 1), DB: `SUCCESS`.
   - Waybill 2 (Job 127): Doc `226164459`, Track `1349757758`, Driver 8 (`4929889601`), Plate `32ع444ایران27`, Shot Dizaj to Mergan. Status on UTCMS: `درحال حمل` (code 1), DB: `SUCCESS`.
@@ -181,6 +188,7 @@ Remote Worker Nodes (each: 2 vCPU / ~6 GB / own static Iranian IP)
 | Waybill jobs | `/api/v1/waybill-jobs` and its retry/requeue/timeline/log/screenshot subpaths |
 | Fuel inquiries | `/api/v1/fuel-inquiries` |
 | Clean IP operations | `/api/system/clean-ips`, `/api/system/clean-ips/refresh` (admin only) |
+| GPS shipping lifecycle | `/shipping/start`, `/shipping/step`, `/shipping/finish`, `/shipping/info`, `/shipping/auto-complete` |
 | Realtime | `WS /ws/waybill` with cookie auth and optional task/batch/correlation filters |
 
 Do not use stale paths such as `/api/system/health`, `/ws/jobs/{client_id}` or
@@ -208,7 +216,7 @@ the bounded window.
   `barpro.fuel.inquiry`.
 - Remote Workers consume the corresponding `*_2` or `*_3` queues and the fuel queue.
 - `celery_scheduler` consumes **only** `rpa_scheduler`.
-- Beat publishes periodic messages; it does not consume gate, proxy, cleanup, or
+- Beat publishes periodic messages (including `shipping.auto_complete_due_trips` every 2 minutes for in-transit trip auto-completion); it does not consume gate, proxy, cleanup, or
   orchestrator tasks.
 - Active bindings, backlog, and registered IP indices are runtime facts. Verify with
   Celery inspection, Worker Registry, and metrics rather than inferring them from env examples.
@@ -247,6 +255,26 @@ URL/Data URI and has no direct tracking-code column.
   raise so retry loops fire; rejection artifacts (image + model prediction)
   are written under `/tmp/captcha_rejections/` via
   `app/automation/captcha/debug_artifacts.py`.
+
+### Automated Shipping Lifecycle & GPS Completion Contract
+
+- **Lifecycle Flow**:
+  `waybill issuance (tracking code) → immediate RegisterStartOfShipping (origin GPS) → in_transit state (Redis + DB persistence) → periodic ETA check (every 2 min via shipping.auto_complete_due_trips in Celery Beat) → physical ETA satisfied (now >= estimated_end_at) → RegisterEndOfShipping (2-point GPS trace: origin + destination) → delivered / success`
+- **Active Endpoints vs. Deprecated 404s**:
+  - Active: `POST /Document/RegisterStartOfShipping` (takes `DocId`, `Speed=0`, `Altitude=1000`, `Longitude`, `Latitude`, `StartDate`, `havePermission=true`) and `POST /Document/RegisterEndOfShipping` (takes `docId`, `gpsList`).
+  - Deprecated / 404: `/Document/StartShippingWithGps` and `/Document/FinishShippingWithGps` return 404 on current UTCMS. Client code automatically falls back to the active endpoints.
+- **Periodic Beat Task (`shipping.auto_complete_due_trips`)**:
+  - Runs in Celery Beat every 2 minutes (`crontab(minute="*/2")` / 120s schedule).
+  - Queries active trips in transit (`get_due_in_transit_jobs`), deduplicating across Redis (`utcms:shipping:job:*`) and PostgreSQL (`WaybillJob.status == "in_transit"`).
+  - Skips trips whose physical ETA has not arrived (`waiting_eta`), preventing premature UTCMS rejection.
+- **Physical ETA Requirements**:
+  - Short routes (< 20 km): enforce a mandatory minimum 20-minute physical buffer.
+  - Long routes: computed based on realistic heavy-vehicle road speed (~65 km/h) proportional to distance (`estimated_end_at`).
+- **2-Point GPS Trace**:
+  - `RegisterEndOfShipping` submits a continuous 2-point GPS evidence array: Point 1 at origin with issuance timestamp, Point 2 at destination with arrival timestamp.
+- **Business Rule Handling (4006 & 4011)**:
+  - **Rule 4006 (Self-Declared Start)**: Waybills issued with `selfDeclaredTimeOfStartShipment` are automatically set to `in_transit` (code 1) by UTCMS. Redundant calls to `RegisterStartOfShipping` return business code 4006 ("برای بارنامه نمی توان شروع حمل ثبت کرد"). This is treated as non-fatal, keeping the trip in `in_transit`.
+  - **Rule 4011 (Self-Declared End / Early Call)**: Calling `RegisterEndOfShipping` before or upon self-declared termination triggers code 4011 ("پایان حمل بر اساس خوداظهاری تایید شد"). BarPro handles 4011 as successful completion (`mode="self_declared_auto_complete"`), marking `ShippingState` as `delivered` and updating `WaybillJob.status` to `success`.
 
 ## Common Pitfalls
 
