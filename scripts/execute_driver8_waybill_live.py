@@ -192,8 +192,8 @@ async def main() -> None:
             await session.commit()
             logger.info("WaybillJob %s transitioned to SUCCESS in PostgreSQL", db_job_id)
 
-    logger.info("=== STEP 5: VERIFYING READBACK ON UTCMS ===")
-    from app.automation.gps_shipping_manager import get_or_login_client
+    logger.info("=== STEP 5: VERIFYING READBACK ON UTCMS (AFTER START OF SHIPPING) ===")
+    from app.automation.gps_shipping_manager import auto_complete_shipping, get_or_login_client
 
     client = await get_or_login_client(nat_code, password, proxy_url=proxy_url)
     live_doc = await client.get_document(str(doc_id))
@@ -201,7 +201,20 @@ async def main() -> None:
     logger.info("UTCMS Portal Readback: StatusName=%s (code=%s)", obj.get("statusName"), obj.get("status"))
     logger.info("SelfDeclaredStartTime: %s", obj.get("selfDeclaredTimeOfStartShipment"))
     logger.info("EstimatedEndTime: %s", obj.get("estimatedTimeOfEndShipment"))
-    logger.info("ALL WITNESSES CONFIRMED 100%%!")
+    logger.info("Shipping Start Date on UTCMS: %s", obj.get("shippingStartDate"))
+    logger.info("All Document Fields: %s", json.dumps(obj, ensure_ascii=False, indent=2))
+
+    logger.info("=== STEP 6: EXECUTING AUTOMATED END OF SHIPPING AT DESTINATION ===")
+    end_res = await auto_complete_shipping(job_id)
+    logger.info("auto_complete_shipping response: %s", json.dumps(end_res, ensure_ascii=False, indent=2))
+
+    logger.info("=== STEP 7: FINAL UTCMS READBACK (AFTER END OF SHIPPING) ===")
+    final_doc = await client.get_document(str(doc_id))
+    final_obj = final_doc.get("obj") or {}
+    logger.info("Final UTCMS Status: StatusName=%s (code=%s)", final_obj.get("statusName"), final_obj.get("status"))
+    logger.info("Final Shipping Start Date: %s", final_obj.get("shippingStartDate"))
+    logger.info("Final Shipping Finish Date: %s", final_obj.get("shippingFinishDate"))
+    logger.info("=== ALL WITNESSES CONFIRMED 100%%! ===")
 
 
 if __name__ == "__main__":
