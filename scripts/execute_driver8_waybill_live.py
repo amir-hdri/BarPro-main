@@ -206,7 +206,7 @@ async def main() -> None:
     logger.info("All Document Fields: %s", json.dumps(obj, ensure_ascii=False, indent=2))
 
     logger.info("=== STEP 6: EXECUTING AUTOMATED END OF SHIPPING AT DESTINATION ===")
-    end_res = await auto_complete_shipping(job_id)
+    end_res = await auto_complete_shipping(job_id, force=True)
     logger.info("auto_complete_shipping response: %s", json.dumps(end_res, ensure_ascii=False, indent=2))
 
     logger.info("=== STEP 7: FINAL UTCMS READBACK (AFTER END OF SHIPPING) ===")
