@@ -453,12 +453,17 @@ class WaybillAutomationBot:
 
             issue_cap_token = str(payload.get("mobile_issue_cap_token") or payload.get("issue_cap_token") or "").strip()
             if not issue_cap_token and hasattr(client, "auto_solve_captcha"):
-                try:
-                    logger.info("Attempting auto_solve_captcha for mobile document issuance (form_id=1)")
-                    _, issue_cap_token = await client.auto_solve_captcha(form_id=1)
-                    logger.info("Auto-solved issuance captcha: answer=%s", issue_cap_token)
-                except Exception as exc:
-                    logger.warning("Mobile auto_solve_captcha for issuance failed: %s", exc)
+                for cap_attempt in range(1, 4):
+                    try:
+                        logger.info("Attempting auto_solve_captcha for mobile document issuance (form_id=1, attempt=%d/3)", cap_attempt)
+                        _, issue_cap_token = await client.auto_solve_captcha(form_id=1)
+                        logger.info("Auto-solved issuance captcha: answer=%s", issue_cap_token)
+                        if issue_cap_token:
+                            break
+                    except Exception as exc:
+                        logger.warning("Mobile auto_solve_captcha for issuance failed (attempt=%d/3): %s", cap_attempt, exc)
+                        if cap_attempt < 3:
+                            await asyncio.sleep(1.5)
 
             # Build the exact APK DTO even for shadow/dry-run. This validates
             # every server ID and required field without dispatching a mutation.
