@@ -38,6 +38,14 @@ class WaybillRouteTemplate(SQLModel, table=True):
     distance_km: float | None = Field(default=None)
     duration_min: float | None = Field(default=None)
 
+    # ── Road polyline snapshot (Phase 16): frozen road geometry so Fake GPS
+    # can replay the exact road, not just endpoints. ──
+    route_polyline: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    route_source: str | None = Field(default=None, max_length=32)
+    route_distance_km: float | None = Field(default=None)
+    route_duration_s: float | None = Field(default=None)
+    anchor_hash: str | None = Field(default=None, max_length=32)
+
     is_favorite: bool = Field(default=True)
 
     created_at: datetime = Field(default_factory=_utcnow, sa_column=Column(DateTime(timezone=False), nullable=False))

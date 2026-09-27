@@ -4,13 +4,28 @@
 >
 > commit مبنای audit اولیه: 9c472f1
 >
-> آخرین commit کد/رابط کاربری: `5d583a1` (`fix(ui): harden multi-route form flows`)
+> آخرین commit کد/رابط کاربری: 2026-09-27 GPS pipeline remediation (Route Authority + TravelEngine wiring)
 >
-> Alembic head مبنا: 039_add_route_chain_scheduling
+> Alembic head مبنا: 040_add_route_template_polyline
 >
 > جایگزین tracked برای knowledge graph خارجی قبلی
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
+
+## اصلاح خط لوله GPS — 2026-09-27 (راستی‌آزمایی ممیزی + پیاده‌سازی P0/P1)
+
+- CODE-VERIFIED: هر 18 بند ممیزی راستی‌آزمایی شد؛ یافته اصلی تأیید شد (مسیر ثبت از TravelEngine/FakeTraveler عبور نمی‌کرد).
+- CODE-VERIFIED: باگ timestamp (Tehran-labelled-as-Z) در `gps_shipping_manager.auto_complete_shipping` و `utcms_mobile_client.register_end_of_shipping` به UTC-Z اصلاح شد.
+- CODE-VERIFIED: تک‌منبع Route Authority (`app/services/route_authority.py`) + snapshot فریز روی `ShippingState` + `geometry_from_snapshot`؛ `distance_service` و `/waybill/calculate-route` delegate می‌کنند.
+- CODE-VERIFIED: اتصال TravelEngine (`app/services/shipping_travel_service.py`): start/finish گیت readback اندروید دارند (fail-closed فقط وقتی `ANDROID_BRIDGE_ENABLED=true`)؛ در غیر این صورت مسیر legacy `operator_anchor` حفظ می‌شود.
+- CODE-VERIFIED: `measured_distance_km` در finish اختیاری و خودکار از telemetry/مسیر شد (`measured_source` شفاف).
+- CODE-VERIFIED: auto-complete arrival-driven شد (`waiting_arrival` وقتی snapshot دارد و ARRIVED نیست؛ ETA فقط watchdog) + گیت readback مقصد.
+- CODE-VERIFIED: observer تولیدی `AdbLocationObserver` (`app/travel/android_observer.py`) شکاف «no bundled observer» را پر کرد.
+- CODE-VERIFIED: مایگریشن `040_add_route_template_polyline` + snapshot جاده‌ای روی template.
+- CODE-VERIFIED: `LocationMapPicker` commit فوری مختصات (geocode async)؛ `ShippingRouteMap` بدون inline-style، فاصله خودکار، بج مسیر واقعی/تخمین.
+- TEST-VERIFIED: 188 تست shipping/travel/route + 8 تست جدید `test_route_authority.py` سبز؛ `tsc`/`eslint`/`ruff`/`audit-ui` پاس.
+- NOT-PROVEN (نیازمند canary زنده): زنجیره E2E `Map = Snapshot = Engine = Readback = UTCMS payload = UTCMS readback` روی Redroid با مختصات (36.261100,50.442300 → 36.169600,50.611900) هنوز اجرا/لاگ نشده؛ `/step` همچنان 410.
+- جزئیات کامل: [GPS_PIPELINE_REMEDIATION_2026-09-27.md](GPS_PIPELINE_REMEDIATION_2026-09-27.md).
 
 ## تصمیم معماری GPS — 2026-09-15
 

@@ -746,7 +746,7 @@ class ShippingState:
     job_id: str = ""
     doc_no: str = ""
     doc_id: str = ""
-    status: str = "ready"  # ready | in_transit | delivered | failed
+    status: str = "ready"  # ready | in_transit | finishing | delivered | failed | unknown
     origin_lat: float = 0.0
     origin_lng: float = 0.0
     origin_address: str = ""
@@ -763,6 +763,20 @@ class ShippingState:
     waypoints: list[dict[str, Any]] = field(default_factory=list)
     # Explicit operator/device observations eligible for UTCMS submission.
     gps_list: list[dict[str, Any]] = field(default_factory=list)
+    # ── Route Authority snapshot (Phase 5): frozen at init so a future
+    # Neshan response can never rewrite history. ──
+    route_snapshot: dict[str, Any] = field(default_factory=dict)
+    route_source: str = ""
+    route_distance_km: float = 0.0
+    route_duration_s: float = 0.0
+    anchor_hash: str = ""
+    coordinate_source: str = "map_pin"
+    # ── Travel execution (Phases 6/12/13): arrival-driven auto-complete. ──
+    travel_status: str = ""
+    travel_progress: float = 0.0
+    measured_distance_km: float = 0.0
+    gps_provider: str = "operator_anchor"
+    provenance: str = "operator_confirmed"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -784,6 +798,17 @@ class ShippingState:
             "estimated_end_at": self.estimated_end_at,
             "waypoints": self.waypoints,
             "gps_list": self.gps_list,
+            "route_snapshot": self.route_snapshot,
+            "route_source": self.route_source,
+            "route_distance_km": self.route_distance_km,
+            "route_duration_s": self.route_duration_s,
+            "anchor_hash": self.anchor_hash,
+            "coordinate_source": self.coordinate_source,
+            "travel_status": self.travel_status,
+            "travel_progress": self.travel_progress,
+            "measured_distance_km": self.measured_distance_km,
+            "gps_provider": self.gps_provider,
+            "provenance": self.provenance,
         }
 
     @classmethod
@@ -805,8 +830,19 @@ class ShippingState:
             traveled_km=d.get("traveled_km", 0.0),
             created_at=str(d.get("created_at") or ""),
             estimated_end_at=str(d.get("estimated_end_at") or ""),
-            waypoints=d.get("waypoints", []),
-            gps_list=d.get("gps_list", []),
+            waypoints=d.get("waypoints", []) if isinstance(d.get("waypoints"), list) else [],
+            gps_list=d.get("gps_list", []) if isinstance(d.get("gps_list"), list) else [],
+            route_snapshot=d.get("route_snapshot", {}) if isinstance(d.get("route_snapshot"), dict) else {},
+            route_source=str(d.get("route_source") or ""),
+            route_distance_km=float(d.get("route_distance_km") or 0.0),
+            route_duration_s=float(d.get("route_duration_s") or 0.0),
+            anchor_hash=str(d.get("anchor_hash") or ""),
+            coordinate_source=str(d.get("coordinate_source") or "map_pin"),
+            travel_status=str(d.get("travel_status") or ""),
+            travel_progress=float(d.get("travel_progress") or 0.0),
+            measured_distance_km=float(d.get("measured_distance_km") or 0.0),
+            gps_provider=str(d.get("gps_provider") or "operator_anchor"),
+            provenance=str(d.get("provenance") or "operator_confirmed"),
         )
 
 
@@ -943,7 +979,25 @@ async def init_shipping(
             for wp in waypoints
         ],
         gps_list=[],
+        coordinate_source="map_pin",
     )
+    # Freeze the canonical route snapshot (best-effort: never block init).
+    try:
+        from app.services.route_authority import resolve_route
+
+        snapshot = await resolve_route(olat, olng, dlat, dlng)
+        state.route_snapshot = snapshot
+        state.route_source = str(snapshot.get("source") or "")
+        state.route_distance_km = float(snapshot.get("distance_km") or 0.0)
+        state.route_duration_s = float(snapshot.get("duration_s") or 0.0)
+        state.anchor_hash = str(snapshot.get("anchor_hash") or "")
+        if not state.distance_km and state.route_distance_km:
+            state.distance_km = state.route_distance_km
+            duration_hours = estimate_travel_duration_hours(state.distance_km)
+            duration_minutes = max(duration_hours * 60.0, min_minutes)
+            state.estimated_end_at = (now_utc + timedelta(minutes=duration_minutes)).isoformat()
+    except Exception:
+        logger.warning("init_shipping_route_snapshot_failed job=%s", job_id, exc_info=True)
     if persist:
         await save_shipping_state(state)
     return state
@@ -1027,10 +1081,28 @@ async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[Shippi
 
 
 async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, Any]:
-    """Automate the terminal registration of shipping at destination coordinates."""
+    """Arrival-driven terminal registration (ETA is watchdog, not trigger)."""
     state = await load_shipping_state(job_id)
     if not state or state.status != "in_transit":
         return {"status": "skipped", "reason": "not_in_transit"}
+
+    # Advance the persisted travel execution so ARRIVED/progress are current.
+    try:
+        from app.services.shipping_travel_service import advance_travel_execution, is_arrival_reached
+
+        advance_travel_execution(state)
+        await save_shipping_state(state)
+        has_snapshot = bool(state.route_snapshot and state.route_snapshot.get("polyline"))
+        if has_snapshot and not force and not is_arrival_reached(state):
+            return {
+                "status": "waiting_arrival",
+                "reason": "travel_not_arrived",
+                "travel_status": state.travel_status,
+                "travel_progress": state.travel_progress,
+                "estimated_end_at": state.estimated_end_at,
+            }
+    except Exception:
+        logger.warning("auto_complete_travel_advance_failed job=%s", job_id, exc_info=True)
 
     if state.estimated_end_at and not force:
         try:
@@ -1071,6 +1143,28 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
     if not driver or not driver.utcms_password_encrypted:
         return {"status": "skipped", "reason": "driver_credentials_missing"}
 
+    # Fail-closed Android destination gate for auto-complete when bridge enabled.
+    try:
+        from app.android_bridge.client import BridgeConfig
+
+        if BridgeConfig.from_env().enabled:
+            from app.services.shipping_travel_service import verify_android_anchor
+
+            check = await verify_android_anchor(expected_lat=state.dest_lat, expected_lng=state.dest_lng)
+            if not check.get("verified"):
+                logger.warning(
+                    "auto_complete_android_gate_blocked job=%s reason=%s", job_id, check.get("reason")
+                )
+                return {
+                    "status": "waiting_readback",
+                    "reason": check.get("reason", "readback_unavailable"),
+                    "travel_status": state.travel_status,
+                }
+    except Exception as exc:
+        # verify_android_anchor already returns dicts; this guards import/env errors.
+        logger.warning("auto_complete_android_gate_error job=%s err=%s", job_id, exc)
+        return {"status": "waiting_readback", "reason": "readback_check_failed"}
+
     pwd = decrypt_driver_password(driver.utcms_password_encrypted)
     proxy_url = None
     try:
@@ -1086,7 +1180,9 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
         proxy_url=proxy_url,
     )
 
-    now_iso = datetime.now(ZoneInfo("Asia/Tehran")).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    # GPS evidence timestamps are UTC with a `Z` suffix. Never label
+    # Asia/Tehran local time as `Z` (UTC) — UI converts to Tehran on display.
+    now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     dest_point = {
         "Latitude": state.dest_lat,
         "Longitude": state.dest_lng,
@@ -1100,7 +1196,7 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
         start_iso = (
             state.created_at
             if state.created_at
-            else (datetime.now(ZoneInfo("Asia/Tehran")) - timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            else (datetime.now(UTC) - timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         )
         gps_evidence.append({
             "Latitude": state.origin_lat,

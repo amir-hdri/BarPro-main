@@ -74,6 +74,10 @@ export const LocationMapPicker = memo(function LocationMapPicker({
   });
   const [resolvedAddress, setResolvedAddress] = useState<string>("");
 
+  // Phase 2 fix: commit coordinates to parent IMMEDIATELY on map click,
+  // then enrich address asynchronously. A reverse-geocode failure must never
+  // drop the selected pin (previously parent never received coords on 500/
+  // timeout, leaving UI pin ≠ form state).
   const handleGeocode = useCallback(
     async (lat: number, lng: number) => {
       geocodeControllerRef.current?.abort();
@@ -82,6 +86,17 @@ export const LocationMapPicker = memo(function LocationMapPicker({
       setSelectedCoords({ lat, lng });
       setResolvedAddress("");
       setLoadingGeocode(true);
+
+      // Immediate commit with provisional (empty) address — parent state is
+      // always correct even if geocoding fails.
+      onLocationSelected({
+        province: "",
+        city: "",
+        district: "",
+        address: "",
+        lat,
+        lng,
+      });
 
       try {
         const res = await api.get<{
@@ -97,6 +112,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
         if (res.success && res.data) {
           const { province, city, district, address } = res.data;
           setResolvedAddress(address || `${province} - ${city}`);
+          // Enrichment second call overwrites the provisional address only.
           onLocationSelected({
             province,
             city,
@@ -105,10 +121,14 @@ export const LocationMapPicker = memo(function LocationMapPicker({
             lat,
             lng,
           });
+        } else {
+          setResolvedAddress(`پین ثبت شد (${lat.toFixed(5)}, ${lng.toFixed(5)}) — آدرس یافت نشد`);
         }
       } catch {
         if (!controller.signal.aborted && mountedRef.current) {
           setLoadingGeocode(false);
+          // Coordinates already committed above; only show hint banner.
+          setResolvedAddress(`پین ثبت شد (${lat.toFixed(5)}, ${lng.toFixed(5)}) — خطای دریافت آدرس`);
         }
       }
     },
@@ -373,7 +393,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
 
       {/* Instruction hint */}
       <p className="text-[11px] text-slate-400 leading-relaxed">
-        💡 روی نقشه کلیک کنید یا پین دایره‌ای را بکشید تا آدرس، استان و شهر به‌طور خودکار تنظیم شوند.
+        💡 روی نقشه کلیک کنید یا پین دایره‌ای را بکشید — مختصات فوراً ثبت می‌شود و آدرس سپس به‌طور خودکار تکمیل می‌گردد (حتی با خطای آدرس، پین حفظ می‌شود).
       </p>
 
       {/* Resolved address banner */}

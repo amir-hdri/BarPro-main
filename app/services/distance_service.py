@@ -61,7 +61,12 @@ async def _fetch_neshan(origin_lat: float, origin_lng: float, dest_lat: float, d
 
 
 async def get_route_distance(origin_lat: float, origin_lng: float, dest_lat: float, dest_lng: float) -> dict:
-    """Return ``{"distance_km", "duration_min", "source"}`` for a route."""
+    """Return ``{"distance_km", "duration_min", "source"}`` for a route.
+
+    Delegates to RouteAuthority (single source of truth). Redis caching and
+    the legacy Neshan→haversine helpers are preserved for backward
+    compatibility, but the authoritative snapshot lives in RouteAuthority.
+    """
     key = _cache_key(origin_lat, origin_lng, dest_lat, dest_lng)
     redis = await redis_manager.get()
     if redis is not None:
@@ -72,11 +77,24 @@ async def get_route_distance(origin_lat: float, origin_lng: float, dest_lat: flo
         except Exception as exc:  # noqa: BLE001 — cache is best-effort
             logger.debug("Route cache read failed: %s", exc)
 
-    result = await _fetch_neshan(origin_lat, origin_lng, dest_lat, dest_lng)
-    if result is None:
-        # Fallback is never cached: it must not poison the key for the full TTL.
-        return _haversine_fallback(origin_lat, origin_lng, dest_lat, dest_lng)
+    try:
+        from app.services.route_authority import resolve_route
 
+        snapshot = await resolve_route(origin_lat, origin_lng, dest_lat, dest_lng)
+        result = {
+            "distance_km": snapshot["distance_km"],
+            "duration_min": snapshot["duration_min"],
+            "source": snapshot["source"],
+        }
+    except Exception:
+        result = await _fetch_neshan(origin_lat, origin_lng, dest_lat, dest_lng)
+        if result is None:
+            # Fallback is never cached: it must not poison the key for the full TTL.
+            return _haversine_fallback(origin_lat, origin_lng, dest_lat, dest_lng)
+
+    # Fallback results are never cached: they must not poison the key.
+    if result.get("source") == "haversine_fallback":
+        return result
     if redis is not None:
         try:
             await redis.setex(key, utcms_config.NESHAN_CACHE_TTL_SECONDS, json.dumps(result))

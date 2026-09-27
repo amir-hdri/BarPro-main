@@ -147,14 +147,19 @@ async def test_start_rejects_business_error_and_persists_unknown_state(
     runtime.save.assert_awaited()
 
 
-async def test_finish_requires_measured_distance_before_mutation(
+async def test_finish_derives_measured_distance_when_missing(
     shipping_runtime: SimpleNamespace,
 ) -> None:
+    """Phase 11: measured_distance is derived from telemetry/route, not required."""
     request = routes.ShippingFinishRequest(job_id="test-job", latitude=35.8, longitude=50.9)
-    with pytest.raises(HTTPException) as error:
-        await routes.finish_shipping(request, user_context={})
-    assert error.value.status_code == 422
-    shipping_runtime.transport.finish_shipping_with_gps.assert_not_awaited()
+    result = await routes.finish_shipping(request, user_context={})
+    assert result["status"] == "delivered"
+    # Auto-derived from Route Authority when the client omits it.
+    assert result["measured_distance_km"] > 0
+    assert result["measured_source"] == "route_derived"
+    shipping_runtime.transport.finish_shipping_with_gps.assert_awaited_once()
+    sent_km = shipping_runtime.transport.finish_shipping_with_gps.mock_calls[0].kwargs["total_distance_km"]
+    assert sent_km == result["measured_distance_km"]
 
 
 async def test_finish_rejects_business_error_without_history_mutation(

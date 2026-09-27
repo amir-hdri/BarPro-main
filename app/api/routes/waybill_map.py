@@ -1,7 +1,6 @@
 """مسیرهای API برای عملیات بارنامه مبتنی بر نقشه"""
 
 import logging
-import math
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
@@ -145,28 +144,21 @@ async def get_traffic_status():
 
 @router.post("/calculate-route", dependencies=[Depends(require_sensitive_auth)])
 async def calculate_route(origin: GeoCoordinateModel, destination: GeoCoordinateModel):
-    """محاسبه مسیر بین دو مختصات جغرافیایی."""
-    earth_radius_km = 6371
+    """محاسبه مسیر بین دو مختصات — از Route Authority واحد (Neshan یا fallback صریح)."""
+    from app.services.route_authority import resolve_route
 
-    lat1 = math.radians(origin.lat)
-    lat2 = math.radians(destination.lat)
-    dlat = math.radians(destination.lat - origin.lat)
-    dlon = math.radians(destination.lng - origin.lng)
-
-    a = math.sin(dlat / 2) * math.sin(dlat / 2) + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) * math.sin(
-        dlon / 2
-    )
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    distance = earth_radius_km * c
-
-    duration_min = (distance / 60) * 60
-
+    snapshot = await resolve_route(origin.lat, origin.lng, destination.lat, destination.lng)
     return {
-        "distance_km": round(distance, 2),
-        "duration_min": round(duration_min),
+        "distance_km": snapshot["distance_km"],
+        "duration_min": round(snapshot["duration_min"]),
+        "duration_s": snapshot["duration_s"],
         "origin": origin.model_dump(),
         "destination": destination.model_dump(),
-        "method": "haversine",
+        "method": snapshot["source"],
+        "source": snapshot["source"],
+        "is_real_route": snapshot["is_real_route"],
+        "polyline": snapshot["polyline"],
+        "anchor_hash": snapshot["anchor_hash"],
     }
 
 

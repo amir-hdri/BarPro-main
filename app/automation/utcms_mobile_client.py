@@ -9,7 +9,7 @@ import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -689,7 +689,7 @@ class UtcmsMobileClient:
                     lon = pt.get("Longitude") if pt.get("Longitude") is not None else (pt.get("lon") or pt.get("lng"))
                     spd = pt.get("Speed") if pt.get("Speed") is not None else pt.get("speed", 0)
                     alt = pt.get("Altitude") if pt.get("Altitude") is not None else pt.get("alt", 0)
-                    dt = pt.get("DateTime") or pt.get("Date") or pt.get("ts") or datetime.now(ZoneInfo("Asia/Tehran")).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                    dt = pt.get("DateTime") or pt.get("Date") or pt.get("ts") or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
                     item = {
                         "Latitude": float(lat) if lat is not None else 0.0,
                         "Longitude": float(lon) if lon is not None else 0.0,

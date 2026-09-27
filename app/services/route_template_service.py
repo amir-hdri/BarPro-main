@@ -42,14 +42,20 @@ async def _compute_distance(
     origin_lng: float | None,
     dest_lat: float | None,
     dest_lng: float | None,
-) -> tuple[float | None, float | None]:
+) -> tuple[float | None, float | None, dict | None]:
     if origin_lat is None or origin_lng is None or dest_lat is None or dest_lng is None:
-        return None, None
+        return None, None, None
     try:
-        data = await get_route_distance(origin_lat, origin_lng, dest_lat, dest_lng)
-        return data.get("distance_km"), data.get("duration_min")
+        from app.services.route_authority import resolve_route
+
+        snapshot = await resolve_route(origin_lat, origin_lng, dest_lat, dest_lng)
+        return snapshot.get("distance_km"), snapshot.get("duration_min"), snapshot
     except Exception:  # noqa: BLE001 — distance is best-effort on template save
-        return None, None
+        try:
+            data = await get_route_distance(origin_lat, origin_lng, dest_lat, dest_lng)
+            return data.get("distance_km"), data.get("duration_min"), None
+        except Exception:  # noqa: BLE001
+            return None, None, None
 
 
 class RouteTemplateService:
@@ -62,7 +68,7 @@ class RouteTemplateService:
             dest_city=payload.dest_city,
             dest_address=payload.dest_address,
         )
-        distance_km, duration_min = await _compute_distance(
+        distance_km, duration_min, snapshot = await _compute_distance(
             payload.origin_lat, payload.origin_lng, payload.dest_lat, payload.dest_lng
         )
         template = WaybillRouteTemplate(
@@ -80,6 +86,11 @@ class RouteTemplateService:
             dest_lng=payload.dest_lng,
             distance_km=distance_km,
             duration_min=duration_min,
+            route_polyline=(snapshot or {}).get("polyline"),
+            route_source=(snapshot or {}).get("source"),
+            route_distance_km=(snapshot or {}).get("distance_km"),
+            route_duration_s=(snapshot or {}).get("duration_s"),
+            anchor_hash=(snapshot or {}).get("anchor_hash"),
             is_favorite=True if payload.is_favorite is None else payload.is_favorite,
         )
         session.add(template)
@@ -109,7 +120,19 @@ class RouteTemplateService:
             return None
         data = payload.model_dump(exclude_unset=True)
         _non_nullable = {"name", "is_favorite"}
-        _skip = {"distance_km", "duration_min", "client_id", "id", "created_at", "updated_at"}
+        _skip = {
+            "distance_km",
+            "duration_min",
+            "route_polyline",
+            "route_source",
+            "route_distance_km",
+            "route_duration_s",
+            "anchor_hash",
+            "client_id",
+            "id",
+            "created_at",
+            "updated_at",
+        }
         for field_name, value in data.items():
             if field_name in _skip:
                 continue
@@ -124,13 +147,19 @@ class RouteTemplateService:
             dest_city=template.dest_city,
             dest_address=template.dest_address,
         )
-        # Recompute distance/duration when either endpoint's coordinates changed.
+        # Recompute distance/duration + polyline snapshot when endpoints changed.
         if any(k in data for k in ("origin_lat", "origin_lng", "dest_lat", "dest_lng")):
-            distance_km, duration_min = await _compute_distance(
+            distance_km, duration_min, snapshot = await _compute_distance(
                 template.origin_lat, template.origin_lng, template.dest_lat, template.dest_lng
             )
             template.distance_km = distance_km
             template.duration_min = duration_min
+            if snapshot:
+                template.route_polyline = snapshot.get("polyline")
+                template.route_source = snapshot.get("source")
+                template.route_distance_km = snapshot.get("distance_km")
+                template.route_duration_s = snapshot.get("duration_s")
+                template.anchor_hash = snapshot.get("anchor_hash")
         session.add(template)
         await session.commit()
         await session.refresh(template)

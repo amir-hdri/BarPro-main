@@ -63,7 +63,7 @@ class ShippingFinishRequest(BaseModel):
         default=None,
         gt=0,
         le=1_000_000,
-        description="مسافت اندازه‌گیری‌شده توسط دستگاه/اپ؛ مقدار تخمینی مسیر مجاز نیست",
+        description="مسافت دستگاه (اختیاری)؛ در نبود آن از telemetry/مسیر محاسبه می‌شود",
     )
 
 
@@ -222,6 +222,38 @@ async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any]
         expected_lng=state.origin_lng,
         label="مبدأ",
     )
+    # ── Route Authority snapshot (Phase 5): frozen at start, best-effort ──
+    try:
+        from app.services.shipping_travel_service import ensure_route_snapshot
+
+        await ensure_route_snapshot(state)
+    except Exception:
+        logger.warning("route_snapshot_best_effort_failed job=%s", req.job_id, exc_info=True)
+    # ── Android readback gate (Phase 8): fail-closed only when bridge enabled ──
+    # Bridge disabled (default) → legacy operator_anchor path is preserved.
+    # Bridge enabled → Start is blocked unless Android reports the same origin.
+    android_verified = False
+    try:
+        from app.android_bridge.client import BridgeConfig
+
+        bridge_enabled = BridgeConfig.from_env().enabled
+    except Exception:
+        bridge_enabled = False
+    if bridge_enabled:
+        from app.services.shipping_travel_service import verify_android_anchor
+
+        check = await verify_android_anchor(expected_lat=req.latitude, expected_lng=req.longitude)
+        if not check.get("verified"):
+            state.status = "failed"
+            try:
+                await save_shipping_state(state)
+            except Exception:
+                logger.error("shipping_start_readback_state_persist_failed", exc_info=True)
+            raise HTTPException(
+                status_code=503,
+                detail=f"تأیید GPS اندروید برای مبدأ ناموفق بود: {check.get('reason', 'readback_unavailable')}",
+            )
+        android_verified = True
     # Build the origin witness, but persist local state only after UTCMS confirms.
     observed_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     state.gps_list.append(
@@ -233,10 +265,12 @@ async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any]
             "Speed": req.speed,
             "Date": observed_at,
             "ObservedAt": observed_at,
-            "Provider": "operator_anchor",
-            "Provenance": "operator_confirmed",
+            "Provider": "android_faketraveler_applied" if android_verified else "operator_anchor",
+            "Provenance": "android_verified" if android_verified else "operator_confirmed",
         }
     )
+    state.gps_provider = "android_faketraveler_applied" if android_verified else "operator_anchor"
+    state.provenance = "android_verified" if android_verified else "operator_confirmed"
     if not driver or not driver.utcms_password_encrypted:
         raise HTTPException(status_code=409, detail="اعتبارنامه راننده برای GPS موجود نیست")
     utcms_result = None
@@ -327,6 +361,11 @@ async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any]
         "distance_km": state.distance_km,
         "total_steps": state.total_steps,
         "waypoints": state.waypoints,
+        "route_source": state.route_source,
+        "is_real_route": state.route_source == "neshan",
+        "anchor_hash": state.anchor_hash,
+        "gps_provider": state.gps_provider,
+        "provenance": state.provenance,
         "utcms_result": utcms_result,
     }
 
@@ -353,9 +392,6 @@ async def finish_shipping(
     if state.status != "in_transit":
         raise HTTPException(status_code=409, detail=f"پایان حمل قابل تکرار نیست؛ وضعیت فعلی {state.status} است")
     await _get_job_and_driver(req.job_id, user_context, expected_doc_no=state.doc_no)
-    if req.measured_distance_km is None:
-        raise HTTPException(status_code=422, detail="مسافت اندازه‌گیری‌شده دستگاه برای پایان حمل الزامی است")
-
     _assert_route_anchor(
         latitude=req.latitude,
         longitude=req.longitude,
@@ -363,8 +399,48 @@ async def finish_shipping(
         expected_lng=state.dest_lng,
         label="مقصد",
     )
+    # ── Route snapshot recovery (Phase 5): old jobs may predate snapshots ──
+    try:
+        from app.services.shipping_travel_service import ensure_route_snapshot
 
-    # Add the operator-confirmed route destination anchor; no interpolated
+        await ensure_route_snapshot(state)
+    except Exception:
+        logger.warning("route_snapshot_best_effort_failed job=%s", req.job_id, exc_info=True)
+    # ── Destination Android gate (Phase 10): fail-closed when bridge enabled ──
+    android_verified = False
+    try:
+        from app.android_bridge.client import BridgeConfig
+
+        bridge_enabled = BridgeConfig.from_env().enabled
+    except Exception:
+        bridge_enabled = False
+    if bridge_enabled:
+        from app.services.shipping_travel_service import verify_android_anchor
+
+        check = await verify_android_anchor(expected_lat=req.latitude, expected_lng=req.longitude)
+        if not check.get("verified"):
+            raise HTTPException(
+                status_code=503,
+                detail=f"تأیید GPS اندروید برای مقصد ناموفق بود: {check.get('reason', 'readback_unavailable')}",
+            )
+        android_verified = True
+    # ── measured_distance (Phase 11): derived, never operator-supplied alone ──
+    # Legacy clients still send it; when present and sane it is kept for
+    # compatibility, otherwise it is computed from telemetry/route.
+    from app.services.shipping_travel_service import advance_travel_execution, compute_measured_distance_km
+
+    try:
+        advance_travel_execution(state)
+    except Exception:
+        logger.warning("travel_advance_best_effort_failed job=%s", req.job_id, exc_info=True)
+    auto_km = compute_measured_distance_km(state)
+    measured_km = req.measured_distance_km
+    if measured_km is None or not (0 < measured_km <= 1_000_000):
+        measured_km = auto_km if auto_km > 0 else (state.route_distance_km or state.distance_km or 0.0)
+    if not measured_km or measured_km <= 0:
+        raise HTTPException(status_code=422, detail="مسافت قابل محاسبه برای پایان حمل یافت نشد")
+
+    # Add the confirmed route destination anchor; no interpolated
     # telemetry is ever submitted to UTCMS.
     observed_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     if not state.gps_list or state.gps_list[-1].get("Type") != 3:
@@ -377,8 +453,8 @@ async def finish_shipping(
                 "Speed": req.speed,
                 "Date": observed_at,
                 "ObservedAt": observed_at,
-                "Provider": "operator_anchor",
-                "Provenance": "operator_confirmed",
+                "Provider": "android_faketraveler_applied" if android_verified else "operator_anchor",
+                "Provenance": "android_verified" if android_verified else "operator_confirmed",
             }
         )
 
@@ -422,7 +498,7 @@ async def finish_shipping(
                 lon=req.longitude,
                 alt=req.altitude,
                 speed=req.speed,
-                total_distance_km=req.measured_distance_km,
+                total_distance_km=measured_km,
                 allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
             )
             finish_result = require_successful_mutation(finish_result, "پایان GPS")
@@ -465,7 +541,8 @@ async def finish_shipping(
 
     state.status = "delivered"
     state.current_step = len(state.waypoints) - 1
-    state.traveled_km = req.measured_distance_km
+    state.traveled_km = measured_km
+    state.measured_distance_km = measured_km
     try:
         await save_shipping_state(state)
     except ShippingStatePersistenceError as exc:
@@ -475,7 +552,11 @@ async def finish_shipping(
         "status": "delivered",
         "message": f"حمل با موفقیت در مقصد تحویل شد: {state.dest_address}",
         "distance_km": state.distance_km,
-        "measured_distance_km": req.measured_distance_km,
+        "measured_distance_km": measured_km,
+        "measured_source": "operator_supplied" if req.measured_distance_km else "route_derived",
+        "route_source": state.route_source,
+        "is_real_route": state.route_source == "neshan",
+        "travel_status": state.travel_status,
         "gps_list": state.gps_list,
         "total_points": len(state.gps_list),
         "utcms_result": utcms_result,
@@ -561,4 +642,13 @@ async def get_shipping_status(job_id: str, user_context: dict[str, Any] = Depend
         "total_steps": state.total_steps,
         "waypoints": state.waypoints,
         "gps_list": state.gps_list,
+        "route_source": state.route_source,
+        "is_real_route": state.route_source == "neshan",
+        "route_distance_km": state.route_distance_km or state.distance_km,
+        "anchor_hash": state.anchor_hash,
+        "travel_status": state.travel_status,
+        "travel_progress": state.travel_progress,
+        "measured_distance_km": state.measured_distance_km or state.distance_km,
+        "gps_provider": state.gps_provider,
+        "provenance": state.provenance,
     }

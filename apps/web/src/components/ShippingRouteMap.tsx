@@ -43,6 +43,14 @@ interface ShippingStatus {
   gps_list: unknown[];
   doc_no?: string;
   measured_distance_km?: number;
+  route_source?: string;
+  is_real_route?: boolean;
+  route_distance_km?: number;
+  anchor_hash?: string;
+  travel_status?: string;
+  travel_progress?: number;
+  gps_provider?: string;
+  provenance?: string;
 }
 
 export interface ShippingRouteMapProps {
@@ -376,12 +384,16 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
     }
   };
 
+  // Phase 11: measured_distance is derived server-side from telemetry/route.
+  // Manual input is kept as an optional override for legacy devices; empty
+  // means "auto" and the backend computes it (never blocks finish on 422).
   const handleFinish = async () => {
     setLoading(true);
     try {
-      const measuredDistance = Number(measuredDistanceKm);
-      if (!Number.isFinite(measuredDistance) || measuredDistance <= 0) {
-        throw new Error("مسافت اندازه‌گیری‌شده را وارد کنید");
+      const trimmed = measuredDistanceKm.trim();
+      const measuredOverride = trimmed ? Number(trimmed) : undefined;
+      if (trimmed && (!Number.isFinite(measuredOverride) || (measuredOverride as number) <= 0)) {
+        throw new Error("مسافت واردشده معتبر نیست — خالی بگذارید تا خودکار محاسبه شود");
       }
       const latitude = destLat ?? status?.destination?.lat;
       const longitude = destLng ?? status?.destination?.lng;
@@ -394,7 +406,7 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
         longitude,
         altitude: 0,
         speed: 0,
-        measured_distance_km: measuredDistance,
+        ...(measuredOverride !== undefined ? { measured_distance_km: measuredOverride } : {}),
       });
       toast.success("✅ حمل با موفقیت پایان یافت");
       const st = await fetchStatus();
@@ -426,7 +438,7 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
         </div>
 
         {status && (
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-2 text-xs flex-wrap">
             <span
               className={`px-2 py-1 rounded-full font-medium ${
                 isDelivered
@@ -446,6 +458,24 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
             {status.estimated_duration_text && (
               <span className="text-blue-600 dark:text-blue-400 font-medium bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded">
                 ⏱ {status.estimated_duration_text}
+              </span>
+            )}
+            {/* Route Authority provenance: real road vs fallback estimate */}
+            {status.route_source && (
+              <span
+                title={status.is_real_route ? "مسیر جاده‌ای واقعی (Neshan)" : "تخمین مستقیم — مسیر جاده‌ای واقعی نیست"}
+                className={`px-2 py-0.5 rounded font-medium ${
+                  status.is_real_route
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                    : "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                }`}
+              >
+                {status.is_real_route ? "🛣️ مسیر واقعی" : "📏 تخمین"}
+              </span>
+            )}
+            {status.travel_status && (
+              <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-300 font-medium">
+                {status.travel_status}
               </span>
             )}
           </div>
@@ -491,9 +521,12 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
             </span>
           </div>
           <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-            <div
-              className="bg-gradient-to-l from-blue-500 to-indigo-500 h-2 rounded-full transition-all duration-700"
-              style={{ width: `${Math.min(100, status.progress_pct ?? 0)}%` }}
+            {/* No inline style (ui-ux-guard): native progress element carries the value */}
+            <progress
+              value={Math.min(100, status.progress_pct ?? 0)}
+              max={100}
+              aria-label={`پیشرفت حمل ${Math.min(100, status.progress_pct ?? 0).toFixed(0)} درصد`}
+              className="block w-full h-2 rounded-full overflow-hidden bg-transparent [&::-webkit-progress-bar]:bg-transparent [&::-webkit-progress-value]:bg-gradient-to-l [&::-webkit-progress-value]:from-blue-500 [&::-webkit-progress-value]:to-indigo-500 [&::-moz-progress-bar]:bg-indigo-500"
             />
           </div>
         </div>
@@ -517,21 +550,22 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
         {isStarted && (
           <>
             <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
-              <span>مسافت اندازه‌گیری‌شده (km)</span>
+              <span>مسافت دستگاه (km) — خالی = خودکار از مسیر</span>
               <input
                 type="number"
                 min="0.01"
                 step="0.01"
                 inputMode="decimal"
                 value={measuredDistanceKm}
+                placeholder={status?.route_distance_km ? status.route_distance_km.toFixed(1) : "خودکار"}
                 onChange={(event) => setMeasuredDistanceKm(event.target.value)}
                 className="w-28 rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                aria-label="مسافت اندازه‌گیری‌شده بر حسب کیلومتر"
+                aria-label="مسافت دستگاه بر حسب کیلومتر (اختیاری — خالی یعنی محاسبه خودکار از مسیر)"
               />
             </label>
             <button
               onClick={handleFinish}
-              disabled={loading || !measuredDistanceKm}
+              disabled={loading}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-medium disabled:opacity-50 transition-colors"
             >
               <StopIcon className="h-4 w-4" />
