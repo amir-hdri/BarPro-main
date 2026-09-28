@@ -31,7 +31,6 @@ if str(PROJECT_ROOT) not in sys.path:
 from sqlmodel import select
 
 from app.auth_multitenant import decrypt_driver_password
-from app.automation.waybill_bot_multitenant import WaybillAutomationBot
 from app.automation.worker_proxy import get_worker_proxy_url
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
@@ -61,7 +60,6 @@ async def main() -> None:
         if not driver:
             raise RuntimeError("Driver 6 not found in DB")
         client_id = driver.client_id
-        username = driver.utcms_username or driver.driver_national_code
         nat_code = driver.driver_national_code
         enc_pass = driver.utcms_password_encrypted
         password = decrypt_driver_password(enc_pass)
@@ -221,55 +219,137 @@ async def main() -> None:
         db_job_id = job.id
     logger.info("✅ WaybillJob created with DB ID = %d", db_job_id)
 
-    logger.info("Executing WaybillAutomationBot (Mobile Pipeline)...")
-    bot = WaybillAutomationBot(page=None, context=None, proxy_url=proxy_url)
-    bot_result = await bot.execute_waybill_job(
-        username=username,
-        password=password,
-        payload=payload,
-        job_id=job_id,
-        client_id=client_id,
+    logger.info("Executing Document Issuance via authenticated mobile client...")
+    # Step 1: Solve issuance CAPTCHA (form_id=1) using MathCRNN
+    logger.info("Solving issuance CAPTCHA via MathCRNN...")
+    _, issue_cap_token = await auth_client.auto_solve_captcha(form_id=1)
+    logger.info("✅ Issuance CAPTCHA solved: answer=%s", issue_cap_token)
+
+    # Step 2: Insert Document on UTCMS
+    logger.info("Submitting InsertDocumentHagigiV3 to UTCMS...")
+    insert_response = await auth_client.insert_document(
+        payload,
         allow_live_submit=True,
-        proxy_url=proxy_url,
+        cap_token=issue_cap_token,
     )
+    logger.info("Insert Response: %s", json.dumps(insert_response, ensure_ascii=False))
 
-    logger.info(
-        "Bot Execution Completed:\n%s",
-        json.dumps(bot_result, ensure_ascii=False, indent=2),
-    )
+    doc_id = auth_client.extract_document_id(insert_response)
+    tracking_code = auth_client.extract_tracking_code(insert_response)
+    is_otp = insert_response.get("obj", {}).get("isOtpNeeded") if isinstance(insert_response.get("obj"), dict) else False
 
-    exec_status = bot_result.get("status")
-    doc_id = bot_result.get("document_id")
-    tracking_code = bot_result.get("tracking_code")
+    logger.info("Doc ID: %s, Tracking Code: %s, OTP Needed: %s", doc_id, tracking_code, is_otp)
 
-    if exec_status == TaskStatus.SUCCESS.value and tracking_code:
+    # Step 3: Extract tracking code from GetDocumentByID or GetDocTrackingCode if not in insert response
+    if doc_id and not tracking_code:
+        logger.info("Tracking code not directly in insert response, querying GetDocumentByID(%s)...", doc_id)
+        await asyncio.sleep(1.0)
+        try:
+            doc_info = await auth_client.get_document(str(doc_id))
+            tracking_code = auth_client.extract_tracking_code(doc_info)
+            logger.info("Extracted tracking code from GetDocumentByID: %s", tracking_code)
+        except Exception as doc_err:
+            logger.warning("GetDocumentByID failed: %s", doc_err)
+
+    if doc_id and not tracking_code:
+        logger.info("Querying GetDocTrackingCode(%s)...", doc_id)
+        try:
+            trk_info = await auth_client.get_tracking_code(str(doc_id))
+            tracking_code = auth_client.extract_tracking_code(trk_info)
+            logger.info("Extracted tracking code from GetDocTrackingCode: %s", tracking_code)
+        except Exception as trk_err:
+            logger.warning("GetDocTrackingCode failed: %s", trk_err)
+
+    # Step 4: Register Start of Shipping with origin coordinates
+    start_ship_result = None
+    if doc_id and tracking_code:
+        logger.info("Initializing GPS shipping lifecycle for tracking code %s...", tracking_code)
+        from app.automation.gps_shipping_manager import init_shipping, save_shipping_state
+        ship_state = await init_shipping(
+            job_id=job_id,
+            doc_no=str(tracking_code),
+            payload=payload,
+            doc_id=str(doc_id),
+            persist=True,
+        )
+
+        start_iso = datetime.now(ZoneInfo("Asia/Tehran")).strftime("%Y-%m-%dT%H:%M:%S")
+        logger.info(
+            "Triggering RegisterStartOfShipping: doc_id=%s, lat=%s, lng=%s, time=%s",
+            doc_id,
+            origin_lat,
+            origin_lng,
+            start_iso,
+        )
+        try:
+            start_ship_result = await auth_client.register_start_of_shipping(
+                document_id=int(str(doc_id).strip()),
+                speed=0,
+                altitude=1000,
+                longitude=origin_lng,
+                latitude=origin_lat,
+                start_date=start_iso,
+                allow_live_submit=True,
+            )
+            logger.info("✅ RegisterStartOfShipping response: %s", start_ship_result)
+            ship_state.status = "in_transit"
+            await save_shipping_state(ship_state)
+        except Exception as start_err:
+            logger.warning("RegisterStartOfShipping note: %s", start_err)
+
+    # Step 5: Update WaybillJob in PostgreSQL
+    result_data = {
+        "document_id": doc_id,
+        "tracking_code": tracking_code,
+        "is_otp_needed": is_otp,
+        "insert_response": insert_response,
+        "start_shipping": start_ship_result,
+        "route": {
+            "origin": {"lat": origin_lat, "lng": origin_lng, "city": "کاشمر"},
+            "destination": {"lat": dest_lat, "lng": dest_lng, "city": "کاشمر"},
+            "distance_km": route_plan.get("distance_km"),
+            "duration_s": route_plan.get("duration_s"),
+        },
+    }
+
+    async with async_session_factory() as session:
+        job_db = await session.get(WaybillJob, db_job_id)
+        if job_db:
+            if tracking_code:
+                job_db.status = TaskStatus.SUCCESS.value
+                job_db.mutation_status = "confirmed"
+            else:
+                job_db.status = TaskStatus.FAILED.value
+                job_db.mutation_status = "failed"
+            job_db.result_json = result_data
+            job_db.completed_at = _utcnow_naive()
+            job_db.reconciled_at = _utcnow_naive()
+            await session.commit()
+            logger.info("✅ WaybillJob updated in DB: status=%s, tracking_code=%s", job_db.status, tracking_code)
+
+    # Step 6: Final Verification against live UTCMS portal
+    if tracking_code:
         logger.info("==================================================================")
         logger.info("  🎉 WAYBILL SUCCESSFULLY ISSUED & CONFIRMED ON UTCMS!            ")
         logger.info("  📄 Document ID:   %s", doc_id)
         logger.info("  🔢 Tracking Code: %s", tracking_code)
         logger.info("  📍 Origin Anchor: (%s, %s)", origin_lat, origin_lng)
         logger.info("  📍 Dest Anchor:   (%s, %s)", dest_lat, dest_lng)
-        start_ship_result = bot_result.get("result", {}).get("start_shipping")
-        logger.info("  🚚 Start Shipping Result: %s", start_ship_result)
+        logger.info("  🚚 Start Shipping: %s", start_ship_result)
 
-        # Verify directly on UTCMS portal
         try:
-            doc_verification = await auth_client.get_document(str(doc_id))
-            obj_v = doc_verification.get("obj") or {}
+            live_doc = await auth_client.get_document(str(doc_id))
+            obj_v = live_doc.get("obj") or {}
             logger.info("  🔍 UTCMS Live Status: %s (code: %s)", obj_v.get("statusName"), obj_v.get("status"))
             logger.info("  📅 UTCMS Issue Date: %s", obj_v.get("issueDate"))
             logger.info("  📏 UTCMS Distance: %s km", obj_v.get("distanceKm"))
             logger.info("  👤 UTCMS Driver: %s", obj_v.get("driverName"))
+            logger.info("  🚗 UTCMS Plate: %s", obj_v.get("carTag"))
         except Exception as v_err:
-            logger.warning("  ⚠️ Could not fetch live get_document: %s", v_err)
+            logger.warning("Could not fetch live get_document: %s", v_err)
         logger.info("==================================================================")
     else:
-        logger.warning(
-            "Waybill execution outcome: status=%s, tracking_code=%s, error=%s",
-            exec_status,
-            tracking_code,
-            bot_result.get("error"),
-        )
+        logger.error("❌ Waybill registration failed or tracking code not acquired.")
 
 
 if __name__ == "__main__":
