@@ -738,6 +738,27 @@ async def get_or_login_client(
                 await _release_auth_lock(redis, lock_key, lock_token)
 
 
+# ──────────────────── UTCMS Document Status Codes (تاریخچه اسناد حمل) ────────────────────
+
+UTCMS_STATUS_ISSUED = 0  # صادر شده
+UTCMS_STATUS_IN_TRANSIT = 1  # در حال حمل
+UTCMS_STATUS_DELIVERED = 2  # پایان حمل
+UTCMS_STATUS_CANCELLED = 3  # باطل شده
+
+UTCMS_STATUS_MAP: dict[int, str] = {
+    UTCMS_STATUS_ISSUED: "issued",
+    UTCMS_STATUS_IN_TRANSIT: "in_transit",
+    UTCMS_STATUS_DELIVERED: "delivered",
+    UTCMS_STATUS_CANCELLED: "cancelled",
+}
+
+UTCMS_STATUS_LABELS_FA: dict[int, str] = {
+    UTCMS_STATUS_ISSUED: "صادر شده",
+    UTCMS_STATUS_IN_TRANSIT: "در حال حمل",
+    UTCMS_STATUS_DELIVERED: "پایان حمل",
+    UTCMS_STATUS_CANCELLED: "باطل شده",
+}
+
 # ──────────────────── Shipping State (Redis) ────────────────────
 
 

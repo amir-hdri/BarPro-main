@@ -290,7 +290,8 @@ class UtcmsMobileClient:
             if status_code < 200 or status_code >= 300 or result_code in {3000, 3001}:
                 res_msg = decoded.get("resultMessage") if isinstance(decoded, dict) else None
                 raise UtcmsMobileApiError(
-                    f"UTCMS mobile API rejected the request: status={status_code}, result_code={result_code}, msg={res_msg}",
+                    f"UTCMS mobile API rejected the request: "
+                    f"status={status_code}, result_code={result_code}, msg={res_msg}",
                     status_code=status_code,
                     result_code=result_code,
                     result_message=res_msg,
@@ -689,7 +690,8 @@ class UtcmsMobileClient:
                     lon = pt.get("Longitude") if pt.get("Longitude") is not None else (pt.get("lon") or pt.get("lng"))
                     spd = pt.get("Speed") if pt.get("Speed") is not None else pt.get("speed", 0)
                     alt = pt.get("Altitude") if pt.get("Altitude") is not None else pt.get("alt", 0)
-                    dt = pt.get("DateTime") or pt.get("Date") or pt.get("ts") or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                    fallback_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                    dt = pt.get("DateTime") or pt.get("Date") or pt.get("ts") or fallback_ts
                     item = {
                         "Latitude": float(lat) if lat is not None else 0.0,
                         "Longitude": float(lon) if lon is not None else 0.0,
@@ -697,7 +699,10 @@ class UtcmsMobileClient:
                         "Altitude": float(alt),
                         "DateTime": str(dt),
                     }
-                    pt_type = pt.get("Type") if pt.get("Type") is not None else (pt.get("type") or pt.get("waypoint_type"))
+                    pt_type = (
+                        pt.get("Type") if pt.get("Type") is not None
+                        else (pt.get("type") or pt.get("waypoint_type"))
+                    )
                     if pt_type is not None:
                         item["Type"] = int(pt_type)
                     formatted_list.append(item)

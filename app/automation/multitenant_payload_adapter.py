@@ -23,7 +23,8 @@ def _extract_valid_coordinates(source: dict[str, Any] | None) -> dict[str, float
         lng = coords.get("lng", coords.get("lon", coords.get("longitude")))
         try:
             lat_f, lng_f = float(lat), float(lng)
-            if math.isfinite(lat_f) and math.isfinite(lng_f) and lat_f != 0.0 and lng_f != 0.0:
+            if (math.isfinite(lat_f) and math.isfinite(lng_f) and lat_f != 0.0 and lng_f != 0.0
+                    and -90 <= lat_f <= 90 and -180 <= lng_f <= 180):
                 return {"lat": lat_f, "lng": lng_f}
         except (TypeError, ValueError):
             pass
@@ -33,7 +34,8 @@ def _extract_valid_coordinates(source: dict[str, Any] | None) -> dict[str, float
     if lat is not None and lng is not None:
         try:
             lat_f, lng_f = float(lat), float(lng)
-            if math.isfinite(lat_f) and math.isfinite(lng_f) and lat_f != 0.0 and lng_f != 0.0:
+            if (math.isfinite(lat_f) and math.isfinite(lng_f) and lat_f != 0.0 and lng_f != 0.0
+                    and -90 <= lat_f <= 90 and -180 <= lng_f <= 180):
                 return {"lat": lat_f, "lng": lng_f}
         except (TypeError, ValueError):
             pass
