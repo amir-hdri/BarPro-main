@@ -58,6 +58,7 @@ Frontend: Next.js 15 (TypeScript, Tailwind, React 19)
 - **Live Confirmed Waybills on UTCMS**:
   - Waybill 1 (Job 125): Doc `226157460`, Track `1349750688`, Driver 7 (`0321410408`), Plate `23ع965ایران78`, Taleqan Mir to Keshrud. Status on UTCMS: `درحال حمل` (code 1), DB: `SUCCESS`.
   - Waybill 2 (Job 127): Doc `226164459`, Track `1349757758`, Driver 8 (`4929889601`), Plate `32ع444ایران27`, Shot Dizaj to Mergan. Status on UTCMS: `درحال حمل` (code 1), DB: `SUCCESS`.
+  - Waybill 3 (Job 140, 2026-09-28): Doc `228074398`, Track `1351676782`, Driver 6 (`0084575948`), Plate `27ع799ایران32`, Kashmar intra-city route. Status on UTCMS: `پایان حمل` (code 2), full end-of-shipping registered via `RegisterEndOfShipping` with auto-detour waypoint injection (Rule 4012 satisfied, `resultCode: 200`), DB: `SUCCESS` / `delivered`.
 
 | Role | vCPU | RAM |
 |------|------|-----|
@@ -254,7 +255,11 @@ URL/Data URI and has no direct tracking-code column.
 - On UTCMS business rejection `4003` (wrong captcha), the mobile client must
   raise so retry loops fire; rejection artifacts (image + model prediction)
   are written under `/tmp/captcha_rejections/` via
-  `app/automation/captcha/debug_artifacts.py`.
+  `app/automation/captcha/debug_artifacts.py`. In `_is_transient_login_error`,
+  code 4003 is classified as transient retryable (`LOGIN_MAX_ATTEMPTS = 3`,
+  refreshing CAPTCHA each time), preventing single-misread login aborts. Session
+  Vault (`get_authenticated_client`) caches tokens (4m) and refresh tokens (2h)
+  in Redis, minimizing full logins and preventing HTTP 429 rate limit lockouts.
 
 ### Automated Shipping Lifecycle & GPS Completion Contract
 
