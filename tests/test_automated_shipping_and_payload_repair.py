@@ -1,6 +1,5 @@
 """Verification tests for automated waybill registration and GPS shipping lifecycle."""
 
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 

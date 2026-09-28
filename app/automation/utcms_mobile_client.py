@@ -709,20 +709,35 @@ class UtcmsMobileClient:
                     spd = pt.get("Speed") if pt.get("Speed") is not None else pt.get("speed", 0)
                     alt = pt.get("Altitude") if pt.get("Altitude") is not None else pt.get("alt", 0)
                     fallback_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                    dt = pt.get("DateTime") or pt.get("Date") or pt.get("ts") or fallback_ts
+                    dt = pt.get("Date") or pt.get("date") or pt.get("DateTime") or pt.get("ts") or fallback_ts
+                    pt_type = (
+                        pt.get("Type")
+                        if pt.get("Type") is not None
+                        else (pt.get("type") or pt.get("waypoint_type"))
+                    )
+                    # UTCMS gpsList only accepts Type 2 (intermediate waypoint) and Type 3 (destination).
+                    # If Type 1 is passed, map it to Type 2 so it is treated as a valid waypoint.
+                    if pt_type == 1 or str(pt_type) == "1":
+                        resolved_type = 2
+                    elif pt_type is not None:
+                        resolved_type = int(pt_type)
+                    else:
+                        resolved_type = 3
                     item = {
                         "Latitude": float(lat) if lat is not None else 0.0,
                         "Longitude": float(lon) if lon is not None else 0.0,
+                        "latitude": float(lat) if lat is not None else 0.0,
+                        "longitude": float(lon) if lon is not None else 0.0,
                         "Speed": float(spd),
+                        "speed": float(spd),
                         "Altitude": float(alt),
+                        "altitude": float(alt),
+                        "Date": str(dt),
+                        "date": str(dt),
                         "DateTime": str(dt),
+                        "Type": resolved_type,
+                        "type": resolved_type,
                     }
-                    pt_type = (
-                        pt.get("Type") if pt.get("Type") is not None
-                        else (pt.get("type") or pt.get("waypoint_type"))
-                    )
-                    if pt_type is not None:
-                        item["Type"] = int(pt_type)
                     formatted_list.append(item)
         return await self._post(
             "/Document/RegisterEndOfShipping",

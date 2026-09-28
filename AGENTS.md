@@ -259,22 +259,28 @@ URL/Data URI and has no direct tracking-code column.
 ### Automated Shipping Lifecycle & GPS Completion Contract
 
 - **Lifecycle Flow**:
-  `waybill issuance (tracking code) → immediate RegisterStartOfShipping (origin GPS) → in_transit state (Redis + DB persistence) → periodic ETA check (every 2 min via shipping.auto_complete_due_trips in Celery Beat) → physical ETA satisfied (now >= estimated_end_at) → RegisterEndOfShipping (2-point GPS trace: origin + destination) → delivered / success`
+  `waybill issuance (tracking code) → immediate RegisterStartOfShipping (origin GPS, UTC timestamp) → in_transit state (Redis + DB persistence) → periodic ETA check (every 2 min via shipping.auto_complete_due_trips in Celery Beat) → physical ETA satisfied (now >= estimated_end_at) → RegisterEndOfShipping (2-point GPS trace: origin Type 2 + destination Type 3) → delivered / success`
 - **Active Endpoints vs. Deprecated 404s**:
   - Active: `POST /Document/RegisterStartOfShipping` (takes `DocId`, `Speed=0`, `Altitude=1000`, `Longitude`, `Latitude`, `StartDate`, `havePermission=true`) and `POST /Document/RegisterEndOfShipping` (takes `docId`, `gpsList`).
   - Deprecated / 404: `/Document/StartShippingWithGps` and `/Document/FinishShippingWithGps` return 404 on current UTCMS. Client code automatically falls back to the active endpoints.
 - **Periodic Beat Task (`shipping.auto_complete_due_trips`)**:
   - Runs in Celery Beat every 2 minutes (`crontab(minute="*/2")` / 120s schedule).
   - Queries active trips in transit (`get_due_in_transit_jobs`), deduplicating across Redis (`utcms:shipping:job:*`) and PostgreSQL (`WaybillJob.status == "in_transit"`).
-  - Skips trips whose physical ETA has not arrived (`waiting_eta`), preventing premature UTCMS rejection.
-- **Physical ETA Requirements**:
+  - Skips trips whose physical ETA has not arrived (`waiting_eta`) or that are in backoff cooldown (`backoff_until`), preventing premature UTCMS rejection and rate-limiting.
+- **Physical ETA & UTC Server Clock Requirements**:
+  - UTCMS database server evaluates its own clock `GETDATE()` (UTC) against `estimatedTimeOfEndShipment`.
+  - All timestamps (`StartDate`, `Date`, `DateTime`) must strictly be UTC ISO strings (`YYYY-MM-DDTHH:mm:ss.000Z`). Passing local Tehran time shifts `estimatedTimeOfEndShipment` 3.5 hours into the future, triggering error 4013.
   - Short routes (< 20 km): enforce a mandatory minimum 20-minute physical buffer.
   - Long routes: computed based on realistic heavy-vehicle road speed (~65 km/h) proportional to distance (`estimated_end_at`).
-- **2-Point GPS Trace**:
-  - `RegisterEndOfShipping` submits a continuous 2-point GPS evidence array: Point 1 at origin with issuance timestamp, Point 2 at destination with arrival timestamp.
-- **Business Rule Handling (4006 & 4011)**:
+- **2-Point GPS Trace Schema (`gpsList`)**:
+  - Discovered via reverse engineering of official React Native bundle (`assets/index.android.bundle`):
+  - Each point in `gpsList` must include `"Date"` (and `"DateTime"` as alias) in ISO format. Missing `"Date"` causes error 4004 ("موقعیت پایان ارسال نشده است").
+  - Point types: only `Type: 2` (intermediate waypoint) and `Type: 3` (destination arrival) are valid. `Type: 1` causes error 4006 ("موقعیتی با نوع نامشخص ارسال شده است"); client maps any initial point to `Type: 2`.
+- **Business Rule Handling (4006, 4011, 4013, 429)**:
   - **Rule 4006 (Self-Declared Start)**: Waybills issued with `selfDeclaredTimeOfStartShipment` are automatically set to `in_transit` (code 1) by UTCMS. Redundant calls to `RegisterStartOfShipping` return business code 4006 ("برای بارنامه نمی توان شروع حمل ثبت کرد"). This is treated as non-fatal, keeping the trip in `in_transit`.
   - **Rule 4011 (Self-Declared End / Early Call)**: Calling `RegisterEndOfShipping` before or upon self-declared termination triggers code 4011 ("پایان حمل بر اساس خوداظهاری تایید شد"). BarPro handles 4011 as successful completion (`mode="self_declared_auto_complete"`), marking `ShippingState` as `delivered` and updating `WaybillJob.status` to `success`.
+  - **Rule 4013 (Physical Travel Time)**: If `GETDATE() < estimatedTimeOfEndShipment`, UTCMS returns code 4013 ("زمان مورد نیاز برای پایان حمل نگذشته است."). BarPro sets a 5-minute backoff (`backoff_until = now + 5 min`), avoiding repetitive poll cycles.
+  - **Rule 429 (Rate Limiting Circuit-Breaker)**: Repeated rejected calls trigger code 429 ("تعداد فراخوانی بیش از حد مجاز هست، دقایقی دیگر مجدد اقدام نمایید"). BarPro activates exponential backoff (10m, 20m, 30m) on `ShippingState` and excludes the job from scanning during cooldown.
 
 ## Common Pitfalls
 

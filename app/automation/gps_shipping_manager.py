@@ -798,6 +798,12 @@ class ShippingState:
     measured_distance_km: float = 0.0
     gps_provider: str = "operator_anchor"
     provenance: str = "operator_confirmed"
+    # ── Completion retry & backoff tracking ──
+    completion_attempts: int = 0
+    last_attempt_at: str = ""
+    backoff_until: str = ""
+    last_error_code: int | None = None
+    last_error_message: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -830,6 +836,11 @@ class ShippingState:
             "measured_distance_km": self.measured_distance_km,
             "gps_provider": self.gps_provider,
             "provenance": self.provenance,
+            "completion_attempts": self.completion_attempts,
+            "last_attempt_at": self.last_attempt_at,
+            "backoff_until": self.backoff_until,
+            "last_error_code": self.last_error_code,
+            "last_error_message": self.last_error_message,
         }
 
     @classmethod
@@ -864,6 +875,11 @@ class ShippingState:
             measured_distance_km=float(d.get("measured_distance_km") or 0.0),
             gps_provider=str(d.get("gps_provider") or "operator_anchor"),
             provenance=str(d.get("provenance") or "operator_confirmed"),
+            completion_attempts=int(d.get("completion_attempts") or 0),
+            last_attempt_at=str(d.get("last_attempt_at") or ""),
+            backoff_until=str(d.get("backoff_until") or ""),
+            last_error_code=d.get("last_error_code"),
+            last_error_message=str(d.get("last_error_message") or ""),
         )
 
 
@@ -1050,6 +1066,17 @@ async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[Shippi
                     try:
                         st = ShippingState.from_dict(json.loads(raw))
                         if st.status == "in_transit" and st.job_id not in seen_job_ids:
+                            # Skip if job is currently in backoff cooldown
+                            if st.backoff_until:
+                                try:
+                                    backoff_dt = datetime.fromisoformat(st.backoff_until)
+                                    if backoff_dt.tzinfo is None:
+                                        backoff_dt = backoff_dt.replace(tzinfo=UTC)
+                                    if now < backoff_dt:
+                                        continue
+                                except Exception:
+                                    pass
+
                             is_due = True
                             if st.estimated_end_at:
                                 try:
@@ -1083,6 +1110,17 @@ async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[Shippi
                     if isinstance(stored, dict):
                         st = ShippingState.from_dict(stored)
                         if st.status == "in_transit":
+                            # Skip if job is currently in backoff cooldown
+                            if st.backoff_until:
+                                try:
+                                    backoff_dt = datetime.fromisoformat(st.backoff_until)
+                                    if backoff_dt.tzinfo is None:
+                                        backoff_dt = backoff_dt.replace(tzinfo=UTC)
+                                    if now < backoff_dt:
+                                        continue
+                                except Exception:
+                                    pass
+
                             is_due = True
                             if st.estimated_end_at:
                                 try:
@@ -1201,17 +1239,25 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
         proxy_url=proxy_url,
     )
 
-    # GPS evidence timestamps are UTC with a `Z` suffix. Never label
-    # Asia/Tehran local time as `Z` (UTC) — UI converts to Tehran on display.
-    now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    now = datetime.now(UTC)
+    now_iso = now.strftime("%Y-%m-%dT%H:%M:%S.000Z")
     dest_point = {
         "Latitude": state.dest_lat,
         "Longitude": state.dest_lng,
+        "latitude": state.dest_lat,
+        "longitude": state.dest_lng,
         "Speed": 0.0,
+        "speed": 0.0,
         "Altitude": 1000.0,
+        "altitude": 1000.0,
+        "Date": now_iso,
+        "date": now_iso,
         "DateTime": now_iso,
         "Type": 3,
+        "type": 3,
     }
+    # UTCMS RegisterEndOfShipping gpsList accepts Type 2 (intermediate/waypoint) and Type 3 (destination).
+    # Prepend origin point as Type 2 waypoint if no intermediate points were recorded.
     gps_evidence = list(state.gps_list or [])
     if not gps_evidence and state.origin_lat and state.origin_lng:
         start_iso = (
@@ -1222,12 +1268,22 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
         gps_evidence.append({
             "Latitude": state.origin_lat,
             "Longitude": state.origin_lng,
+            "latitude": state.origin_lat,
+            "longitude": state.origin_lng,
             "Speed": 0.0,
+            "speed": 0.0,
             "Altitude": 1000.0,
+            "altitude": 1000.0,
+            "Date": start_iso,
+            "date": start_iso,
             "DateTime": start_iso,
-            "Type": 1,
+            "Type": 2,
+            "type": 2,
         })
     gps_evidence.append(dest_point)
+
+    state.completion_attempts += 1
+    state.last_attempt_at = now.isoformat()
 
     try:
         res = await client.register_end_of_shipping(
@@ -1245,26 +1301,62 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
             }
         else:
             logger.error("register_end_of_shipping failed for job %s: %s", job_id, exc)
+            state.last_error_message = str(exc)[:200]
+            backoff_min = min(60, 5 * (2 ** min(state.completion_attempts - 1, 4)))
+            state.backoff_until = (now + timedelta(minutes=backoff_min)).isoformat()
+            await save_shipping_state(state)
             raise
 
     is_success = False
     if isinstance(res, dict):
         rc = res.get("resultCode")
         rm = str(res.get("resultMessage") or "")
+        state.last_error_code = rc
+        state.last_error_message = rm
+
         if rc in (200, 0):
             is_success = True
+            state.backoff_until = ""
         elif rc == 4011 and "خوداظهاری" in rm:
             res["mode"] = "self_declared_auto_complete"
             is_success = True
+            state.backoff_until = ""
+        elif rc == 4013:
+            # Code 4013: "زمان مورد نیاز برای پایان حمل نگذشته است."
+            # Back off for 5 minutes before checking again
+            backoff_min = 5
+            state.backoff_until = (now + timedelta(minutes=backoff_min)).isoformat()
+            await save_shipping_state(state)
+            logger.info(
+                "register_end_of_shipping 4013 (time not elapsed) for job %s; backing off for %d min until %s",
+                job_id, backoff_min, state.backoff_until,
+            )
+            return {"status": "waiting_elapsed_time", "result": res, "backoff_until": state.backoff_until}
         elif rc == 429:
-            logger.warning("register_end_of_shipping rate limited (429) for job %s, will retry next tick", job_id)
-            return {"status": "rate_limited", "result": res}
+            # Code 429: Rate limited by UTCMS. Back off 10m, 20m, 30m
+            backoff_min = min(30, 10 * max(1, state.completion_attempts))
+            state.backoff_until = (now + timedelta(minutes=backoff_min)).isoformat()
+            await save_shipping_state(state)
+            logger.warning(
+                "register_end_of_shipping rate limited (429) for job %s, backing off %d min until %s",
+                job_id, backoff_min, state.backoff_until,
+            )
+            return {"status": "rate_limited", "result": res, "backoff_until": state.backoff_until}
         else:
-            logger.warning("register_end_of_shipping returned non-success for job %s: code=%s msg=%s", job_id, rc, rm)
-            return {"status": "rejected", "result": res}
+            # Other rejections (e.g. 4006, 4004): exponential backoff 5m, 15m, 30m, capped at 60m
+            backoff_min = min(60, 5 * (2 ** min(state.completion_attempts - 1, 4)))
+            state.backoff_until = (now + timedelta(minutes=backoff_min)).isoformat()
+            await save_shipping_state(state)
+            logger.warning(
+                "register_end_of_shipping returned non-success for job %s: code=%s msg=%s; backing off until %s",
+                job_id, rc, rm, state.backoff_until,
+            )
+            return {"status": "rejected", "result": res, "backoff_until": state.backoff_until}
 
     if not is_success:
-        return {"status": "failed", "result": res}
+        state.backoff_until = (now + timedelta(minutes=10)).isoformat()
+        await save_shipping_state(state)
+        return {"status": "failed", "result": res, "backoff_until": state.backoff_until}
 
     state.status = "delivered"
     state.current_step = len(state.waypoints) - 1 if state.waypoints else 1
