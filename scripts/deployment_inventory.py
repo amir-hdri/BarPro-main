@@ -136,6 +136,9 @@ def main() -> int:
     args = parser.parse_args()
 
     allowed_extra = {name.strip() for name in os.environ.get("ALLOWED_EXTRA_CONTAINERS", "").split(",") if name.strip()}
+    if args.role == "central":
+        # Server-side Android container for FakeTraveler / GPS bridge
+        allowed_extra.add("barpro-redroid")
     try:
         running = inspect_running_containers()
     except (OSError, subprocess.CalledProcessError) as exc:
