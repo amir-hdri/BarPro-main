@@ -218,8 +218,8 @@ def test_10_distinct_route_keys_for_different_addresses():
     assert key1 != key2
 
 
-def test_11_coordinates_ignored_in_user_text_payload():
-    """11. Coordinates ignored in user_text mode."""
+def test_11_coordinates_preserved_in_user_text_payload():
+    """11. Valid coordinates are preserved in user_text mode to prevent UTCMS invalid coordinates rejection."""
     raw = {
         "sender": {"name": "علی رضایی", "type": "individual"},
         "receiver": {"name": "حسن کاظمی", "type": "individual"},
@@ -234,8 +234,8 @@ def test_11_coordinates_ignored_in_user_text_payload():
         "vehicle": {"driver_national_code": "0084575948", "plate": "12ب345ایران11"},
     }
     enhanced = build_enhanced_waybill_payload(raw)
-    assert enhanced["origin"]["coordinates"] is None
-    assert enhanced["destination"]["coordinates"] is None
+    assert enhanced["origin"]["coordinates"] == {"lat": 35.7, "lng": 51.4}
+    assert enhanced["destination"]["coordinates"] == {"lat": 34.6, "lng": 50.8}
 
 
 # ==================== SCENARIOS 12 - 17: PAYLOAD VALIDATION ====================
