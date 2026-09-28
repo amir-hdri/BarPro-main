@@ -165,7 +165,7 @@ async def main() -> None:
             "t3": 21,
             "t4": 322,
             "capacity": 20,
-            "type": "تریلی کشنده",
+            "type": "باری",
             "have_certificate": True,
             "have_3rd_insurance": True,
         },

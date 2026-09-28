@@ -610,9 +610,9 @@ class WaybillAutomationBot:
                     chk_tracking = client.extract_tracking_code(doc_check)
                     obj_check = doc_check.get("obj") if isinstance(doc_check.get("obj"), dict) else {}
                     chk_status = str(obj_check.get("statusName") or "").strip()
-                    if chk_tracking and ("حمل" in chk_status or obj_check.get("status") == 1):
+                    if chk_tracking:
                         logger.info(
-                            "Document %s confirmed active on UTCMS (docNo=%s, status=%s), bypassing OTP",
+                            "Document %s confirmed on UTCMS (docNo=%s, status=%s)",
                             document_id,
                             chk_tracking,
                             chk_status,
@@ -622,6 +622,18 @@ class WaybillAutomationBot:
                         otp_required = False
                 except Exception as chk_exc:
                     logger.debug("Immediate get_document check failed: %s", chk_exc)
+
+            if document_id and not tracking_code:
+                try:
+                    track_res = await client.get_tracking_code(str(document_id))
+                    chk_tracking = client.extract_tracking_code(track_res)
+                    if chk_tracking:
+                        logger.info("Retrieved tracking code via GetDocTrackingCode: %s", chk_tracking)
+                        tracking_code = str(chk_tracking)
+                        result["tracking_code"] = tracking_code
+                        otp_required = False
+                except Exception as trk_exc:
+                    logger.debug("GetDocTrackingCode check failed: %s", trk_exc)
 
             async def _finalize_shipping_start(track_code: str, doc_id_val: Any) -> None:
                 """Initialize shipping state and trigger RegisterStartOfShipping immediately."""
