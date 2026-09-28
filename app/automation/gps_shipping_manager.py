@@ -1321,6 +1321,16 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
             res["mode"] = "self_declared_auto_complete"
             is_success = True
             state.backoff_until = ""
+        elif rc == 4012:
+            # Code 4012: "برای ثبت پایان حمل، شما حداقل باید 2 کیلومتر طی کرده باشید."
+            backoff_min = 5
+            state.backoff_until = (now + timedelta(minutes=backoff_min)).isoformat()
+            await save_shipping_state(state)
+            logger.warning(
+                "register_end_of_shipping 4012 (minimum 2km required) for job %s: %s; backing off %d min until %s",
+                job_id, rm, backoff_min, state.backoff_until,
+            )
+            return {"status": "waiting_distance_requirement", "result": res, "backoff_until": state.backoff_until}
         elif rc == 4013:
             # Code 4013: "زمان مورد نیاز برای پایان حمل نگذشته است."
             # Back off for 5 minutes before checking again
