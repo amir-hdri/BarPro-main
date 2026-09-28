@@ -36,7 +36,7 @@ from app.automation.worker_proxy import get_worker_proxy_url
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.models_multitenant import Driver, DriverPlate, TaskStatus, WaybillJob
-from app.services.route_authority import route_authority
+from app.services.route_authority import resolve_route
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("live_waybill_driver6")
@@ -84,7 +84,7 @@ async def main() -> None:
     dest_lng = 58.4780
 
     logger.info("Computing authoritative route from RouteAuthority...")
-    route_plan = await route_authority.resolve_route(
+    route_plan = await resolve_route(
         origin_lat=origin_lat,
         origin_lng=origin_lng,
         dest_lat=dest_lat,
