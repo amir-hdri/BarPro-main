@@ -580,12 +580,17 @@ class WaybillJobService:
                     detail="اطلاعات راننده برای اتصال به UTCMS یافت نشد.",
                 )
             from app.auth_multitenant import decrypt_driver_password
+            from app.automation.gps_shipping_manager import get_authenticated_client
+            from app.automation.worker_proxy import get_worker_proxy_url
 
             plain_password = decrypt_driver_password(driver.utcms_password_encrypted)
-            mobile_client = UtcmsMobileClient()
-            _, cap_token = await mobile_client.auto_solve_captcha(form_id="login")
             login_user = driver.utcms_username or driver.driver_national_code
-            await mobile_client.login(login_user, plain_password, cap_token)
+            proxy_url = get_worker_proxy_url()
+            mobile_client = await get_authenticated_client(
+                national_code=login_user,
+                password=plain_password,
+                proxy_url=proxy_url,
+            )
 
         # 4. Call IssueDocumentByOtp
         try:

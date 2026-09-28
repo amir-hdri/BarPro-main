@@ -220,18 +220,35 @@ async def main() -> None:
     logger.info("✅ WaybillJob created with DB ID = %d", db_job_id)
 
     logger.info("Executing Document Issuance via authenticated mobile client...")
-    # Step 1: Solve issuance CAPTCHA (form_id=1) using MathCRNN
-    logger.info("Solving issuance CAPTCHA via MathCRNN...")
-    _, issue_cap_token = await auth_client.auto_solve_captcha(form_id=1)
-    logger.info("✅ Issuance CAPTCHA solved: answer=%s", issue_cap_token)
+    # Step 1 & 2: Solve issuance CAPTCHA and Insert Document with retry on 4003 (wrong captcha)
+    max_insert_attempts = 3
+    insert_response = None
+    for attempt_no in range(1, max_insert_attempts + 1):
+        logger.info("Solving issuance CAPTCHA via MathCRNN (attempt %d/%d)...", attempt_no, max_insert_attempts)
+        _, issue_cap_token = await auth_client.auto_solve_captcha(form_id=1)
+        logger.info("✅ Issuance CAPTCHA solved: answer=%s", issue_cap_token)
 
-    # Step 2: Insert Document on UTCMS
-    logger.info("Submitting InsertDocumentHagigiV3 to UTCMS...")
-    insert_response = await auth_client.insert_document(
-        payload,
-        allow_live_submit=True,
-        cap_token=issue_cap_token,
-    )
+        try:
+            logger.info("Submitting InsertDocumentHagigiV3 to UTCMS (attempt %d/%d)...", attempt_no, max_insert_attempts)
+            insert_response = await auth_client.insert_document(
+                payload,
+                allow_live_submit=True,
+                cap_token=issue_cap_token,
+            )
+            break
+        except Exception as exc:
+            rc = getattr(exc, "result_code", None)
+            if (rc == 4003 or str(rc) == "4003" or "کد امنیتی" in str(exc)) and attempt_no < max_insert_attempts:
+                logger.warning(
+                    "Issuance captcha rejected (code 4003, attempt %d/%d). Refreshing captcha...",
+                    attempt_no,
+                    max_insert_attempts,
+                )
+                await asyncio.sleep(1.5)
+                continue
+            raise
+
+    assert insert_response is not None, "Insert response must not be None"
     logger.info("Insert Response: %s", json.dumps(insert_response, ensure_ascii=False))
 
     doc_id = auth_client.extract_document_id(insert_response)

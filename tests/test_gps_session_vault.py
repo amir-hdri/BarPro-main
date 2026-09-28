@@ -194,6 +194,8 @@ def test_transient_login_error_classifier():
     assert manager._is_transient_login_error(UtcmsMobileApiError("denied", status_code=401)) is False
     assert manager._is_transient_login_error(UtcmsMobileApiError("blocked", status_code=444)) is False
     assert manager._is_transient_login_error(UtcmsMobileApiError("nope", result_code=1)) is False
+    assert manager._is_transient_login_error(UtcmsMobileApiError("کد امنیتی صحیح نمی باشد", result_code=4003)) is True
+    assert manager._is_transient_login_error(UtcmsMobileApiError("wrong captcha", result_code="4003")) is True
     assert manager._is_transient_login_error(ValueError("boom")) is False
 
 

@@ -397,43 +397,46 @@ class WaybillAutomationBot:
                 result["steps"].append({"step": "mobile_token_reuse", "status": "success"})
                 logger.info("Reusing provided mobile token for driver %s", username)
             else:
-                client = UtcmsMobileClient(proxy_url=proxy_url or self.proxy_url)
                 cap_token = str(
                     payload.get("mobile_cap_token") or payload.get("cap_token") or utcms_config.UTCMS_CAPTCHA_VALUE or ""
                 ).strip()
-                if not cap_token and hasattr(client, "auto_solve_captcha"):
+                if cap_token:
+                    client = UtcmsMobileClient(proxy_url=proxy_url or self.proxy_url)
+                    auth = await client.login(username, password, cap_token)
+                    result["steps"].append({"step": "mobile_login", "status": "success"})
+                else:
+                    from app.automation.gps_shipping_manager import get_authenticated_client
+
                     try:
-                        logger.info("cap_token missing for mobile login; attempting auto_solve_captcha")
-                        solved = await client.auto_solve_captcha(form_id="login")
-                        if isinstance(solved, (tuple, list)):
-                            cap_token = str((solved[1] if len(solved) > 1 else solved[0]) or "").strip()
-                        else:
-                            cap_token = str(solved or "").strip()
-                        if cap_token:
-                            logger.info("Mobile login CAPTCHA auto-solved successfully")
-                    except Exception as exc:
-                        logger.warning("Mobile auto_solve_captcha failed: %s", exc)
-
-                if not cap_token:
-                    captcha = await client.get_captcha(form_id="login")
-                    captcha_obj = captcha.get("obj") if isinstance(captcha.get("obj"), dict) else {}
-                    result.update(
-                        status=TaskStatus.NEEDS_REVIEW.value,
-                        error="برای ورود به API موبایل، capToken نیازمند حل CAPTCHA است",
-                        error_category="mobile_captcha_required",
-                        result={
-                            "transport": "mobile",
-                            "captcha_received": True,
-                            "captcha_type": client.extract_captcha_type(captcha),
-                            "captcha_has_image": bool(
-                                captcha_obj.get("image") or captcha_obj.get("captcha") or captcha_obj.get("base64")
-                            ),
-                        },
-                    )
-                    return result
-
-                auth = await client.login(username, password, cap_token)
-                result["steps"].append({"step": "mobile_login", "status": "success"})
+                        client = await get_authenticated_client(
+                            national_code=username,
+                            password=password,
+                            proxy_url=proxy_url or self.proxy_url,
+                        )
+                        auth = MobileAuthResult(token=client.token, refresh_token=None, expires_at=None, raw={})
+                        result["steps"].append({"step": "mobile_login", "status": "success"})
+                    except Exception as auth_exc:
+                        logger.warning("Session vault login failed: %s; checking manual captcha fallback", auth_exc)
+                        client = UtcmsMobileClient(proxy_url=proxy_url or self.proxy_url)
+                        try:
+                            captcha = await client.get_captcha(form_id="login")
+                            captcha_obj = captcha.get("obj") if isinstance(captcha.get("obj"), dict) else {}
+                            result.update(
+                                status=TaskStatus.NEEDS_REVIEW.value,
+                                error=f"ورود به API موبایل ناموفق بود ({auth_exc})؛ نیازمند بررسی دستی",
+                                error_category="mobile_captcha_required",
+                                result={
+                                    "transport": "mobile",
+                                    "captcha_received": True,
+                                    "captcha_type": client.extract_captcha_type(captcha),
+                                    "captcha_has_image": bool(
+                                        captcha_obj.get("image") or captcha_obj.get("captcha") or captcha_obj.get("base64")
+                                    ),
+                                },
+                            )
+                            return result
+                        except Exception:
+                            raise auth_exc from None
 
             # Match driver fleet: call get_user_fleet_list to find matching truck/fleet object
             if hasattr(client, "get_user_fleet_list"):

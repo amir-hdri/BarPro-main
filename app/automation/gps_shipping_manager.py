@@ -628,23 +628,28 @@ def is_mobile_authentication_error(exc: BaseException) -> bool:
 # transient failure must not kill the whole attempt — tonight driver 7 failed
 # once then succeeded seconds later. Bounded to 2 attempts; authoritative
 # portal verdicts (result_code set, 401/403/444) are NEVER retried.
-LOGIN_MAX_ATTEMPTS = 2
+LOGIN_MAX_ATTEMPTS = 3
 LOGIN_RETRY_DELAY_SECONDS = 2.0
 _TRANSIENT_HTTP_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 
 def _is_transient_login_error(exc: BaseException) -> bool:
-    """True only for transport-level blips worth one retry.
+    """True only for transport-level blips or CAPTCHA rejection worth retrying.
 
     A set ``result_code`` is an authoritative portal verdict (e.g. code 1,
     bad credentials) — retrying burns budget and risks lockout. 401/403/444
     are explicit refusals, not blips.
+    EXCEPTION: code 4003 ("کد امنیتی صحیح نمی باشد") is a transient CAPTCHA solver
+    misread; retrying fetches a fresh CAPTCHA challenge and retries.
     """
     from app.automation.utcms_mobile_client import UtcmsMobileApiError
 
     if not isinstance(exc, UtcmsMobileApiError):
         return False
     if exc.result_code is not None:
+        rc_str = str(exc.result_code).strip()
+        if rc_str == "4003" or "کد امنیتی" in str(exc):
+            return True
         return False
     if exc.status_code is not None:
         return exc.status_code in _TRANSIENT_HTTP_STATUSES
@@ -653,7 +658,7 @@ def _is_transient_login_error(exc: BaseException) -> bool:
 
 
 async def _solve_and_login_with_retry(client: Any, national_code: str, password: str) -> Any:
-    """Solve the login CAPTCHA and log in, retrying transient blips once."""
+    """Solve the login CAPTCHA and log in, retrying transient blips up to LOGIN_MAX_ATTEMPTS."""
     from app.automation.utcms_mobile_client import UtcmsMobileClient
 
     last_exc: Exception | None = None
@@ -669,9 +674,11 @@ async def _solve_and_login_with_retry(client: Any, national_code: str, password:
             if attempt_no >= LOGIN_MAX_ATTEMPTS or not _is_transient_login_error(exc):
                 raise
             logger.warning(
-                "session_vault_login_retry national_code=%s attempt=%d",
+                "session_vault_login_retry national_code=%s attempt=%d/%d error=%s",
                 national_code,
                 attempt_no,
+                LOGIN_MAX_ATTEMPTS,
+                exc,
             )
             await asyncio.sleep(LOGIN_RETRY_DELAY_SECONDS)
     assert last_exc is not None  # loop always breaks (return) or raises
