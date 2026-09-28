@@ -181,6 +181,24 @@ async def main() -> None:
         "route_snapshot": route_plan,
     }
 
+    logger.info("Authenticating driver via session vault (get_or_login_client)...")
+    from app.automation.gps_shipping_manager import get_or_login_client
+
+    auth_client = await get_or_login_client(
+        national_code=nat_code,
+        password=password,
+        proxy_url=proxy_url,
+    )
+    logger.info("Driver authenticated! Token acquired: %s...", auth_client.token[:20])
+
+    carrying = await auth_client.get_carrying_doc_id()
+    if carrying:
+        logger.warning("Driver 6 currently has carrying doc ID: %s", carrying)
+    else:
+        logger.info("Driver 6 is free of active carrying documents (ready for new waybill).")
+
+    payload["token"] = auth_client.token
+
     logger.info("Persisting WaybillJob (%s) to PostgreSQL...", job_id)
     async with async_session_factory() as session:
         job = WaybillJob(
@@ -233,6 +251,17 @@ async def main() -> None:
         logger.info("  📍 Dest Anchor:   (%s, %s)", dest_lat, dest_lng)
         start_ship_result = bot_result.get("result", {}).get("start_shipping")
         logger.info("  🚚 Start Shipping Result: %s", start_ship_result)
+
+        # Verify directly on UTCMS portal
+        try:
+            doc_verification = await auth_client.get_document(str(doc_id))
+            obj_v = doc_verification.get("obj") or {}
+            logger.info("  🔍 UTCMS Live Status: %s (code: %s)", obj_v.get("statusName"), obj_v.get("status"))
+            logger.info("  📅 UTCMS Issue Date: %s", obj_v.get("issueDate"))
+            logger.info("  📏 UTCMS Distance: %s km", obj_v.get("distanceKm"))
+            logger.info("  👤 UTCMS Driver: %s", obj_v.get("driverName"))
+        except Exception as v_err:
+            logger.warning("  ⚠️ Could not fetch live get_document: %s", v_err)
         logger.info("==================================================================")
     else:
         logger.warning(

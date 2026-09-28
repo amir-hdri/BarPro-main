@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
 import json
 import logging
 import re
+from datetime import datetime
 from typing import Any
 
 from playwright.async_api import BrowserContext, Page
@@ -388,43 +388,52 @@ class WaybillAutomationBot:
                 )
                 return result
 
-            client = UtcmsMobileClient(proxy_url=proxy_url or self.proxy_url)
-            cap_token = str(
-                payload.get("mobile_cap_token") or payload.get("cap_token") or utcms_config.UTCMS_CAPTCHA_VALUE or ""
-            ).strip()
-            if not cap_token and hasattr(client, "auto_solve_captcha"):
-                try:
-                    logger.info("cap_token missing for mobile login; attempting auto_solve_captcha")
-                    solved = await client.auto_solve_captcha(form_id="login")
-                    if isinstance(solved, (tuple, list)):
-                        cap_token = str((solved[1] if len(solved) > 1 else solved[0]) or "").strip()
-                    else:
-                        cap_token = str(solved or "").strip()
-                    if cap_token:
-                        logger.info("Mobile login CAPTCHA auto-solved successfully")
-                except Exception as exc:
-                    logger.warning("Mobile auto_solve_captcha failed: %s", exc)
+            from app.automation.utcms_mobile_client import MobileAuthResult
 
-            if not cap_token:
-                captcha = await client.get_captcha(form_id="login")
-                captcha_obj = captcha.get("obj") if isinstance(captcha.get("obj"), dict) else {}
-                result.update(
-                    status=TaskStatus.NEEDS_REVIEW.value,
-                    error="برای ورود به API موبایل، capToken نیازمند حل CAPTCHA است",
-                    error_category="mobile_captcha_required",
-                    result={
-                        "transport": "mobile",
-                        "captcha_received": True,
-                        "captcha_type": client.extract_captcha_type(captcha),
-                        "captcha_has_image": bool(
-                            captcha_obj.get("image") or captcha_obj.get("captcha") or captcha_obj.get("base64")
-                        ),
-                    },
-                )
-                return result
+            token_override = str(payload.get("token") or payload.get("bearer_token") or "").strip()
+            if token_override:
+                client = UtcmsMobileClient(token=token_override, proxy_url=proxy_url or self.proxy_url)
+                auth = MobileAuthResult(token=token_override, refresh_token=None, expires_at=None, raw={})
+                result["steps"].append({"step": "mobile_token_reuse", "status": "success"})
+                logger.info("Reusing provided mobile token for driver %s", username)
+            else:
+                client = UtcmsMobileClient(proxy_url=proxy_url or self.proxy_url)
+                cap_token = str(
+                    payload.get("mobile_cap_token") or payload.get("cap_token") or utcms_config.UTCMS_CAPTCHA_VALUE or ""
+                ).strip()
+                if not cap_token and hasattr(client, "auto_solve_captcha"):
+                    try:
+                        logger.info("cap_token missing for mobile login; attempting auto_solve_captcha")
+                        solved = await client.auto_solve_captcha(form_id="login")
+                        if isinstance(solved, (tuple, list)):
+                            cap_token = str((solved[1] if len(solved) > 1 else solved[0]) or "").strip()
+                        else:
+                            cap_token = str(solved or "").strip()
+                        if cap_token:
+                            logger.info("Mobile login CAPTCHA auto-solved successfully")
+                    except Exception as exc:
+                        logger.warning("Mobile auto_solve_captcha failed: %s", exc)
 
-            auth = await client.login(username, password, cap_token)
-            result["steps"].append({"step": "mobile_login", "status": "success"})
+                if not cap_token:
+                    captcha = await client.get_captcha(form_id="login")
+                    captcha_obj = captcha.get("obj") if isinstance(captcha.get("obj"), dict) else {}
+                    result.update(
+                        status=TaskStatus.NEEDS_REVIEW.value,
+                        error="برای ورود به API موبایل، capToken نیازمند حل CAPTCHA است",
+                        error_category="mobile_captcha_required",
+                        result={
+                            "transport": "mobile",
+                            "captcha_received": True,
+                            "captcha_type": client.extract_captcha_type(captcha),
+                            "captcha_has_image": bool(
+                                captcha_obj.get("image") or captcha_obj.get("captcha") or captcha_obj.get("base64")
+                            ),
+                        },
+                    )
+                    return result
+
+                auth = await client.login(username, password, cap_token)
+                result["steps"].append({"step": "mobile_login", "status": "success"})
 
             # Match driver fleet: call get_user_fleet_list to find matching truck/fleet object
             if hasattr(client, "get_user_fleet_list"):

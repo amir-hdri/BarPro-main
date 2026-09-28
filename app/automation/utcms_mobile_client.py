@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -421,30 +422,47 @@ class UtcmsMobileClient:
                 default_headers=False,
                 verify=self.verify,
             )
+        max_pow_attempts = 3
+        last_pow_exc: Exception | None = None
         try:
-            try:
-                challenge_response = await client.post(f"{endpoint}challenge", headers=headers)
-                challenge_body = challenge_response.json()
-            except (cc_requests.errors.RequestsError, TypeError, ValueError) as exc:
-                raise UtcmsMobileApiError("UTCMS CAPTCHA challenge request failed") from exc
-            if not isinstance(challenge_body, dict) or not challenge_body.get("token"):
-                raise UtcmsMobileApiError("UTCMS CAPTCHA challenge response is invalid")
-            token = str(challenge_body["token"]).strip()
-            pairs = self._cap_challenges(challenge_body.get("challenge"), token)
-            deadline = time.monotonic() + utcms_config.UTCMS_CAPTCHA_POW_TIMEOUT_SECONDS
-            solutions = [self._solve_cap_pair(salt, target, deadline=deadline) for salt, target in pairs]
-            redeem_response = await client.post(
-                f"{endpoint}redeem",
-                json={"token": token, "solutions": solutions},
-                headers=headers,
-            )
-            redeem_body = redeem_response.json()
-            if not isinstance(redeem_body, dict) or not redeem_body.get("success"):
-                raise UtcmsMobileApiError("UTCMS CAPTCHA proof-of-work was rejected")
-            solved_token = str(redeem_body.get("token") or "").strip()
-            if not solved_token:
-                raise UtcmsMobileApiError("UTCMS CAPTCHA redeem returned no token")
-            return solved_token
+            for pow_attempt in range(1, max_pow_attempts + 1):
+                try:
+                    challenge_response = await client.post(f"{endpoint}challenge", headers=headers)
+                    challenge_body = challenge_response.json()
+                    if not isinstance(challenge_body, dict) or not challenge_body.get("token"):
+                        raise UtcmsMobileApiError("UTCMS CAPTCHA challenge response is invalid")
+                    token = str(challenge_body["token"]).strip()
+                    pairs = self._cap_challenges(challenge_body.get("challenge"), token)
+                    deadline = time.monotonic() + utcms_config.UTCMS_CAPTCHA_POW_TIMEOUT_SECONDS
+                    solutions = [self._solve_cap_pair(salt, target, deadline=deadline) for salt, target in pairs]
+                    redeem_response = await client.post(
+                        f"{endpoint}redeem",
+                        json={"token": token, "solutions": solutions},
+                        headers=headers,
+                    )
+                    redeem_body = redeem_response.json()
+                    if not isinstance(redeem_body, dict) or not redeem_body.get("success"):
+                        raise UtcmsMobileApiError("UTCMS CAPTCHA proof-of-work was rejected")
+                    solved_token = str(redeem_body.get("token") or "").strip()
+                    if not solved_token:
+                        raise UtcmsMobileApiError("UTCMS CAPTCHA redeem returned no token")
+                    return solved_token
+                except Exception as exc:
+                    last_pow_exc = exc
+                    if pow_attempt >= max_pow_attempts:
+                        if isinstance(exc, UtcmsMobileApiError):
+                            raise
+                        raise UtcmsMobileApiError("UTCMS CAPTCHA challenge request failed") from exc
+                    logger.warning(
+                        "solve_cap_pow attempt %d/%d failed: %s; retrying in 2.0s...",
+                        pow_attempt,
+                        max_pow_attempts,
+                        exc,
+                    )
+                    await asyncio.sleep(2.0)
+            if last_pow_exc:
+                raise last_pow_exc
+            raise UtcmsMobileApiError("UTCMS CAPTCHA challenge request failed")
         finally:
             if owns_client:
                 await client.close()
