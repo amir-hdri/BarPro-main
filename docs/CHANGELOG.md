@@ -23,7 +23,7 @@
     nginx `immutable` (see `infra/nginx/http-server.conf:118-127`).
   - **Above-fold images**: `priority` + `sizes` on logos
     (`Header`, `Sidebar`, `auth/page`, `admin/layout`).
-  - **Report corrections (see `docs/PERFORMANCE_VERIFICATION_2026-09-27.md`)**:
+  - **Report corrections (see `docs/archive/PERFORMANCE_VERIFICATION_2026-09-27.md`)**:
     real paths are `app/workers/shipping_worker.py` and `app/travel/providers.py`
     (report paths did not exist); marker truth is cyan `#06b6d4` `pulse-marker`
     (not `#3b82f6`); quoted `146 passed` / `Next 15.0.0` / `/dashboard` logs are not
@@ -40,7 +40,7 @@
   Executed real driver authentication flow (`1752641744`) through Iranian Squid proxy (`http://172.20.0.1:3128`) without WAF blocks (0% HTTP 444 / 408):
   1. Solved CapJS PoW on `cptch.utcms.ir`.
   2. Authenticated on `mobservices-barname.utcms.ir/baarnameh_sd/API/Account/UserLoginV2` with HTTP 200 OK.
-  3. Cached driver bearer token in Redis Session Vault (short TTL, 240s default; refresh token 7000s default), reducing redundant login and CAPTCHA overhead and lowering HTTP 429 login rate-limit risk — not eradicating it (see `docs/ANTIGRAVITY_GPS_VERIFICATION_2026-09-15.md`).
+  3. Cached driver bearer token in Redis Session Vault (short TTL, 240s default; refresh token 7000s default), reducing redundant login and CAPTCHA overhead and lowering HTTP 429 login rate-limit risk — not eradicating it (see `docs/archive/ANTIGRAVITY_GPS_VERIFICATION_2026-09-15.md`).
   4. Successfully retrieved driver fleet (`vin=IRGC761H07Y582039`).
 - **Virtual Android Client Bridge Phase 1 (`app/android_bridge/`)**:
   Added an opt-in, lightweight observation bridge for server-side virtual Android (Redroid) running on Linux (no physical phones required). Features zero heavy dependencies (no DB, SQLModel, or ML imports), explicit ADB serial requirement (`ANDROID_BRIDGE_SERIAL`), package verification for official APK (`com.baarnameshahri`) and FakeTraveler (`cl.coders.faketraveler`), and UI hierarchy layout inspection. Test counts are reported from the current checkout rather than a fixed historical number; the 2026-09-15 regression run covered 102 GPS/mobile/bridge tests.
@@ -127,7 +127,7 @@
 - Corrected `manage.sh health` to test the live Backend container directly when Compose project labels do not match the fixed `container_name`.
 - Removed the Playwright browser download override so Chromium is fetched from Playwright's official CDN. Regional download mirrors are no longer configured.
 - Increased the Central Backend limit to `768m` and Beat limit to `384m` after live kernel evidence showed repeated Backend OOM kills; the Central compose budget remains within `10.5GB`.
-- Added the timestamped live operations report at `docs/OPERATIONS_STATUS_2026-09-02.md`, including the three-witness success rule, current job causes, Worker outage, OTP gate state, and IP pool policy.
+- Added the timestamped live operations report at `docs/archive/OPERATIONS_STATUS_2026-09-02.md`, including the three-witness success rule, current job causes, Worker outage, OTP gate state, and IP pool policy.
 
   ## [Unreleased] - 2026-08-30
 

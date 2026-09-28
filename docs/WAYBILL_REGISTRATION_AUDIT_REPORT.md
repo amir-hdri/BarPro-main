@@ -5,7 +5,7 @@
 > **توپولوژی اجرایی:** مدل B (یک سرور مرکزی ۱۶ گیگابایت + ۲ نود ورکر ریموت با IP اختصاصی ایران)  
 >
 > ⚠️ **این سند یک snapshot زمان‌مند است، نه مرجع جاری.** جداول وضعیت زیرساخت/Jobها فقط برای همان لحظه معتبرند.
-> راستی‌آزمایی مستقل و به‌روزتر: [`FULLSTACK_VERIFICATION_REPORT_2026-08-24.md`](./FULLSTACK_VERIFICATION_REPORT_2026-08-24.md).
+> راستی‌آزمایی مستقل و به‌روزتر: [`FULLSTACK_VERIFICATION_REPORT_2026-08-24.md`](./archive/FULLSTACK_VERIFICATION_REPORT_2026-08-24.md).
 > قراردادهای کدنویسی‌شدهٔ فعلی: [`BARPRO_KNOWLEDGE_GRAPH.md`](./BARPRO_KNOWLEDGE_GRAPH.md). IPها مطابق سیاست مخزن placeholder شدند.
 
 ---

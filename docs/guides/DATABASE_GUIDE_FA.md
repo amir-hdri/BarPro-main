@@ -31,8 +31,8 @@ alembic current
 - **محیط توسعه:** در محیط توسعه (Local)، اگر با خطای عجیبی مواجه شدید، ابتدا `reset_database.sh` را اجرا کرده و سپس مجدداً `upgrade head` بزنید.
 
 ---
-**آخرین بروزرسانی:** ۲۴ اوت ۲۰۲۶
-**وضعیت فعلی دیتابیس:** head = `039_add_route_chain_scheduling`
+**آخرین بروزرسانی:** ۲۸ سپتامبر ۲۰۲۶
+**وضعیت فعلی دیتابیس:** head = `040_add_route_template_polyline`
 
 > ⚠️ اجرای migration فقط از طریق `bash manage.sh migrate` یا startup خودکار
 > (`run_migrations()` با advisory lock) انجام شود؛ هرگز Alembic خام را هم‌زمان

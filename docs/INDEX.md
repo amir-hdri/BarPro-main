@@ -10,8 +10,8 @@
 - [گزارش ممیزی کلاینت موبایل و گریز از WAF](UTCMS_MOBILE_AND_WAF_AUDIT_REPORT.md) — تحلیل عینی باینری APK، بایت‌کد هرمس، تفکیک دو هاست cptch و mobservices و رفع باگ‌های انتقال
 - [Runbook قطعی/اختلال UTCMS](runbook_utcms_outage.md)
 - [راهنمای افزودن Worker جدید](adding_new_worker.md) — مرجع واحد onboarding ورکر (فایروال، Squid، compose)
-- [گزارش وضعیت عملیاتی 2026-09-02](OPERATIONS_STATUS_2026-09-02.md) — snapshot زندهٔ ناوگان، Imageها، jobها، Gate و IP pool
-- [گزارش وضعیت عملیاتی 2026-09-19](OPERATIONS_STATUS_2026-09-19.md) — فیکس‌های ack/read-back/fare، گیت خالی، خطاهای لاگین زنده پورتال، فعال‌سازی ALLOW_LIVE_SUBMIT
+- [گزارش وضعیت عملیاتی 2026-09-02](archive/OPERATIONS_STATUS_2026-09-02.md) — snapshot زندهٔ ناوگان، Imageها، jobها، Gate و IP pool (آرشیو)
+- [گزارش وضعیت عملیاتی 2026-09-19](archive/OPERATIONS_STATUS_2026-09-19.md) — فیکس‌های ack/read-back/fare، گیت خالی، خطاهای لاگین زنده پورتال، فعال‌سازی ALLOW_LIVE_SUBMIT (آرشیو)
 
 Use this index for current operational documentation. Older historical reports remain under `docs/archive/` and should not be treated as deployment instructions.
 
@@ -53,7 +53,7 @@ bash manage.sh stop
 
 ## Important Current State
 
-- Alembic head is `039_add_route_chain_scheduling`
+- Alembic head is `040_add_route_template_polyline`
 - Frontend Docker builds inside `apps/web/Dockerfile`
 - No prebuilt `.next/standalone` upload is required
 - JWT transport uses the `httpOnly` cookie `utcms_auth_token`
@@ -99,4 +99,4 @@ Legacy design stubs that previously lived under `docs/architecture/` were remove
 in the v2.9.6 documentation cleanup — the tracked knowledge graph and root
 `ARCHITECTURE.md` are authoritative.
 
-Last updated: 2026-08-27 (v2.9.9)
+Last updated: 2026-09-28 (v2.9.10)

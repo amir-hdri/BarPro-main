@@ -13,7 +13,7 @@
 | قالب مسیر | `waybill_route_template` | مسیر ذخیره‌شده با فاصله/زمان پیش‌محاسبه‌شده |
 | دستهٔ چندمسیره | `waybill_batch` | گسترش قالب‌ها به jobهای مستقل؛ با `route_chain=true` اجرای ترتیبی |
 | سرویس فاصله/زمان | `app/services/distance_service.py` | Neshan → کش Redis → fallback هاورساین |
-| migration | `038_add_multiroute_batch_distance` + `039_add_route_chain_scheduling` | جداول + ۵ ستون job + پرچم زنجیره |
+| migration | `038_add_multiroute_batch_distance` + `039_add_route_chain_scheduling` + `040_add_route_template_polyline` | جداول + ۵ ستون job + پرچم زنجیره + پلی‌لاین مسیر |
 | endpoint فاصله | `POST /api/v1/locations/distance` | محاسبهٔ فاصله/زمان دو مختصات |
 | endpoint قالب‌ها | `/api/v1/route-templates` | CRUD + favorite |
 | endpoint دسته‌ها | `/api/v1/batches` | ایجاد دسته + پیشرفت |
@@ -57,7 +57,7 @@
 alembic upgrade head   # یا: bash manage.sh migrate
 ```
 
-پس از اجرا، head باید `039_add_route_chain_scheduling` باشد.
+پس از اجرا، head باید `040_add_route_template_polyline` باشد.
 
 ## ۶) هم‌ترازی رابط کاربری و کنترل release
 

@@ -361,7 +361,7 @@ BarPro/
 │   ├── squid/squid_*.conf
 │   ├── prometheus/prometheus.yml
 │   └── logging/logrotate.conf
-├── alembic/                # Database migrations; current head 039_add_route_chain_scheduling
+├── alembic/                # Database migrations; current head 040_add_route_template_polyline
 ├── tests/                  # Pytest test suite
 ├── scripts/                # Utility and deploy scripts
 └── deploy/                 # Deployment configs

@@ -63,7 +63,7 @@ bash manage.sh migrate
 Alembic head فعلی:
 
 ```text
-039_add_route_chain_scheduling
+040_add_route_template_polyline
 ```
 
 ## تست و build سریع

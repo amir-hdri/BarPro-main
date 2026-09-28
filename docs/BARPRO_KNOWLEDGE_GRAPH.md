@@ -25,7 +25,7 @@
 - CODE-VERIFIED: `LocationMapPicker` commit فوری مختصات (geocode async)؛ `ShippingRouteMap` بدون inline-style، فاصله خودکار، بج مسیر واقعی/تخمین.
 - TEST-VERIFIED: 188 تست shipping/travel/route + 8 تست جدید `test_route_authority.py` سبز؛ `tsc`/`eslint`/`ruff`/`audit-ui` پاس.
 - NOT-PROVEN (نیازمند canary زنده): زنجیره E2E `Map = Snapshot = Engine = Readback = UTCMS payload = UTCMS readback` روی Redroid با مختصات (36.261100,50.442300 → 36.169600,50.611900) هنوز اجرا/لاگ نشده؛ `/step` همچنان 410.
-- جزئیات کامل: [GPS_PIPELINE_REMEDIATION_2026-09-27.md](GPS_PIPELINE_REMEDIATION_2026-09-27.md).
+- جزئیات کامل: [GPS_PIPELINE_REMEDIATION_2026-09-27.md](archive/GPS_PIPELINE_REMEDIATION_2026-09-27.md).
 
 ## تصمیم معماری GPS — 2026-09-15
 
@@ -430,7 +430,7 @@ ManagedSyncLog زیرسیستم management را پشتیبانی می‌کنند
 ### 6.5. Migration
 
 - CODE-VERIFIED: head مستند این بازبینی
-  039_add_route_chain_scheduling است.
+  040_add_route_template_polyline است.
 - VERIFIED-CODE: migration startup زیر PostgreSQL session-level advisory lock با
   `MIGRATION_ADVISORY_LOCK_ID = 0x42415250524F` و timeout قابل تنظیم انجام می‌شود؛
   اجرای raw Alembic در مسیرهای deploy ممنوع است.
