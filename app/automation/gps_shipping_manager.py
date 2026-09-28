@@ -1227,11 +1227,11 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
     pwd = decrypt_driver_password(driver.utcms_password_encrypted)
     proxy_url = None
     try:
-        from app.automation.proxy_rotator import get_worker_proxy_url
+        from app.automation.worker_proxy import get_worker_proxy_url
 
         proxy_url = get_worker_proxy_url()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Could not derive worker proxy url: %s", exc)
 
     client = await get_or_login_client(
         national_code=driver.driver_national_code,
