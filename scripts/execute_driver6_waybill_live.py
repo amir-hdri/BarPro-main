@@ -92,10 +92,10 @@ async def main() -> None:
     )
     logger.info(
         "Route resolved: distance=%.2f km, duration=%.1f s, source=%s, polyline_pts=%d",
-        route_plan.distance_km,
-        route_plan.duration_s,
-        route_plan.source,
-        len(route_plan.polyline),
+        route_plan.get("distance_km", 0.0),
+        route_plan.get("duration_s", 0.0),
+        route_plan.get("source"),
+        len(route_plan.get("points") or []),
     )
 
     now_tehran = datetime.now(ZoneInfo("Asia/Tehran"))
@@ -178,7 +178,7 @@ async def main() -> None:
         },
         "insurance": {"have_insurance": True, "cover": 35000000},
         "shipping_options": {"send_sms": True, "fuel_type": 1},
-        "route_snapshot": route_plan.to_snapshot(),
+        "route_snapshot": route_plan,
     }
 
     logger.info("Persisting WaybillJob (%s) to PostgreSQL...", job_id)
