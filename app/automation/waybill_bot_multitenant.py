@@ -405,10 +405,10 @@ class WaybillAutomationBot:
                     auth = await client.login(username, password, cap_token)
                     result["steps"].append({"step": "mobile_login", "status": "success"})
                 else:
-                    from app.automation.gps_shipping_manager import get_authenticated_client
+                    from app.automation.gps_shipping_manager import get_or_login_client
 
                     try:
-                        client = await get_authenticated_client(
+                        client = await get_or_login_client(
                             national_code=username,
                             password=password,
                             proxy_url=proxy_url or self.proxy_url,

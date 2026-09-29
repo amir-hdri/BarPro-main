@@ -659,13 +659,12 @@ def _is_transient_login_error(exc: BaseException) -> bool:
 
 async def _solve_and_login_with_retry(client: Any, national_code: str, password: str) -> Any:
     """Solve the login CAPTCHA and log in, retrying transient blips up to LOGIN_MAX_ATTEMPTS."""
-    from app.automation.utcms_mobile_client import UtcmsMobileClient
 
     last_exc: Exception | None = None
     for attempt_no in range(1, LOGIN_MAX_ATTEMPTS + 1):
         try:
             solved = await client.auto_solve_captcha(form_id="login")
-            cap_token = UtcmsMobileClient.cap_token_from_solution(solved)
+            cap_token = client.cap_token_from_solution(solved)
             if not cap_token:
                 raise RuntimeError("UTCMS mobile CAPTCHA could not be solved")
             return await client.login(national_code, password, cap_token=cap_token)

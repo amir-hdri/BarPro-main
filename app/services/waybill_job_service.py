@@ -580,13 +580,13 @@ class WaybillJobService:
                     detail="اطلاعات راننده برای اتصال به UTCMS یافت نشد.",
                 )
             from app.auth_multitenant import decrypt_driver_password
-            from app.automation.gps_shipping_manager import get_authenticated_client
+            from app.automation.gps_shipping_manager import get_or_login_client
             from app.automation.worker_proxy import get_worker_proxy_url
 
             plain_password = decrypt_driver_password(driver.utcms_password_encrypted)
             login_user = driver.utcms_username or driver.driver_national_code
             proxy_url = get_worker_proxy_url()
-            mobile_client = await get_authenticated_client(
+            mobile_client = await get_or_login_client(
                 national_code=login_user,
                 password=plain_password,
                 proxy_url=proxy_url,

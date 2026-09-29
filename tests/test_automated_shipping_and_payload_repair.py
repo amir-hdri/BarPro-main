@@ -74,10 +74,12 @@ async def test_mobile_execution_enriches_compact_payload_and_starts_shipping():
 
     mock_client = AsyncMock(spec=UtcmsMobileClient)
     mock_client.token = "test-token"
-    mock_auth = SimpleNamespace(token="test-token", expires_at="2026-09-27T00:00:00Z")
+    mock_auth = SimpleNamespace(token="test-token", refresh_token=None, expires_at="2026-09-27T00:00:00Z")
     mock_client.login.return_value = mock_auth
     mock_client.get_user_fleet_list.return_value = {"obj": []}
     mock_client.auto_solve_captcha.return_value = ("", "test-cap")
+    mock_client.cap_token_from_solution.return_value = "test-cap"
+
 
     # Mock insert_document returning UTCMS document ID and tracking code
     mock_client.insert_document.return_value = {

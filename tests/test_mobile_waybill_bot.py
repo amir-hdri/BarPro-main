@@ -133,7 +133,7 @@ class _FakeMobileClient:
 
     async def login(self, username: str, password: str, cap_token: str):
         assert (username, password, cap_token) == ("user", "password", "login-cap")
-        return SimpleNamespace(token="token-1", expires_at="2026-09-11T10:00:00")
+        return SimpleNamespace(token="token-1", refresh_token=None, expires_at="2026-09-11T10:00:00")
 
     async def insert_document(self, payload, *, allow_live_submit: bool, cap_token: str | None = None):
         self.insert_calls += 1
@@ -275,9 +275,10 @@ async def test_mobile_bot_auto_solves_login_captcha():
         extract_document_id = staticmethod(UtcmsMobileClient.extract_document_id)
         extract_tracking_code = staticmethod(UtcmsMobileClient.extract_tracking_code)
         extract_otp_required = staticmethod(UtcmsMobileClient.extract_otp_required)
+        cap_token_from_solution = staticmethod(UtcmsMobileClient.cap_token_from_solution)
 
         def __init__(self, *args, **kwargs):
-            pass
+            self.token = "mock-token"
 
         async def auto_solve_captcha(self, form_id: str = "login"):
             auto_solve_calls.append(form_id)
@@ -285,7 +286,7 @@ async def test_mobile_bot_auto_solves_login_captcha():
 
         async def login(self, username: str, password: str, cap_token: str):
             login_calls.append((username, password, cap_token))
-            return SimpleNamespace(token="token-auto", expires_at="2026-09-11T12:00:00")
+            return SimpleNamespace(token="token-auto", refresh_token=None, expires_at="2026-09-11T12:00:00")
 
         async def get_user_fleet_list(self):
             return {"resultCode": 200, "obj": []}
@@ -332,7 +333,7 @@ async def test_mobile_bot_matches_driver_fleet():
             pass
 
         async def login(self, username: str, password: str, cap_token: str):
-            return SimpleNamespace(token="token-fleet", expires_at="2026-09-11T12:00:00")
+            return SimpleNamespace(token="token-fleet", refresh_token=None, expires_at="2026-09-11T12:00:00")
 
         async def get_user_fleet_list(self):
             return {
@@ -391,7 +392,7 @@ async def test_mobile_bot_live_submit_success():
             pass
 
         async def login(self, username: str, password: str, cap_token: str):
-            return SimpleNamespace(token="token-live", expires_at="2026-09-11T12:00:00")
+            return SimpleNamespace(token="token-live", refresh_token=None, expires_at="2026-09-11T12:00:00")
 
         async def get_user_fleet_list(self):
             return {"resultCode": 200, "obj": []}
