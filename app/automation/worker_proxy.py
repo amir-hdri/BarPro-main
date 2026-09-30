@@ -232,7 +232,7 @@ def get_best_egress_proxy(allowed_protocols: set[str] | frozenset[str] | None = 
     def _clean_url() -> str | None:
         return clean_ip_pool.get_clean_ip_sync(allowed_protocols=allowed_protocols)
 
-    # Helper to check if current worker IP index is marked blocked in Redis
+    # Helper to check if current worker IP index or its Squid is marked blocked in Redis
     def _is_worker_index_blocked() -> bool:
         if not worker_ip_index:
             return False
@@ -240,7 +240,10 @@ def get_best_egress_proxy(allowed_protocols: set[str] | frozenset[str] | None = 
             from app.core.circuit_breaker import _get_redis_sync
 
             r = _get_redis_sync()
-            return bool(r.exists(f"utcms:circuit_breaker:blocked:{worker_ip_index}"))
+            return bool(
+                r.exists(f"utcms:circuit_breaker:blocked:{worker_ip_index}")
+                or r.exists(f"utcms:circuit_breaker:squid_blocked:{worker_ip_index}")
+            )
         except Exception:
             return False
 

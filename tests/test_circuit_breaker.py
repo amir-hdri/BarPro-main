@@ -519,3 +519,18 @@ def test_breaker_does_not_key_on_browser_lifecycle_markers():
     from app.core.network import BROWSER_LIFECYCLE_MARKERS
 
     assert not (set(BROWSER_LIFECYCLE_MARKERS) & set(BLOCK_OR_EGRESS_PATTERNS))
+
+
+@pytest.mark.asyncio
+async def test_waf_444_and_ssl_eof_marks_squid_blocked_in_single_worker_fleet(mock_redis_manager):
+    """When only 1 worker is available, egress failure (444, EOF) must mark Squid blocked
+    without breaking worker task dispatching, allowing fallback to clean pool."""
+    with patch.dict(os.environ, {"WORKER_IP_INDEX": "1", "AVAILABLE_IP_INDICES": "1"}, clear=False):
+        await check_and_report_failure("444 No Response from WAF")
+
+        # Squid-specific block key MUST be set
+        mock_redis_manager.set.assert_any_call("utcms:circuit_breaker:squid_blocked:1", "1", ex=1800)
+        # Fleet queue-blocking key MUST NOT be set for single worker
+        call_keys = [call.args[0] for call in mock_redis_manager.set.call_args_list]
+        assert "utcms:circuit_breaker:blocked:1" not in call_keys
+

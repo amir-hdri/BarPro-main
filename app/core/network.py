@@ -84,6 +84,13 @@ EGRESS_FAILURE_MARKERS = (
     "502 bad gateway",
     "503 service unavailable",
     "504 gateway timeout",
+    # WAF drops and abnormal TLS drops
+    "444",
+    "http 444",
+    "response 444",
+    "peer closed connection",
+    "unexpected eof while reading",
+    "ssl: unexpected_eof",
 )
 
 

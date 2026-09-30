@@ -267,13 +267,16 @@ async def check_and_report_failure(
         if ip_index:
             try:
                 available = get_available_ip_indices()
-                if len(available) <= 1:
-                    logger.warning(
-                        f"Circuit Breaker: IP index {ip_index} had failure ({error_msg}) "
-                        f"but is the ONLY available worker index ({available}). Skipping 30-min block to prevent total fleet paralysis."
-                    )
-                    return
                 r_async = await redis_manager.get()
+                if len(available) <= 1:
+                    if r_async is not None:
+                        squid_key = f"utcms:circuit_breaker:squid_blocked:{ip_index}"
+                        await r_async.set(squid_key, "1", ex=1800)
+                        logger.warning(
+                            f"Circuit Breaker: Worker {ip_index} Squid marked as BLOCKED "
+                            f"for 30 minutes in Redis due to error: {error_msg}. Keeping worker queue active with clean pool fallback."
+                        )
+                    return
                 if r_async is not None:
                     key = f"utcms:circuit_breaker:blocked:{ip_index}"
                     # Flag as blocked for 30 minutes (1800 seconds)
