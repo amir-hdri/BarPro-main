@@ -14,7 +14,11 @@ from app.models_rpa import DriverRuntimeState
 from app.monitoring.metrics import track_reconciliation_outcome
 from app.orchestrator.alert_manager import admin_alert_service
 from app.orchestrator.state_machine import JobStateMachine, JobStatus
-from app.orchestrator.utcms_reconciliation_scraper import ScraperOutcome, reconciliation_scraper
+from app.orchestrator.utcms_reconciliation_scraper import (
+    ReconciliationResult,
+    ScraperOutcome,
+    reconciliation_scraper,
+)
 from app.rpa.contracts import SessionBundle
 from app.services.rpa_runtime_service import rpa_runtime
 
