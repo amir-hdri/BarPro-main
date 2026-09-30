@@ -82,7 +82,7 @@ def test_mobile_payload_maps_explicit_fields_without_silent_defaults():
     assert body["token"] == "token-1"
     assert body["load"][0]["productId"] == 17
     assert body["load"][0]["packTypeId"] == 3
-    assert body["load"][0]["wheight"] == 1000
+    assert body["load"][0]["wheight"] == 1  # 1000 kg normalized to 1 ton
     assert body["load"][0]["boxNum"] == 12
     assert body["source"]["cityName"] == "تهران"
     assert body["destination"]["cityName"] == "کرج"
@@ -559,7 +559,7 @@ def test_mobile_payload_matches_deep_analysis_schema_complete():
     # Verify load
     assert len(body["load"]) == 1
     assert body["load"][0]["productId"] == 17
-    assert body["load"][0]["wheight"] == 1000
+    assert body["load"][0]["wheight"] == 1  # 1000 kg normalized to 1 ton
     assert body["load"][0]["packTypeId"] == 3
     assert body["load"][0]["boxNum"] == 12
 

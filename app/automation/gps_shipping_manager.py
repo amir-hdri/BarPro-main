@@ -418,16 +418,42 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     # ── Origin coordinates ──
     origin_lat, origin_lng = _resolve_nested_coords(
-        flat_lat=_float(_first(payload.get("originLat"), payload.get("sourceLatM"))),
-        flat_lng=_float(_first(payload.get("originLng"), payload.get("sourceLngM"), payload.get("sourceLonM"))),
+        flat_lat=_float(_first(
+            payload.get("origin_lat"),
+            payload.get("originLat"),
+            payload.get("origin_latitude"),
+            payload.get("sourceLatM"),
+            payload.get("latitude") if not payload.get("dest_lat") else None,
+        )),
+        flat_lng=_float(_first(
+            payload.get("origin_lng"),
+            payload.get("originLng"),
+            payload.get("origin_longitude"),
+            payload.get("sourceLngM"),
+            payload.get("sourceLonM"),
+            payload.get("longitude") if not payload.get("dest_lng") else None,
+        )),
         meta_section=origin_meta,
         top_section=_safe_dict(payload.get("origin")),
     )
 
     # ── Destination coordinates ──
     dest_lat, dest_lng = _resolve_nested_coords(
-        flat_lat=_float(_first(payload.get("destLat"), payload.get("destLatM"))),
-        flat_lng=_float(_first(payload.get("destLng"), payload.get("destLngM"), payload.get("destLonM"))),
+        flat_lat=_float(_first(
+            payload.get("dest_lat"),
+            payload.get("destLat"),
+            payload.get("dest_latitude"),
+            payload.get("destination_lat"),
+            payload.get("destLatM"),
+        )),
+        flat_lng=_float(_first(
+            payload.get("dest_lng"),
+            payload.get("destLng"),
+            payload.get("dest_longitude"),
+            payload.get("destination_lng"),
+            payload.get("destLngM"),
+            payload.get("destLonM"),
+        )),
         meta_section=dest_meta,
         top_section=_safe_dict(payload.get("destination")),
     )

@@ -575,6 +575,14 @@ class WaybillPayload(BaseModel):
     # Route info
     origin: str = Field(..., max_length=500, description="Origin city/location (text only, no map)")
     destination: str = Field(..., max_length=500, description="Destination city/location (text only, no map)")
+    origin_lat: float | None = Field(default=None, ge=-90, le=90, description="عرض جغرافیایی مبدا")
+    origin_lng: float | None = Field(default=None, ge=-180, le=180, description="طول جغرافیایی مبدا")
+    dest_lat: float | None = Field(default=None, ge=-90, le=90, description="عرض جغرافیایی مقصد")
+    dest_lng: float | None = Field(default=None, ge=-180, le=180, description="طول جغرافیایی مقصد")
+    originLat: float | None = Field(default=None, ge=-90, le=90, description="Alias originLat")
+    originLng: float | None = Field(default=None, ge=-180, le=180, description="Alias originLng")
+    destLat: float | None = Field(default=None, ge=-90, le=90, description="Alias destLat")
+    destLng: float | None = Field(default=None, ge=-180, le=180, description="Alias destLng")
     route_source: str = Field(default="user_text", description="منبع مسیر: user_text")
     location_mode: str = Field(default="user_text", description="حالت مکان: user_text")
 

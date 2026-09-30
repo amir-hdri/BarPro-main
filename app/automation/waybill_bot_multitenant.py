@@ -6,7 +6,11 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime
+try:
+    from datetime import UTC, datetime
+except ImportError:
+    from datetime import datetime, timezone
+    UTC = timezone.utc  # type: ignore
 from typing import Any
 
 from playwright.async_api import BrowserContext, Page
@@ -672,8 +676,7 @@ class WaybillAutomationBot:
                     origin_lat = ship_state.origin_lat
                     origin_lng = ship_state.origin_lng
                     if doc_id_val and origin_lat and origin_lng:
-                        from zoneinfo import ZoneInfo
-                        start_iso = datetime.now(ZoneInfo("Asia/Tehran")).strftime("%Y-%m-%dT%H:%M:%S")
+                        start_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
                         logger.info(
                             "Triggering automated RegisterStartOfShipping: doc_id=%s, lat=%s, lng=%s, time=%s",
                             doc_id_val,
