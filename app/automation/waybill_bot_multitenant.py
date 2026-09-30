@@ -84,6 +84,10 @@ class WaybillAutomationBot:
         if not fleet_items:
             return None
 
+        # If user has exactly 1 truck in fleet, return it directly
+        if len(fleet_items) == 1:
+            return fleet_items[0]
+
         raw_plate = (
             vehicle.get("plate") or vehicle.get("plate_number") or payload.get("plate_number") or payload.get("plate")
         )
@@ -99,10 +103,10 @@ class WaybillAutomationBot:
 
         for truck in fleet_items:
             candidates: list[str] = []
-            for field_name in ("carTag", "plate", "nCarTag", "tag", "carPlate", "tagNumber"):
+            for field_name in ("carTag", "plate", "nCarTag", "ncarTag", "tag", "carPlate", "tagNumber"):
                 val = truck.get(field_name)
-                if val and isinstance(val, str):
-                    candidates.append(val)
+                if val is not None:
+                    candidates.append(str(val).strip())
 
             t1 = str(truck.get("t1") or truck.get("tagPart1") or truck.get("irTagPart1") or "").strip()
             t2 = str(truck.get("t2") or truck.get("tagPart2") or truck.get("irTagPart2") or "").strip()
@@ -112,6 +116,8 @@ class WaybillAutomationBot:
             if t1 and t4:
                 candidates.append(f"{t1}{t2}{t3}{t4}")
                 candidates.append(f"{t1}{t3}{t2}{t4}")
+                candidates.append(f"{t2}{t3}{t4}{t1}")
+                candidates.append(f"{t2}{t4}{t1}")
 
             for cand in candidates:
                 cand_compact = WaybillAutomationBot._compact_plate(cand)
@@ -120,7 +126,7 @@ class WaybillAutomationBot:
                         return truck
                     cand_digits = "".join(ch for ch in cand_compact if ch.isdigit())
                     req_digits = "".join(ch for ch in req_compact if ch.isdigit())
-                    if len(req_digits) >= 7 and req_digits == cand_digits:
+                    if len(req_digits) >= 5 and (req_digits in cand_digits or cand_digits in req_digits):
                         return truck
 
             if req_t1 and req_t4 and t1 and t4:
@@ -128,10 +134,7 @@ class WaybillAutomationBot:
                     if (req_t2 and (req_t2 == t2 or req_t2 == t3)) or (req_t3 and (req_t3 == t3 or req_t3 == t2)):
                         return truck
 
-        if len(fleet_items) == 1 and not req_compact:
-            return fleet_items[0]
-
-        return None
+        return fleet_items[0] if fleet_items else None
 
     @staticmethod
     def _apply_fleet_truck_to_vehicle(vehicle: dict[str, Any], truck: dict[str, Any]) -> None:
@@ -150,17 +153,20 @@ class WaybillAutomationBot:
         if t4 is not None and not vehicle.get("t4"):
             vehicle["t4"] = str(t4).strip()
 
-        tag_type = truck.get("tagType") or truck.get("tag_type") or truck.get("carTagType")
+        tag_type = truck.get("tagType") or truck.get("tag_type") or truck.get("carTagType") or truck.get("hasFreeZoneCarTag")
         if tag_type is not None and vehicle.get("tag_type") is None and vehicle.get("tagType") is None:
             vehicle["tag_type"] = tag_type
 
         capacity = truck.get("capacity") or truck.get("tonnage") or truck.get("carCapacity")
         if capacity is not None and vehicle.get("capacity") is None:
             vehicle["capacity"] = capacity
+        elif not vehicle.get("capacity"):
+            vehicle["capacity"] = 20
 
         vtype = truck.get("type") or truck.get("vehicle_type") or truck.get("carType") or truck.get("vehicleType")
-        if vtype is not None and vehicle.get("type") is None and vehicle.get("vehicle_type") is None:
+        if vtype:
             vehicle["type"] = vtype
+            vehicle["vehicle_type"] = vtype
 
         if (
             truck.get("haveCertificate") is not None
@@ -256,7 +262,14 @@ class WaybillAutomationBot:
             cargo = normalized_payload.setdefault("cargo", {})
             raw_items = cargo.get("items") or cargo.get("load_list") or (payload.get("cargo") or {}).get("items")
             if not raw_items:
-                c_weight = cargo.get("weight") or payload.get("cargo_weight") or 1000
+                c_weight = cargo.get("weight") or payload.get("cargo_weight") or 10
+                try:
+                    c_w_val = float(str(c_weight).replace(",", ""))
+                    if c_w_val > 100:
+                        c_w_val = round(c_w_val / 1000.0, 3)
+                    c_weight = c_w_val if c_w_val % 1 != 0 else int(c_w_val)
+                except (ValueError, TypeError):
+                    pass
                 c_count = cargo.get("count") or cargo.get("box_num") or payload.get("cargo_count") or 1
                 c_prod = cargo.get("product_id") or payload.get("product_id") or 10956
                 c_pack = cargo.get("pack_type_id") or payload.get("pack_type_id") or 18074
@@ -281,7 +294,14 @@ class WaybillAutomationBot:
                     itm_dict = dict(itm) if isinstance(itm, dict) else {}
                     p_id = itm_dict.get("productId") or itm_dict.get("product_id") or 10956
                     pk_id = itm_dict.get("packTypeId") or itm_dict.get("pack_type_id") or 18074
-                    w = itm_dict.get("wheight") or itm_dict.get("weight") or cargo.get("weight") or 1000
+                    w = itm_dict.get("wheight") or itm_dict.get("weight") or cargo.get("weight") or 10
+                    try:
+                        w_val = float(str(w).replace(",", ""))
+                        if w_val > 100:
+                            w_val = round(w_val / 1000.0, 3)
+                        w = w_val if w_val % 1 != 0 else int(w_val)
+                    except (ValueError, TypeError):
+                        pass
                     b = itm_dict.get("boxNum") or itm_dict.get("box_num") or itm_dict.get("count") or 1
                     d = str(itm_dict.get("description") or cargo.get("description") or cargo.get("type") or "محموله")
                     formatted_items.append({

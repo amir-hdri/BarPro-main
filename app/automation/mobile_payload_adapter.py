@@ -99,11 +99,19 @@ def _load_items(cargo: Mapping[str, Any]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for index, raw_item in enumerate(items, start=1):
         item = _mapping(raw_item)
+        raw_weight = _required_alias(item, ("weight", "wheight"), f"وزن محموله {index}")
+        try:
+            w_val = float(str(raw_weight).replace(",", ""))
+            if w_val > 100:  # If entered in kg, convert to tons (UTCMS uses tons)
+                w_val = round(w_val / 1000.0, 3)
+            weight_val = w_val if w_val % 1 != 0 else int(w_val)
+        except (ValueError, TypeError):
+            weight_val = raw_weight
         result.append(
             {
                 "productId": _required_alias(item, ("product_id", "productId"), f"شناسه کالا در محموله {index}"),
                 # ``wheight`` is the misspelled key used by the APK DTO.
-                "wheight": _required_alias(item, ("weight", "wheight"), f"وزن محموله {index}"),
+                "wheight": weight_val,
                 "packTypeId": _required_alias(item, ("pack_type_id", "packTypeId"), f"شناسه بسته‌بندی محموله {index}"),
                 "description": str(_value(item, "description") or "").strip(),
                 "boxNum": _required_alias(item, ("count", "box_num", "boxNum"), f"تعداد بسته در محموله {index}"),

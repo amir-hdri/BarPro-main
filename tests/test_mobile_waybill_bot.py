@@ -556,3 +556,44 @@ async def test_submit_otp_success_and_state_machine_transition(async_db):
         assert db_job.mutation_status == "confirmed"
         assert db_job.reconciled_at is not None
 
+
+def test_weight_normalization_and_fleet_matching():
+    """Verify that cargo weights in kg (> 100) are normalized to tons and fleet matching enriches vehicle."""
+    from app.automation.mobile_payload_adapter import _load_items
+    from app.automation.waybill_bot_multitenant import WaybillAutomationBot
+
+    # 1. Weight normalization in _load_items
+    cargo_kg = {
+        "items": [
+            {"product_id": 10956, "pack_type_id": 18074, "weight": 14000.0, "count": 1, "description": "شن و ماسه"}
+        ]
+    }
+    items = _load_items(cargo_kg)
+    assert items[0]["wheight"] == 14.0, f"Expected 14.0 tons, got {items[0]['wheight']}"
+
+    # 2. Fleet matching when len(fleet_items) == 1
+    fleet_response = {
+        "resultCode": 200,
+        "obj": [
+            {
+                "ncarTag": 365521322,
+                "irTagPart1": 36,
+                "irTagPart2": 55,
+                "irTagPart3": 21,
+                "irTagPart4": 322,
+                "type": "باری",
+                "ownerNationalCode": "5720047670",
+            }
+        ],
+    }
+    vehicle = {"plate": "55ع322ایران36", "type": "تریلی کشنده"}
+    matched = WaybillAutomationBot._find_matching_fleet_truck(fleet_response, vehicle, {})
+    assert matched is not None
+    assert matched["type"] == "باری"
+
+    # 3. Apply fleet to vehicle overrides type and sets capacity
+    WaybillAutomationBot._apply_fleet_truck_to_vehicle(vehicle, matched)
+    assert vehicle["type"] == "باری"
+    assert vehicle["capacity"] == 20
+
+
