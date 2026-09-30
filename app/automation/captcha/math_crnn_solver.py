@@ -122,7 +122,11 @@ class MathCrnnSolver:
 
         try:
             checkpoint = torch.load(self.model_path, map_location=self._device)
-            state_dict = checkpoint["model_state"] if isinstance(checkpoint, dict) and "model_state" in checkpoint else checkpoint
+            state_dict = (
+                checkpoint["model_state"]
+                if isinstance(checkpoint, dict) and "model_state" in checkpoint
+                else checkpoint
+            )
             model = MathCRNN(num_classes=len(VOCAB) + 1).to(self._device)
             model.load_state_dict(state_dict)
             model.eval()
@@ -169,7 +173,17 @@ class MathCrnnSolver:
 
         left = int(parts[0])
         right = int(parts[1])
+        if left < 0 or left > 99 or right < 0 or right > 99:
+            logger.debug("MathCRNN invalid operands: left=%d, right=%d", left, right)
+            return None
+        if op == "-" and left < right:
+            logger.debug("MathCRNN invalid subtraction: %d - %d < 0", left, right)
+            return None
+
         ans = left + right if op == "+" else left - right
+        if not (0 <= ans <= 100):
+            logger.debug("MathCRNN answer out of range [0, 100]: %d", ans)
+            return None
 
         chars = list(pred_text)
         confs = [confidence] * len(chars)

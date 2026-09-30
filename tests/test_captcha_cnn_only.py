@@ -185,3 +185,58 @@ class TestCnnOnlyImplementation:
         assert candidate.answer == "45"
         assert candidate.confidence > 0.70
 
+    def test_solve_real_utcms_live_benchmark_captchas(self):
+        """Test solver on all captured real UTCMS live captchas if available in /tmp."""
+        from pathlib import Path
+
+        import cv2
+
+        expected_map = {
+            "/tmp/cap1.png": ("11+12", "23"),
+            "/tmp/cap2.png": ("40-11", "29"),
+            "/tmp/cap3.png": ("10+15", "25"),
+            "/tmp/live_0.png": ("21+17", "38"),
+            "/tmp/live_1.png": ("24+24", "48"),
+            "/tmp/live_2.png": ("28+21", "49"),
+            "/tmp/live_cap.png": ("37+2", "39"),
+        }
+        for file_path, (exp_expr, exp_ans) in expected_map.items():
+            if not Path(file_path).exists():
+                continue
+            img = cv2.imread(file_path)
+            res = barname_ml_solver.solve_image(img)
+            assert res is not None, f"Failed to solve {file_path}"
+            assert res.expression == exp_expr, f"{file_path}: expected {exp_expr}, got {res.expression}"
+            assert res.answer == exp_ans, f"{file_path}: expected answer {exp_ans}, got {res.answer}"
+            assert res.confidence >= 0.35
+
+    def test_math_crnn_rejects_negative_subtraction(self):
+        """Verify that math_crnn_solver rejects negative answers and impossible expressions."""
+        from unittest.mock import MagicMock, patch
+
+        import numpy as np
+        import torch
+
+        from app.automation.captcha.math_crnn_solver import math_crnn_solver
+
+        # Mock decode_ctc to return "44-77" with conf 0.80
+        with patch("app.automation.captcha.math_crnn_solver.decode_ctc", return_value=("44-77", 0.80)):
+            math_crnn_solver._available = True
+            math_crnn_solver._model = MagicMock(return_value=torch.zeros((1, 10, 15)))
+            res = math_crnn_solver.solve_image(np.zeros((48, 160), dtype=np.uint8))
+            assert res is None, "math_crnn_solver must reject negative subtraction 44-77"
+
+    def test_math_crnn_rejects_out_of_bounds_answer(self):
+        """Verify that math_crnn_solver rejects answers > 100."""
+        from unittest.mock import MagicMock, patch
+
+        import numpy as np
+        import torch
+
+        from app.automation.captcha.math_crnn_solver import math_crnn_solver
+
+        with patch("app.automation.captcha.math_crnn_solver.decode_ctc", return_value=("74+74", 0.85)):
+            math_crnn_solver._available = True
+            math_crnn_solver._model = MagicMock(return_value=torch.zeros((1, 10, 15)))
+            res = math_crnn_solver.solve_image(np.zeros((48, 160), dtype=np.uint8))
+            assert res is None, "math_crnn_solver must reject answer > 100"
