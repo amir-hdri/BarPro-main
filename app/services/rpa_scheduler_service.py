@@ -115,6 +115,14 @@ class RPASchedulerService:
                 submit_after_time = next_reopen_at_utc_naive() if in_night else _utcnow_naive()
                 initial_status = TaskStatus.WAITING_SUBMISSION_WINDOW.value if in_night else TaskStatus.PENDING.value
 
+            fingerprint = None
+            try:
+                from app.workers.waybill_worker import generate_submission_fingerprint
+
+                fingerprint = generate_submission_fingerprint(payload)
+            except Exception:
+                pass
+
             job = WaybillJob(
                 job_id=f"job_{uuid.uuid4().hex[:16]}",
                 idempotency_key=normalized_key,
@@ -123,6 +131,7 @@ class RPASchedulerService:
                 status=initial_status,
                 source=source.value,
                 payload_json=payload,
+                submission_fingerprint=fingerprint,
                 max_retries=max_retries,
                 correlation_id=(correlation_id or f"corr_{uuid.uuid4().hex[:16]}"),
                 business_date=business_date_str(),

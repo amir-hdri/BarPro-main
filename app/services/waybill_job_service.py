@@ -3,7 +3,7 @@
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy import String, func
@@ -168,6 +168,64 @@ class WaybillJobService:
                     "message": "اطلاعات اجباری بارنامه کامل یا معتبر نیست",
                     "errors": payload_errors,
                 },
+            )
+
+        # P1-3: Active in-transit or busy driver guard
+        active_statuses = (
+            TaskStatus.PENDING.value,
+            TaskStatus.IN_PROGRESS.value,
+            TaskStatus.CLAIMED.value,
+            TaskStatus.RUNNING.value,
+            TaskStatus.RETRYING.value,
+            TaskStatus.WAITING_AUTH.value,
+            TaskStatus.WAITING_RETRY.value,
+            TaskStatus.WAITING_SUBMISSION_WINDOW.value,
+            "in_transit",
+        )
+        active_driver_job = (
+            await session.exec(
+                select(WaybillJob).where(
+                    WaybillJob.client_id == client.id,
+                    WaybillJob.driver_id == driver.id,
+                    WaybillJob.status.in_(active_statuses),
+                )
+            )
+        ).first()
+        if active_driver_job:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"راننده در حال حاضر دارای بارنامه فعال ({active_driver_job.job_id} با وضعیت {active_driver_job.status}) است و تا زمان پایان حمل امکان صدور بارنامه جدید ندارد.",
+            )
+
+        # P1-3: Duplicate cargo submission guard (24-hour window)
+        from app.workers.waybill_worker import generate_submission_fingerprint
+
+        fingerprint = generate_submission_fingerprint(enhanced_payload)
+        cutoff_24h = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=24)
+        active_or_done_statuses = (
+            TaskStatus.SUCCESS.value,
+            TaskStatus.PENDING.value,
+            TaskStatus.RUNNING.value,
+            TaskStatus.IN_PROGRESS.value,
+            TaskStatus.WAITING_RETRY.value,
+            TaskStatus.UNKNOWN.value,
+            "in_transit",
+        )
+        duplicate_cargo_job = (
+            await session.exec(
+                select(WaybillJob).where(
+                    WaybillJob.client_id == client.id,
+                    WaybillJob.driver_id == driver.id,
+                    WaybillJob.submission_fingerprint == fingerprint,
+                    WaybillJob.created_at >= cutoff_24h,
+                    WaybillJob.status.in_(active_or_done_statuses),
+                )
+            )
+        ).first()
+        if duplicate_cargo_job:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"بارنامه‌ای با محموله و مسیر مشابه برای این راننده در ۲۴ ساعت گذشته ثبت شده یا در حال پردازش است (کد کار قبلی: {duplicate_cargo_job.job_id}).",
             )
 
         job = await rpa_scheduler_service.create_job(
