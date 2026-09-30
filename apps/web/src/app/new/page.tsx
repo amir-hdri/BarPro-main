@@ -185,8 +185,8 @@ export default function NewWaybillPage() {
   // Map & Location states
   const [originCoords, setOriginCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [destinationCoords, setDestinationCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [showOriginMap, setShowOriginMap] = useState(false);
-  const [showDestinationMap, setShowDestinationMap] = useState(false);
+  const [showOriginMap, setShowOriginMap] = useState(true);
+  const [showDestinationMap, setShowDestinationMap] = useState(true);
 
   // Scheduling state
   const [isScheduled, setIsScheduled] = useState(false);
@@ -890,49 +890,51 @@ export default function NewWaybillPage() {
                     }}
                   />
 
-                  {/* دکمه نمایش / مخفی‌سازی نقشه تعاملی */}
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-xs font-bold text-slate-300">انتخاب استان و شهر:</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowOriginMap(!showOriginMap)}
-                      className="px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-xs font-bold transition-all border border-cyan-500/30 flex items-center gap-1.5"
-                    >
-                      <MapPinIcon className="h-4 w-4" />
-                      <span>{showOriginMap ? "بستن نقشه" : "انتخاب پین روی نقشه تعاملی (الزامی)"}</span>
-                    </button>
-                  </div>
+                  {/* نقشه تعاملی انتخاب دقیق مبدأ */}
+                  <div className="mb-5 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <MapPinIcon className="h-5 w-5 text-cyan-400" />
+                        <span className="text-sm font-bold text-white">نقشه انتخاب موقعیت مبدا (الزامی)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`rounded-xl px-3 py-1.5 text-xs font-semibold ${
+                            originCoords
+                              ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
+                              : "bg-amber-500/10 border border-amber-500/30 text-amber-300 animate-pulse"
+                          }`}
+                        >
+                          {originCoords
+                            ? `✓ مختصات ثبت شد (${originCoords.lat.toFixed(4)}، ${originCoords.lng.toFixed(4)})`
+                            : "⚠️ لمس روی نقشه برای ثبت مختصات"}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowOriginMap(!showOriginMap)}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-white/10 transition-colors"
+                        >
+                          {showOriginMap ? "کوچک‌کردن نقشه" : "نمایش نقشه"}
+                        </button>
+                      </div>
+                    </div>
 
-                  {/* وضعیت مختصات مبدأ — بدون پین، ثبت بارنامه ممکن نیست */}
-                  <div
-                    className={`mb-4 rounded-xl border px-3 py-2 text-xs font-medium ${
-                      originCoords
-                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                        : "border-rose-500/30 bg-rose-500/10 text-rose-300"
-                    }`}
-                    role="status"
-                  >
-                    {originCoords
-                      ? `مختصات مبدأ ثبت شد (${originCoords.lat.toFixed(5)}، ${originCoords.lng.toFixed(5)})`
-                      : "مختصات مبدأ هنوز ثبت نشده است — پین را روی نقشه بگذارید"}
+                    {showOriginMap && (
+                      <LocationMapPicker
+                        label="مبدا"
+                        initialLat={originCoords?.lat || 35.6892}
+                        initialLng={originCoords?.lng || 51.3890}
+                        onLocationSelected={(loc) => {
+                          if (loc.province) handleChange("origin_province", loc.province);
+                          if (loc.city) handleChange("origin", loc.city);
+                          if (loc.district) handleChange("origin_district", loc.district);
+                          if (loc.address) handleChange("origin_address", loc.address);
+                          setOriginCoords({ lat: loc.lat, lng: loc.lng });
+                        }}
+                        onClose={() => setShowOriginMap(false)}
+                      />
+                    )}
                   </div>
-
-                  {/* نقشه تعاملی Leaflet */}
-                  {showOriginMap && (
-                    <LocationMapPicker
-                      label="مبدا"
-                      initialLat={originCoords?.lat || 35.6892}
-                      initialLng={originCoords?.lng || 51.3890}
-                      onLocationSelected={(loc) => {
-                        if (loc.province) handleChange("origin_province", loc.province);
-                        if (loc.city) handleChange("origin", loc.city);
-                        if (loc.district) handleChange("origin_district", loc.district);
-                        if (loc.address) handleChange("origin_address", loc.address);
-                        setOriginCoords({ lat: loc.lat, lng: loc.lng });
-                      }}
-                      onClose={() => setShowOriginMap(false)}
-                    />
-                  )}
 
                   {/* انتخابگر کشویی استان و شهر */}
                   <ProvinceCitySelect
@@ -1010,49 +1012,51 @@ export default function NewWaybillPage() {
                     }}
                   />
 
-                  {/* دکمه نمایش / مخفی‌سازی نقشه تعاملی */}
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-xs font-bold text-slate-300">انتخاب استان و شهر:</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowDestinationMap(!showDestinationMap)}
-                      className="px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-xs font-bold transition-all border border-cyan-500/30 flex items-center gap-1.5"
-                    >
-                      <MapPinIcon className="h-4 w-4" />
-                      <span>{showDestinationMap ? "بستن نقشه" : "انتخاب پین روی نقشه تعاملی (الزامی)"}</span>
-                    </button>
-                  </div>
+                  {/* نقشه تعاملی انتخاب دقیق مقصد */}
+                  <div className="mb-5 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <MapPinIcon className="h-5 w-5 text-cyan-400" />
+                        <span className="text-sm font-bold text-white">نقشه انتخاب موقعیت مقصد (الزامی)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`rounded-xl px-3 py-1.5 text-xs font-semibold ${
+                            destinationCoords
+                              ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
+                              : "bg-amber-500/10 border border-amber-500/30 text-amber-300 animate-pulse"
+                          }`}
+                        >
+                          {destinationCoords
+                            ? `✓ مختصات ثبت شد (${destinationCoords.lat.toFixed(4)}، ${destinationCoords.lng.toFixed(4)})`
+                            : "⚠️ لمس روی نقشه برای ثبت مختصات"}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowDestinationMap(!showDestinationMap)}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-white/10 transition-colors"
+                        >
+                          {showDestinationMap ? "کوچک‌کردن نقشه" : "نمایش نقشه"}
+                        </button>
+                      </div>
+                    </div>
 
-                  {/* وضعیت مختصات مقصد — بدون پین، ثبت بارنامه ممکن نیست */}
-                  <div
-                    className={`mb-4 rounded-xl border px-3 py-2 text-xs font-medium ${
-                      destinationCoords
-                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                        : "border-rose-500/30 bg-rose-500/10 text-rose-300"
-                    }`}
-                    role="status"
-                  >
-                    {destinationCoords
-                      ? `مختصات مقصد ثبت شد (${destinationCoords.lat.toFixed(5)}، ${destinationCoords.lng.toFixed(5)})`
-                      : "مختصات مقصد هنوز ثبت نشده است — پین را روی نقشه بگذارید"}
+                    {showDestinationMap && (
+                      <LocationMapPicker
+                        label="مقصد"
+                        initialLat={destinationCoords?.lat || 32.6546}
+                        initialLng={destinationCoords?.lng || 51.6680}
+                        onLocationSelected={(loc) => {
+                          if (loc.province) handleChange("destination_province", loc.province);
+                          if (loc.city) handleChange("destination", loc.city);
+                          if (loc.district) handleChange("destination_district", loc.district);
+                          if (loc.address) handleChange("destination_address", loc.address);
+                          setDestinationCoords({ lat: loc.lat, lng: loc.lng });
+                        }}
+                        onClose={() => setShowDestinationMap(false)}
+                      />
+                    )}
                   </div>
-
-                  {/* نقشه تعاملی Leaflet */}
-                  {showDestinationMap && (
-                    <LocationMapPicker
-                      label="مقصد"
-                      initialLat={destinationCoords?.lat || 32.6546}
-                      initialLng={destinationCoords?.lng || 51.6680}
-                      onLocationSelected={(loc) => {
-                        if (loc.province) handleChange("destination_province", loc.province);
-                        if (loc.city) handleChange("destination", loc.city);
-                        if (loc.district) handleChange("destination_district", loc.district);
-                        if (loc.address) handleChange("destination_address", loc.address);
-                        setDestinationCoords({ lat: loc.lat, lng: loc.lng });
-                      }}
-                      onClose={() => setShowDestinationMap(false)}
-                    />
-                  )}
 
                   {/* انتخابگر کشویی استان و شهر */}
                   <ProvinceCitySelect

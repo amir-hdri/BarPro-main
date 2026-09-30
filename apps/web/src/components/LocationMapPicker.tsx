@@ -29,6 +29,13 @@ interface LocationMapPickerProps {
 }
 
 const TILE_SERVERS = {
+  google: {
+    name: "نقشه خیابان‌ها (گوگل)",
+    url: "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}",
+    subdomains: "0123",
+    attribution: '&copy; Google Maps',
+    maxZoom: 20,
+  },
   voyager: {
     name: "نقشه روشن (Voyager)",
     url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
@@ -45,8 +52,8 @@ const TILE_SERVERS = {
   },
   osm: {
     name: "OpenStreetMap",
-    url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-    subdomains: "abc",
+    url: "https://tile.openstreetmap.de/{z}/{x}/{y}.png",
+    subdomains: "",
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
     maxZoom: 19,
   },
@@ -66,7 +73,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
   const geocodeControllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(false);
 
-  const [mapTheme, setMapTheme] = useState<"voyager" | "dark">("voyager");
+  const [mapTheme, setMapTheme] = useState<"google" | "voyager" | "dark" | "osm">("google");
   const [loadingGeocode, setLoadingGeocode] = useState(false);
   const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lng: number }>({
     lat: initialLat,
@@ -135,11 +142,27 @@ export const LocationMapPicker = memo(function LocationMapPicker({
     [onLocationSelected]
   );
 
-  // Tile fallback chain: voyager (default, CARTO, unfiltered) -> dark -> osm.
-  // Switches layers for real after a burst of tile errors instead of only logging.
+  // Synchronize when parent updates coordinates (e.g. user selected city from dropdown or favorite location)
+  useEffect(() => {
+    if (!mountedRef.current || !leafletMap.current || !markerRef.current) return;
+    if (initialLat != null && initialLng != null) {
+      const cur = markerRef.current.getLatLng();
+      const dist = Math.abs(cur.lat - initialLat) + Math.abs(cur.lng - initialLng);
+      if (dist > 0.0001) {
+        markerRef.current.setLatLng([initialLat, initialLng]);
+        leafletMap.current.setView([initialLat, initialLng], Math.max(leafletMap.current.getZoom(), 13), {
+          animate: true,
+        });
+        setSelectedCoords({ lat: initialLat, lng: initialLng });
+        leafletMap.current.invalidateSize();
+      }
+    }
+  }, [initialLat, initialLng]);
+
+  // Tile fallback chain: google -> voyager -> dark -> osm
   const tileErrorCount = useRef(0);
   const applyTileLayer = useCallback(
-    (L: typeof LType, map: LType.Map, theme: "voyager" | "dark" | "osm" = "voyager") => {
+    (L: typeof LType, map: LType.Map, theme: "google" | "voyager" | "dark" | "osm" = "google") => {
       if (currentTileLayer.current) {
         currentTileLayer.current.remove();
         currentTileLayer.current = null;
@@ -157,19 +180,18 @@ export const LocationMapPicker = memo(function LocationMapPicker({
       layer.on("tileerror", () => {
         if (layer !== currentTileLayer.current) return;
         tileErrorCount.current += 1;
-        if (tileErrorCount.current < 4) return;
-        const order: Array<"voyager" | "dark" | "osm"> = ["voyager", "dark", "osm"];
-        const next = order[order.indexOf(theme) + 1];
-        if (!next) return;
+        if (tileErrorCount.current < 3) return;
+        const order: Array<"google" | "voyager" | "dark" | "osm"> = ["google", "voyager", "dark", "osm"];
+        const next = order[order.indexOf(theme) + 1] || order[0];
+        if (!next || next === theme) return;
         if (process.env.NODE_ENV !== "production") {
-          console.warn(`Primary tile "${theme}" failing, falling back to "${next}"`);
+          console.warn(`Tile layer "${theme}" failing, falling back to "${next}"`);
         }
-        // Defer so Leaflet finishes the current tile batch first.
         setTimeout(() => {
           if (currentTileLayer.current === layer && leafletMap.current === map) {
             applyTileLayer(L, map, next);
           }
-        }, 300);
+        }, 200);
       });
 
       layer.addTo(map);
@@ -178,8 +200,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
     []
   );
 
-  // Debounced invalidateSize: ResizeObserver can fire in bursts during modal
-  // open animations; a single trailing call avoids layout thrash and 0x0 grey tiles.
+  // Debounced invalidateSize
   const resizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleInvalidate = useCallback((delayMs = 120) => {
     if (resizeTimer.current) clearTimeout(resizeTimer.current);
@@ -202,6 +223,8 @@ export const LocationMapPicker = memo(function LocationMapPicker({
         const map = L.map(mapRef.current, {
           zoomControl: true,
           fadeAnimation: true,
+          touchZoom: true,
+          dragging: true,
         }).setView([initialLat, initialLng], 13);
         leafletMap.current = map;
 
@@ -233,10 +256,8 @@ export const LocationMapPicker = memo(function LocationMapPicker({
           if (isMounted) handleGeocode(lat, lng);
         });
 
-        // Staged size recalculation to prevent blank/grey tiles on conditional mount.
-        // 50ms catches the first layout pass, 200ms the modal animation end,
-        // 500ms a late font/layout shift.
-        [50, 200, 500].forEach((delayMs) => {
+        // Staged size recalculation to prevent blank/grey tiles on mobile
+        [50, 150, 300, 600, 1000].forEach((delayMs) => {
           setTimeout(() => {
             if (isMounted && leafletMap.current) {
               leafletMap.current.invalidateSize();
@@ -252,20 +273,30 @@ export const LocationMapPicker = memo(function LocationMapPicker({
 
     initLeaflet();
 
-    // Attach debounced ResizeObserver to auto-adjust when modal or parent layout resizes.
+    // Attach debounced ResizeObserver to auto-adjust when modal or parent layout resizes
     let resizeObserver: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined" && mapRef.current) {
       resizeObserver = new ResizeObserver(() => {
-        scheduleInvalidate(120);
+        scheduleInvalidate(100);
       });
       resizeObserver.observe(mapRef.current);
     }
+
+    const handleWindowResize = () => {
+      if (mountedRef.current && leafletMap.current) {
+        leafletMap.current.invalidateSize();
+      }
+    };
+    window.addEventListener("resize", handleWindowResize);
+    window.addEventListener("orientationchange", handleWindowResize);
 
     return () => {
       isMounted = false;
       mountedRef.current = false;
       if (resizeTimer.current) clearTimeout(resizeTimer.current);
       resizeObserver?.disconnect();
+      window.removeEventListener("resize", handleWindowResize);
+      window.removeEventListener("orientationchange", handleWindowResize);
       geocodeControllerRef.current?.abort();
       if (leafletMap.current) {
         leafletMap.current.remove();
@@ -278,7 +309,8 @@ export const LocationMapPicker = memo(function LocationMapPicker({
   }, []);
 
   const toggleTheme = async () => {
-    const newTheme = mapTheme === "voyager" ? "dark" : "voyager";
+    const order: Array<"google" | "voyager" | "dark" | "osm"> = ["google", "voyager", "dark", "osm"];
+    const newTheme = order[(order.indexOf(mapTheme) + 1) % order.length];
     setMapTheme(newTheme);
     if (leafletMap.current) {
       const L = (await import("leaflet")).default;
@@ -296,7 +328,13 @@ export const LocationMapPicker = memo(function LocationMapPicker({
   };
 
   const handleMyPosition = () => {
-    if (navigator.geolocation) {
+    if (typeof window !== "undefined" && navigator.geolocation) {
+      if (window.location.protocol !== "https:" && window.location.hostname !== "localhost") {
+        toast("درخواست GPS ارسال شد. (در ارتباط غیر HTTPS تایید مرورگر لازم است)", {
+          icon: "📍",
+          duration: 3500,
+        });
+      }
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const lat = pos.coords.latitude;
@@ -311,7 +349,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
           }
         },
         () => {
-          toast.error("دسترسی به موقعیت جغرافیایی یافت نشد");
+          toast.error("دریافت موقعیت خودکار مقدور نشد — لطفاً موقعیت را مستقیماً روی نقشه لمس کنید");
         },
         { enableHighAccuracy: true, timeout: 8000 }
       );
@@ -336,11 +374,17 @@ export const LocationMapPicker = memo(function LocationMapPicker({
           <button
             type="button"
             onClick={toggleTheme}
-            aria-label={`تغییر حالت نقشه به ${mapTheme === "voyager" ? "تیره" : "روشن"}`}
-            title="تغییر تم نقشه (روشن / تیره)"
+            aria-label={`تغییر حالت نقشه: ${TILE_SERVERS[mapTheme]?.name || mapTheme}`}
+            title={`تغییر حالت نقشه (${TILE_SERVERS[mapTheme]?.name})`}
             className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-white/5 transition-colors min-h-[38px] min-w-[38px] flex items-center justify-center"
           >
-            {mapTheme === "voyager" ? <MoonIcon className="h-4 w-4" /> : <SunIcon className="h-4 w-4 text-amber-400" />}
+            {mapTheme === "dark" ? (
+              <MoonIcon className="h-4 w-4 text-cyan-400" />
+            ) : mapTheme === "google" ? (
+              <GlobeAsiaAustraliaIcon className="h-4 w-4 text-emerald-400" />
+            ) : (
+              <SunIcon className="h-4 w-4 text-amber-400" />
+            )}
           </button>
 
           <button
@@ -377,7 +421,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
       </div>
 
       {/* Map display */}
-      <div className="relative w-full h-80 rounded-xl overflow-hidden border border-white/10 shadow-inner bg-slate-950">
+      <div className="relative w-full h-72 sm:h-80 md:h-96 rounded-2xl overflow-hidden border border-white/10 shadow-inner bg-slate-950">
         <div ref={mapRef} className="w-full h-full z-0" tabIndex={0} aria-label="ناحیه نقشه قابل جابجایی" />
         {loadingGeocode && (
           <div
@@ -393,7 +437,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
 
       {/* Instruction hint */}
       <p className="text-[11px] text-slate-400 leading-relaxed">
-        💡 روی نقشه کلیک کنید یا پین دایره‌ای را بکشید — مختصات فوراً ثبت می‌شود و آدرس سپس به‌طور خودکار تکمیل می‌گردد (حتی با خطای آدرس، پین حفظ می‌شود).
+        💡 برای تغییر موقعیت در موبایل یا رایانه، روی هر نقطه از نقشه لمس/کلیک کنید یا پین را بکشید — مختصات فوراً ذخیره می‌شود و آدرس تکمیل خواهد شد.
       </p>
 
       {/* Resolved address banner */}

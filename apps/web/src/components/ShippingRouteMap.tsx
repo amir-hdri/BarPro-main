@@ -247,28 +247,30 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
       const addTileLayer = (url: string, maxZoom = 20) => {
         tileLayerRef.current?.remove();
         tileErrors.current = 0;
+        const isGoogle = url.includes("google.com");
         const layer = L.tileLayer(url, {
-          subdomains: "abcd",
+          subdomains: isGoogle ? "0123" : "abcd",
           maxZoom,
-          attribution: "© OpenStreetMap contributors, © CARTO",
+          attribution: isGoogle ? "© Google Maps" : "© OpenStreetMap contributors, © CARTO",
         });
-        // Real fallback: voyager (CARTO, unfiltered) -> dark_all -> OSM.
+        // Real fallback: Google -> voyager (CARTO) -> dark_all -> OSM (de).
         layer.on("tileerror", () => {
           if (tileLayerRef.current !== layer) return;
           tileErrors.current += 1;
-          if (tileErrors.current < 4) return;
+          if (tileErrors.current < 3) return;
           const order = [
+            "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}",
             "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
             "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-            "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "https://tile.openstreetmap.de/{z}/{x}/{y}.png",
           ];
-          const next = order[order.indexOf(url) + 1];
-          if (next && leafletMap.current === map) addTileLayer(next, 19);
+          const next = order[order.indexOf(url) + 1] || order[0];
+          if (next && next !== url && leafletMap.current === map) addTileLayer(next, 19);
         });
         layer.addTo(map);
         tileLayerRef.current = layer;
       };
-      addTileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png");
+      addTileLayer("https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}");
 
       // Staged size recalculation to prevent blank/grey tiles on conditional mount.
       [50, 200, 500].forEach((delayMs) => {
