@@ -106,8 +106,8 @@ export default function AuthPage() {
         <div className="absolute top-[20%] left-[20%] w-[500px] h-[500px] rounded-full bg-cyan-600/10 blur-[120px] animate-[pulse-glow_8s_ease-in-out_infinite]" />
         <div className="absolute bottom-[20%] right-[20%] w-[600px] h-[600px] rounded-full bg-blue-600/10 blur-[130px] animate-[pulse-glow_10s_ease-in-out_infinite_reverse]" />
         
-        {/* Subtle noise texture */}
-        <div className="absolute inset-0 opacity-[0.03] bg-[url('https://grainy-gradients.vercel.app/noise.svg')] mix-blend-overlay"></div>
+        {/* Subtle noise/dot texture */}
+        <div className="absolute inset-0 opacity-[0.03] bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:16px_16px] mix-blend-overlay"></div>
       </div>
 
       <main className="relative z-10 w-full max-w-[420px] mx-auto animate-in fade-in-up duration-1000 slide-in-from-bottom-8">
