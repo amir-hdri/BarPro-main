@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from app.core.config import utcms_config
@@ -84,7 +85,24 @@ if celery_app is not None:
         time_limit=300,
     )
     def keepalive_sessions():
-        return _run(rpa_auth_service.keepalive_sessions())
+        # NOTE: Celery soft/hard time limits are NOT enforced on the solo pool
+        # (celery/concurrency/solo.py reports 'timeouts': ()), and run_async
+        # blocks this worker thread on future.result() with no timeout. The
+        # asyncio.wait_for below is the real bound: it cancels the coroutine on
+        # the worker loop so one stuck driver/DB call cannot freeze the worker.
+        try:
+            return _run(
+                asyncio.wait_for(
+                    rpa_auth_service.keepalive_sessions(),
+                    timeout=utcms_config.RPA_KEEPALIVE_TASK_TIMEOUT_SECONDS,
+                )
+            )
+        except TimeoutError:
+            logger.warning(
+                "session_keepalive_task_timeout",
+                extra={"extra_fields": {"timeout_seconds": utcms_config.RPA_KEEPALIVE_TASK_TIMEOUT_SECONDS}},
+            )
+            return {"checked": 0, "refreshed": 0, "errors": 0, "details": [], "timeout": True}
 
 
 # ==================== SCHEDULED WAYBILL EXECUTION TASKS ====================

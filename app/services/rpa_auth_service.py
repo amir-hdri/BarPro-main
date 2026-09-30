@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import UTC, datetime, timedelta
@@ -258,7 +259,10 @@ class RPAAuthService:
                     logger.warning("phase1_auth_page_close_failed", exc_info=True)
             if session_id:
                 try:
-                    await browser_manager.close_context(session_id)
+                    # Bounded like page.close above: an unbounded close would defeat
+                    # asyncio.wait_for cancellation from keepalive_sessions and re-freeze
+                    # the solo-pool worker during teardown unwind.
+                    await asyncio.wait_for(browser_manager.close_context(session_id), timeout=10)
                 except Exception:
                     logger.warning("phase1_auth_context_close_failed", exc_info=True)
             await session.close()
@@ -392,7 +396,13 @@ class RPAAuthService:
             results["checked"] = len(rows)
             for drs in rows:
                 try:
-                    auth_result = await self.authenticate_driver(drs.client_id, drs.driver_id, "session_keepalive")
+                    # Solo-pool workers have no Celery time-limit enforcement, so a hung
+                    # browser/login await inside one driver would freeze the whole worker
+                    # (live incident 2026-09-29: 381s+ freeze). Bound each driver instead.
+                    auth_result = await asyncio.wait_for(
+                        self.authenticate_driver(drs.client_id, drs.driver_id, "session_keepalive"),
+                        timeout=utcms_config.RPA_KEEPALIVE_DRIVER_TIMEOUT_SECONDS,
+                    )
                     if auth_result.ok:
                         results["refreshed"] += 1
                         results["details"].append(
@@ -412,6 +422,33 @@ class RPAAuthService:
                                 "reason": auth_result.reason_code,
                             }
                         )
+                except TimeoutError:
+                    # The per-driver bound above fired; authenticate_driver was cancelled and
+                    # unwound through its guarded teardown. Drop the possibly poisoned
+                    # Playwright state so the next driver/task starts from a clean browser.
+                    results["errors"] += 1
+                    results["details"].append(
+                        {
+                            "driver_id": drs.driver_id,
+                            "client_id": drs.client_id,
+                            "outcome": "keepalive_timeout",
+                            "timeout_seconds": utcms_config.RPA_KEEPALIVE_DRIVER_TIMEOUT_SECONDS,
+                        }
+                    )
+                    logger.warning(
+                        "session_keepalive_driver_timeout",
+                        extra={
+                            "extra_fields": {
+                                "driver_id": drs.driver_id,
+                                "client_id": drs.client_id,
+                                "timeout_seconds": utcms_config.RPA_KEEPALIVE_DRIVER_TIMEOUT_SECONDS,
+                            }
+                        },
+                    )
+                    try:
+                        await browser_manager.recycle_browser()
+                    except Exception:
+                        logger.warning("session_keepalive_recycle_failed", exc_info=True)
                 except Exception as e:
                     results["errors"] += 1
                     results["details"].append(
