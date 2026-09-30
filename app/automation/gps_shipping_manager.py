@@ -732,8 +732,29 @@ async def get_or_login_client(
             if not password or password in ("dummy", "") or str(password).strip() in ("dummy", ""):
                 raise ValueError(f"رمز عبور راننده برای کد ملی '{national_code}' معتبر نیست")
 
+            from app.automation.login_attempt_ledger import (
+                AccountCooldownError,
+                check_login_allowed,
+                record_login_failure,
+                record_login_success,
+            )
+
+            # P0-1: refuse locally while the account cools down — a fresh login
+            # attempt against a distressed account risks a UTCMS-side lockout.
+            allowed, cooldown_reason = await check_login_allowed(national_code)
+            if not allowed:
+                raise AccountCooldownError(national_code, cooldown_reason or "cooldown active")
+
             client = UtcmsMobileClient(proxy_url=proxy_url)
-            auth = await _solve_and_login_with_retry(client, national_code, password)
+            try:
+                auth = await _solve_and_login_with_retry(client, national_code, password)
+            except Exception as exc:
+                # Only authoritative portal verdicts (a set result_code) burned an
+                # attempt; transport/infra blips belong to the egress layer.
+                if getattr(exc, "result_code", None) is not None:
+                    await record_login_failure(national_code, kind="mobile")
+                raise
+            await record_login_success(national_code)
             await cache_token(national_code, auth.token)
             if auth.refresh_token:
                 await cache_refresh_token(national_code, auth.refresh_token)

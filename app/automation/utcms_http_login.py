@@ -297,6 +297,21 @@ class UtcmsHttpLogin:
         username = str(username).translate(_digit_map).strip()
         password = str(password).translate(_digit_map).strip()
 
+        from app.automation.login_attempt_ledger import (
+            check_login_allowed,
+            record_login_failure,
+            record_login_success,
+        )
+
+        # P0-1: refuse locally while the account cools down — every rejected
+        # login POST counts against the account on the UTCMS side.
+        _allowed, _cooldown_reason = await check_login_allowed(username)
+        if not _allowed:
+            return HttpLoginResult(
+                success=False,
+                error=f"ورود (login) موقتاً متوقف شد — cooldown فعال است: {_cooldown_reason}",
+            )
+
         captcha_attempts_left = max(4, getattr(utcms_config, "CAPTCHA_AUTO_MAX_ATTEMPTS", 4))
         last_result: HttpLoginResult | None = None
         self._authenticated_session = None
@@ -312,6 +327,7 @@ class UtcmsHttpLogin:
             try:
                 result = await self._attempt_single_session(username, password)
                 if result.success:
+                    await record_login_success(username)
                     # Keep the exact curl session that completed login. UTCMS
                     # binds the authenticated menu/form flow to more than the
                     # four visible cookies; rebuilding a fresh session from
@@ -393,7 +409,17 @@ class UtcmsHttpLogin:
                 continue
             break
 
-        return last_result or HttpLoginResult(success=False, error="لاگین ناموفق؛ بدون نتیجه")
+        final_result = last_result or HttpLoginResult(success=False, error="لاگین ناموفق؛ بدون نتیجه")
+        if (
+            final_result.status_code is not None
+            and final_result.status_code != 429
+            and final_result.status_code not in self.TRANSIENT_STATUS_CODES
+        ):
+            # Authoritative portal verdict (e.g. wrong captcha / rejected
+            # credentials with HTTP 200): a real attempt was burned. 429,
+            # transient 5xx and transport failures (status None) are infra.
+            await record_login_failure(username, kind="web")
+        return final_result
 
     def take_authenticated_session(self) -> Any:
         """Transfer the successful curl session to a caller for reuse.

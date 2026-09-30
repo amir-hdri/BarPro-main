@@ -880,6 +880,20 @@ class UTCMSAuthenticator:
         self.last_state = "failed"
         navigation_errors: list[tuple[str, Exception]] = []
 
+        # P0-1: refuse locally while the account cools down. The HTTP-first
+        # attempt below consults the ledger itself; this gate also covers the
+        # Playwright form fallback so it cannot burn attempts during cooldown.
+        from app.automation.login_attempt_ledger import check_login_allowed
+
+        _allowed, _cooldown_reason = await check_login_allowed(username)
+        if not _allowed:
+            self.last_error = f"ورود (login) موقتاً متوقف شد — cooldown فعال است: {_cooldown_reason}"
+            logger.warning(
+                "auth_login_cooldown_refused",
+                extra={"extra_fields": {"reason": _cooldown_reason}},
+            )
+            return False
+
         # Hybrid: try the HTTP (curl_cffi) login first to bypass the WAF
         # TLS-fingerprint filter. If it succeeds, the Playwright context
         # already has a valid session — just navigate to the dashboard
