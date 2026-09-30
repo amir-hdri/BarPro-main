@@ -378,3 +378,10 @@ if celery_app is not None:
                 return await DriverScheduleService.evaluate_all_due_schedules(session)
 
         return _run_async(_run())
+
+    @celery_app.task(name="barpro.proxy.probe_squid_recovery")
+    def probe_squid_recovery(worker_id: str = "1"):
+        """Periodic probe to check if Squid egress has unblocked, reverting from clean pool."""
+        from app.automation.clean_ip_pool import probe_and_recover_squid_egress
+
+        return _run_async(probe_and_recover_squid_egress(worker_id=worker_id))

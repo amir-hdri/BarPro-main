@@ -179,6 +179,14 @@ def _build_beat_schedule() -> dict:
                     "expires": 110,
                 },
             },
+            "squid-recovery-probe": {
+                "task": "barpro.proxy.probe_squid_recovery",
+                "schedule": crontab(minute="*/5"),
+                "options": {
+                    "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                    "expires": 240,
+                },
+            },
         }
     )
 

@@ -1576,3 +1576,84 @@ def get_clean_ip_pool() -> CleanIPPoolManager:
 async def get_best_clean_iran_proxy() -> str | None:
     """Convenience async accessor for the fastest active clean Iranian proxy."""
     return await clean_ip_pool.get_clean_ip()
+
+
+async def probe_and_recover_squid_egress(worker_id: str = "1") -> bool:
+    """Probe the local worker's Squid egress directly against UTCMS login surface.
+
+    If UTCMS accepts traffic (HTTP 200, no WAF challenges), this removes any
+    circuit-breaker block keys in Redis (`squid_blocked:{ip_index}` and
+    `blocked:{ip_index}`) and invalidates the cached proxy, allowing workers to
+    seamlessly revert from the fallback Clean IP Pool back to their primary Squid egress.
+    """
+    proxy_url = os.environ.get(f"WORKER_{worker_id}_PROXY") or (
+        os.environ.get("RPA_PROXIES", "").split(",")[0].strip() if os.environ.get("RPA_PROXIES") else None
+    )
+    if not proxy_url:
+        proxy_url = "http://172.20.0.1:3128"
+
+    try:
+        from app.automation.worker_proxy import _resolve_to_ip
+
+        resolved_proxy = _resolve_to_ip(proxy_url)
+    except Exception:
+        resolved_proxy = proxy_url
+
+    status_code = None
+    body_snippet = ""
+    try:
+        from curl_cffi import requests as cc_requests
+
+        session = cc_requests.Session(
+            impersonate="chrome120",
+            proxies={"http": resolved_proxy, "https": resolved_proxy},
+            timeout=15.0,
+            verify=True,
+        )
+        try:
+            session.headers.update(PROBE_HEADERS)
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(None, session.get, LOGIN_PROBE_URL)
+            status_code = response.status_code
+            body_snippet = (response.text or "")[:400].lower()
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+    except Exception as exc:
+        logger.debug(f"probe_and_recover_squid_egress: probe failed: {exc}")
+        return False
+
+    verdict = classify_probe_response(status_code, body_snippet)
+    if verdict != "healthy":
+        logger.debug(
+            f"probe_and_recover_squid_egress: Squid egress {resolved_proxy} verdict is {verdict} (status={status_code})"
+        )
+        return False
+
+    logger.info(
+        f"probe_and_recover_squid_egress: Squid egress {resolved_proxy} is healthy (status 200). Checking Redis blocks..."
+    )
+    ip_index = os.environ.get("WORKER_IP_INDEX", worker_id) or worker_id
+
+    try:
+        r = await redis_manager.get()
+        if r is not None:
+            squid_blocked_key = f"utcms:circuit_breaker:squid_blocked:{ip_index}"
+            blocked_key = f"utcms:circuit_breaker:blocked:{ip_index}"
+            await r.delete(squid_blocked_key, blocked_key)
+            logger.info(
+                f"probe_and_recover_squid_egress: unblocked Redis keys for worker {worker_id} (index {ip_index})"
+            )
+    except Exception as exc:
+        logger.warning(f"probe_and_recover_squid_egress: Redis error during unblock: {exc}")
+
+    try:
+        from app.automation.worker_proxy import invalidate_worker_proxy_cache
+
+        invalidate_worker_proxy_cache()
+    except Exception as exc:
+        logger.debug(f"probe_and_recover_squid_egress: cache invalidation failed: {exc}")
+
+    return True
