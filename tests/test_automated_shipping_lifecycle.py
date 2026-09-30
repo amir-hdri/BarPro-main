@@ -643,3 +643,59 @@ async def test_auto_complete_shipping_raises_on_non_4011_exception():
             await auto_complete_shipping("job-err-test", force=True)
 
     assert state.status == "in_transit"
+
+
+@pytest.mark.asyncio
+async def test_auto_complete_shipping_handles_4011_no_start_shipping():
+    """Verify auto_complete_shipping handles 4011 'شروع حمل ثبت نشده است' by calling register_start_of_shipping and settling."""
+    state = ShippingState(
+        job_id="job-4011-no-start-test",
+        doc_no="1353083857",
+        doc_id="229468123",
+        status="in_transit",
+        dest_lat=35.70,
+        dest_lng=51.40,
+        origin_lat=35.65,
+        origin_lng=51.35,
+    )
+
+    mock_driver = SimpleNamespace(
+        id=6,
+        driver_national_code="0084575948",
+        utcms_password_encrypted="encrypted-pwd",
+    )
+    mock_job = SimpleNamespace(
+        job_id="job-4011-no-start-test",
+        driver_id=6,
+        status="in_transit",
+        result_json={},
+        updated_at=None,
+    )
+
+    mock_client = AsyncMock(spec=UtcmsMobileClient)
+    # First call returns 4011 without start
+    mock_client.register_end_of_shipping.side_effect = [
+        {"resultCode": 4011, "resultMessage": "برای بارنامه انتخاب شده شروع حمل ثبت نشده است."},
+        {"resultCode": 200, "resultMessage": "پایان حمل با موفقیت ثبت شد"},
+    ]
+    mock_client.register_start_of_shipping.return_value = {"resultCode": 200, "resultMessage": "شروع حمل ثبت شد"}
+
+    mock_session = AsyncMock()
+    mock_exec_res = Mock()
+    mock_exec_res.first.return_value = mock_job
+    mock_session.exec.return_value = mock_exec_res
+    mock_session.get.return_value = mock_driver
+
+    with (
+        patch("app.automation.gps_shipping_manager.load_shipping_state", AsyncMock(return_value=state)),
+        patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()),
+        patch("app.automation.gps_shipping_manager.get_or_login_client", AsyncMock(return_value=mock_client)),
+        patch("app.auth_multitenant.decrypt_driver_password", return_value="plain-pwd"),
+        patch("app.core.database.async_session_factory", lambda: FakeAsyncSessionContext(mock_session)),
+    ):
+        result = await auto_complete_shipping("job-4011-no-start-test", force=True)
+
+    assert result["status"] == "delivered"
+    assert mock_job.status == "success"
+    assert state.status == "delivered"
+    mock_client.register_start_of_shipping.assert_awaited_once()

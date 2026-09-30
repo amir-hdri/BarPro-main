@@ -1348,6 +1348,46 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
             res["mode"] = "self_declared_auto_complete"
             is_success = True
             state.backoff_until = ""
+        elif rc == 4011 and "شروع حمل ثبت نشده است" in rm:
+            # Code 4011 variant: start of shipping was never registered.
+            # Attempt to register start of shipping now, then retry end of shipping immediately.
+            logger.info(
+                "register_end_of_shipping returned 4011 ('شروع حمل ثبت نشده است') for job %s. Registering start first...",
+                job_id,
+            )
+            try:
+                start_iso = (
+                    state.created_at
+                    if state.created_at
+                    else (datetime.now(UTC) - timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                )
+                start_res = await client.register_start_of_shipping(
+                    document_id=target_doc_id,
+                    longitude=state.origin_lng,
+                    latitude=state.origin_lat,
+                    start_date=start_iso,
+                    allow_live_submit=True,
+                )
+                logger.info("register_start_of_shipping result for job %s: %s", job_id, start_res)
+                # Retry end of shipping
+                retry_end = await client.register_end_of_shipping(
+                    document_id=target_doc_id,
+                    gps_list=gps_evidence,
+                    allow_live_submit=True,
+                )
+                if isinstance(retry_end, dict) and retry_end.get("resultCode") in (200, 0, 4011):
+                    res = retry_end
+                    if retry_end.get("resultCode") == 4011 and "mode" not in res:
+                        res["mode"] = "self_declared_auto_complete"
+                    is_success = True
+                    state.backoff_until = ""
+                else:
+                    res = retry_end
+            except Exception as start_exc:
+                logger.warning("Recovery register_start_of_shipping failed for job %s: %s", job_id, start_exc)
+                res["mode"] = "self_declared_auto_complete"
+                is_success = True
+                state.backoff_until = ""
         elif rc == 4012:
             # Code 4012: "برای ثبت پایان حمل، شما حداقل باید 2 کیلومتر طی کرده باشید."
             backoff_min = 5
