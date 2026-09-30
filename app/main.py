@@ -304,9 +304,12 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob: https://*.google.com https://*.cartocdn.com https://*.openstreetmap.org https://*.openstreetmap.de; "
+        "font-src 'self'; connect-src 'self' ws: wss: https://*.google.com https://*.cartocdn.com; "
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     )
-    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    response.headers["Permissions-Policy"] = "geolocation=(self), microphone=(), camera=()"
     return response
 
 
