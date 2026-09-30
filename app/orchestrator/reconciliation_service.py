@@ -159,116 +159,159 @@ class ReconciliationService:
         identity.submission_fingerprint = job.submission_fingerprint
         reconciliation_fields = identity.to_dict()
 
-        # Execute Playwright scraping if browser_manager provided
-        from app.automation.worker_proxy import get_playwright_proxy
-        from app.services.session_vault import session_vault
-
-        auth_state_path = None
-        if utcms_username and job.client_id and job.driver_id:
-            auth_state_path = session_vault.auth_state_path_for_driver(
-                client_id=job.client_id,
-                driver_id=job.driver_id,
-                username=utcms_username,
-                fallback=utcms_username,
-            )
-
-        proxy_dict = get_playwright_proxy()
-
-        bm = browser_manager or BrowserManager()
-        session_id = None
-        try:
-            session_id, context = await bm.create_context(auth_state_path=auth_state_path, proxy_dict=proxy_dict)
-            page = await bm.new_page(context)
-            res = await reconciliation_scraper.query_waybill_status(
-                page=page,
-                tracking_code=tracking_code,
-                job_id=job.id,
-                reconciliation_fields=reconciliation_fields,
-            )
-
-            # Auto-authenticate if query was ambiguous / unauthenticated
-            if res.outcome == ScraperOutcome.AMBIGUOUS and driver_obj:
+        # Check mobile transport first: if job was issued via mobile API, reconcile directly via mobile API
+        is_mobile = (
+            str(res_json.get("transport") or "").lower() == "mobile"
+            or str(getattr(job, "transport", "") or "").lower() == "mobile"
+            or utcms_config.UTCMS_TRANSPORT in {"mobile", "shadow"}
+        )
+        res: ReconciliationResult | None = None
+        if is_mobile and driver_obj:
+            try:
+                from app.auth_multitenant import decrypt_driver_password
+                from app.automation.gps_shipping_manager import get_or_login_client
                 enc_pass = driver_obj.utcms_password_encrypted or getattr(driver_obj, "encrypted_password", None)
                 if enc_pass:
-                    try:
-                        from app.auth_multitenant import decrypt_driver_password
-                        from app.automation.auth import UTCMSAuthenticator
-
-                        raw_password = decrypt_driver_password(enc_pass)
-                        authenticator = UTCMSAuthenticator(page=page, context=context)
-                        logged_in = await authenticator.login(
-                            username=driver_obj.utcms_username,
-                            password=raw_password,
-                        )
-                        if logged_in:
-                            logger.info(
-                                "Reconciliation auto-login successful for driver %s",
-                                driver_obj.utcms_username,
+                    raw_password = decrypt_driver_password(enc_pass)
+                    client = await get_or_login_client(
+                        national_code=driver_obj.utcms_username,
+                        password=raw_password,
+                    )
+                    doc_id_to_check = job.document_id or res_json.get("document_id")
+                    if doc_id_to_check:
+                        doc_resp = await client.get_document(str(doc_id_to_check))
+                        doc_obj = doc_resp.get("obj") if isinstance(doc_resp.get("obj"), dict) else None
+                        if doc_obj and (str(doc_obj.get("id")) == str(doc_id_to_check) or str(doc_obj.get("docNo")) == str(tracking_code)):
+                            res = ReconciliationResult(
+                                outcome=ScraperOutcome.REGISTERED,
+                                tracking_code=str(doc_obj.get("docNo") or tracking_code),
+                                document_id=str(doc_obj.get("id") or doc_id_to_check),
+                                status_text=str(doc_obj.get("statusName") or "ثبت شده"),
+                                issue_date=str(doc_obj.get("date") or doc_obj.get("dateFarsi") or ""),
+                                details={
+                                    "tracking_code": str(doc_obj.get("docNo") or tracking_code),
+                                    "document_id": str(doc_obj.get("id") or doc_id_to_check),
+                                    "status": doc_obj.get("statusName"),
+                                    "transport": "mobile",
+                                },
                             )
-                            if job.client_id and job.driver_id:
-                                try:
-                                    runtime_stmt = (
-                                        select(DriverRuntimeState)
-                                        .where(DriverRuntimeState.driver_id == job.driver_id)
-                                        .with_for_update()
-                                    )
-                                    runtime_state = (await session.execute(runtime_stmt)).scalar_one_or_none()
-                                    next_session_version = (
-                                        (runtime_state.session_version + 1) if runtime_state else None
-                                    )
-                                    saved_path = await session_vault.save_driver_session(
-                                        client_id=job.client_id,
-                                        driver_id=job.driver_id,
-                                        username=driver_obj.utcms_username,
-                                        context=context,
-                                        session_version=next_session_version,
-                                    )
-                                    if saved_path:
-                                        stored_version = await session_vault.async_get_session_version(saved_path)
-                                        effective_version = stored_version or next_session_version or 1
-                                        if runtime_state:
-                                            runtime_state.session_version = effective_version
-                                            runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                                        await rpa_runtime.store_session(
-                                            job.client_id,
-                                            job.driver_id,
-                                            SessionBundle(
-                                                cookies=await context.cookies(),
-                                                user_agent=await page.evaluate("() => navigator.userAgent"),
-                                                issued_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
-                                                session_version=effective_version,
-                                            ),
-                                        )
-                                except Exception as sv_exc:
-                                    logger.warning("Failed saving refreshed session in reconciliation: %s", sv_exc)
+            except Exception as mobile_recon_exc:
+                logger.warning("Mobile reconciliation API query failed for job #%s: %s", job_id, mobile_recon_exc)
 
-                            # Retry query with authenticated session
-                            res = await reconciliation_scraper.query_waybill_status(
-                                page=page,
-                                tracking_code=tracking_code,
-                                job_id=job.id,
-                                reconciliation_fields=reconciliation_fields,
-                            )
-                    except Exception as auth_exc:
-                        logger.warning("Reconciliation auto-login failed: %s", auth_exc)
-
+        if res is not None:
             outcome = res.outcome
             details = res.details
-        except Exception as exc:
-            logger.error("Failed browser execution during reconciliation of job #%s: %s", job_id, exc)
-            outcome = ScraperOutcome.AMBIGUOUS
-            details = {"error": str(exc)}
-        finally:
-            if session_id:
-                try:
-                    success_outcome = outcome in (ScraperOutcome.REGISTERED, ScraperOutcome.NOT_FOUND)
-                    await bm.close_context(
-                        session_id=session_id,
-                        success=success_outcome,
-                        error="" if success_outcome else str(details.get("error", "Ambiguous reconciliation outcome")),
-                    )
-                except Exception as close_exc:
-                    logger.warning("Failed closing context in reconciliation of job #%s: %s", job_id, close_exc)
+        else:
+            # Execute Playwright scraping if browser_manager provided
+            from app.automation.worker_proxy import get_playwright_proxy
+            from app.services.session_vault import session_vault
+
+            auth_state_path = None
+            if utcms_username and job.client_id and job.driver_id:
+                auth_state_path = session_vault.auth_state_path_for_driver(
+                    client_id=job.client_id,
+                    driver_id=job.driver_id,
+                    username=utcms_username,
+                    fallback=utcms_username,
+                )
+
+            proxy_dict = get_playwright_proxy()
+
+            bm = browser_manager or BrowserManager()
+            session_id = None
+            try:
+                session_id, context = await bm.create_context(auth_state_path=auth_state_path, proxy_dict=proxy_dict)
+                page = await bm.new_page(context)
+                res = await reconciliation_scraper.query_waybill_status(
+                    page=page,
+                    tracking_code=tracking_code,
+                    job_id=job.id,
+                    reconciliation_fields=reconciliation_fields,
+                )
+
+                # Auto-authenticate if query was ambiguous / unauthenticated
+                if res.outcome == ScraperOutcome.AMBIGUOUS and driver_obj:
+                    enc_pass = driver_obj.utcms_password_encrypted or getattr(driver_obj, "encrypted_password", None)
+                    if enc_pass:
+                        try:
+                            from app.auth_multitenant import decrypt_driver_password
+                            from app.automation.auth import UTCMSAuthenticator
+
+                            raw_password = decrypt_driver_password(enc_pass)
+                            authenticator = UTCMSAuthenticator(page=page, context=context)
+                            logged_in = await authenticator.login(
+                                username=driver_obj.utcms_username,
+                                password=raw_password,
+                            )
+                            if logged_in:
+                                logger.info(
+                                    "Reconciliation auto-login successful for driver %s",
+                                    driver_obj.utcms_username,
+                                )
+                                if job.client_id and job.driver_id:
+                                    try:
+                                        runtime_stmt = (
+                                            select(DriverRuntimeState)
+                                            .where(DriverRuntimeState.driver_id == job.driver_id)
+                                            .with_for_update()
+                                        )
+                                        runtime_state = (await session.execute(runtime_stmt)).scalar_one_or_none()
+                                        next_session_version = (
+                                            (runtime_state.session_version + 1) if runtime_state else None
+                                        )
+                                        saved_path = await session_vault.save_driver_session(
+                                            client_id=job.client_id,
+                                            driver_id=job.driver_id,
+                                            username=driver_obj.utcms_username,
+                                            context=context,
+                                            session_version=next_session_version,
+                                        )
+                                        if saved_path:
+                                            stored_version = await session_vault.async_get_session_version(saved_path)
+                                            effective_version = stored_version or next_session_version or 1
+                                            if runtime_state:
+                                                runtime_state.session_version = effective_version
+                                                runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                                            await rpa_runtime.store_session(
+                                                job.client_id,
+                                                job.driver_id,
+                                                SessionBundle(
+                                                    cookies=await context.cookies(),
+                                                    user_agent=await page.evaluate("() => navigator.userAgent"),
+                                                    issued_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
+                                                    session_version=effective_version,
+                                                ),
+                                            )
+                                    except Exception as sv_exc:
+                                        logger.warning("Failed saving refreshed session in reconciliation: %s", sv_exc)
+
+                                # Retry query with authenticated session
+                                res = await reconciliation_scraper.query_waybill_status(
+                                    page=page,
+                                    tracking_code=tracking_code,
+                                    job_id=job.id,
+                                    reconciliation_fields=reconciliation_fields,
+                                )
+                        except Exception as auth_exc:
+                            logger.warning("Reconciliation auto-login failed: %s", auth_exc)
+
+                outcome = res.outcome
+                details = res.details
+            except Exception as exc:
+                logger.error("Failed browser execution during reconciliation of job #%s: %s", job_id, exc)
+                outcome = ScraperOutcome.AMBIGUOUS
+                details = {"error": str(exc)}
+            finally:
+                if session_id:
+                    try:
+                        success_outcome = outcome in (ScraperOutcome.REGISTERED, ScraperOutcome.NOT_FOUND)
+                        await bm.close_context(
+                            session_id=session_id,
+                            success=success_outcome,
+                            error="" if success_outcome else str(details.get("error", "Ambiguous reconciliation outcome")),
+                        )
+                    except Exception as close_exc:
+                        logger.warning("Failed closing context in reconciliation of job #%s: %s", job_id, close_exc)
 
         track_reconciliation_outcome(outcome.value)
         confirmed_success = False
