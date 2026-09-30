@@ -78,7 +78,11 @@ if celery_app is not None:
             "latency_ms": result.latency_ms,
         }
 
-    @celery_app.task(name="rpa.session.keepalive")
+    @celery_app.task(
+        name="rpa.session.keepalive",
+        soft_time_limit=240,
+        time_limit=300,
+    )
     def keepalive_sessions():
         return _run(rpa_auth_service.keepalive_sessions())
 

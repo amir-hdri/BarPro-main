@@ -253,7 +253,7 @@ class RPAAuthService:
         finally:
             if page is not None:
                 try:
-                    await page.close()
+                    await asyncio.wait_for(page.close(), timeout=5)
                 except Exception:
                     logger.warning("phase1_auth_page_close_failed", exc_info=True)
             if session_id:
