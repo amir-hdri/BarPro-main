@@ -54,14 +54,37 @@ def _extract_client_id_from_request(request: Request) -> int | None:
             elif payload.get("role") == "master_admin":
                 return 1
         except Exception:
-            pass
+            logger.debug("legacy_waybill_client_context_jwt_decode_failed", exc_info=True)
     return None
 
 
 @router.post("/create-with-map", dependencies=[Depends(require_sensitive_auth)])
-async def create_waybill_with_map(request: WaybillMapRequest):
-    """ایجاد بارنامه با حالت safe/full."""
-    return await waybill_service.create_waybill_with_map(request)
+async def create_waybill_with_map(request: WaybillMapRequest, raw_request: Request):
+    """ایجاد بارنامه با حالت safe/full.
+
+    Tenant-isolation (C2): the Playwright auth-state file and the Redis
+    session-vault key derived from it are scoped per tenant (JWT callers) or
+    to the shared ``"infra"`` scope (API-key-only callers such as the smoke
+    scripts) instead of the previous global unscoped path, so one tenant's
+    UTCMS session can never be reused by another tenant's submission.
+    """
+    return await waybill_service.create_waybill_with_map(request, auth_scope=_resolve_legacy_route_scope(raw_request))
+
+
+def _resolve_legacy_route_scope(raw_request: Request) -> str:
+    """Scope for the legacy sync waybill route's Playwright auth state.
+
+    JWT callers get their tenant scope (``client-{id}``); callers presenting
+    only the infrastructure API key (e.g. scripts/live_smoke.py) share the
+    ``"infra"`` scope, which is deliberately separate from every tenant
+    scope. The API key is a single shared infrastructure credential, so its
+    holders are one trust domain; the isolation that matters — tenant JWT
+    sessions never intersecting — is preserved.
+    """
+    client_id = _extract_client_id_from_request(raw_request)
+    if client_id is not None:
+        return f"client-{client_id}"
+    return "infra"
 
 
 @router.post(
