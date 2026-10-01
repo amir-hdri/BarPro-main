@@ -5,11 +5,13 @@
 - /docs, /redoc, /openapi.json must be disabled in production unless
   ENABLE_DOCS=true is set explicitly.
 """
+
 import os
 import subprocess
 import sys
+from pathlib import Path
 
-import pytest
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _get_securesms_config(public_base_url: str | None) -> dict:
@@ -31,7 +33,7 @@ def _get_securesms_config(public_base_url: str | None) -> dict:
         capture_output=True,
         text=True,
         env=env,
-        cwd="/tmp/barpro",
+        cwd=str(_REPO_ROOT),
         timeout=120,
     )
     assert proc.returncode == 0, proc.stderr[-2000:]
@@ -60,16 +62,13 @@ def _docs_enabled(environment: str, enable_docs: str | None) -> bool:
         env.pop("ENABLE_DOCS", None)
     else:
         env["ENABLE_DOCS"] = enable_docs
-    code = (
-        "from app.core.config import UTCMSConfig\n"
-        "print(UTCMSConfig().docs_enabled)\n"
-    )
+    code = "from app.core.config import UTCMSConfig\n" "print(UTCMSConfig().docs_enabled)\n"
     proc = subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,
         text=True,
         env=env,
-        cwd="/tmp/barpro",
+        cwd=str(_REPO_ROOT),
         timeout=120,
     )
     assert proc.returncode == 0, proc.stderr[-2000:]
@@ -108,7 +107,7 @@ def test_main_wires_docs_urls_to_config_property():
     """app/main.py must gate all three URLs on utcms_config.docs_enabled."""
     import re
 
-    src = open("/tmp/barpro/app/main.py", encoding="utf-8").read()
+    src = (_REPO_ROOT / "app" / "main.py").read_text(encoding="utf-8")
     for url_arg in ("docs_url", "redoc_url", "openapi_url"):
         pattern = rf'{url_arg}="[^"]*" if utcms_config\.docs_enabled else None'
         assert re.search(pattern, src), f"{url_arg} is not gated on utcms_config.docs_enabled"

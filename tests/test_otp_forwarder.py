@@ -1,4 +1,8 @@
+import json as _json
+
 import pytest
+from fastapi import Request as _Request
+from fastapi.exceptions import HTTPException as _HTTPException
 
 from app.api.routes.otp_forwarder import clean_phone_number, extract_otp_code, normalize_to_english_digits
 
@@ -61,11 +65,6 @@ async def test_submit_manual_otp_stores_redis():
 
 # ── Webhook authentication (C2 fix) ────────────────────────────────────────────
 
-import json as _json
-
-from fastapi import Request as _Request
-from fastapi.exceptions import HTTPException as _HTTPException
-
 
 def _make_request(headers: dict | None = None, body: bytes = b"") -> _Request:
     scope = {
@@ -114,9 +113,7 @@ async def test_webhook_fails_closed_when_secret_unconfigured(monkeypatch):
     from app.core.config import utcms_config
 
     monkeypatch.setattr(utcms_config, "OTP_WEBHOOK_SECRET", "")
-    request = _make_request(
-        headers={"X-OTP-Webhook-Token": "anything"}, body=_webhook_body()
-    )
+    request = _make_request(headers={"X-OTP-Webhook-Token": "anything"}, body=_webhook_body())
     with pytest.raises(_HTTPException) as exc_info:
         await otp_forwarder.receive_sms_forwarder_webhook(request)
     assert exc_info.value.status_code == 503
@@ -131,9 +128,7 @@ async def test_webhook_accepts_valid_token_and_never_logs_code(monkeypatch, capl
 
     monkeypatch.setattr(utcms_config, "OTP_WEBHOOK_SECRET", "test-secret")
     mock_redis = AsyncMock()
-    request = _make_request(
-        headers={"X-OTP-Webhook-Token": "test-secret"}, body=_webhook_body()
-    )
+    request = _make_request(headers={"X-OTP-Webhook-Token": "test-secret"}, body=_webhook_body())
     with (
         patch("app.core.redis_client.redis_manager.get", new_callable=AsyncMock, return_value=mock_redis),
         caplog.at_level("INFO", logger="app.api.routes.otp_forwarder"),
@@ -222,7 +217,6 @@ def test_dep_name_check_survives_duplicate_module_import():
 
     # Identity-based check would fail here; qualname-based check must pass.
     assert _AUTH_DEP in _dep_names(FakeRoute())
-
 
 
 @pytest.mark.asyncio

@@ -49,6 +49,10 @@ class InMemoryRateLimiter:
         async with self._lock:
             now = time.time()
             window_start = now - config.window_seconds
+            # Namespace by rule prefix (mirrors the Redis backend's
+            # f"{config.key_prefix}:{key}"): without this, the strict auth
+            # bucket and the public bucket share one counter per IP.
+            key = f"{config.key_prefix}:{key}"
 
             if key not in self._requests:
                 self._requests[key] = []

@@ -1,7 +1,7 @@
 # گزارش بررسی و جایگزینی transport موبایل UTCMS
 
 تاریخ بررسی: 2026-09-11
-APK مرجع: /Users/amirheidari/Documents/Default Project/com.baarnameshahri-1.7.9.apk
+APK مرجع: `com.baarnameshahri-1.7.9.apk` (مسیر محلی اپراتور؛ در مخزن نگهداری نمی‌شود)
 SHA-256: d685873632736ab19e168daf6faf3af63791089f743341e81581bfcc25c13554
 
 ## خلاصه اجرایی

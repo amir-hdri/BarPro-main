@@ -1,6 +1,6 @@
 # BarPro Unified Master Roadmap v2.0 Progress Status
 
-This file tracks the completion status of the phases defined in [BarPro_Unified_Master_Roadmap.md](file:///Users/amirheidari/GitHub/BarPro-main/BarPro_Unified_Master_Roadmap.md).
+This file tracks the completion status of the phases defined in [BarPro_Unified_Master_Roadmap.md](./BarPro_Unified_Master_Roadmap.md).
 
 ## Phase Checklist
 
@@ -33,7 +33,7 @@ This file tracks the completion status of the phases defined in [BarPro_Unified_
 - **Open runtime gate**: Central `5432`/`6379` were externally reachable during the probe. Apply and verify the documented DOCKER-USER/UFW rules before any live submission.
 
 ### Phase 5 — UTCMS Health Probe (Completed: 2026-07-31)
-- **Investigation Output**: Created [utcms_list_search_investigation.md](file:///Users/amirheidari/GitHub/BarPro-main/docs/utcms_list_search_investigation.md) addressing questions H.1 to H.4.
+- **Investigation Output**: Created [utcms_list_search_investigation.md](./docs/utcms_list_search_investigation.md) addressing questions H.1 to H.4.
 - **Verification Status**: Verified successfully using the upgrade CLI tool.
 
 ### Phase 6 — Reconciliation Engine & Admin Alerts (Completed: 2026-07-31)

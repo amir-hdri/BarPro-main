@@ -196,7 +196,7 @@ flowchart TD
 
 ### بردار ۹: امنیت پراکسی Squid و حفظ انانیموس بودن (Elite Anonymity)
 
-* **شواهد در پیکربندی Squid:** در فایل [infra/squid/squid_1.conf](file:///Users/amirheidari/GitHub/BarPro-main/infra/squid/squid_1.conf):
+* **شواهد در پیکربندی Squid:** در فایل [infra/squid/squid_1.conf](../infra/squid/squid_1.conf):
   ```squid
   forwarded_for delete
   via off

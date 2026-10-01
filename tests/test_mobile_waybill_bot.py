@@ -543,9 +543,7 @@ async def test_submit_otp_success_and_state_machine_transition(async_db):
     assert updated.status == TaskStatus.SUCCESS.value
     assert updated.result_json["tracking_code"] == "TRK-FINAL-OTP-888"
     assert updated.operator_acknowledged is True
-    mock_mobile_client.issue_document_by_otp.assert_awaited_once_with(
-        "doc-otp-123", "12345", allow_live_submit=True
-    )
+    mock_mobile_client.issue_document_by_otp.assert_awaited_once_with("doc-otp-123", "12345", allow_live_submit=True)
 
     # Verify database persistence and JobStateMachine constraints
     async with AsyncSession(session.bind) as check_session:
@@ -595,5 +593,3 @@ def test_weight_normalization_and_fleet_matching():
     WaybillAutomationBot._apply_fleet_truck_to_vehicle(vehicle, matched)
     assert vehicle["type"] == "باری"
     assert vehicle["capacity"] == 20
-
-

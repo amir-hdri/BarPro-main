@@ -310,9 +310,7 @@ def build_mobile_document_payload(
         "sendSMS": send_sms,
         "isDraft": is_draft,
     }
-    declared_time = _value(
-        payload, "self_declared_time_of_start_shipment", "selfDeclaredTimeOfStartShipment"
-    )
+    declared_time = _value(payload, "self_declared_time_of_start_shipment", "selfDeclaredTimeOfStartShipment")
     if not declared_time:
         declared_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     body["selfDeclaredTimeOfStartShipment"] = str(declared_time)

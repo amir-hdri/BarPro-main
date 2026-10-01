@@ -712,9 +712,7 @@ class UtcmsMobileClient:
                     fallback_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
                     dt = pt.get("Date") or pt.get("date") or pt.get("DateTime") or pt.get("ts") or fallback_ts
                     pt_type = (
-                        pt.get("Type")
-                        if pt.get("Type") is not None
-                        else (pt.get("type") or pt.get("waypoint_type"))
+                        pt.get("Type") if pt.get("Type") is not None else (pt.get("type") or pt.get("waypoint_type"))
                     )
                     # UTCMS gpsList only accepts Type 2 (intermediate waypoint) and Type 3 (destination).
                     # If Type 1 is passed, map it to Type 2 so it is treated as a valid waypoint.

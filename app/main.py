@@ -31,13 +31,13 @@ from app.api.routes import (
     waybill_entry,
     waybill_map,
 )
+from app.auth_multitenant import TenantIsolationError
 from app.automation.browser import browser_manager
 from app.automation.captcha import barname_ml_solver
 from app.automation.proxy_rotator import get_proxy_rotator
 from app.core.config import AUTO_GENERATED_SECRETS, utcms_config
 from app.core.database import init_db
 from app.core.exceptions import UTCMSException
-from app.auth_multitenant import TenantIsolationError
 from app.core.execution_context import bind_execution_context, reset_execution_context
 from app.core.logging import configure_logging, reset_request_id, set_request_id
 from app.core.rate_limiter import add_rate_limit_headers, rate_limiter
@@ -349,6 +349,16 @@ def _rate_limit_rule_for_path(path: str) -> str:
     return "public"
 
 
+# Paths that bypass fail-closed rate limiting. A transient Redis/backend error
+# must not turn /healthz or /readyz into 429s, or the orchestrator would
+# restart a healthy app during a Redis blip (restart storm).
+_RATE_LIMIT_EXEMPT_PATHS = frozenset({"/healthz", "/readyz"})
+
+
+def _is_rate_limit_exempt_path(path: str) -> bool:
+    return path in _RATE_LIMIT_EXEMPT_PATHS
+
+
 @app.middleware("http")
 async def request_context_middleware(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
@@ -359,28 +369,30 @@ async def request_context_middleware(request: Request, call_next):
     response = None
     rate_limit_state = None
 
-    # Apply rate limiting to ALL endpoints with categorized rules
+    # Apply rate limiting to ALL endpoints with categorized rules, except the
+    # health probes (see _RATE_LIMIT_EXEMPT_PATHS).
     path = request.url.path
     from app.core.rate_limiter import rate_limit_dependency
 
     rate_rule = _rate_limit_rule_for_path(path)
 
-    try:
-        rate_limit_state = await rate_limit_dependency(request, rule=rate_rule)
-    except HTTPException as exc:
-        # FastAPI's stubs narrow `detail` to str, but a dict detail is valid at
-        # runtime (and is what the rate limiter raises), so widen it explicitly
-        # rather than letting mypy prune the isinstance branch as unreachable.
-        detail: Any = exc.detail
-        content = detail if isinstance(detail, dict) else {"detail": detail}
-        response = JSONResponse(status_code=exc.status_code, content=content)
-        for header_name, header_value in (exc.headers or {}).items():
-            response.headers[header_name] = header_value
-        response.headers["X-Request-ID"] = request_id
-        response.headers[utcms_config.TRACE_HEADER_NAME] = correlation_id
-        reset_request_id(token)
-        reset_execution_context(execution_tokens)
-        return response
+    if not _is_rate_limit_exempt_path(path):
+        try:
+            rate_limit_state = await rate_limit_dependency(request, rule=rate_rule)
+        except HTTPException as exc:
+            # FastAPI's stubs narrow `detail` to str, but a dict detail is valid at
+            # runtime (and is what the rate limiter raises), so widen it explicitly
+            # rather than letting mypy prune the isinstance branch as unreachable.
+            detail: Any = exc.detail
+            content = detail if isinstance(detail, dict) else {"detail": detail}
+            response = JSONResponse(status_code=exc.status_code, content=content)
+            for header_name, header_value in (exc.headers or {}).items():
+                response.headers[header_name] = header_value
+            response.headers["X-Request-ID"] = request_id
+            response.headers[utcms_config.TRACE_HEADER_NAME] = correlation_id
+            reset_request_id(token)
+            reset_execution_context(execution_tokens)
+            return response
 
     # Trace the request
     with trace_span(

@@ -4,6 +4,7 @@ Every task name referenced by the Celery beat schedule must have a registered
 task handler; otherwise beat fires into the void and the periodic job silently
 never runs. Previously this wiring was untested.
 """
+
 import pytest
 
 
@@ -27,11 +28,7 @@ def test_beat_schedule_is_nonempty(beat_wiring):
 def test_every_beat_task_has_registered_handler(beat_wiring):
     schedule, celery_app = beat_wiring
     registered = set(celery_app.tasks.keys())
-    missing = [
-        entry["task"]
-        for name, entry in schedule.items()
-        if entry["task"] not in registered
-    ]
+    missing = [entry["task"] for name, entry in schedule.items() if entry["task"] not in registered]
     assert not missing, f"beat entries with no registered task handler: {missing}"
 
 

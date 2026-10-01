@@ -115,9 +115,7 @@ class AdbLocationObserver:
         candidates: list[tuple[str, float, float]] = []
         for match in _LOCATION_LINE.finditer(dump):
             try:
-                candidates.append(
-                    (match.group("provider"), float(match.group("lat")), float(match.group("lon")))
-                )
+                candidates.append((match.group("provider"), float(match.group("lat")), float(match.group("lon"))))
             except ValueError:
                 continue
         provider = "fused"
@@ -133,8 +131,9 @@ class AdbLocationObserver:
                 lat, lon = float(pairs[-1].group("lat")), float(pairs[-1].group("lon"))
             except ValueError:
                 return None
-        if lat is None or lon is None:
-            return None
+        # lat/lon are float (not None) on every path that reaches here:
+        # the candidates branch assigns floats, the pairs branch returns
+        # None instead of leaving them unset.
         if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
             return None
         is_mock = bool(_MOCK_HINT.search(dump))

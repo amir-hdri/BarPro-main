@@ -18,6 +18,7 @@ layer carries an ``asyncio.wait_for`` bound:
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -40,11 +41,21 @@ async def _hang_forever(*args, **kwargs):
     raise AssertionError("hung await unexpectedly returned")
 
 
-async def _make_session_factory():
+@asynccontextmanager
+async def _session_factory():
+    """Yield a session factory; dispose the engine afterwards.
+
+    Without explicit disposal the aiosqlite worker thread outlives the
+    test's event loop and dies with "Event loop is closed", which pytest
+    attributes to a random later test (PytestUnhandledThreadExceptionWarning).
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
-    return sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(SQLModel.metadata.create_all)
+        yield sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    finally:
+        await engine.dispose()
 
 
 async def _seed_expiring_driver(async_session):
@@ -84,80 +95,82 @@ async def _seed_expiring_driver(async_session):
 @pytest.mark.asyncio
 async def test_keepalive_bounded_when_authenticate_driver_hangs():
     """A hung per-driver auth must not freeze the whole keepalive run."""
-    async_session = await _make_session_factory()
-    await _seed_expiring_driver(async_session)
-    mock_browser = SimpleNamespace(recycle_browser=AsyncMock())
-    with (
-        patch("app.services.rpa_auth_service.async_session_factory", new=async_session),
-        patch.object(rpa_auth_service, "authenticate_driver", side_effect=_hang_forever),
-        patch("app.services.rpa_auth_service.browser_manager", mock_browser),
-        # create=True: the timeout knob does not exist yet (added with the fix).
-        patch.object(utcms_config, "RPA_KEEPALIVE_DRIVER_TIMEOUT_SECONDS", 2, create=True),
-    ):
-        result = await asyncio.wait_for(
-            rpa_auth_service.keepalive_sessions(),
-            timeout=utcms_config.RPA_KEEPALIVE_DRIVER_TIMEOUT_SECONDS + 30,
-        )
-    assert result["checked"] == 1
-    assert result["errors"] == 1
-    assert result["details"][0]["outcome"] == "keepalive_timeout"
-    mock_browser.recycle_browser.assert_awaited_once()
+    async with _session_factory() as async_session:
+        await _seed_expiring_driver(async_session)
+        mock_browser = SimpleNamespace(recycle_browser=AsyncMock())
+        with (
+            patch("app.services.rpa_auth_service.async_session_factory", new=async_session),
+            patch.object(rpa_auth_service, "authenticate_driver", side_effect=_hang_forever),
+            patch("app.services.rpa_auth_service.browser_manager", mock_browser),
+            # create=True: the timeout knob does not exist yet (added with the fix).
+            patch.object(utcms_config, "RPA_KEEPALIVE_DRIVER_TIMEOUT_SECONDS", 2, create=True),
+        ):
+            result = await asyncio.wait_for(
+                rpa_auth_service.keepalive_sessions(),
+                timeout=utcms_config.RPA_KEEPALIVE_DRIVER_TIMEOUT_SECONDS + 30,
+            )
+        assert result["checked"] == 1
+        assert result["errors"] == 1
+        assert result["details"][0]["outcome"] == "keepalive_timeout"
+        mock_browser.recycle_browser.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_keepalive_releases_lock_when_login_and_close_hang():
     """Cancellation must unwind through guarded teardown and release the lock."""
-    async_session = await _make_session_factory()
-    client_id, driver_id = await _seed_expiring_driver(async_session)
+    async with _session_factory() as async_session:
+        client_id, driver_id = await _seed_expiring_driver(async_session)
 
-    release_calls: list[tuple] = []
+        release_calls: list[tuple] = []
 
-    async def _record_release(key, token=None):
-        release_calls.append((key, token))
+        async def _record_release(key, token=None):
+            release_calls.append((key, token))
 
-    mock_page = SimpleNamespace(close=AsyncMock())
-    mock_context = SimpleNamespace()
-    mock_browser = SimpleNamespace(
-        initialize=AsyncMock(),
-        create_context=AsyncMock(return_value=("sid-1", mock_context)),
-        new_page=AsyncMock(return_value=mock_page),
-        close_context=_hang_forever,
-        recycle_browser=AsyncMock(),
-    )
-    mock_runtime = SimpleNamespace(
-        auth_lock_key=lambda c, d: f"auth:{c}:{d}",
-        acquire_lock=AsyncMock(return_value="tok"),
-        release_lock=_record_release,
-        store_session=AsyncMock(),
-    )
-    mock_rotator = SimpleNamespace(
-        get_next=AsyncMock(return_value=SimpleNamespace(to_playwright_proxy=lambda: {"server": "http://127.0.0.1:9"}))
-    )
-    mock_vault = SimpleNamespace(
-        auth_state_path_for_account=lambda **kwargs: "/tmp/ka_test_state.json",
-        ensure_parent_dir=lambda path: None,
-    )
-    with (
-        patch("app.services.rpa_auth_service.async_session_factory", new=async_session),
-        patch("app.services.rpa_auth_service.decrypt_driver_password", return_value="pw"),
-        patch(
-            "app.services.rpa_auth_service.UTCMSAuthenticator",
-            return_value=SimpleNamespace(login=_hang_forever, last_error=None),
-        ),
-        patch("app.services.rpa_auth_service.browser_manager", mock_browser),
-        patch("app.services.rpa_auth_service.get_proxy_rotator", return_value=mock_rotator),
-        patch("app.services.rpa_auth_service.rpa_runtime", mock_runtime),
-        patch("app.services.rpa_auth_service.session_vault", mock_vault),
-        patch.object(utcms_config, "RPA_KEEPALIVE_DRIVER_TIMEOUT_SECONDS", 3, create=True),
-    ):
-        result = await asyncio.wait_for(
-            rpa_auth_service.keepalive_sessions(),
-            timeout=utcms_config.RPA_KEEPALIVE_DRIVER_TIMEOUT_SECONDS + 40,
+        mock_page = SimpleNamespace(close=AsyncMock())
+        mock_context = SimpleNamespace()
+        mock_browser = SimpleNamespace(
+            initialize=AsyncMock(),
+            create_context=AsyncMock(return_value=("sid-1", mock_context)),
+            new_page=AsyncMock(return_value=mock_page),
+            close_context=_hang_forever,
+            recycle_browser=AsyncMock(),
         )
-    assert result["checked"] == 1
-    assert result["errors"] == 1
-    assert result["details"][0]["outcome"] == "keepalive_timeout"
-    assert result["details"][0]["driver_id"] == driver_id
+        mock_runtime = SimpleNamespace(
+            auth_lock_key=lambda c, d: f"auth:{c}:{d}",
+            acquire_lock=AsyncMock(return_value="tok"),
+            release_lock=_record_release,
+            store_session=AsyncMock(),
+        )
+        mock_rotator = SimpleNamespace(
+            get_next=AsyncMock(
+                return_value=SimpleNamespace(to_playwright_proxy=lambda: {"server": "http://127.0.0.1:9"})
+            )
+        )
+        mock_vault = SimpleNamespace(
+            auth_state_path_for_account=lambda **kwargs: "/tmp/ka_test_state.json",
+            ensure_parent_dir=lambda path: None,
+        )
+        with (
+            patch("app.services.rpa_auth_service.async_session_factory", new=async_session),
+            patch("app.services.rpa_auth_service.decrypt_driver_password", return_value="pw"),
+            patch(
+                "app.services.rpa_auth_service.UTCMSAuthenticator",
+                return_value=SimpleNamespace(login=_hang_forever, last_error=None),
+            ),
+            patch("app.services.rpa_auth_service.browser_manager", mock_browser),
+            patch("app.services.rpa_auth_service.get_proxy_rotator", return_value=mock_rotator),
+            patch("app.services.rpa_auth_service.rpa_runtime", mock_runtime),
+            patch("app.services.rpa_auth_service.session_vault", mock_vault),
+            patch.object(utcms_config, "RPA_KEEPALIVE_DRIVER_TIMEOUT_SECONDS", 3, create=True),
+        ):
+            result = await asyncio.wait_for(
+                rpa_auth_service.keepalive_sessions(),
+                timeout=utcms_config.RPA_KEEPALIVE_DRIVER_TIMEOUT_SECONDS + 40,
+            )
+        assert result["checked"] == 1
+        assert result["errors"] == 1
+        assert result["details"][0]["outcome"] == "keepalive_timeout"
+        assert result["details"][0]["driver_id"] == driver_id
     assert result["details"][0]["client_id"] == client_id
     assert release_calls, "driver lock was not released after timeout unwind"
     mock_browser.recycle_browser.assert_awaited_once()

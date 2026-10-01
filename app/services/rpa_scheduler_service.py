@@ -76,9 +76,7 @@ def _estimate_job_duration_minutes(job: WaybillJob) -> float:
 
 
 class RPASchedulerService:
-    async def _recover_duplicate_job(
-        self, session, client_id: int, normalized_key: str
-    ) -> WaybillJob | None:
+    async def _recover_duplicate_job(self, session, client_id: int, normalized_key: str) -> WaybillJob | None:
         """Re-query after an idempotency-key collision; the concurrent winner
         may need a moment to become visible. Returns the existing job or None."""
         for attempt in range(5):
@@ -492,7 +490,9 @@ class RPASchedulerService:
                         # Session is ready -> verify UTCMS Submission Gate before queuing for submit
                         is_mobile_job = utcms_config.UTCMS_TRANSPORT in {"mobile", "shadow"} or (
                             isinstance(job.payload_json, dict)
-                            and (job.payload_json.get("transport") == "mobile" or job.payload_json.get("allow_otp_flow"))
+                            and (
+                                job.payload_json.get("transport") == "mobile" or job.payload_json.get("allow_otp_flow")
+                            )
                         )
                         if not is_gate_open and not is_mobile_job:
                             if persist and job.status != TaskStatus.WAITING_SUBMISSION_WINDOW.value:

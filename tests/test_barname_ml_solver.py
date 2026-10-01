@@ -1,6 +1,7 @@
 import base64
 
 import numpy as np
+import pytest
 
 from app.automation.captcha.barname_ml_solver import (
     BarnameMlCaptchaSolver,
@@ -12,6 +13,7 @@ SAMPLE_UTCMS_CAPTCHA_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAIYAAABgCAYAAADYZAoOAAAAA
 
 
 def test_barname_ml_solver_solves_zero_sample():
+    pytest.importorskip("torch", reason="requires torch for neural_net inference")
     image_bytes = base64.b64decode(SAMPLE_UTCMS_CAPTCHA_BASE64)
     import cv2
     import numpy as np
@@ -58,6 +60,7 @@ def test_barname_ml_solver_supports_digit_nine_in_expression(monkeypatch):
 
 def test_barname_ml_solver_solves_multidigit_equation():
     import cv2
+
     img = cv2.imread("/tmp/live_cap.png")
     if img is not None:
         result = barname_ml_solver.solve_image(img)

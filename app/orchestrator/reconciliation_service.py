@@ -175,6 +175,7 @@ class ReconciliationService:
             try:
                 from app.auth_multitenant import decrypt_driver_password
                 from app.automation.gps_shipping_manager import get_or_login_client
+
                 enc_pass = driver_obj.utcms_password_encrypted or getattr(driver_obj, "encrypted_password", None)
                 if enc_pass:
                     raw_password = decrypt_driver_password(enc_pass)
@@ -186,7 +187,10 @@ class ReconciliationService:
                     if doc_id_to_check:
                         doc_resp = await client.get_document(str(doc_id_to_check))
                         doc_obj = doc_resp.get("obj") if isinstance(doc_resp.get("obj"), dict) else None
-                        if doc_obj and (str(doc_obj.get("id")) == str(doc_id_to_check) or str(doc_obj.get("docNo")) == str(tracking_code)):
+                        if doc_obj and (
+                            str(doc_obj.get("id")) == str(doc_id_to_check)
+                            or str(doc_obj.get("docNo")) == str(tracking_code)
+                        ):
                             res = ReconciliationResult(
                                 outcome=ScraperOutcome.REGISTERED,
                                 tracking_code=str(doc_obj.get("docNo") or tracking_code),
@@ -313,7 +317,9 @@ class ReconciliationService:
                         await bm.close_context(
                             session_id=session_id,
                             success=success_outcome,
-                            error="" if success_outcome else str(details.get("error", "Ambiguous reconciliation outcome")),
+                            error=(
+                                "" if success_outcome else str(details.get("error", "Ambiguous reconciliation outcome"))
+                            ),
                         )
                     except Exception as close_exc:
                         logger.warning("Failed closing context in reconciliation of job #%s: %s", job_id, close_exc)

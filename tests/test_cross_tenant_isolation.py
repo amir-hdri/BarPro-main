@@ -5,6 +5,7 @@ When tenant A requests a resource belonging to tenant B, the API must return
 that leaks the resource's existence or owner. Previously TenantIsolationError
 had no exception handler and bubbled up as a 500.
 """
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -30,16 +31,37 @@ async def db_session():
         await conn.run_sync(SQLModel.metadata.create_all)
     session = AsyncSession(engine, expire_on_commit=False)
     session.add(
-        Client(id=1, client_code="tenant-a", name="Tenant A", username="a",
-               full_name="Tenant A", email="a@x.c", hashed_password="x")
+        Client(
+            id=1,
+            client_code="tenant-a",
+            name="Tenant A",
+            username="a",
+            full_name="Tenant A",
+            email="a@x.c",
+            hashed_password="x",
+        )
     )
     session.add(
-        Client(id=2, client_code="tenant-b", name="Tenant B", username="b",
-               full_name="Tenant B", email="b@x.c", hashed_password="x")
+        Client(
+            id=2,
+            client_code="tenant-b",
+            name="Tenant B",
+            username="b",
+            full_name="Tenant B",
+            email="b@x.c",
+            hashed_password="x",
+        )
     )
     session.add(
-        Driver(id=1, client_id=2, driver_national_code="1", full_name="B Driver",
-               utcms_username="u", utcms_password_encrypted="e", encrypted_password="x")
+        Driver(
+            id=1,
+            client_id=2,
+            driver_national_code="1",
+            full_name="B Driver",
+            utcms_username="u",
+            utcms_password_encrypted="e",
+            encrypted_password="x",
+        )
     )
     await session.commit()
     yield session
@@ -62,9 +84,9 @@ async def api_client(db_session):
 def test_cross_tenant_driver_returns_404_not_500(api_client):
     """Tenant A GETs tenant B's driver → 404, no existence/oracle leak."""
     response = api_client.get("/api/v1/drivers/1")
-    assert response.status_code == 404, (
-        f"expected 404 for cross-tenant access, got {response.status_code}: {response.text[:200]}"
-    )
+    assert (
+        response.status_code == 404
+    ), f"expected 404 for cross-tenant access, got {response.status_code}: {response.text[:200]}"
     body = response.json()
     assert body.get("error") == "NOT_FOUND"
 

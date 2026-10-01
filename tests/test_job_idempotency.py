@@ -5,10 +5,10 @@ idempotency key — both for the normal check-then-insert path and for the
 concurrent race path where the second INSERT hits the DB unique constraint
 (IntegrityError → rollback → re-query → return existing).
 """
+
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, select
@@ -30,12 +30,18 @@ async def async_db():
         await conn.run_sync(SQLModel.metadata.create_all)
     session = AsyncSession(engine, expire_on_commit=False)
     session.add(
-        Client(id=1, client_code="c1", name="C", username="c1", full_name="C",
-               email="c@c.c", hashed_password="x")
+        Client(id=1, client_code="c1", name="C", username="c1", full_name="C", email="c@c.c", hashed_password="x")
     )
     session.add(
-        Driver(id=1, client_id=1, driver_national_code="1", full_name="D",
-               utcms_username="u", utcms_password_encrypted="e", encrypted_password="x")
+        Driver(
+            id=1,
+            client_id=1,
+            driver_national_code="1",
+            full_name="D",
+            utcms_username="u",
+            utcms_password_encrypted="e",
+            encrypted_password="x",
+        )
     )
     await session.commit()
     yield session
@@ -56,10 +62,13 @@ class _SessionCM:
 
 async def _create(session, key: str) -> WaybillJob:
     driver = await session.get(Driver, 1)
-    with patch(
-        "app.services.rpa_scheduler_service.async_session_factory",
-        return_value=_SessionCM(session),
-    ), patch("app.workers.celery_app.celery_app", None):
+    with (
+        patch(
+            "app.services.rpa_scheduler_service.async_session_factory",
+            return_value=_SessionCM(session),
+        ),
+        patch("app.workers.celery_app.celery_app", None),
+    ):
         # celery_app=None: skip the broker publish at the end of create_job
         # (no Redis in unit tests; the send is best-effort and swallowed anyway).
         return await rpa_scheduler_service.create_job(
@@ -126,10 +135,13 @@ async def test_concurrent_race_recovers_via_integrity_error(async_db: AsyncSessi
         async_db.exec = fake_exec  # type: ignore[method-assign]
 
         driver = await async_db.get(Driver, 1)
-        with patch(
-            "app.services.rpa_scheduler_service.async_session_factory",
-            return_value=_SessionCM(async_db),
-        ), patch("app.workers.celery_app.celery_app", None):
+        with (
+            patch(
+                "app.services.rpa_scheduler_service.async_session_factory",
+                return_value=_SessionCM(async_db),
+            ),
+            patch("app.workers.celery_app.celery_app", None),
+        ):
             job = await rpa_scheduler_service.create_job(
                 client_id=1,
                 driver=driver,

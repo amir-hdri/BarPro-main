@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.automation.clean_ip_pool import probe_and_recover_squid_egress
 
@@ -15,9 +16,11 @@ async def test_probe_and_recover_squid_egress_success():
     mock_response.status_code = 200
     mock_response.text = "<html><head><title>ورود به سامانه بارنامه</title></head><body>Login</body></html>"
 
-    with patch("app.core.redis_client.redis_manager.get", new=AsyncMock(return_value=fake_redis)), \
-         patch("app.automation.worker_proxy.invalidate_worker_proxy_cache") as mock_invalidate, \
-         patch("curl_cffi.requests.Session") as mock_session_cls:
+    with (
+        patch("app.core.redis_client.redis_manager.get", new=AsyncMock(return_value=fake_redis)),
+        patch("app.automation.worker_proxy.invalidate_worker_proxy_cache") as mock_invalidate,
+        patch("curl_cffi.requests.Session") as mock_session_cls,
+    ):
 
         mock_session = MagicMock()
         mock_session.get.return_value = mock_response
@@ -41,9 +44,11 @@ async def test_probe_and_recover_squid_egress_still_blocked():
     mock_response.status_code = 444
     mock_response.text = ""
 
-    with patch("app.core.redis_client.redis_manager.get", new=AsyncMock(return_value=fake_redis)), \
-         patch("app.automation.worker_proxy.invalidate_worker_proxy_cache") as mock_invalidate, \
-         patch("curl_cffi.requests.Session") as mock_session_cls:
+    with (
+        patch("app.core.redis_client.redis_manager.get", new=AsyncMock(return_value=fake_redis)),
+        patch("app.automation.worker_proxy.invalidate_worker_proxy_cache") as mock_invalidate,
+        patch("curl_cffi.requests.Session") as mock_session_cls,
+    ):
 
         mock_session = MagicMock()
         mock_session.get.return_value = mock_response
@@ -61,9 +66,11 @@ async def test_probe_and_recover_squid_egress_exception():
     fake_redis = MagicMock()
     fake_redis.delete = AsyncMock(return_value=0)
 
-    with patch("app.core.redis_client.redis_manager.get", new=AsyncMock(return_value=fake_redis)), \
-         patch("app.automation.worker_proxy.invalidate_worker_proxy_cache") as mock_invalidate, \
-         patch("curl_cffi.requests.Session", side_effect=Exception("Connection refused")):
+    with (
+        patch("app.core.redis_client.redis_manager.get", new=AsyncMock(return_value=fake_redis)),
+        patch("app.automation.worker_proxy.invalidate_worker_proxy_cache") as mock_invalidate,
+        patch("curl_cffi.requests.Session", side_effect=Exception("Connection refused")),
+    ):
 
         recovered = await probe_and_recover_squid_egress(worker_id="1")
         assert recovered is False

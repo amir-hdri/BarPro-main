@@ -4,6 +4,7 @@ session.get(Driver, job.driver_id) may return None (driver deleted between job
 creation and submit). The service must raise a clean ValueError instead of
 crashing later with AttributeError inside _mark_daily_limit.
 """
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

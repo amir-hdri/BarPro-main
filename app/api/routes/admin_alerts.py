@@ -273,12 +273,23 @@ async def alertmanager_webhook(
 
     # 1. Access control (fail-closed)
     #    - With ALERT_WEBHOOK_SECRET configured: HMAC signature is mandatory.
-    #    - Without a secret the endpoint MUST NOT be reachable through the public
-    #      edge. Nginx always stamps proxied requests with an X-Request-ID it
-    #      generates itself, while Alertmanager calls the backend directly over
-    #      the internal Docker network without that header. So a request that
-    #      carries X-Request-ID came through nginx → reject with 403.
+    #    - In production the secret is mandatory: without it the endpoint
+    #      refuses everything (503) instead of relying on the X-Request-ID
+    #      heuristic, which an attacker reaching the backend directly could
+    #      bypass simply by omitting the header.
+    #    - Without a secret outside production the endpoint MUST NOT be
+    #      reachable through the public edge. Nginx always stamps proxied
+    #      requests with an X-Request-ID it generates itself, while Alertmanager
+    #      calls the backend directly over the internal Docker network without
+    #      that header. So a request that carries X-Request-ID came through
+    #      nginx → reject with 403.
     secret = utcms_config.ALERT_WEBHOOK_SECRET
+    if not secret and utcms_config.is_production():
+        logger.error("alert_webhook_secret_not_configured_in_production")
+        raise HTTPException(
+            status_code=503,
+            detail="Alert webhook is not configured (ALERT_WEBHOOK_SECRET)",
+        )
     if not secret and request.headers.get("X-Request-ID"):
         logger.warning("alert_webhook_rejected_public_request_without_secret")
         raise HTTPException(

@@ -875,10 +875,10 @@ class ManagementService:
                 rows = read_xlsx(Path(temp_path))
             except HTTPException:
                 raise
-            except Exception:
+            except Exception as err:
                 # BadZipFile, XML parse errors, missing workbook parts, etc.
                 # must be a controlled 400, never a 500.
-                raise HTTPException(status_code=400, detail="Invalid or corrupted Excel file (.xlsx)")
+                raise HTTPException(status_code=400, detail="Invalid or corrupted Excel file (.xlsx)") from err
             if not rows:
                 raise HTTPException(status_code=400, detail="فایل اکسل خالی است یا خوانده نشد")
 

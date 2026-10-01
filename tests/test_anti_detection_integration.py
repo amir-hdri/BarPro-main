@@ -135,14 +135,19 @@ class TestProxyRotator:
         assert rotator.cooldown == 5.0
 
     def test_proxy_rotator_load_from_list(self):
-        """Test loading proxies from list"""
+        """Test loading proxies from list.
+
+        Uses squid_N hostnames: they are unconditionally allowlisted by
+        ProxyRotator._is_safe_proxy_url, so the test stays hermetic
+        (real-world hostnames would depend on DNS resolution)."""
+
         from app.automation.proxy_rotator import ProxyRotator
 
         rotator = ProxyRotator()
         urls = [
-            "http://proxy1.com:8080",
-            "socks5://proxy2.com:1080",
-            "http://user:pass@proxy3.com:3128",
+            "http://squid_1:8080",
+            "socks5://squid_2:1080",
+            "http://user:pass@squid_3:3128",
         ]
 
         loaded = rotator.load_from_list(urls)
@@ -157,13 +162,13 @@ class TestProxyRotator:
 
         # Create test file
         proxy_file = tmp_path / "proxies.txt"
-        proxy_file.write_text("# Comment line\n" "http://proxy1.com:8080\n" "\n" "http://proxy2.com:3128\n")
+        proxy_file.write_text("# Comment line\n" "http://squid_1:8080\n" "\n" "http://squid_2:3128\n")
 
         rotator = ProxyRotator()
         loaded = rotator.load_from_file(str(proxy_file))
 
         assert loaded == 2
-        assert rotator.proxies[0].url == "http://proxy1.com:8080"
+        assert rotator.proxies[0].url == "http://squid_1:8080"
 
     def test_proxy_rotator_state_file_uses_owner_only_permissions(self, tmp_path):
         from app.automation.proxy_rotator import ProxyInfo, ProxyRotator
@@ -181,19 +186,19 @@ class TestProxyRotator:
 
         rotator = ProxyRotator(cooldown=0)  # No cooldown for testing
 
-        rotator.add_proxy(ProxyConfig(url="http://proxy1.com:8080"))
-        rotator.add_proxy(ProxyConfig(url="http://proxy2.com:3128"))
+        rotator.add_proxy(ProxyConfig(url="http://squid_1:8080"))
+        rotator.add_proxy(ProxyConfig(url="http://squid_2:3128"))
 
         proxy = await rotator.get_next()
         assert proxy is not None
-        assert proxy.url in ["http://proxy1.com:8080", "http://proxy2.com:3128"]
+        assert proxy.url in ["http://squid_1:8080", "http://squid_2:3128"]
 
     def test_proxy_rotator_stats(self):
         """Test proxy statistics"""
         from app.automation.proxy_rotator import ProxyConfig, ProxyRotator
 
         rotator = ProxyRotator()
-        rotator.add_proxy(ProxyConfig(url="http://proxy1.com:8080"))
+        rotator.add_proxy(ProxyConfig(url="http://squid_1:8080"))
 
         proxy = rotator.proxies[0]
         proxy.record_success(1.5, 1024)
@@ -217,7 +222,7 @@ class TestProxyRotator:
 
         # Mock verify_country
         async def mock_verify(proxy):
-            if "iran" in proxy.url:
+            if "squid_7" in proxy.url:
                 proxy.country = "IR"
             else:
                 proxy.country = "US"
@@ -225,14 +230,14 @@ class TestProxyRotator:
 
         rotator.verify_country = mock_verify
 
-        rotator.add_proxy(ProxyConfig(url="http://iran-proxy.com:8080"))  # country None at start
-        rotator.add_proxy(ProxyConfig(url="http://us-proxy.com:8080"))  # country None at start
+        rotator.add_proxy(ProxyConfig(url="http://squid_7:8080"))  # country None at start
+        rotator.add_proxy(ProxyConfig(url="http://squid_9:8080"))  # country None at start
 
         # Test on-the-fly Geo-IP checking
         # Only the iran-proxy should be selected because it gets verified as "IR"
         chosen = await rotator.get_next()
         assert chosen is not None
-        assert "iran-proxy.com" in chosen.url
+        assert "squid_7" in chosen.url
         assert chosen.country == "IR"
 
         # Check scoring with waybill results
@@ -502,7 +507,7 @@ class TestIntegration:
 
         # 2. Create proxy
         rotator = ProxyRotator(cooldown=0)
-        rotator.add_proxy(ProxyConfig(url="http://test-proxy.com:8080"))
+        rotator.add_proxy(ProxyConfig(url="http://squid_8:8080"))
 
         # 3. Build headers
         builder = HeaderBuilder()
@@ -521,7 +526,7 @@ class TestIntegration:
         # Check proxy is available
         proxy = await rotator.get_next()
         assert proxy is not None
-        assert proxy.url == "http://test-proxy.com:8080"
+        assert proxy.url == "http://squid_8:8080"
 
     def test_config_file_persistence(self, tmp_path, monkeypatch):
         """Test that config can be saved and loaded without touching tracked files."""

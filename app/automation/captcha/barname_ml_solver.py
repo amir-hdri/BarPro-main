@@ -85,6 +85,7 @@ def _normalize_character(image: np.ndarray, target_size: int = 28) -> np.ndarray
 # import time, so defining it unconditionally would crash the import and defeat
 # the graceful torch-less degradation below (warmup() -> available == False).
 if nn is not None:  # pragma: no cover - requires real torch
+
     class _SimpleCNN(nn.Module):
         def __init__(self, num_classes: int):
             super().__init__()

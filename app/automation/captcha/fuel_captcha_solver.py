@@ -21,46 +21,50 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-# Recreate the model architecture inside the solver class
-class CRNN(nn.Module):
-    def __init__(self, num_classes, img_channel=1):
-        super().__init__()
-        self.cnn = nn.Sequential(
-            nn.Conv2d(img_channel, 32, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 1)),
-            nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 1)),
-            nn.Conv2d(256, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 1)),
-        )
+# Recreate the model architecture inside the solver class.
+# Defined only when torch is importable: the class body evaluates nn.Module at
+# import time (same pattern as barname_ml_solver / dnt_captcha_solver).
+if nn is not None:  # pragma: no cover - requires real torch
 
-        self.rnn = nn.GRU(
-            input_size=256, hidden_size=128, num_layers=2, bidirectional=True, batch_first=True, dropout=0.3
-        )
+    class CRNN(nn.Module):
+        def __init__(self, num_classes, img_channel=1):
+            super().__init__()
+            self.cnn = nn.Sequential(
+                nn.Conv2d(img_channel, 32, kernel_size=3, padding=1),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=2, stride=2),
+                nn.Conv2d(32, 64, kernel_size=3, padding=1),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=2, stride=2),
+                nn.Conv2d(64, 128, kernel_size=3, padding=1),
+                nn.BatchNorm2d(128),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=(2, 1)),
+                nn.Conv2d(128, 256, kernel_size=3, padding=1),
+                nn.BatchNorm2d(256),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=(2, 1)),
+                nn.Conv2d(256, 256, kernel_size=3, padding=1),
+                nn.BatchNorm2d(256),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=(2, 1)),
+            )
 
-        self.fc = nn.Linear(128 * 2, num_classes)
+            self.rnn = nn.GRU(
+                input_size=256, hidden_size=128, num_layers=2, bidirectional=True, batch_first=True, dropout=0.3
+            )
 
-    def forward(self, x):
-        features = self.cnn(x)
-        features = features.squeeze(2)
-        features = features.permute(0, 2, 1)
+            self.fc = nn.Linear(128 * 2, num_classes)
 
-        rnn_out, _ = self.rnn(features)
-        output = self.fc(rnn_out)
-        output = output.permute(1, 0, 2)
-        return output
+        def forward(self, x):
+            features = self.cnn(x)
+            features = features.squeeze(2)
+            features = features.permute(0, 2, 1)
+
+            rnn_out, _ = self.rnn(features)
+            output = self.fc(rnn_out)
+            output = output.permute(1, 0, 2)
+            return output
 
 
 class PyTorchFuelCaptchaProvider(CaptchaProvider):

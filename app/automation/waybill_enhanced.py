@@ -5290,7 +5290,8 @@ class EnhancedWaybillManager:
                                         "otp_acquired_from_forwarder",
                                         extra={
                                             "extra_fields": {
-                                                "code": otp_value,
+                                                # Never log the OTP value itself (replayable for ~5 min).
+                                                "length": len(otp_value),
                                                 "elapsed": round(time.time() - wait_start, 1),
                                                 "sender": otp_entry.get("sender"),
                                             }
@@ -5309,7 +5310,8 @@ class EnhancedWaybillManager:
                         )
                         if dom_val and len(dom_val) >= 4:
                             otp_value = dom_val
-                            logger.info("otp_acquired_from_dom", extra={"extra_fields": {"code": otp_value}})
+                            # Never log the OTP value itself (replayable for ~5 min).
+                            logger.info("otp_acquired_from_dom", extra={"extra_fields": {"length": len(otp_value)}})
                             break
                     except Exception:
                         pass

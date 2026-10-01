@@ -27,9 +27,9 @@ except Exception:
         def set(self, *_args: Any, **_kwargs: Any) -> None:
             return None
 
-    Counter = Gauge = Histogram = _NoopMetric  # type: ignore
+    Counter = Gauge = Histogram = _NoopMetric
 
-    def generate_latest() -> bytes:  # type: ignore
+    def generate_latest() -> bytes:
         return b""
 
 
@@ -346,7 +346,7 @@ def set_captcha_adaptive_state(failure_rate: float, target_attempts: int, target
 
 
 def export_metrics() -> bytes:
-    return generate_latest()
+    return bytes(generate_latest())
 
 
 def summarize_queue_depth(snapshot: dict[str, int]) -> int:

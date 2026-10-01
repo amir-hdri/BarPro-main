@@ -6,6 +6,7 @@ never 500:
 - legacy OLE .xls must be rejected (read_xlsx only parses ZIP-based .xlsx)
 - corrupt ZIP bodies and malformed XML inside must be 400, not 500
 """
+
 import io
 import zipfile
 

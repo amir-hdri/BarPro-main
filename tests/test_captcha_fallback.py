@@ -4,6 +4,7 @@ The composite tries providers in order and returns the first success. A single
 provider must never break the chain: an exception from one provider must be
 absorbed so the remaining providers still get tried.
 """
+
 from unittest.mock import AsyncMock
 
 import pytest

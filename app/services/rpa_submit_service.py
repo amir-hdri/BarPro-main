@@ -236,9 +236,7 @@ class RPAHttpSubmitService:
             is_mobile_transport = utcms_config.UTCMS_TRANSPORT in {"mobile", "shadow"} or (
                 isinstance(payload, dict) and payload.get("transport") == "mobile"
             )
-            allow_otp_flow = bool(
-                (isinstance(payload, dict) and payload.get("allow_otp_flow")) or is_mobile_transport
-            )
+            allow_otp_flow = bool((isinstance(payload, dict) and payload.get("allow_otp_flow")) or is_mobile_transport)
             if not await utcms_submission_gate.is_submission_allowed() and not allow_otp_flow:
                 retry_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(
                     seconds=utcms_config.GATE_PROBE_INTERVAL_SECONDS

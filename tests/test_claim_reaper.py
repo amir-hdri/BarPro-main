@@ -3,6 +3,7 @@
 Covers the HIGH-severity coverage gap: previously 0 test files referenced
 app/orchestrator/claim_reaper.py.
 """
+
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
@@ -38,7 +39,7 @@ async def async_db():
             username="testclient",
             full_name="Test Client",
             email="test@client.com",
-hashed_password="<redacted>",
+            hashed_password="<redacted>",
         )
     )
     session.add(
@@ -49,7 +50,7 @@ hashed_password="<redacted>",
             full_name="Test Driver",
             utcms_username="test_driver",
             utcms_password_encrypted="enc_pass",
-encrypted_password="<redacted>",
+            encrypted_password="<redacted>",
         )
     )
     await session.commit()

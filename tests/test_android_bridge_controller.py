@@ -246,11 +246,7 @@ async def test_apply_location_fails_if_mock_not_registered():
         await controller.apply_location(35.7, 51.4)
 
     # Both attempts must have triggered the apply action before giving up.
-    taps = [
-        call.args[0]
-        for call in runner.await_args_list
-        if len(call.args[0]) > 5 and call.args[0][5] == "tap"
-    ]
+    taps = [call.args[0] for call in runner.await_args_list if len(call.args[0]) > 5 and call.args[0][5] == "tap"]
     assert len(taps) == 2
 
 
@@ -290,11 +286,7 @@ async def test_unreadable_layout_fails_closed_without_any_tap():
     with pytest.raises(BridgeError, match="apply_button_state_unknown"):
         await controller.apply_location(35.7, 51.4)
 
-    taps = [
-        call.args[0]
-        for call in runner.await_args_list
-        if len(call.args[0]) > 5 and call.args[0][5] == "tap"
-    ]
+    taps = [call.args[0] for call in runner.await_args_list if len(call.args[0]) > 5 and call.args[0][5] == "tap"]
     assert taps == []
 
 
@@ -314,11 +306,7 @@ async def test_apply_button_flipped_to_stop_between_state_read_and_tap():
     with pytest.raises(BridgeError, match="apply_button_state_changed"):
         await controller.apply_location(35.7, 51.4)
 
-    taps = [
-        call.args[0]
-        for call in runner.await_args_list
-        if len(call.args[0]) > 5 and call.args[0][5] == "tap"
-    ]
+    taps = [call.args[0] for call in runner.await_args_list if len(call.args[0]) > 5 and call.args[0][5] == "tap"]
     assert taps == []
 
 
@@ -332,11 +320,7 @@ async def test_unexpected_button_text_fails_closed_without_any_tap():
     with pytest.raises(BridgeError, match="apply_button_state_unknown"):
         await controller.apply_location(35.7, 51.4)
 
-    taps = [
-        call.args[0]
-        for call in runner.await_args_list
-        if len(call.args[0]) > 5 and call.args[0][5] == "tap"
-    ]
+    taps = [call.args[0] for call in runner.await_args_list if len(call.args[0]) > 5 and call.args[0][5] == "tap"]
     assert taps == []
 
 
@@ -347,11 +331,7 @@ async def test_stop_state_skips_tap_and_verifies():
 
     await controller.apply_location(35.7, 51.4)  # must not raise
 
-    taps = [
-        call.args[0]
-        for call in runner.await_args_list
-        if len(call.args[0]) > 5 and call.args[0][5] == "tap"
-    ]
+    taps = [call.args[0] for call in runner.await_args_list if len(call.args[0]) > 5 and call.args[0][5] == "tap"]
     assert taps == []
 
 
@@ -403,11 +383,7 @@ async def test_apply_button_lost_between_state_read_and_tap():
     with pytest.raises(BridgeError, match="apply_button_lost"):
         await controller.apply_location(35.7, 51.4)
 
-    taps = [
-        call.args[0]
-        for call in runner.await_args_list
-        if len(call.args[0]) > 5 and call.args[0][5] == "tap"
-    ]
+    taps = [call.args[0] for call in runner.await_args_list if len(call.args[0]) > 5 and call.args[0][5] == "tap"]
     assert taps == []
 
 

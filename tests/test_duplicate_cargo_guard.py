@@ -1,13 +1,14 @@
-import pytest
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
+
+import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.models_multitenant import Client, Driver, DriverPlate, WaybillJob
-from app.schemas.multitenant import WaybillJobCreateRequest
+from app.schemas.multitenant import WaybillJobCreateRequest, WaybillPayload
 from app.services.waybill_job_service import WaybillJobService
 
 
@@ -62,9 +63,6 @@ async def setup_client_and_driver(async_db: AsyncSession):
     await async_db.commit()
 
     return client, driver, plate
-
-
-from app.schemas.multitenant import WaybillJobCreateRequest, WaybillPayload
 
 
 def make_payload():
@@ -125,8 +123,8 @@ async def test_create_job_rejects_busy_in_transit_driver(async_db: AsyncSession,
 async def test_create_job_rejects_duplicate_cargo_within_24h(async_db: AsyncSession, setup_client_and_driver):
     client, driver, plate = setup_client_and_driver
 
-    from app.workers.waybill_worker import generate_submission_fingerprint
     from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload
+    from app.workers.waybill_worker import generate_submission_fingerprint
 
     payload = make_payload()
     enhanced = build_enhanced_waybill_payload(payload.model_dump())
@@ -190,7 +188,11 @@ async def test_create_job_succeeds_when_different_cargo_or_not_busy(async_db: As
         payload_json=make_payload().model_dump(),
     )
 
-    with patch("app.services.waybill_job_service.rpa_scheduler_service.create_job", new_callable=AsyncMock, return_value=mock_created_job):
+    with patch(
+        "app.services.waybill_job_service.rpa_scheduler_service.create_job",
+        new_callable=AsyncMock,
+        return_value=mock_created_job,
+    ):
         resp = await WaybillJobService.create_job(client, req, async_db)
 
     assert resp.job_id == "job_new_created"

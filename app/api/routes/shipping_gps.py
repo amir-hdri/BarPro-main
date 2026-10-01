@@ -203,7 +203,9 @@ async def get_job_coordinates(
 
 @router.post("/start", dependencies=[Depends(require_sensitive_auth)])
 @_shipping_mutation_lock
-async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any] = Depends(get_current_user_or_admin)):  # noqa: B008
+async def start_shipping(
+    req: ShippingStartRequest, user_context: dict[str, Any] = Depends(get_current_user_or_admin)
+):  # noqa: B008
     """شروع حمل توسط اپراتور — ثبت anchor مبدأ بارنامه در UTCMS."""
     if not utcms_config.ALLOW_LIVE_SUBMIT:
         raise HTTPException(status_code=409, detail="ثبت زنده GPS غیرفعال است")
@@ -371,7 +373,9 @@ async def start_shipping(req: ShippingStartRequest, user_context: dict[str, Any]
 
 
 @router.post("/step", dependencies=[Depends(require_sensitive_auth)])
-async def step_shipping(req: ShippingStepRequest, user_context: dict[str, Any] = Depends(get_current_user_or_admin)):  # noqa: B008
+async def step_shipping(
+    req: ShippingStepRequest, user_context: dict[str, Any] = Depends(get_current_user_or_admin)
+):  # noqa: B008
     """Intermediate GPS is intentionally disabled until a live UTCMS ping contract is proven."""
     await _get_job_and_driver(req.job_id, user_context)
     raise HTTPException(status_code=410, detail="ثبت نقطه میانی بدون GPS واقعی UTCMS مجاز نیست")
@@ -564,7 +568,9 @@ async def finish_shipping(
 
 
 @router.get("/status/{job_id}", dependencies=[Depends(require_sensitive_auth)])
-async def get_shipping_status(job_id: str, user_context: dict[str, Any] = Depends(get_current_user_or_admin)):  # noqa: B008
+async def get_shipping_status(
+    job_id: str, user_context: dict[str, Any] = Depends(get_current_user_or_admin)
+):  # noqa: B008
     """وضعیت فعلی حمل و نقاط GPS ثبت‌شده."""
     payload, _ = await _get_job_and_driver(job_id, user_context)
     state = await _load_state_or_503(job_id)

@@ -285,6 +285,7 @@ async def test_register_end_of_shipping_enforces_minimum_2km_distance():
 
     # Calculate total distance along gps_list
     import math
+
     def haversine_km(lat1, lon1, lat2, lon2):
         rlat1, rlat2 = math.radians(lat1), math.radians(lat2)
         dlat = math.radians(lat2 - lat1)
@@ -352,4 +353,3 @@ async def test_auto_complete_shipping_4012_sets_backoff():
     assert state.backoff_until != ""
     assert state.completion_attempts == 1
     mock_save.assert_awaited()
-

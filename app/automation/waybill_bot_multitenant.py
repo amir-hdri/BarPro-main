@@ -6,11 +6,13 @@ import asyncio
 import json
 import logging
 import re
+
 try:
     from datetime import UTC, datetime
-except ImportError:
+except ImportError:  # Python < 3.11
     from datetime import datetime, timezone
-    UTC = timezone.utc  # type: ignore
+
+    UTC = timezone.utc  # noqa: UP017 - fallback alias for Python < 3.11
 from typing import Any
 
 from playwright.async_api import BrowserContext, Page
@@ -157,7 +159,9 @@ class WaybillAutomationBot:
         if t4 is not None and not vehicle.get("t4"):
             vehicle["t4"] = str(t4).strip()
 
-        tag_type = truck.get("tagType") or truck.get("tag_type") or truck.get("carTagType") or truck.get("hasFreeZoneCarTag")
+        tag_type = (
+            truck.get("tagType") or truck.get("tag_type") or truck.get("carTagType") or truck.get("hasFreeZoneCarTag")
+        )
         if tag_type is not None and vehicle.get("tag_type") is None and vehicle.get("tagType") is None:
             vehicle["tag_type"] = tag_type
 
@@ -221,20 +225,39 @@ class WaybillAutomationBot:
             normalized_payload = build_enhanced_waybill_payload(payload)
 
             from app.automation.gps_shipping_manager import extract_coordinates_from_payload, find_city_coordinates
+
             coord_info = extract_coordinates_from_payload(payload)
 
             # Preserve & enhance mobile-specific locations and coordinates
             for location_key in ("origin", "destination"):
                 raw_location = payload.get(location_key) if isinstance(payload.get(location_key), dict) else {}
                 normalized_location = normalized_payload.setdefault(location_key, {})
-                for source_key in ("postal_code", "postalCode", "lat", "latitude", "lon", "lng", "longitude", "coordinates"):
+                for source_key in (
+                    "postal_code",
+                    "postalCode",
+                    "lat",
+                    "latitude",
+                    "lon",
+                    "lng",
+                    "longitude",
+                    "coordinates",
+                ):
                     if raw_location.get(source_key) is not None:
                         normalized_location[source_key] = raw_location[source_key]
 
                 # Fallback coordinates from coord_info or city name
                 prefix = "origin" if location_key == "origin" else "dest"
-                c_lat = normalized_location.get("lat") or normalized_location.get("latitude") or coord_info.get(f"{prefix}_lat")
-                c_lon = normalized_location.get("lon") or normalized_location.get("lng") or normalized_location.get("longitude") or coord_info.get(f"{prefix}_lng")
+                c_lat = (
+                    normalized_location.get("lat")
+                    or normalized_location.get("latitude")
+                    or coord_info.get(f"{prefix}_lat")
+                )
+                c_lon = (
+                    normalized_location.get("lon")
+                    or normalized_location.get("lng")
+                    or normalized_location.get("longitude")
+                    or coord_info.get(f"{prefix}_lng")
+                )
                 if c_lat is None or c_lon is None:
                     city_name = normalized_location.get("city") or normalized_location.get("cityName")
                     city_coords = find_city_coordinates(city_name)
@@ -277,7 +300,9 @@ class WaybillAutomationBot:
                 c_count = cargo.get("count") or cargo.get("box_num") or payload.get("cargo_count") or 1
                 c_prod = cargo.get("product_id") or payload.get("product_id") or 10956
                 c_pack = cargo.get("pack_type_id") or payload.get("pack_type_id") or 18074
-                c_desc = str(cargo.get("description") or payload.get("cargo_description") or cargo.get("type") or "محموله عمومی")
+                c_desc = str(
+                    cargo.get("description") or payload.get("cargo_description") or cargo.get("type") or "محموله عمومی"
+                )
                 cargo["items"] = [
                     {
                         "productId": int(c_prod),
@@ -308,23 +333,27 @@ class WaybillAutomationBot:
                         pass
                     b = itm_dict.get("boxNum") or itm_dict.get("box_num") or itm_dict.get("count") or 1
                     d = str(itm_dict.get("description") or cargo.get("description") or cargo.get("type") or "محموله")
-                    formatted_items.append({
-                        "productId": int(p_id),
-                        "product_id": int(p_id),
-                        "packTypeId": int(pk_id),
-                        "pack_type_id": int(pk_id),
-                        "wheight": float(w),
-                        "weight": float(w),
-                        "boxNum": int(b),
-                        "box_num": int(b),
-                        "count": int(b),
-                        "description": d,
-                    })
+                    formatted_items.append(
+                        {
+                            "productId": int(p_id),
+                            "product_id": int(p_id),
+                            "packTypeId": int(pk_id),
+                            "pack_type_id": int(pk_id),
+                            "wheight": float(w),
+                            "weight": float(w),
+                            "boxNum": int(b),
+                            "box_num": int(b),
+                            "count": int(b),
+                            "description": d,
+                        }
+                    )
                 cargo["items"] = formatted_items
 
             # Enhance financial
             financial = normalized_payload.setdefault("financial", {})
-            f_cost = financial.get("cost") or financial.get("fare") or payload.get("cost") or payload.get("fare") or 5000000
+            f_cost = (
+                financial.get("cost") or financial.get("fare") or payload.get("cost") or payload.get("fare") or 5000000
+            )
             clean_cost = int(str(f_cost).replace(",", "")) if str(f_cost).replace(",", "").isdigit() else 5000000
             financial["cost"] = clean_cost
             financial.setdefault("fare", f"{clean_cost:,}")
@@ -422,7 +451,10 @@ class WaybillAutomationBot:
                 logger.info("Reusing provided mobile token for driver %s", username)
             else:
                 cap_token = str(
-                    payload.get("mobile_cap_token") or payload.get("cap_token") or utcms_config.UTCMS_CAPTCHA_VALUE or ""
+                    payload.get("mobile_cap_token")
+                    or payload.get("cap_token")
+                    or utcms_config.UTCMS_CAPTCHA_VALUE
+                    or ""
                 ).strip()
                 if cap_token:
                     client = UtcmsMobileClient(proxy_url=proxy_url or self.proxy_url)
@@ -454,7 +486,9 @@ class WaybillAutomationBot:
                                     "captcha_received": True,
                                     "captcha_type": client.extract_captcha_type(captcha),
                                     "captcha_has_image": bool(
-                                        captcha_obj.get("image") or captcha_obj.get("captcha") or captcha_obj.get("base64")
+                                        captcha_obj.get("image")
+                                        or captcha_obj.get("captcha")
+                                        or captcha_obj.get("base64")
                                     ),
                                 },
                             )
@@ -491,13 +525,18 @@ class WaybillAutomationBot:
             if not issue_cap_token and hasattr(client, "auto_solve_captcha"):
                 for cap_attempt in range(1, 4):
                     try:
-                        logger.info("Attempting auto_solve_captcha for mobile document issuance (form_id=1, attempt=%d/3)", cap_attempt)
+                        logger.info(
+                            "Attempting auto_solve_captcha for mobile document issuance (form_id=1, attempt=%d/3)",
+                            cap_attempt,
+                        )
                         _, issue_cap_token = await client.auto_solve_captcha(form_id=1)
-                        logger.info("Auto-solved issuance captcha: answer=%s", issue_cap_token)
+                        logger.info("Auto-solved issuance captcha (attempt=%d/3)", cap_attempt)
                         if issue_cap_token:
                             break
                     except Exception as exc:
-                        logger.warning("Mobile auto_solve_captcha for issuance failed (attempt=%d/3): %s", cap_attempt, exc)
+                        logger.warning(
+                            "Mobile auto_solve_captcha for issuance failed (attempt=%d/3): %s", cap_attempt, exc
+                        )
                         if cap_attempt < 3:
                             await asyncio.sleep(1.5)
 
@@ -666,6 +705,7 @@ class WaybillAutomationBot:
                 """Initialize shipping state and trigger RegisterStartOfShipping immediately."""
                 try:
                     from app.automation.gps_shipping_manager import init_shipping, save_shipping_state
+
                     ship_state = await init_shipping(
                         job_id=job_id,
                         doc_no=str(track_code),
@@ -697,11 +737,15 @@ class WaybillAutomationBot:
                         await save_shipping_state(ship_state)
                         if isinstance(result.get("result"), dict):
                             result["result"]["start_shipping"] = start_res
-                        result["steps"].append({"step": "mobile_start_shipping", "status": "success", "result": start_res})
+                        result["steps"].append(
+                            {"step": "mobile_start_shipping", "status": "success", "result": start_res}
+                        )
                         logger.info("Automated start of shipping completed: %s", start_res)
                 except Exception as ship_err:
                     logger.warning("Automated start of shipping non-fatal blip: %s", ship_err)
-                    result["steps"].append({"step": "mobile_start_shipping", "status": "warning", "error": str(ship_err)})
+                    result["steps"].append(
+                        {"step": "mobile_start_shipping", "status": "warning", "error": str(ship_err)}
+                    )
 
             if tracking_code:
                 result["status"] = TaskStatus.SUCCESS.value
@@ -754,7 +798,9 @@ class WaybillAutomationBot:
                                             code_val = str(otp_data.get("code") or "").strip()
                                             if code_val and code_val.isdigit():
                                                 otp_code = code_val
-                                                logger.info("Received OTP from Redis (%s): %s", k, otp_code)
+                                                # Never log the OTP value itself: it is valid for
+                                                # ~5 minutes and log readers could replay it.
+                                                logger.info("Received OTP from Redis (%s)", k)
                                                 break
                                         except Exception:
                                             pass
@@ -765,7 +811,7 @@ class WaybillAutomationBot:
                     logger.warning("Redis OTP lookup failed: %s", redis_exc)
 
                 if otp_code and document_id:
-                    logger.info("Submitting IssueDocumentByOtp for docId=%s with OTP=%s", document_id, otp_code)
+                    logger.info("Submitting IssueDocumentByOtp for docId=%s", document_id)
                     try:
                         issue_res = await client.issue_document_by_otp(
                             str(document_id), str(otp_code), allow_live_submit=True

@@ -6,6 +6,7 @@ The module catches torch import failures and is supposed to degrade gracefully
 missing torch crashed the import with AttributeError and the graceful path was
 unreachable.
 """
+
 import importlib
 import sys
 
@@ -14,6 +15,15 @@ def test_module_imports_without_torch_and_degrades_gracefully(monkeypatch):
     # Simulate torch being unavailable.
     monkeypatch.setitem(sys.modules, "torch", None)
     monkeypatch.setitem(sys.modules, "torch.nn", None)
+
+    # Preserve the package-level `barname_ml_solver` *instance* binding.
+    # Reimporting the submodule below makes the import system overwrite that
+    # attribute on the parent package with the module object; monkeypatch
+    # restores sys.modules but not the parent attribute, which would break
+    # later tests that use app.automation.captcha.barname_ml_solver.model_path.
+    import app.automation.captcha as captcha_pkg
+
+    monkeypatch.setattr(captcha_pkg, "barname_ml_solver", captcha_pkg.barname_ml_solver)
 
     # Force a fresh import of the module under test.
     monkeypatch.delitem(sys.modules, "app.automation.captcha.barname_ml_solver", raising=False)

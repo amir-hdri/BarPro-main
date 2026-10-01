@@ -348,27 +348,23 @@ async def get_securesms_forwarder_config() -> dict[str, Any]:
             "Content-Type": "application/json",
             "X-OTP-Webhook-Token": "<OTP_WEBHOOK_SECRET from server .env>",
         },
-        "payload_template": {
-            "from": "[from]",
-            "content": "[content]",
-            "timestamp": "[timestamp]"
-        },
+        "payload_template": {"from": "[from]", "content": "[content]", "timestamp": "[timestamp]"},
         "recommended_rules": [
             {
                 "rule_name": "UTCMS OTP Rule",
                 "filter_sender": "20007777, 30001923, *",
                 "filter_keyword": "کد, تایید, بارنامه, شهرداری",
-                "action": "Send Webhook to server_webhook_url"
+                "action": "Send Webhook to server_webhook_url",
             }
         ],
         "instructions_fa": (
             "۱. برنامه SecureSMS Forwarder یا SMS Forwarder را روی گوشی راننده یا گوشی گیرنده پیامک نصب کنید.\n"
             "۲. یک Webhook جدید (یا Forward Rule) با متد POST ایجاد کنید.\n"
-            + url_step +
-            "۴. فرمت بدنه (Body) را به صورت JSON تنظیم کنید و مقادیر from و content را به قالب ارسال اضافه نمایید.\n"
+            + url_step
+            + "۴. فرمت بدنه (Body) را به صورت JSON تنظیم کنید و مقادیر from و content را به قالب ارسال اضافه نمایید.\n"
             "۵. فیلتر فرستنده را روی سرشماره‌های ۲۰۰۰۷۷۷۷ یا ۳۰۰۰۱۹۲۳ (یا کلمه کلیدی 'بارنامه' و 'کد') تنظیم نمایید.\n"
             "۶. تست ارسال (Test Send) را در اپلیکیشن بزنید تا پیامک آزمایشی ثبت شود.\n"
             "۷. امنیت: در تنظیمات هدر اپلیکیشن، هدر X-OTP-Webhook-Token را با مقدار\n"
             "   OTP_WEBHOOK_SECRET سرور (فایل .env) اضافه کنید؛ بدون این هدر، وب‌هوک با خطای 401 رد می‌شود."
-        )
+        ),
     }

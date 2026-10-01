@@ -671,9 +671,7 @@ class WaybillJobService:
         )
         if not tracking_code:
             err_msg = (
-                issue_res.get("meta", {}).get("message")
-                or issue_res.get("message")
-                or "پاسخ ناموفق از سامانه UTCMS"
+                issue_res.get("meta", {}).get("message") or issue_res.get("message") or "پاسخ ناموفق از سامانه UTCMS"
             )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

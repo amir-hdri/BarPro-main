@@ -3,6 +3,7 @@
 Covers the fix where a failed plate commit must roll the session back so the
 session is not left with a poisoned transaction.
 """
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

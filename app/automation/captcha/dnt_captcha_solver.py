@@ -27,56 +27,61 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-class CRNN(nn.Module):
-    def __init__(self, num_classes: int, img_channel: int = 1):
-        super().__init__()
-        self.cnn = nn.Sequential(
-            # Layer 1: (H, W) -> (H/2, W/2)  (32, 320) -> (16, 160)
-            nn.Conv2d(img_channel, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 2)),
-            # Layer 2: (16, 160) -> (8, 80)
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 2)),
-            # Layer 3: (8, 80) -> (4, 80)
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 1)),
-            # Layer 4: (4, 80) -> (2, 80)
-            nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 1)),
-            # Layer 5: (2, 80) -> (1, 80)
-            nn.Conv2d(256, 256, kernel_size=(2, 1)),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-        )
+# Defined only when torch is importable: the class body evaluates nn.Module at
+# import time, so defining it unconditionally would crash the import and defeat
+# the graceful torch-less degradation (solve_text_captcha -> torch_not_installed).
+if nn is not None:  # pragma: no cover - requires real torch
 
-        self.rnn = nn.GRU(
-            input_size=256,
-            hidden_size=128,
-            num_layers=2,
-            bidirectional=True,
-            batch_first=True,
-            dropout=0.25,
-        )
+    class CRNN(nn.Module):
+        def __init__(self, num_classes: int, img_channel: int = 1):
+            super().__init__()
+            self.cnn = nn.Sequential(
+                # Layer 1: (H, W) -> (H/2, W/2)  (32, 320) -> (16, 160)
+                nn.Conv2d(img_channel, 32, kernel_size=3, padding=1),
+                nn.BatchNorm2d(32),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=(2, 2)),
+                # Layer 2: (16, 160) -> (8, 80)
+                nn.Conv2d(32, 64, kernel_size=3, padding=1),
+                nn.BatchNorm2d(64),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=(2, 2)),
+                # Layer 3: (8, 80) -> (4, 80)
+                nn.Conv2d(64, 128, kernel_size=3, padding=1),
+                nn.BatchNorm2d(128),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=(2, 1)),
+                # Layer 4: (4, 80) -> (2, 80)
+                nn.Conv2d(128, 256, kernel_size=3, padding=1),
+                nn.BatchNorm2d(256),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=(2, 1)),
+                # Layer 5: (2, 80) -> (1, 80)
+                nn.Conv2d(256, 256, kernel_size=(2, 1)),
+                nn.BatchNorm2d(256),
+                nn.ReLU(),
+            )
 
-        self.fc = nn.Linear(128 * 2, num_classes)
+            self.rnn = nn.GRU(
+                input_size=256,
+                hidden_size=128,
+                num_layers=2,
+                bidirectional=True,
+                batch_first=True,
+                dropout=0.25,
+            )
 
-    def forward(self, x):
-        features = self.cnn(x)  # [B, 256, 1, W_seq]
-        features = features.squeeze(2)  # [B, 256, W_seq]
-        features = features.permute(0, 2, 1)  # [B, W_seq, 256]
+            self.fc = nn.Linear(128 * 2, num_classes)
 
-        rnn_out, _ = self.rnn(features)  # [B, W_seq, 256]
-        output = self.fc(rnn_out)  # [B, W_seq, num_classes]
-        output = output.permute(1, 0, 2)  # [W_seq, B, num_classes] (for CTC)
-        return output
+        def forward(self, x):
+            features = self.cnn(x)  # [B, 256, 1, W_seq]
+            features = features.squeeze(2)  # [B, 256, W_seq]
+            features = features.permute(0, 2, 1)  # [B, W_seq, 256]
+
+            rnn_out, _ = self.rnn(features)  # [B, W_seq, 256]
+            output = self.fc(rnn_out)  # [B, W_seq, num_classes]
+            output = output.permute(1, 0, 2)  # [W_seq, B, num_classes] (for CTC)
+            return output
 
 
 class DntCaptchaProvider(CaptchaProvider):

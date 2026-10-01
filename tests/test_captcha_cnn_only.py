@@ -3,6 +3,8 @@
 import asyncio
 from unittest.mock import patch
 
+import pytest
+
 from app.automation.captcha import captcha_engine, get_captcha_provider
 from app.automation.captcha.barname_ml_solver import MlMathCaptchaCandidate, barname_ml_solver
 from app.automation.captcha.cnn_provider import CnnCaptchaProvider
@@ -215,7 +217,8 @@ class TestCnnOnlyImplementation:
         from unittest.mock import MagicMock, patch
 
         import numpy as np
-        import torch
+
+        torch = pytest.importorskip("torch", reason="requires torch for model tensor mocks")
 
         from app.automation.captcha.math_crnn_solver import math_crnn_solver
 
@@ -231,7 +234,8 @@ class TestCnnOnlyImplementation:
         from unittest.mock import MagicMock, patch
 
         import numpy as np
-        import torch
+
+        torch = pytest.importorskip("torch", reason="requires torch for model tensor mocks")
 
         from app.automation.captcha.math_crnn_solver import math_crnn_solver
 

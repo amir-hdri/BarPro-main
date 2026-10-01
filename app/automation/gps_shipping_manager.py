@@ -184,6 +184,14 @@ DEFAULT_CITY_COORDS: dict[str, tuple[float, float]] = {
 }
 
 
+def _mask_national_code(national_code: str | None) -> str:
+    """Mask an Iranian national code for logs: show only the last 2 digits."""
+    digits = re.sub(r"\D", "", str(national_code or ""))
+    if len(digits) <= 2:
+        return "***"
+    return "*" * (len(digits) - 2) + digits[-2:]
+
+
 def normalize_city_name(name: str | None) -> str:
     """نرمال‌سازی نام شهر برای جستجوی دقیق مختصات."""
     if not name or not isinstance(name, str):
@@ -418,42 +426,50 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     # ── Origin coordinates ──
     origin_lat, origin_lng = _resolve_nested_coords(
-        flat_lat=_float(_first(
-            payload.get("origin_lat"),
-            payload.get("originLat"),
-            payload.get("origin_latitude"),
-            payload.get("sourceLatM"),
-            payload.get("latitude") if not payload.get("dest_lat") else None,
-        )),
-        flat_lng=_float(_first(
-            payload.get("origin_lng"),
-            payload.get("originLng"),
-            payload.get("origin_longitude"),
-            payload.get("sourceLngM"),
-            payload.get("sourceLonM"),
-            payload.get("longitude") if not payload.get("dest_lng") else None,
-        )),
+        flat_lat=_float(
+            _first(
+                payload.get("origin_lat"),
+                payload.get("originLat"),
+                payload.get("origin_latitude"),
+                payload.get("sourceLatM"),
+                payload.get("latitude") if not payload.get("dest_lat") else None,
+            )
+        ),
+        flat_lng=_float(
+            _first(
+                payload.get("origin_lng"),
+                payload.get("originLng"),
+                payload.get("origin_longitude"),
+                payload.get("sourceLngM"),
+                payload.get("sourceLonM"),
+                payload.get("longitude") if not payload.get("dest_lng") else None,
+            )
+        ),
         meta_section=origin_meta,
         top_section=_safe_dict(payload.get("origin")),
     )
 
     # ── Destination coordinates ──
     dest_lat, dest_lng = _resolve_nested_coords(
-        flat_lat=_float(_first(
-            payload.get("dest_lat"),
-            payload.get("destLat"),
-            payload.get("dest_latitude"),
-            payload.get("destination_lat"),
-            payload.get("destLatM"),
-        )),
-        flat_lng=_float(_first(
-            payload.get("dest_lng"),
-            payload.get("destLng"),
-            payload.get("dest_longitude"),
-            payload.get("destination_lng"),
-            payload.get("destLngM"),
-            payload.get("destLonM"),
-        )),
+        flat_lat=_float(
+            _first(
+                payload.get("dest_lat"),
+                payload.get("destLat"),
+                payload.get("dest_latitude"),
+                payload.get("destination_lat"),
+                payload.get("destLatM"),
+            )
+        ),
+        flat_lng=_float(
+            _first(
+                payload.get("dest_lng"),
+                payload.get("destLng"),
+                payload.get("dest_longitude"),
+                payload.get("destination_lng"),
+                payload.get("destLngM"),
+                payload.get("destLonM"),
+            )
+        ),
         meta_section=dest_meta,
         top_section=_safe_dict(payload.get("destination")),
     )
@@ -700,7 +716,7 @@ async def _solve_and_login_with_retry(client: Any, national_code: str, password:
                 raise
             logger.warning(
                 "session_vault_login_retry national_code=%s attempt=%d/%d error=%s",
-                national_code,
+                _mask_national_code(national_code),
                 attempt_no,
                 LOGIN_MAX_ATTEMPTS,
                 exc,
@@ -738,7 +754,7 @@ async def get_or_login_client(
 
             cached = await get_cached_token(national_code)
             if cached:
-                logger.info("session_vault_hit national_code=%s", national_code)
+                logger.info("session_vault_hit national_code=%s", _mask_national_code(national_code))
                 return UtcmsMobileClient(token=cached, proxy_url=proxy_url)
 
             refresh = await get_cached_refresh_token(national_code)
@@ -749,7 +765,7 @@ async def get_or_login_client(
                     await cache_token(national_code, auth.token)
                     if auth.refresh_token:
                         await cache_refresh_token(national_code, auth.refresh_token)
-                    logger.info("session_vault_refreshed national_code=%s", national_code)
+                    logger.info("session_vault_refreshed national_code=%s", _mask_national_code(national_code))
                     return client
                 except Exception as exc:
                     logger.warning("session_vault_refresh_failed: %s, falling back to login", exc)
@@ -784,7 +800,7 @@ async def get_or_login_client(
             await cache_token(national_code, auth.token)
             if auth.refresh_token:
                 await cache_refresh_token(national_code, auth.refresh_token)
-            logger.info("session_vault_login national_code=%s", national_code)
+            logger.info("session_vault_login national_code=%s", _mask_national_code(national_code))
             return client
         finally:
             if redis is not None and lock_token is not None:
@@ -1264,9 +1280,7 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
 
             check = await verify_android_anchor(expected_lat=state.dest_lat, expected_lng=state.dest_lng)
             if not check.get("verified"):
-                logger.warning(
-                    "auto_complete_android_gate_blocked job=%s reason=%s", job_id, check.get("reason")
-                )
+                logger.warning("auto_complete_android_gate_blocked job=%s reason=%s", job_id, check.get("reason"))
                 return {
                     "status": "waiting_readback",
                     "reason": check.get("reason", "readback_unavailable"),
@@ -1318,21 +1332,23 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
             if state.created_at
             else (datetime.now(UTC) - timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         )
-        gps_evidence.append({
-            "Latitude": state.origin_lat,
-            "Longitude": state.origin_lng,
-            "latitude": state.origin_lat,
-            "longitude": state.origin_lng,
-            "Speed": 0.0,
-            "speed": 0.0,
-            "Altitude": 1000.0,
-            "altitude": 1000.0,
-            "Date": start_iso,
-            "date": start_iso,
-            "DateTime": start_iso,
-            "Type": 2,
-            "type": 2,
-        })
+        gps_evidence.append(
+            {
+                "Latitude": state.origin_lat,
+                "Longitude": state.origin_lng,
+                "latitude": state.origin_lat,
+                "longitude": state.origin_lng,
+                "Speed": 0.0,
+                "speed": 0.0,
+                "Altitude": 1000.0,
+                "altitude": 1000.0,
+                "Date": start_iso,
+                "date": start_iso,
+                "DateTime": start_iso,
+                "Type": 2,
+                "type": 2,
+            }
+        )
     gps_evidence.append(dest_point)
 
     state.completion_attempts += 1
@@ -1421,7 +1437,10 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
             await save_shipping_state(state)
             logger.warning(
                 "register_end_of_shipping 4012 (minimum 2km required) for job %s: %s; backing off %d min until %s",
-                job_id, rm, backoff_min, state.backoff_until,
+                job_id,
+                rm,
+                backoff_min,
+                state.backoff_until,
             )
             return {"status": "waiting_distance_requirement", "result": res, "backoff_until": state.backoff_until}
         elif rc == 4013:
@@ -1432,7 +1451,9 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
             await save_shipping_state(state)
             logger.info(
                 "register_end_of_shipping 4013 (time not elapsed) for job %s; backing off for %d min until %s",
-                job_id, backoff_min, state.backoff_until,
+                job_id,
+                backoff_min,
+                state.backoff_until,
             )
             return {"status": "waiting_elapsed_time", "result": res, "backoff_until": state.backoff_until}
         elif rc == 429:
@@ -1442,7 +1463,9 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
             await save_shipping_state(state)
             logger.warning(
                 "register_end_of_shipping rate limited (429) for job %s, backing off %d min until %s",
-                job_id, backoff_min, state.backoff_until,
+                job_id,
+                backoff_min,
+                state.backoff_until,
             )
             return {"status": "rate_limited", "result": res, "backoff_until": state.backoff_until}
         else:
@@ -1452,7 +1475,10 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
             await save_shipping_state(state)
             logger.warning(
                 "register_end_of_shipping returned non-success for job %s: code=%s msg=%s; backing off until %s",
-                job_id, rc, rm, state.backoff_until,
+                job_id,
+                rc,
+                rm,
+                state.backoff_until,
             )
             return {"status": "rejected", "result": res, "backoff_until": state.backoff_until}
 

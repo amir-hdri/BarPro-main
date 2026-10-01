@@ -80,7 +80,6 @@ async def test_mobile_execution_enriches_compact_payload_and_starts_shipping():
     mock_client.auto_solve_captcha.return_value = ("", "test-cap")
     mock_client.cap_token_from_solution.return_value = "test-cap"
 
-
     # Mock insert_document returning UTCMS document ID and tracking code
     mock_client.insert_document.return_value = {
         "resultCode": 200,

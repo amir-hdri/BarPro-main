@@ -1216,7 +1216,9 @@ async def _execute_job(
             # When transport is 'mobile' or 'shadow' (which natively handles the driver OTP challenge
             # via IssueDocumentByOtp), or when the job explicitly allows OTP flow,
             # we do not block pre-execution at the gate so it can proceed to document registration and OTP challenge.
-            is_mobile_transport = utcms_config.UTCMS_TRANSPORT in {"mobile", "shadow"} or (isinstance(payload, dict) and payload.get("transport") == "mobile")
+            is_mobile_transport = utcms_config.UTCMS_TRANSPORT in {"mobile", "shadow"} or (
+                isinstance(payload, dict) and payload.get("transport") == "mobile"
+            )
             allow_otp_flow = bool((isinstance(payload, dict) and payload.get("allow_otp_flow")) or is_mobile_transport)
 
             gate_state = await utcms_submission_gate.get_state()

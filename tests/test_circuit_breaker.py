@@ -533,4 +533,3 @@ async def test_waf_444_and_ssl_eof_marks_squid_blocked_in_single_worker_fleet(mo
         # Fleet queue-blocking key MUST NOT be set for single worker
         call_keys = [call.args[0] for call in mock_redis_manager.set.call_args_list]
         assert "utcms:circuit_breaker:blocked:1" not in call_keys
-

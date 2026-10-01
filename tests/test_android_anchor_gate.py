@@ -4,6 +4,7 @@ verify_android_anchor() is the fail-closed read-back check: the auto-complete
 flow must NOT proceed when the Android device's actual location does not match
 the expected destination anchor. Previously this path had no test coverage.
 """
+
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -94,21 +95,35 @@ async def async_db():
     session = AsyncSession(engine, expire_on_commit=False)
     session.add(
         Client(
-            id=1, client_code="c1", name="C", username="c1", full_name="C",
-            email="c@c.c", hashed_password="x",
+            id=1,
+            client_code="c1",
+            name="C",
+            username="c1",
+            full_name="C",
+            email="c@c.c",
+            hashed_password="x",
         )
     )
     session.add(
         Driver(
-            id=1, client_id=1, driver_national_code="1", full_name="D",
-            utcms_username="u", utcms_password_encrypted="enc",
+            id=1,
+            client_id=1,
+            driver_national_code="1",
+            full_name="D",
+            utcms_username="u",
+            utcms_password_encrypted="enc",
             encrypted_password="x",
         )
     )
     session.add(
         WaybillJob(
-            job_id="ship_job_1", idempotency_key="idem_ship_1", client_id=1,
-            driver_id=1, payload_json={}, status="claimed", mutation_status="dispatched",
+            job_id="ship_job_1",
+            idempotency_key="idem_ship_1",
+            client_id=1,
+            driver_id=1,
+            payload_json={},
+            status="claimed",
+            mutation_status="dispatched",
         )
     )
     await session.commit()
@@ -145,13 +160,19 @@ def _pipeline_patches(session, anchor_result):
     bridge_config = MagicMock()
     bridge_config.enabled = True
     return (
-        patch("app.automation.gps_shipping_manager.load_shipping_state", new_callable=AsyncMock,
-              return_value=_in_transit_state()),
+        patch(
+            "app.automation.gps_shipping_manager.load_shipping_state",
+            new_callable=AsyncMock,
+            return_value=_in_transit_state(),
+        ),
         patch("app.automation.gps_shipping_manager.save_shipping_state", new_callable=AsyncMock),
         patch("app.core.database.async_session_factory", return_value=_SessionCM(session)),
         patch("app.android_bridge.client.BridgeConfig.from_env", return_value=bridge_config),
-        patch("app.services.shipping_travel_service.verify_android_anchor",
-              new_callable=AsyncMock, return_value=anchor_result),
+        patch(
+            "app.services.shipping_travel_service.verify_android_anchor",
+            new_callable=AsyncMock,
+            return_value=anchor_result,
+        ),
         patch("app.auth_multitenant.decrypt_driver_password", return_value="secret"),
     )
 
@@ -161,13 +182,9 @@ async def test_auto_complete_blocked_when_anchor_not_verified(async_db: AsyncSes
     """Bridge enabled + anchor mismatch → waiting_readback, no submission attempted."""
     from app.automation import gps_shipping_manager
 
-    patches = _pipeline_patches(
-        async_db, {"verified": False, "reason": "location_readback_mismatch", "gap_m": 80000.0}
-    )
+    patches = _pipeline_patches(async_db, {"verified": False, "reason": "location_readback_mismatch", "gap_m": 80000.0})
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
-        with patch.object(
-            gps_shipping_manager, "get_or_login_client", new_callable=AsyncMock
-        ) as mock_login:
+        with patch.object(gps_shipping_manager, "get_or_login_client", new_callable=AsyncMock) as mock_login:
             result = await gps_shipping_manager.auto_complete_shipping("ship_job_1")
 
     assert result["status"] == "waiting_readback"
@@ -184,7 +201,9 @@ async def test_auto_complete_proceeds_when_anchor_verified(async_db: AsyncSessio
     patches = _pipeline_patches(async_db, {"verified": True, "observation": {}})
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
         with patch.object(
-            gps_shipping_manager, "get_or_login_client", new_callable=AsyncMock,
+            gps_shipping_manager,
+            "get_or_login_client",
+            new_callable=AsyncMock,
             side_effect=sentinel,
         ):
             with pytest.raises(RuntimeError, match="sentinel-login-reached"):
@@ -200,16 +219,17 @@ async def test_auto_complete_skips_gate_when_bridge_disabled(async_db: AsyncSess
     bridge_config = MagicMock()
     bridge_config.enabled = False
     with (
-        patch("app.automation.gps_shipping_manager.load_shipping_state", new_callable=AsyncMock,
-              return_value=_in_transit_state()),
+        patch(
+            "app.automation.gps_shipping_manager.load_shipping_state",
+            new_callable=AsyncMock,
+            return_value=_in_transit_state(),
+        ),
         patch("app.automation.gps_shipping_manager.save_shipping_state", new_callable=AsyncMock),
         patch("app.core.database.async_session_factory", return_value=_SessionCM(async_db)),
         patch("app.android_bridge.client.BridgeConfig.from_env", return_value=bridge_config),
         patch("app.auth_multitenant.decrypt_driver_password", return_value="secret"),
-        patch("app.services.shipping_travel_service.verify_android_anchor",
-              new_callable=AsyncMock) as mock_verify,
-        patch.object(gps_shipping_manager, "get_or_login_client", new_callable=AsyncMock,
-                     side_effect=sentinel),
+        patch("app.services.shipping_travel_service.verify_android_anchor", new_callable=AsyncMock) as mock_verify,
+        patch.object(gps_shipping_manager, "get_or_login_client", new_callable=AsyncMock, side_effect=sentinel),
     ):
         with pytest.raises(RuntimeError, match="sentinel-login-reached"):
             await gps_shipping_manager.auto_complete_shipping("ship_job_1")

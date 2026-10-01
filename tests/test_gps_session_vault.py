@@ -282,4 +282,3 @@ async def test_get_or_login_client_allows_dummy_pwd_if_cached_token_exists(monke
 
     client = await manager.get_or_login_client("007", "dummy")
     assert client.token == "already-cached-token"
-

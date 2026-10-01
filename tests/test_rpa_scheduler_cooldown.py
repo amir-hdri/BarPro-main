@@ -113,7 +113,9 @@ async def test_driver_antiflood_cooldown_defers_standalone_job(caplog):
         # Check DB: submit_after moved to earliest_safe_time = finished_at + 60m
         expected_earliest_safe = finished_at + timedelta(minutes=60.0)
         async with async_session() as session:
-            refreshed = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-new-standalone-1"))).one()
+            refreshed = (
+                await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-new-standalone-1"))
+            ).one()
             assert refreshed.submit_after is not None
             assert abs((refreshed.submit_after - expected_earliest_safe).total_seconds()) < 1.0
 

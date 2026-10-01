@@ -41,6 +41,23 @@
 - AVAILABLE_IP_INDICES باید با Worker Registry همان fleet هم‌راستا باشد؛ fleet
   سه‌ورکری مورد انتظار از 1,2,3 استفاده می‌کند.
 
+### secretها و رفتارهای امنیتی endpointها
+
+- `OTP_WEBHOOK_SECRET`: توکن مشترک احراز هویت وب‌هوک پیامک (`X-OTP-Webhook-Token`).
+  بدون این مقدار، endpointهای `/api/v1/otp/sms-forwarder` و `/api/v1/otp/webhook`
+  با 503 fail-closed می‌شوند؛ درخواست بدون هدر معتبر با 401 رد می‌شود.
+  مقدار را در هدر اپلیکیشن SecureSMS Forwarder روی گوشی هم ست کنید، وگرنه هیچ
+  پیامکی ingest نمی‌شود.
+- `GET /api/v1/otp/latest` و `POST /api/v1/otp/submit-manual` نیازمند احراز هویت
+  کاربر/ادمین هستند؛ محتوای OTP هرگز در لاگ یا پاسخ موفق برنمی‌گردد.
+- `PUBLIC_BASE_URL`: آدرس عمومی همین استقرار با `https://` (مثلاً
+  `https://otp.example.com`). برای ساخت URL وب‌هوک در راهنمای
+  `/api/v1/otp/securesms-config` استفاده می‌شود؛ اگر خالی باشد راهنما placeholder
+  نشان می‌دهد. IP ثابت قدیمی (`87.107.5.238`) دیگر در کد نیست.
+- `ENABLE_DOCS`: در production مسیرهای `/docs`، `/redoc` و `/openapi.json`
+  به‌صورت پیش‌فرض غیرفعال‌اند؛ فقط با `ENABLE_DOCS=true` فعال می‌شوند.
+  در محیط غیرproduction همیشه فعال‌اند.
+
 ## 3. assetهای CAPTCHA
 
 این فایل‌ها باید داخل image/checkout قابل خواندن باشند:
