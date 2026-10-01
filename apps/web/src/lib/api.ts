@@ -9,7 +9,7 @@ export const AUTH_COOKIE_NAME = process.env.NEXT_PUBLIC_AUTH_COOKIE_NAME || 'utc
 export const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL ||
   (typeof window !== 'undefined' ? window.location.origin.replace(/:\d+$/, ':8000') : 'http://localhost:8000')
-).replace(/\/+$/, '').replace(/\/api$/, '');
+).replace(/\/+$/, '').replace(/\/api(\/v1)?$/, '');
 
 // ─── URL helpers ─────────────────────────────────────────────────────────────
 

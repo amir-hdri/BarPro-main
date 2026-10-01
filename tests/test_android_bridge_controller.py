@@ -1,11 +1,13 @@
 """Unit tests for AndroidShippingController in app/android_bridge/controller.py."""
 
+import asyncio
 from dataclasses import replace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from app.android_bridge.client import (
+    ANDROID_DEVICE_MUTATION_LOCK_KEY,
     LOCATION_PACKAGE,
     TARGET_PACKAGE,
     AndroidBridge,
@@ -70,6 +72,22 @@ def mock_apply_button(controller: AndroidShippingController, text: str = "Apply"
     """Point the controller's bridge layout dump at a FakeTraveler Apply/Stop button."""
     controller.bridge.layout = AsyncMock(return_value=parse_layout(APPLY_BUTTON_LAYOUT % text))
     return controller
+
+
+@pytest.fixture(autouse=True)
+def _stub_device_mutation_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep controller unit tests hermetic.
+
+    apply_location now takes the device-wide Redis lock (batch-B fix B3).
+    Stub it as acquired here so the ADB-flow tests exercise the device logic
+    without a Redis server; the lock itself is covered by the dedicated B3
+    tests at the end of this file, which install their own fakes from the
+    test body (after this fixture runs).
+    """
+    from app.services import rpa_runtime_service
+
+    monkeypatch.setattr(rpa_runtime_service.rpa_runtime, "acquire_lock", AsyncMock(return_value=True))
+    monkeypatch.setattr(rpa_runtime_service.rpa_runtime, "release_lock", AsyncMock())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -594,3 +612,99 @@ def test_controller_initialization_with_custom_bridge():
     controller = AndroidShippingController(bridge=bridge)
     assert controller.bridge is bridge
     assert controller.config.serial == "192.168.1.100:5555"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B3. Device-level (cross-job) mutation lock — batch-B regression tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _install_fake_device_lock(monkeypatch: pytest.MonkeyPatch, state: dict) -> None:
+    """Install an atomic in-test stand-in for the Redis device lock.
+
+    Called from the test body, so it overrides the autouse stub above.
+    """
+    from app.services import rpa_runtime_service
+
+    async def fake_acquire(key: str, ttl_seconds: int) -> bool:
+        assert key == ANDROID_DEVICE_MUTATION_LOCK_KEY
+        if state["held"]:
+            return False
+        state["held"] = True
+        return True
+
+    async def fake_release(key: str, token: str | None = None) -> None:
+        state["held"] = False
+
+    monkeypatch.setattr(rpa_runtime_service.rpa_runtime, "acquire_lock", fake_acquire)
+    monkeypatch.setattr(rpa_runtime_service.rpa_runtime, "release_lock", fake_release)
+
+
+def _recording_controller(tag: str, calls: list, state: dict | None = None) -> AndroidShippingController:
+    """Controller whose ADB runner records every device command under `tag`."""
+    inner = make_mock_runner()
+
+    async def recording_runner(argv: tuple, *, timeout: float) -> str:
+        calls.append((tag, argv[3:]))
+        await asyncio.sleep(0.02)  # widen the race window
+        return await inner(argv, timeout=timeout)
+
+    controller = AndroidShippingController(config(), runner=recording_runner)
+    return mock_apply_button(controller, "Apply")
+
+
+async def test_concurrent_apply_location_serializes_on_shared_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """B3: concurrent apply_location calls (job A /start vs job B /finish)
+    must serialize on the single shared device: exactly one wins, and the
+    loser fails closed BEFORE touching the device — never proceeds unlocked."""
+    state = {"held": False}
+    _install_fake_device_lock(monkeypatch, state)
+    calls: list = []
+
+    controller_a = _recording_controller("job-a", calls)
+    controller_b = _recording_controller("job-b", calls)
+
+    results = await asyncio.gather(
+        controller_a.apply_location(35.7, 51.4),
+        controller_b.apply_location(35.8, 51.5),
+        return_exceptions=True,
+    )
+
+    successes = [r for r in results if r is None]
+    busy_failures = [r for r in results if isinstance(r, BridgeError) and "android_device_lock_busy" in str(r)]
+    assert len(successes) == 1, f"exactly one apply must win the device lock, got {results!r}"
+    assert len(busy_failures) == 1, f"the loser must fail closed on the busy lock, got {results!r}"
+
+    winner = "job-a" if results[0] is None else "job-b"
+    loser = "job-b" if winner == "job-a" else "job-a"
+    assert calls, "the winner must have issued device commands"
+    assert all(tag == winner for tag, _ in calls), "device commands interleaved across jobs"
+    assert not any(tag == loser for tag, _ in calls), "the loser touched the device without the lock"
+    assert state["held"] is False, "device lock was not released"
+
+
+async def test_apply_location_fails_closed_when_device_lock_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """B3: if the device lock cannot be acquired at all (Redis down), apply
+    must fail closed without touching the device — never proceed unlocked."""
+    from app.services import rpa_runtime_service
+
+    async def failing_acquire(key: str, ttl_seconds: int) -> bool:
+        raise RuntimeError("redis down")
+
+    release = AsyncMock()
+    monkeypatch.setattr(rpa_runtime_service.rpa_runtime, "acquire_lock", failing_acquire)
+    monkeypatch.setattr(rpa_runtime_service.rpa_runtime, "release_lock", release)
+
+    runner = make_mock_runner()
+    controller = AndroidShippingController(config(), runner=runner)
+    mock_apply_button(controller, "Apply")
+
+    with pytest.raises(BridgeError, match="android_device_lock_unavailable"):
+        await controller.apply_location(35.7, 51.4)
+
+    runner.assert_not_awaited()
+    release.assert_not_awaited()

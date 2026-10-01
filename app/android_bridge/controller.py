@@ -21,6 +21,7 @@ except ImportError:
 from typing import Any
 
 from app.android_bridge.client import (
+    ANDROID_DEVICE_MUTATION_LOCK_KEY,
     LOCATION_PACKAGE,
     TARGET_PACKAGE,
     AndroidBridge,
@@ -162,8 +163,8 @@ class AndroidShippingController:
             node = obs.require_unique(resource_id=f"{LOCATION_PACKAGE}:id/button_applyStop")
             if node.text == "Stop":
                 return
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("mock_location_fast_path_check_failed: %s", exc)
         services_out = await self._adb("shell", "dumpsys", "activity", "services", LOCATION_PACKAGE)
         if "MockedLocationService" in services_out:
             return
@@ -198,8 +199,38 @@ class AndroidShippingController:
         is definitively "apply"; an unreadable or unexpected state fails
         closed without any tap. The final attempt's error propagates
         unchanged.
+
+        Device serialization (batch-B fix B3): the single Redroid/FakeTraveler
+        device is shared across jobs, so every apply is additionally
+        serialized through the device-wide Redis lock
+        (``ANDROID_DEVICE_MUTATION_LOCK_KEY``) on top of the per-job lock in
+        shipping_gps.py. Fail-closed: an unavailable or busy lock raises
+        BridgeError — the device is never mutated without the lock held.
         """
         self._validate_coordinates(lat, lon, altitude)
+        self._require_enabled()
+        # Lazy imports: rpa_runtime_service must never be imported at module
+        # load (it pulls config/redis/contracts); the enabled check above keeps
+        # a disabled bridge failing with bridge_disabled, not a lock error.
+        from app.core.config import utcms_config
+        from app.services.rpa_runtime_service import rpa_runtime
+
+        try:
+            acquired = await rpa_runtime.acquire_lock(
+                ANDROID_DEVICE_MUTATION_LOCK_KEY, max(int(utcms_config.RPA_LOCK_TTL_SECONDS), 120)
+            )
+        except Exception as exc:
+            logger.error("android_device_lock_unavailable", exc_info=True)
+            raise BridgeError("android_device_lock_unavailable") from exc
+        if not acquired:
+            raise BridgeError("android_device_lock_busy")
+        try:
+            await self._apply_location_locked(lat, lon, altitude)
+        finally:
+            await rpa_runtime.release_lock(ANDROID_DEVICE_MUTATION_LOCK_KEY)
+
+    async def _apply_location_locked(self, lat: float, lon: float, altitude: float = 1200.0) -> None:
+        """Device-mutating half of apply_location; the caller must hold the device lock."""
         await self.verify_device_ready()
         logger.info("applying_location lat=%.6f lon=%.6f altitude=%.1f", lat, lon, altitude)
         # 1. Send geo:{lat},{lon} intent

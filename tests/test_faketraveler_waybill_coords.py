@@ -11,9 +11,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from app.api.routes import shipping_gps as routes
 from app.automation.gps_shipping_manager import ShippingState
+from app.services import shipping_travel_service
 
 
 @pytest.fixture
@@ -53,11 +55,12 @@ def faketraveler_runtime(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         classmethod(lambda cls: SimpleNamespace(enabled=True)),
     )
     # Readback verification succeeds
+    original_verify = shipping_travel_service.verify_android_anchor
     monkeypatch.setattr(
         "app.services.shipping_travel_service.verify_android_anchor",
         AsyncMock(return_value={"verified": True, "observation": {}}),
     )
-    return SimpleNamespace(state=state, transport=transport)
+    return SimpleNamespace(state=state, transport=transport, original_verify_android_anchor=original_verify)
 
 
 async def test_start_applies_waybill_origin_to_faketraveler(
@@ -119,8 +122,6 @@ async def test_start_fails_closed_when_apply_fails(
     async def failing_apply(self, lat: float, lon: float, **kwargs) -> None:
         raise RuntimeError("adb unreachable")
 
-    from fastapi import HTTPException
-
     with patch("app.android_bridge.controller.AndroidShippingController.apply_location", failing_apply):
         req = routes.ShippingStartRequest(
             job_id="test-job",
@@ -133,3 +134,197 @@ async def test_start_fails_closed_when_apply_fails(
 
     assert exc_info.value.status_code == 503
     assert "FakeTraveler" in exc_info.value.detail
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Batch-B regression tests (2026-10-02 audit follow-ups)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _persistent_state_store(monkeypatch: pytest.MonkeyPatch) -> dict:
+    """Mirror Redis with a fake save/load pair so a persisted terminal state
+    (the old B1 behavior) surfaces as a 409 on the retry /start."""
+    stored: dict = {}
+
+    async def fake_save(state: ShippingState) -> None:
+        stored["state"] = state
+
+    async def fake_load(job_id: str):
+        return stored.get("state")
+
+    monkeypatch.setattr(routes, "save_shipping_state", fake_save)
+    monkeypatch.setattr(routes, "load_shipping_state", fake_load)
+    return stored
+
+
+def _start_request(lat: float = 35.7, lng: float = 51.4) -> routes.ShippingStartRequest:
+    return routes.ShippingStartRequest(job_id="test-job", doc_no="test-document", latitude=lat, longitude=lng)
+
+
+async def test_start_apply_failure_keeps_job_retryable(
+    faketraveler_runtime: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B1: a transient FakeTraveler apply failure must not brick the waybill.
+
+    First /start 503s; nothing terminal may be persisted, so a second /start
+    is accepted (409-free) and 503s again on the still-failing device.
+    """
+    stored = _persistent_state_store(monkeypatch)
+
+    async def failing_apply(self, lat: float, lon: float, **kwargs) -> None:
+        raise RuntimeError("adb hiccup")
+
+    with patch("app.android_bridge.controller.AndroidShippingController.apply_location", failing_apply):
+        with pytest.raises(HTTPException) as first:
+            await routes.start_shipping(_start_request(), user_context={})
+    assert first.value.status_code == 503
+    assert "FakeTraveler" in first.value.detail
+    assert all(
+        state.status != "failed" for state in stored.values()
+    ), "transient apply failure persisted a terminal state — the waybill would be bricked"
+
+    with patch("app.android_bridge.controller.AndroidShippingController.apply_location", failing_apply):
+        with pytest.raises(HTTPException) as second:
+            await routes.start_shipping(_start_request(), user_context={})
+    assert second.value.status_code == 503, "retry /start was bricked instead of staying retryable"
+
+
+async def test_start_readback_failure_keeps_job_retryable(
+    faketraveler_runtime: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B1 (readback branch): readback runs before any UTCMS mutation, so a
+    transient readback failure must also stay retryable (503, no persisted
+    "failed") instead of bricking the waybill."""
+    stored = _persistent_state_store(monkeypatch)
+    monkeypatch.setattr(
+        "app.services.shipping_travel_service.verify_android_anchor",
+        AsyncMock(return_value={"verified": False, "reason": "readback_unavailable"}),
+    )
+
+    async def ok_apply(self, lat: float, lon: float, **kwargs) -> None:
+        return None
+
+    with patch("app.android_bridge.controller.AndroidShippingController.apply_location", ok_apply):
+        with pytest.raises(HTTPException) as first:
+            await routes.start_shipping(_start_request(), user_context={})
+    assert first.value.status_code == 503
+    assert all(
+        state.status != "failed" for state in stored.values()
+    ), "transient readback failure persisted a terminal state — the waybill would be bricked"
+
+    with patch("app.android_bridge.controller.AndroidShippingController.apply_location", ok_apply):
+        with pytest.raises(HTTPException) as second:
+            await routes.start_shipping(_start_request(), user_context={})
+    assert second.value.status_code == 503, "retry /start was bricked instead of staying retryable"
+
+
+async def test_start_readback_verifies_stored_origin_with_10m_offset_anchor(
+    faketraveler_runtime: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B2: an operator anchor 10 m from the pinned origin passes the 0.0002°
+    route gate; readback must compare the STORED origin (what apply wrote to
+    the device), so the 5 m readback tolerance can never deterministically
+    fail a legitimately-gated anchor."""
+    from datetime import UTC, datetime
+
+    captured: dict = {}
+    real_verify = faketraveler_runtime.original_verify_android_anchor
+
+    async def spy_verify(**kwargs):
+        captured.update(kwargs)
+        return await real_verify(**kwargs)
+
+    monkeypatch.setattr("app.services.shipping_travel_service.verify_android_anchor", spy_verify)
+
+    # The device reports exactly what apply_location wrote: the stored origin.
+    now = datetime.now(UTC)
+    observation = SimpleNamespace(
+        latitude=35.7,
+        longitude=51.4,
+        provider="fused",
+        serial="test-serial",
+        is_mock=True,
+        sampled_at=now,
+        observed_at=now,
+    )
+
+    class FakeObserver:
+        def __init__(self, config):
+            pass
+
+        async def observe(self):
+            return observation
+
+    monkeypatch.setattr("app.travel.android_observer.AdbLocationObserver", FakeObserver)
+
+    async def ok_apply(self, lat: float, lon: float, **kwargs) -> None:
+        return None
+
+    ten_m_deg = 10.0 / 111320.0  # ~10 m north — inside the 0.0002° (~22 m) gate
+    with patch("app.android_bridge.controller.AndroidShippingController.apply_location", ok_apply):
+        result = await routes.start_shipping(_start_request(lat=35.7 + ten_m_deg), user_context={})
+
+    assert result["status"] == "started"
+    assert result["gps_provider"] == "android_faketraveler_applied"
+    assert captured["expected_lat"] == 35.7, "readback must compare the stored origin, not the request anchor"
+    assert captured["expected_lng"] == 51.4, "readback must compare the stored origin, not the request anchor"
+
+
+async def test_finish_readback_verifies_stored_destination_with_10m_offset_anchor(
+    faketraveler_runtime: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B2 (finish side): same alignment for the destination — readback compares
+    the stored destination coords, so a gated 10 m operator offset succeeds."""
+    from datetime import UTC, datetime
+
+    runtime = faketraveler_runtime
+    runtime.state.status = "in_transit"
+    monkeypatch.setattr(routes, "load_shipping_state", AsyncMock(return_value=runtime.state))
+
+    captured: dict = {}
+    real_verify = runtime.original_verify_android_anchor
+
+    async def spy_verify(**kwargs):
+        captured.update(kwargs)
+        return await real_verify(**kwargs)
+
+    monkeypatch.setattr("app.services.shipping_travel_service.verify_android_anchor", spy_verify)
+
+    now = datetime.now(UTC)
+    observation = SimpleNamespace(
+        latitude=35.8,
+        longitude=50.9,
+        provider="fused",
+        serial="test-serial",
+        is_mock=True,
+        sampled_at=now,
+        observed_at=now,
+    )
+
+    class FakeObserver:
+        def __init__(self, config):
+            pass
+
+        async def observe(self):
+            return observation
+
+    monkeypatch.setattr("app.travel.android_observer.AdbLocationObserver", FakeObserver)
+
+    async def ok_apply(self, lat: float, lon: float, **kwargs) -> None:
+        return None
+
+    ten_m_deg = 10.0 / 111320.0
+    with patch("app.android_bridge.controller.AndroidShippingController.apply_location", ok_apply):
+        result = await routes.finish_shipping(
+            routes.ShippingFinishRequest(
+                job_id="test-job",
+                latitude=35.8 + ten_m_deg,
+                longitude=50.9,
+                measured_distance_km=70,
+            ),
+            user_context={},
+        )
+
+    assert result["status"] == "delivered"
+    assert captured["expected_lat"] == 35.8, "readback must compare the stored destination, not the request anchor"
+    assert captured["expected_lng"] == 50.9, "readback must compare the stored destination, not the request anchor"

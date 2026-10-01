@@ -69,7 +69,11 @@ async def test_real_start_handler_uses_vault_and_only_start_endpoint(
     monkeypatch.setattr(routes, "load_shipping_state", AsyncMock(return_value=None))
     result = await routes.start_shipping(start_request(), user_context={})
     runtime.login.assert_awaited_once_with(
-        national_code="test-driver", password="test-password", proxy_url="http://squid:3128"
+        national_code="test-driver",
+        password="test-password",
+        proxy_url="http://squid:3128",
+        force_reauth=False,
+        client_id=None,
     )
     runtime.transport.register_start_of_shipping.assert_awaited_once()
     runtime.transport.start_shipping_with_gps.assert_not_awaited()

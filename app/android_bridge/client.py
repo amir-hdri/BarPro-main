@@ -27,6 +27,12 @@ from typing import Protocol
 
 TARGET_PACKAGE = "com.baarnameshahri"
 LOCATION_PACKAGE = "cl.coders.faketraveler"
+#: Redis key for the device-wide FakeTraveler mutation lock (batch-B fix B3).
+#: The single Redroid device is shared across all jobs: the per-job lock
+#: (``lock:shipping:{job_id}`` in shipping_gps.py) cannot stop job A's /start
+#: from racing job B's /finish while both mutate the same mock-location
+#: provider, so every apply_location is serialized through this key.
+ANDROID_DEVICE_MUTATION_LOCK_KEY = "lock:android-device:mutation"
 _OUTPUT_LIMIT = 1024 * 1024
 logger = logging.getLogger(__name__)
 

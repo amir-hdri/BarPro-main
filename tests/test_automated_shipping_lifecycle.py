@@ -478,7 +478,11 @@ async def test_auto_complete_shipping_when_past_eta_sends_two_point_gps():
 
 @pytest.mark.asyncio
 async def test_auto_complete_shipping_handles_4011_exception_and_updates_db():
-    """Verify auto_complete_shipping handles UTCMS 4011 exception gracefully, marks delivered, and updates DB job."""
+    """Verify a free-text "4011" mention in an exception is NOT treated as UTCMS
+    business rule 4011 (only a structured result_code counts). Fail-closed:
+    the error is logged, a bounded backoff is persisted, the exception
+    propagates, and neither the trip nor the DB job is marked delivered/success.
+    """
     state = ShippingState(
         job_id="job-4011-exc-test",
         doc_no="1349757758",
@@ -504,7 +508,7 @@ async def test_auto_complete_shipping_handles_4011_exception_and_updates_db():
     )
 
     mock_client = AsyncMock(spec=UtcmsMobileClient)
-    # Simulate UTCMS 4011 error raised as exception
+    # Free-text "4011" mention WITHOUT a structured business-rule code.
     mock_client.register_end_of_shipping.side_effect = Exception(
         "UTCMS 4011: پایان حمل بر اساس خوداظهاری تایید شده است"
     )
@@ -522,23 +526,17 @@ async def test_auto_complete_shipping_handles_4011_exception_and_updates_db():
         patch("app.auth_multitenant.decrypt_driver_password", return_value="plain-pwd"),
         patch("app.core.database.async_session_factory", lambda: FakeAsyncSessionContext(mock_session)),
     ):
-        result = await auto_complete_shipping("job-4011-exc-test", force=True)
+        with pytest.raises(Exception, match="UTCMS 4011"):
+            await auto_complete_shipping("job-4011-exc-test", force=True)
 
-    # 1. auto_complete_shipping return value
-    assert result["status"] == "delivered"
-    assert result["result"]["resultCode"] == 4011
-    assert result["result"]["mode"] == "self_declared_auto_complete"
+    # 1. Trip is NOT marked delivered; a bounded backoff is persisted instead.
+    assert state.status != "delivered"
+    assert state.backoff_until
+    assert state.last_error_message
 
-    # 2. Shipping state marked delivered
-    assert state.status == "delivered"
-
-    # 3. Database WaybillJob updated
-    assert mock_job.status == "success"
-    assert "end_shipping" in mock_job.result_json
-    assert mock_job.result_json["end_shipping"]["resultCode"] == 4011
-    assert mock_job.result_json["end_shipping"]["mode"] == "self_declared_auto_complete"
-    assert "completed_at" in mock_job.result_json
-    mock_session.commit.assert_awaited()
+    # 2. Database WaybillJob is NOT marked success.
+    assert mock_job.status != "success"
+    assert "end_shipping" not in (mock_job.result_json or {})
 
 
 @pytest.mark.asyncio
