@@ -1,5 +1,4 @@
 import asyncio
-import hashlib
 import json
 import logging
 import uuid
@@ -15,6 +14,7 @@ from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.core.execution_context import generate_correlation_id
 from app.core.redis_client import redis_manager
+from app.core.submission_identity import compute_canonical_job_idempotency_key
 from app.models_legacy import WaybillTask
 from app.models_multitenant import WaybillJob
 from app.monitoring.metrics import set_queue_depth, summarize_queue_depth, track_task_status
@@ -23,28 +23,40 @@ from app.schemas.task import TaskStatus
 
 logger = logging.getLogger(__name__)
 
-# Maximum length for idempotency keys before SHA-256 hashing
-# Configurable via IDEMPOTENCY_KEY_MAX_LENGTH environment variable (default: 200)
-IDEMPOTENCY_KEY_MAX_LENGTH = utcms_config.IDEMPOTENCY_KEY_MAX_LENGTH
-
 
 class WaybillTaskService:
     QUEUE_DEPTH_KEY = "waybill:queue_depth"
     QUEUE_DEPTH_SEEDED = "waybill:queue_depth:seeded"
 
     @staticmethod
-    def build_idempotency_key(payload: dict[str, Any], provided: str | None = None) -> str:
-        candidate = str(provided).strip() if provided is not None else None
-        if candidate:
-            if len(candidate) > IDEMPOTENCY_KEY_MAX_LENGTH:
-                digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
-                return f"user-{digest}"
-            return candidate
+    def build_idempotency_key(
+        payload: dict[str, Any],
+        provided: str | None = None,
+        *,
+        client_id: int,
+        driver_id: int | None = None,
+    ) -> str:
+        """Build the tenant-scoped idempotency key for a waybill job.
 
-        from app.core.submission_identity import compute_canonical_payload_digest
+        Delegates to the canonical builder in ``app.core.submission_identity`` so
+        the queue path and the scheduler path
+        (``rpa_submit_service.build_job_idempotency_key``) produce identical
+        tenant-scoped keys: supplied keys are prefixed ``tenant:{client_id}:``
+        (long keys are hashed), auto keys hash tenant + driver + canonical
+        commercial payload. The global UNIQUE constraint on
+        ``waybill_jobs.idempotency_key`` then enforces dedup *within* a tenant
+        without ever colliding across tenants.
 
-        digest = compute_canonical_payload_digest(payload)
-        return f"auto-{digest}"
+        ``client_id`` is required keyword-only: without a tenant there is no
+        safe idempotency scope, and one tenant's key could hijack another
+        tenant's job (audit finding A1).
+        """
+        return compute_canonical_job_idempotency_key(
+            client_id=client_id,
+            driver_id=driver_id,
+            payload=payload,
+            supplied_key=provided,
+        )
 
     async def create_or_get_task(
         self,
@@ -60,7 +72,7 @@ class WaybillTaskService:
         task_payload = json.dumps(payload, ensure_ascii=False)
 
         async with async_session_factory() as session:
-            existing = await self._find_by_idempotency_key(session, idempotency_key)
+            existing = await self._find_by_idempotency_key(session, idempotency_key, client_id)
             if existing:
                 await self._sync_queue_depth()
                 return self._to_public_dict(existing), True
@@ -92,7 +104,7 @@ class WaybillTaskService:
                 for attempt in range(5):
                     await asyncio.sleep(0.05 * (attempt + 1))
                     async with async_session_factory() as read_session:
-                        existing = await self._find_by_idempotency_key(read_session, idempotency_key)
+                        existing = await self._find_by_idempotency_key(read_session, idempotency_key, client_id)
                         if existing:
                             await self._sync_queue_depth()
                             return self._to_public_dict(existing), True
@@ -265,6 +277,24 @@ class WaybillTaskService:
                 return None
             return self._safe_json_load(task.payload_json)
 
+    async def get_task_client_id(self, task_id: str) -> int | None:
+        """Return the owning tenant's client_id for a task, or None if unknown.
+
+        Used to scope tenant-dependent resources (e.g. the Playwright
+        auth-state scope in the inline queue path) to the task's tenant.
+        """
+        async with async_session_factory() as session:
+            if task_id.startswith("job_"):
+                statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
+                result = await session.exec(statement)
+                job = result.first()
+                return job.client_id if job else None
+
+            task_statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
+            result = await session.exec(task_statement)
+            task = result.first()
+            return getattr(task, "client_id", None) if task else None
+
     async def queue_snapshot(self) -> dict[str, int]:
         async with async_session_factory() as session:
             task_statuses = (await session.exec(select(WaybillJob.status))).all()
@@ -299,8 +329,14 @@ class WaybillTaskService:
             tasks = result.all()
             return [self._to_public_dict(task) for task in tasks]
 
-    async def _find_by_idempotency_key(self, session: AsyncSession, key: str) -> WaybillJob | None:
-        statement = select(WaybillJob).where(WaybillJob.idempotency_key == key)
+    async def _find_by_idempotency_key(self, session: AsyncSession, key: str, client_id: int) -> WaybillJob | None:
+        # Tenant-scoped match: a raw key collision between two tenants must
+        # never resolve to the other tenant's job (audit finding A1). Keys are
+        # also tenant-scoped at build time, so this filter is defense in depth.
+        statement = select(WaybillJob).where(
+            WaybillJob.idempotency_key == key,
+            WaybillJob.client_id == client_id,
+        )
         result = await session.exec(statement)
         return result.first()
 

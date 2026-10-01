@@ -54,7 +54,9 @@ class WaybillQueueManager:
         payload["batch_id"] = (
             payload.get("batch_id") or payload.get("session_id") or payload["correlation_id"]
         ).strip()
-        normalized_key = task_service.build_idempotency_key(payload, idempotency_key)
+        normalized_key = task_service.build_idempotency_key(
+            payload, idempotency_key, client_id=client_id, driver_id=driver_id
+        )
         task, reused = await task_service.create_or_get_task(
             payload=payload,
             idempotency_key=normalized_key,
@@ -125,7 +127,13 @@ class WaybillQueueManager:
 
         await task_service.mark_processing(task_id, worker_id="inline-api", attempt_count=1)
         try:
-            result = await waybill_service.create_waybill_with_map(WaybillMapRequest.model_validate(payload))
+            # C2: scope the Playwright auth-state to the task's tenant so the
+            # inline path never uses the legacy unscoped global session.
+            task_client_id = await task_service.get_task_client_id(task_id)
+            auth_scope = f"client-{task_client_id}" if task_client_id is not None else None
+            result = await waybill_service.create_waybill_with_map(
+                WaybillMapRequest.model_validate(payload), auth_scope=auth_scope
+            )
             await task_service.mark_success(task_id, result=result, attempt_count=1)
         except Exception as exc:
             category, retryable = self._classify_inline_error(exc)
