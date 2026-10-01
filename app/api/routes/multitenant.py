@@ -753,6 +753,8 @@ async def get_daily_summary(
     Returns aggregated statistics for the specified number of days.
     Uses func.date(created_at) for SQLite/PostgreSQL compatibility.
     """
+    # client comes from get_current_client (DB-loaded), so its PK is never None.
+    assert client.id is not None
     return await user_reporting_service.daily_summary(client.id, days, session)
 
 

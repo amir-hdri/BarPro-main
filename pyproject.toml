@@ -38,6 +38,11 @@ warn_no_return = true
 warn_unreachable = true
 strict_equality = true
 
+# Central handling for optional/untyped third-party dependencies.
+# jdatetime ships no py.typed marker; a minimal stub (jdatetime.pyi) covers
+# the API surface used. torch/keras/tensorflow are heavy ML wheels
+# intentionally excluded from the typecheck venv (their imports are guarded
+# at runtime).
 [[tool.mypy.overrides]]
 module = [
     "playwright.*",
@@ -45,54 +50,19 @@ module = [
     "redis.*",
     "sqlmodel.*",
     "alembic.*",
+    "torch.*",
+    "keras.*",
+    "tensorflow.*",
 ]
 ignore_missing_imports = true
 
-# Type-checking debt, per package.
+# Type-checking debt: fully paid down as of 2026-10-01.
 #
-# This list replaces a blanket `module = "app.*"` override that suppressed every
-# error under app/, which made the CI step `mypy app/ --ignore-missing-imports`
-# pass unconditionally — a green "Backend Type Checking" job proved nothing.
-#
-# Everything NOT listed here is type-checked for real as of this change:
-# app/main.py, app/auth_multitenant.py, app/models_*.py, app.bot, app.models,
-# app.monitoring, app.realtime, app.rpa, app.schemas, app.queue, app.config.
-# They pass with zero errors, so new code in them is checked from day one.
-#
-# Error counts measured with mypy 2.3.0, python_version 3.11, and
-# requirements-typecheck.txt installed (see that file — without those libraries
-# the numbers are both smaller and wrong):
-#
-#     app.services      201 errors in 21 files
-#     app.automation    137 errors in 25 files
-#     app.core           56 errors in 12 files
-#     app.orchestrator   32 errors in  7 files
-#     app.workers        19 errors in  3 files
-#     app.api            17 errors in  3 files
-#     ------------------------------------------
-#     total             462 errors in 71 files
-#
-# The list is meant to shrink. To pay a package down:
-#   1. mypy app/ --ignore-missing-imports --config-file <copy without that entry>
-#   2. fix the errors, delete the entry, update the table above.
-# Prefer removing a whole package at a time; a package with an entry here is
-# invisible to the gate, so a partially-fixed package buys nothing until the
-# entry goes away.
-[[tool.mypy.overrides]]
-module = [
-    "app.services.*",
-    "app.automation.*",
-    "app.core.*",
-    "app.orchestrator.*",
-    "app.workers.*",
-    "app.api.*",
-    "app.android_bridge.*",
-]
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "scripts.*"
-ignore_errors = true
+# The per-package `ignore_errors` overrides were removed after the mypy
+# pay-down verified `mypy app/` green with zero broad suppressions
+# (206 source files, strict flags above; only the central
+# ignore_missing_imports for optional/untyped third-party deps remains).
+# `scripts/` is also clean. Do not reintroduce blanket ignores.
 
 # Ruff owns linting/import sorting; Black is the repository's sole formatter.
 [tool.ruff]

@@ -353,13 +353,11 @@ class ProxyRotator:
                     self.proxies.append(proxy)
                     loaded += 1
         else:
+            # Iterating a dict yields its (str) keys, so every item is a str
+            # here; the dict branch below the str check is provably dead.
             for item in data:
                 if isinstance(item, str):
                     self.load_from_list([item])
-                elif isinstance(item, dict):
-                    proxy = ProxyInfo.from_dict(item)
-                    self.proxies.append(proxy)
-                    loaded += 1
 
         logger.info(f"Loaded {loaded} proxies from JSON")
         return loaded
@@ -715,7 +713,7 @@ class ProxyRotator:
 
         return results
 
-    async def start_auto_health_check(self, interval: float = None):
+    async def start_auto_health_check(self, interval: float | None = None):
         """Start automatic background health checking."""
         if self._running:
             logger.warning("Health check already running")
@@ -853,7 +851,7 @@ async def _test_proxy(proxy_url: str, timeout: float = 10.0) -> bool:
             proxy_str = f"http://{proxy_str}"
 
         try:
-            from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
+            from curl_cffi import requests as cc_requests
 
             def _probe(target_url: str) -> bool:
                 response = cc_requests.get(

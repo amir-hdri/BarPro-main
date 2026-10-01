@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 from pathlib import Path
+from typing import Any
 
 from app.automation.captcha.base import CaptchaProvider, CaptchaResult
 from app.core.config import utcms_config
@@ -20,7 +21,7 @@ def _strip_data_header(b64: str) -> str:
     return b64
 
 
-def _decode_predictions(pred, chars):
+def _decode_predictions(pred: Any, chars: Any) -> list[str]:
     import tensorflow as tf
 
     pred_time_major = tf.transpose(pred, perm=[1, 0, 2])
@@ -63,18 +64,26 @@ class KerasOcrCaptchaProvider(CaptchaProvider):
     2.5 GB worker cgroup.
     """
 
-    _model = None
+    # Any: the keras Model type is only available after the lazy import
+    # inside _get_model(); None until loaded, False/True for load errors.
+    _model: Any = None
     _model_lock = threading.Lock()
     _model_error = False
 
     def _get_model(self):
-        if self._model is not None:
-            return self._model
+        # Local copy: double-checked locking. self._model transitions
+        # None -> model exactly once, so reading it into a local is
+        # behavior-identical; it also resets mypy's narrowing from the
+        # first check for the re-check under the lock.
+        model = self._model
+        if model is not None:
+            return model
         if self._model_error:
             return None
         with self._model_lock:
-            if self._model is not None:
-                return self._model
+            model = self._model
+            if model is not None:
+                return model
             model_path = utcms_config.KERAS_MODEL_PATH
             if not os.path.isabs(model_path):
                 model_path = str(Path(os.getcwd()) / model_path)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from app.automation.gps_shipping_manager import auto_complete_shipping, get_due_in_transit_jobs
 from app.core.utils import run_async
@@ -115,7 +115,8 @@ async def _auto_complete_due_trips() -> dict[str, Any]:
 
 def _execute_auto_complete_task(task_instance: Any = None) -> dict[str, Any]:
     try:
-        return run_async(_auto_complete_due_trips())
+        # run_async() is untyped (returns Any); cast() is a runtime no-op.
+        return cast(dict[str, Any], run_async(_auto_complete_due_trips()))
     except Exception as exc:
         logger.error(
             "shipping_auto_complete_due_trips_fatal_error",

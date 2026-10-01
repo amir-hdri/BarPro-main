@@ -34,7 +34,7 @@ import logging
 import os
 import socket
 import time
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse, urlunparse
 
 from app.core.config import utcms_config
@@ -400,13 +400,13 @@ async def check_proxy_health(proxy_url: str, target_url: str | None = None) -> b
     if not parsed.hostname or not parsed.port:
         return False
 
-    from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
+    from curl_cffi import requests as cc_requests
 
     targets_to_try = [target_url] if target_url else ["https://utcms.ir", "https://api.ipify.org"]
     last_error = ""
     for attempt in range(1, 4):
         for tgt in targets_to_try:
-            session = None
+            session: Any = None
             try:
                 session = cc_requests.Session(
                     impersonate="chrome120",
@@ -457,7 +457,9 @@ async def increment_worker_failures(worker_id: str) -> int:
         client = await redis_manager.get()
         if client:
             key = f"worker_retry_attempts:{worker_id}"
-            val = await client.incr(key)
+            # cast is a runtime no-op: redis INCR returns an int; the client
+            # here is loosely typed so incr() yields Any.
+            val = cast(int, await client.incr(key))
             if val == 1:
                 await client.expire(key, 60)
             return val

@@ -132,8 +132,8 @@ class FuelScraper:
             j_month = j_month or current_m
         logger.info(f"Using Jalali period: {j_year}/{j_month:02d}")
 
-        base_rows = []
-        perf_rows = []
+        base_rows: list[list[str]] = []
+        perf_rows: list[list[str]] = []
         base_error = None
         perf_error = None
         base_screenshot_bytes: bytes | None = None

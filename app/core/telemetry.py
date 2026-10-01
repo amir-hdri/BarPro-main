@@ -110,7 +110,7 @@ class EvidenceCollector:
         Returns:
             List of captured evidence objects
         """
-        evidence_list = []
+        evidence_list: list[Evidence] = []
         timestamp = datetime.now(UTC).replace(tzinfo=None).strftime("%Y%m%d_%H%M%S")
 
         # Check evidence limit
@@ -675,14 +675,14 @@ class TelemetryCollector:
 
     @staticmethod
     def _count_by_type(events: list[TelemetryEvent]) -> dict[str, int]:
-        counts = {}
+        counts: dict[str, int] = {}
         for event in events:
             counts[event.event_type] = counts.get(event.event_type, 0) + 1
         return counts
 
     @staticmethod
     def _count_by_error_code(events: list[TelemetryEvent]) -> dict[str, int]:
-        counts = {}
+        counts: dict[str, int] = {}
         for event in events:
             if event.error_code:
                 counts[event.error_code] = counts.get(event.error_code, 0) + 1
@@ -873,11 +873,13 @@ class ClientReportGenerator:
             "RATE_LIMITED": "Wait before making more requests.",
             "PERMISSION_DENIED": "Contact your administrator for access.",
         }
+        if error_code is None:
+            return "Contact support if the issue persists."
         return actions.get(error_code, "Contact support if the issue persists.")
 
     @staticmethod
     def _count_events_by_type(events: list[dict[str, Any]]) -> dict[str, int]:
-        counts = {}
+        counts: dict[str, int] = {}
         for event in events:
             event_type = event.get("event_type", "unknown")
             counts[event_type] = counts.get(event_type, 0) + 1

@@ -5,7 +5,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
@@ -26,8 +26,8 @@ class BrowserResourceGuard:
         self.max_age_seconds = max_age_seconds
         self.max_pages = max_pages
         self._resources: dict[str, dict] = {}
-        self._loop = None
-        self._lock = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._lock: asyncio.Lock | None = None
 
     @property
     def lock(self) -> asyncio.Lock:
@@ -122,7 +122,9 @@ class BrowserManager:
     """Manages Playwright browser lifecycle"""
 
     def __init__(self):
-        self.playwright = None
+        # Playwright's async_playwright() is untyped here (Any); keep Any so
+        # attribute access stays sound and no behavior changes.
+        self.playwright: Any = None
         self.browser: Browser | None = None
         self._contexts: dict[str, BrowserContext] = {}
         self._pooled_sessions: set[str] = set()
@@ -140,6 +142,10 @@ class BrowserManager:
     async def recycle_browser(self):
         """Force close the browser and all contexts to free memory (RAM recycling)."""
         await self._ensure_loop_resources()
+        # Proof: _ensure_loop_resources() assigns _init_lock (and the other two)
+        # whenever it is None or the event loop changed, and nothing ever resets
+        # a lock to None afterwards. Type-level narrowing only; never fires.
+        assert self._init_lock is not None
         async with self._init_lock:
             logger.info("Recycling browser process to free up memory (RAM recycling)...")
 
@@ -218,6 +224,9 @@ class BrowserManager:
         Thread-safe: uses _recycle_lock to prevent race conditions.
         """
         await self._ensure_loop_resources()
+        # Proof: see recycle_browser — _ensure_loop_resources() guarantees all
+        # three locks are set afterwards. Type-level narrowing only; never fires.
+        assert self._recycle_lock is not None
         async with self._recycle_lock:
             self._success_count_recycle += 1
             logger.info(f"Incremented successful submission counter for recycle: {self._success_count_recycle}/20")
@@ -257,6 +266,9 @@ class BrowserManager:
         if self.playwright and self.browser and (not utcms_config.BROWSER_POOL_ENABLED or self._pool is not None):
             return
 
+        # Proof: see recycle_browser — _ensure_loop_resources() guarantees the
+        # locks are set afterwards. Type-level narrowing only; never fires.
+        assert self._init_lock is not None
         async with self._init_lock:
             if not self.playwright:
                 self.playwright = await async_playwright().start()
@@ -269,7 +281,8 @@ class BrowserManager:
 
     async def _try_standard_launch(self, launch_options: dict) -> Browser:
         """Attempt to launch Chromium with standard options."""
-        return await self.playwright.chromium.launch(**launch_options)
+        # cast is a runtime no-op: playwright's launch() returns a Browser.
+        return cast(Browser, await self.playwright.chromium.launch(**launch_options))
 
     async def _try_system_chrome_launch(self, launch_options: dict) -> Browser:
         """Attempt to launch using system Google Chrome if available."""
@@ -287,10 +300,13 @@ class BrowserManager:
                 "browser_launch_retry_system_chrome",
                 extra={"extra_fields": {"error": "Standard Chromium failed", "executable_path": system_chrome}},
             )
-            return await self.playwright.chromium.launch(
-                **launch_options,
-                executable_path=system_chrome,
-                channel="chrome",
+            return cast(
+                Browser,
+                await self.playwright.chromium.launch(
+                    **launch_options,
+                    executable_path=system_chrome,
+                    channel="chrome",
+                ),
             )
         raise Exception("System Chrome not found")
 
@@ -306,7 +322,8 @@ class BrowserManager:
         )
         options = launch_options.copy()
         options["env"] = launch_env
-        return await self.playwright.chromium.launch(**options)
+        # cast is a runtime no-op: playwright's launch() returns a Browser.
+        return cast(Browser, await self.playwright.chromium.launch(**options))
 
     async def _launch_browser_with_fallback(self) -> Browser:
         launch_args = [
@@ -412,6 +429,9 @@ class BrowserManager:
         """Create a new browser context with a secure session ID"""
         if not self.browser:
             await self.initialize()
+            # initialize() either sets self.browser via _launch_browser_with_fallback()
+            # or raises; a normal return guarantees a live browser.
+            assert self.browser is not None
 
         session_id = str(uuid.uuid4())
         if utcms_config.BROWSER_POOL_ENABLED and self._pool is not None:
@@ -462,6 +482,9 @@ class BrowserManager:
             os.makedirs(auth_state_dir, exist_ok=True)
 
         await self._ensure_loop_resources()
+        # Proof: see recycle_browser — _ensure_loop_resources() guarantees the
+        # locks are set afterwards. Type-level narrowing only; never fires.
+        assert self._state_lock is not None
         async with self._state_lock:
             try:
                 await context.storage_state(path=effective_auth_state_path)
@@ -746,7 +769,10 @@ class BrowserManager:
     @staticmethod
     async def _register_page_listener(page: Page, event_name: str, callback) -> None:
         try:
-            page.on(event_name, callback)
+            # event_name is caller-controlled but always one of Playwright's known
+            # page events ("console"/"request"/"response"); the cast only satisfies
+            # the Literal-based overloads without changing the runtime call.
+            page.on(cast(Any, event_name), callback)
         except Exception as exc:
             logger.warning(
                 "page_listener_registration_failed",

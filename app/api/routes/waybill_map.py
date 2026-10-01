@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
-from app.auth_multitenant import _decode_jwt
+from app.auth_multitenant import _decode_jwt, get_current_user_or_admin
 from app.automation.reporting import report_service
 from app.automation.traffic_control import waybill_traffic_controller
 from app.core.config import utcms_config
@@ -24,6 +24,7 @@ from app.schemas.waybill import (
     VehicleModel,
     WaybillMapRequest,
 )
+from app.services.task_service import task_service
 from app.services.waybill_service import waybill_service
 
 logger = logging.getLogger(__name__)
@@ -91,11 +92,27 @@ async def enqueue_create_waybill_with_map(
 @router.get(
     "/tasks/{task_id}",
     response_model=WaybillTaskStatusResponse,
-    dependencies=[Depends(require_sensitive_auth)],
 )
-async def get_waybill_task_status(task_id: str):
-    """وضعیت اجرای تسک صف."""
-    status = await queue_manager.get_task_status(task_id)
+async def get_waybill_task_status(
+    task_id: str,
+    user_context: dict = Depends(get_current_user_or_admin),  # noqa: B008
+):
+    """وضعیت اجرای تسک صف.
+
+    Tenant-isolation (GAP-3): clients may only read their own jobs
+    (`job_*` IDs scoped by client_id); legacy queue task IDs are
+    admin-only. Previously this endpoint used `require_sensitive_auth`
+    alone, which carries no tenant identity.
+    """
+    role = user_context.get("role")
+    if role == "master_admin":
+        status = await queue_manager.get_task_status(task_id)
+    else:
+        client = user_context.get("user")
+        client_id = getattr(client, "id", None)
+        if client_id is None or not task_id.startswith("job_"):
+            raise HTTPException(status_code=404, detail="task_id یافت نشد")
+        status = await task_service.get_task_status(task_id, client_id=int(client_id))
     if not status:
         raise HTTPException(status_code=404, detail="task_id یافت نشد")
     return status

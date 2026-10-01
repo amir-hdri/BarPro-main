@@ -4,10 +4,10 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.alerts import alert_manager
@@ -69,7 +69,11 @@ class WaybillTaskService:
                 job_id=f"job_{uuid.uuid4().hex[:16]}",
                 idempotency_key=idempotency_key,
                 status=TaskStatus.PENDING.value,
-                payload_json=task_payload,
+                # NOTE: payload_json is declared as dict (JSON column) on the model, but this
+                # service intentionally round-trips a pre-serialized string: the JSON column
+                # re-serializes it on write and _safe_json_load() parses it back on read.
+                # The cast below is a runtime no-op preserving that behavior.
+                payload_json=cast(dict[str, Any], task_payload),
                 max_retries=max(0, int(retries)),
                 retryable=False,
                 client_id=client_id,
@@ -215,18 +219,30 @@ class WaybillTaskService:
                 },
             )
 
-    async def get_task_status(self, task_id: str) -> dict[str, Any] | None:
+    async def get_task_status(self, task_id: str, client_id: int | None = None) -> dict[str, Any] | None:
+        """Return public task/job status.
+
+        When `client_id` is given (tenant-scoped callers), `job_*` lookups
+        are filtered by it and legacy `WaybillTask` rows (which carry no
+        tenant field) are never returned.
+        """
         async with async_session_factory() as session:
             if task_id.startswith("job_"):
                 statement = select(WaybillJob).where(WaybillJob.job_id == task_id)
+                if client_id is not None:
+                    statement = statement.where(WaybillJob.client_id == client_id)
                 result = await session.exec(statement)
                 job = result.first()
                 if not job:
                     return None
                 return self._to_public_dict(job)
 
-            statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
-            result = await session.exec(statement)
+            if client_id is not None:
+                # Legacy queue tasks have no tenant attribution; scoped
+                # callers must not see them.
+                return None
+            task_statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
+            result = await session.exec(task_statement)
             task = result.first()
             if not task:
                 return None
@@ -242,8 +258,8 @@ class WaybillTaskService:
                     return None
                 return self._safe_json_load(job.payload_json)
 
-            statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
-            result = await session.exec(statement)
+            task_statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
+            result = await session.exec(task_statement)
             task = result.first()
             if not task:
                 return None
@@ -276,7 +292,9 @@ class WaybillTaskService:
 
     async def list_tasks(self, limit: int = 50) -> list[dict[str, Any]]:
         async with async_session_factory() as session:
-            statement = select(WaybillJob).order_by(WaybillJob.updated_at.desc()).limit(max(1, min(500, int(limit))))
+            statement = (
+                select(WaybillJob).order_by(col(WaybillJob.updated_at).desc()).limit(max(1, min(500, int(limit))))
+            )
             result = await session.exec(statement)
             tasks = result.all()
             return [self._to_public_dict(task) for task in tasks]
@@ -303,8 +321,8 @@ class WaybillTaskService:
                 await session.commit()
                 await self._adjust_queue_depth(old_status, new_status)
             else:
-                statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
-                result = await session.exec(statement)
+                task_statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
+                result = await session.exec(task_statement)
                 task = result.first()
                 if not task:
                     return
@@ -429,12 +447,13 @@ class WaybillTaskService:
             "finished_at": task.finished_at,
         }
 
-    def _extract_correlation_id(self, task: WaybillTask) -> str:
+    def _extract_correlation_id(self, task: WaybillTask | Any) -> str:
         payload = self._safe_json_load(task.payload_json) or {}
         correlation_id = payload.get("correlation_id")
         if isinstance(correlation_id, str) and correlation_id.strip():
             return correlation_id.strip()
-        return task.task_id
+        # WaybillTask has task_id; WaybillJob has job_id.
+        return str(getattr(task, "task_id", None) or getattr(task, "job_id", ""))
 
     def _extract_priority(self, task: WaybillTask) -> int:
         payload = self._safe_json_load(task.payload_json) or {}
@@ -454,8 +473,8 @@ class WaybillTaskService:
                     return None, None
                 return self._to_public_dict(row), self._safe_json_load(row.payload_json)
 
-            statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
-            result = await session.exec(statement)
+            task_statement = select(WaybillTask).where(WaybillTask.task_id == task_id)
+            result = await session.exec(task_statement)
             row = result.first()
             if not row:
                 return None, None

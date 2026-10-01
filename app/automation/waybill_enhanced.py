@@ -10,12 +10,12 @@ import os
 import random
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine, Mapping
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
-from playwright.async_api import BrowserContext, Page, Response
+from playwright.async_api import BrowserContext, ElementHandle, Locator, Page, Response
 
 from app.automation.browser import PageInteractor
 from app.automation.captcha import captcha_engine, get_captcha_provider
@@ -175,7 +175,10 @@ class EnhancedWaybillManager:
         for sel in modal_selectors:
             try:
                 if await self.page.is_visible(sel, timeout=300):
-                    text = await self.page.eval_on_selector(sel, "el => (el.innerText || el.textContent || '').trim()")
+                    raw_text = await self.page.eval_on_selector(
+                        sel, "el => (el.innerText || el.textContent || '').trim()"
+                    )
+                    text = str(raw_text) if raw_text is not None else ""
                     logger.warning("modal_popup_detected_and_dismissing", extra={"extra_fields": {"text": text}})
                     for btn_sel in AuthSelectors.MODAL_CONFIRM_BUTTONS:
                         if await self.page.is_visible(btn_sel, timeout=200):
@@ -447,7 +450,7 @@ class EnhancedWaybillManager:
         return (resolved if isinstance(resolved, str) else str(resolved)).strip()
 
     @staticmethod
-    def _normalize_text(value: str) -> str:
+    def _normalize_text(value: str | None) -> str:
         if value is None:
             return ""
         normalized = str(value).strip().lower()
@@ -465,7 +468,7 @@ class EnhancedWaybillManager:
         return "".join(normalized.split())
 
     @staticmethod
-    def _to_english_digits(text: str) -> str:
+    def _to_english_digits(text: str | None) -> str:
         if text is None:
             return ""
         translation_table = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
@@ -750,7 +753,9 @@ class EnhancedWaybillManager:
             except Exception:
                 continue
 
-            filler_chain = []
+            # Callables with different coroutine return types (None vs bool) share
+            # this chain; the loop below inspects the awaited result, so Any is honest.
+            filler_chain: list[Callable[..., Coroutine[Any, Any, Any]]] = []
             if is_visible:
                 if prefer_type:
                     filler_chain.append(
@@ -1595,7 +1600,8 @@ class EnhancedWaybillManager:
             return None
 
         success_value = payload.get("success")
-        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        raw_data = payload.get("data")
+        data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else {}
         result_code = data.get("resultCode", payload.get("resultCode"))
         explicit_failure = (
             success_value is False
@@ -1610,7 +1616,7 @@ class EnhancedWaybillManager:
             or ""
         )
         obj_value = data.get("obj", payload.get("obj"))
-        obj = obj_value if isinstance(obj_value, dict) else {}
+        obj: dict[str, Any] = obj_value if isinstance(obj_value, dict) else {}
 
         # Extract embedded JSON if message wraps backend error response (e.g. ASP.NET Status 400 Response: {...})
         if not result_code and isinstance(result_message, str) and "{" in result_message:
@@ -1682,7 +1688,8 @@ class EnhancedWaybillManager:
         if not isinstance(payload, dict):
             return None
 
-        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        raw_data = payload.get("data")
+        data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else {}
         result_code = data.get("resultCode", payload.get("resultCode"))
         result_message = (
             data.get("resultMessage")
@@ -1692,7 +1699,7 @@ class EnhancedWaybillManager:
             or ""
         )
         obj_value = data.get("obj", payload.get("obj"))
-        obj = obj_value if isinstance(obj_value, dict) else {}
+        obj: dict[str, Any] = obj_value if isinstance(obj_value, dict) else {}
         document_id = (
             obj.get("documentId")
             or obj.get("document_id")
@@ -1792,8 +1799,10 @@ class EnhancedWaybillManager:
             except (TypeError, ValueError, json.JSONDecodeError):
                 payload = None
             if isinstance(payload, dict):
-                data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
-                obj = data.get("obj") if isinstance(data.get("obj"), dict) else {}
+                raw_data = payload.get("data")
+                data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else payload
+                raw_obj = data.get("obj")
+                obj: dict[str, Any] = raw_obj if isinstance(raw_obj, dict) else {}
                 tracking_code = (
                     obj.get("trackingCode")
                     or obj.get("tracking_code")
@@ -1809,7 +1818,8 @@ class EnhancedWaybillManager:
                 # tracking code from arbitrary numbers in that object.
                 await asyncio.sleep(min(2.0, 0.5 + (attempt * 0.5)))
                 continue
-            matches = re.findall(r"\d{6,}", text)
+            # Single-group/no-group pattern: findall returns strings.
+            matches: list[str] = re.findall(r"\d{6,}", text)
             if matches:
                 return matches[-1]
 
@@ -1930,7 +1940,11 @@ class EnhancedWaybillManager:
         )
         return False
 
-    async def _goto_with_retry(self, url: str, wait_until: str | None = None) -> None:
+    async def _goto_with_retry(
+        self,
+        url: str,
+        wait_until: Literal["commit", "domcontentloaded", "load", "networkidle"] | None = None,
+    ) -> None:
         attempts = max(1, utcms_config.PAGE_GOTO_MAX_RETRIES + 1)
         base_delay = max(0.1, utcms_config.PAGE_GOTO_RETRY_BASE_SECONDS)
         jitter = max(0.0, utcms_config.PAGE_GOTO_RETRY_JITTER_SECONDS)
@@ -2206,7 +2220,10 @@ class EnhancedWaybillManager:
                 final_stage_evidence["final_stage_navigation_clicked"] = bool(final_stage_navigation_clicked)
                 otp_required_observed = bool(final_stage_evidence.get("otp_challenge_visible")) or bool(otp_val)
                 final_submit_visible = bool(final_stage_evidence.get("submit_control_visible"))
-                result = {
+                # dict[str, Any]: the dry-run literal and _submit_waybill's
+                # return share this shape; the precise literal type would
+                # reject the extra keys added below.
+                result: dict[str, Any] = {
                     "success": final_submit_visible,
                     "status": "validated" if final_submit_visible else "needs_review",
                     "validation_summary": {
@@ -4525,7 +4542,7 @@ class EnhancedWaybillManager:
             return
         await self._fill_with_fallback(selectors, str(value), field_label, required=False)
 
-    async def _fill_shipping_options(self, shipping_opts: dict[str, Any]):
+    async def _fill_shipping_options(self, shipping_opts: Any):
         """مدیریت گزینه‌های حمل (two_way، end_shipping، time_limit)"""
         if not isinstance(shipping_opts, dict):
             return
@@ -4597,7 +4614,7 @@ class EnhancedWaybillManager:
         for selector in selectors:
             try:
                 label_sel = f"label:has({selector})"
-                label_locator = await self.page.query_selector(label_sel)
+                label_locator: ElementHandle | Locator | None = await self.page.query_selector(label_sel)
                 if label_locator is None and found_checkbox:
                     label_locator = await self.smart_locator.locate(self.page, [label_sel], timeout=1200)
                 if label_locator is None:
@@ -4997,10 +5014,8 @@ class EnhancedWaybillManager:
 
         if best_value:
             try:
-                if locator is not None:
-                    await locator.select_option(value=best_value)
-                else:
-                    await self.page.select_option(selector, value=best_value)
+                # locator is proven non-None by the early return above.
+                await locator.select_option(value=best_value)
 
                 # Trigger events for formValidation and cascading logic
                 try:
@@ -5023,10 +5038,8 @@ class EnhancedWaybillManager:
                 return False
             except Exception:
                 try:
-                    if locator is not None:
-                        await locator.select_option(label=best_value)
-                    else:
-                        await self.page.select_option(selector, label=best_value)
+                    # locator is proven non-None by the early return above.
+                    await locator.select_option(label=best_value)
 
                     try:
                         target_locator = locator if locator is not None else self.page.locator(selector)
@@ -6363,7 +6376,7 @@ class EnhancedWaybillManager:
 
         return unique
 
-    def _is_plausible_captcha_image(self, box: dict) -> bool:
+    def _is_plausible_captcha_image(self, box: Mapping[str, Any]) -> bool:
         width = float(box.get("width") or 0)
         height = float(box.get("height") or 0)
         if width < 30 or height < 15:
@@ -6373,7 +6386,7 @@ class EnhancedWaybillManager:
         aspect_ratio = width / max(height, 1.0)
         return 0.8 <= aspect_ratio <= 12.0
 
-    def _captcha_image_score(self, box: dict, input_box: dict | None, selector: str) -> float:
+    def _captcha_image_score(self, box: Mapping[str, Any], input_box: Mapping[str, Any] | None, selector: str) -> float:
         width = float(box.get("width") or 0)
         height = float(box.get("height") or 0)
         score = 200.0 - abs(width - 110.0) - abs(height - 40.0)
@@ -6442,7 +6455,7 @@ class EnhancedWaybillManager:
                     }
                 }""")
             if canvas_b64 and len(canvas_b64) > 100:
-                return canvas_b64
+                return str(canvas_b64)
         except Exception:
             logger.debug("canvas_captcha_extraction_failed", exc_info=True)
 
@@ -7135,7 +7148,7 @@ class EnhancedWaybillManager:
                 }""")
             if isinstance(dom_tracking, str) and dom_tracking:
                 clean_dom_tracking = self._to_english_digits(dom_tracking)
-                codes = re.findall(r"\d{6,}", clean_dom_tracking)
+                codes: list[str] = re.findall(r"\d{6,}", clean_dom_tracking)
                 if codes:
                     return codes[0]
         except Exception:
@@ -7159,13 +7172,13 @@ class EnhancedWaybillManager:
 
         for selector in selectors:
             try:
-                element = await self.page.query_selector(selector)
+                element: ElementHandle | Locator | None = await self.page.query_selector(selector)
                 if element is None:
                     element = await self.smart_locator.locate(self.page, [selector], timeout=900)
 
                 raw_text = ""
                 try:
-                    value = await element.input_value()
+                    value: str | None = await element.input_value()
                     raw_text = value.strip() if isinstance(value, str) else ""
                 except Exception:
                     pass
@@ -7185,16 +7198,16 @@ class EnhancedWaybillManager:
                 text = await self._as_clean_text(raw_text)
                 text = self._to_english_digits(text)
                 # فقط اعدادی که در بافت کد رهگیری یا شماره بارنامه هستند
-                labeled = re.findall(
+                labeled: list[str] = re.findall(
                     r"(?:کد\s*رهگیری|شماره\s*بارنامه|tracking|waybill)\D*(\d{6,})", text, re.IGNORECASE
                 )
                 if labeled:
-                    return labeled[0]
+                    return str(labeled[0])
                 # If the element is dedicated to tracking, accept its sole
                 # numeric value; do not infer a code from arbitrary page text.
                 codes = re.findall(r"\d{6,}", text or "")
                 if codes:
-                    return codes[0]
+                    return str(codes[0])
             except Exception:
                 continue
 
@@ -7205,7 +7218,7 @@ class EnhancedWaybillManager:
                 body_text = self._to_english_digits(body_text)
                 labeled = re.findall(r"(?:کد\s*رهگیری|شماره\s*بارنامه)\D*(\d{6,})", body_text)
                 if labeled:
-                    return labeled[0]
+                    return str(labeled[0])
         except Exception:
             logger.warning("waybill_enhanced_silent_error", exc_info=True)
 

@@ -6,8 +6,24 @@ from collections import deque
 from threading import Lock
 from typing import Any
 
+# prometheus_client is an optional dependency: when absent, the Counter /
+# Gauge / Histogram names fall back to a no-op implementation. Public names are
+# declared as Any (not a prometheus union) so the fallback needs no suppression comment; runtime behavior is unchanged.
+Counter: Any
+Gauge: Any
+Histogram: Any
+generate_latest: Any
 try:
-    from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
+    from prometheus_client import CONTENT_TYPE_LATEST
+    from prometheus_client import Counter as _prom_counter
+    from prometheus_client import Gauge as _prom_gauge
+    from prometheus_client import Histogram as _prom_histogram
+    from prometheus_client import generate_latest as _prom_generate_latest
+
+    Counter = _prom_counter
+    Gauge = _prom_gauge
+    Histogram = _prom_histogram
+    generate_latest = _prom_generate_latest
 except Exception:
     CONTENT_TYPE_LATEST = "text/plain; version=0.0.4"
 
@@ -27,10 +43,13 @@ except Exception:
         def set(self, *_args: Any, **_kwargs: Any) -> None:
             return None
 
-    Counter = Gauge = Histogram = _NoopMetric
-
-    def generate_latest() -> bytes:
+    def _noop_generate_latest() -> bytes:
         return b""
+
+    Counter = _NoopMetric
+    Gauge = _NoopMetric
+    Histogram = _NoopMetric
+    generate_latest = _noop_generate_latest
 
 
 WAYBILL_REQUESTS = Counter(

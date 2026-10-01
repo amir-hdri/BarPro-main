@@ -4,6 +4,7 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from fastapi import HTTPException, status
 from sqlalchemy import String, func
@@ -92,14 +93,18 @@ class WaybillJobService:
         plate_str = getattr(request.payload, "plate_number", None)
         if not plate_str and hasattr(request.payload, "vehicle") and request.payload.vehicle:
             plate_str = getattr(request.payload.vehicle, "plate", None)
-        elif not plate_str and isinstance(request.payload, dict):
-            plate_str = request.payload.get("plate_number") or (request.payload.get("vehicle") or {}).get("plate")
+        elif not plate_str and isinstance(cast(Any, request.payload), dict):
+            # Defensive: payload is typed as a Pydantic model but may arrive as a raw dict.
+            _payload_dict = cast(dict[str, Any], request.payload)
+            plate_str = _payload_dict.get("plate_number") or (_payload_dict.get("vehicle") or {}).get("plate")
 
         vehicle_type_str = getattr(request.payload, "vehicle_type", None)
         if not vehicle_type_str and hasattr(request.payload, "vehicle") and request.payload.vehicle:
             vehicle_type_str = getattr(request.payload.vehicle, "type", None)
-        elif not vehicle_type_str and isinstance(request.payload, dict):
-            vehicle_type_str = request.payload.get("vehicle_type") or (request.payload.get("vehicle") or {}).get("type")
+        elif not vehicle_type_str and isinstance(cast(Any, request.payload), dict):
+            # Defensive: payload is typed as a Pydantic model but may arrive as a raw dict.
+            _payload_dict = cast(dict[str, Any], request.payload)
+            vehicle_type_str = _payload_dict.get("vehicle_type") or (_payload_dict.get("vehicle") or {}).get("type")
         norm_plate: str | None = None
         if plate_str:
             try:
@@ -114,7 +119,7 @@ class WaybillJobService:
         )
         if norm_plate:
             plate_query = plate_query.where(DriverPlate.plate_number == norm_plate)
-        plate_query = plate_query.order_by(DriverPlate.id.desc())
+        plate_query = plate_query.order_by(col(DriverPlate.id).desc())
         active_plate = (await session.exec(plate_query)).first()
         if active_plate is None:
             detail = (
@@ -141,7 +146,8 @@ class WaybillJobService:
                 payload_dict["vehicle_type"] = vehicle_type_str
             metadata = payload_dict.get("metadata_json")
             metadata = dict(metadata) if isinstance(metadata, dict) else {}
-            metadata_vehicle = dict(metadata.get("vehicle")) if isinstance(metadata.get("vehicle"), dict) else {}
+            raw_metadata_vehicle = metadata.get("vehicle")
+            metadata_vehicle = dict(raw_metadata_vehicle) if isinstance(raw_metadata_vehicle, dict) else {}
             metadata_vehicle.update({"driver_national_code": driver.driver_national_code, "plate": norm_plate})
             if vehicle_type_str:
                 metadata_vehicle["type"] = vehicle_type_str
@@ -187,7 +193,7 @@ class WaybillJobService:
                 select(WaybillJob).where(
                     WaybillJob.client_id == client.id,
                     WaybillJob.driver_id == driver.id,
-                    WaybillJob.status.in_(active_statuses),
+                    col(WaybillJob.status).in_(active_statuses),
                 )
             )
         ).first()
@@ -218,7 +224,7 @@ class WaybillJobService:
                     WaybillJob.driver_id == driver.id,
                     WaybillJob.submission_fingerprint == fingerprint,
                     WaybillJob.created_at >= cutoff_24h,
-                    WaybillJob.status.in_(active_or_done_statuses),
+                    col(WaybillJob.status).in_(active_or_done_statuses),
                 )
             )
         ).first()
@@ -247,16 +253,17 @@ class WaybillJobService:
         filters: TaskFilterRequest,
     ) -> TaskListResponse:
         """List jobs for the client with filtering, or all for master admin."""
-        if isinstance(user_context, Client):
+        # Defensive: callers may pass a Client directly even though the declared type is dict.
+        if isinstance(cast(Any, user_context), Client):
             user_context = {"role": "client", "user": user_context}
         role = user_context["role"]
         if role == "master_admin":
             statement = select(WaybillJob)
-            count_stmt = select(func.count(WaybillJob.id))
+            count_stmt = select(func.count(col(WaybillJob.id)))
         else:
             client = user_context["user"]
             statement = select(WaybillJob).where(WaybillJob.client_id == client.id)
-            count_stmt = select(func.count(WaybillJob.id)).where(WaybillJob.client_id == client.id)
+            count_stmt = select(func.count(col(WaybillJob.id))).where(WaybillJob.client_id == client.id)
 
         if filters.status:
             statement = statement.where(WaybillJob.status == filters.status)
@@ -265,7 +272,7 @@ class WaybillJobService:
             statement = statement.where(WaybillJob.driver_id == filters.driver_id)
             count_stmt = count_stmt.where(WaybillJob.driver_id == filters.driver_id)
         if filters.driver_name:
-            driver_stmt = select(Driver.id).where(Driver.full_name.ilike(f"%{filters.driver_name.strip()}%"))
+            driver_stmt = select(Driver.id).where(col(Driver.full_name).ilike(f"%{filters.driver_name.strip()}%"))
             driver_ids = (await session.exec(driver_stmt)).all()
             if driver_ids:
                 statement = statement.where(col(WaybillJob.driver_id).in_(driver_ids))
@@ -275,8 +282,8 @@ class WaybillJobService:
                 count_stmt = count_stmt.where(col(WaybillJob.driver_id) == -1)
         if filters.plate_number:
             plate_kw = filters.plate_number.strip()
-            statement = statement.where(col(WaybillJob.payload_json).cast(String).ilike(f"%{plate_kw}%"))
-            count_stmt = count_stmt.where(col(WaybillJob.payload_json).cast(String).ilike(f"%{plate_kw}%"))
+            statement = statement.where(cast(Any, col(WaybillJob.payload_json)).cast(String).ilike(f"%{plate_kw}%"))
+            count_stmt = count_stmt.where(cast(Any, col(WaybillJob.payload_json)).cast(String).ilike(f"%{plate_kw}%"))
         if filters.date_from:
             statement = statement.where(WaybillJob.created_at >= filters.date_from)
             count_stmt = count_stmt.where(WaybillJob.created_at >= filters.date_from)
@@ -300,9 +307,9 @@ class WaybillJobService:
         if role != "client" and jobs:
             client_ids = {j.client_id for j in jobs if j.client_id is not None}
             if client_ids:
-                client_stmt = select(Client).where(Client.id.in_(client_ids))
+                client_stmt = select(Client).where(col(Client.id).in_(client_ids))
                 clients = (await session.exec(client_stmt)).all()
-                client_map = {c.id: c for c in clients}
+                client_map = {cast(int, c.id): c for c in clients}
 
         for j in jobs:
             resp = WaybillJobResponse.model_validate(j)
@@ -333,7 +340,8 @@ class WaybillJobService:
         session: AsyncSession,
     ) -> WaybillJobResponse:
         """Get a specific job status and details."""
-        if isinstance(user_context, Client):
+        # Defensive: callers may pass a Client directly even though the declared type is dict.
+        if isinstance(cast(Any, user_context), Client):
             user_context = {"role": "client", "user": user_context}
         role = user_context["role"]
         if role == "master_admin":
@@ -549,7 +557,8 @@ class WaybillJobService:
         import re
         import time
 
-        if isinstance(user_context, Client):
+        # Defensive: callers may pass a Client directly even though the declared type is dict.
+        if isinstance(cast(Any, user_context), Client):
             user_context = {"role": "client", "user": user_context}
         role = user_context["role"]
 
@@ -578,19 +587,22 @@ class WaybillJobService:
 
         # 1. Resolve document_id from result_json, payload_json, or last_error
         document_id = None
-        res_data = job.result_json if isinstance(job.result_json, dict) else {}
-        if isinstance(job.result_json, str):
+        # Defensive: JSON columns are typed dict but may hold raw JSON strings at runtime.
+        _result_json = cast(Any, job.result_json)
+        res_data = _result_json if isinstance(_result_json, dict) else {}
+        if isinstance(_result_json, str):
             try:
-                res_data = json.loads(job.result_json)
+                res_data = json.loads(_result_json)
             except Exception:
                 res_data = {}
         document_id = res_data.get("document_id")
 
         if not document_id:
-            payload_data = job.payload_json if isinstance(job.payload_json, dict) else {}
-            if isinstance(job.payload_json, str):
+            _payload_json = cast(Any, job.payload_json)
+            payload_data = _payload_json if isinstance(_payload_json, dict) else {}
+            if isinstance(_payload_json, str):
                 try:
-                    payload_data = json.loads(job.payload_json)
+                    payload_data = json.loads(_payload_json)
                 except Exception:
                     payload_data = {}
             document_id = payload_data.get("document_id") or payload_data.get("docId")
@@ -658,7 +670,7 @@ class WaybillJobService:
         except UtcmsMobileApiError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"خطا در صدور بارنامه با OTP: {exc.message or exc}",
+                detail=f"خطا در صدور بارنامه با OTP: {str(exc) or exc}",
             ) from exc
         except Exception as exc:
             raise HTTPException(
@@ -740,7 +752,8 @@ class WaybillJobService:
         filters: TaskTimelineQuery | None = None,
     ) -> TaskTimelineResponse:
         """Get a merged timeline of domain events and task logs for a job."""
-        if isinstance(user_context, Client):
+        # Defensive: callers may pass a Client directly even though the declared type is dict.
+        if isinstance(cast(Any, user_context), Client):
             user_context = {"role": "client", "user": user_context}
         role = user_context["role"]
         query = filters or TaskTimelineQuery()
@@ -891,7 +904,7 @@ class WaybillJobService:
             job_id=job_id,
             logs=[
                 TaskLogEntry(
-                    id=log.id,
+                    id=cast(int, log.id),
                     job_id=log.job_id,
                     step=log.step,
                     status=log.status,
@@ -911,7 +924,7 @@ class WaybillJobService:
         step: str,
         status: str,
         message: str | None = None,
-        details_json: str | None = None,
+        details_json: dict | None = None,
     ) -> None:
         """Add a log entry for a job."""
         log = WaybillTaskLog(
@@ -1022,7 +1035,7 @@ class WaybillJobService:
                 await session.exec(
                     select(Execution).where(
                         Execution.job_id == job.job_id,
-                        Execution.status.in_(["pending", "running"]),
+                        col(Execution.status).in_(["pending", "running"]),
                     )
                 )
             ).first()
@@ -1056,7 +1069,7 @@ class WaybillJobService:
                 select(DispatchIntent)
                 .where(
                     DispatchIntent.job_id == job.job_id,
-                    DispatchIntent.status.in_(["pending", "claimed"]),
+                    col(DispatchIntent.status).in_(["pending", "claimed"]),
                 )
                 .with_for_update(skip_locked=True)
             )

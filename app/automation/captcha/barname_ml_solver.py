@@ -72,7 +72,10 @@ def _normalize_character(image: np.ndarray, target_size: int = 28) -> np.ndarray
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image.copy()
     gray = cv2.GaussianBlur(gray, (3, 3), 0)
     _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    points = cv2.findNonZero(binary)
+    # Any: cv2 stubs type findNonZero as non-Optional, but it returns None at
+    # runtime when no non-zero pixels exist. The None check below is defensive
+    # and must stay; the annotation only stops mypy flagging it unreachable.
+    points: Any = cv2.findNonZero(binary)
     if points is None:
         return cv2.resize(gray, (target_size, target_size), interpolation=cv2.INTER_AREA)
 
@@ -117,7 +120,9 @@ class BarnameMlCaptchaSolver:
         self._available = False
         self._classes: list[str] = []
         self._device = None
-        self._model = None
+        # Any: torch is an optional dependency (try/except import); the
+        # CRNN instance is only created after a successful lazy load.
+        self._model: Any = None
 
     @property
     def available(self) -> bool:
@@ -285,7 +290,7 @@ class BarnameMlCaptchaSolver:
             scores = {label: score for label, score in scores.items() if label in allowed_classes}
         if not scores:
             return "", 0.0
-        label = max(scores, key=scores.get)
+        label = max(scores, key=lambda candidate: scores[candidate])
         return label, float(scores[label])
 
     def solve_image(self, image: np.ndarray) -> MlMathCaptchaCandidate | None:

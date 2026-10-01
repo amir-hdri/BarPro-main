@@ -38,7 +38,7 @@ def _is_jwt_valid(token: str | None) -> dict[str, Any] | None:
     if not secret:
         return None
 
-    kwargs = {
+    kwargs: dict[str, Any] = {
         "algorithms": [utcms_config.JWT_ALGORITHM],
         "leeway": utcms_config.JWT_LEEWAY_SECONDS,
     }

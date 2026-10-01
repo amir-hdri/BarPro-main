@@ -4,8 +4,10 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import cast
 
 from fastapi import HTTPException, status
+from sqlalchemy.orm import InstrumentedAttribute
 from sqlmodel import col, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -34,6 +36,12 @@ from app.schemas.multitenant import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Typed column handles for the stats aggregates. SQLModel exposes mapped attributes
+# as their plain Python types on the class, so we cast to the InstrumentedAttribute
+# objects they actually are at runtime (cast is a no-op; identical SQL is generated).
+_driver_id_col = cast(InstrumentedAttribute[int | None], Driver.id)
+_job_id_col = cast(InstrumentedAttribute[int | None], WaybillJob.id)
 
 
 @dataclass
@@ -177,7 +185,8 @@ class ClientService:
         client.last_login_at = datetime.now(UTC).replace(tzinfo=None)
         await session.commit()
 
-        # Create JWT token
+        # Create JWT token (client is DB-loaded: select + None guard above)
+        assert client.id is not None
         token = create_access_token(
             client_id=client.id,
             client_code=client.client_code,
@@ -240,14 +249,17 @@ class ClientService:
         session: AsyncSession,
     ) -> ClientStatsResponse:
         """Get client dashboard statistics."""
+        assert client.id is not None  # callers pass DB-loaded clients
         today = datetime.now(UTC).replace(tzinfo=None).date()
         today_start = datetime.combine(today, datetime.min.time())
 
         # Count drivers using db aggregate
-        total_drivers = (await session.exec(select(func.count(Driver.id)).where(Driver.client_id == client.id))).one()
+        total_drivers = (
+            await session.exec(select(func.count(_driver_id_col)).where(Driver.client_id == client.id))
+        ).one()
         active_drivers = (
             await session.exec(
-                select(func.count(Driver.id)).where(
+                select(func.count(_driver_id_col)).where(
                     Driver.client_id == client.id, Driver.status == DriverStatus.ACTIVE.value
                 )
             )
@@ -255,7 +267,7 @@ class ClientService:
 
         # Group jobs by status to get counts in one database trip
         jobs_stmt = (
-            select(WaybillJob.status, func.count(WaybillJob.id))
+            select(WaybillJob.status, func.count(_job_id_col))
             .where(WaybillJob.client_id == client.id)
             .group_by(WaybillJob.status)
         )
@@ -273,7 +285,7 @@ class ClientService:
 
         # Today's stats
         today_stmt = (
-            select(WaybillJob.status, func.count(WaybillJob.id))
+            select(WaybillJob.status, func.count(_job_id_col))
             .where(WaybillJob.client_id == client.id, WaybillJob.created_at >= today_start)
             .group_by(WaybillJob.status)
         )

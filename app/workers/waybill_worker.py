@@ -16,7 +16,7 @@ import socket
 import threading
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from celery import Task
 from sqlalchemy.exc import IntegrityError
@@ -157,7 +157,8 @@ class WaybillTask(Task):
 
     async def get_async_session(self) -> AsyncSession:
         """Get async database session."""
-        return async_session_factory()
+        # async_session_factory() is untyped (returns Any); cast() is a runtime no-op.
+        return cast(AsyncSession, async_session_factory())
 
 
 @celery_app.task(
@@ -269,7 +270,10 @@ async def _claim_and_execute(task: Any, intent_id: str):
             )
 
             normalized_payload = build_enhanced_waybill_payload(_safe_json(job.payload_json))
-            vehicle = normalized_payload.get("vehicle") if isinstance(normalized_payload.get("vehicle"), dict) else {}
+            # Narrow via a typed local instead of a conditional expression so the
+            # checker sees dict (not object) on both branches; runtime behavior unchanged.
+            _vehicle_raw = normalized_payload.get("vehicle")
+            vehicle: dict[Any, Any] = _vehicle_raw if isinstance(_vehicle_raw, dict) else {}
             payload_errors = validate_live_waybill_payload(
                 normalized_payload,
                 expected_driver_mobile=vehicle.get("driver_phone"),
@@ -930,8 +934,8 @@ async def _execute_job(
     async with async_session_factory() as session:
         try:
             statement = select(WaybillJob).where(WaybillJob.job_id == job_id).with_for_update()
-            result = await session.exec(statement)
-            job = result.first()
+            exec_result = await session.exec(statement)
+            job = exec_result.first()
 
             if not job:
                 logger.error(f"Job {job_id} not found in database")
@@ -1262,7 +1266,9 @@ async def _execute_job(
                 worker_proxy_url = get_worker_proxy_url()
                 bot = WaybillAutomationBot(page=None, context=None, proxy_url=worker_proxy_url)
                 try:
-                    result = await asyncio.wait_for(
+                    # Declared dict[str, Any]: every assignment below is an
+                    # automation-result dict; the annotation guides the checker only.
+                    result: dict[str, Any] = await asyncio.wait_for(
                         bot.execute_waybill_job(
                             username=username,
                             password=password,
@@ -1332,6 +1338,9 @@ async def _execute_job(
                 await utcms_submission_gate.record_otp_detected(worker_id=worker_id, evidence=result)
                 night_decision = register_safe_night_failure(job)
                 if night_decision.standby:
+                    # register_safe_night_failure sets retry_at=next_reopen_at_utc_naive(now)
+                    # exactly when standby is True, so it is provably not None here.
+                    assert night_decision.retry_at is not None
                     retry_at = night_decision.retry_at
                     error_category = "night_submission_attempts_exhausted"
                     message = "سه تلاش امن شبانه ناموفق بود؛ ثبت تا ساعت ۰۸:۰۰ تهران در آماده‌باش است"
@@ -1509,14 +1518,17 @@ async def _execute_job(
                 or result.get("mutation_status") == "ambiguous"
                 or result.get("error_category") == ErrorCategory.SUBMISSION_UNCONFIRMED.value
             ):
-                result_payload = result.get("result") if isinstance(result.get("result"), dict) else {}
-                document_id = str(result.get("document_id") or result_payload.get("document_id") or "").strip()
+                # Narrow via a typed local so the checker sees dict (not Any | None
+                # from dict.get) on both branches; runtime behavior unchanged.
+                _result_raw = result.get("result")
+                unknown_result_payload: dict[Any, Any] = _result_raw if isinstance(_result_raw, dict) else {}
+                document_id = str(result.get("document_id") or unknown_result_payload.get("document_id") or "").strip()
                 if document_id and not job.document_id:
                     job.document_id = document_id
                 otp_required = bool(
                     result.get("requires_operator_otp")
                     or result.get("error_category") == "otp_required"
-                    or result_payload.get("otp_required") is True
+                    or unknown_result_payload.get("otp_required") is True
                 )
                 if otp_required:
                     # The API response is the authoritative signal. A
@@ -1527,7 +1539,7 @@ async def _execute_job(
                         evidence={
                             "transport": result.get("transport"),
                             "isOtpNeeded": True,
-                            "document_id": result_payload.get("document_id"),
+                            "document_id": unknown_result_payload.get("document_id"),
                         },
                     )
                 job.mutation_status = result.get("mutation_status") or "ambiguous"
@@ -1587,6 +1599,9 @@ async def _execute_job(
 
             night_decision = register_safe_night_failure(job)
             if night_decision.standby:
+                # register_safe_night_failure sets retry_at=next_reopen_at_utc_naive(now)
+                # exactly when standby is True, so it is provably not None here.
+                assert night_decision.retry_at is not None
                 retry_at = night_decision.retry_at
                 JobStateMachine.transition(
                     session,
@@ -1785,8 +1800,10 @@ async def _execute_job(
                     lock_holder.clear()
                 if auth_lock_acquired:
                     try:
-                        statement = select(DriverRuntimeState).where(DriverRuntimeState.driver_id == cached_driver_id)
-                        res = await session.exec(statement)
+                        state_statement = select(DriverRuntimeState).where(
+                            DriverRuntimeState.driver_id == cached_driver_id
+                        )
+                        res = await session.exec(state_statement)
                         state = res.first()
                         if state is not None:
                             state.auth_lock_owner = None
@@ -1874,7 +1891,7 @@ async def _update_job_status(
         job = result.first()
 
         if job:
-            extra_fields = {}
+            extra_fields: dict[str, Any] = {}
             if error:
                 extra_fields["last_error"] = error
             if error_category:
@@ -1914,7 +1931,9 @@ async def _add_job_log(
     step: str,
     status: str,
     message: str | None = None,
-    details_json: str | None = None,
+    # Callers pass dicts, lists, or pre-serialized JSON strings; the model column
+    # is JSON-typed, so Any keeps every caller working (type-level only).
+    details_json: Any = None,
 ):
     """Add a log entry for a job."""
     log = WaybillTaskLog(
@@ -1923,7 +1942,9 @@ async def _add_job_log(
         step=step,
         status=status,
         message=message,
-        details_json=details_json,
+        # WaybillTaskLog.details_json is typed dict | None; cast() is a runtime
+        # no-op — the JSON column accepts whatever the callers passed.
+        details_json=cast(Any, details_json),
     )
     session.add(log)
     await session.commit()
@@ -1943,5 +1964,7 @@ def get_retry_delay(result: dict[str, Any], attempt_count: int) -> int:
         "worker_resource_error",
     }:
         base = 60
-        return min(base * (2 ** max(0, attempt_count - 1)), 1800)
+        # int.__pow__ types as Any in typeshed; the result is provably int (the
+        # exponent is non-negative via max(0, ...)), so cast() is a runtime no-op.
+        return cast(int, min(base * (2 ** max(0, attempt_count - 1)), 1800))
     return utcms_config.DRIVER_RETRY_DELAY_SECONDS

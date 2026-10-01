@@ -2,6 +2,7 @@
 
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from fastapi import HTTPException, status
 from sqlalchemy import update
@@ -75,8 +76,8 @@ class FuelInquiryService:
                 try:
                     norm_plate = _normalize_plate(str(candidate_plate).strip())
                     new_plate = DriverPlate(
-                        client_id=client.id,
-                        driver_id=driver.id,
+                        client_id=cast(int, client.id),
+                        driver_id=cast(int, driver.id),
                         plate_number=norm_plate,
                         vehicle_type="کامیون",
                         status="active",
@@ -99,10 +100,10 @@ class FuelInquiryService:
 
         # Check for existing pending/processing/running inquiry for same driver/period to prevent duplicates
         existing_stmt = select(FuelInquiry).where(
-            (FuelInquiry.driver_id == driver.id)
-            & (FuelInquiry.year == inquiry_year)
-            & (FuelInquiry.month == inquiry_month)
-            & (FuelInquiry.status.in_(["pending", "processing", "running"]))
+            (col(FuelInquiry.driver_id) == driver.id)
+            & (col(FuelInquiry.year) == inquiry_year)
+            & (col(FuelInquiry.month) == inquiry_month)
+            & (col(FuelInquiry.status).in_(["pending", "processing", "running"]))
         )
         existing_res = await session.exec(existing_stmt)
         existing = existing_res.first()
@@ -126,8 +127,8 @@ class FuelInquiryService:
 
         # Create DB record
         inquiry = FuelInquiry(
-            client_id=client.id,
-            driver_id=driver.id,
+            client_id=cast(int, client.id),
+            driver_id=cast(int, driver.id),
             status="pending",
             year=inquiry_year,
             month=inquiry_month,
@@ -148,7 +149,7 @@ class FuelInquiryService:
         from app.workers.tasks import dispatch_fuel_inquiry_task
 
         try:
-            dispatch_fuel_inquiry_task(inquiry.id)
+            dispatch_fuel_inquiry_task(cast(int, inquiry.id))
             logger.info(f"Enqueued fuel inquiry task for inquiry {inquiry.id}")
         except Exception as e:
             logger.error(f"Failed to enqueue Celery task: {e}")
@@ -176,16 +177,17 @@ class FuelInquiryService:
         date_from: datetime | None = None,
         date_to: datetime | None = None,
     ) -> FuelInquiryListResponse:
-        if isinstance(user_context, Client):
+        # Defensive: callers may pass a Client directly even though the declared type is dict.
+        if isinstance(cast(Any, user_context), Client):
             user_context = {"role": "client", "user": user_context}
         role = user_context["role"]
         if role == "master_admin":
             statement = select(FuelInquiry)
-            count_stmt = select(func.count(FuelInquiry.id))
+            count_stmt = select(func.count(col(FuelInquiry.id)))
         else:
             client = user_context["user"]
             statement = select(FuelInquiry).where(FuelInquiry.client_id == client.id)
-            count_stmt = select(func.count(FuelInquiry.id)).where(FuelInquiry.client_id == client.id)
+            count_stmt = select(func.count(col(FuelInquiry.id))).where(FuelInquiry.client_id == client.id)
 
         if driver_id is not None:
             statement = statement.where(FuelInquiry.driver_id == driver_id)
@@ -194,7 +196,7 @@ class FuelInquiryService:
             statement = statement.where(FuelInquiry.status == status)
             count_stmt = count_stmt.where(FuelInquiry.status == status)
         if driver_name:
-            d_stmt = select(Driver.id).where(Driver.full_name.ilike(f"%{driver_name.strip()}%"))
+            d_stmt = select(Driver.id).where(col(Driver.full_name).ilike(f"%{driver_name.strip()}%"))
             d_ids = (await session.exec(d_stmt)).all()
             if d_ids:
                 statement = statement.where(col(FuelInquiry.driver_id).in_(d_ids))
@@ -203,7 +205,9 @@ class FuelInquiryService:
                 statement = statement.where(col(FuelInquiry.driver_id) == -1)
                 count_stmt = count_stmt.where(col(FuelInquiry.driver_id) == -1)
         if plate_number:
-            p_stmt = select(DriverPlate.driver_id).where(DriverPlate.plate_number.ilike(f"%{plate_number.strip()}%"))
+            p_stmt = select(DriverPlate.driver_id).where(
+                col(DriverPlate.plate_number).ilike(f"%{plate_number.strip()}%")
+            )
             p_driver_ids = (await session.exec(p_stmt)).all()
             if p_driver_ids:
                 statement = statement.where(col(FuelInquiry.driver_id).in_(p_driver_ids))
@@ -269,7 +273,8 @@ class FuelInquiryService:
         inquiry_id: int,
         session: AsyncSession,
     ) -> FuelInquiryResponse:
-        if isinstance(user_context, Client):
+        # Defensive: callers may pass a Client directly even though the declared type is dict.
+        if isinstance(cast(Any, user_context), Client):
             user_context = {"role": "client", "user": user_context}
         role = user_context["role"]
         if role == "master_admin":
@@ -321,7 +326,7 @@ class FuelInquiryService:
         conn = await session.connection()
         claim = await conn.execute(
             update(FuelInquiry)
-            .where((FuelInquiry.id == inquiry_id) & (FuelInquiry.status == "pending"))
+            .where((col(FuelInquiry.id) == inquiry_id) & (col(FuelInquiry.status) == "pending"))
             .values(status="processing", updated_at=now)
         )
         if claim.rowcount != 1:
@@ -441,8 +446,8 @@ class FuelInquiryService:
             result = await session.execute(
                 update(FuelInquiry)
                 .where(
-                    FuelInquiry.status.in_(["pending", "processing", "running"]),
-                    FuelInquiry.updated_at < cutoff,
+                    col(FuelInquiry.status).in_(["pending", "processing", "running"]),
+                    col(FuelInquiry.updated_at) < cutoff,
                 )
                 .values(
                     status="stale",

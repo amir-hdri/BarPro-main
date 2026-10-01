@@ -38,7 +38,7 @@ class MemoryTracker:
         self.check_interval_seconds = check_interval_seconds
         self._baseline_memory: float | None = None
         self._leak_warnings: list[dict[str, Any]] = []
-        self._last_check = 0
+        self._last_check: float = 0
 
     def get_process_memory_mb(self) -> float:
         """Get current process memory usage in MB."""
@@ -72,6 +72,8 @@ class MemoryTracker:
 
         if self._baseline_memory is None:
             self.set_baseline()
+            # set_baseline() unconditionally assigns a float from get_process_memory_mb().
+            assert self._baseline_memory is not None
 
         memory_delta = current_memory - self._baseline_memory
         usage_percent = (current_memory / self.max_memory_mb * 100) if self.max_memory_mb > 0 else 0
@@ -360,7 +362,7 @@ class OptimizedBrowserPool:
         self.lifecycle_manager = ContextLifecycleManager() if enable_lifecycle_management else None
 
         # Cleanup tracking
-        self._last_cleanup = 0
+        self._last_cleanup: float = 0
         self._total_cleanups = 0
         self._total_contexts_recycled = 0
 
@@ -528,7 +530,7 @@ class OptimizedBrowserPool:
             self._last_cleanup = current_time
             self._total_cleanups += 1
 
-            cleanup_stats = {
+            cleanup_stats: dict[str, Any] = {
                 "contexts_recycled": 0,
                 "pages_closed": 0,
                 "memory_freed_mb": 0,
@@ -580,7 +582,7 @@ class OptimizedBrowserPool:
 
     def get_resource_stats(self) -> dict[str, Any]:
         """Get comprehensive resource statistics."""
-        stats = {
+        stats: dict[str, Any] = {
             "pool_size": self.pool_size,
             "total_cleanups": self._total_cleanups,
             "total_contexts_recycled": self._total_contexts_recycled,

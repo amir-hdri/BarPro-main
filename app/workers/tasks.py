@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException
 
@@ -19,7 +19,8 @@ from app.workers.celery_app import celery_app
 def _retry_delay_seconds(attempt_number: int) -> float:
     base = max(0.1, utcms_config.CELERY_RETRY_BASE_SECONDS)
     jitter = max(0.0, utcms_config.CELERY_RETRY_JITTER_SECONDS)
-    return (base * (2 ** max(0, attempt_number - 1))) + min(jitter, 10.0)
+    # utcms_config values are untyped (Any); cast() is a runtime no-op.
+    return cast(float, (base * (2 ** max(0, attempt_number - 1))) + min(jitter, 10.0))
 
 
 def _is_retryable_exception(exc: Exception) -> bool:

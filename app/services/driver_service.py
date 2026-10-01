@@ -2,6 +2,7 @@
 
 import logging
 from datetime import UTC, datetime
+from typing import cast
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete
@@ -57,6 +58,7 @@ class DriverService:
         session: AsyncSession,
     ) -> DriverResponse:
         """Create a new driver for the client."""
+        client: Client | None = None
         if isinstance(user_context, Client):
             client = user_context
         elif isinstance(user_context, dict) and user_context.get("role") == "master_admin":
@@ -71,8 +73,13 @@ class DriverService:
                 )
         else:
             client = user_context.get("user") if isinstance(user_context, dict) else user_context
+        # Invariant: every accepted user_context shape resolves to a persisted Client.
+        assert client is not None, "user_context must resolve to a Client"
+        assert client.id is not None, "persisted Client must have an id"
 
-        driver_count = (await session.exec(select(func.count(Driver.id)).where(Driver.client_id == client.id))).one()
+        driver_count = (
+            await session.exec(select(func.count(col(Driver.id))).where(Driver.client_id == client.id))
+        ).one()
         if driver_count >= client.max_drivers:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -123,7 +130,9 @@ class DriverService:
             ).first()
             if not existing_plate:
                 plate_count = (
-                    await session.exec(select(func.count(DriverPlate.id)).where(DriverPlate.client_id == client.id))
+                    await session.exec(
+                        select(func.count(col(DriverPlate.id))).where(DriverPlate.client_id == client.id)
+                    )
                 ).one()
                 if plate_count >= client.max_plates:
                     raise HTTPException(
@@ -132,7 +141,9 @@ class DriverService:
                     )
                 new_plate = DriverPlate(
                     client_id=client.id,
-                    driver_id=driver.id,
+                    # driver.id is the PK populated by commit+refresh; cast is a
+                    # no-op that keeps mocked-session test flows unchanged.
+                    driver_id=cast(int, driver.id),
                     plate_number=clean_plate,
                     vehicle_type=request.vehicle_type or "کامیون",
                     status="active",
@@ -201,7 +212,7 @@ class DriverService:
         responses = []
         for d in drivers:
             r = DriverResponse.model_validate(d)
-            r.active_plate = active_plates.get(getattr(d, "id", None))
+            r.active_plate = active_plates.get(cast(int, getattr(d, "id", None)))
             responses.append(r)
         return responses
 
@@ -222,6 +233,8 @@ class DriverService:
         # Verify tenant ownership unless master admin
         if not (isinstance(user_context, dict) and user_context.get("role") == "master_admin"):
             client = user_context.get("user") if isinstance(user_context, dict) else user_context
+            # Invariant: a non-admin user_context always carries its Client under "user".
+            assert isinstance(client, Client), "user_context must carry a Client"
             verify_tenant_ownership(client, driver, Driver)
 
         active_plate_str = None
@@ -258,6 +271,8 @@ class DriverService:
         # Verify tenant ownership unless master admin
         if not (isinstance(user_context, dict) and user_context.get("role") == "master_admin"):
             client = user_context.get("user") if isinstance(user_context, dict) else user_context
+            # Invariant: a non-admin user_context always carries its Client under "user".
+            assert isinstance(client, Client), "user_context must carry a Client"
             verify_tenant_ownership(client, driver, Driver)
 
         update_data = request.model_dump(exclude_unset=True)
@@ -298,6 +313,8 @@ class DriverService:
         session.add(driver)
         await session.commit()
         await session.refresh(driver)
+        # Invariant: a Driver loaded from the DB always has its PK populated.
+        assert driver.id is not None, "persisted Driver must have an id"
 
         if "plate_number" in update_data and update_data["plate_number"] is not None:
             raw_plate = str(update_data["plate_number"]).strip()
@@ -376,27 +393,29 @@ class DriverService:
         # Verify tenant ownership unless master admin
         if not (isinstance(user_context, dict) and user_context.get("role") == "master_admin"):
             client = user_context.get("user") if isinstance(user_context, dict) else user_context
+            # Invariant: a non-admin user_context always carries its Client under "user".
+            assert isinstance(client, Client), "user_context must carry a Client"
             verify_tenant_ownership(client, driver, Driver)
 
         try:
             # 1. Clean up driver runtime states
-            await session.exec(delete(DriverRuntimeState).where(DriverRuntimeState.driver_id == driver.id))
+            await session.exec(delete(DriverRuntimeState).where(col(DriverRuntimeState.driver_id) == driver.id))
             # 2. Clean up driver plates
-            await session.exec(delete(DriverPlate).where(DriverPlate.driver_id == driver.id))
+            await session.exec(delete(DriverPlate).where(col(DriverPlate.driver_id) == driver.id))
             # 3. Clean up driver schedules
-            await session.exec(delete(DriverSchedule).where(DriverSchedule.driver_id == driver.id))
+            await session.exec(delete(DriverSchedule).where(col(DriverSchedule.driver_id) == driver.id))
             # 4. Clean up legacy admin driver schedules
-            await session.exec(delete(AdminDriverSchedule).where(AdminDriverSchedule.driver_id == driver.id))
+            await session.exec(delete(AdminDriverSchedule).where(col(AdminDriverSchedule.driver_id) == driver.id))
             # 5. Clean up driver daily counters
-            await session.exec(delete(DriverDailyCounter).where(DriverDailyCounter.driver_id == driver.id))
+            await session.exec(delete(DriverDailyCounter).where(col(DriverDailyCounter.driver_id) == driver.id))
             # 6. Clean up driver session metadata
-            await session.exec(delete(DriverSessionMetadata).where(DriverSessionMetadata.driver_id == driver.id))
+            await session.exec(delete(DriverSessionMetadata).where(col(DriverSessionMetadata.driver_id) == driver.id))
             # 7. Clean up fuel inquiries
-            await session.exec(delete(FuelInquiry).where(FuelInquiry.driver_id == driver.id))
+            await session.exec(delete(FuelInquiry).where(col(FuelInquiry.driver_id) == driver.id))
             # 8. Clean up waybill attempts belonging to this driver
-            await session.exec(delete(WaybillAttempt).where(WaybillAttempt.driver_id == driver.id))
+            await session.exec(delete(WaybillAttempt).where(col(WaybillAttempt.driver_id) == driver.id))
             # 9. Clean up domain events referencing this driver
-            await session.exec(delete(DomainEvent).where(DomainEvent.driver_id == driver.id))
+            await session.exec(delete(DomainEvent).where(col(DomainEvent.driver_id) == driver.id))
 
             # 10. Nullify driver_id in historical waybill jobs (preserving audit trail)
             jobs = (await session.exec(select(WaybillJob).where(WaybillJob.driver_id == driver.id))).all()

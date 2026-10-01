@@ -23,6 +23,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import case, func
+from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -63,8 +64,10 @@ class AdminReportingService:
         try:
             from sqlalchemy import func
 
-            total_clients = (await session.exec(select(func.count(Client.id)))).one()
-            active_clients = (await session.exec(select(func.count(Client.id)).where(Client.status == "active"))).one()
+            total_clients = (await session.exec(select(func.count(col(Client.id))))).one()
+            active_clients = (
+                await session.exec(select(func.count(col(Client.id))).where(Client.status == "active"))
+            ).one()
 
             # Paginate clients at database level
             stmt = (
@@ -99,34 +102,47 @@ class AdminReportingService:
                 TaskStatus.NEEDS_REVIEW.value,
             ]
 
-            stats_by_client = {}
+            job_counts_by_client: dict[int, tuple[int, Any, Any]] = {}
+            job_times_by_client: dict[int, tuple[Any, Any]] = {}
             if client_ids:
                 from sqlalchemy import case, func
 
-                agg_stmt = (
+                # NOTE: sqlmodel's select() overloads accept at most four columns, so the
+                # per-client job counts and first/last timestamps are fetched with two queries.
+                job_filters: list[ColumnElement[bool]] = [col(WaybillJob.client_id).in_(client_ids)]
+                if date_from:
+                    dt = datetime.fromisoformat(date_from)
+                    job_filters.append(col(WaybillJob.created_at) >= dt)
+                if date_to:
+                    dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+                    job_filters.append(col(WaybillJob.created_at) < dt)
+
+                counts_stmt = (
                     select(
                         WaybillJob.client_id,
-                        func.count(WaybillJob.id).label("total_jobs"),
-                        func.sum(case((WaybillJob.status == TaskStatus.SUCCESS.value, 1), else_=0)).label(
+                        func.count(col(WaybillJob.id)).label("total_jobs"),
+                        func.sum(case((col(WaybillJob.status) == TaskStatus.SUCCESS.value, 1), else_=0)).label(
                             "success_jobs"
                         ),
                         func.sum(case((col(WaybillJob.status).in_(failed_statuses), 1), else_=0)).label("failed_jobs"),
-                        func.min(WaybillJob.created_at).label("first_job_at"),
-                        func.max(WaybillJob.created_at).label("last_job_at"),
                     )
-                    .where(col(WaybillJob.client_id).in_(client_ids))
-                    .group_by(WaybillJob.client_id)
+                    .where(*job_filters)
+                    .group_by(col(WaybillJob.client_id))
                 )
+                counts_result = await session.exec(counts_stmt)
+                job_counts_by_client = {row[0]: (row[1], row[2], row[3]) for row in counts_result.all()}
 
-                if date_from:
-                    dt = datetime.fromisoformat(date_from)
-                    agg_stmt = agg_stmt.where(WaybillJob.created_at >= dt)
-                if date_to:
-                    dt = datetime.fromisoformat(date_to) + timedelta(days=1)
-                    agg_stmt = agg_stmt.where(WaybillJob.created_at < dt)
-
-                agg_result = await session.exec(agg_stmt)
-                stats_by_client = {row.client_id: row for row in agg_result.all()}
+                times_stmt = (
+                    select(
+                        WaybillJob.client_id,
+                        func.min(col(WaybillJob.created_at)).label("first_job_at"),
+                        func.max(col(WaybillJob.created_at)).label("last_job_at"),
+                    )
+                    .where(*job_filters)
+                    .group_by(col(WaybillJob.client_id))
+                )
+                times_result = await session.exec(times_stmt)
+                job_times_by_client = {row[0]: (row[1], row[2]) for row in times_result.all()}
 
             rows = []
             for client in clients:
@@ -138,13 +154,14 @@ class AdminReportingService:
                 total_plates = len(plates)
                 active_plates = sum(1 for p in plates if p.status == "active")
 
-                stats = stats_by_client.get(client.id)
-                total_jobs = int(stats.total_jobs) if stats and stats.total_jobs else 0
-                success_jobs = int(stats.success_jobs) if stats and stats.success_jobs else 0
-                failed_jobs = int(stats.failed_jobs) if stats and stats.failed_jobs else 0
+                counts = job_counts_by_client.get(client.id)
+                total_jobs = int(counts[0]) if counts and counts[0] else 0
+                success_jobs = int(counts[1]) if counts and counts[1] else 0
+                failed_jobs = int(counts[2]) if counts and counts[2] else 0
 
-                first_job = stats.first_job_at if stats and stats.first_job_at else None
-                last_job = stats.last_job_at if stats and stats.last_job_at else None
+                times = job_times_by_client.get(client.id)
+                first_job = times[0] if times and times[0] else None
+                last_job = times[1] if times and times[1] else None
 
                 failure_reasons: dict[str, int] = defaultdict(int)
                 # Failure reasons aggregation moved to specific reports or omitted in summary to avoid massive fetch
@@ -256,7 +273,7 @@ class AdminReportingService:
             # Get total count using a light aggregate query
             from sqlalchemy import func
 
-            count_stmt = apply_filters(select(func.count(WaybillJob.id)))
+            count_stmt = apply_filters(select(func.count(col(WaybillJob.id))))
             count_result = await session.exec(count_stmt)
             total = count_result.one()
 
@@ -475,7 +492,7 @@ class AdminReportingService:
     ) -> dict[str, Any]:
         """Return recent waybill job activity as audit log entries."""
         offset = (page - 1) * page_size
-        stmt = select(WaybillJob).order_by(WaybillJob.updated_at.desc()).offset(offset).limit(page_size)
+        stmt = select(WaybillJob).order_by(col(WaybillJob.updated_at).desc()).offset(offset).limit(page_size)
 
         if client_id is not None:
             stmt = stmt.where(WaybillJob.client_id == client_id)
@@ -487,7 +504,7 @@ class AdminReportingService:
         driver_ids = list({j.driver_id for j in jobs if j.driver_id})
         drivers_dict = {}
         if driver_ids:
-            drivers_res = await session.exec(select(Driver).where(Driver.id.in_(driver_ids)))
+            drivers_res = await session.exec(select(Driver).where(col(Driver.id).in_(driver_ids)))
             drivers_dict = {d.id: d for d in drivers_res.all()}
 
         entries = []
@@ -545,7 +562,7 @@ class AdminReportingService:
         active_drivers = sum(1 for d in drivers if d.status == "active")
 
         # --- Plate count via SQL count ---
-        plates_count_stmt = select(func.count(DriverPlate.id)).where(DriverPlate.client_id == client_id)
+        plates_count_stmt = select(func.count(col(DriverPlate.id))).where(DriverPlate.client_id == client_id)
         plates_result = await session.exec(plates_count_stmt)
         total_plates = plates_result.one()
 
@@ -557,8 +574,8 @@ class AdminReportingService:
         ]
 
         jobs_agg_stmt = select(
-            func.count(WaybillJob.id).label("total_jobs"),
-            func.sum(case((WaybillJob.status == TaskStatus.SUCCESS.value, 1), else_=0)).label("success_jobs"),
+            func.count(col(WaybillJob.id)).label("total_jobs"),
+            func.sum(case((col(WaybillJob.status) == TaskStatus.SUCCESS.value, 1), else_=0)).label("success_jobs"),
             func.sum(case((col(WaybillJob.status).in_(failed_statuses), 1), else_=0)).label("failed_jobs"),
         ).where(WaybillJob.client_id == client_id)
 
@@ -582,9 +599,9 @@ class AdminReportingService:
         agg_result = await session.exec(jobs_agg_stmt)
         agg_row = agg_result.one()
 
-        total_jobs = int(agg_row.total_jobs) if agg_row.total_jobs else 0
-        success_jobs = int(agg_row.success_jobs) if agg_row.success_jobs else 0
-        failed_jobs = int(agg_row.failed_jobs) if agg_row.failed_jobs else 0
+        total_jobs = int(agg_row[0]) if agg_row[0] else 0
+        success_jobs = int(agg_row[1]) if agg_row[1] else 0
+        failed_jobs = int(agg_row[2]) if agg_row[2] else 0
 
         # --- Per-driver breakdown via SQL aggregation ---
         driver_ids = [d.id for d in drivers]
@@ -593,12 +610,14 @@ class AdminReportingService:
             driver_agg_stmt = (
                 select(
                     WaybillJob.driver_id,
-                    func.count(WaybillJob.id).label("total_jobs"),
-                    func.sum(case((WaybillJob.status == TaskStatus.SUCCESS.value, 1), else_=0)).label("success_jobs"),
+                    func.count(col(WaybillJob.id)).label("total_jobs"),
+                    func.sum(case((col(WaybillJob.status) == TaskStatus.SUCCESS.value, 1), else_=0)).label(
+                        "success_jobs"
+                    ),
                     func.sum(case((col(WaybillJob.status).in_(failed_statuses), 1), else_=0)).label("failed_jobs"),
                 )
                 .where(WaybillJob.client_id == client_id, col(WaybillJob.driver_id).in_(driver_ids))
-                .group_by(WaybillJob.driver_id)
+                .group_by(col(WaybillJob.driver_id))
             )
 
             if date_from:
@@ -609,13 +628,13 @@ class AdminReportingService:
                 driver_agg_stmt = driver_agg_stmt.where(WaybillJob.created_at < dt)
 
             driver_agg_result = await session.exec(driver_agg_stmt)
-            stats_by_driver = {row.driver_id: row for row in driver_agg_result.all()}
+            stats_by_driver = {row[0]: row for row in driver_agg_result.all()}
 
             for driver in drivers:
                 stats = stats_by_driver.get(driver.id)
-                d_total = int(stats.total_jobs) if stats and stats.total_jobs else 0
-                d_success = int(stats.success_jobs) if stats and stats.success_jobs else 0
-                d_failed = int(stats.failed_jobs) if stats and stats.failed_jobs else 0
+                d_total = int(stats[1]) if stats and stats[1] else 0
+                d_success = int(stats[2]) if stats and stats[2] else 0
+                d_failed = int(stats[3]) if stats and stats[3] else 0
 
                 driver_breakdown.append(
                     {
@@ -632,15 +651,18 @@ class AdminReportingService:
         # --- Failure reasons via SQL aggregation ---
         failure_stmt = (
             select(
-                WaybillJob.error_category,
-                func.count(WaybillJob.id).label("count"),
+                col(WaybillJob.error_category),
+                # NOTE: label must not be "count" — Row.count is a Sequence
+                # method, so row.count would resolve to the bound method
+                # instead of the labeled column value.
+                func.count(col(WaybillJob.id)).label("failure_count"),
             )
             .where(
                 WaybillJob.client_id == client_id,
-                WaybillJob.error_category.isnot(None),
+                col(WaybillJob.error_category).isnot(None),
                 col(WaybillJob.status).in_(failed_statuses),
             )
-            .group_by(WaybillJob.error_category)
+            .group_by(col(WaybillJob.error_category))
         )
 
         if date_from:
@@ -651,7 +673,7 @@ class AdminReportingService:
             failure_stmt = failure_stmt.where(WaybillJob.created_at < dt)
 
         failure_result = await session.exec(failure_stmt)
-        failure_reasons = {row.error_category: int(row.count) for row in failure_result.all()}
+        failure_reasons = {row[0]: int(row[1]) for row in failure_result.all()}
 
         return {
             "client_id": client.id,

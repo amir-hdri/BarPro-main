@@ -18,10 +18,6 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-try:
-    import jdatetime
-except ImportError:
-    jdatetime = None
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -53,6 +49,17 @@ from app.rpa.event_taxonomy import (
 )
 from app.services.rpa_runtime_service import rpa_runtime
 from app.services.utcms_submission_gate import utcms_submission_gate
+
+# jdatetime is an optional dependency (installed but untyped): when absent,
+# ``jdatetime`` is None and Jalali-date helpers degrade gracefully. Declared
+# as Any (not a module type) so the fallback needs no suppression comment.
+jdatetime: Any
+try:
+    import jdatetime as _jdatetime_mod
+
+    jdatetime = _jdatetime_mod
+except ImportError:
+    jdatetime = None
 
 logger = logging.getLogger(__name__)
 
@@ -110,8 +117,8 @@ async def _add_log(
     client_id: int,
     step: str,
     status: str,
-    message: str = None,
-    details: dict = None,
+    message: str | None = None,
+    details: dict[str, Any] | None = None,
 ) -> None:
     log = WaybillTaskLog(
         job_id=job_id,
@@ -159,6 +166,9 @@ async def _execute_single_job(
         driver_password: Pre-decrypted UTCMS password. When ``None`` the password
                          is decrypted here (legacy/recursive-retry path).
     """
+    # client/driver are DB-fetched rows; their PKs are always set at runtime.
+    assert client.id is not None, "client must be a persisted row"
+    assert driver.id is not None, "driver must be a persisted row"
     if attempt == 1:
         start_jitter = random.uniform(1.0, 5.0)
         logger.info(f"Adding start jitter of {start_jitter:.2f}s for scheduled job {job.job_id}")
@@ -373,11 +383,12 @@ async def _execute_single_job(
                 or result.get("mutation_status") == "ambiguous"
                 or result.get("error_category") == "submission_unconfirmed"
             ):
-                result_payload = result.get("result") if isinstance(result.get("result"), dict) else {}
+                _otp_result_raw = result.get("result")
+                otp_result_payload: dict[str, Any] = _otp_result_raw if isinstance(_otp_result_raw, dict) else {}
                 otp_required = bool(
                     result.get("requires_operator_otp")
                     or result.get("error_category") == "otp_required"
-                    or result_payload.get("otp_required") is True
+                    or otp_result_payload.get("otp_required") is True
                 )
                 if otp_required:
                     await utcms_submission_gate.record_otp_detected(
@@ -385,12 +396,12 @@ async def _execute_single_job(
                         evidence={
                             "transport": result.get("transport"),
                             "isOtpNeeded": True,
-                            "document_id": result_payload.get("document_id"),
+                            "document_id": otp_result_payload.get("document_id"),
                         },
                     )
                     doc_id = str(result.get("document_id") or "").strip() or None
-                    if result_payload.get("document_id"):
-                        doc_id = str(result_payload["document_id"])
+                    if otp_result_payload.get("document_id"):
+                        doc_id = str(otp_result_payload["document_id"])
                     result = {
                         **result,
                         "status": TaskStatus.UNKNOWN.value,
@@ -399,7 +410,7 @@ async def _execute_single_job(
                         "needs_reconciliation": False,
                         "requires_operator_otp": True,
                     }
-                    job.result_json = dict(result_payload)
+                    job.result_json = dict(otp_result_payload)
                     if doc_id:
                         job.document_id = doc_id
                     job.mutation_status = result["mutation_status"]
@@ -446,8 +457,10 @@ async def _execute_single_job(
                     "needs_reconciliation": True,
                     "error_category": "submission_unconfirmed",
                 }
+                _missing_raw = result.get("result")
+                _missing_tracking: dict[str, Any] = _missing_raw if isinstance(_missing_raw, dict) else {}
                 job.result_json = {
-                    **(result.get("result") if isinstance(result.get("result"), dict) else {}),
+                    **_missing_tracking,
                     **build_missing_tracking_result(document_id=doc_id),
                 }
                 if doc_id and not job.document_id:
@@ -783,7 +796,7 @@ async def evaluate_and_run_schedules() -> dict[str, Any]:
     Returns a summary of what was executed, skipped, and failed.
     """
     session = async_session_factory()
-    summary = {
+    summary: dict[str, Any] = {
         "started_at": _utcnow().isoformat(),
         "schedules_evaluated": 0,
         "schedules_skipped": 0,
@@ -797,7 +810,7 @@ async def evaluate_and_run_schedules() -> dict[str, Any]:
     try:
         stmt = (
             select(DriverSchedule)
-            .where(DriverSchedule.is_active.is_(True))
+            .where(col(DriverSchedule.is_active).is_(True))
             .order_by(col(DriverSchedule.created_at).asc())
         )
         result = await session.exec(stmt)
@@ -853,7 +866,8 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
             return None
         if jdatetime is not None:
             try:
-                return jdatetime.date.fromisoformat(date_str).togregorian()
+                gregorian: date = jdatetime.date.fromisoformat(date_str).togregorian()
+                return gregorian
             except (ValueError, TypeError) as exc:
                 logger.debug(
                     "scheduled_jalali_parse_failed_falling_back",
@@ -912,6 +926,9 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
         return {"jobs_created": 0, "jobs_success": 0, "jobs_failed": 0, "skipped": True, "reason": "driver_not_found"}
     if driver.status not in ("active", "ready"):
         return {"jobs_created": 0, "jobs_success": 0, "jobs_failed": 0, "skipped": True, "reason": "inactive_driver"}
+    # driver/schedule are DB rows; PKs are always set at runtime.
+    assert driver.id is not None, "driver must be a persisted row"
+    assert schedule.id is not None, "schedule must be a persisted row"
 
     # Build payload
     payload = _safe_json(schedule.payload_template_json)
@@ -953,6 +970,7 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
     session.add(new_job)
     await session.commit()
     await session.refresh(new_job)
+    assert new_job.id is not None, "new_job must have an id after refresh"
 
     await _record_event(
         session,
@@ -1000,7 +1018,7 @@ async def retry_failed_scheduled_jobs() -> dict[str, Any]:
     This is called periodically to check if jobs are eligible for retry.
     """
     session = async_session_factory()
-    summary = {
+    summary: dict[str, Any] = {
         "started_at": _utcnow().isoformat(),
         "jobs_checked": 0,
         "jobs_retried": 0,
@@ -1019,7 +1037,7 @@ async def retry_failed_scheduled_jobs() -> dict[str, Any]:
                         TaskStatus.RETRYING.value,
                     ]
                 ),
-                WaybillJob.schedule_id.is_not(None),
+                col(WaybillJob.schedule_id).is_not(None),
                 (col(WaybillJob.next_retry_at).is_(None)) | (col(WaybillJob.next_retry_at) <= now),
             )
             .order_by(col(WaybillJob.priority).desc())
@@ -1095,7 +1113,7 @@ async def clear_expired_waiting_jobs() -> dict[str, Any]:
     without making progress. Mark them for review.
     """
     session = async_session_factory()
-    summary = {
+    summary: dict[str, Any] = {
         "cleared": 0,
         "errors": [],
         "ended_at": _utcnow().isoformat(),
@@ -1106,7 +1124,7 @@ async def clear_expired_waiting_jobs() -> dict[str, Any]:
         stmt = select(WaybillJob).where(
             WaybillJob.status == TaskStatus.WAITING_RETRY.value,
             col(WaybillJob.updated_at) < cutoff,
-            WaybillJob.schedule_id.is_not(None),
+            col(WaybillJob.schedule_id).is_not(None),
         )
         result = await session.exec(stmt)
         stuck_jobs = result.all()

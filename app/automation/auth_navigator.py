@@ -18,6 +18,7 @@ import asyncio
 import logging
 import random
 from collections.abc import Iterable
+from typing import Literal
 
 from playwright.async_api import BrowserContext, Page
 
@@ -74,7 +75,14 @@ class AuthNavigator:
             return ""
         return (resolved if isinstance(resolved, str) else str(resolved)).strip()
 
-    async def goto_with_retry(self, url: str, wait_until: str = "domcontentloaded") -> None:
+    async def goto_with_retry(
+        self,
+        url: str,
+        wait_until: Literal["commit", "domcontentloaded", "load", "networkidle"] = "domcontentloaded",
+        timeout: float | None = None,
+    ) -> None:
+        # Playwright goto timeout in milliseconds; defaults to PAGE_NAVIGATION_TIMEOUT.
+        goto_timeout = utcms_config.PAGE_NAVIGATION_TIMEOUT if timeout is None else timeout
         attempts = max(1, utcms_config.PAGE_GOTO_MAX_RETRIES + 1)
         base_delay = max(0.1, utcms_config.PAGE_GOTO_RETRY_BASE_SECONDS)
         jitter = max(0.0, utcms_config.PAGE_GOTO_RETRY_JITTER_SECONDS)
@@ -82,7 +90,7 @@ class AuthNavigator:
         for attempt in range(1, attempts + 1):
             try:
                 try:
-                    await self.page.goto(url, wait_until=wait_until, timeout=utcms_config.PAGE_NAVIGATION_TIMEOUT)
+                    await self.page.goto(url, wait_until=wait_until, timeout=goto_timeout)
                 except Exception as goto_err:
                     if "timeout" in str(goto_err).lower():
                         try:

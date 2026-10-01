@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import Page
@@ -654,7 +654,9 @@ class ResilientWorkflow:
 
             # Capture final evidence
             if self.capture_evidence and self.page:
-                await self._capture_evidence("workflow_failure", self.state.error_code)
+                # fail() was just called above with error_code: str, so it is set
+                # here; cast() is a runtime no-op that only guides the type checker.
+                await self._capture_evidence("workflow_failure", cast(str, self.state.error_code))
 
             logger.error(
                 "workflow_failed",

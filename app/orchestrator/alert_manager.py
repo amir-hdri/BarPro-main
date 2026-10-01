@@ -4,7 +4,7 @@ Alert Manager for creating, deduplicating, broadcasting, and managing admin aler
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,11 +17,15 @@ from app.realtime.events import event_hub
 logger = logging.getLogger(__name__)
 
 
-async def _one_or_none(session: AsyncSession, statement):
-    """Execute a scalar select with either SQLModel or SQLAlchemy sessions."""
+async def _one_or_none(session: AsyncSession, statement: Any) -> AdminAlert | None:
+    """Execute a scalar select with either SQLModel or SQLAlchemy sessions.
+
+    The untyped session helpers return Any, so cast to the declared
+    AdminAlert | None; cast() is a runtime no-op.
+    """
     if hasattr(session, "exec"):
-        return (await session.exec(statement)).one_or_none()
-    return (await session.execute(statement)).scalars().one_or_none()
+        return cast(AdminAlert | None, (await session.exec(statement)).one_or_none())
+    return cast(AdminAlert | None, (await session.execute(statement)).scalars().one_or_none())
 
 
 class AlertManagerService:

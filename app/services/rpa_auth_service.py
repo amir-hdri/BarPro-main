@@ -6,8 +6,9 @@ import asyncio
 import json
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
+from sqlalchemy.orm import InstrumentedAttribute
 from sqlmodel import select
 
 from app.auth_multitenant import DriverPasswordDecryptError, decrypt_driver_password
@@ -27,6 +28,12 @@ from app.services.rpa_submit_service import rpa_submit_service
 from app.services.session_vault import session_vault
 
 logger = logging.getLogger(__name__)
+
+# Typed column handles for the refresh query. SQLModel exposes mapped attributes as
+# their plain Python types on the class, so we cast to the InstrumentedAttribute
+# objects they actually are at runtime (cast is a no-op; identical SQL is generated).
+_drs_session_expires_at_col = cast(InstrumentedAttribute[datetime | None], DriverRuntimeState.session_expires_at)
+_drs_state_col = cast(InstrumentedAttribute[str], DriverRuntimeState.state)
 
 
 class RPAAuthService:
@@ -114,7 +121,8 @@ class RPAAuthService:
                 seconds=utcms_config.RPA_SESSION_TTL_SECONDS
             )
             bundle = SessionBundle(
-                cookies=cookies,
+                # Playwright Cookie TypedDicts are plain dicts at runtime.
+                cookies=cast(list[dict[str, Any]], cookies),
                 user_agent=await page.evaluate("() => navigator.userAgent"),
                 issued_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
                 expires_at=session_expires_at.isoformat(),
@@ -282,6 +290,7 @@ class RPAAuthService:
         runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
         driver.runtime_status = DriverStatus.AUTH_REQUIRED.value
         driver.last_error_code = "login_failed"
+        assert driver.id is not None  # driver is DB-loaded (session.get + None guard in authenticate_driver)
         await self._record_event(
             session,
             client_id=driver.client_id,
@@ -349,7 +358,8 @@ class RPAAuthService:
             state.client_id = client_id
             session.add(state)
             await session.flush()
-        return state
+        # session is untyped here; state is a DriverRuntimeState at runtime.
+        return cast(DriverRuntimeState, state)
 
     async def _get_or_create_session_metadata(self, session, client_id: int, driver_id: int) -> DriverSessionMetadata:
         item = (
@@ -364,7 +374,8 @@ class RPAAuthService:
             item.client_id = client_id
             session.add(item)
             await session.flush()
-        return item
+        # session is untyped here; item is a DriverSessionMetadata at runtime.
+        return cast(DriverSessionMetadata, item)
 
     async def keepalive_sessions(self) -> dict[str, Any]:
         """Proactively refresh driver sessions that are close to expiring.
@@ -381,10 +392,10 @@ class RPAAuthService:
             threshold = now + timedelta(seconds=skew)
             stmt = (
                 select(DriverRuntimeState)
-                .where(DriverRuntimeState.session_expires_at.isnot(None))
-                .where(DriverRuntimeState.session_expires_at < threshold)
+                .where(_drs_session_expires_at_col.isnot(None))
+                .where(_drs_session_expires_at_col < threshold)
                 .where(
-                    DriverRuntimeState.state.in_(
+                    _drs_state_col.in_(
                         [
                             DriverRuntimeStateValue.READY.value,
                             DriverRuntimeStateValue.ACTIVE.value,

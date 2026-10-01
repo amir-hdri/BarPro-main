@@ -4,7 +4,7 @@ import logging
 import traceback
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from app.core.alerts import alert_manager
 from app.core.error_taxonomy import ErrorCategory, classify_exception
@@ -159,7 +159,10 @@ def retry_on_exception(
                     time.sleep(current_delay)
                     current_delay *= backoff
 
-            raise last_exception
+            assert last_exception is not None  # set on every caught attempt above
+            # cast() is a runtime no-op; it guards the raise against contexts where
+            # the assert above does not narrow the type for the checker.
+            raise cast(BaseException, last_exception)
 
         return wrapper
 
@@ -230,7 +233,10 @@ async def async_retry_on_exception(
                     await asyncio.sleep(current_delay)
                     current_delay *= backoff
 
-            raise last_exception
+            assert last_exception is not None  # set on every caught attempt above
+            # cast() is a runtime no-op; it guards the raise against contexts where
+            # the assert above does not narrow the type for the checker.
+            raise cast(BaseException, last_exception)
 
         return wrapper
 

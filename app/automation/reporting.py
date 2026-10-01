@@ -2,9 +2,10 @@
 
 import asyncio
 from collections import deque
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from statistics import mean, median
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,8 +27,8 @@ class ReportService:
         self._op_lock = None
         self._loop = None
         self._op_loop = None
-        self._latency_samples = deque(maxlen=max(1000, utcms_config.LATENCY_SAMPLE_MAX))
-        self._hourly_samples = deque(maxlen=2000)  # For hourly trends
+        self._latency_samples: deque[float] = deque(maxlen=max(1000, utcms_config.LATENCY_SAMPLE_MAX))
+        self._hourly_samples: deque[dict[str, Any]] = deque(maxlen=2000)  # For hourly trends
         self._mode_counters = {
             "safe": {"requests": 0, "success": 0, "failure": 0},
             "full": {"requests": 0, "success": 0, "failure": 0},
@@ -42,8 +43,8 @@ class ReportService:
             "timeout": 0,
             "unknown": 0,
         }
-        self._error_details = deque(maxlen=500)  # Recent error details
-        self._success_times = deque(maxlen=1000)  # For success rate trends
+        self._error_details: deque[dict[str, Any]] = deque(maxlen=500)  # Recent error details
+        self._success_times: deque[dict[str, Any]] = deque(maxlen=1000)  # For success rate trends
         self._daily_trends = {}  # Cache for daily trends
 
     @property
@@ -232,7 +233,7 @@ class ReportService:
 
     async def get_daily_report(self) -> dict[str, Any]:
         async with AsyncSession(engine) as session:
-            statement = select(BotStats).order_by(BotStats.report_date)
+            statement = select(BotStats).order_by(cast(Any, BotStats.report_date))
             result = await session.execute(statement)
             all_stats = result.scalars().all()
 
@@ -296,7 +297,7 @@ class ReportService:
             error_details = list(self._error_details)
 
         # Group errors by category
-        errors_by_category = {}
+        errors_by_category: dict[str, dict[str, Any]] = {}
         for error in error_details:
             category = error["category"]
             if category not in errors_by_category:
@@ -387,7 +388,7 @@ class ReportService:
 
         return result
 
-    async def _calculate_daily_trend(self, all_stats: list[BotStats]) -> list[dict[str, Any]]:
+    async def _calculate_daily_trend(self, all_stats: Sequence[BotStats]) -> list[dict[str, Any]]:
         """محاسبه روند روزانه"""
         trend = []
         for stat in sorted(all_stats, key=lambda x: x.report_date)[-7:]:  # Last 7 days
@@ -423,9 +424,13 @@ class ReportService:
         """محاسبه انحراف معیار"""
         if len(samples) < 2:
             return 0.0
-        avg = mean(samples)
-        variance = sum((x - avg) ** 2 for x in samples) / (len(samples) - 1)
-        return variance**0.5
+        # statistics.mean is typed loosely (Any); it returns a float for
+        # float input. Type-level annotation only.
+        avg: float = mean(samples)
+        # sum() over a generator is also loosely typed; annotate the result.
+        variance: float = sum((x - avg) ** 2 for x in samples) / (len(samples) - 1)
+        # cast is a runtime no-op: float.__pow__ is typed Any in this typeshed.
+        return cast(float, variance**0.5)
 
     @staticmethod
     def _percentile(samples: list[float], percentile: int) -> float:

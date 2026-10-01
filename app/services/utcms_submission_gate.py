@@ -197,6 +197,8 @@ class UTCMSSubmissionGate:
     @staticmethod
     def _observation_is_current(state: GateStateValue, raw_meta: dict[str, Any] | str | bytes | None) -> bool:
         """Apply the same evidence window to Redis, memory, and DB decisions."""
+        if raw_meta is None:
+            return False
         try:
             meta = raw_meta if isinstance(raw_meta, dict) else json.loads(raw_meta)
             if not isinstance(meta, dict) or meta.get("state") != state.value:

@@ -7,7 +7,7 @@ import json
 import logging
 import time
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from playwright.async_api import BrowserContext, Page
@@ -99,8 +99,12 @@ class SubmitAdapter:
             response_payload = None
         if isinstance(response_payload, dict):
             raw_payload.update(response_payload)
-            data = response_payload.get("data") if isinstance(response_payload.get("data"), dict) else {}
-            obj = data.get("obj") if isinstance(data.get("obj"), dict) else {}
+            # NOTE: intermediate variables (not inline `x.get(k) if isinstance(...)`)
+            # so mypy narrows cleanly; dict.get is pure, so this is behavior-identical.
+            _data = response_payload.get("data")
+            data: dict[Any, Any] = _data if isinstance(_data, dict) else {}
+            _obj = data.get("obj")
+            obj: dict[Any, Any] = _obj if isinstance(_obj, dict) else {}
             tracking_code = (
                 response_payload.get("tracking_code")
                 or response_payload.get("trackingCode")
@@ -511,11 +515,13 @@ class RPAHttpSubmitService:
                         {"reason": classification.reason_code},
                     )
 
-                counter = await self._sync_counter_row(session, client_id, job.driver_id)
-                if counter.successes >= utcms_config.DRIVER_DAILY_SUCCESS_CAP:
+                # NOTE: separate name from the RuntimeCounterSnapshot `counter` above;
+                # DriverDailyCounter is a different type with the same attribute shape.
+                synced_counter = await self._sync_counter_row(session, client_id, job.driver_id)
+                if synced_counter.successes >= utcms_config.DRIVER_DAILY_SUCCESS_CAP:
                     driver.runtime_status = DriverStatus.DAILY_LIMIT_REACHED.value
                     runtime_state.state = DriverRuntimeStateValue.DAILY_SUCCESS_LIMIT_REACHED.value
-                elif counter.attempts >= utcms_config.DRIVER_DAILY_ATTEMPT_CAP:
+                elif synced_counter.attempts >= utcms_config.DRIVER_DAILY_ATTEMPT_CAP:
                     driver.runtime_status = DriverStatus.DAILY_LIMIT_REACHED.value
                     runtime_state.state = DriverRuntimeStateValue.DAILY_ATTEMPT_LIMIT_REACHED.value
 
@@ -590,6 +596,8 @@ class RPAHttpSubmitService:
         runtime_state.updated_at = datetime.now(UTC).replace(tzinfo=None)
         driver.runtime_status = DriverStatus.AUTH_REQUIRED.value
         driver.last_error_code = reason
+        # driver was loaded from the DB above, so its primary key is never None.
+        assert driver.id is not None
         await self._record_event(session, job.client_id, driver.id, job.job_id, SESSION_EXPIRED, {"reason": reason})
         await session.commit()
         return SubmitExecutionResult(
@@ -661,7 +669,9 @@ class RPAHttpSubmitService:
             else:
                 from app.core.circuit_breaker import check_and_report_failure
 
-                await check_and_report_failure(res.classification.message)
+                # check_and_report_failure returns early on falsy input, so
+                # `or ""` is behavior-identical for a None message.
+                await check_and_report_failure(res.classification.message or "")
 
             return res
         except WaybillError as exc:
@@ -773,7 +783,10 @@ class RPAHttpSubmitService:
                 )
 
         normalized_payload = build_enhanced_waybill_payload(payload)
-        vehicle = normalized_payload.get("vehicle") if isinstance(normalized_payload.get("vehicle"), dict) else {}
+        # NOTE: intermediate variable (not inline `x.get(k) if isinstance(...)`)
+        # so mypy narrows cleanly; dict.get is pure, so this is behavior-identical.
+        _vehicle = normalized_payload.get("vehicle")
+        vehicle: dict[Any, Any] = _vehicle if isinstance(_vehicle, dict) else {}
         validation_errors = validate_live_waybill_payload(
             normalized_payload,
             expected_driver_mobile=vehicle.get("driver_phone"),
@@ -900,6 +913,10 @@ class RPAHttpSubmitService:
         classification: SubmitClassification,
         latency_ms: int,
     ) -> None:
+        # _record_attempt is only reached after the caller resolved a live Driver
+        # row via session.get(Driver, job.driver_id) (raising otherwise), and a
+        # NULL PK can never match a row — so driver_id is provably not None here.
+        assert job.driver_id is not None
         session.add(
             WaybillAttempt(
                 attempt_id=f"att_{hashlib.sha256(f'{job.job_id}:{job.attempt_count + 1}:{time.time()}'.encode()).hexdigest()[:24]}",
@@ -927,7 +944,9 @@ class RPAHttpSubmitService:
             state = DriverRuntimeState(client_id=client_id, driver_id=driver_id)
             session.add(state)
             await session.flush()
-        return state
+        # session is untyped (Any), so .first() is Any; the value is provably a
+        # DriverRuntimeState here. cast() is a runtime no-op.
+        return cast(DriverRuntimeState, state)
 
     async def _sync_counter_row(self, session, client_id: int, driver_id: int) -> DriverDailyCounter:
         snapshot = await rpa_runtime.counter_snapshot(client_id, driver_id)
@@ -950,7 +969,9 @@ class RPAHttpSubmitService:
             counter.last_attempt_at = datetime.now(UTC).replace(tzinfo=None)
         if snapshot.successes:
             counter.last_success_at = datetime.now(UTC).replace(tzinfo=None)
-        return counter
+        # session is untyped (Any), so counter is Any; it is provably a
+        # DriverDailyCounter here. cast() is a runtime no-op.
+        return cast(DriverDailyCounter, counter)
 
     async def _record_event(
         self, session, client_id: int, driver_id: int, job_id: str | None, event_type: str, payload: dict

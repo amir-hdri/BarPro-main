@@ -270,7 +270,7 @@ if nn is not None:  # pragma: no cover - requires real torch
 
         if rng.random() < 0.2:
             k = np.ones((2, 2), np.uint8)
-            binary = (arr < 128).astype(np.uint8) * 255
+            binary: np.ndarray = (arr < 128).astype(np.uint8) * 255
             if rng.random() < 0.5:
                 binary = cv2.dilate(binary, k, iterations=1)
             else:
@@ -313,6 +313,7 @@ if nn is not None:  # pragma: no cover - requires real torch
                 img = Image.new("L", (_IMG_SIZE, _IMG_SIZE), bg_shade)
                 draw = ImageDraw.Draw(img)
 
+                font: ImageFont.FreeTypeFont | ImageFont.ImageFont
                 if font_path:
                     try:
                         font = ImageFont.truetype(font_path, font_size)
@@ -395,18 +396,26 @@ if nn is not None:  # pragma: no cover - requires real torch
 
 
 _model_lock = threading.Lock()
-_cached_model = None  # MiniMLP | None when torch is available
+# Any: MiniMLP when torch is available (torch is an optional dependency);
+# None until the model is lazily loaded.
+_cached_model: Any = None
 
 
 def get_model() -> Any:  # MiniMLP when torch is available
     if torch is None or nn is None:
         raise RuntimeError("torch_not_installed: torch is required for neural_net captcha inference")
     global _cached_model
-    if _cached_model is not None:
-        return _cached_model
+    # Local copy: double-checked locking. _cached_model transitions
+    # None -> model exactly once, so reading it into a local is
+    # behavior-identical; it also resets mypy's narrowing from the
+    # first check for the re-check under the lock.
+    model = _cached_model
+    if model is not None:
+        return model
     with _model_lock:
-        if _cached_model is not None:
-            return _cached_model
+        model = _cached_model
+        if model is not None:
+            return model
         _cached_model = _load_or_train_model()
         return _cached_model
 

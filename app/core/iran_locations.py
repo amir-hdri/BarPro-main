@@ -521,7 +521,7 @@ def get_all_provinces() -> list[dict[str, Any]]:
     ]
 
 
-def get_cities_by_province(province_name: str) -> list[dict[str, Any]]:
+def get_cities_by_province(province_name: str) -> list[CityData]:
     """دریافت شهرهای یک استان مشخص"""
     norm_province = normalize_farsi_text(province_name)
     for p in IRAN_PROVINCES_DATA:

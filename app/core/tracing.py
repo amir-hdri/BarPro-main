@@ -57,6 +57,7 @@ def get_tracer() -> trace.Tracer:
     """Get the configured tracer."""
     if _tracer is None:
         setup_tracing()
+    assert _tracer is not None  # setup_tracing() always assigns _tracer on success
     return _tracer
 
 

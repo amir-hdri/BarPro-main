@@ -5,14 +5,20 @@ import math
 import time
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import HTTPException, Request, Response
 
 from app.core.config import utcms_config
 
+# redis is an optional dependency: when absent, ``aioredis`` is None and the
+# limiter falls back to in-memory behavior. Declared as Any (not a module
+# type) so the fallback assignment needs no suppression comment; runtime unchanged.
+aioredis: Any
 try:
-    import redis.asyncio as aioredis
+    import redis.asyncio as _aioredis
 
+    aioredis = _aioredis
     REDIS_AVAILABLE = True
 except ImportError:
     aioredis = None
@@ -92,6 +98,10 @@ class InMemoryRateLimiter:
                     keys_to_remove.append(key)
             for key in keys_to_remove:
                 del self._requests[key]
+
+    async def close(self) -> None:
+        """No-op: the in-memory backend holds no external resources."""
+        return None
 
 
 class RedisRateLimiter:
@@ -182,7 +192,9 @@ class RateLimiter:
     """Unified rate limiter with Redis or in-memory backend."""
 
     def __init__(self):
-        self._backend = None
+        # Always assigned a concrete backend by _setup_backend() below; the
+        # annotation (instead of `= None`) keeps the type checker precise.
+        self._backend: RedisRateLimiter | InMemoryRateLimiter
         self._rules: dict[str, RateLimitConfig] = {}
         self._setup_backend()
 

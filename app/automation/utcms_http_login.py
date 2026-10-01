@@ -33,7 +33,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urljoin, urlparse
 
 from app.core.config import utcms_config
@@ -288,7 +288,7 @@ class UtcmsHttpLogin:
         Returns:
             HttpLoginResult with success=True and the auth cookies on success.
         """
-        from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
+        from curl_cffi import requests as cc_requests
 
         if not username or not password:
             return HttpLoginResult(success=False, error="نام کاربری یا رمز عبور خالی است")
@@ -474,7 +474,7 @@ class UtcmsHttpLogin:
             Playwright-ready cookie dicts from the successful login, so the
             caller can also cold-boot a Playwright context from them.
         """
-        from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
+        from curl_cffi import requests as cc_requests
 
         retry_statuses = (429, *self.TRANSIENT_STATUS_CODES)
         last_exc: Exception | None = None
@@ -888,10 +888,13 @@ class UtcmsHttpLogin:
     def _extract_captcha_image_url(html: str, base_url: str) -> str | None:
         m = _CAPTCHA_IMG_RE.search(html)
         if m:
-            return urljoin(base_url, m.group(1).replace("&amp;", "&"))
+            # cast is a runtime no-op: Match.group() is typed str | Any in
+            # typeshed, but group(1) of a str pattern is always str here.
+            return cast(str, urljoin(base_url, m.group(1).replace("&amp;", "&")))
         m2 = _CAPTCHA_IMG_FALLBACK_RE.search(html)
         if m2:
-            return urljoin(base_url, m2.group(1).replace("&amp;", "&"))
+            # cast is a runtime no-op: see above.
+            return cast(str, urljoin(base_url, m2.group(1).replace("&amp;", "&")))
         return None
 
     @staticmethod

@@ -112,33 +112,43 @@ def test_enqueue_waybill_blank_idempotency_header_uses_auto_key(client):
 
 
 def test_waybill_task_status_endpoint(client):
-    with (
-        patch("app.core.config.utcms_config.API_AUTH_MODE", "off"),
-        patch(
-            "app.queue.queue_manager.queue_manager.get_task_status",
-            new=AsyncMock(
-                return_value={
-                    "task_id": "task-1",
-                    "idempotency_key": "idem-1",
-                    "correlation_id": "corr-1",
-                    "status": "succeeded",
-                    "attempt_count": 1,
-                    "max_retries": 5,
-                    "retryable": False,
-                    "celery_task_id": "celery-1",
-                    "worker_id": "worker-a",
-                    "error_category": None,
-                    "last_error": None,
-                    "result": {"success": True},
-                    "created_at": "2025-01-01T00:00:00",
-                    "updated_at": "2025-01-01T00:00:01",
-                    "started_at": "2025-01-01T00:00:00",
-                    "finished_at": "2025-01-01T00:00:01",
-                }
+    from app.auth_multitenant import get_current_user_or_admin
+    from app.main import app as fastapi_app
+
+    fastapi_app.dependency_overrides[get_current_user_or_admin] = lambda: {
+        "role": "master_admin",
+        "user": {"username": "admin", "role": "master_admin"},
+    }
+    try:
+        with (
+            patch("app.core.config.utcms_config.API_AUTH_MODE", "off"),
+            patch(
+                "app.queue.queue_manager.queue_manager.get_task_status",
+                new=AsyncMock(
+                    return_value={
+                        "task_id": "task-1",
+                        "idempotency_key": "idem-1",
+                        "correlation_id": "corr-1",
+                        "status": "succeeded",
+                        "attempt_count": 1,
+                        "max_retries": 5,
+                        "retryable": False,
+                        "celery_task_id": "celery-1",
+                        "worker_id": "worker-a",
+                        "error_category": None,
+                        "last_error": None,
+                        "result": {"success": True},
+                        "created_at": "2025-01-01T00:00:00",
+                        "updated_at": "2025-01-01T00:00:01",
+                        "started_at": "2025-01-01T00:00:00",
+                        "finished_at": "2025-01-01T00:00:01",
+                    }
+                ),
             ),
-        ),
-    ):
-        response = client.get("/waybill/tasks/task-1")
+        ):
+            response = client.get("/waybill/tasks/task-1")
+    finally:
+        fastapi_app.dependency_overrides.pop(get_current_user_or_admin, None)
 
     assert response.status_code == 200
     assert response.json()["status"] == "succeeded"

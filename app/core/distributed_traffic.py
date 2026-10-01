@@ -6,6 +6,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import Any, cast
 
 from app.core.config import utcms_config
 
@@ -16,7 +17,7 @@ try:
 
     REDIS_AVAILABLE = True
 except ImportError:
-    aioredis = None
+    aioredis = cast(Any, None)
     REDIS_AVAILABLE = False
 
 
@@ -213,6 +214,7 @@ class DistributedTrafficController:
     async def _wait_for_pacing(self):
         """Wait for rate limiting and pacing."""
         await self._ensure_loop()
+        assert self._lock is not None  # _ensure_loop() -> initialize() always sets the lock
         async with self._lock:
             loop = asyncio.get_running_loop()
             now = loop.time()
@@ -249,6 +251,7 @@ class DistributedTrafficController:
     async def mark_temporary_block(self, multiplier: float = 1.0):
         """Mark temporary block for backoff."""
         await self._ensure_loop()
+        assert self._lock is not None  # _ensure_loop() -> initialize() always sets the lock
         async with self._lock:
             loop = asyncio.get_running_loop()
             now = loop.time()

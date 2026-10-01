@@ -216,7 +216,7 @@ def geometry_from_snapshot(snapshot: dict[str, Any]) -> RouteGeometry:
 
         segments = [RouteSegment.from_dict(s) for s in (snapshot.get("segments") or []) if isinstance(s, dict)]
         return RouteGeometry.from_points(
-            [(float(p[0]), float(p[1])) for p in points],  # type: ignore[misc]
+            [(float(p[0]), float(p[1])) for p in points],
             segments=segments,
             source=str(snapshot.get("source") or "unknown"),
             provider_duration_s=float(snapshot.get("provider_duration_s") or 0.0),

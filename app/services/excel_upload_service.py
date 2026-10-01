@@ -1,6 +1,7 @@
 """Fail-closed legacy Excel upload guard and historical batch reader."""
 
 import json
+from typing import Any, cast
 
 from fastapi import HTTPException, UploadFile, status
 from sqlmodel import select
@@ -76,11 +77,13 @@ class ExcelUploadService:
 
         errors: list[dict] = []
         if batch.errors_json:
-            if isinstance(batch.errors_json, list):
-                errors = batch.errors_json
-            elif isinstance(batch.errors_json, str):
+            # Defensive: typed dict but may hold a list or raw JSON string at runtime.
+            _errors_json = cast(Any, batch.errors_json)
+            if isinstance(_errors_json, list):
+                errors = _errors_json
+            elif isinstance(_errors_json, str):
                 try:
-                    parsed = json.loads(batch.errors_json)
+                    parsed = json.loads(_errors_json)
                     if isinstance(parsed, list):
                         errors = parsed
                 except json.JSONDecodeError:

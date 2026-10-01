@@ -5,11 +5,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from typing import Any
 
 from app.core.config import utcms_config
 
+# redis is an optional dependency: when absent, ``aioredis`` is None and the
+# manager degrades gracefully. Declared as Any (not a module type) so the
+# fallback assignment needs no suppression comment; runtime unchanged.
+aioredis: Any
 try:
-    import redis.asyncio as aioredis
+    import redis.asyncio as _aioredis
+
+    aioredis = _aioredis
 except ImportError:  # pragma: no cover
     aioredis = None
 

@@ -16,7 +16,7 @@ import re
 import secrets
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -421,8 +421,12 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
             meta = {}
     meta = _safe_dict(meta)
     # A canonical object (even an empty one) takes precedence over its alias.
-    origin_meta = next((meta[key] for key in ("origin", "source") if isinstance(meta.get(key), dict)), {})
-    dest_meta = next((meta[key] for key in ("destination", "dest") if isinstance(meta.get(key), dict)), {})
+    origin_meta: dict[str, Any] = next(
+        (meta[key] for key in ("origin", "source") if isinstance(meta.get(key), dict)), {}
+    )
+    dest_meta: dict[str, Any] = next(
+        (meta[key] for key in ("destination", "dest") if isinstance(meta.get(key), dict)), {}
+    )
 
     # ── Origin coordinates ──
     origin_lat, origin_lng = _resolve_nested_coords(
@@ -578,7 +582,9 @@ async def get_cached_token(national_code: str) -> str | None:
     if r is None:
         return None
     try:
-        return await r.get(DRIVER_TOKEN_KEY.format(national_code=national_code))
+        # cast is a runtime no-op: the redis client is untyped (Any); the
+        # token is stored as a string or absent (None).
+        return cast("str | None", await r.get(DRIVER_TOKEN_KEY.format(national_code=national_code)))
     except Exception:
         return None
 
@@ -614,7 +620,9 @@ async def get_cached_refresh_token(national_code: str) -> str | None:
     if r is None:
         return None
     try:
-        return await r.get(DRIVER_REFRESH_KEY.format(national_code=national_code))
+        # cast is a runtime no-op: the redis client is untyped (Any); the
+        # refresh token is stored as a string or absent (None).
+        return cast("str | None", await r.get(DRIVER_REFRESH_KEY.format(national_code=national_code)))
     except Exception:
         return None
 

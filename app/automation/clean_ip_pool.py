@@ -34,7 +34,7 @@ import urllib.request
 import uuid
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urljoin, urlparse
 
 from app.core.config import utcms_config
@@ -186,9 +186,12 @@ class CleanIPRecord:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> CleanIPRecord | None:
+    def from_dict(cls, data: Any) -> CleanIPRecord | None:
         """Deserialize with validation — malformed/stale Redis or file state
         must never re-enter the runtime pool (validate → normalize → accept)."""
+        # data is Any (not dict[str, Any]) on purpose: callers feed this with
+        # deserialized Redis/file state that may be malformed, so the
+        # isinstance guard below is load-bearing and must stay.
         if not isinstance(data, dict):
             return None
         allowed_keys = {
@@ -268,7 +271,7 @@ def _is_safe_source_url(url: str) -> bool:
             item[4][0]
             for item in socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
         }
-        return bool(addresses) and all(is_valid_public_ip(address) for address in addresses)
+        return bool(addresses) and all(is_valid_public_ip(str(address)) for address in addresses)
     except (OSError, ValueError):
         return False
 
@@ -297,7 +300,9 @@ def _safe_fetch(url: str, timeout: float = 6.0) -> str | None:
         )
         opener = urllib.request.build_opener(_SafeRedirectHandler())
         with opener.open(req, timeout=timeout) as resp:
-            return resp.read().decode("utf-8", errors="ignore")
+            # cast is a runtime no-op: opener.open is loosely typed (Any);
+            # .read().decode() yields str at runtime.
+            return cast(str, resp.read().decode("utf-8", errors="ignore"))
     except Exception as exc:
         logger.debug("Failed to fetch proxy source host %s: %s", urlparse(url).hostname or "unknown", exc)
         return None
@@ -378,7 +383,7 @@ def fetch_freeproxy_world() -> list[dict[str, Any]]:
 
 def fetch_geonode_api() -> list[dict[str, Any]]:
     """Source 4: Geonode Free Proxy API."""
-    results = []
+    results: list[dict[str, Any]] = []
     url = "https://proxylist.geonode.com/api/proxy-list?country=IR&limit=500&page=1&sort_by=lastChecked&sort_type=desc"
     raw = _safe_fetch(url, timeout=6.0)
     if not raw:
@@ -409,7 +414,7 @@ def fetch_geonode_api() -> list[dict[str, Any]]:
 
 def fetch_monosans_geojson() -> list[dict[str, Any]]:
     """Source 5: monosans GeoJSON proxy list on GitHub."""
-    results = []
+    results: list[dict[str, Any]] = []
     url = "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies_geolocation/all.json"
     raw = _safe_fetch(url, timeout=7.0)
     if not raw:
@@ -463,7 +468,7 @@ def fetch_proxylist_download() -> list[dict[str, Any]]:
 
 def fetch_vakhov_github() -> list[dict[str, Any]]:
     """Source 7: vakhov fresh-proxy-list repository."""
-    results = []
+    results: list[dict[str, Any]] = []
     url = "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/master/proxies.json"
     raw = _safe_fetch(url, timeout=6.0)
     if not raw:
@@ -785,9 +790,9 @@ def _probe_via_curl_cffi(candidate: CleanIPRecord, target_url: str, timeout: flo
     transport-level failure (dead proxy, reset, timeout) — which is itself a
     verdict distinct from "target rejected this IP".
     """
-    from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
+    from curl_cffi import requests as cc_requests
 
-    session = cc_requests.Session(
+    session: Any = cc_requests.Session(
         impersonate="chrome120",
         proxies={"http": candidate.url, "https": candidate.url},
         timeout=max(1.0, timeout),
@@ -912,7 +917,8 @@ def probe_single_proxy(
             except Exception as exc:
                 last_exc = exc
                 if final_attempt:
-                    return _mark_probe_failed(candidate, str(exc))
+                    _mark_probe_failed(candidate, str(exc))
+                    return None
                 continue
 
             verdict = classify_probe_response(status_code, snippet)
@@ -934,7 +940,8 @@ def probe_single_proxy(
             elif verdict == "target_unavailable" and "target_unavailable" not in candidate.tags:
                 candidate.tags.append("target_unavailable")
             return None
-        return _mark_probe_failed(candidate, str(last_exc) if last_exc else "probe exhausted")
+        _mark_probe_failed(candidate, str(last_exc) if last_exc else "probe exhausted")
+        return None
 
     if candidate.protocol not in ("http", "https"):
         logger.debug(f"Proxy probe skipped (no SOCKS-capable client): {candidate.safe_url}")
@@ -962,7 +969,8 @@ def probe_single_proxy(
             if verdict == "healthy":
                 return _mark_probe_healthy(candidate, elapsed_ms)
             penalty = 50.0 if verdict in ("target_rejected", "waf_challenge") else 5.0
-            return _mark_probe_failed(candidate, f"{verdict} status={resp.status}", penalty=penalty)
+            _mark_probe_failed(candidate, f"{verdict} status={resp.status}", penalty=penalty)
+            return None
     except urllib.error.HTTPError as exc:
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         snippet = ""
@@ -977,7 +985,8 @@ def probe_single_proxy(
         _mark_probe_failed(candidate, f"{verdict} status={exc.code}", penalty=penalty)
         return None
     except Exception as exc:
-        return _mark_probe_failed(candidate, str(exc))
+        _mark_probe_failed(candidate, str(exc))
+        return None
 
 
 def _mark_probe_healthy(candidate: CleanIPRecord, elapsed_ms: float) -> CleanIPRecord:
@@ -1010,9 +1019,9 @@ def _verify_egress_country(candidate: CleanIPRecord, timeout: float = 8.0) -> st
     if _CURL_CFFI_IMPORT_ERROR is not None:
         return None
     try:
-        from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
+        from curl_cffi import requests as cc_requests
 
-        session = cc_requests.Session(
+        session: Any = cc_requests.Session(
             impersonate="chrome120",
             proxies={"http": candidate.url, "https": candidate.url},
             timeout=max(1.0, timeout),
@@ -1115,9 +1124,9 @@ def run_screening_cycle(
         if shortlist:
             geo_futures = {executor.submit(_egress_check, r): r for r in shortlist}
             checked: list[CleanIPRecord] = []
-            for fut in concurrent.futures.as_completed(geo_futures):
+            for geo_fut in concurrent.futures.as_completed(geo_futures):
                 try:
-                    checked.append(fut.result())
+                    checked.append(geo_fut.result())
                 except Exception:
                     pass
             verified = [r for r in checked if r.is_operational_iranian_egress]
@@ -1604,7 +1613,7 @@ async def probe_and_recover_squid_egress(worker_id: str = "1") -> bool:
     try:
         from curl_cffi import requests as cc_requests
 
-        session = cc_requests.Session(
+        session: Any = cc_requests.Session(
             impersonate="chrome120",
             proxies={"http": resolved_proxy, "https": resolved_proxy},
             timeout=15.0,

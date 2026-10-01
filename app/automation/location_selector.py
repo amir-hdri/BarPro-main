@@ -6,7 +6,7 @@ import asyncio
 import logging
 import math
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, cast
 
 from playwright.async_api import Page
 
@@ -908,8 +908,12 @@ class LocationSelector:
 
     async def _fetch_reverse_geocode(self, lat: float, lng: float) -> dict[str, Any] | None:
         try:
-            return await self.page.evaluate(
-                """async ([lat, lng]) => {
+            # cast is a runtime no-op: page.evaluate returns Any; the
+            # endpoint returns a JSON object or null.
+            return cast(
+                "dict[str, Any] | None",
+                await self.page.evaluate(
+                    """async ([lat, lng]) => {
                     try {
                         const response = await fetch('/Barname/Document/RevereseMap?lat=' + lat + '&lon=' + lng);
                         if (response.ok) {
@@ -921,7 +925,8 @@ class LocationSelector:
                     }
                     return null;
                 }""",
-                [lat, lng],
+                    [lat, lng],
+                ),
             )
         except Exception:
             return None
@@ -980,15 +985,20 @@ class LocationSelector:
             resolved = await self._resolve_selector(selector)
             if resolved is None:
                 return {"value": "", "text": ""}
-            return await self.page.eval_on_selector(
-                resolved,
-                """el => {
+            # cast is a runtime no-op: eval_on_selector returns Any; the JS
+            # builds a {value, text} object of strings.
+            return cast(
+                "dict[str, str]",
+                await self.page.eval_on_selector(
+                    resolved,
+                    """el => {
                     const opt = el.selectedOptions ? el.selectedOptions[0] : null;
                     return {
                         value: (el.value || '').trim(),
                         text: opt ? (opt.text || opt.innerText || '').trim() : ''
                     };
                 }""",
+                ),
             )
         except Exception:
             return {"value": "", "text": ""}
@@ -1093,6 +1103,11 @@ class LocationSelector:
             city_value = str(city_readback.get("value") or "").strip()
 
             async def _refill_cities() -> bool:
+                # city_selector is always truthy when this refill runs: the
+                # early return above guards the initial selection, and the only
+                # later reassignment is itself guarded by `if re_selector:`.
+                # (mypy drops outer narrowing inside closures, hence the assert.)
+                assert city_selector is not None
                 return await self._ensure_city_options([city_selector], province_value)
 
             # ۴.۵ تثبیت انتخاب شهر در برابر AJAX پاسخ FillCities سامانه

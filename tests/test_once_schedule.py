@@ -42,6 +42,13 @@ async def test_evaluate_single_schedule_once_deactivates():
 
     mock_session.get.side_effect = mock_get
 
+    # Faithful refresh: a real commit()+refresh() always populates the PK.
+    async def mock_refresh(obj):
+        if getattr(obj, "id", None) is None:
+            obj.id = 1
+
+    mock_session.refresh.side_effect = mock_refresh
+
     # Mock session.exec for existing job check to return None (no duplicate)
     mock_exec_result = MagicMock()
     mock_exec_result.first.return_value = None

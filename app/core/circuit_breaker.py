@@ -13,15 +13,24 @@ import os
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 import redis
 from sqlalchemy import select
+from sqlalchemy.orm import InstrumentedAttribute
 
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.core.network import EGRESS_FAILURE_MARKERS
 from app.core.redis_client import redis_manager
 from app.models_rpa import WorkerRegistry
+
+# Typed column handles for the registry lookup. SQLModel exposes mapped attributes
+# as their plain Python types on the class, so we cast to the InstrumentedAttribute
+# objects they actually are at runtime (cast is a no-op; identical SQL is generated).
+_worker_ip_index_col = cast(InstrumentedAttribute[int | None], WorkerRegistry.ip_index)
+_worker_status_col = cast(InstrumentedAttribute[str], WorkerRegistry.status)
+_worker_heartbeat_col = cast(InstrumentedAttribute[datetime], WorkerRegistry.last_heartbeat_at)
 
 
 class CircuitOpenError(Exception):
@@ -429,10 +438,10 @@ async def _get_registry_state() -> tuple[set[int], set[int]]:
     try:
         async with async_session_factory() as session:
             stmt = select(
-                WorkerRegistry.ip_index,
-                WorkerRegistry.status,
-                WorkerRegistry.last_heartbeat_at,
-            ).where(WorkerRegistry.ip_index.is_not(None))
+                _worker_ip_index_col,
+                _worker_status_col,
+                _worker_heartbeat_col,
+            ).where(_worker_ip_index_col.is_not(None))
             result = await session.exec(stmt)
             known, unavailable = _registry_index_state(result.all())
     except NoHealthyWorkerError:
@@ -459,10 +468,10 @@ def _get_registry_state_sync() -> tuple[set[int], set[int]]:
         session_factory = _get_worker_sync_session()
         with session_factory() as session:
             stmt = select(
-                WorkerRegistry.ip_index,
-                WorkerRegistry.status,
-                WorkerRegistry.last_heartbeat_at,
-            ).where(WorkerRegistry.ip_index.is_not(None))
+                _worker_ip_index_col,
+                _worker_status_col,
+                _worker_heartbeat_col,
+            ).where(_worker_ip_index_col.is_not(None))
             rows = session.execute(stmt).all()
             known, unavailable = _registry_index_state(rows)
     except NoHealthyWorkerError:
@@ -553,7 +562,9 @@ async def get_next_ip_index() -> int:
 
         _ip_index_cache = selected_ip
         _ip_index_cache_expires = now + _IP_INDEX_CACHE_TTL
-        return selected_ip
+        # counter comes from untyped redis (Any); the modulo result is a valid
+        # list index, so selected_ip is an int — cast() is a runtime no-op.
+        return cast(int, selected_ip)
     except NoHealthyWorkerError:
         raise
     except Exception as exc:

@@ -210,7 +210,7 @@ class SecretsManager:
 
     def _read_env_file(self) -> dict[str, str]:
         """Read and parse .env file."""
-        env = {}
+        env: dict[str, str] = {}
         if not self.env_file.exists():
             return env
 

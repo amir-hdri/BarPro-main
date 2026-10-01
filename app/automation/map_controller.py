@@ -6,7 +6,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from playwright.async_api import Page
 
@@ -56,7 +56,7 @@ class MapController:
 
     def __init__(self, page: Page):
         self.page = page
-        self.map_type = None
+        self.map_type: str | None = None
         self.map_selector: str | None = None
 
     async def detect_map_type(self) -> str | None:
@@ -241,15 +241,25 @@ class MapController:
     async def _select_openlayers(self, selector: str, location: GeoCoordinate) -> bool:
         """انتخاب مکان روی OpenLayers"""
         script = script_loader.load("openlayers_select")
-        return await self.page.evaluate(
-            script, {"selector": selector, "lat": location.latitude, "lng": location.longitude}
+        # cast is a runtime no-op: page.evaluate returns Any; the JS select
+        # scripts resolve to a boolean.
+        return cast(
+            bool,
+            await self.page.evaluate(
+                script, {"selector": selector, "lat": location.latitude, "lng": location.longitude}
+            ),
         )
 
     async def _select_leaflet(self, selector: str, location: GeoCoordinate) -> bool:
         """انتخاب مکان روی Leaflet"""
         script = script_loader.load("leaflet_select")
-        return await self.page.evaluate(
-            script, {"selector": selector, "lat": location.latitude, "lng": location.longitude}
+        # cast is a runtime no-op: page.evaluate returns Any; the JS select
+        # scripts resolve to a boolean.
+        return cast(
+            bool,
+            await self.page.evaluate(
+                script, {"selector": selector, "lat": location.latitude, "lng": location.longitude}
+            ),
         )
 
     async def _select_mapbox(
@@ -260,8 +270,13 @@ class MapController:
     ) -> bool:
         """انتخاب مکان روی Mapbox"""
         script = script_loader.load("mapbox_select")
-        return await self.page.evaluate(
-            script, {"selector": map_selector, "lat": location.latitude, "lng": location.longitude}
+        # cast is a runtime no-op: page.evaluate returns Any; the JS select
+        # scripts resolve to a boolean.
+        return cast(
+            bool,
+            await self.page.evaluate(
+                script, {"selector": map_selector, "lat": location.latitude, "lng": location.longitude}
+            ),
         )
 
     async def _select_by_click(self, selector: str, location: GeoCoordinate) -> bool:
@@ -466,11 +481,15 @@ class MapController:
         # تلاش برای استخراج از Google Maps
         if self.map_type == "google_maps":
             script = script_loader.load("extract_route_info_google")
-            return await self.page.evaluate(script)
+            # cast is a runtime no-op: page.evaluate returns Any; the JS
+            # extraction scripts resolve to a route-info object.
+            return cast("dict[str, Any]", await self.page.evaluate(script))
 
         # استخراج عمومی
         script = script_loader.load("extract_route_info_generic")
-        return await self.page.evaluate(script)
+        # cast is a runtime no-op: page.evaluate returns Any; the JS
+        # extraction scripts resolve to a route-info object.
+        return cast("dict[str, Any]", await self.page.evaluate(script))
 
     async def _extract_route_info(self) -> dict[str, Any]:
         """پوشش دهنده متد extract_route_info برای سازگاری با ماک‌های تستی"""
@@ -495,7 +514,9 @@ class MapController:
 
         # استخراج پیشنهادات
         script = script_loader.load("extract_suggestions")
-        return await self.page.evaluate(script)
+        # cast is a runtime no-op: page.evaluate returns Any; the JS
+        # extraction script resolves to a list of suggestion objects.
+        return cast("list[dict[str, Any]]", await self.page.evaluate(script))
 
     async def get_current_map_center(self) -> GeoCoordinate | None:
         """دریافت مختصات فعلی مرکز نقشه"""

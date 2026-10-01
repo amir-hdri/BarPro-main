@@ -29,13 +29,21 @@ can re-dispatch the job:
 
 import logging
 from datetime import UTC, datetime
+from typing import cast
 
+from sqlalchemy.orm import InstrumentedAttribute
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.models_rpa import DriverRuntimeState, DriverRuntimeStateValue, Execution
 
 logger = logging.getLogger(__name__)
+
+# SQLModel declares table columns as their plain Python types on the class, so
+# class-level access (e.g. Execution.status) types as str while the runtime
+# value is a SQLAlchemy InstrumentedAttribute. This alias casts to the real
+# runtime type for query-builder usage; cast() is a runtime no-op.
+_execution_status_col = cast(InstrumentedAttribute[str], Execution.status)
 
 # Execution statuses that count as "live" for slot purposes. A live execution
 # means a worker genuinely owns the pipeline, so the slot must not be freed.
@@ -50,7 +58,7 @@ async def _has_live_execution(session: AsyncSession, intent_id: str | None) -> b
         select(Execution.id)
         .where(
             Execution.intent_id == intent_id,
-            Execution.status.in_(_LIVE_EXECUTION_STATUSES),
+            _execution_status_col.in_(_LIVE_EXECUTION_STATUSES),
         )
         .limit(1)
     )

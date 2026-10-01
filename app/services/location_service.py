@@ -117,7 +117,7 @@ class LocationService:
             return cached
 
         url = "https://nominatim.openstreetmap.org/reverse"
-        params = {
+        params: dict[str, str | int | float] = {
             "lat": lat,
             "lon": lng,
             "format": "json",

@@ -2,10 +2,11 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.core.database import async_session_factory
 from app.models_multitenant import Client, ClientStatus, Driver, DriverStatus, TaskStatus, WaybillJob
@@ -15,8 +16,8 @@ from app.orchestrator.state_machine import JobStateMachine
 logger = logging.getLogger(__name__)
 
 # Sentinel for cache lookups that may legitimately store None.
-_MISSING_CLIENT = object()
-_MISSING_DRIVER = object()
+_MISSING_CLIENT: Any = object()
+_MISSING_DRIVER: Any = object()
 
 # Statuses counting toward the tenant's concurrent-task quota.
 # PENDING, WAITING_RETRY, OTP_BACKOFF are pre-dispatch states;
@@ -52,12 +53,14 @@ class SchedulerService:
                 now = datetime.now(UTC).replace(tzinfo=None)
                 slot_free_job_ids = (
                     select(WaybillJob.id)
-                    .join(DriverRuntimeState, WaybillJob.driver_id == DriverRuntimeState.driver_id, isouter=True)
+                    .join(
+                        DriverRuntimeState, col(WaybillJob.driver_id) == col(DriverRuntimeState.driver_id), isouter=True
+                    )
                     .where(
                         (DriverRuntimeState.active_execution_id == None) | (DriverRuntimeState.id == None)  # noqa: E711
                     )
                     .where(
-                        WaybillJob.status.in_(
+                        col(WaybillJob.status).in_(
                             [
                                 TaskStatus.PENDING.value,
                                 TaskStatus.WAITING_RETRY.value,
@@ -66,13 +69,13 @@ class SchedulerService:
                             ]
                         )
                     )
-                    .where((WaybillJob.next_retry_at == None) | (WaybillJob.next_retry_at <= now))  # noqa: E711
-                    .where((WaybillJob.submit_after == None) | (WaybillJob.submit_after <= now))  # noqa: E711
+                    .where(col(WaybillJob.next_retry_at).is_(None) | (col(WaybillJob.next_retry_at) <= now))
+                    .where(col(WaybillJob.submit_after).is_(None) | (col(WaybillJob.submit_after) <= now))
                 )
                 statement = (
                     select(WaybillJob)
-                    .where(WaybillJob.id.in_(slot_free_job_ids))
-                    .order_by(WaybillJob.priority.desc(), WaybillJob.created_at.asc())
+                    .where(col(WaybillJob.id).in_(slot_free_job_ids))
+                    .order_by(col(WaybillJob.priority).desc(), col(WaybillJob.created_at).asc())
                     .with_for_update(skip_locked=True)
                 )
 
@@ -146,9 +149,9 @@ class SchedulerService:
 
                     # Tenant concurrency quota: in-flight jobs per tenant.
                     if job.client_id not in in_flight_counts:
-                        in_flight_stmt = select(func.count(WaybillJob.id)).where(
+                        in_flight_stmt = select(func.count(col(WaybillJob.id))).where(
                             WaybillJob.client_id == job.client_id,
-                            WaybillJob.status.in_(_IN_FLIGHT_STATUSES),
+                            col(WaybillJob.status).in_(_IN_FLIGHT_STATUSES),
                         )
                         in_flight_counts[job.client_id] = (await session.exec(in_flight_stmt)).one()
                     if in_flight_counts[job.client_id] >= client.max_concurrent_tasks:
@@ -157,7 +160,7 @@ class SchedulerService:
 
                     # Tenant daily quota: jobs created today per tenant.
                     if job.client_id not in daily_counts:
-                        daily_stmt = select(func.count(WaybillJob.id)).where(
+                        daily_stmt = select(func.count(col(WaybillJob.id))).where(
                             WaybillJob.client_id == job.client_id,
                             WaybillJob.created_at >= today_start,
                         )

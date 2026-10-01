@@ -10,6 +10,7 @@ import time
 from contextvars import ContextVar
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from app.core.business_time import business_date_str
 from app.core.config import utcms_config
@@ -67,7 +68,8 @@ class RPADistributedRuntime:
     async def _get_value(self, key: str) -> str | None:
         redis = await self._get_redis()
         if redis is not None:
-            return await redis.get(key)
+            # redis client is typed Any; the stored values are str | None.
+            return cast("str | None", await redis.get(key))
         with self._get_lock():
             payload = self._memory.get(key)
             if payload is None:
@@ -114,6 +116,9 @@ class RPADistributedRuntime:
             self._lock_tokens.set(tokens)
             await self._remember_lock_token(key, token, ttl_seconds)
             return True
+        # Unreachable: the with-block above either returns False or acquires the
+        # lock. Returning False is the fail-closed value if it were ever reached.
+        return False
 
     @staticmethod
     def _lock_token_registry_key(key: str) -> str:

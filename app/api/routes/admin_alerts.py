@@ -3,11 +3,13 @@ API Routes for Admin Alerts, Manual Reconciliation, and Fencing-Protected Retrie
 """
 
 import logging
-from typing import Any
+from datetime import datetime
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
+from sqlalchemy.orm import InstrumentedAttribute
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth_multitenant import get_current_admin
@@ -22,6 +24,21 @@ from app.orchestrator.state_machine import JobStateMachine, JobStatus
 router = APIRouter(prefix="/api/v1/admin", tags=["admin-alerts"])
 
 logger = logging.getLogger(__name__)
+
+
+# SQLModel declares table columns as their plain Python types on the class, so
+# class-level attribute access types as e.g. str while the runtime value is a
+# SQLAlchemy InstrumentedAttribute. These aliases cast to the real runtime type
+# for query-builder usage; cast() is a runtime no-op.
+_alert_severity_col = cast(InstrumentedAttribute[str], AdminAlert.severity)
+_alert_category_col = cast(InstrumentedAttribute[str], AdminAlert.category)
+_alert_is_acknowledged_col = cast(InstrumentedAttribute[bool], AdminAlert.is_acknowledged)
+_alert_tenant_id_col = cast(InstrumentedAttribute[int | None], AdminAlert.tenant_id)
+_alert_dedupe_key_col = cast(InstrumentedAttribute[str], AdminAlert.dedupe_key)
+_alert_created_at_col = cast(InstrumentedAttribute[datetime], AdminAlert.created_at)
+_job_id_col = cast(InstrumentedAttribute[int | None], WaybillJob.id)
+_execution_job_id_col = cast(InstrumentedAttribute[str], Execution.job_id)
+_execution_status_col = cast(InstrumentedAttribute[str], Execution.status)
 
 
 class RetryRequest(BaseModel):
@@ -47,20 +64,20 @@ async def list_admin_alerts(
     query = select(AdminAlert)
 
     if severity:
-        query = query.where(AdminAlert.severity == severity.lower())
+        query = query.where(_alert_severity_col == severity.lower())
     if category:
-        query = query.where(AdminAlert.category == category)
+        query = query.where(_alert_category_col == category)
     if is_acknowledged is not None:
-        query = query.where(AdminAlert.is_acknowledged == is_acknowledged)
+        query = query.where(_alert_is_acknowledged_col == is_acknowledged)
     if tenant_id:
-        query = query.where(AdminAlert.tenant_id == tenant_id)
+        query = query.where(_alert_tenant_id_col == tenant_id)
 
     # Count query
     count_stmt = select(func.count()).select_from(query.subquery())
     total = (await session.execute(count_stmt)).scalar() or 0
 
     # Pagination & Ordering
-    query = query.order_by(AdminAlert.created_at.desc()).offset(offset).limit(limit)
+    query = query.order_by(_alert_created_at_col.desc()).offset(offset).limit(limit)
     alerts = (await session.execute(query)).scalars().all()
 
     return {
@@ -147,7 +164,7 @@ async def retry_job_manually(
     Manually retry a failed/needs_review job safely using Fencing Token check
     to prevent duplicate submission.
     """
-    stmt = select(WaybillJob).where(WaybillJob.id == job_id)
+    stmt = select(WaybillJob).where(_job_id_col == job_id)
     job = (await session.execute(stmt)).scalar_one_or_none()
 
     if not job:
@@ -161,7 +178,7 @@ async def retry_job_manually(
         )
 
     # Check active execution or dispatch intent fencing token
-    exec_stmt = select(Execution).where(Execution.job_id == str(job_id), Execution.status == "running")
+    exec_stmt = select(Execution).where(_execution_job_id_col == str(job_id), _execution_status_col == "running")
     active_execution = (await session.execute(exec_stmt)).scalar_one_or_none()
 
     if active_execution:
@@ -351,7 +368,7 @@ async def alertmanager_webhook(
             processed += 1
         elif status == "resolved":
             # Find and auto-acknowledge resolved alert
-            existing_alert_stmt = select(AdminAlert).where(AdminAlert.dedupe_key == dedupe_key)
+            existing_alert_stmt = select(AdminAlert).where(_alert_dedupe_key_col == dedupe_key)
             existing_alert = (await session.execute(existing_alert_stmt)).scalar_one_or_none()
             if existing_alert and not existing_alert.is_acknowledged:
                 await admin_alert_service.acknowledge_alert(

@@ -1,7 +1,9 @@
 import json
 import logging
 from datetime import UTC, datetime
+from typing import cast
 
+from sqlalchemy.orm import InstrumentedAttribute
 from sqlmodel import select
 
 from app.core.database import async_session_factory
@@ -12,6 +14,12 @@ from app.orchestrator.state_machine import JobStateMachine, StateTransitionError
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+# SQLModel declares table columns as their plain Python types on the class, so
+# class-level access (e.g. DispatchIntent.created_at) types as datetime while
+# the runtime value is a SQLAlchemy InstrumentedAttribute. This alias casts to
+# the real runtime type for query-builder usage; cast() is a runtime no-op.
+_created_at_col = cast(InstrumentedAttribute[datetime], DispatchIntent.created_at)
 
 
 def _job_result_json(job: WaybillJob) -> dict:
@@ -82,7 +90,7 @@ class DispatcherService:
                 statement = (
                     select(DispatchIntent)
                     .where(DispatchIntent.status == "pending")
-                    .order_by(DispatchIntent.created_at.asc())
+                    .order_by(_created_at_col.asc())
                     .with_for_update(skip_locked=True)
                 )
 

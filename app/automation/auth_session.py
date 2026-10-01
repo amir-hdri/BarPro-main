@@ -8,6 +8,7 @@ import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 
 from playwright.async_api import BrowserContext, Page
 
@@ -87,7 +88,9 @@ class SessionManager:
         if not state_path.exists():
             return None
         try:
-            return json.loads(state_path.read_text())
+            # cast is a runtime no-op: json.loads returns Any; the session
+            # state file holds a JSON object per the declared dict return.
+            return cast("dict[Any, Any]", json.loads(state_path.read_text()))
         except (json.JSONDecodeError, OSError):
             logger.warning("session_state_load_failed", exc_info=True)
             return None

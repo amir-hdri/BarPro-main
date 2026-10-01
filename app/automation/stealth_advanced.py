@@ -6,6 +6,7 @@ Implements multi-layered stealth for Cloudflare, Imperva, and custom WAFs.
 """
 
 import asyncio
+import json
 import logging
 import random
 import time
@@ -249,7 +250,12 @@ STEALTH_CORE_SCRIPT = """
 
 # WebGL & Canvas fingerprint spoofing
 WEBGL_SPOOF_SCRIPT = """
-(vendor, renderer, unmaskedVendor, unmaskedRenderer) => {
+(() => {
+    const __cfg = window.__webglSpoofConfig || {};
+    const vendor = __cfg.vendor;
+    const renderer = __cfg.renderer;
+    const unmaskedVendor = __cfg.unmaskedVendor;
+    const unmaskedRenderer = __cfg.unmaskedRenderer;
     const getParameter = WebGLRenderingContext.prototype.getParameter;
     const getExtension = WebGLRenderingContext.prototype.getExtension;
 
@@ -286,7 +292,7 @@ WEBGL_SPOOF_SCRIPT = """
             return getParameter2.call(this, parameter);
         };
     }
-}
+})();
 """
 
 # Canvas fingerprint noise injection (subtle, won't break functionality)
@@ -512,13 +518,18 @@ async def apply_enterprise_stealth(page: Page, config: StealthConfig | None = No
         if config.enable_webgl_spoof:
             try:
                 fingerprint = random.choice(WEBGL_FINGERPRINTS)
-                await page.add_init_script(
-                    WEBGL_SPOOF_SCRIPT,
-                    fingerprint["vendor"],
-                    fingerprint["renderer"],
-                    fingerprint["unmasked_vendor"],
-                    fingerprint["unmasked_renderer"],
+                # Playwright >=1.63 removed the `arg` parameter of
+                # add_init_script: the script is evaluated, not called. Inject
+                # the fingerprint as a JSON global the IIFE script reads.
+                webgl_config = json.dumps(
+                    {
+                        "vendor": fingerprint["vendor"],
+                        "renderer": fingerprint["renderer"],
+                        "unmaskedVendor": fingerprint["unmasked_vendor"],
+                        "unmaskedRenderer": fingerprint["unmasked_renderer"],
+                    }
                 )
+                await page.add_init_script(f"window.__webglSpoofConfig = {webgl_config};\n{WEBGL_SPOOF_SCRIPT}")
                 applied["webgl_spoof"] = True
             except Exception:
                 applied["webgl_spoof"] = False

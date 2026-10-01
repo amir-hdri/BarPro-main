@@ -137,6 +137,9 @@ async def human_like_typing(
         max_delay: Maximum delay between characters
     """
     element = await page.wait_for_selector(selector, state="visible", timeout=10000)
+    # state="visible" + timeout: a normal return means the element was found
+    # (timeout raises); None here would be a Playwright contract violation.
+    assert element is not None
     await element.click()
     await asyncio.sleep(random.uniform(0.15, 0.4))
     for char in text:
@@ -157,6 +160,7 @@ async def human_like_mouse_movement(page: Page, target_selector: str) -> None:
     """
     try:
         element = await page.wait_for_selector(target_selector, state="visible", timeout=5000)
+        assert element is not None  # see human_like_typing above
         box = await element.bounding_box()
         if not box:
             return

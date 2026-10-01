@@ -4,7 +4,7 @@ import random
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException
 
@@ -39,7 +39,8 @@ class BrowserSession:
 def _retry_delay_seconds(attempt_number: int) -> float:
     base = max(0.1, utcms_config.WAYBILL_RETRY_BASE_SECONDS)
     jitter = random.uniform(0, max(0.0, utcms_config.WAYBILL_RETRY_JITTER_SECONDS))
-    return (base * (2 ** max(0, attempt_number - 1))) + jitter
+    # Config values are typed Any; the arithmetic result is float.
+    return cast(float, (base * (2 ** max(0, attempt_number - 1))) + jitter)
 
 
 async def _goto_with_retry(page, url: str, wait_until: str = "domcontentloaded") -> None:
@@ -374,8 +375,10 @@ class WaybillService:
     @staticmethod
     def _resolve_operation_mode(request: WaybillMapRequest) -> str:
         operation_mode = request.operation_mode
-        if isinstance(operation_mode, OperationMode):
-            return operation_mode.value
+        # Defensive: typed str but may arrive as an OperationMode enum at runtime.
+        _mode = cast(Any, operation_mode)
+        if isinstance(_mode, OperationMode):
+            return _mode.value
         return str(operation_mode)
 
     @staticmethod

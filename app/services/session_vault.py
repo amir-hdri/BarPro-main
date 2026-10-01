@@ -3,7 +3,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from app.core.config import utcms_config
 from app.core.redis import redis_manager
@@ -108,7 +108,8 @@ class SessionVault:
     def auth_state_exists(self, path: str | None) -> bool:
         if not path:
             return False
-        return run_async(self.async_auth_state_exists(path))
+        # run_async() is typed Any; the coroutine returns bool.
+        return cast(bool, run_async(self.async_auth_state_exists(path)))
 
     async def restore_auth_state_to_file(self, path: str | None) -> bool:
         if not path:
@@ -139,7 +140,8 @@ class SessionVault:
     def restore_auth_state_to_file_sync(self, path: str | None) -> bool:
         if not path:
             return False
-        return run_async(self.restore_auth_state_to_file(path))
+        # run_async() is typed Any; the coroutine returns bool.
+        return cast(bool, run_async(self.restore_auth_state_to_file(path)))
 
     def ensure_parent_dir(self, path: str) -> None:
         directory = Path(path).parent
@@ -248,7 +250,8 @@ class SessionVault:
                 return None
             data = json.loads(raw)
             if isinstance(data, dict) and "session_version" in data:
-                return data["session_version"]
+                # json.loads() is typed Any; the stored version is int | None.
+                return cast("int | None", data["session_version"])
             return None
         except Exception as e:
             logger.error(f"Redis session vault version check failed: {e}", exc_info=True)
@@ -257,7 +260,8 @@ class SessionVault:
     def get_session_version(self, path: str | None) -> int | None:
         if not path:
             return None
-        return run_async(self.async_get_session_version(path))
+        # run_async() is typed Any; the coroutine returns int | None.
+        return cast("int | None", run_async(self.async_get_session_version(path)))
 
 
 session_vault = SessionVault()

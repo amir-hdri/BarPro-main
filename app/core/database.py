@@ -5,7 +5,9 @@ import logging
 import os
 import sys
 import time
+from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import Any, cast
 
 from alembic.config import Config
 from sqlalchemy import text
@@ -22,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Pool settings tuned for async workload with multiple workers
 
 
-engine_kwargs = {
+engine_kwargs: dict[str, Any] = {
     "echo": False,
     "future": True,
 }
@@ -46,7 +48,10 @@ elif "sqlite" not in utcms_config.DATABASE_URL.lower():
     )
 
 engine = create_async_engine(utcms_config.DATABASE_URL, **engine_kwargs)
-async_session_factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+# cast: sessionmaker's sync-oriented overloads don't accept an AsyncEngine; the
+# call itself is the documented async pattern (class_=AsyncSession). cast is a
+# runtime no-op and only silences the overload mismatch.
+async_session_factory = cast(Any, sessionmaker)(engine, class_=AsyncSession, expire_on_commit=False)
 
 MIGRATION_ADVISORY_LOCK_ID = 0x42415250524F
 
@@ -152,7 +157,7 @@ async def init_db():
     await run_migrations()
 
 
-async def get_session() -> AsyncSession:
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """Dependency for database session.
 
     Properly handles commit on success and rollback on failure.

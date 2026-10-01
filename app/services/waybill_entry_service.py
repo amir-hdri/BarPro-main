@@ -242,10 +242,16 @@ class ExcelWaybillParser:
             cargo_description = cls.get_cell(row, column_map, "cargo_description")
 
             cargo = CargoModel(
-                type=cargo_type if cargo_type else None,
+                # Empty cargo_type still fails the schema's min_length=1 validation,
+                # so the row is skipped via the except below exactly as before.
+                type=cargo_type if cargo_type else "",
                 weight=cargo_weight,
                 count=str(cargo_count),
                 description=cargo_description if cargo_description else None,
+                # Explicit Nones: identical to the field defaults; works around
+                # mypy treating `Field(None, ...)` as required without the plugin.
+                packaging=None,
+                value=None,
             )
 
             # Extract vehicle

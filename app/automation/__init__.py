@@ -9,6 +9,8 @@ Complete anti-detection browser automation system with:
 - Stealth browser management
 """
 
+from typing import Any, cast
+
 from .browser import (
     BrowserManager,
     PageInteractor,
@@ -92,7 +94,9 @@ from .stealth_advanced import (
 )
 
 # Prevent pytest from collecting the exported helper as a test function.
-test_proxy.__test__ = False
+# The cast only silences the attr-defined check: functions accept arbitrary
+# attributes at runtime, and this assignment is unchanged.
+cast(Any, test_proxy).__test__ = False
 
 # Export all main classes for easy import
 __all__ = [

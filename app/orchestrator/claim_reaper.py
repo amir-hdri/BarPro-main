@@ -5,7 +5,9 @@ Execution or Celery task running.
 
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
+from sqlalchemy.orm import InstrumentedAttribute
 from sqlmodel import select
 
 from app.core.database import async_session_factory
@@ -15,6 +17,13 @@ from app.orchestrator.driver_slot import release_driver_execution_slot
 from app.orchestrator.state_machine import JobStateMachine, StateTransitionError
 
 logger = logging.getLogger(__name__)
+
+# Typed column handles. SQLModel exposes mapped attributes as their plain Python
+# types on the class, so `.in_()` / `<` would resolve against str/datetime instead
+# of producing SQL expressions. Cast to the InstrumentedAttribute objects they
+# actually are at runtime (casts are no-ops; identical SQL is generated).
+_execution_status_col = cast(InstrumentedAttribute[str], Execution.status)
+_intent_status_col = cast(InstrumentedAttribute[str], DispatchIntent.status)
 
 # How long a job can stay in CLAIMED before being considered abandoned
 CLAIMED_STALE_THRESHOLD = timedelta(minutes=5)
@@ -51,7 +60,7 @@ class ClaimReaper:
                 for job in stale_claimed_jobs:
                     # Check if there's an active Execution for this job
                     exec_stmt = select(Execution).where(
-                        Execution.job_id == job.job_id, Execution.status.in_(["pending", "running"])
+                        Execution.job_id == job.job_id, _execution_status_col.in_(["pending", "running"])
                     )
                     exec_res = await session.exec(exec_stmt)
                     active_execution = exec_res.first()
@@ -62,7 +71,7 @@ class ClaimReaper:
 
                     # Check if there's a pending/claimed DispatchIntent for this job
                     intent_stmt = select(DispatchIntent).where(
-                        DispatchIntent.job_id == job.job_id, DispatchIntent.status.in_(["pending", "claimed"])
+                        DispatchIntent.job_id == job.job_id, _intent_status_col.in_(["pending", "claimed"])
                     )
                     intent_res = await session.exec(intent_stmt)
                     active_intent = intent_res.first()
@@ -155,8 +164,11 @@ class ClaimReaper:
                 stale_states_stmt = (
                     select(DriverRuntimeState)
                     .where(
-                        (DriverRuntimeState.auth_lock_owner != None)  # noqa: E711
-                        & (DriverRuntimeState.auth_lock_acquired_at < threshold)
+                        (cast(InstrumentedAttribute[str | None], DriverRuntimeState.auth_lock_owner).is_not(None))
+                        & (
+                            cast(InstrumentedAttribute[datetime | None], DriverRuntimeState.auth_lock_acquired_at)
+                            < threshold
+                        )
                     )
                     .with_for_update(skip_locked=True)
                 )

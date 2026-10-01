@@ -126,6 +126,9 @@ async def _get_job_and_driver(
         query = select(WaybillJob).where(WaybillJob.job_id == job_id)
         if user_context.get("role") == "client":
             client = user_context.get("user")
+            # get_current_user_or_admin guarantees "user" is a Client instance
+            # (never None) when role == "client"; the assert only narrows the type.
+            assert client is not None
             query = query.where(WaybillJob.client_id == int(client.id))
         result = await session.exec(query)
         job = result.first()

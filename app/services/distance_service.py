@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any, cast
 
 import httpx
 
@@ -73,7 +74,8 @@ async def get_route_distance(origin_lat: float, origin_lng: float, dest_lat: flo
         try:
             cached = await redis.get(key)
             if cached:
-                return json.loads(cached)
+                # json.loads() is typed Any; the cache holds the route dict.
+                return cast(dict[Any, Any], json.loads(cached))
         except Exception as exc:  # noqa: BLE001 — cache is best-effort
             logger.debug("Route cache read failed: %s", exc)
 
@@ -87,10 +89,11 @@ async def get_route_distance(origin_lat: float, origin_lng: float, dest_lat: flo
             "source": snapshot["source"],
         }
     except Exception:
-        result = await _fetch_neshan(origin_lat, origin_lng, dest_lat, dest_lng)
-        if result is None:
+        neshan_result = await _fetch_neshan(origin_lat, origin_lng, dest_lat, dest_lng)
+        if neshan_result is None:
             # Fallback is never cached: it must not poison the key for the full TTL.
             return _haversine_fallback(origin_lat, origin_lng, dest_lat, dest_lng)
+        result = neshan_result
 
     # Fallback results are never cached: they must not poison the key.
     if result.get("source") == "haversine_fallback":

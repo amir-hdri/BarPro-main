@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import HTTPException
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.models.waybill_route_template import WaybillRouteTemplate
@@ -102,7 +102,7 @@ class RouteTemplateService:
         statement = (
             select(WaybillRouteTemplate)
             .where(WaybillRouteTemplate.client_id == client_id)
-            .order_by(WaybillRouteTemplate.id.desc())
+            .order_by(col(WaybillRouteTemplate.id).desc())
         )
         return list((await session.exec(statement)).all())
 

@@ -8,7 +8,7 @@ import logging
 import uuid
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, func, select
@@ -69,8 +69,10 @@ def _estimate_job_duration_minutes(job: WaybillJob) -> float:
         return 0.0
 
     payload = job.payload_json if isinstance(job.payload_json, dict) else {}
-    origin = payload.get("origin") if isinstance(payload.get("origin"), dict) else {}
-    destination = payload.get("destination") if isinstance(payload.get("destination"), dict) else {}
+    raw_origin = payload.get("origin")
+    origin = raw_origin if isinstance(raw_origin, dict) else {}
+    raw_destination = payload.get("destination")
+    destination = raw_destination if isinstance(raw_destination, dict) else {}
     is_urban = bool(origin.get("city") and origin.get("city") == destination.get("city"))
     return max(1.0, estimate_time(distance, is_urban=is_urban))
 
@@ -93,7 +95,8 @@ class RPASchedulerService:
                     "concurrent_duplicate_idempotency_key_recovered",
                     extra={"extra_fields": {"job_id": existing.job_id, "idempotency_key": normalized_key}},
                 )
-                return existing
+                # session comes from async_session_factory() (typed Any); existing is WaybillJob | None.
+                return cast("WaybillJob | None", existing)
         return None
 
     async def create_job(
@@ -109,7 +112,9 @@ class RPASchedulerService:
         submit_after: datetime | None = None,
     ) -> WaybillJob:
         async with async_session_factory() as session:
-            normalized_key = build_job_idempotency_key(client_id, driver.id, payload, supplied=idempotency_key)
+            normalized_key = build_job_idempotency_key(
+                client_id, cast(int, driver.id), payload, supplied=idempotency_key
+            )
             existing = (
                 await session.exec(
                     select(WaybillJob).where(
@@ -122,7 +127,8 @@ class RPASchedulerService:
                     "duplicate_idempotency_key_rejected",
                     extra={"extra_fields": {"job_id": existing.job_id, "idempotency_key": normalized_key}},
                 )
-                return existing
+                # session comes from async_session_factory() (typed Any); existing is a WaybillJob here.
+                return cast(WaybillJob, existing)
 
             from app.services.night_submission_policy import is_in_night_window, next_reopen_at_utc_naive
 
@@ -171,12 +177,12 @@ class RPASchedulerService:
                 if recovered is not None:
                     return recovered
                 raise
-            await self._ensure_runtime_state(session, client_id, driver.id)
+            await self._ensure_runtime_state(session, client_id, cast(int, driver.id))
             event_type = JOB_WAITING_SUBMISSION_WINDOW if in_night else JOB_CREATED
             await self._record_event(
                 session,
                 client_id,
-                driver.id,
+                cast(int, driver.id),
                 job.job_id,
                 event_type,
                 {
@@ -227,10 +233,10 @@ class RPASchedulerService:
             jobs = (
                 await session.exec(
                     select(WaybillJob, Driver, WaybillBatch)
-                    .join(Driver, Driver.id == WaybillJob.driver_id)
-                    .outerjoin(WaybillBatch, WaybillBatch.id == WaybillJob.batch_id)
+                    .join(Driver, col(Driver.id) == col(WaybillJob.driver_id))
+                    .outerjoin(WaybillBatch, col(WaybillBatch.id) == col(WaybillJob.batch_id))
                     .where(
-                        WaybillJob.schedule_id.is_(None),
+                        col(WaybillJob.schedule_id).is_(None),
                         col(WaybillJob.status).in_(
                             [
                                 TaskStatus.PENDING.value,
@@ -320,7 +326,7 @@ class RPASchedulerService:
                         if current_after is None or current_after < minimum_after:
                             if persist:
                                 job.submit_after = minimum_after
-                            effective_submit_after = minimum_after
+                            effective_submit_after: datetime | None = minimum_after
                         else:
                             effective_submit_after = current_after
                     else:
@@ -385,6 +391,7 @@ class RPASchedulerService:
                     if job.status in {TaskStatus.OTP_BACKOFF.value, TaskStatus.WAITING_SUBMISSION_WINDOW.value}:
                         if job.next_retry_at is not None:
                             retry_at = _as_utc(job.next_retry_at)
+                            assert retry_at is not None
                             if retry_at > now:
                                 continue  # not yet due
 
@@ -583,13 +590,15 @@ class RPASchedulerService:
 
             stmt = select(WaybillJob).where(
                 or_(
-                    (WaybillJob.status == TaskStatus.QUEUED.value) & (WaybillJob.updated_at < queued_cutoff),
-                    (WaybillJob.status == TaskStatus.IN_PROGRESS.value) & (WaybillJob.updated_at < in_progress_cutoff),
-                    (WaybillJob.status == TaskStatus.WAITING_AUTH.value)
-                    & (WaybillJob.updated_at < waiting_auth_cutoff),
-                    (WaybillJob.status == TaskStatus.WAITING_RETRY.value)
-                    & (WaybillJob.updated_at < waiting_retry_cutoff),
-                    (WaybillJob.status == TaskStatus.OTP_BACKOFF.value) & (WaybillJob.updated_at < otp_backoff_cutoff),
+                    (col(WaybillJob.status) == TaskStatus.QUEUED.value) & (col(WaybillJob.updated_at) < queued_cutoff),
+                    (col(WaybillJob.status) == TaskStatus.IN_PROGRESS.value)
+                    & (col(WaybillJob.updated_at) < in_progress_cutoff),
+                    (col(WaybillJob.status) == TaskStatus.WAITING_AUTH.value)
+                    & (col(WaybillJob.updated_at) < waiting_auth_cutoff),
+                    (col(WaybillJob.status) == TaskStatus.WAITING_RETRY.value)
+                    & (col(WaybillJob.updated_at) < waiting_retry_cutoff),
+                    (col(WaybillJob.status) == TaskStatus.OTP_BACKOFF.value)
+                    & (col(WaybillJob.updated_at) < otp_backoff_cutoff),
                 )
             )
             result = await session.exec(stmt)
@@ -743,10 +752,11 @@ class RPASchedulerService:
             state.client_id = client_id
             session.add(state)
             await session.flush()
-        return state
+        # session comes from async_session_factory() (typed Any); state is a DriverRuntimeState here.
+        return cast(DriverRuntimeState, state)
 
     async def _mark_driver_daily_limit(self, session, driver: Driver, job: WaybillJob, reason: str) -> None:
-        runtime_state = await self._ensure_runtime_state(session, job.client_id, driver.id)
+        runtime_state = await self._ensure_runtime_state(session, job.client_id, cast(int, driver.id))
         runtime_state.state = (
             DriverRuntimeStateValue.DAILY_SUCCESS_LIMIT_REACHED.value
             if "success" in reason
@@ -762,7 +772,7 @@ class RPASchedulerService:
             finished_at=_utcnow_naive(),
         )
         await self._record_event(
-            session, job.client_id, driver.id, job.job_id, DRIVER_LIMIT_REACHED, {"reason": reason}
+            session, job.client_id, cast(int, driver.id), job.job_id, DRIVER_LIMIT_REACHED, {"reason": reason}
         )
 
     async def _upsert_counter_row(

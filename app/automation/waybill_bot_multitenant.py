@@ -230,7 +230,10 @@ class WaybillAutomationBot:
 
             # Preserve & enhance mobile-specific locations and coordinates
             for location_key in ("origin", "destination"):
-                raw_location = payload.get(location_key) if isinstance(payload.get(location_key), dict) else {}
+                # Behavior-identical to the inline ternary: dict.get() is pure,
+                # so evaluating it once instead of twice changes nothing.
+                _raw_location = payload.get(location_key)
+                raw_location: dict[Any, Any] = _raw_location if isinstance(_raw_location, dict) else {}
                 normalized_location = normalized_payload.setdefault(location_key, {})
                 for source_key in (
                     "postal_code",
@@ -391,7 +394,9 @@ class WaybillAutomationBot:
                 receiver["postal_code"] = normalized_payload["destination"].get("postal_code", "2222222222")
 
             # Enhance vehicle fallbacks
-            vehicle = normalized_payload.setdefault("vehicle", {})
+            # dict[Any, Any]: the vehicle sub-payload; also (re)assigned below
+            # from the same normalized payload before live validation.
+            vehicle: dict[Any, Any] = normalized_payload.setdefault("vehicle", {})
             if not vehicle.get("capacity"):
                 vehicle["capacity"] = payload.get("capacity") or 10
             if not vehicle.get("type") and not vehicle.get("vehicle_type"):
@@ -426,7 +431,11 @@ class WaybillAutomationBot:
                 items = normalized_cargo.get("items")
                 first_item = items[0] if items and isinstance(items[0], dict) else {}
                 validation_payload["cargo"] = {**normalized_cargo, **first_item}
-            vehicle = normalized_payload.get("vehicle") if isinstance(normalized_payload.get("vehicle"), dict) else {}
+            # Behavior-identical to the inline ternary: dict.get() is pure,
+            # so evaluating it once instead of twice changes nothing.
+            # (vehicle was already annotated dict[Any, Any] at first assignment.)
+            _vehicle_raw = normalized_payload.get("vehicle")
+            vehicle = _vehicle_raw if isinstance(_vehicle_raw, dict) else {}
             validation_errors = validate_live_waybill_payload(
                 validation_payload,
                 expected_driver_mobile=vehicle.get("driver_phone"),
@@ -476,7 +485,11 @@ class WaybillAutomationBot:
                         client = UtcmsMobileClient(proxy_url=proxy_url or self.proxy_url)
                         try:
                             captcha = await client.get_captcha(form_id="login")
-                            captcha_obj = captcha.get("obj") if isinstance(captcha.get("obj"), dict) else {}
+                            # Behavior-identical to the inline ternary: dict.get()
+                            # is pure, so evaluating it once instead of twice
+                            # changes nothing.
+                            _captcha_obj_raw = captcha.get("obj")
+                            captcha_obj: dict[Any, Any] = _captcha_obj_raw if isinstance(_captcha_obj_raw, dict) else {}
                             result.update(
                                 status=TaskStatus.NEEDS_REVIEW.value,
                                 error=f"ورود به API موبایل ناموفق بود ({auth_exc})؛ نیازمند بررسی دستی",
@@ -674,7 +687,10 @@ class WaybillAutomationBot:
                 try:
                     doc_check = await client.get_document(str(document_id))
                     chk_tracking = client.extract_tracking_code(doc_check)
-                    obj_check = doc_check.get("obj") if isinstance(doc_check.get("obj"), dict) else {}
+                    # Behavior-identical to the inline ternary: dict.get() is pure,
+                    # so evaluating it once instead of twice changes nothing.
+                    _obj_check_raw = doc_check.get("obj")
+                    obj_check: dict[Any, Any] = _obj_check_raw if isinstance(_obj_check_raw, dict) else {}
                     chk_status = str(obj_check.get("statusName") or "").strip()
                     if chk_tracking:
                         logger.info(
@@ -852,17 +868,6 @@ class WaybillAutomationBot:
                     result["document_id"] = document_id
                 result["steps"].append({"step": "mobile_otp_required", "status": "waiting_driver_otp"})
                 return result
-            if tracking_code:
-                result["status"] = TaskStatus.SUCCESS.value
-                result["mutation_status"] = "dispatched"
-                result["result"] = build_tracking_received_result(
-                    tracking_code,
-                    document_id=document_id,
-                    transport="mobile",
-                )
-                result["steps"].append({"step": "mobile_insert", "status": "success"})
-                await _finalize_shipping_start(tracking_code, document_id)
-                return result
 
             result.update(
                 status=TaskStatus.UNKNOWN.value,
@@ -954,7 +959,11 @@ class WaybillAutomationBot:
 
         try:
             normalized_payload = build_enhanced_waybill_payload(payload)
-            vehicle = normalized_payload.get("vehicle") if isinstance(normalized_payload.get("vehicle"), dict) else {}
+            # Behavior-identical to the inline ternary: dict.get() is pure,
+            # so evaluating it once instead of twice changes nothing.
+            # (vehicle was already annotated dict[Any, Any] at first assignment.)
+            _vehicle_raw = normalized_payload.get("vehicle")
+            vehicle = _vehicle_raw if isinstance(_vehicle_raw, dict) else {}
             validation_errors = validate_live_waybill_payload(
                 normalized_payload,
                 expected_driver_mobile=vehicle.get("driver_phone"),

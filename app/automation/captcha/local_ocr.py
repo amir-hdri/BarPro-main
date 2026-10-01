@@ -164,7 +164,10 @@ class LocalOcrCaptchaProvider(CaptchaProvider):
 
     @classmethod
     def _segment_components(cls, binary: np.ndarray, min_area_multiplier: int = 18) -> list[np.ndarray]:
-        num_labels, _labels, stats, _ = cv2.connectedComponentsWithStats(binary, 8)
+        # connectivity as keyword: the stub types the 2nd positional as the
+        # `labels` output array, so a positional 8 defeats overload matching.
+        # Runtime-identical on the project's cv2 (verified: same result).
+        num_labels, _labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
         components: list[tuple[int, np.ndarray]] = []
         total_pixels = binary.shape[0] * binary.shape[1]
         min_area = max(min_area_multiplier, int(total_pixels * 0.002))

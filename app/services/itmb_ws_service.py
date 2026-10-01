@@ -2,7 +2,7 @@ import asyncio
 import json
 import random
 import time
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from fastapi import HTTPException
@@ -67,7 +67,8 @@ class ITMBWSService:
     def _retry_delay_seconds(attempt_index: int) -> float:
         base = max(0.1, utcms_config.ITMBOL_RETRY_BASE_SECONDS)
         jitter = random.uniform(0, 0.4)
-        return (base * (2 ** max(0, attempt_index - 1))) + jitter
+        # Config values are typed Any; the arithmetic result is float.
+        return cast(float, (base * (2 ** max(0, attempt_index - 1))) + jitter)
 
     async def insert_bol(self, request: WS01InsertBOLRequest) -> dict[str, Any]:
         try:
@@ -135,7 +136,8 @@ class ITMBWSService:
                 detail=f"خطای داخلی در ارتباط با ITMB: {str(exc)}",
             ) from exc
 
-        if response is None:
+        # Typed httpx.Response after the try block, but keep the None guard for safety.
+        if cast(Any, response) is None:
             await self._mark_circuit_failure()
             raise HTTPException(status_code=503, detail="ارسال درخواست به ITMB ناموفق بود")
 

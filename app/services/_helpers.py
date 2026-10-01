@@ -26,7 +26,9 @@ def _safe_json_payload(raw: str | dict | list | None) -> dict | None:
         except Exception:
             logger.debug("Failed to parse JSON payload", exc_info=True, extra={"raw": raw[:100]})
             return {"raw": raw}
-    return {"value": raw}
+    # NOTE: the str | dict | list | None union is handled exhaustively above;
+    # a fallthrough return here would be unreachable.
+    raise AssertionError("unreachable: _safe_json_payload fallthrough")  # pragma: no cover
 
 
 def _deep_merge_dict(base: dict, updates: dict) -> dict:

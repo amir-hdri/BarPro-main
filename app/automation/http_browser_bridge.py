@@ -20,7 +20,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qsl, urljoin, urlparse
 
 from app.automation.worker_proxy import get_worker_proxy_url
@@ -511,10 +511,12 @@ class UtcmsHttpBrowserBridge:
                 logger.debug("http_browser_bridge_adopt_close_failed", exc_info=True)
 
     def _new_session(self) -> Any:
-        from curl_cffi import requests as cc_requests  # type: ignore[import-not-found]
+        from curl_cffi import requests as cc_requests
 
-        proxies = {"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else None
-        session = cc_requests.Session(
+        proxies: cc_requests.ProxySpec | None = (
+            {"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else None
+        )
+        session: Any = cc_requests.Session(
             impersonate="chrome120",
             proxies=proxies,
             # This session carries the UTCMS username/password and waybill PII.
@@ -1380,7 +1382,9 @@ async def ensure_utcms_http_browser_bridge(page: Any, *, proxy_url: str | None =
         return None
     existing = getattr(page, "_barpro_http_browser_bridge", None)
     if existing is not None:
-        return existing
+        # cast is a runtime no-op: getattr returns Any; the attribute is only
+        # ever assigned a UtcmsHttpBrowserBridge (see install() above).
+        return cast("UtcmsHttpBrowserBridge | None", existing)
     bridge = UtcmsHttpBrowserBridge(page, proxy_url=proxy_url)
     await bridge.install()
     page._barpro_http_browser_bridge = bridge

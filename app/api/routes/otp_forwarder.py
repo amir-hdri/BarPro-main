@@ -11,10 +11,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlmodel import select
 
-from app.auth_multitenant import get_current_user_or_admin
+from app.auth_multitenant import get_current_admin, get_current_user_or_admin
 from app.core.config import utcms_config
+from app.core.database import async_session_factory
 from app.core.redis_client import redis_manager
+from app.models_multitenant import WaybillJob
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +84,9 @@ def extract_otp_code(text: str) -> str | None:
                 return code
 
     # 2. Look for standalone 5 or 6 digit numbers (UTCMS standard)
-    matches_5_6 = re.findall(r"\b(\d{5,6})\b", clean_text)
+    # NOTE: re.findall with a str pattern always returns list[str] at runtime;
+    # the annotation pins down typeshed's imprecise list[Any].
+    matches_5_6: list[str] = re.findall(r"\b(\d{5,6})\b", clean_text)
     if matches_5_6:
         # Ignore common Iranian year representations like 1403, 1404, 1405
         filtered = [m for m in matches_5_6 if not m.startswith("140")]
@@ -90,7 +95,7 @@ def extract_otp_code(text: str) -> str | None:
         return matches_5_6[0]
 
     # 3. Look for standalone 4 to 8 digit numbers
-    matches_any = re.findall(r"\b(\d{4,8})\b", clean_text)
+    matches_any: list[str] = re.findall(r"\b(\d{4,8})\b", clean_text)
     if matches_any:
         filtered = [m for m in matches_any if not (len(m) == 4 and m.startswith("140"))]
         if filtered:
@@ -259,10 +264,35 @@ async def submit_manual_otp(
     req: ManualOtpRequest,
     user_context: dict[str, Any] = Depends(get_current_user_or_admin),  # noqa: B008
 ) -> dict[str, Any]:
-    """Allows an operator or admin to manually submit an OTP code (auth required)."""
+    """Allows an operator or admin to manually submit an OTP code (auth required).
+
+    Tenant-isolation (GAP-2): a client may only target a job they own; a
+    client submission without a job_id is rejected (only admins may write
+    the global OTP keys).
+    """
     code = normalize_to_english_digits(req.code.strip())
     if not code or not (4 <= len(code) <= 8):
         raise HTTPException(status_code=400, detail="Invalid OTP code format (must be 4 to 8 digits)")
+
+    role = user_context.get("role")
+    if role != "master_admin":
+        client = user_context.get("user")
+        client_id = getattr(client, "id", None)
+        if client_id is None:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        if not req.job_id:
+            raise HTTPException(
+                status_code=403,
+                detail="job_id is required for client OTP submissions",
+            )
+        # Verify the caller owns the target job before writing its OTP key.
+        async with async_session_factory() as session:
+            statement = select(WaybillJob).where(
+                (WaybillJob.client_id == client_id) & (WaybillJob.job_id == req.job_id)
+            )
+            result = await session.exec(statement)
+            if not result.first():
+                raise HTTPException(status_code=404, detail="Job not found")
 
     stored = await store_otp_in_redis(
         code=code,
@@ -290,11 +320,15 @@ async def submit_manual_otp(
     }
 
 
-@router.get("/latest", summary="Get the latest received OTP code")
+@router.get("/latest", summary="Get the latest received OTP code (admin only)")
 async def get_latest_otp(
-    user_context: dict[str, Any] = Depends(get_current_user_or_admin),  # noqa: B008
+    _admin: dict[str, Any] = Depends(get_current_admin),  # noqa: B008
 ) -> dict[str, Any]:
-    """Check the latest OTP received in the last 5 minutes (auth required)."""
+    """Check the latest OTP received in the last 5 minutes.
+
+    Admin-only: the global OTP key carries codes from every tenant's drivers,
+    so it must not be exposed to tenant clients (tenant-isolation GAP-1).
+    """
     r = await redis_manager.get()
     if not r:
         raise HTTPException(status_code=503, detail="Redis unavailable")

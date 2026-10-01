@@ -156,17 +156,26 @@ _AUTH_DEP = "app.auth_multitenant.get_current_user_or_admin"
 
 
 def test_sensitive_otp_routes_require_auth():
-    """GET /latest and POST /submit-manual must carry the JWT auth dependency (C1 fix)."""
+    """OTP routes must carry JWT auth dependencies.
+
+    GET /latest is admin-only (tenant-isolation GAP-1: the global OTP key
+    carries every tenant's codes). POST /submit-manual keeps the
+    user-or-admin dependency and enforces job ownership in the handler
+    (tenant-isolation GAP-2).
+    """
     from app.api.routes import otp_forwarder
 
-    protected_paths = {"/api/v1/otp/latest", "/api/v1/otp/submit-manual"}
+    expected_deps = {
+        "/api/v1/otp/latest": "app.auth_multitenant.get_current_admin",
+        "/api/v1/otp/submit-manual": _AUTH_DEP,
+    }
     seen = set()
     for route in otp_forwarder.router.routes:
         path = getattr(route, "path", "")
-        if path in protected_paths:
+        if path in expected_deps:
             seen.add(path)
-            assert _AUTH_DEP in _dep_names(route), f"{path} is missing auth dependency"
-    assert seen == protected_paths
+            assert expected_deps[path] in _dep_names(route), f"{path} is missing auth dependency"
+    assert seen == set(expected_deps)
 
 
 def test_webhook_routes_use_token_auth_not_jwt():

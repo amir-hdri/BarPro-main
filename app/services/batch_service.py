@@ -13,12 +13,13 @@ import random
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import InstrumentedAttribute
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -38,6 +39,17 @@ _TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 
 _PERSIAN_DIGITS = "۰۱۲۳۴۵۶۷۸۹"
 _ARABIC_DIGITS = "٠١٢٣٤٥٦٧٨٩"
+
+# SQLModel declares table columns as their plain Python types on the class, so
+# class-level attribute access (e.g. WaybillJob.id) types as int | None while the
+# runtime value is a SQLAlchemy InstrumentedAttribute. These aliases cast to the
+# real runtime type for query-builder usage; cast() is a runtime no-op.
+_route_template_id_col = cast(InstrumentedAttribute[int | None], WaybillRouteTemplate.id)
+_plate_id_col = cast(InstrumentedAttribute[int | None], DriverPlate.id)
+_job_id_col = cast(InstrumentedAttribute[int | None], WaybillJob.id)
+_job_status_col = cast(InstrumentedAttribute[str], WaybillJob.status)
+_job_finished_at_col = cast(InstrumentedAttribute[datetime | None], WaybillJob.finished_at)
+_job_sequence_index_col = cast(InstrumentedAttribute[int | None], WaybillJob.sequence_index)
 
 
 def _normalize_national_code(value: Any) -> str:
@@ -191,7 +203,7 @@ class BatchService:
         if len(set(route_ids)) != len(route_ids):
             raise HTTPException(status_code=422, detail="شناسه‌های مسیر تکراری مجاز نیستند")
         statement = select(WaybillRouteTemplate).where(
-            WaybillRouteTemplate.id.in_(route_ids),
+            _route_template_id_col.in_(route_ids),
             WaybillRouteTemplate.client_id == client_id,
         )
         routes = list((await session.exec(statement)).all())
@@ -263,7 +275,7 @@ class BatchService:
         )
         if normalized_provided_plate:
             plate_query = plate_query.where(DriverPlate.plate_number == normalized_provided_plate)
-        plate = (await session.exec(plate_query.order_by(DriverPlate.id.desc()))).first()
+        plate = (await session.exec(plate_query.order_by(_plate_id_col.desc()))).first()
         if plate is None:
             raise HTTPException(
                 status_code=422,
@@ -398,7 +410,7 @@ class BatchService:
 
         completed = (
             await session.exec(
-                select(func.count(WaybillJob.id)).where(
+                select(func.count(_job_id_col)).where(
                     WaybillJob.batch_id == batch_id,
                     WaybillJob.status == TaskStatus.SUCCESS.value,
                 )
@@ -406,9 +418,9 @@ class BatchService:
         ).one()
         failed = (
             await session.exec(
-                select(func.count(WaybillJob.id)).where(
+                select(func.count(_job_id_col)).where(
                     WaybillJob.batch_id == batch_id,
-                    WaybillJob.status.in_(
+                    _job_status_col.in_(
                         [TaskStatus.FAILED.value, TaskStatus.NEEDS_REVIEW.value, TaskStatus.DEAD_LETTER.value]
                     ),
                 )
@@ -417,10 +429,10 @@ class BatchService:
         today_start = _tehran_today_start_utc()
         today = (
             await session.exec(
-                select(func.count(WaybillJob.id)).where(
+                select(func.count(_job_id_col)).where(
                     WaybillJob.batch_id == batch_id,
                     WaybillJob.status == TaskStatus.SUCCESS.value,
-                    WaybillJob.finished_at >= today_start,
+                    _job_finished_at_col >= today_start,
                 )
             )
         ).one()
@@ -435,7 +447,7 @@ class BatchService:
                     await session.exec(
                         select(WaybillJob)
                         .where(WaybillJob.batch_id == batch_id)
-                        .order_by(WaybillJob.sequence_index.asc())
+                        .order_by(_job_sequence_index_col.asc())
                     )
                 ).all()
             )

@@ -10,6 +10,7 @@ import logging
 from io import BytesIO
 from pathlib import Path
 from threading import Lock
+from typing import Any
 
 import numpy as np
 from PIL import Image
@@ -93,7 +94,9 @@ class DntCaptchaProvider(CaptchaProvider):
     def __init__(self):
         self.model_path = Path(__file__).resolve().parent / "assets" / "dnt_captcha_crnn.pth"
         self.vocab_path = Path(__file__).resolve().parent / "assets" / "dnt_captcha_vocab.json"
-        self._model = None
+        # Any: torch is an optional dependency (try/except import above); the
+        # CRNN instance is only created after a successful lazy load.
+        self._model: Any = None
         self._vocab = []
         self._initialized = False
         self._init_lock = Lock()

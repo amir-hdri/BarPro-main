@@ -190,7 +190,7 @@ class UTCMSReconciliationScraper:
                 "HasFreezone": True,
             }
 
-            history_form: dict[str, str] = {
+            history_form: dict[str, str | float | bool] = {
                 "draw": "1",
                 "start": "0",
                 "length": "10",

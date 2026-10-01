@@ -204,6 +204,7 @@ class UtcmsMobileClient:
                 default_headers=False,
                 verify=self.verify,
             )
+        assert client is not None, "HTTP client must be set here"
         try:
             # For GET requests, SecurityKey is MD5 of empty JSON or params
             serialized = json.dumps(params or {}, ensure_ascii=False, separators=(",", ":"))
@@ -262,6 +263,7 @@ class UtcmsMobileClient:
                 default_headers=False,
                 verify=self.verify,
             )
+        assert client is not None, "HTTP client must be set here"
         try:
             # Sign exactly the UTF-8 bytes sent to UTCMS.  Contract-test fakes
             # may only accept ``json=``; real curl_cffi clients use the signed bytes via ``data=``.
@@ -304,7 +306,7 @@ class UtcmsMobileClient:
             if owns_client:
                 await client.close()
 
-    async def get_captcha(self, *, form_id: int = 1) -> dict[str, Any]:
+    async def get_captcha(self, *, form_id: int | str = 1) -> dict[str, Any]:
         numeric_form_id = 1 if str(form_id).lower() == "login" else int(form_id)
         return await self._post("/Utils/GetCaptcha", {"token": self.token or "", "formId": numeric_form_id})
 
@@ -423,6 +425,7 @@ class UtcmsMobileClient:
                 default_headers=False,
                 verify=self.verify,
             )
+        assert client is not None, "HTTP client must be set here"
         max_pow_attempts = 3
         last_pow_exc: Exception | None = None
         try:
@@ -468,7 +471,7 @@ class UtcmsMobileClient:
             if owns_client:
                 await client.close()
 
-    async def auto_solve_captcha(self, form_id: int = 1, *, require_cap_token: bool = False) -> tuple[str, str]:
+    async def auto_solve_captcha(self, form_id: int | str = 1, *, require_cap_token: bool = False) -> tuple[str, str]:
         """Fetch, decode and solve CAPTCHA via configured provider. Returns (solution_text, cap_token)."""
         if str(form_id).lower() == "login":
             # Mirror the APK exactly: the site key is dynamic server config,
@@ -701,14 +704,18 @@ class UtcmsMobileClient:
         if not allow_live_submit:
             raise PermissionError("ALLOW_LIVE_SUBMIT must be explicitly enabled for mobile shipping mutation")
         parsed_doc_id = int(str(document_id).strip()) if str(document_id).strip().isdigit() else document_id
-        formatted_list = []
+        # Heterogeneous GPS point dicts: values are floats, strings and ints.
+        formatted_list: list[dict[str, Any]] = []
         if isinstance(gps_list, list):
             for pt in gps_list:
                 if isinstance(pt, dict):
-                    lat = pt.get("Latitude") if pt.get("Latitude") is not None else pt.get("lat")
-                    lon = pt.get("Longitude") if pt.get("Longitude") is not None else (pt.get("lon") or pt.get("lng"))
-                    spd = pt.get("Speed") if pt.get("Speed") is not None else pt.get("speed", 0)
-                    alt = pt.get("Altitude") if pt.get("Altitude") is not None else pt.get("alt", 0)
+                    # gps_list is untyped input: extracted coordinates are dynamic.
+                    lat: Any = pt.get("Latitude") if pt.get("Latitude") is not None else pt.get("lat")
+                    lon: Any = (
+                        pt.get("Longitude") if pt.get("Longitude") is not None else (pt.get("lon") or pt.get("lng"))
+                    )
+                    spd: Any = pt.get("Speed") if pt.get("Speed") is not None else pt.get("speed", 0)
+                    alt: Any = pt.get("Altitude") if pt.get("Altitude") is not None else pt.get("alt", 0)
                     fallback_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
                     dt = pt.get("Date") or pt.get("date") or pt.get("DateTime") or pt.get("ts") or fallback_ts
                     pt_type = (

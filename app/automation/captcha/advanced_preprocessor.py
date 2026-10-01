@@ -57,7 +57,9 @@ class AdvancedPreprocessor:
         sqmean = cv2.blur(image.astype(np.float32) ** 2, (15, 15))
         std = np.sqrt(sqmean - mean**2)
         threshold = mean * (1 + 0.2 * ((std / 128) - 1))
-        sauvola = ((image > threshold) * 255).astype(np.uint8)
+        # cv2 stubs return an imprecise dtype for bitwise_not; keep the variable
+        # at the bare np.ndarray type so the reassignment below typechecks.
+        sauvola: np.ndarray = ((image > threshold) * 255).astype(np.uint8)
         sauvola = cv2.bitwise_not(sauvola)
         results.append(sauvola)
 
@@ -67,13 +69,20 @@ class AdvancedPreprocessor:
     def morphological_cleanup(binary: np.ndarray) -> np.ndarray:
         """Advanced morphological operations."""
         kernel_small = np.ones((2, 2), dtype=np.uint8)
-        cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel_small)
+        # cv2.morphologyEx stubs return an imprecise dtype that fails
+        # connectedComponentsWithStats overload matching below; the bare
+        # np.ndarray annotation keeps the runtime value unchanged.
+        cleaned: np.ndarray = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel_small)
 
         kernel_close = np.ones((3, 3), dtype=np.uint8)
         cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel_close)
 
         # Remove tiny components
-        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(cleaned, 8)
+        # connectivity=8 as keyword: the stub types the 2nd positional as the
+        # `labels` output array, so a positional 8 defeats overload matching.
+        # Verified on the project's cv2 (5.0.0): keyword and positional forms
+        # return identical results; this only names the argument.
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(cleaned, connectivity=8)
         for i in range(1, num_labels):
             if stats[i, cv2.CC_STAT_AREA] < 8:
                 cleaned[labels == i] = 0

@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from playwright.async_api import Browser, BrowserContext
 
@@ -45,7 +45,7 @@ class BrowserPool:
         self._context_health: dict[str, BrowserHealthStatus] = {}
         self._context_counter = 0
         self._health_check_interval = 60  # seconds
-        self._last_health_check = 0
+        self._last_health_check: float = 0
         self._lock = asyncio.Lock()
 
     async def start(self, browser: Browser, context_args: dict[str, Any] | None = None) -> None:
@@ -66,8 +66,10 @@ class BrowserPool:
                 context_id=context_id,
                 is_healthy=True,
             )
-            # Store context ID as metadata
-            context._pool_context_id = context_id
+            # Store context ID as metadata on the Playwright object (dynamic attr,
+            # read back via getattr in acquire()); the cast only silences the
+            # attr-defined check — the runtime assignment is unchanged.
+            cast(Any, context)._pool_context_id = context_id
             await self._queue.put(context)
         self._started = True
         logger.info(
@@ -226,7 +228,8 @@ class BrowserPool:
                         context_id=new_id,
                         is_healthy=True,
                     )
-                    new_context._pool_context_id = new_id
+                    # Dynamic metadata attr; see note at context creation above.
+                    cast(Any, new_context)._pool_context_id = new_id
 
                     # Enqueue new context
                     await self._queue.put(new_context)
@@ -268,7 +271,8 @@ class BrowserPool:
                     context_id=new_id,
                     is_healthy=True,
                 )
-                new_context._pool_context_id = new_id
+                # Dynamic metadata attr; see note at context creation above.
+                cast(Any, new_context)._pool_context_id = new_id
 
                 await self._queue.put(new_context)
                 healed_count += 1

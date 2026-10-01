@@ -8,6 +8,7 @@ Includes advanced typing, mouse movement, timing, and behavioral patterns.
 import asyncio
 import random
 import time
+from typing import TypedDict
 
 from playwright.async_api import Page
 
@@ -16,24 +17,32 @@ from playwright.async_api import Page
 # ============================================================================
 
 
+class TypingProfileDict(TypedDict):
+    """Type of a typing-speed profile dict."""
+
+    min_delay: float
+    max_delay: float
+    name: str
+
+
 class TypingProfile:
     """Simulates different human typing profiles."""
 
     # Typing speeds (characters per minute) - OPTIMIZED FOR SPEED
-    SLOW = {"min_delay": 0.01, "max_delay": 0.03, "name": "slow"}
-    AVERAGE = {"min_delay": 0.005, "max_delay": 0.02, "name": "average"}
-    FAST = {"min_delay": 0.001, "max_delay": 0.01, "name": "fast"}
+    SLOW: TypingProfileDict = {"min_delay": 0.01, "max_delay": 0.03, "name": "slow"}
+    AVERAGE: TypingProfileDict = {"min_delay": 0.005, "max_delay": 0.02, "name": "average"}
+    FAST: TypingProfileDict = {"min_delay": 0.001, "max_delay": 0.01, "name": "fast"}
 
     # Special patterns
-    HUNT_AND_PECK = {"min_delay": 0.02, "max_delay": 0.05, "name": "hunt_and_peck"}
-    PROFESSIONAL = {"min_delay": 0.001, "max_delay": 0.005, "name": "professional"}
+    HUNT_AND_PECK: TypingProfileDict = {"min_delay": 0.02, "max_delay": 0.05, "name": "hunt_and_peck"}
+    PROFESSIONAL: TypingProfileDict = {"min_delay": 0.001, "max_delay": 0.005, "name": "professional"}
 
 
 async def human_type(
     page: Page,
     selector: str,
     text: str,
-    profile: dict[str, float] = TypingProfile.AVERAGE,
+    profile: TypingProfileDict = TypingProfile.AVERAGE,
     add_typos: bool = False,
     typo_chance: float = 0.02,
     pause_on_punctuation: bool = True,
@@ -55,6 +64,9 @@ async def human_type(
         random_hesitation: Add random hesitation pauses
     """
     element = await page.wait_for_selector(selector, state="visible", timeout=10000)
+    # wait_for_selector raises TimeoutError on timeout, so a returned handle is
+    # never None here; the assert only narrows the type for mypy.
+    assert element is not None
     await element.click()
 
     # Initial pause before typing (human thinks before typing)
@@ -201,6 +213,7 @@ class MouseMovementEngine:
         """
         try:
             element = await page.wait_for_selector(selector, state="visible", timeout=5000)
+            assert element is not None  # raises TimeoutError on timeout; narrows type only
             box = await element.bounding_box()
 
             if not box:
@@ -266,6 +279,7 @@ class MouseMovementEngine:
         """
         try:
             element = await page.wait_for_selector(selector, state="visible", timeout=5000)
+            assert element is not None  # raises TimeoutError on timeout; narrows type only
 
             if use_human_movement:
                 # Move mouse to element

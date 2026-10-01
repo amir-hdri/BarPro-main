@@ -6,7 +6,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from playwright.async_api import Page
 
@@ -224,7 +224,9 @@ class MapClickSelector:
                 }
             """)
 
-            return bounds
+            # cast is a runtime no-op: page.evaluate returns Any; the JS
+            # returns a {north, south, east, west} object or null.
+            return cast("dict[str, float] | None", bounds)
 
         except Exception as e:
             logger.error(f"failed_to_get_map_bounds: {e}")
@@ -367,7 +369,9 @@ class MapClickSelector:
             else:
                 logger.warning(f"failed_to_add_marker: {label} at ({lat}, {lng})")
 
-            return success
+            # cast is a runtime no-op: page.evaluate returns Any; the JS
+            # returns the marker helper's result (truthy) or false.
+            return cast(bool, success)
 
         except Exception as e:
             logger.error(f"error_adding_marker: {e}")
@@ -597,7 +601,7 @@ class MapClickSelector:
         Returns:
             دیکشنری شامل اطلاعات مبدا و مقصد
         """
-        result = {"origin": None, "destination": None, "complete": self.selection.selection_complete}
+        result: dict[str, Any] = {"origin": None, "destination": None, "complete": self.selection.selection_complete}
 
         if self.selection.origin:
             result["origin"] = {

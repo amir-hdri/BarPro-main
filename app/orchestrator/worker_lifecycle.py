@@ -5,12 +5,18 @@ import re
 import socket
 import threading
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import InstrumentedAttribute, sessionmaker
 
 from app.core.config import utcms_config
 from app.models_rpa import WorkerRegistry
+
+# Typed column handle: SQLModel exposes mapped attributes as their plain Python
+# types on the class, so `==` would produce bool instead of a SQL expression.
+# Cast to the InstrumentedAttribute it actually is at runtime (no-op; same SQL).
+_worker_id_col = cast(InstrumentedAttribute[str], WorkerRegistry.worker_id)
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +76,7 @@ def resolve_ip_index(worker_id: str, hostname: str) -> int | None:
 def register_worker(worker_id: str, hostname: str, capabilities: list[str], capacity: int = 1) -> None:
     with _WorkerSession() as session:
         try:
-            worker = session.query(WorkerRegistry).filter(WorkerRegistry.worker_id == worker_id).first()
+            worker = session.query(WorkerRegistry).filter(_worker_id_col == worker_id).first()
             now = _now()
             ip_index = resolve_ip_index(worker_id, hostname)
             if worker is None:
@@ -109,7 +115,7 @@ def register_worker(worker_id: str, hostname: str, capabilities: list[str], capa
 def deregister_worker(worker_id: str) -> None:
     with _WorkerSession() as session:
         try:
-            worker = session.query(WorkerRegistry).filter(WorkerRegistry.worker_id == worker_id).first()
+            worker = session.query(WorkerRegistry).filter(_worker_id_col == worker_id).first()
             if worker is not None:
                 worker.status = "offline"
                 worker.updated_at = _now()
@@ -125,7 +131,7 @@ def deregister_worker(worker_id: str) -> None:
 def send_heartbeat(worker_id: str) -> None:
     try:
         with _WorkerSession() as session:
-            worker = session.query(WorkerRegistry).filter(WorkerRegistry.worker_id == worker_id).first()
+            worker = session.query(WorkerRegistry).filter(_worker_id_col == worker_id).first()
             if worker is not None:
                 worker.last_heartbeat_at = _now()
                 # Refresh the index on every heartbeat too — covers workers
@@ -157,9 +163,11 @@ def _heartbeat_loop(worker_id: str):
 try:
     from celery.signals import worker_process_init, worker_process_shutdown, worker_shutdown
 except ImportError:
-    worker_process_init = None
-    worker_process_shutdown = None
-    worker_shutdown = None
+    # Optional dependency: guarded by `is not None` below; cast documents the
+    # intentional None sentinel (no-op at runtime).
+    worker_process_init = cast(Any, None)
+    worker_process_shutdown = cast(Any, None)
+    worker_shutdown = cast(Any, None)
 
 if worker_process_init is not None:
 

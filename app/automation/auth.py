@@ -11,6 +11,7 @@ import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 
 from playwright.async_api import BrowserContext, Page
 
@@ -74,6 +75,7 @@ class UTCMSAuthenticator:
         solver_url = getattr(utcms_config, "CAPTCHA_SOLVER_URL", "")
         if getattr(utcms_config, "CAPTCHA_LOCAL_ONLY", True) or not solver_url:
             solver_url = ""
+        self.captcha_interceptor: CaptchaInterceptor | None
         if solver_url:
             self.captcha_interceptor = CaptchaInterceptor(
                 solver_url=solver_url,
@@ -99,8 +101,8 @@ class UTCMSAuthenticator:
     async def _find_selector(self, selectors, visible=False, timeout=3000):
         return await self.navigator.find_selector(selectors, visible=visible, timeout=timeout)
 
-    async def _goto_with_retry(self, url, wait_until="domcontentloaded"):
-        await self.navigator.goto_with_retry(url, wait_until=wait_until)
+    async def _goto_with_retry(self, url, wait_until="domcontentloaded", timeout=None):
+        await self.navigator.goto_with_retry(url, wait_until=wait_until, timeout=timeout)
 
     def _candidate_login_urls(self, override_login_url=None):
         return self.navigator.candidate_login_urls(override_login_url)
@@ -120,7 +122,7 @@ class UTCMSAuthenticator:
     async def _complete_post_login_steps(self):
         return await self.navigator.handle_post_login()
 
-    async def _has_auth_cookie(self):
+    async def _has_auth_cookie(self) -> bool:
         return await self.session.has_auth_cookie()
 
     async def _refresh_captcha(self):
@@ -129,7 +131,7 @@ class UTCMSAuthenticator:
     async def _detect_and_solve_checkbox_captcha(self):
         return await self.navigator.detect_and_solve_checkbox_captcha()
 
-    async def _solve_capjs_captcha(self):
+    async def _solve_capjs_captcha(self) -> bool:
         result = await self.navigator.solve_capjs_captcha()
         if not result and not self.last_error:
             self.last_error = "زمان حل خودکار کپچای CapJS به پایان رسید (Timeout)."
@@ -239,8 +241,8 @@ class UTCMSAuthenticator:
         debug_dir = Path(utcms_config.CAPTCHA_DEBUG_DIR)
         debug_dir.mkdir(parents=True, exist_ok=True)
         base_name = f"{timestamp}-login-{safe_stage}"
-        screenshot_path = debug_dir / f"{base_name}.png"
-        html_path = debug_dir / f"{base_name}.html"
+        screenshot_path: Path | None = debug_dir / f"{base_name}.png"
+        html_path: Path | None = debug_dir / f"{base_name}.html"
         meta_path = debug_dir / f"{base_name}.json"
 
         try:
@@ -248,6 +250,8 @@ class UTCMSAuthenticator:
         except Exception:
             screenshot_path = None
         try:
+            # Assigned a Path above; only cleared to None on failure below.
+            assert html_path is not None
             html_path.write_text(await self.page.content())
         except Exception:
             html_path = None
@@ -300,9 +304,16 @@ class UTCMSAuthenticator:
                 try:
                     locator = locators.nth(index)
                     box = await locator.bounding_box()
-                    if not box or not is_plausible_captcha_image(box):
+                    # Playwright's FloatRect is a TypedDict (a plain dict at runtime);
+                    # the captcha helpers accept a read-only dict view of it.
+                    box_dict = cast("dict[str, Any] | None", box)
+                    if not box_dict or not is_plausible_captcha_image(box_dict):
                         continue
-                    score = captcha_image_score(box, input_box, selector)
+                    score = captcha_image_score(
+                        box_dict,
+                        cast("dict[str, Any] | None", input_box),
+                        selector,
+                    )
                     if best_candidate is None or score > best_candidate[0]:
                         best_candidate = (score, locator)
                 except Exception:
@@ -807,7 +818,7 @@ class UTCMSAuthenticator:
         if not username or not password:
             return False
         try:
-            from app.automation.utcms_http_login import UtcmsHttpLogin  # type: ignore[import-not-found]
+            from app.automation.utcms_http_login import UtcmsHttpLogin
         except Exception as exc:  # noqa: BLE001
             logger.debug(
                 "auth_http_login_unavailable",

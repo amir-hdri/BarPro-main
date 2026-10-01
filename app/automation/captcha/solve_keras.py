@@ -1,5 +1,6 @@
 import base64
 import sys
+from typing import Any
 
 import keras
 import numpy as np
@@ -9,7 +10,7 @@ CHARS = [str(d) for d in range(10)]
 BLANK_INDEX = len(CHARS)  # 10
 
 
-def decode_predictions(pred, chars):
+def decode_predictions(pred: Any, chars: Any) -> list[str]:
     pred_time_major = tf.transpose(pred, perm=[1, 0, 2])
     input_len = np.ones(pred.shape[0]) * pred.shape[1]
     decoded, log_prob = tf.nn.ctc_greedy_decoder(

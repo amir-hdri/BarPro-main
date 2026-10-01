@@ -134,6 +134,10 @@ def read_xlsx(path: Path, sheet_name: str | None = None) -> list[list[str]]:
             selected_sheet = sheets[0]
 
         rel_id = selected_sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+        if rel_id is None:
+            # Previously fell through to `rel_map.get(None, "")` -> "" -> the
+            # `not target` return below; the early return is behavior-identical.
+            return []
         target = rel_map.get(rel_id, "")
         if not target:
             return []
@@ -484,7 +488,7 @@ async def run(
             )
             print(f"[SUCCESS] row={offset} trace={result.get('bol_trace_code')}")
         except HTTPException as exc:
-            detail = exc.detail
+            detail: Any = exc.detail
             err_code = None
             message = str(detail)
             if isinstance(detail, dict):

@@ -2,8 +2,10 @@
 
 import logging
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from fastapi import HTTPException, status
+from sqlalchemy.orm import InstrumentedAttribute
 from sqlmodel import col, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -30,18 +32,23 @@ class PlateService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found")
 
         if isinstance(user_context, Client):
-            client = user_context
+            client: Client | None = user_context
         elif isinstance(user_context, dict) and user_context.get("role") == "master_admin":
             client = await session.get(Client, driver.client_id)
             if not client:
                 client = (await session.exec(select(Client))).first()
         else:
             client = user_context.get("user") if isinstance(user_context, dict) else user_context
+            assert isinstance(client, Client)  # non-admin callers always pass a Client user
             verify_tenant_ownership(client, driver, Driver)
 
         if client:
             plate_count = (
-                await session.exec(select(func.count(DriverPlate.id)).where(DriverPlate.client_id == client.id))
+                await session.exec(
+                    select(func.count(cast(InstrumentedAttribute[int | None], DriverPlate.id))).where(
+                        DriverPlate.client_id == client.id
+                    )
+                )
             ).one()
             if plate_count >= client.max_plates:
                 raise HTTPException(
@@ -57,7 +64,11 @@ class PlateService:
             if existing.first():
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Plate already exists")
 
-        client_id = client.id if client else driver.client_id
+        client_id: int = driver.client_id
+        if client is not None:
+            # Clients reaching this point are DB-loaded (or caller-provided persisted), so id is set.
+            assert client.id is not None
+            client_id = client.id
 
         plate = DriverPlate(
             client_id=client_id,
@@ -76,7 +87,8 @@ class PlateService:
     async def list_plates(
         user_context: dict, session: AsyncSession, driver_id: int | None = None, page: int = 1, page_size: int = 20
     ) -> list[PlateResponse]:
-        if isinstance(user_context, Client):
+        # Defensive: callers may pass a Client directly even though the declared type is dict.
+        if isinstance(cast(Any, user_context), Client):
             user_context = {"role": "client", "user": user_context}
         role = user_context.get("role")
         if role == "master_admin":
@@ -102,6 +114,7 @@ class PlateService:
 
         if not (isinstance(user_context, dict) and user_context.get("role") == "master_admin"):
             client = user_context.get("user") if isinstance(user_context, dict) else user_context
+            assert isinstance(client, Client)  # non-admin callers always pass a Client user
             verify_tenant_ownership(client, plate, DriverPlate)
 
         update_data = request.model_dump(exclude_unset=True)
@@ -121,6 +134,7 @@ class PlateService:
 
         if not (isinstance(user_context, dict) and user_context.get("role") == "master_admin"):
             client = user_context.get("user") if isinstance(user_context, dict) else user_context
+            assert isinstance(client, Client)  # non-admin callers always pass a Client user
             verify_tenant_ownership(client, plate, DriverPlate)
 
         await session.delete(plate)

@@ -113,7 +113,7 @@ class ReverseGeoResolver:
             await asyncio.sleep(sleep_for)
 
         url = "https://nominatim.openstreetmap.org/reverse"
-        params = {
+        params: dict[str, str | int] = {
             "format": "jsonv2",
             "lat": f"{lat:.6f}",
             "lon": f"{lng:.6f}",

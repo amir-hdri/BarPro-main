@@ -21,19 +21,20 @@ def _extract_valid_coordinates(source: dict[str, Any] | None) -> dict[str, float
     if isinstance(coords, dict):
         lat = coords.get("lat", coords.get("latitude"))
         lng = coords.get("lng", coords.get("lon", coords.get("longitude")))
-        try:
-            lat_f, lng_f = float(lat), float(lng)
-            if (
-                math.isfinite(lat_f)
-                and math.isfinite(lng_f)
-                and lat_f != 0.0
-                and lng_f != 0.0
-                and -90 <= lat_f <= 90
-                and -180 <= lng_f <= 180
-            ):
-                return {"lat": lat_f, "lng": lng_f}
-        except (TypeError, ValueError):
-            pass
+        if lat is not None and lng is not None:
+            try:
+                lat_f, lng_f = float(lat), float(lng)
+                if (
+                    math.isfinite(lat_f)
+                    and math.isfinite(lng_f)
+                    and lat_f != 0.0
+                    and lng_f != 0.0
+                    and -90 <= lat_f <= 90
+                    and -180 <= lng_f <= 180
+                ):
+                    return {"lat": lat_f, "lng": lng_f}
+            except (TypeError, ValueError):
+                pass
     # Try flat lat/lng keys
     lat = source.get("lat", source.get("latitude"))
     lng = source.get("lng", source.get("lon", source.get("longitude")))
@@ -325,7 +326,8 @@ def validate_live_waybill_payload(
     outside the business payload; driver account readiness is checked by the caller.
     """
     errors = validate_enhanced_waybill_payload(payload, enforce_live_party_phones=True)
-    vehicle = payload.get("vehicle") if isinstance(payload.get("vehicle"), dict) else {}
+    vehicle_raw = payload.get("vehicle")
+    vehicle = vehicle_raw if isinstance(vehicle_raw, dict) else {}
 
     driver_mobile = _normalize_mobile(expected_driver_mobile or vehicle.get("driver_phone"))
     if re.fullmatch(r"09\d{9}", driver_mobile):
@@ -386,15 +388,11 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             province, city, address = _location_parts(raw_destination, destination_meta, metadata)
             dest_dict = {"province": province, "city": city, "address": address}
 
-        sender = (
-            dict(payload.get("sender"))
-            if isinstance(payload.get("sender"), dict)
-            else dict(_metadata_section(metadata, "sender"))
-        )
+        raw_sender = payload.get("sender")
+        sender = dict(raw_sender) if isinstance(raw_sender, dict) else dict(_metadata_section(metadata, "sender"))
+        raw_receiver = payload.get("receiver")
         receiver = (
-            dict(payload.get("receiver"))
-            if isinstance(payload.get("receiver"), dict)
-            else dict(_metadata_section(metadata, "receiver"))
+            dict(raw_receiver) if isinstance(raw_receiver, dict) else dict(_metadata_section(metadata, "receiver"))
         )
         if not sender.get("phone"):
             sender_phone = _first_value(
@@ -415,20 +413,13 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             if receiver_phone:
                 receiver["phone"] = receiver_phone
 
-        cargo = (
-            dict(payload.get("cargo"))
-            if isinstance(payload.get("cargo"), dict)
-            else dict(_metadata_section(metadata, "cargo"))
-        )
-        vehicle = (
-            dict(payload.get("vehicle"))
-            if isinstance(payload.get("vehicle"), dict)
-            else dict(_metadata_section(metadata, "vehicle"))
-        )
+        raw_cargo = payload.get("cargo")
+        cargo = dict(raw_cargo) if isinstance(raw_cargo, dict) else dict(_metadata_section(metadata, "cargo"))
+        raw_vehicle = payload.get("vehicle")
+        vehicle = dict(raw_vehicle) if isinstance(raw_vehicle, dict) else dict(_metadata_section(metadata, "vehicle"))
+        raw_financial = payload.get("financial")
         financial = (
-            dict(payload.get("financial"))
-            if isinstance(payload.get("financial"), dict)
-            else dict(_metadata_section(metadata, "financial"))
+            dict(raw_financial) if isinstance(raw_financial, dict) else dict(_metadata_section(metadata, "financial"))
         )
         if not financial.get("cost") and not financial.get("fare"):
             provided_cost = _first_value(
@@ -452,9 +443,10 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             financial["fare"] = (
                 f"{int(financial['cost']):,}" if str(financial["cost"]).isdigit() else str(financial["cost"])
             )
+        raw_shipping_options = payload.get("shipping_options")
         shipping_options = (
-            dict(payload.get("shipping_options"))
-            if isinstance(payload.get("shipping_options"), dict)
+            dict(raw_shipping_options)
+            if isinstance(raw_shipping_options, dict)
             else dict(_metadata_section(metadata, "shipping_options"))
         )
 
@@ -471,7 +463,7 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
         dest_dict["location_mode"] = "user_text"
         dest_dict["route_source"] = "user_text"
 
-        base = {
+        base: dict[str, Any] = {
             "route_source": "user_text",
             "location_mode": "user_text",
             "sender": sender,
@@ -489,7 +481,7 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
         return base
 
     raw_metadata = payload.get("metadata_json")
-    metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+    metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
     sender_meta = _metadata_section(metadata, "sender")
     receiver_meta = _metadata_section(metadata, "receiver")
     origin_meta = _metadata_section(metadata, "origin")

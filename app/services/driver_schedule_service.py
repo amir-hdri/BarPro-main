@@ -2,8 +2,10 @@
 
 import logging
 from datetime import UTC, date, datetime, timedelta
+from typing import Any, cast
 
 from fastapi import HTTPException, status
+from sqlalchemy.orm import InstrumentedAttribute
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -38,6 +40,7 @@ class DriverScheduleService:
 
     @staticmethod
     def _schedule_response(item: DriverSchedule) -> DriverScheduleResponse:
+        assert item.id is not None  # callers pass DB-loaded schedules (select/get + refresh)
         return DriverScheduleResponse(
             id=item.id,
             client_id=item.client_id,
@@ -67,6 +70,7 @@ class DriverScheduleService:
         if not driver:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found")
         verify_tenant_ownership(client, driver, Driver)
+        assert client.id is not None  # callers pass the authenticated DB-loaded client
         schedule = DriverSchedule(
             client_id=client.id,
             driver_id=request.driver_id,
@@ -147,14 +151,16 @@ class DriverScheduleService:
         try:
             import jdatetime
         except ImportError:
-            jdatetime = None
+            # Optional dependency: call sites guard with `is not None` / truthiness.
+            jdatetime = cast(Any, None)
 
         utc_now = datetime.now(UTC).replace(tzinfo=None)
 
         schedules = (
             await session.exec(
                 select(DriverSchedule).where(
-                    (DriverSchedule.client_id == client.id) & (col(DriverSchedule.is_active).is_(True))
+                    (cast(InstrumentedAttribute[int | None], DriverSchedule.client_id) == client.id)
+                    & (col(DriverSchedule.is_active).is_(True))
                 )
             )
         ).all()

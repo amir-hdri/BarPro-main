@@ -2,6 +2,7 @@ import asyncio
 import ipaddress
 import logging
 import time
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import httpx
@@ -9,7 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth_multitenant import get_current_admin
 from app.automation.browser import browser_manager
@@ -234,7 +236,7 @@ async def _compute_readyz_checks() -> tuple[dict[str, str], dict]:
         "queue": "unknown",
         "circuit_breaker": "unknown",
     }
-    details = {
+    details: dict[str, dict[str, Any]] = {
         "database": {},
         "browser": {},
         "config": {},
@@ -494,7 +496,9 @@ async def metrics(request: Request):
     try:
         async with async_session_factory() as session:
             backlog_res = await session.exec(
-                select(func.count(WaybillJob.job_id)).where(WaybillJob.status == "unknown")
+                select(func.count(cast(InstrumentedAttribute[str], WaybillJob.job_id))).where(
+                    WaybillJob.status == "unknown"
+                )
             )
             set_reconciliation_backlog(backlog_res.one())
     except Exception as exc:
@@ -503,8 +507,8 @@ async def metrics(request: Request):
     # Update DB connection pool utilization gauge
     try:
         pool = engine.pool
-        checkedout = pool.checkedout()
-        size = pool.size()
+        checkedout = getattr(pool, "checkedout", lambda: 0)()
+        size = getattr(pool, "size", lambda: 0)()
         overflow = getattr(pool, "overflow", lambda: 0)()
         total_connections = size + max(0, overflow)
         if total_connections > 0:
@@ -700,11 +704,13 @@ async def heal_browser_pool():
     pool = browser_manager._pool
     if pool is None:
         return {"status": "error", "message": "Browser pool not initialized"}
+    if browser_manager.browser is None:
+        return {"status": "error", "message": "Browser not initialized"}
 
     try:
         healed = await pool.heal_unhealthy_contexts(
             browser_manager.browser,
-            browser_manager._build_context_args(),
+            await browser_manager._build_context_args(),
         )
         return {
             "status": "success",

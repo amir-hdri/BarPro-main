@@ -3,21 +3,38 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+from typing import Any
 
 from app.automation.proxy_rotator import get_proxy_rotator
 from app.core.config import utcms_config
 
 logger = logging.getLogger(__name__)
 
+# Any-typed holders for the celery schedule factories. The fallback branch below
+# assigns None when celery is unavailable, which is incompatible with the
+# imported celery types — hence the indirection (mirrors the "Deliberately Any"
+# rationale used for celery_app further down).
+_schedule_factory: Any = None
+_crontab_factory: Any = None
+_worker_process_init_signal: Any = None
+
 try:
     from celery import Celery
-    from celery.schedules import crontab, schedule
-    from celery.signals import worker_process_init
+    from celery.schedules import crontab as _crontab_cls
+    from celery.schedules import schedule as _schedule_cls
+    from celery.signals import worker_process_init as _wpi_signal
+
+    _schedule_factory = _schedule_cls
+    _crontab_factory = _crontab_cls
+    _worker_process_init_signal = _wpi_signal
 except Exception:
-    Celery = None  # type: ignore
-    schedule = None  # type: ignore
-    crontab = None  # type: ignore
-    worker_process_init = None  # type: ignore
+    Celery = None
+
+schedule: Any = _schedule_factory
+crontab: Any = _crontab_factory
+# Any (not Signal | None): the @worker_process_init.connect decorator is applied
+# at import time without a None guard. Runtime unchanged — None when absent.
+worker_process_init: Any = _worker_process_init_signal
 
 if worker_process_init is not None:
 
@@ -27,11 +44,11 @@ if worker_process_init is not None:
         proxy_rotator = get_proxy_rotator()
 
         # Load from file if configured
-        if os.getenv("RPA_PROXY_LIST_FILE"):
-            proxy_rotator.load_from_file(os.getenv("RPA_PROXY_LIST_FILE"))
+        if proxy_list_file := os.getenv("RPA_PROXY_LIST_FILE"):
+            proxy_rotator.load_from_file(proxy_list_file)
         # Load from environment variable (Docker Compose)
-        elif os.getenv("RPA_PROXIES"):
-            proxy_urls = [p.strip() for p in os.getenv("RPA_PROXIES").split(",") if p.strip()]
+        elif proxy_urls_env := os.getenv("RPA_PROXIES"):
+            proxy_urls = [p.strip() for p in proxy_urls_env.split(",") if p.strip()]
             proxy_rotator.load_from_list(proxy_urls)
 
         if proxy_rotator.proxies:
@@ -226,7 +243,11 @@ def _build_celery() -> Celery | None:
     return app
 
 
-celery_app = _build_celery()
+# Deliberately Any (not Celery | None): worker modules apply @celery_app.task at
+# import time without a None guard, so the union would flag every decorator with
+# [union-attr]. Runtime behavior is unchanged — it is still None when celery is
+# unavailable, and modules that need the distinction use is_celery_available().
+celery_app: Any = _build_celery()
 
 if celery_app is not None:
     # Import for Celery signal-registration side effects.

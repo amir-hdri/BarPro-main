@@ -12,7 +12,10 @@ class AdvancedSegmentation:
     @staticmethod
     def segment_characters(binary: np.ndarray, img_size: int = 28) -> list[np.ndarray]:
         """Segment characters with overlap detection."""
-        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary, 8)
+        # connectivity as keyword: the stub types the 2nd positional as the
+        # `labels` output array, so a positional 8 defeats overload matching.
+        # Runtime-identical on the project's cv2 (verified: same result).
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary, connectivity=8)
 
         total_pixels = binary.shape[0] * binary.shape[1]
         min_area = max(15, int(total_pixels * 0.001))

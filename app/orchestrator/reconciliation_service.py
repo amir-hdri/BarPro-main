@@ -3,9 +3,11 @@
 import json
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from app.automation.browser import BrowserManager
 from app.core.config import utcms_config
@@ -24,6 +26,17 @@ from app.rpa.contracts import SessionBundle
 from app.services.rpa_runtime_service import rpa_runtime
 
 logger = logging.getLogger(__name__)
+
+
+# SQLModel declares table columns as their plain Python types on the class, so
+# class-level attribute access (e.g. WaybillJob.id) types as int | None while the
+# runtime value is a SQLAlchemy InstrumentedAttribute. These aliases cast to the
+# real runtime type for query-builder usage; cast() is a runtime no-op.
+_job_id_col = cast(InstrumentedAttribute[int | None], WaybillJob.id)
+_job_status_col = cast(InstrumentedAttribute[str], WaybillJob.status)
+_job_next_retry_at_col = cast(InstrumentedAttribute[datetime | None], WaybillJob.next_retry_at)
+_driver_id_col = cast(InstrumentedAttribute[int | None], Driver.id)
+_runtime_driver_id_col = cast(InstrumentedAttribute[int], DriverRuntimeState.driver_id)
 
 
 def _result_json_dict(raw) -> dict:
@@ -80,7 +93,7 @@ class ReconciliationService:
         tracking-received (acknowledged) job: the manual audit path that
         attaches the third witness. It never mutates towards a resubmit.
         """
-        stmt = select(WaybillJob).where(WaybillJob.id == job_id).with_for_update(skip_locked=True)
+        stmt = select(WaybillJob).where(_job_id_col == job_id).with_for_update(skip_locked=True)
         job = (await session.execute(stmt)).scalar_one_or_none()
 
         if not job:
@@ -139,7 +152,11 @@ class ReconciliationService:
                 return job
 
         outcome = ScraperOutcome.AMBIGUOUS
-        res_json = job.result_json
+        # NOTE: result_json/payload_json are typed dict but the codebase stores
+        # json.dumps() strings in them (and DB round-trips preserve str), so the
+        # runtime type is wider than declared. cast(Any) is a no-op that keeps
+        # mypy from flagging the defensive str branches as unreachable.
+        res_json = cast(Any, job.result_json)
         if isinstance(res_json, str):
             try:
                 res_json = json.loads(res_json)
@@ -152,7 +169,7 @@ class ReconciliationService:
         utcms_username = None
         driver_obj = None
         if job.driver_id:
-            driver_stmt = select(Driver).where(Driver.id == job.driver_id)
+            driver_stmt = select(Driver).where(_driver_id_col == job.driver_id)
             driver_obj = (await session.execute(driver_stmt)).scalar_one_or_none()
             if driver_obj:
                 utcms_username = driver_obj.utcms_username
@@ -261,7 +278,7 @@ class ReconciliationService:
                                     try:
                                         runtime_stmt = (
                                             select(DriverRuntimeState)
-                                            .where(DriverRuntimeState.driver_id == job.driver_id)
+                                            .where(_runtime_driver_id_col == job.driver_id)
                                             .with_for_update()
                                         )
                                         runtime_state = (await session.execute(runtime_stmt)).scalar_one_or_none()
@@ -285,7 +302,10 @@ class ReconciliationService:
                                                 job.client_id,
                                                 job.driver_id,
                                                 SessionBundle(
-                                                    cookies=await context.cookies(),
+                                                    # context.cookies() returns Playwright Cookie TypedDicts;
+                                                    # SessionBundle stores them as plain dicts. cast() is a
+                                                    # runtime no-op (TypedDicts are dicts at runtime).
+                                                    cookies=cast(list[dict[str, Any]], await context.cookies()),
                                                     user_agent=await page.evaluate("() => navigator.userAgent"),
                                                     issued_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
                                                     session_version=effective_version,
@@ -330,7 +350,7 @@ class ReconciliationService:
         # Handle Reconciliation Results via JobStateMachine
         try:
             # Metadata tracking for eventual consistency retries
-            payload_meta = job.payload_json
+            payload_meta = cast(Any, job.payload_json)
             if isinstance(payload_meta, str):
                 try:
                     payload_meta = json.loads(payload_meta)
@@ -343,6 +363,9 @@ class ReconciliationService:
             payload_meta["reconciliation_attempts"] = recon_attempts
 
             if outcome == ScraperOutcome.REGISTERED:
+                # outcome can only be REGISTERED via res.outcome above, so res
+                # is provably not None here; the assert only narrows the type.
+                assert res is not None
                 found_code = (
                     (res.tracking_code if hasattr(res, "tracking_code") else None)
                     or details.get("tracking_code")
@@ -359,7 +382,7 @@ class ReconciliationService:
                     )
                     logger.warning("Job #%s reconciled to NEEDS_REVIEW (REGISTERED without tracking code)", job.id)
                 else:
-                    res_json = job.result_json
+                    res_json = cast(Any, job.result_json)
                     if isinstance(res_json, str):
                         try:
                             res_json = json.loads(res_json)
@@ -369,7 +392,7 @@ class ReconciliationService:
                         res_json = dict(res_json or {})
                     res_json["tracking_code"] = found_code
                     res_json["confirmation_status"] = "confirmed_by_history"
-                    if isinstance(job.result_json, str):
+                    if isinstance(cast(Any, job.result_json), str):
                         result_json_val = json.dumps(res_json, ensure_ascii=False)
                     else:
                         result_json_val = res_json
@@ -401,8 +424,10 @@ class ReconciliationService:
                     delay = RECONCILIATION_SCHEDULE[recon_attempts - 1]
                     next_retry = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=delay)
                     job.next_retry_at = next_retry
-                    if isinstance(job.payload_json, str):
-                        job.payload_json = json.dumps(payload_meta, ensure_ascii=False)
+                    if isinstance(cast(Any, job.payload_json), str):
+                        # The model types this column as dict, but str values are
+                        # stored here (and round-trip through the JSON column).
+                        job.payload_json = cast(Any, json.dumps(payload_meta, ensure_ascii=False))
                     else:
                         job.payload_json = payload_meta
                     logger.info(
@@ -438,12 +463,15 @@ class ReconciliationService:
                 )
                 consecutive_unknowns = payload_meta.get("consecutive_unknowns", 0) + 1
                 payload_meta["consecutive_unknowns"] = consecutive_unknowns
-                if isinstance(job.payload_json, str):
-                    job.payload_json = json.dumps(payload_meta, ensure_ascii=False)
+                if isinstance(cast(Any, job.payload_json), str):
+                    # See note above: str values are legitimately stored here.
+                    job.payload_json = cast(Any, json.dumps(payload_meta, ensure_ascii=False))
                 else:
                     job.payload_json = payload_meta
 
                 # Check if high severity alert should be raised (>= 3 attempts)
+                # job was loaded from the DB above, so its primary key is never None.
+                assert job.id is not None
                 await admin_alert_service.check_repeated_unknown_submission(
                     session=session,
                     job_id=job.id,
@@ -474,10 +502,10 @@ class ReconciliationService:
         """Scan and reconcile all UNKNOWN / RECONCILING jobs whose next_retry_at is due."""
         now_utc = datetime.now(UTC).replace(tzinfo=None)
         stmt = (
-            select(WaybillJob.id)
+            select(_job_id_col)
             .where(
-                WaybillJob.status.in_([JobStatus.UNKNOWN, JobStatus.RECONCILING]),
-                (WaybillJob.next_retry_at == None) | (WaybillJob.next_retry_at <= now_utc),  # noqa: E711
+                _job_status_col.in_([JobStatus.UNKNOWN, JobStatus.RECONCILING]),
+                (_job_next_retry_at_col == None) | (_job_next_retry_at_col <= now_utc),  # noqa: E711
             )
             .with_for_update(skip_locked=True)
         )
@@ -487,6 +515,8 @@ class ReconciliationService:
         # them out of the due list before iterating.
         due_ids: list[int] = []
         for jid in job_ids:
+            # id is the non-nullable primary key; the assert only narrows the type.
+            assert jid is not None
             due_job = await session.get(WaybillJob, jid)
             if due_job is not None and (is_tracking_received(due_job) or _is_operator_otp_pending(due_job)):
                 logger.info(

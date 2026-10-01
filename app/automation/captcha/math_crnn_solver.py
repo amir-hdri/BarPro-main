@@ -4,7 +4,7 @@ import base64
 import binascii
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import cv2
 import numpy as np
@@ -95,7 +95,9 @@ def decode_ctc(logits: torch.Tensor, vocab: list[str]) -> tuple[str, float]:
 class MathCrnnSolver:
     def __init__(self, model_path: Path | None = None) -> None:
         self.model_path = model_path or MODEL_PATH
-        self._model = None
+        # Any: torch is an optional dependency (try/except import); the
+        # MathCRNN instance is only created after a successful lazy load.
+        self._model: Any = None
         self._device = None
         self._loaded = False
         self._available = False

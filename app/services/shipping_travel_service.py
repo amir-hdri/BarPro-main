@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from app.automation.gps_shipping_manager import ShippingState
 from app.services.route_authority import geometry_from_snapshot, resolve_route, utc_now_iso
@@ -91,10 +91,14 @@ def compute_measured_distance_km(state: ShippingState) -> float:
     """
     points: list[tuple[float, float]] = []
     for pt in state.gps_list or []:
-        if not isinstance(pt, dict):
+        # Defensive: typed dict but telemetry may hold non-dict entries at runtime.
+        _pt = cast(Any, pt)
+        if not isinstance(_pt, dict):
             continue
-        lat = pt.get("Latitude", pt.get("lat"))
-        lon = pt.get("Longitude", pt.get("lon", pt.get("lng")))
+        lat = _pt.get("Latitude", _pt.get("lat"))
+        lon = _pt.get("Longitude", _pt.get("lon", _pt.get("lng")))
+        if lat is None or lon is None:
+            continue
         try:
             lat_f, lon_f = float(lat), float(lon)
         except (TypeError, ValueError):

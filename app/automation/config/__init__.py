@@ -9,7 +9,7 @@ import json
 import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 
 @dataclass
@@ -367,7 +367,9 @@ def load_profiles(filename: str = "profiles.json") -> dict:
         return {"profiles": USER_AGENT_PROFILES}
 
     with open(filepath, encoding="utf-8") as f:
-        return json.load(f)
+        # cast is a runtime no-op: json.load returns Any; profiles are a
+        # JSON object per the declared dict return type.
+        return cast("dict[Any, Any]", json.load(f))
 
 
 def save_gpus(gpu_profiles: list[dict], filename: str = "gpus.json"):
@@ -391,7 +393,9 @@ def load_gpus(filename: str = "gpus.json") -> dict:
         return {"gpus": GPU_PROFILES}
 
     with open(filepath, encoding="utf-8") as f:
-        return json.load(f)
+        # cast is a runtime no-op: json.load returns Any; GPU profiles are a
+        # JSON object per the declared dict return type.
+        return cast("dict[Any, Any]", json.load(f))
 
 
 # ============================================================================
