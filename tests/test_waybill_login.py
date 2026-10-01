@@ -44,6 +44,20 @@ def create_mock_request():
     )
 
 
+def create_mock_raw_request():
+    """Mock Starlette Request for the route's tenant-scope resolution (C2).
+
+    No API key header and no auth cookie -> client_id None -> "infra" scope,
+    matching the pre-C2 behavior for these legacy login tests.
+    """
+    from unittest.mock import MagicMock
+
+    raw = MagicMock()
+    raw.headers.get.return_value = None
+    raw.cookies.get.return_value = None
+    return raw
+
+
 @pytest.mark.asyncio
 async def test_waybill_login_success():
     # Mock dependencies
@@ -84,7 +98,7 @@ async def test_waybill_login_success():
         mock_manager_instance.create_waybill_with_map = AsyncMock(return_value={"origin_method": "map"})
 
         # Call the function
-        result = await create_waybill_with_map(mock_request)
+        result = await create_waybill_with_map(mock_request, create_mock_raw_request())
 
         # Assertions
         mock_auth_instance._is_logged_in.assert_called_once()
@@ -133,7 +147,7 @@ async def test_waybill_login_with_request_credentials():
         mock_manager_instance = MockManager.return_value
         mock_manager_instance.create_waybill_with_map = AsyncMock(return_value={"origin_method": "map"})
 
-        await create_waybill_with_map(mock_request)
+        await create_waybill_with_map(mock_request, create_mock_raw_request())
 
         mock_auth_instance.login.assert_called_once_with(
             "user_from_request",
@@ -177,7 +191,7 @@ async def test_waybill_login_failure():
 
         # Expect HTTPException
         with pytest.raises(HTTPException) as excinfo:
-            await create_waybill_with_map(mock_request)
+            await create_waybill_with_map(mock_request, create_mock_raw_request())
 
         # In my updated waybill_map.py, I explicitly re-raise HTTPException
         # except HTTPException as e:
@@ -221,7 +235,7 @@ async def test_waybill_already_logged_in():
         mock_manager_instance.create_waybill_with_map = AsyncMock(return_value={"origin_method": "map"})
 
         # Call the function
-        await create_waybill_with_map(mock_request)
+        await create_waybill_with_map(mock_request, create_mock_raw_request())
 
         # Assertions
         mock_auth_instance._is_logged_in.assert_called_once()
@@ -257,7 +271,7 @@ async def test_waybill_missing_credentials():
 
         # Expect HTTPException due to missing credentials
         with pytest.raises(HTTPException) as excinfo:
-            await create_waybill_with_map(mock_request)
+            await create_waybill_with_map(mock_request, create_mock_raw_request())
 
         assert excinfo.value.status_code == 422
         assert excinfo.value.detail["error"] == "WAYBILL_PAYLOAD_INCOMPLETE"

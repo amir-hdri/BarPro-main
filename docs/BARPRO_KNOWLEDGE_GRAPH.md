@@ -12,6 +12,43 @@
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
+## بسته رفع ممیزی — 2026-10-02 (25 یافته، همه رفع/مستند شد)
+
+- CODE-VERIFIED: کلیدهای idempotency در مسیر صف tenant-scoped شدند
+  (`tenant:{client_id}:` یا هش canonical) و هر دو lookup در `create_or_get_task` با
+  `client_id` فیلتر می‌شوند؛ tenant دوم با کلید تکراری دیگر job tenant اول را hijack
+  نمی‌کند (`app/services/task_service.py`, `app/queue/queue_manager.py`).
+- CODE-VERIFIED: ریکاوری 4011 در `gps_shipping_manager` fail-closed شد — خطا در ریکاوری
+  → trip `unknown` و job از طریق `JobStateMachine` به `reconciling` می‌رود، هرگز `success`؛
+  کد rule به‌صورت ساختاری استخراج می‌شود (substring آزاد «4011» دیگر match نمی‌شود).
+- CODE-VERIFIED: `/start` در خطای transient apply/readback دیگر `failed` persist نمی‌کند
+  (503 بدون آجر شدن job)؛ readback مختصات ذخیره‌شده waybill را با ۵ متر تلرانس چک می‌کند؛
+  `apply_location` علاوه بر لاک per-job از لاک device-wide
+  `lock:android-device:mutation` عبور می‌کند (fail-closed).
+- CODE-VERIFIED: کلید گلوبال `rpa:otp:latest` بازنشسته شد؛ خوانندگان automation به کلیدهای
+  job-scoped → phone-scoped مهاجرت کردند (`app/automation/otp_keys.py`)؛ ترتیب fallback هرگز
+  گلوبال بدون scope نیست.
+- CODE-VERIFIED: auth-state مسیر legacy `/waybill/create-with-map` (از جمله مسیر inline صف)
+  per-tenant scope می‌گیرد (`client-{id}` / `infra`)؛ vault سشن درایور
+  `utcms:driver:{token,refresh,auth-lock}:{client_id}:{national_code}` شد و همه call-siteها
+  `client_id` را پاس می‌دهند؛ لاک `lock:shipping:{job_id}` بعد از احراز مالکیت گرفته می‌شود؛
+  ساخت درایور توسط master_admin بدون `client_id` صریح 400 می‌دهد.
+- CODE-VERIFIED: `JWT_SECRET` کوتاه‌تر از ۳۲ کاراکتر در startup fail-fast می‌دهد؛
+  `.env.example` همه env varهای خوانده‌شده توسط کد را مستند می‌کند؛
+  `API_AUTH_MODE=off` هشدار امنیتی بلند در startup می‌دهد.
+- CODE-VERIFIED: jobهای tracking-received دیگر در UNKNOWN گیر نمی‌کنند —
+  endpoint دستی reconcile با `audit_only=True` و sweep دوره‌ای
+  `orchestrator.reconciliation.audit_tracking_received` (Beat هر ۱۰ دقیقه) شاهد History را
+  attach می‌کند؛ SUCCESS همچنان فقط با match شاهد History اعلام می‌شود؛ sweep هرگز resubmit
+  نمی‌کند.
+- CONFIG-TARGET: `/shipping/*` از پشت nginx پروداکشن به backend می‌رسد (regex اصلاح شد)؛
+  `API_BASE_URL` فرانت‌اند `/api/v1` انتهایی را هم strip می‌کند.
+- NOT-PROVEN/باز: مقادیر `.env.bak` در تاریخچه گیت واقعی به‌نظر می‌رسند — چرخش credential و
+  purge تاریخچه نیازمند تصمیم صریح کاربر است (هیچ‌کدام انجام نشده).
+- PENDING-USER-DECISION: مسیر mobile-OTP بدون شاهد History به SUCCESS می‌رسد؛ رفتار فعلی
+  مستند شد و دو گزینه (پذیرش به‌عنوان استثنای مستند vs بستن شکاف) برای تصمیم کاربر ارائه شد.
+- نتایج گیت‌ها در زمان کامیت: ruff/black/mypy سبز؛ pytest کامل در گزارش commit ثبت شد.
+
 ## اصلاح خط لوله GPS — 2026-09-27 (راستی‌آزمایی ممیزی + پیاده‌سازی P0/P1)
 
 - CODE-VERIFIED: هر 18 بند ممیزی راستی‌آزمایی شد؛ یافته اصلی تأیید شد (مسیر ثبت از TravelEngine/FakeTraveler عبور نمی‌کرد).

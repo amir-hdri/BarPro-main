@@ -17,7 +17,6 @@ from cryptography.fernet import Fernet
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt.exceptions import PyJWTError as JWTError
-from pydantic import BaseModel
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -41,28 +40,6 @@ class DriverPasswordDecryptError(Exception):
 
 # Security scheme
 security = HTTPBearer(auto_error=False)
-
-
-class TokenPayload(BaseModel):
-    """JWT token payload structure."""
-
-    sub: int  # client_id
-    client_code: str
-    email: str
-    role: str = "client"
-    exp: datetime
-    iat: datetime
-
-
-class TokenResponse(BaseModel):
-    """Token response model."""
-
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-    client_id: int
-    client_code: str
-    client_name: str
 
 
 async def hash_password(password: str) -> str:

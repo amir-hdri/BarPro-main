@@ -907,7 +907,11 @@ async def get_fuel_inquiry_screenshot(
             img_bytes = base64.b64decode(b64_data)
             return Response(content=img_bytes, media_type="image/png")
         except Exception:
-            pass
+            logger.warning(
+                "fuel_screenshot_b64_decode_failed",
+                extra={"extra_fields": {"inquiry_id": inquiry.id}},
+                exc_info=True,
+            )
 
     from fastapi import HTTPException
 

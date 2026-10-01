@@ -241,42 +241,6 @@ class ClientReportSchema(BaseModel):
 
 
 # ============================================================================
-# SCHEMA: DASHBOARD METRICS
-# ============================================================================
-
-
-class DashboardMetricsSchema(BaseModel):
-    """Schema for client dashboard metrics."""
-
-    # Overall statistics
-    total_requests: int = Field(..., description="Total requests processed", ge=0)
-    successful_waybills: int = Field(..., description="Total successful waybills", ge=0)
-    failed_attempts: int = Field(..., description="Total failed attempts", ge=0)
-    success_rate_percent: float = Field(..., description="Success rate percentage", ge=0, le=100)
-
-    # Performance metrics
-    performance: dict[str, float] = Field(
-        default_factory=dict, description="Performance statistics (avg, p95, p99 latency)"
-    )
-
-    # Trends
-    hourly_trend: list[dict[str, Any]] = Field(default_factory=list, description="Hourly performance trend")
-    daily_trend: list[dict[str, Any]] = Field(default_factory=list, description="Daily performance trend")
-
-    # Error analysis
-    recent_errors: list[dict[str, Any]] = Field(default_factory=list, description="Recent error details")
-    error_categories: dict[str, int] = Field(default_factory=dict, description="Errors by category")
-
-    # Map usage
-    map_usage_distribution: dict[str, int] = Field(default_factory=dict, description="Map provider usage")
-
-    # Current status
-    current_mode_counters: dict[str, dict[str, int]] = Field(
-        default_factory=dict, description="Current operation counters"
-    )
-
-
-# ============================================================================
 # SCHEMA: WORKER HEALTH
 # ============================================================================
 
@@ -330,25 +294,6 @@ class BrowserResourceSchema(BaseModel):
         if v not in valid:
             raise ValueError(f"Status must be one of {valid}")
         return v
-
-
-class BrowserPoolStatsSchema(BaseModel):
-    """Schema for browser pool statistics."""
-
-    total_contexts: int = Field(..., description="Total browser contexts", ge=0)
-    active_contexts: int = Field(..., description="Currently active contexts", ge=0)
-    idle_contexts: int = Field(..., description="Idle contexts available", ge=0)
-    pooled_sessions: int = Field(..., description="Pooled session count", ge=0)
-
-    resources: list[BrowserResourceSchema] = Field(default_factory=list, description="Individual resource details")
-
-    # Performance
-    avg_creation_time_ms: float = Field(default=0, description="Average context creation time", ge=0)
-    total_reuses: int = Field(default=0, description="Total context reuse count", ge=0)
-
-    # Health
-    healthy: bool = Field(default=True, description="Pool health status")
-    last_cleanup_at: str | None = Field(None, description="Last cleanup timestamp")
 
 
 # ============================================================================

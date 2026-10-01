@@ -37,27 +37,21 @@ await human_type(page, "#username", "admin", profile=TypingProfile.AVERAGE)
 ### 3. Resilient Retry
 
 ```python
-from app.core.resilience import retry_with_backoff, RetryConfig
+from app.core.resilience import resilient_step
 
-result = await retry_with_backoff(
-    page.goto, 
-    "https://portal.example",
-    retry_config=RetryConfig(max_retries=3)
-)
+@resilient_step(max_retries=3, error_code="PORTAL_NAV")
+async def goto_portal(page):
+    await page.goto("https://portal.example")
 ```
 
 ### 4. Track Workflow State
 
 ```python
-from app.core.resilience import ResilientWorkflow
+from app.core.resilience import resilient_step
 
-workflow = ResilientWorkflow(
-    workflow_name="Login",
-    workflow_id="login_001",
-    page=page,
-)
-
-result = await workflow.execute(your_workflow_func)
+@resilient_step(max_retries=3, workflow_name="Login", error_code="LOGIN")
+async def login(page):
+    ...  # workflow steps here
 ```
 
 ### 5. Collect Evidence on Failure
@@ -220,12 +214,12 @@ StealthConfig(
 ### Retry Config
 
 ```python
-RetryConfig(
+@resilient_step(
     max_retries=3,                   # Max retry attempts
     base_delay=1.0,                  # Initial delay (seconds)
     max_delay=30.0,                  # Max delay cap
-    exponential_base=2.0,            # Exponential multiplier
-    jitter=True,                     # Add randomness
+    capture_evidence=True,           # Capture evidence on failure
+    error_code="PORTAL_NAV",         # Error code for classification
 )
 ```
 

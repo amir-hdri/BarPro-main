@@ -1,8 +1,112 @@
 # Changelog
-   
-  All notable changes to the UTCMS Automation System.
 
-  ## [2.9.16] - 2026-10-01
+All notable changes to the UTCMS Automation System.
+
+## [2.9.17] - unreleased
+
+### Changed
+
+- **Map tiles default to CARTO (commit `13bab19`)**: Google tile endpoints are
+  blocked in Iran, so the shipping/map views now default to CARTO basemaps
+  instead of failing on Google tiles. (Clarification: the 2.9.15 entry's "CARTO
+  voyager stays the default" referred to the tile-fallback layer's default; the
+  map picker's provider default was still Google until this commit.)
+- **FakeTraveler apply wired into the shipping workflow (commit `13bab19`)**:
+  the FakeTraveler mock-location apply step is now part of the automated
+  shipping lifecycle instead of a manual side action.
+
+### Fixed
+
+- **A1 — tenant-scoped idempotency keys (critical)**: `WaybillTaskService.build_idempotency_key`
+  now requires the caller's `client_id` and delegates to the canonical builder in
+  `app/core/submission_identity` (same as the scheduler path); both idempotency lookups in
+  `create_or_get_task` are additionally filtered by `client_id`. A second tenant submitting a
+  colliding raw key now gets its own task row instead of hijacking the first tenant's job.
+  Evidence: `tests/test_global_idempotency.py::test_two_tenants_same_raw_idempotency_key_each_get_own_task_row`.
+- **A2 — fail-open 4011 recovery is now fail-closed (`app/automation/gps_shipping_manager.py`)**:
+  the business-rule code is extracted structurally (structured `result_code`, else the strict
+  `(code: NNNN)` pattern); free-text "4011" mentions no longer count as the rule. A failed
+  4011-recovery marks the trip `unknown` and routes the job through `JobStateMachine` into
+  `reconciling` — never `success`; `reconciled_at`/`mutation_status="confirmed"` are never
+  fabricated. Evidence: `tests/test_gps_shipping_batch_g.py` (A2 ×5).
+- **B1 — `/start` no longer bricks the job on transient apply failure
+  (`app/api/routes/shipping_gps.py`)**: transient FakeTraveler/ADB apply and readback failures
+  still 503, but the persisted state stays retryable — no more 409-bricked paid waybills.
+  Evidence: `tests/test_faketraveler_waybill_coords.py::test_start_apply_failure_keeps_job_retryable`.
+- **B2 — readback verifies stored waybill coords (`app/api/routes/shipping_gps.py`)**: the
+  Android anchor readback now compares against `state.origin_*`/`dest_*` (what `apply_location`
+  wrote) instead of the operator's request anchor, aligning the 5 m readback tolerance with the
+  0.0002° (~22 m) route gate. Evidence: 10 m-offset regression tests in
+  `tests/test_faketraveler_waybill_coords.py`.
+- **B3 — device-wide lock for `apply_location` (`app/android_bridge/`)**: every FakeTraveler
+  apply is serialized through the Redis lock `lock:android-device:mutation` in addition to the
+  per-job lock; lock unavailable/busy → `BridgeError` (503), never proceeds unlocked.
+  Evidence: `tests/test_android_bridge_controller.py::test_concurrent_apply_location_serializes_on_shared_device`.
+- **B4 — `/shipping/*` reachable through production nginx**: added `shipping` to the
+  backend-proxy regex in `infra/nginx/http-server.conf` (was 404ing into the Next.js fallback).
+- **B5 — latent `/api/v1` doubling fixed (`apps/web/src/lib/api.ts`)**: `API_BASE_URL` now
+  strips trailing `/api/v1` as well as `/api`; `npm run typecheck` + `npm run lint` clean.
+- **C1 — unscoped global OTP key retired**: `store_otp_in_redis` no longer writes
+  `rpa:otp:latest`; automation readers use job-scoped → phone-scoped keys via
+  `app/automation/otp_keys.py` (never the global key). Evidence:
+  `tests/test_tenant_isolation_batch_c.py::test_c1_two_tenants_consume_only_own_otp`.
+- **C2 — legacy `/waybill/create-with-map` auth-state scoping**: Playwright auth-state path +
+  Redis session-vault key are now scoped per tenant (`client-{id}` for JWT, `infra` for
+  API-key-only), including the queue inline path (`queue_manager._execute_inline` threads
+  the task tenant's scope). Evidence:
+  `tests/test_tenant_isolation_batch_c.py::test_c2_queue_inline_path_scopes_auth_state_to_task_tenant`.
+- **C3 — session-vault `client_id` threading**: driver vault keys are
+  `utcms:driver:{token,refresh,auth-lock}:{client_id}:{national_code}` with no cross-tenant
+  fallback; all call sites (`shipping_gps.py`, `waybill_bot_multitenant.py`,
+  `reconciliation_service.py`, `waybill_job_service.py`) pass the caller's tenant.
+  Evidence: `tests/test_gps_session_vault.py::test_c3_vault_uses_scoped_key_when_client_id_provided`.
+- **C4 — shipping mutation lock ordering**: `_get_job_and_driver` ownership check now runs
+  before `lock:shipping:{job_id}` acquisition — foreign/unknown jobs get 404 without
+  squatting the lock. Evidence:
+  `tests/test_tenant_isolation_batch_c.py::test_c4_other_tenant_cannot_squat_shipping_lock`.
+- **C5 — admin driver creation requires explicit `client_id`**: master_admin without
+  `client_id` gets 400 (unknown tenant → 404); the first-active-client silent fallback is
+  removed. Evidence:
+  `tests/test_tenant_isolation_batch_c.py::test_c5_master_admin_without_client_id_rejected`.
+- **D1 — `JWT_SECRET` ≥ 32 chars enforced at startup** (CRITICAL_RULES §1): `UTCMSConfig()`
+  raises and `validate_environment()` reports an error for short secrets (deny-list kept).
+  Evidence: `tests/test_config_validation.py::test_validate_short_jwt_secret_rejected`.
+- **D2 — `.env.example` completeness**: all env vars read by production code are now
+  documented (6 were genuinely missing; 15 were already present as appendix entries).
+  `SECONDARY_EGRESS_IP` is the canonical name; `SECONDARY_IP` kept as legacy alias in both
+  deploy scripts.
+- **E1 — tracking-received jobs now get their History witness**: `POST
+  /api/v1/admin/alerts/reconcile/{job_id}` passes `audit_only=True` (no more early-return
+  skip); new `ReconciliationService.reconcile_tracking_received_jobs()` audit sweep attaches
+  the UTCMS History/Search witness to acknowledged-but-unwitnessed jobs; the dispatcher
+  recognizes the `reconciliation_audit` intent; new periodic task
+  `orchestrator.reconciliation.audit_tracking_received` on Beat every 10 min. SUCCESS is still
+  only declared on a History witness match; the sweep never resubmits. Evidence:
+  `tests/test_reconciliation_service.py:408,484`, `tests/test_admin_alerts.py:290`.
+- **F1 — loop-aware bounded auth locks (`app/automation/gps_shipping_manager.py`)**: per
+  `(loop, tenant, driver)` locks, FIFO-evicted at 512 entries (was: one global
+  `asyncio.Lock` dict shared across event loops).
+- **F3 — dead-code sweep round 2**: removed provably-unused symbols in `app/schemas/admin.py`
+  (13 classes), `app/schemas/panel.py` (13 classes), `app/auth_multitenant.py`
+  (`TokenPayload`, `TokenResponse`), `app/core/exceptions.py` (4 exception classes),
+  `app/core/resilience.py` (`retry_with_backoff`, `ExplicitWaits`, `ResilientWorkflow`,
+  `GracefulDegradation`), `app/core/error_handler.py` (3 helpers), `app/core/business_time.py`
+  (2 helpers), `app/core/startup_validation.py` (`validate_or_exit`); `docs/guides/QUICK_REFERENCE.md`
+  updated to the live `resilient_step` pattern.
+- **F4 — silent `except: pass` → structured logging**: 15 sites across routes/services/workers
+  now log with context (OTP webhook parsers, shipping state decodes, scheduler kicks, gate
+  state parses); the 2 `redis.py` finalizer sites are deliberately kept with rationale.
+- **F5 — per-trip completion claim**: `auto_complete_shipping` takes a Redis `SET NX` claim
+  (`utcms:shipping:claim:{job_id}`, 600 s TTL); overlapping Beat runs skip instead of
+  double-calling `RegisterEndOfShipping`.
+- **F6 — UTC fix for the legacy StartShipping 404-fallback
+  (`app/automation/utcms_mobile_client.py`)**: the fallback `StartDate` is now strict UTC ISO
+  (`YYYY-MM-DDTHH:mm:ss.000Z`); Tehran-local-naive would have shifted it 3.5 h and risked
+  Rule 4013.
+- **F7 — `API_AUTH_MODE=off` now warns loudly at startup** (log only, no behavior change;
+  default `api_key_or_jwt` unchanged).
+
+## [2.9.16] - 2026-10-01
 
   ### Fixed — mypy strict pay-down (540 errors → 0), tenant-isolation gaps, Android bridge verification
 

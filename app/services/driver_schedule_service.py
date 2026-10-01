@@ -182,7 +182,11 @@ class DriverScheduleService:
                 try:
                     return jdatetime.date.fromisoformat(date_str).togregorian()
                 except Exception:
-                    pass
+                    logger.debug(
+                        "schedule_date_jalali_parse_failed",
+                        extra={"extra_fields": {"date_str": date_str}},
+                        exc_info=True,
+                    )
             try:
                 return datetime.fromisoformat(date_str).date()
             except Exception:

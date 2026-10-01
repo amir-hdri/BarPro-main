@@ -222,7 +222,11 @@ class RPASchedulerService:
                         expires=10,
                     )
             except Exception:
-                pass
+                logger.warning(
+                    "rpa_scheduler_kick_failed",
+                    extra={"extra_fields": {"job_id": job.job_id}},
+                    exc_info=True,
+                )
             return job
 
     async def plan_due_jobs(self, *, persist: bool = True) -> list[SchedulerDecision]:

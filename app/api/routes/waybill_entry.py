@@ -40,7 +40,7 @@ def _extract_client_id_from_request(request: Request) -> int | None:
             elif payload.get("role") == "master_admin":
                 return 1
         except Exception:
-            pass
+            logger.debug("legacy_waybill_client_context_jwt_decode_failed", exc_info=True)
     return None
 
 

@@ -855,7 +855,10 @@ class UtcmsMobileClient:
         except UtcmsMobileApiError as exc:
             if getattr(exc, "status_code", None) == 404 or "404" in str(exc):
                 logger.info("StartShippingWithGps 404; falling back to RegisterStartOfShipping")
-                start_iso = datetime.now(ZoneInfo("Asia/Tehran")).strftime("%Y-%m-%dT%H:%M:%S")
+                # UTCMS-bound timestamps are strictly UTC ISO (CRITICAL_RULES):
+                # Tehran-local-naive here would shift StartDate 3.5h into the
+                # future and trigger Rule 4013.
+                start_iso = datetime.now(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%S.000Z")
                 return await self.register_start_of_shipping(
                     document_id=doc_no,
                     speed=speed,

@@ -100,7 +100,7 @@ class UTCMSSubmissionGate:
                             set_gate_state_metric(state_val.value)
                             return state_val
                     except ValueError:
-                        pass
+                        logger.debug("utcms_gate_manual_override_unparseable", exc_info=True)
             except Exception:
                 logger.warning("utcms_gate_redis_override_read_failed", exc_info=True)
                 redis = None
@@ -119,7 +119,7 @@ class UTCMSSubmissionGate:
                             return state_val
                         logger.warning("utcms_gate_ignored_unverified_cached_exemption")
                     except ValueError:
-                        pass
+                        logger.debug("utcms_gate_cached_state_unparseable", exc_info=True)
             except Exception:
                 logger.warning("utcms_gate_redis_state_read_failed", exc_info=True)
                 redis = None
@@ -131,7 +131,7 @@ class UTCMSSubmissionGate:
                         set_gate_state_metric(state_val.value)
                         return state_val
                 except ValueError:
-                    pass
+                    logger.debug("utcms_gate_memory_state_unparseable", exc_info=True)
 
         # 3. Check latest observation in DB
         try:
