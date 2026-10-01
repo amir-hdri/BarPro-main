@@ -618,14 +618,14 @@ class WaybillJobService:
                 detail="شناسه سند ثبتی (docId) در سامانه UTCMS برای این کار یافت نشد.",
             )
 
-        # 2. Store OTP in Redis for any workers polling
+        # 2. Store OTP in Redis for any workers polling (job-scoped key only;
+        # the legacy global "rpa:otp:latest" key is retired — see otp_keys.py)
         from app.core.redis_client import redis_manager
 
         r = await redis_manager.get()
         if r:
             otp_payload = json.dumps({"code": clean_code, "job_id": job_id, "received_at": time.time()})
             await r.set(f"rpa:otp:job:{job_id}", otp_payload, ex=300)
-            await r.set("rpa:otp:latest", otp_payload, ex=300)
 
         # 3. Retrieve or create authenticated UtcmsMobileClient
         from app.automation.utcms_mobile_client import UtcmsMobileApiError, UtcmsMobileClient

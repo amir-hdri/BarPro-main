@@ -4,6 +4,12 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### Fixed
+
+- **C1 verification follow-up**: retired the last residual write to the legacy
+  global `rpa:otp:latest` key (`submit_otp` in `app/services/waybill_job_service.py`);
+  OTPs are now stored under the job-scoped key only (`rpa:otp:job:{job_id}`).
+
 ### Changed
 
 - **Map tiles default to CARTO (commit `13bab19`)**: Google tile endpoints are
