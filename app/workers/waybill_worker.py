@@ -1798,11 +1798,11 @@ async def _execute_job(
                     try:
                         await rpa_runtime.release_lock(rpa_runtime.submit_lock_key(cached_client_id, cached_driver_id))
                     except Exception:
-                        pass
+                        logger.debug("lock_release_failed", exc_info=True)
                     try:
                         await rpa_runtime.release_lock(rpa_runtime.auth_lock_key(cached_client_id, cached_driver_id))
                     except Exception:
-                        pass
+                        logger.debug("lock_release_failed", exc_info=True)
             await session.close()
 
 

@@ -396,14 +396,14 @@ def main():
             print()
             run_cmd(
                 ssh,
-                f"curl -fsS http://localhost/healthz 2>&1",
+                "curl -fsS http://localhost/healthz 2>&1",
                 "تست بک‌اند",
                 check=True,
                 timeout=15,
             )
             run_cmd(
                 ssh,
-                f"curl -fsSI http://localhost/ 2>&1 | head -5",
+                "curl -fsSI http://localhost/ 2>&1 | head -5",
                 "تست فرانت‌اند",
                 check=True,
                 timeout=15,

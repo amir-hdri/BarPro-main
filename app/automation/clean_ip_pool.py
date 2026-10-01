@@ -1028,7 +1028,7 @@ def _verify_egress_country(candidate: CleanIPRecord, timeout: float = 8.0) -> st
             # and key-less; the HTTP endpoint stays as a last-resort fallback
             # for the case where the TLS one is filtered, and its answer is
             # therefore treated as weaker evidence by the caller's ranking.
-            for endpoint, field in (
+            for endpoint, field_name in (
                 ("https://api.country.is/", "country"),
                 ("http://ip-api.com/json/?fields=countryCode,status", "countryCode"),
             ):
@@ -1037,8 +1037,8 @@ def _verify_egress_country(candidate: CleanIPRecord, timeout: float = 8.0) -> st
                     data = response.json()
                 except Exception:
                     continue
-                if isinstance(data, dict) and data.get(field):
-                    return str(data.get(field) or "").upper()
+                if isinstance(data, dict) and data.get(field_name):
+                    return str(data.get(field_name) or "").upper()
             return None
         finally:
             try:

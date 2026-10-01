@@ -2,7 +2,7 @@
 import asyncio
 from sqlmodel import select
 from app.core.database import async_session_factory
-from app.models_multitenant import WaybillJob, Driver, DriverPlate, TaskStatus
+from app.models_multitenant import WaybillJob, Driver, DriverPlate
 
 async def monitor():
     async with async_session_factory() as session:

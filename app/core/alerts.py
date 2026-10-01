@@ -3,12 +3,18 @@ import hmac
 import json
 import logging
 import time
+import urllib.parse
 import urllib.request
 from typing import Any
 
 from app.core.config import utcms_config
 
 logger = logging.getLogger(__name__)
+
+# Alert webhooks may only target public HTTPS endpoints. This blocks
+# file://, gopher://, plain http:// and other schemes that could turn a
+# misconfigured ALERT_WEBHOOK_URL into an SSRF vector.
+_ALLOWED_ALERT_WEBHOOK_SCHEMES = ("https",)
 
 
 class AlertManager:
@@ -21,6 +27,13 @@ class AlertManager:
         logger.warning("platform_alert", extra={"extra_fields": message})
         webhook = getattr(utcms_config, "ALERT_WEBHOOK_URL", "").strip()
         if not webhook:
+            return
+        scheme = urllib.parse.urlsplit(webhook).scheme.lower()
+        if scheme not in _ALLOWED_ALERT_WEBHOOK_SCHEMES:
+            logger.warning(
+                "alert_webhook_blocked_unsafe_scheme",
+                extra={"extra_fields": {"scheme": scheme or "<empty>", "severity": severity}},
+            )
             return
         try:
             payload_bytes = json.dumps(message).encode("utf-8")

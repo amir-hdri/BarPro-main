@@ -1,6 +1,6 @@
 import asyncio
+import logging
 from threading import Lock
-from typing import Optional
 
 from app.automation.captcha.barname_ml_solver import BarnameMlCaptchaSolver, barname_ml_solver
 from app.automation.captcha.base import CaptchaProvider, CaptchaResult
@@ -16,6 +16,8 @@ from app.core.config import utcms_config
 _provider_lock = Lock()
 _cached_provider: CaptchaProvider | None = None
 _cached_signature: tuple | None = None
+
+logger = logging.getLogger(__name__)
 
 
 def _close_provider_async(provider: CaptchaProvider | None) -> None:
@@ -38,7 +40,24 @@ class CompositeCaptchaProvider(CaptchaProvider):
     async def solve_text_captcha(self, image_base64: str) -> CaptchaResult:
         last_result = CaptchaResult(solved=False, provider="composite", error="no_provider")
         for provider in self.providers:
-            result = await provider.solve_text_captcha(image_base64)
+            try:
+                result = await provider.solve_text_captcha(image_base64)
+            except Exception as exc:  # noqa: BLE001 — one broken provider must not break the chain
+                logger.warning(
+                    "captcha_provider_failed",
+                    extra={
+                        "extra_fields": {
+                            "provider": type(provider).__name__,
+                            "error": str(exc) or type(exc).__name__,
+                        }
+                    },
+                )
+                last_result = CaptchaResult(
+                    solved=False,
+                    provider="composite",
+                    error=f"provider_error:{type(provider).__name__}",
+                )
+                continue
             if result.solved and result.value:
                 return result
             last_result = result

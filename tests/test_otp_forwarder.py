@@ -50,11 +50,197 @@ async def test_submit_manual_otp_stores_redis():
     mock_redis = AsyncMock()
     with patch("app.core.redis_client.redis_manager.get", new_callable=AsyncMock, return_value=mock_redis):
         req = ManualOtpRequest(code="۵۴۳۲۱", phone="09121234567", job_id="job-test-123")
-        res = await submit_manual_otp(req)
+        res = await submit_manual_otp(req, user_context={"role": "master_admin"})
 
     assert res["status"] == "success"
-    assert res["code"] == "54321"
+    assert "code" not in res  # codes must not be echoed back in API responses
     assert res["job_id"] == "job-test-123"
     # Verify set called for rpa:otp:latest and rpa:otp:job:job-test-123
     assert mock_redis.set.await_count >= 2
 
+
+# ── Webhook authentication (C2 fix) ────────────────────────────────────────────
+
+import json as _json
+
+from fastapi import Request as _Request
+from fastapi.exceptions import HTTPException as _HTTPException
+
+
+def _make_request(headers: dict | None = None, body: bytes = b"") -> _Request:
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "headers": [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()],
+    }
+
+    async def receive():
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    return _Request(scope, receive)
+
+
+def _webhook_body() -> bytes:
+    return _json.dumps({"content": "کد تایید صدور بارنامه: 54321", "from": "20007777"}).encode()
+
+
+@pytest.mark.asyncio
+async def test_webhook_rejects_missing_token(monkeypatch):
+    from app.api.routes import otp_forwarder
+    from app.core.config import utcms_config
+
+    monkeypatch.setattr(utcms_config, "OTP_WEBHOOK_SECRET", "test-secret")
+    request = _make_request(body=_webhook_body())
+    with pytest.raises(_HTTPException) as exc_info:
+        await otp_forwarder.receive_sms_forwarder_webhook(request)
+    assert exc_info.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_webhook_rejects_wrong_token(monkeypatch):
+    from app.api.routes import otp_forwarder
+    from app.core.config import utcms_config
+
+    monkeypatch.setattr(utcms_config, "OTP_WEBHOOK_SECRET", "test-secret")
+    request = _make_request(headers={"X-OTP-Webhook-Token": "wrong"}, body=_webhook_body())
+    with pytest.raises(_HTTPException) as exc_info:
+        await otp_forwarder.receive_sms_forwarder_webhook(request)
+    assert exc_info.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_webhook_fails_closed_when_secret_unconfigured(monkeypatch):
+    from app.api.routes import otp_forwarder
+    from app.core.config import utcms_config
+
+    monkeypatch.setattr(utcms_config, "OTP_WEBHOOK_SECRET", "")
+    request = _make_request(
+        headers={"X-OTP-Webhook-Token": "anything"}, body=_webhook_body()
+    )
+    with pytest.raises(_HTTPException) as exc_info:
+        await otp_forwarder.receive_sms_forwarder_webhook(request)
+    assert exc_info.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_webhook_accepts_valid_token_and_never_logs_code(monkeypatch, caplog):
+    from unittest.mock import AsyncMock, patch
+
+    from app.api.routes import otp_forwarder
+    from app.core.config import utcms_config
+
+    monkeypatch.setattr(utcms_config, "OTP_WEBHOOK_SECRET", "test-secret")
+    mock_redis = AsyncMock()
+    request = _make_request(
+        headers={"X-OTP-Webhook-Token": "test-secret"}, body=_webhook_body()
+    )
+    with (
+        patch("app.core.redis_client.redis_manager.get", new_callable=AsyncMock, return_value=mock_redis),
+        caplog.at_level("INFO", logger="app.api.routes.otp_forwarder"),
+    ):
+        res = await otp_forwarder.receive_sms_forwarder_webhook(request)
+
+    assert res["status"] == "success"
+    assert "code" not in res  # codes must not be echoed back in API responses
+    assert mock_redis.set.await_count >= 1
+    # H2: the OTP code must never appear in logs.
+    assert "54321" not in caplog.text
+
+
+def _dep_names(route) -> set[str]:
+    """Qualified names of a route's dependencies.
+
+    Compared by qualname (not object identity) so the check survives module
+    reloads or duplicate imports that would otherwise create a second, distinct
+    function object for the same dependency.
+    """
+    return {f"{d.call.__module__}.{d.call.__qualname__}" for d in route.dependant.dependencies}
+
+
+_AUTH_DEP = "app.auth_multitenant.get_current_user_or_admin"
+
+
+def test_sensitive_otp_routes_require_auth():
+    """GET /latest and POST /submit-manual must carry the JWT auth dependency (C1 fix)."""
+    from app.api.routes import otp_forwarder
+
+    protected_paths = {"/api/v1/otp/latest", "/api/v1/otp/submit-manual"}
+    seen = set()
+    for route in otp_forwarder.router.routes:
+        path = getattr(route, "path", "")
+        if path in protected_paths:
+            seen.add(path)
+            assert _AUTH_DEP in _dep_names(route), f"{path} is missing auth dependency"
+    assert seen == protected_paths
+
+
+def test_webhook_routes_use_token_auth_not_jwt():
+    """The forwarder webhooks use the shared token header (dumb apps can't do JWT)."""
+    from app.api.routes import otp_forwarder
+
+    webhook_paths = {"/api/v1/otp/sms-forwarder", "/api/v1/otp/webhook"}
+    seen = set()
+    for route in otp_forwarder.router.routes:
+        path = getattr(route, "path", "")
+        if path in webhook_paths:
+            seen.add(path)
+            assert _AUTH_DEP not in _dep_names(route), f"{path} must not require JWT"
+    assert seen == webhook_paths
+
+
+def test_dep_name_check_survives_duplicate_module_import():
+    """Regression: the auth-dependency check must not depend on function-object
+    identity. If app.auth_multitenant is ever imported twice (e.g. under two
+    different module paths by an order-dependent test polluter), the route's
+    dependency is a *different object* with the same qualified name — the
+    check must still recognize it."""
+    import types
+
+    # A distinct function object, masquerading as the real auth dependency
+    # exactly as a duplicate module import would produce.
+    fake_mod = types.ModuleType("app.auth_multitenant")
+    exec(
+        "async def get_current_user_or_admin():\n    return None",
+        fake_mod.__dict__,
+    )
+    dup_fn = fake_mod.get_current_user_or_admin
+    assert dup_fn.__module__ == "app.auth_multitenant"
+    assert dup_fn.__qualname__ == "get_current_user_or_admin"
+
+    from app.auth_multitenant import get_current_user_or_admin as real_fn
+
+    assert dup_fn is not real_fn  # the polluter scenario: identity differs
+
+    class FakeDep:
+        """Mimics FastAPI's processed dependency object (exposes .call)."""
+
+        def __init__(self, call):
+            self.call = call
+
+    class FakeRoute:
+        dependant = type("D", (), {"dependencies": [FakeDep(dup_fn)]})()
+
+    # Identity-based check would fail here; qualname-based check must pass.
+    assert _AUTH_DEP in _dep_names(FakeRoute())
+
+
+
+@pytest.mark.asyncio
+async def test_webhook_ignored_sms_never_echoes_content(monkeypatch):
+    """Non-OTP SMS responses must not include the message content (no preview)."""
+    from unittest.mock import AsyncMock, patch
+
+    from app.api.routes import otp_forwarder
+    from app.core.config import utcms_config
+
+    monkeypatch.setattr(utcms_config, "OTP_WEBHOOK_SECRET", "test-secret")
+    body = _json.dumps({"content": "سلام، این یک پیام تبلیغاتی بدون کد است", "from": "20007777"}).encode()
+    request = _make_request(headers={"X-OTP-Webhook-Token": "test-secret"}, body=body)
+    mock_redis = AsyncMock()
+    with patch("app.core.redis_client.redis_manager.get", new_callable=AsyncMock, return_value=mock_redis):
+        res = await otp_forwarder.receive_sms_forwarder_webhook(request)
+
+    assert res["status"] == "ignored"
+    assert "preview" not in res
+    assert "تبلیغاتی" not in _json.dumps(res, ensure_ascii=False)
+    assert res["content_length"] == len("سلام، این یک پیام تبلیغاتی بدون کد است")

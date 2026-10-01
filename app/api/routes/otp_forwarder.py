@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import re
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from app.auth_multitenant import get_current_user_or_admin
+from app.core.config import utcms_config
 from app.core.redis_client import redis_manager
 
 logger = logging.getLogger(__name__)
@@ -21,6 +24,27 @@ REDIS_OTP_LATEST_KEY = "rpa:otp:latest"
 REDIS_OTP_PHONE_PREFIX = "rpa:otp:phone:"
 REDIS_OTP_CHANNEL = "rpa:otp:channel"
 DEFAULT_OTP_TTL = 300  # 5 minutes
+
+# Header carrying the shared webhook token. The SMS forwarder Android apps
+# cannot compute HMAC signatures, but they can send a static custom header,
+# so a shared bearer token (over TLS) is the deployable authentication here.
+WEBHOOK_TOKEN_HEADER = "X-OTP-Webhook-Token"
+
+
+def _require_webhook_auth(request: Request) -> None:
+    """Authenticate SMS-forwarder webhook calls with the shared webhook token.
+
+    Fail-closed: if ``OTP_WEBHOOK_SECRET`` is not configured the endpoint
+    refuses every request instead of accepting unauthenticated OTP injections.
+    """
+    secret = (getattr(utcms_config, "OTP_WEBHOOK_SECRET", "") or "").strip()
+    if not secret:
+        logger.error("otp_webhook_rejected: OTP_WEBHOOK_SECRET is not configured")
+        raise HTTPException(status_code=503, detail="OTP webhook is not configured")
+    token = request.headers.get(WEBHOOK_TOKEN_HEADER, "")
+    if not token or not hmac.compare_digest(token, secret):
+        logger.warning("otp_webhook_rejected: invalid or missing webhook token")
+        raise HTTPException(status_code=401, detail="Invalid webhook token")
 
 
 # ── Digit normalization ────────────────────────────────────────────────────────
@@ -131,7 +155,11 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
     """
     Accepts incoming SMS from SecureSMS Forwarder or any SMS forwarding Android app.
     Supports JSON payloads, form-encoded data, query parameters, or raw text.
+
+    Requires the ``X-OTP-Webhook-Token`` header matching ``OTP_WEBHOOK_SECRET``.
     """
+    _require_webhook_auth(request)
+
     sender = ""
     content = ""
     phone = ""
@@ -196,12 +224,13 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
 
     otp_code = extract_otp_code(content)
     if not otp_code:
-        logger.warning("Could not extract OTP code from SMS content: %s", content[:100])
+        # Never log message content: it may contain the OTP code itself.
+        logger.warning("Could not extract OTP code from SMS content (content_len=%d)", len(content))
         return {
             "status": "ignored",
             "message": "No valid OTP code found in SMS text",
             "sender": sender,
-            "preview": content[:50],
+            "content_length": len(content),
         }
 
     stored = await store_otp_in_redis(
@@ -211,23 +240,26 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
         phone=phone or sender,
     )
 
+    # Log metadata only — never the code itself.
     logger.info(
         "sms_forwarder_otp_received",
-        extra={"extra_fields": {"code": otp_code, "sender": sender, "phone": phone}},
+        extra={"extra_fields": {"code_len": len(otp_code), "sender": sender, "phone": phone}},
     )
 
     return {
         "status": "success",
         "message": "OTP code extracted and queued for waybill verification",
-        "code": otp_code,
         "sender": sender,
         "received_at": stored.get("received_at"),
     }
 
 
 @router.post("/submit-manual", summary="Manually submit OTP code via API/Admin")
-async def submit_manual_otp(req: ManualOtpRequest) -> dict[str, Any]:
-    """Allows an operator or admin to manually submit an OTP code."""
+async def submit_manual_otp(
+    req: ManualOtpRequest,
+    user_context: dict[str, Any] = Depends(get_current_user_or_admin),  # noqa: B008
+) -> dict[str, Any]:
+    """Allows an operator or admin to manually submit an OTP code (auth required)."""
     code = normalize_to_english_digits(req.code.strip())
     if not code or not (4 <= len(code) <= 8):
         raise HTTPException(status_code=400, detail="Invalid OTP code format (must be 4 to 8 digits)")
@@ -247,21 +279,22 @@ async def submit_manual_otp(req: ManualOtpRequest) -> dict[str, Any]:
 
     logger.info(
         "manual_otp_submitted",
-        extra={"extra_fields": {"code": code, "phone": req.phone, "job_id": req.job_id}},
+        extra={"extra_fields": {"code_len": len(code), "phone": req.phone, "job_id": req.job_id}},
     )
 
     return {
         "status": "success",
         "message": "Manual OTP received and stored in Redis",
-        "code": code,
         "job_id": req.job_id,
         "received_at": stored.get("received_at"),
     }
 
 
 @router.get("/latest", summary="Get the latest received OTP code")
-async def get_latest_otp() -> dict[str, Any]:
-    """Check the latest OTP received in the last 5 minutes."""
+async def get_latest_otp(
+    user_context: dict[str, Any] = Depends(get_current_user_or_admin),  # noqa: B008
+) -> dict[str, Any]:
+    """Check the latest OTP received in the last 5 minutes (auth required)."""
     r = await redis_manager.get()
     if not r:
         raise HTTPException(status_code=503, detail="Redis unavailable")
@@ -290,14 +323,30 @@ async def get_latest_otp() -> dict[str, Any]:
 async def get_securesms_forwarder_config() -> dict[str, Any]:
     """
     Returns step-by-step configuration parameters for the SecureSMS Forwarder Android app.
+    Webhook URLs are built from the PUBLIC_BASE_URL setting; when it is not
+    configured the guide tells the operator to set it instead of embedding a
+    hard-coded address.
     """
+    base = utcms_config.PUBLIC_BASE_URL
+    if base:
+        webhook_url = f"{base}/api/v1/otp/sms-forwarder"
+        alt_url = f"{base}/api/v1/otp/webhook"
+        url_step = f"۳. آدرس Webhook را برابر {webhook_url} قرار دهید.\n"
+    else:
+        webhook_url = "<PUBLIC_BASE_URL from server .env>/api/v1/otp/sms-forwarder"
+        alt_url = "<PUBLIC_BASE_URL from server .env>/api/v1/otp/webhook"
+        url_step = (
+            "۳. ابتدا در فایل .env سرور مقدار PUBLIC_BASE_URL را (با https) تنظیم کنید،\n"
+            "   سپس آدرس Webhook را برابر <PUBLIC_BASE_URL>/api/v1/otp/sms-forwarder قرار دهید.\n"
+        )
     return {
         "app_name": "SecureSMS Forwarder (or SMS Forwarder / SmsForwarder)",
-        "server_webhook_url": "http://87.107.5.238/api/v1/otp/sms-forwarder",
-        "alternative_url": "http://87.107.5.238/api/v1/otp/webhook",
+        "server_webhook_url": webhook_url,
+        "alternative_url": alt_url,
         "http_method": "POST",
         "headers": {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "X-OTP-Webhook-Token": "<OTP_WEBHOOK_SECRET from server .env>",
         },
         "payload_template": {
             "from": "[from]",
@@ -315,9 +364,11 @@ async def get_securesms_forwarder_config() -> dict[str, Any]:
         "instructions_fa": (
             "۱. برنامه SecureSMS Forwarder یا SMS Forwarder را روی گوشی راننده یا گوشی گیرنده پیامک نصب کنید.\n"
             "۲. یک Webhook جدید (یا Forward Rule) با متد POST ایجاد کنید.\n"
-            "۳. آدرس Webhook را برابر http://87.107.5.238/api/v1/otp/sms-forwarder قرار دهید.\n"
+            + url_step +
             "۴. فرمت بدنه (Body) را به صورت JSON تنظیم کنید و مقادیر from و content را به قالب ارسال اضافه نمایید.\n"
             "۵. فیلتر فرستنده را روی سرشماره‌های ۲۰۰۰۷۷۷۷ یا ۳۰۰۰۱۹۲۳ (یا کلمه کلیدی 'بارنامه' و 'کد') تنظیم نمایید.\n"
-            "۶. تست ارسال (Test Send) را در اپلیکیشن بزنید تا پیامک آزمایشی ثبت شود."
+            "۶. تست ارسال (Test Send) را در اپلیکیشن بزنید تا پیامک آزمایشی ثبت شود.\n"
+            "۷. امنیت: در تنظیمات هدر اپلیکیشن، هدر X-OTP-Webhook-Token را با مقدار\n"
+            "   OTP_WEBHOOK_SECRET سرور (فایل .env) اضافه کنید؛ بدون این هدر، وب‌هوک با خطای 401 رد می‌شود."
         )
     }

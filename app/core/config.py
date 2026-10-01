@@ -355,6 +355,16 @@ class UTCMSConfig:
         self.LOG_DIR = os.getenv("LOG_DIR", "/var/log/barpro").strip()
         self.ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "").strip()
         self.ALERT_WEBHOOK_SECRET = os.getenv("ALERT_WEBHOOK_SECRET", "").strip()
+        # Shared token authenticating the SMS-forwarder webhook (X-OTP-Webhook-Token).
+        # The webhook fails closed (503) when this is not configured.
+        self.OTP_WEBHOOK_SECRET = os.getenv("OTP_WEBHOOK_SECRET", "").strip()
+        # Public base URL of this deployment, used to build webhook URLs shown in
+        # setup guides (e.g. /securesms-config). Must be https:// in production.
+        # Empty by default: guides then tell the operator to configure it.
+        self.PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+        # Interactive API docs are only served outside production, or when
+        # explicitly enabled via ENABLE_DOCS=true.
+        self.ENABLE_DOCS = os.getenv("ENABLE_DOCS", "").strip().lower() in ("1", "true", "yes")
         self.WS_EVENT_HISTORY_LIMIT = int(os.getenv("WS_EVENT_HISTORY_LIMIT", "500"))
         self.WORKER_HEARTBEAT_INTERVAL_SECONDS = float(os.getenv("WORKER_HEARTBEAT_INTERVAL_SECONDS", "5"))
         # Alias WATCHDOG_LOOP_INTERVAL_SECONDS to prevent ambiguity with worker registry heartbeats
@@ -514,6 +524,14 @@ class UTCMSConfig:
 
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"
+
+    @property
+    def docs_enabled(self) -> bool:
+        """Whether /docs, /redoc and /openapi.json are served.
+
+        Disabled in production unless explicitly opted in via ENABLE_DOCS=true.
+        """
+        return bool(self.ENABLE_DOCS or self.ENVIRONMENT != "production")
 
 
 AUTO_GENERATED_SECRETS = _bootstrap_environment()

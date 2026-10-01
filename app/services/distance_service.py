@@ -37,7 +37,7 @@ async def _fetch_neshan(origin_lat: float, origin_lng: float, dest_lat: float, d
     if not api_key:
         return None
     try:
-        async with httpx.AsyncClient(timeout=utcms_config.NESHAN_TIMEOUT_SECONDS) as client:
+        async with httpx.AsyncClient(timeout=utcms_config.NESHAN_TIMEOUT_SECONDS, trust_env=False) as client:
             resp = await client.get(
                 "https://api.neshan.org/v4/direction",
                 params={

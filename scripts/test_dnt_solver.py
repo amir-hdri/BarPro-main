@@ -6,17 +6,13 @@ Evaluates model on sample synthetic and real captcha images.
 
 import sys
 import os
-import json
 import base64
 from pathlib import Path
-from PIL import Image
-import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.automation.captcha.dnt_captcha_solver import DntCaptchaProvider
-from app.automation.captcha.persian_number_parser import persian_words_to_number
 
 def test_samples():
     solver = DntCaptchaProvider()

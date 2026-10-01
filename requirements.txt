@@ -11,7 +11,7 @@ Pillow>=12.3.0
 opencv-python-headless>=4.11.0
 httpx>=0.28.1
 curl-cffi>=0.7.1
-sqlmodel>=0.0.38
+sqlmodel>=0.0.38,<0.0.45  # >=0.0.45 auto-selects UTCDateTime and rejects the naive datetimes this codebase uses
 asyncpg>=0.30.0
 aiosqlite>=0.20.0
 celery>=5.4.0

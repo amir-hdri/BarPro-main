@@ -59,6 +59,19 @@ def make_mock_runner(overrides: dict[tuple[str, ...], str] | None = None) -> Asy
     return AsyncMock(side_effect=runner_impl)
 
 
+APPLY_BUTTON_LAYOUT = (
+    '[{"resourceId": "cl.coders.faketraveler:id/button_applyStop", '
+    '"text": "%s", "bounds": "[100,200][300,400]", '
+    '"interactions": ["clickable"], "state": [], "off-screen": false, "enabled": true}]'
+)
+
+
+def mock_apply_button(controller: AndroidShippingController, text: str = "Apply") -> AndroidShippingController:
+    """Point the controller's bridge layout dump at a FakeTraveler Apply/Stop button."""
+    controller.bridge.layout = AsyncMock(return_value=parse_layout(APPLY_BUTTON_LAYOUT % text))
+    return controller
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Coordinate Validation Tests
 # ─────────────────────────────────────────────────────────────────────────────
@@ -160,7 +173,7 @@ async def test_proxy_setting_mismatch_fails_closed():
 
 async def test_apply_location_intent_command_formatting():
     runner = make_mock_runner()
-    controller = AndroidShippingController(config(), runner=runner)
+    controller = mock_apply_button(AndroidShippingController(config(), runner=runner))
 
     await controller.apply_location(35.6892, 51.3890, altitude=1200.0)
 
@@ -181,7 +194,8 @@ async def test_apply_location_intent_command_formatting():
     calls = [call.args[0] for call in runner.await_args_list]
     assert expected_intent_call in calls
 
-    # Check input tap sent for apply button
+    # The tap must land on the layout-reported button center (200, 300) —
+    # never on blind hard-coded coordinates.
     expected_tap_call = (
         "adb",
         "-s",
@@ -189,10 +203,12 @@ async def test_apply_location_intent_command_formatting():
         "shell",
         "input",
         "tap",
-        "487",
-        "189",
+        "200",
+        "300",
     )
     assert expected_tap_call in calls
+    taps = [c for c in calls if len(c) > 5 and c[5] == "tap"]
+    assert len(taps) == 1
 
     # Check mock location verification query
     expected_verify_call = (
@@ -216,13 +232,15 @@ async def test_apply_location_fails_if_mock_not_registered():
         }
     )
     # Small retry budget: the point is exhaustion behavior, not timing.
-    controller = AndroidShippingController(
-        config(),
-        runner=runner,
-        apply_attempts=2,
-        apply_retry_delay=0.01,
-        apply_verify_timeout=0.05,
-        apply_poll_interval=0.01,
+    controller = mock_apply_button(
+        AndroidShippingController(
+            config(),
+            runner=runner,
+            apply_attempts=2,
+            apply_retry_delay=0.01,
+            apply_verify_timeout=0.05,
+            apply_poll_interval=0.01,
+        )
     )
     with pytest.raises(BridgeError, match="mock_location_not_registered"):
         await controller.apply_location(35.7, 51.4)
@@ -246,7 +264,7 @@ async def test_apply_location_with_layout_finds_and_taps_button():
     )
     bridge.layout = AsyncMock(return_value=parse_layout(layout_json))
 
-    controller = AndroidShippingController(bridge=bridge, use_layout=True)
+    controller = AndroidShippingController(bridge=bridge)
     await controller.apply_location(35.7, 51.4)
 
     # Button center: x=(100+300)//2=200, y=(200+400)//2=300
@@ -255,23 +273,142 @@ async def test_apply_location_with_layout_finds_and_taps_button():
     assert expected_tap in calls
 
 
-async def test_layout_tap_is_default_strategy():
-    """Without an explicit use_layout flag, the resource-id tap must win over hard-coded coords."""
+async def test_unreadable_layout_fails_closed_without_any_tap():
+    """No layout dump means no blind tap: fail closed, zero taps.
+
+    The default mock runner answers the layout command with garbage, so the
+    button state is unreadable and apply_location must raise without ever
+    issuing an 'input tap'.
+    """
+    runner = make_mock_runner()
+    controller = AndroidShippingController(
+        config(),
+        runner=runner,
+        apply_attempts=2,
+        apply_retry_delay=0.01,
+    )
+    with pytest.raises(BridgeError, match="apply_button_state_unknown"):
+        await controller.apply_location(35.7, 51.4)
+
+    taps = [
+        call.args[0]
+        for call in runner.await_args_list
+        if len(call.args[0]) > 5 and call.args[0][5] == "tap"
+    ]
+    assert taps == []
+
+
+async def test_apply_button_flipped_to_stop_between_state_read_and_tap():
+    """If the toggle flips to Stop between the state read and the tap, the tap
+    must be aborted: tapping Stop would disable the provider."""
     runner = make_mock_runner()
     bridge = AndroidBridge(config(), runner=runner)
-    layout_json = (
-        '[{"resourceId": "cl.coders.faketraveler:id/button_applyStop", '
-        '"text": "Apply", "bounds": "[100,200][300,400]", '
-        '"interactions": ["clickable"], "state": [], "off-screen": false, "enabled": true}]'
+    bridge.layout = AsyncMock(
+        side_effect=[
+            parse_layout(APPLY_BUTTON_LAYOUT % "Apply"),
+            parse_layout(APPLY_BUTTON_LAYOUT % "Stop"),
+        ]
     )
-    bridge.layout = AsyncMock(return_value=parse_layout(layout_json))
+    controller = AndroidShippingController(bridge=bridge, apply_attempts=1)
 
-    controller = AndroidShippingController(bridge=bridge)
-    await controller.apply_location(35.7, 51.4)
+    with pytest.raises(BridgeError, match="apply_button_state_changed"):
+        await controller.apply_location(35.7, 51.4)
 
-    calls = [call.args[0] for call in runner.await_args_list]
-    assert ("adb", "-s", "127.0.0.1:5555", "shell", "input", "tap", "200", "300") in calls
-    assert ("adb", "-s", "127.0.0.1:5555", "shell", "input", "tap", "487", "189") not in calls
+    taps = [
+        call.args[0]
+        for call in runner.await_args_list
+        if len(call.args[0]) > 5 and call.args[0][5] == "tap"
+    ]
+    assert taps == []
+
+
+async def test_unexpected_button_text_fails_closed_without_any_tap():
+    """A button with unknown text must not be tapped: fail closed, zero taps."""
+    runner = make_mock_runner()
+    controller = mock_apply_button(
+        AndroidShippingController(config(), runner=runner, apply_attempts=1),
+        text="???",
+    )
+    with pytest.raises(BridgeError, match="apply_button_state_unknown"):
+        await controller.apply_location(35.7, 51.4)
+
+    taps = [
+        call.args[0]
+        for call in runner.await_args_list
+        if len(call.args[0]) > 5 and call.args[0][5] == "tap"
+    ]
+    assert taps == []
+
+
+async def test_stop_state_skips_tap_and_verifies():
+    """When the button already shows Stop, no tap may be issued at all."""
+    runner = make_mock_runner()
+    controller = mock_apply_button(AndroidShippingController(config(), runner=runner), text="Stop")
+
+    await controller.apply_location(35.7, 51.4)  # must not raise
+
+    taps = [
+        call.args[0]
+        for call in runner.await_args_list
+        if len(call.args[0]) > 5 and call.args[0][5] == "tap"
+    ]
+    assert taps == []
+
+
+async def test_no_blind_retap_when_layout_unreadable():
+    """Regression for the Apply/Stop toggle hazard: with an unreadable layout
+    dump, retries must not tap blind coordinates on the toggle button.
+
+    The pre-fix code fell back to hard-coded coordinates on every attempt, so
+    a second tap could switch an already-active provider OFF. Now the state
+    gate fails closed with zero taps.
+    """
+    state = {"taps": 0}
+    base = make_mock_runner()
+
+    async def runner_impl(argv: tuple[str, ...], *, timeout: float) -> str:
+        sub_args = argv[3:]
+        if sub_args[:2] == ("shell", "input"):
+            state["taps"] += 1
+        return await base.side_effect(argv, timeout=timeout)
+
+    runner = AsyncMock(side_effect=runner_impl)
+    bridge = AndroidBridge(config(), runner=runner)
+    bridge.layout = AsyncMock(side_effect=BridgeError("uiautomator_broken"))
+    controller = AndroidShippingController(
+        bridge=bridge,
+        apply_attempts=2,
+        apply_retry_delay=0.01,
+    )
+
+    with pytest.raises(BridgeError, match="apply_button_state_unknown"):
+        await controller.apply_location(35.7, 51.4)
+
+    assert state["taps"] == 0  # pre-fix code tapped blind coordinates here
+    # without ever confirming the button state (and reported success).
+
+
+async def test_apply_button_lost_between_state_read_and_tap():
+    """If the button vanishes between the state read and the tap, fail closed."""
+    runner = make_mock_runner()
+    bridge = AndroidBridge(config(), runner=runner)
+    bridge.layout = AsyncMock(
+        side_effect=[
+            parse_layout(APPLY_BUTTON_LAYOUT % "Apply"),
+            BridgeError("selector_missing"),
+        ]
+    )
+    controller = AndroidShippingController(bridge=bridge, apply_attempts=1)
+
+    with pytest.raises(BridgeError, match="apply_button_lost"):
+        await controller.apply_location(35.7, 51.4)
+
+    taps = [
+        call.args[0]
+        for call in runner.await_args_list
+        if len(call.args[0]) > 5 and call.args[0][5] == "tap"
+    ]
+    assert taps == []
 
 
 async def test_apply_location_retries_then_succeeds():
@@ -279,7 +416,7 @@ async def test_apply_location_retries_then_succeeds():
 
     Deterministic by construction: the mock provider appears only after the
     second Apply tap, so attempt 1 must fail its verify window and attempt 2
-    must succeed.
+    must succeed. The button reports Apply on every state read.
     """
     state = {"taps": 0}
     base = make_mock_runner()
@@ -297,10 +434,10 @@ async def test_apply_location_retries_then_succeeds():
         return await base.side_effect(argv, timeout=timeout)
 
     runner = AsyncMock(side_effect=flaky_runner)
+    bridge = AndroidBridge(config(), runner=runner)
+    bridge.layout = AsyncMock(return_value=parse_layout(APPLY_BUTTON_LAYOUT % "Apply"))
     controller = AndroidShippingController(
-        config(),
-        runner=runner,
-        use_layout=False,
+        bridge=bridge,
         apply_attempts=3,
         apply_retry_delay=0.01,
         apply_verify_timeout=0.2,
@@ -366,7 +503,7 @@ async def test_launch_transport_app():
 
 async def test_start_shipping_success_response():
     runner = make_mock_runner()
-    controller = AndroidShippingController(config(), runner=runner)
+    controller = mock_apply_button(AndroidShippingController(config(), runner=runner))
 
     result = await controller.start_shipping("DOC-12345", 35.6892, 51.3890)
 
@@ -386,7 +523,7 @@ async def test_start_shipping_error_response_when_transport_action_fails():
             )
         }
     )
-    controller = AndroidShippingController(config(), runner=runner)
+    controller = mock_apply_button(AndroidShippingController(config(), runner=runner))
 
     # By default, error during execution returns sanitized error response dict
     result = await controller.start_shipping("DOC-12345", 35.6892, 51.3890)
@@ -404,7 +541,7 @@ async def test_start_shipping_raises_when_raise_on_error_requested():
             )
         }
     )
-    controller = AndroidShippingController(config(), runner=runner)
+    controller = mock_apply_button(AndroidShippingController(config(), runner=runner))
     with pytest.raises(BridgeError, match="transport_action_failed"):
         await controller.start_shipping("DOC-12345", 35.6892, 51.3890, raise_on_error=True)
 
@@ -418,7 +555,7 @@ async def test_start_shipping_rejects_invalid_doc_no(doc_no):
 
 async def test_finish_shipping_success_response():
     runner = make_mock_runner()
-    controller = AndroidShippingController(config(), runner=runner)
+    controller = mock_apply_button(AndroidShippingController(config(), runner=runner))
 
     result = await controller.finish_shipping("DOC-12345", 35.7500, 51.4500)
 
@@ -444,7 +581,7 @@ async def test_finish_shipping_error_response():
             )
         }
     )
-    controller = AndroidShippingController(config(), runner=runner)
+    controller = mock_apply_button(AndroidShippingController(config(), runner=runner))
 
     result = await controller.finish_shipping("DOC-12345", 35.7500, 51.4500)
 

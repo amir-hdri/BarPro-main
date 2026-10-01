@@ -118,7 +118,7 @@ def main():
     archive = build_archive()
 
     # آپلود
-    inf(f"آپلود به سرور...")
+    inf("آپلود به سرور...")
     transport = ssh.get_transport()
     transport.default_window_size = 4 * 1024 * 1024
     with SCPClient(
@@ -145,7 +145,7 @@ def main():
     print(f"  bash {REMOTE}/manage.sh update-ui   — آپدیت فرانت‌اند")
     print(f"  bash {REMOTE}/manage.sh deploy       — deploy از GitHub")
     print(f"  bash {REMOTE}/manage.sh health       — بررسی سلامت")
-    print(f"\n  یا کوتاه‌تر: barpro status  (اگر /usr/local/bin/ در PATH باشد)")
+    print("\n  یا کوتاه‌تر: barpro status  (اگر /usr/local/bin/ در PATH باشد)")
 
     ssh.close()
 

@@ -87,7 +87,7 @@ class SubmitAdapter:
         cookies = {
             cookie.get("name", ""): cookie.get("value", "") for cookie in session_bundle.cookies if cookie.get("name")
         }
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, trust_env=False) as client:
             response = await client.post(
                 utcms_config.RPA_SUBMIT_ENDPOINT, json=payload, headers=headers, cookies=cookies
             )
@@ -195,6 +195,8 @@ class RPAHttpSubmitService:
                     )
 
             driver = await session.get(Driver, job.driver_id)
+            if driver is None:
+                raise ValueError(f"driver {job.driver_id} not found for job {job_id}")
             runtime_state = await self._get_or_create_runtime_state(session, client_id, job.driver_id)
             if live_page is not None and live_context is not None:
                 await prepare_live_run_isolation(

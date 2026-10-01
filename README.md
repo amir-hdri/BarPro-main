@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="https://img.shields.io/badge/Status-Hardened%20v2.9.13-success?style=for-the-badge" alt="Status" />
-  <img src="https://img.shields.io/badge/Version-2.9.13-blue?style=for-the-badge" alt="Version" />
-  <img src="https://img.shields.io/badge/Tests-1061%20passed-brightgreen?style=for-the-badge" alt="Tests" />
+  <img src="https://img.shields.io/badge/Status-Hardened%20v2.9.15-success?style=for-the-badge" alt="Status" />
+  <img src="https://img.shields.io/badge/Version-2.9.15-blue?style=for-the-badge" alt="Version" />
+  <img src="https://img.shields.io/badge/Tests-pytest-brightgreen?style=for-the-badge" alt="Tests" />
   <img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge" alt="License" />
 </div>
 
@@ -207,7 +207,10 @@ docker compose -f compose/monitoring.yml up -d  # Prometheus
 
 ### Tests
 ```
-Latest validated development gate: backend `1149 passed, 3 skipped`; frontend typecheck, lint, build and 5 unit tests passed.
+Run the backend suite with: pytest tests/ (see docs for the required environment).
+The full suite has environment-gated tests (torch/CUDA, Redis, live network);
+a clean run requires those services. Do not treat a partial/stubbed run as a
+release gate.
 ```
 
 ### Alembic Migration Head

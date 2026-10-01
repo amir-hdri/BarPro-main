@@ -108,7 +108,7 @@ class ITMBWSService:
 
         # Mutating POST must be executed At-Most-Once (no automatic retries on timeout/5xx)
         try:
-            async with httpx.AsyncClient(timeout=utcms_config.ITMBOL_TIMEOUT_SECONDS) as client:
+            async with httpx.AsyncClient(timeout=utcms_config.ITMBOL_TIMEOUT_SECONDS, trust_env=False) as client:
                 response = await client.post(endpoint, json=payload)
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -192,7 +192,7 @@ class ITMBWSService:
 
         endpoint = f"{utcms_config.ITMBOL_SERVICE_URL.rstrip('/')}/WS03_StartBOL"
         try:
-            async with httpx.AsyncClient(timeout=utcms_config.ITMBOL_TIMEOUT_SECONDS) as client:
+            async with httpx.AsyncClient(timeout=utcms_config.ITMBOL_TIMEOUT_SECONDS, trust_env=False) as client:
                 response = await client.post(endpoint, json=payload)
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -258,7 +258,7 @@ class ITMBWSService:
 
         endpoint = f"{utcms_config.ITMBOL_SERVICE_URL.rstrip('/')}/WS04_EndBOL"
         try:
-            async with httpx.AsyncClient(timeout=utcms_config.ITMBOL_TIMEOUT_SECONDS) as client:
+            async with httpx.AsyncClient(timeout=utcms_config.ITMBOL_TIMEOUT_SECONDS, trust_env=False) as client:
                 response = await client.post(endpoint, json=payload)
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -324,7 +324,7 @@ class ITMBWSService:
 
         endpoint = f"{utcms_config.ITMBOL_SERVICE_URL.rstrip('/')}/WS06_InsertBOLTrack"
         try:
-            async with httpx.AsyncClient(timeout=utcms_config.ITMBOL_TIMEOUT_SECONDS) as client:
+            async with httpx.AsyncClient(timeout=utcms_config.ITMBOL_TIMEOUT_SECONDS, trust_env=False) as client:
                 response = await client.post(endpoint, json=payload)
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:

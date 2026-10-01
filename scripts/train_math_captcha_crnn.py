@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import os
 import random
-import sys
 from pathlib import Path
 
 import cv2
@@ -18,7 +17,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

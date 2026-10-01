@@ -628,7 +628,7 @@ class WaybillJobService:
                     if token:
                         mobile_client = UtcmsMobileClient(token=token)
                 except Exception:
-                    pass
+                    logger.debug("cached_otp_token_parse_failed", exc_info=True)
 
         if not mobile_client or not mobile_client.token:
             driver = await session.get(Driver, job.driver_id) if job.driver_id else None

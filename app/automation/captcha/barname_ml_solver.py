@@ -81,28 +81,32 @@ def _normalize_character(image: np.ndarray, target_size: int = 28) -> np.ndarray
     return _pad_and_resize(roi, target_size=target_size)
 
 
-class _SimpleCNN(nn.Module):
-    def __init__(self, num_classes: int):
-        super().__init__()
-        self.features = nn.Sequential(
-            nn.Conv2d(1, 32, 3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(32, 64, 3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-        )
-        self.classifier = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(64 * 7 * 7, 128),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(128, num_classes),
-        )
+# Defined only when torch is importable: the class body evaluates nn.Module at
+# import time, so defining it unconditionally would crash the import and defeat
+# the graceful torch-less degradation below (warmup() -> available == False).
+if nn is not None:  # pragma: no cover - requires real torch
+    class _SimpleCNN(nn.Module):
+        def __init__(self, num_classes: int):
+            super().__init__()
+            self.features = nn.Sequential(
+                nn.Conv2d(1, 32, 3, padding=1),
+                nn.ReLU(),
+                nn.MaxPool2d(2),
+                nn.Conv2d(32, 64, 3, padding=1),
+                nn.ReLU(),
+                nn.MaxPool2d(2),
+            )
+            self.classifier = nn.Sequential(
+                nn.Flatten(),
+                nn.Linear(64 * 7 * 7, 128),
+                nn.ReLU(),
+                nn.Dropout(0.5),
+                nn.Linear(128, num_classes),
+            )
 
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        features = self.features(inputs)
-        return self.classifier(features)
+        def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+            features = self.features(inputs)
+            return self.classifier(features)
 
 
 class BarnameMlCaptchaSolver:

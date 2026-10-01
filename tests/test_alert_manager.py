@@ -18,7 +18,7 @@ def test_alert_manager_emit_no_webhook():
 def test_alert_manager_emit_with_webhook_no_secret():
     # Test alert emission with webhook URL set but no secret
     with (
-        mock.patch.object(utcms_config, "ALERT_WEBHOOK_URL", "http://example.com/webhook"),
+        mock.patch.object(utcms_config, "ALERT_WEBHOOK_URL", "https://example.com/webhook"),
         mock.patch.object(utcms_config, "ALERT_WEBHOOK_SECRET", ""),
         mock.patch("urllib.request.urlopen") as mock_urlopen,
     ):
@@ -27,7 +27,7 @@ def test_alert_manager_emit_with_webhook_no_secret():
 
         assert mock_urlopen.call_count == 1
         req = mock_urlopen.call_args[0][0]
-        assert req.full_url == "http://example.com/webhook"
+        assert req.full_url == "https://example.com/webhook"
 
         headers_lower = {k.lower(): v for k, v in req.headers.items()}
         assert headers_lower.get("content-type") == "application/json"
@@ -45,7 +45,7 @@ def test_alert_manager_emit_with_webhook_and_secret():
     # Test signature calculation
     secret = "my_super_secret"
     with (
-        mock.patch.object(utcms_config, "ALERT_WEBHOOK_URL", "http://example.com/webhook"),
+        mock.patch.object(utcms_config, "ALERT_WEBHOOK_URL", "https://example.com/webhook"),
         mock.patch.object(utcms_config, "ALERT_WEBHOOK_SECRET", secret),
         mock.patch("urllib.request.urlopen") as mock_urlopen,
     ):
@@ -68,3 +68,20 @@ def test_alert_manager_emit_with_webhook_and_secret():
         expected_sig = hmac.new(secret.encode("utf-8"), expected_msg, hashlib.sha256).hexdigest()
 
         assert signature == expected_sig
+
+
+def test_alert_manager_emit_blocks_unsafe_scheme():
+    # Non-https webhook URLs must be blocked (fail closed, no request sent).
+    for bad_url in (
+        "http://example.com/webhook",
+        "file:///etc/passwd",
+        "gopher://example.com/x",
+        "ftp://example.com/webhook",
+        "example.com/webhook",
+    ):
+        with (
+            mock.patch.object(utcms_config, "ALERT_WEBHOOK_URL", bad_url),
+            mock.patch("urllib.request.urlopen") as mock_urlopen,
+        ):
+            alert_manager.emit("high", "Test Alert", {"key": "val"})
+            mock_urlopen.assert_not_called()

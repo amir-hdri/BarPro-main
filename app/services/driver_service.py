@@ -329,6 +329,7 @@ class DriverService:
                     await session.commit()
                     active_plate_str = clean_plate
                 except Exception as e:
+                    await session.rollback()
                     logger.warning(f"Failed to update plate for driver {driver.id}: {e}")
             else:
                 active_plate_str = None

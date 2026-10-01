@@ -68,7 +68,7 @@ async def _fetch_neshan_route(
     try:
         import httpx
 
-        async with httpx.AsyncClient(timeout=utcms_config.NESHAN_TIMEOUT_SECONDS) as client:
+        async with httpx.AsyncClient(timeout=utcms_config.NESHAN_TIMEOUT_SECONDS, trust_env=False) as client:
             resp = await client.get(
                 "https://api.neshan.org/v4/direction",
                 params={

@@ -1,5 +1,4 @@
 import re
-import sys
 from urllib.parse import urljoin
 from curl_cffi import requests
 

@@ -20,7 +20,7 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-from app.automation.clean_ip_pool import run_screening_cycle, clean_ip_pool, FILE_BEST_TXT, FILE_WORKING_TXT, FILE_WORKING_JSON
+from app.automation.clean_ip_pool import run_screening_cycle, FILE_BEST_TXT, FILE_WORKING_TXT, FILE_WORKING_JSON
 
 
 def main():

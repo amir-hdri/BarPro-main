@@ -82,7 +82,7 @@ class ITMBBaseInfoService:
             "HashedValue": hashed_value,
         }
         endpoint = f"{utcms_config.ITMBOL_SERVICE_URL.rstrip('/')}/{method_name}"
-        async with httpx.AsyncClient(timeout=utcms_config.ITMBOL_TIMEOUT_SECONDS) as client:
+        async with httpx.AsyncClient(timeout=utcms_config.ITMBOL_TIMEOUT_SECONDS, trust_env=False) as client:
             response = await client.post(endpoint, json=payload)
             response.raise_for_status()
         encoded_payload = self._extract_result_text(response.text)

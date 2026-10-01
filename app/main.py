@@ -37,6 +37,7 @@ from app.automation.proxy_rotator import get_proxy_rotator
 from app.core.config import AUTO_GENERATED_SECRETS, utcms_config
 from app.core.database import init_db
 from app.core.exceptions import UTCMSException
+from app.auth_multitenant import TenantIsolationError
 from app.core.execution_context import bind_execution_context, reset_execution_context
 from app.core.logging import configure_logging, reset_request_id, set_request_id
 from app.core.rate_limiter import add_rate_limit_headers, rate_limiter
@@ -249,8 +250,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="سیستم اتوماسیون UTCMS",
     description="ربات هوشمند صدور بارنامه با قابلیت انتخاب مسیر و گزارش‌گیری",
-    version="2.9.8",
+    version="2.9.15",
     lifespan=lifespan,
+    # /docs, /redoc and /openapi.json are disabled in production unless
+    # ENABLE_DOCS=true is set explicitly (see utcms_config.docs_enabled).
+    docs_url="/docs" if utcms_config.docs_enabled else None,
+    redoc_url="/redoc" if utcms_config.docs_enabled else None,
+    openapi_url="/openapi.json" if utcms_config.docs_enabled else None,
 )
 
 # NOTE: Screenshots are NOT served via public StaticFiles mount.
@@ -448,6 +454,35 @@ async def utcms_exception_handler(request: Request, exc: UTCMSException):
             "request_id": request.headers.get("X-Request-ID"),
             "correlation_id": request.headers.get(utcms_config.TRACE_HEADER_NAME),
             **exc.details,
+        },
+    )
+
+
+@app.exception_handler(TenantIsolationError)
+async def tenant_isolation_exception_handler(request: Request, exc: TenantIsolationError):
+    """Cross-tenant access attempt → 404.
+
+    From the requesting tenant's perspective the resource does not exist; a
+    404 (rather than 403) avoids an existence oracle that would let one tenant
+    probe which resource IDs belong to other tenants. Details stay in logs.
+    """
+    logger.warning(
+        "tenant_isolation_violation",
+        extra={
+            "extra_fields": {
+                "method": request.method,
+                "path": request.url.path,
+                "error_message": str(exc),
+            }
+        },
+    )
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": "NOT_FOUND",
+            "message": "Resource not found",
+            "request_id": request.headers.get("X-Request-ID"),
+            "correlation_id": request.headers.get(utcms_config.TRACE_HEADER_NAME),
         },
     )
 

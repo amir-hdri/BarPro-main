@@ -76,6 +76,28 @@ def _estimate_job_duration_minutes(job: WaybillJob) -> float:
 
 
 class RPASchedulerService:
+    async def _recover_duplicate_job(
+        self, session, client_id: int, normalized_key: str
+    ) -> WaybillJob | None:
+        """Re-query after an idempotency-key collision; the concurrent winner
+        may need a moment to become visible. Returns the existing job or None."""
+        for attempt in range(5):
+            await asyncio.sleep(0.05 * (attempt + 1))
+            existing = (
+                await session.exec(
+                    select(WaybillJob).where(
+                        WaybillJob.client_id == client_id, WaybillJob.idempotency_key == normalized_key
+                    )
+                )
+            ).first()
+            if existing:
+                logger.warning(
+                    "concurrent_duplicate_idempotency_key_recovered",
+                    extra={"extra_fields": {"job_id": existing.job_id, "idempotency_key": normalized_key}},
+                )
+                return existing
+        return None
+
     async def create_job(
         self,
         client_id: int,
@@ -121,7 +143,7 @@ class RPASchedulerService:
 
                 fingerprint = generate_submission_fingerprint(payload)
             except Exception:
-                pass
+                logger.warning("submission_fingerprint_generation_failed", exc_info=True)
 
             job = WaybillJob(
                 job_id=f"job_{uuid.uuid4().hex[:16]}",
@@ -140,6 +162,17 @@ class RPASchedulerService:
                 next_retry_at=submit_after_time if in_night else None,
             )
             session.add(job)
+            try:
+                # Flush the INSERT now: a later query (e.g. _ensure_runtime_state)
+                # would otherwise autoflush it outside the IntegrityError guard
+                # below, turning a lost idempotency race into a 500.
+                await session.flush()
+            except IntegrityError:
+                await session.rollback()
+                recovered = await self._recover_duplicate_job(session, client_id, normalized_key)
+                if recovered is not None:
+                    return recovered
+                raise
             await self._ensure_runtime_state(session, client_id, driver.id)
             event_type = JOB_WAITING_SUBMISSION_WINDOW if in_night else JOB_CREATED
             await self._record_event(
@@ -170,21 +203,9 @@ class RPASchedulerService:
                 await session.commit()
             except IntegrityError:
                 await session.rollback()
-                for attempt in range(5):
-                    await asyncio.sleep(0.05 * (attempt + 1))
-                    existing = (
-                        await session.exec(
-                            select(WaybillJob).where(
-                                WaybillJob.client_id == client_id, WaybillJob.idempotency_key == normalized_key
-                            )
-                        )
-                    ).first()
-                    if existing:
-                        logger.warning(
-                            "concurrent_duplicate_idempotency_key_recovered",
-                            extra={"extra_fields": {"job_id": existing.job_id, "idempotency_key": normalized_key}},
-                        )
-                        return existing
+                recovered = await self._recover_duplicate_job(session, client_id, normalized_key)
+                if recovered is not None:
+                    return recovered
                 raise
             await session.refresh(job)
             try:
@@ -673,8 +694,6 @@ class RPASchedulerService:
                 session.add(job)
 
                 # Add log for visibility
-                from app.models_multitenant import WaybillTaskLog
-
                 session.add(
                     WaybillTaskLog(
                         job_id=job.job_id,

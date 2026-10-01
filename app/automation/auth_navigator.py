@@ -388,7 +388,7 @@ class AuthNavigator:
                         return True
                     await asyncio.sleep(0.06)
                 return False
-        except Exception as _error:
+        except Exception:
             return False
         return True
 
@@ -428,7 +428,7 @@ class AuthNavigator:
             logger.info("mfa_code_submitted")
             await asyncio.sleep(1)
             return True
-        except Exception as _exc:
+        except Exception:
             logger.warning("mfa_submit_failed", exc_info=True)
             return False
 

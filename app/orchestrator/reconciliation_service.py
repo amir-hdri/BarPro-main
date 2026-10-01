@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.automation.browser import BrowserManager
+from app.core.config import utcms_config
 from app.core.error_taxonomy import ErrorCategory
 from app.models_multitenant import Driver, WaybillJob
 from app.models_rpa import DriverRuntimeState

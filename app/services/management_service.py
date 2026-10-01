@@ -845,12 +845,20 @@ class ManagementService:
     async def import_excel_workbook(
         self, content: bytes, filename: str, options: ManagementExcelImportOptions
     ) -> dict[str, Any]:
-        EXCEL_MAGIC_BYTES = {b"\x50\x4b\x03\x04", b"\x50\x4b\x05\x06", b"\xd0\xcf\x11\xe0"}
+        # .xlsx is a ZIP container; legacy OLE .xls is NOT parseable by read_xlsx
+        # (it uses zipfile) and must be rejected explicitly instead of 500ing.
+        ZIP_MAGIC_BYTES = {b"\x50\x4b\x03\x04", b"\x50\x4b\x05\x06", b"\x50\x4b\x07\x08"}
+        OLE_MAGIC = b"\xd0\xcf\x11\xe0"
         MAX_FILE_SIZE = 10 * 1024 * 1024
         if len(content) > MAX_FILE_SIZE:
             raise HTTPException(status_code=413, detail="File too large (max 10 MB)")
-        if len(content) >= 4 and content[:4] not in EXCEL_MAGIC_BYTES:
-            raise HTTPException(status_code=400, detail="Invalid file format — must be Excel (.xlsx/.xls)")
+        if len(content) < 4 or content[:4] not in ZIP_MAGIC_BYTES:
+            if content[:4] == OLE_MAGIC:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Legacy .xls (OLE) is not supported — please upload .xlsx",
+                )
+            raise HTTPException(status_code=400, detail="Invalid file format — must be Excel (.xlsx)")
         suffix = os.path.splitext(filename or "")[1] or ".xlsx"
         temp_path = None
         geo_resolver = ReverseGeoResolver(enabled=options.reverse_geo_enabled)
@@ -862,7 +870,15 @@ class ManagementService:
                 handle.write(content)
                 temp_path = handle.name
 
-            rows = read_xlsx(Path(temp_path))
+            rows = None
+            try:
+                rows = read_xlsx(Path(temp_path))
+            except HTTPException:
+                raise
+            except Exception:
+                # BadZipFile, XML parse errors, missing workbook parts, etc.
+                # must be a controlled 400, never a 500.
+                raise HTTPException(status_code=400, detail="Invalid or corrupted Excel file (.xlsx)")
             if not rows:
                 raise HTTPException(status_code=400, detail="فایل اکسل خالی است یا خوانده نشد")
 

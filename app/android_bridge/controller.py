@@ -44,8 +44,6 @@ class AndroidShippingController:
         *,
         bridge: AndroidBridge | None = None,
         runner: CommandRunner = _run_command,
-        apply_button_coords: tuple[int, int] = (487, 189),
-        use_layout: bool = True,
         apply_attempts: int = 3,
         apply_retry_delay: float = 1.0,
         apply_verify_timeout: float = 5.0,
@@ -63,9 +61,6 @@ class AndroidShippingController:
             self.config = BridgeConfig.from_env()
             self._runner = runner
             self.bridge = AndroidBridge(self.config, runner=runner)
-
-        self.apply_button_coords = apply_button_coords
-        self._use_layout = use_layout
 
         if not isinstance(apply_attempts, int) or isinstance(apply_attempts, bool) or apply_attempts < 1:
             raise ValueError("apply_attempts must be an integer >= 1")
@@ -113,37 +108,62 @@ class AndroidShippingController:
         if not isinstance(altitude, (int, float)) or not math.isfinite(altitude):
             raise ValueError(f"Altitude must be a finite number, got: {altitude}")
 
-    async def _trigger_apply_action(self) -> None:
-        """Trigger location update/apply button in FakeTraveler.
+    async def _read_apply_button_state(self) -> str | None:
+        """Read the FakeTraveler Apply/Stop toggle state from the layout dump.
 
-        Preferred path is the layout node ``button_applyStop`` (resolution
-        independent; ``require_unique`` rejects off-screen/disabled/ambiguous
-        nodes). The hard-coded ``apply_button_coords`` tap is a last-resort
-        fallback only, kept for hosts where UI dumps are unavailable.
+        Returns ``"apply"`` when the button shows Apply (a tap is needed),
+        ``"stop"`` when it shows Stop (the provider is already active), or
+        ``None`` when the state cannot be determined — the caller must then
+        fail closed instead of tapping blindly.
         """
-        if self._use_layout:
-            try:
-                obs = await self.bridge.layout()
-                node = obs.require_unique(resource_id=f"{LOCATION_PACKAGE}:id/button_applyStop")
-                if node.bounds:
-                    left, top, right, bottom = node.bounds
-                    x, y = (left + right) // 2, (top + bottom) // 2
-                    await self._adb("shell", "input", "tap", str(x), str(y))
-                    return
-            except Exception as exc:
-                logger.debug("layout_apply_fallback: %s", exc)
-        await self._adb("shell", "input", "tap", str(self.apply_button_coords[0]), str(self.apply_button_coords[1]))
+        try:
+            obs = await self.bridge.layout()
+            node = obs.require_unique(resource_id=f"{LOCATION_PACKAGE}:id/button_applyStop")
+        except Exception as exc:
+            logger.debug("apply_button_state_unreadable: %s", exc)
+            return None
+        text = (node.text or "").strip().lower()
+        if text == "stop":
+            return "stop"
+        if text == "apply":
+            return "apply"
+        logger.warning("apply_button_unexpected_text text=%r", node.text)
+        return None
+
+    async def _trigger_apply_action(self) -> None:
+        """Tap the Apply button at its layout-reported center.
+
+        Must only be called after :meth:`_read_apply_button_state` returned
+        ``"apply"``. There is deliberately no coordinate fallback: tapping
+        hard-coded coordinates on a toggle button is a blind click that can
+        turn the provider off instead of on.
+
+        The layout is re-read immediately before the tap and the button text
+        is re-validated: if the toggle flipped to Stop between the state read
+        and the tap, the tap is aborted instead of disabling the provider.
+        """
+        try:
+            obs = await self.bridge.layout()
+            node = obs.require_unique(resource_id=f"{LOCATION_PACKAGE}:id/button_applyStop")
+        except Exception as exc:
+            raise BridgeError("apply_button_lost") from exc
+        if node.bounds is None:
+            raise BridgeError("apply_button_unusable")
+        if (node.text or "").strip().lower() != "apply":
+            raise BridgeError("apply_button_state_changed")
+        left, top, right, bottom = node.bounds
+        x, y = (left + right) // 2, (top + bottom) // 2
+        await self._adb("shell", "input", "tap", str(x), str(y))
 
     async def _verify_mock_location_registered(self) -> None:
         """Verify FakeTraveler MockedLocationService or mock provider is active."""
-        if self._use_layout:
-            try:
-                obs = await self.bridge.layout()
-                node = obs.require_unique(resource_id=f"{LOCATION_PACKAGE}:id/button_applyStop")
-                if node.text == "Stop":
-                    return
-            except Exception:
-                pass
+        try:
+            obs = await self.bridge.layout()
+            node = obs.require_unique(resource_id=f"{LOCATION_PACKAGE}:id/button_applyStop")
+            if node.text == "Stop":
+                return
+        except Exception:
+            pass
         services_out = await self._adb("shell", "dumpsys", "activity", "services", LOCATION_PACKAGE)
         if "MockedLocationService" in services_out:
             return
@@ -172,10 +192,12 @@ class AndroidShippingController:
     async def apply_location(self, lat: float, lon: float, altitude: float = 1200.0) -> None:
         """Send geo intent to FakeTraveler, trigger Apply, and verify mock location is registered.
 
-        The Apply trigger + verification is retried up to ``apply_attempts``
-        times: a tap can be missed while the activity is still rendering, so a
-        single attempt is not conclusive. The final attempt's verification
-        error propagates unchanged (fail-closed).
+        The Apply button is an Apply/Stop *toggle*: its state is read before
+        every tap, so a retry never taps a button that already shows Stop
+        (which would disable the provider). Taps happen only when the state
+        is definitively "apply"; an unreadable or unexpected state fails
+        closed without any tap. The final attempt's error propagates
+        unchanged.
         """
         self._validate_coordinates(lat, lon, altitude)
         await self.verify_device_ready()
@@ -191,9 +213,28 @@ class AndroidShippingController:
             f"geo:{lat},{lon}",
             f"{LOCATION_PACKAGE}/.MainActivity",
         )
-        # 2-3. Trigger apply button, then verify with retries.
+        # 2-3. State-gated apply trigger, then verify, with retries.
         for attempt in range(1, self.apply_attempts + 1):
-            await self._trigger_apply_action()
+            state = await self._read_apply_button_state()
+            if state == "stop":
+                logger.info(
+                    "apply button already Stop; verifying without tap (attempt %d/%d)",
+                    attempt,
+                    self.apply_attempts,
+                )
+            elif state == "apply":
+                await self._trigger_apply_action()
+            else:
+                if attempt >= self.apply_attempts:
+                    raise BridgeError("apply_button_state_unknown")
+                logger.warning(
+                    "apply button state unknown (attempt %d/%d); retrying in %.1fs",
+                    attempt,
+                    self.apply_attempts,
+                    self.apply_retry_delay,
+                )
+                await asyncio.sleep(self.apply_retry_delay)
+                continue
             try:
                 await self._wait_until_mock_registered()
             except BridgeError as exc:

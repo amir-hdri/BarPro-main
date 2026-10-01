@@ -34,7 +34,7 @@ pydantic>=2.10.3
 aiohttp>=3.11.10
 httpx>=0.28.1
 curl-cffi>=0.7.1
-sqlmodel>=0.0.38
+sqlmodel>=0.0.38,<0.0.45  # >=0.0.45 auto-selects UTCDateTime and rejects the naive datetimes this codebase uses
 celery>=5.4.0
 redis>=5.2.0
 prometheus-client>=0.21.1

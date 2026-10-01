@@ -1592,7 +1592,6 @@ class LocationSelector:
             # 3. اگر متد بومی اجرا شد، منتظر پر شدن فیلدهای آدرس می‌شویم
             if native_called:
                 addr_selector = "#txtAddressSource" if prefix == "Origin" else "#txtAddressDest"
-                _state_selector = "#ddStateSource" if prefix == "Origin" else "#ddStateDest"
 
                 # حداکثر 3 ثانیه برای پاسخ دهی متد بومی صبر می‌کنیم
                 for _ in range(15):
@@ -1624,7 +1623,6 @@ class LocationSelector:
                 f"Native reverse mapping did not populate fields for {prefix}. Attempting manual address field filling: {full_address}"
             )
 
-            _addr_filled = False
             address_selectors = [
                 addr_selector,
                 f"#txtAddress{prefix}FromMap",
@@ -1632,8 +1630,7 @@ class LocationSelector:
             ]
             for selector in address_selectors:
                 try:
-                    if await self._fill_input_like(selector, full_address, visible=False):
-                        _addr_filled = True
+                    await self._fill_input_like(selector, full_address, visible=False)
                 except Exception:
                     continue
 
