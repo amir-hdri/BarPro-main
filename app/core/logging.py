@@ -97,15 +97,6 @@ def monitoring_extra(
     return {"extra_fields": merged}
 
 
-class SensitiveDataFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        sanitized = _sanitize_string(record.getMessage())
-        if sanitized != record.msg:
-            record.msg = sanitized
-            record.args = None
-        return True
-
-
 class RequestIdFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         record.request_id = get_request_id()

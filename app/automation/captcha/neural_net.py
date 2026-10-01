@@ -411,16 +411,6 @@ def get_model() -> Any:  # MiniMLP when torch is available
         return _cached_model
 
 
-def predict_char(image_28x28: np.ndarray) -> tuple[str, float]:
-    model = get_model()
-    flat = image_28x28.astype(np.float32).flatten()
-    if flat.max() > 1.5:
-        flat = flat / 255.0
-    flat = flat.reshape(1, -1)
-    preds, confs = model.predict(flat)
-    return _IDX_TO_CHAR[int(preds[0])], float(confs[0])
-
-
 def predict_chars_batch(images: list[np.ndarray]) -> list[tuple[str, float]]:
     if not images:
         return []

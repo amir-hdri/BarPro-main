@@ -40,7 +40,7 @@ import re
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -463,30 +463,3 @@ def build_gps_provider(kind: str, **kwargs: Any) -> FakeGpsProvider:
     if normalised == "redroid":
         return RedroidFakeGpsProvider(AndroidGpsConfig(**kwargs))
     raise ValueError(f"unknown gps provider: {kind!r}; known: recording, android, redroid")
-
-
-@dataclass(slots=True)
-class DispatchStats:
-    """Aggregate view of a provider's dispatches, for the run report."""
-
-    total: int = 0
-    accepted: int = 0
-    rejected: int = 0
-    reasons: dict[str, int] = field(default_factory=dict)
-
-    def record(self, dispatch: GpsDispatch) -> None:
-        self.total += 1
-        if dispatch.accepted:
-            self.accepted += 1
-        else:
-            self.rejected += 1
-            self.reasons[dispatch.reason] = self.reasons.get(dispatch.reason, 0) + 1
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "total": self.total,
-            "accepted": self.accepted,
-            "rejected": self.rejected,
-            "reasons": dict(self.reasons),
-            "generated_at": datetime.now(UTC).isoformat(),
-        }
