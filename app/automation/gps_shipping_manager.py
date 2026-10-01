@@ -14,6 +14,7 @@ import logging
 import math
 import re
 import secrets
+import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -558,12 +559,66 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 # ──────────────────── Redis Session Vault ────────────────────
 
-
-DRIVER_TOKEN_KEY = "utcms:driver:token:{national_code}"
-DRIVER_REFRESH_KEY = "utcms:driver:refresh:{national_code}"
-DRIVER_AUTH_LOCK_KEY = "utcms:driver:auth-lock:{national_code}"
+# Driver national codes are NOT tenant-unique: the same driver can work for
+# several clients. Every vault key therefore carries the client (tenant) id
+# (see _scoped_driver_key). The legacy unscoped key shape
+# ("utcms:driver:token:{national_code}") is used ONLY when a caller cannot
+# provide a tenant; scoped lookups NEVER fall back to it, so a tenant can
+# never read another tenant's cached session.
 SHIPPING_STATE_KEY = "utcms:shipping:job:{job_id}"
-_LOCAL_AUTH_LOCKS: dict[str, asyncio.Lock] = {}
+COMPLETION_CLAIM_KEY = "utcms:shipping:claim:{job_id}"
+# Beat cadence is 120s; a 10-minute claim TTL bounds a claim left behind by a
+# crashed worker while still covering the slowest UTCMS round-trips.
+COMPLETION_CLAIM_TTL_SECONDS = 600
+
+# Loop-aware per-driver auth locks, keyed (loop id, tenant scope, national code).
+# asyncio.Lock binds to the loop that first awaits it; awaiting the same lock
+# object from a second loop raises RuntimeError. get_shared_event_loop() gives
+# every Celery thread its own loop, so locks are cached per running loop
+# (mirroring traffic_control._get_loop_resources). The dict is bounded with
+# FIFO eviction so it cannot grow without bound on national_code cardinality.
+_AUTH_LOCKS_GUARD = threading.Lock()
+_AUTH_LOCK_ENTRIES_MAX = 512
+_LOCAL_AUTH_LOCKS: dict[tuple[int, str, str], tuple[asyncio.AbstractEventLoop, asyncio.Lock]] = {}
+
+
+def _scoped_driver_key(kind: str, client_id: int | str | None, national_code: str) -> str:
+    """Build the tenant-scoped Redis key for a driver session-vault entry.
+
+    ``kind`` is one of "token" | "refresh" | "auth-lock". The client (tenant)
+    id is part of the key because driver national codes are not tenant-unique:
+    two tenants sharing a driver must never share UTCMS sessions. Callers
+    without a tenant get the legacy unscoped key; scoped lookups NEVER fall
+    back to it, so cross-tenant reads are impossible by construction.
+    """
+    scope = "" if client_id is None else f"{client_id}:"
+    return f"utcms:driver:{kind}:{scope}{national_code}"
+
+
+def _get_auth_lock(national_code: str, tenant_scope: str = "") -> asyncio.Lock:
+    """Return the process-local auth lock for (running loop, tenant, driver).
+
+    Loop-aware: each event loop gets its own lock object, so a lock awaited on
+    the ASGI loop is never awaited from a Celery thread loop (RuntimeError).
+    Guarded by a threading.Lock for setdefault-style init (init race is a
+    thread-level concern, not an awaitable one). FIFO-evicts the oldest entry
+    when the cache reaches _AUTH_LOCK_ENTRIES_MAX.
+    """
+    loop = asyncio.get_running_loop()
+    key = (id(loop), tenant_scope, national_code)
+    with _AUTH_LOCKS_GUARD:
+        entry = _LOCAL_AUTH_LOCKS.get(key)
+        if entry is not None:
+            cached_loop, lock = entry
+            if cached_loop is loop and not cached_loop.is_closed():
+                return lock
+            # Stale entry (loop replaced/closed): drop and recreate below.
+            del _LOCAL_AUTH_LOCKS[key]
+        while len(_LOCAL_AUTH_LOCKS) >= _AUTH_LOCK_ENTRIES_MAX:
+            _LOCAL_AUTH_LOCKS.pop(next(iter(_LOCAL_AUTH_LOCKS)))
+        lock = asyncio.Lock()
+        _LOCAL_AUTH_LOCKS[key] = (loop, lock)
+        return lock
 
 
 async def _get_redis():
@@ -576,20 +631,26 @@ async def _get_redis():
         return None
 
 
-async def get_cached_token(national_code: str) -> str | None:
-    """Return cached UTCMS driver token from Redis, or None."""
+async def get_cached_token(national_code: str, *, client_id: int | str | None = None) -> str | None:
+    """Return cached UTCMS driver token from Redis, or None.
+
+    ``client_id`` scopes the key to the tenant; two tenants sharing a driver
+    national code never share a session.
+    """
     r = await _get_redis()
     if r is None:
         return None
     try:
         # cast is a runtime no-op: the redis client is untyped (Any); the
         # token is stored as a string or absent (None).
-        return cast("str | None", await r.get(DRIVER_TOKEN_KEY.format(national_code=national_code)))
+        return cast("str | None", await r.get(_scoped_driver_key("token", client_id, national_code)))
     except Exception:
         return None
 
 
-async def cache_token(national_code: str, token: str, ttl_seconds: int = 240) -> None:
+async def cache_token(
+    national_code: str, token: str, ttl_seconds: int = 240, *, client_id: int | str | None = None
+) -> None:
     """Store driver UTCMS bearer token in Redis with TTL (default 240s < 5m expiry)."""
     if not token or not str(token).strip():
         return
@@ -597,12 +658,14 @@ async def cache_token(national_code: str, token: str, ttl_seconds: int = 240) ->
     if r is None:
         return
     try:
-        await r.set(DRIVER_TOKEN_KEY.format(national_code=national_code), str(token).strip(), ex=ttl_seconds)
+        await r.set(_scoped_driver_key("token", client_id, national_code), str(token).strip(), ex=ttl_seconds)
     except Exception as exc:
         logger.warning("cache_token_failed: %s", exc)
 
 
-async def cache_refresh_token(national_code: str, refresh_token: str, ttl_seconds: int = 7000) -> None:
+async def cache_refresh_token(
+    national_code: str, refresh_token: str, ttl_seconds: int = 7000, *, client_id: int | str | None = None
+) -> None:
     """Store refresh token with TTL (default 7000s < 120m expiry)."""
     if not refresh_token or not str(refresh_token).strip():
         return
@@ -610,32 +673,32 @@ async def cache_refresh_token(national_code: str, refresh_token: str, ttl_second
     if r is None:
         return
     try:
-        await r.set(DRIVER_REFRESH_KEY.format(national_code=national_code), str(refresh_token).strip(), ex=ttl_seconds)
+        await r.set(_scoped_driver_key("refresh", client_id, national_code), str(refresh_token).strip(), ex=ttl_seconds)
     except Exception as exc:
         logger.warning("cache_refresh_token_failed: %s", exc)
 
 
-async def get_cached_refresh_token(national_code: str) -> str | None:
+async def get_cached_refresh_token(national_code: str, *, client_id: int | str | None = None) -> str | None:
     r = await _get_redis()
     if r is None:
         return None
     try:
         # cast is a runtime no-op: the redis client is untyped (Any); the
         # refresh token is stored as a string or absent (None).
-        return cast("str | None", await r.get(DRIVER_REFRESH_KEY.format(national_code=national_code)))
+        return cast("str | None", await r.get(_scoped_driver_key("refresh", client_id, national_code)))
     except Exception:
         return None
 
 
-async def invalidate_cached_session(national_code: str) -> None:
+async def invalidate_cached_session(national_code: str, *, client_id: int | str | None = None) -> None:
     """Remove both cached credentials after UTCMS rejects authentication."""
     r = await _get_redis()
     if r is None:
         return
     try:
         await r.delete(
-            DRIVER_TOKEN_KEY.format(national_code=national_code),
-            DRIVER_REFRESH_KEY.format(national_code=national_code),
+            _scoped_driver_key("token", client_id, national_code),
+            _scoped_driver_key("refresh", client_id, national_code),
         )
     except Exception as exc:
         logger.warning("invalidate_cached_session_failed: %s", exc)
@@ -740,44 +803,49 @@ async def get_or_login_client(
     proxy_url: str | None = None,
     *,
     force_reauth: bool = False,
+    client_id: int | str | None = None,
 ) -> Any:
     """Get an authenticated UtcmsMobileClient, reusing cached token to avoid 429.
 
     1. Check Redis for cached token → use if valid.
     2. Check Redis for refresh token → call refresh if available.
     3. Only fall back to login() if nothing is cached.
+
+    ``client_id`` scopes every vault key (token, refresh, auth lock) to the
+    tenant; two tenants sharing a driver national code never share a session.
     """
     from app.automation.utcms_mobile_client import UtcmsMobileClient
 
-    local_lock = _LOCAL_AUTH_LOCKS.setdefault(national_code, asyncio.Lock())
+    tenant_scope = "" if client_id is None else str(client_id)
+    local_lock = _get_auth_lock(national_code, tenant_scope)
     async with local_lock:
         redis = await _get_redis()
-        lock_key = DRIVER_AUTH_LOCK_KEY.format(national_code=national_code)
+        lock_key = _scoped_driver_key("auth-lock", client_id, national_code)
         lock_token: str | None = None
         if redis is not None:
             lock_token = await _acquire_auth_lock(redis, lock_key)
         try:
             if force_reauth:
-                await invalidate_cached_session(national_code)
+                await invalidate_cached_session(national_code, client_id=client_id)
 
-            cached = await get_cached_token(national_code)
+            cached = await get_cached_token(national_code, client_id=client_id)
             if cached:
                 logger.info("session_vault_hit national_code=%s", _mask_national_code(national_code))
                 return UtcmsMobileClient(token=cached, proxy_url=proxy_url)
 
-            refresh = await get_cached_refresh_token(national_code)
+            refresh = await get_cached_refresh_token(national_code, client_id=client_id)
             if refresh and refresh.strip():
                 client = UtcmsMobileClient(proxy_url=proxy_url)
                 try:
                     auth = await client.refresh(refresh.strip())
-                    await cache_token(national_code, auth.token)
+                    await cache_token(national_code, auth.token, client_id=client_id)
                     if auth.refresh_token:
-                        await cache_refresh_token(national_code, auth.refresh_token)
+                        await cache_refresh_token(national_code, auth.refresh_token, client_id=client_id)
                     logger.info("session_vault_refreshed national_code=%s", _mask_national_code(national_code))
                     return client
                 except Exception as exc:
                     logger.warning("session_vault_refresh_failed: %s, falling back to login", exc)
-                    await invalidate_cached_session(national_code)
+                    await invalidate_cached_session(national_code, client_id=client_id)
 
             if not password or password in ("dummy", "") or str(password).strip() in ("dummy", ""):
                 raise ValueError(f"رمز عبور راننده برای کد ملی '{national_code}' معتبر نیست")
@@ -805,9 +873,9 @@ async def get_or_login_client(
                     await record_login_failure(national_code, kind="mobile")
                 raise
             await record_login_success(national_code)
-            await cache_token(national_code, auth.token)
+            await cache_token(national_code, auth.token, client_id=client_id)
             if auth.refresh_token:
-                await cache_refresh_token(national_code, auth.refresh_token)
+                await cache_refresh_token(national_code, auth.refresh_token, client_id=client_id)
             logger.info("session_vault_login national_code=%s", _mask_national_code(national_code))
             return client
         finally:
@@ -879,7 +947,7 @@ class ShippingState:
     completion_attempts: int = 0
     last_attempt_at: str = ""
     backoff_until: str = ""
-    last_error_code: int | None = None
+    last_error_code: int | str | None = None
     last_error_message: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -1151,8 +1219,16 @@ async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[Shippi
                                         backoff_dt = backoff_dt.replace(tzinfo=UTC)
                                     if now < backoff_dt:
                                         continue
-                                except Exception:
-                                    pass
+                                except Exception as exc:
+                                    # Corrupt backoff_until: keep the job eligible
+                                    # (no backoff) but log — silent acceptance
+                                    # would hide persisted-state corruption.
+                                    logger.warning(
+                                        "shipping_backoff_parse_failed job=%s backoff_until=%r err=%s",
+                                        st.job_id,
+                                        st.backoff_until,
+                                        exc,
+                                    )
 
                             is_due = True
                             if st.estimated_end_at:
@@ -1161,13 +1237,21 @@ async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[Shippi
                                     if end_dt.tzinfo is None:
                                         end_dt = end_dt.replace(tzinfo=UTC)
                                     is_due = now >= end_dt
-                                except Exception:
+                                except Exception as exc:
+                                    # Corrupt estimated_end_at: treat as due (do not
+                                    # strand the trip) but log the corruption.
+                                    logger.warning(
+                                        "shipping_eta_parse_failed job=%s estimated_end_at=%r err=%s",
+                                        st.job_id,
+                                        st.estimated_end_at,
+                                        exc,
+                                    )
                                     is_due = True
                             if is_due:
                                 due_jobs.append(st)
                                 seen_job_ids.add(st.job_id)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning("shipping_state_decode_failed key=%s err=%s", key, exc)
         except Exception as exc:
             logger.warning("get_due_in_transit_jobs_redis_scan_failed: %s", exc)
 
@@ -1195,8 +1279,16 @@ async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[Shippi
                                         backoff_dt = backoff_dt.replace(tzinfo=UTC)
                                     if now < backoff_dt:
                                         continue
-                                except Exception:
-                                    pass
+                                except Exception as exc:
+                                    # Corrupt backoff_until: keep the job eligible
+                                    # (no backoff) but log — silent acceptance
+                                    # would hide persisted-state corruption.
+                                    logger.warning(
+                                        "shipping_backoff_parse_failed job=%s backoff_until=%r err=%s",
+                                        st.job_id,
+                                        st.backoff_until,
+                                        exc,
+                                    )
 
                             is_due = True
                             if st.estimated_end_at:
@@ -1205,7 +1297,15 @@ async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[Shippi
                                     if end_dt.tzinfo is None:
                                         end_dt = end_dt.replace(tzinfo=UTC)
                                     is_due = now >= end_dt
-                                except Exception:
+                                except Exception as exc:
+                                    # Corrupt estimated_end_at: treat as due (do not
+                                    # strand the trip) but log the corruption.
+                                    logger.warning(
+                                        "shipping_eta_parse_failed job=%s estimated_end_at=%r err=%s",
+                                        st.job_id,
+                                        st.estimated_end_at,
+                                        exc,
+                                    )
                                     is_due = True
                             if is_due:
                                 due_jobs.append(st)
@@ -1216,7 +1316,202 @@ async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[Shippi
     return due_jobs
 
 
+_UTCM_RULE_CODE_RE = re.compile(r"\(code:\s*(\d{3,5})\)")
+
+
+def _extract_utcms_rule_code(exc: BaseException) -> str | None:
+    """Extract the UTCMS business-rule code from an exception — structurally.
+
+    Never substring-match free exception text: a doc/tracking number or a
+    prose message can contain "4011" without being business rule 4011.
+    Prefers the structured ``result_code`` field on UtcmsMobileApiError;
+    falls back to the strict "(code: NNNN)" pattern that
+    require_successful_mutation() emits. Returns None when no code is found.
+    """
+    code = getattr(exc, "result_code", None)
+    if code is not None:
+        code_str = str(code).strip()
+        if code_str:
+            return code_str
+    match = _UTCM_RULE_CODE_RE.search(str(exc))
+    return match.group(1) if match else None
+
+
+async def _route_shipping_job_to_reconciliation(
+    job_id: str,
+    *,
+    reason: str,
+    error: str,
+) -> str:
+    """Route a shipping job whose completion outcome is UNKNOWN through the
+    JobStateMachine into reconciling — never success (fail-closed).
+
+    The shipping layer's "in_transit" is not a JobStateMachine node, so the
+    first hop is chosen from the edges the machine actually allows from the
+    job's current status (unknown→reconciling directly; success→needs_review→
+    reconciling). Every hop goes through JobStateMachine.transition, so
+    transition validation always applies.
+
+    Deliberately does NOT set reconciled_at or mutation_status="confirmed":
+    those are written only when reconciliation actually completes with all
+    three witnesses (see reconciliation_service / waybill_job_service).
+    Fabricating them here would let a later success transition pass the
+    machine's SUCCESS gate without real verification. The existing
+    mutation_status (issuance truth) is preserved.
+    """
+    from sqlmodel import select
+
+    from app.core.database import async_session_factory
+    from app.models_multitenant import WaybillJob
+    from app.orchestrator.state_machine import JobStateMachine, JobStatus, StateTransitionError
+
+    now = datetime.now(UTC)
+    async with async_session_factory() as session:
+        job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == job_id))).first()
+        if job is None:
+            logger.warning("shipping_reconciliation_job_missing job=%s reason=%s", job_id, reason)
+            return "job_missing"
+
+        res_json = dict(job.result_json or {})
+        res_json["shipping_completion"] = {
+            "status": "unknown",
+            "reason": reason,
+            "error": error[:200],
+            "at": now.isoformat(),
+        }
+        fields: dict[str, Any] = {
+            "result_json": res_json,
+            "updated_at": now.replace(tzinfo=None),
+            "last_error": f"shipping completion unknown: {reason}",
+        }
+
+        current = job.status
+        if current == JobStatus.RECONCILING.value:
+            targets: list[str] = []
+        elif current == JobStatus.UNKNOWN.value:
+            targets = [JobStatus.RECONCILING.value]
+        else:
+            # First hop must be an edge the machine allows from `current`.
+            targets = []
+            for first in (JobStatus.UNKNOWN.value, JobStatus.NEEDS_REVIEW.value):
+                try:
+                    JobStateMachine.assert_allowed(current, first)
+                except StateTransitionError:
+                    continue
+                targets = [first, JobStatus.RECONCILING.value]
+                break
+
+        if not targets:
+            # No fail-closed edge exists in the graph from this status.
+            # Record the evidence on the job and change nothing about its
+            # status: inventing an edge here would bypass the machine this
+            # fix exists to enforce.
+            logger.error(
+                "shipping_reconciliation_no_allowed_edge job=%s status=%s reason=%s",
+                job_id,
+                current,
+                reason,
+            )
+            job.result_json = res_json
+            job.updated_at = fields["updated_at"]
+            job.last_error = fields["last_error"]
+            session.add(job)
+            await session.commit()
+            return "no_allowed_edge"
+
+        try:
+            for target in targets:
+                JobStateMachine.transition(session, job, target, **fields)
+            await session.commit()
+        except StateTransitionError as exc:
+            await session.rollback()
+            logger.error(
+                "shipping_reconciliation_transition_rejected job=%s status=%s targets=%s err=%s",
+                job_id,
+                current,
+                targets,
+                exc,
+            )
+            raise
+        logger.info(
+            "shipping_completion_routed_to_reconciliation job=%s from=%s to=%s reason=%s",
+            job_id,
+            current,
+            targets[-1],
+            reason,
+        )
+        return targets[-1]
+
+
+async def _acquire_completion_claim(job_id: str) -> str | None:
+    """Best-effort per-trip completion claim (Redis SET NX with TTL).
+
+    Returns the claim token when this caller owns the claim, None when another
+    Beat run/worker already holds it (caller must skip). When Redis is
+    unavailable the claim cannot be coordinated: log loudly and return "" so
+    the caller proceeds exactly as before (no new fail-closed outage is
+    introduced by a coordination primitive).
+    """
+    r = await _get_redis()
+    if r is None:
+        logger.warning("completion_claim_redis_unavailable job=%s; proceeding without claim", job_id)
+        return ""
+    token = secrets.token_urlsafe(16)
+    try:
+        acquired = await r.set(
+            COMPLETION_CLAIM_KEY.format(job_id=job_id),
+            token,
+            ex=COMPLETION_CLAIM_TTL_SECONDS,
+            nx=True,
+        )
+    except Exception as exc:
+        logger.warning("completion_claim_acquire_failed job=%s err=%s; proceeding without claim", job_id, exc)
+        return ""
+    if not acquired:
+        logger.info("completion_claim_held job=%s; skipping duplicate completion attempt", job_id)
+        return None
+    return token
+
+
+async def _release_completion_claim(job_id: str, token: str) -> None:
+    """Release a completion claim previously acquired by this caller."""
+    if not token:
+        return
+    r = await _get_redis()
+    if r is None:
+        return
+    try:
+        await r.eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
+            1,
+            COMPLETION_CLAIM_KEY.format(job_id=job_id),
+            token,
+        )
+    except Exception as exc:
+        logger.warning("completion_claim_release_failed job=%s err=%s", job_id, exc)
+
+
 async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, Any]:
+    """Arrival-driven terminal registration (ETA is watchdog, not trigger).
+
+    The per-trip completion claim (SET NX) guarantees that two overlapping
+    Beat runs (2-minute cadence) cannot double-call RegisterEndOfShipping for
+    the same trip: the second claimant skips.
+    """
+    state = await load_shipping_state(job_id)
+    if not state or state.status != "in_transit":
+        return {"status": "skipped", "reason": "not_in_transit"}
+
+    claim_token = await _acquire_completion_claim(job_id)
+    if claim_token is None:
+        return {"status": "skipped", "reason": "completion_claim_held", "job_id": job_id}
+    try:
+        return await _auto_complete_shipping_inner(job_id, force=force)
+    finally:
+        await _release_completion_claim(job_id, claim_token or "")
+
+
+async def _auto_complete_shipping_inner(job_id: str, force: bool = False) -> dict[str, Any]:
     """Arrival-driven terminal registration (ETA is watchdog, not trigger)."""
     state = await load_shipping_state(job_id)
     if not state or state.status != "in_transit":
@@ -1253,8 +1548,15 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
                     "remaining_seconds": remaining,
                     "estimated_end_at": state.estimated_end_at,
                 }
-        except Exception:
-            pass
+        except Exception as exc:
+            # Corrupt estimated_end_at: proceed to the completion attempt rather
+            # than stranding the trip, but log the corruption.
+            logger.warning(
+                "auto_complete_eta_parse_failed job=%s estimated_end_at=%r err=%s",
+                job_id,
+                state.estimated_end_at,
+                exc,
+            )
 
     target_doc_id = state.doc_id or state.doc_no
     if not target_doc_id:
@@ -1270,10 +1572,12 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
     from app.models_multitenant import Driver, WaybillJob
 
     driver = None
+    tenant_client_id: int | None = None
     async with async_session_factory() as session:
         job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == job_id))).first()
         if not job or not job.driver_id:
             return {"status": "skipped", "reason": "job_or_driver_not_found"}
+        tenant_client_id = getattr(job, "client_id", None)
         driver = await session.get(Driver, job.driver_id)
 
     if not driver or not driver.utcms_password_encrypted:
@@ -1312,6 +1616,7 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
         national_code=driver.driver_national_code,
         password=pwd,
         proxy_url=proxy_url,
+        client_id=tenant_client_id,
     )
 
     now = datetime.now(UTC)
@@ -1369,8 +1674,17 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
             allow_live_submit=True,
         )
     except Exception as exc:
-        err_str = str(exc)
-        if "4011" in err_str:
+        # Structural rule-code extraction: a raw "4011" substring of free
+        # exception text can false-positive on a doc/tracking number or prose.
+        # Only the structured result_code (or the strict "(code: NNNN)"
+        # envelope pattern) counts as business rule 4011.
+        rule_code = _extract_utcms_rule_code(exc)
+        if rule_code == "4011":
+            logger.info(
+                "register_end_of_shipping raised business rule 4011 for job %s: %s",
+                job_id,
+                exc,
+            )
             res = {
                 "resultCode": 4011,
                 "resultMessage": "پایان حمل بر اساس خوداظهاری تایید شد (قاعده ۴۰۱۱)",
@@ -1434,10 +1748,35 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
                 else:
                     res = retry_end
             except Exception as start_exc:
-                logger.warning("Recovery register_start_of_shipping failed for job %s: %s", job_id, start_exc)
-                res["mode"] = "self_declared_auto_complete"
-                is_success = True
-                state.backoff_until = ""
+                # FAIL-CLOSED: the 4011 recovery (register start, then retry
+                # end) failed — the end-of-shipping outcome is genuinely
+                # UNKNOWN. Never declare success here: a failed recovery
+                # (auth/network/portal error) must not mark the trip
+                # delivered. Route the job through the JobStateMachine into
+                # reconciling and back off for a bounded retry.
+                logger.error(
+                    "shipping_completion_recovery_failed job=%s err=%s",
+                    job_id,
+                    start_exc,
+                )
+                state.status = "unknown"
+                state.last_error_code = "4011_recovery_failed"
+                state.last_error_message = str(start_exc)[:200]
+                backoff_min = min(60, 5 * (2 ** min(state.completion_attempts - 1, 4)))
+                state.backoff_until = (now + timedelta(minutes=backoff_min)).isoformat()
+                await save_shipping_state(state)
+                routed_to = await _route_shipping_job_to_reconciliation(
+                    job_id,
+                    reason="completion_recovery_failed",
+                    error=str(start_exc),
+                )
+                return {
+                    "status": "unknown",
+                    "reason": "completion_recovery_failed",
+                    "error": str(start_exc)[:200],
+                    "routed_to": routed_to,
+                    "backoff_until": state.backoff_until,
+                }
         elif rc == 4012:
             # Code 4012: "برای ثبت پایان حمل، شما حداقل باید 2 کیلومتر طی کرده باشید."
             backoff_min = 5

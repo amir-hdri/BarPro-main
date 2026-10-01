@@ -30,8 +30,8 @@ async def test_get_or_login_client_reauthenticates_after_forced_invalidation(mon
 
     monkeypatch.setattr("app.automation.utcms_mobile_client.UtcmsMobileClient", FakeClient)
     monkeypatch.setattr(manager, "_get_redis", lambda: asyncio.sleep(0, result=None))
-    monkeypatch.setattr(manager, "get_cached_token", lambda _: asyncio.sleep(0, result=None))
-    monkeypatch.setattr(manager, "get_cached_refresh_token", lambda _: asyncio.sleep(0, result=None))
+    monkeypatch.setattr(manager, "get_cached_token", lambda _nc, **_kw: asyncio.sleep(0, result=None))
+    monkeypatch.setattr(manager, "get_cached_refresh_token", lambda _nc, **_kw: asyncio.sleep(0, result=None))
     monkeypatch.setattr(manager, "cache_token", lambda *args, **kwargs: asyncio.sleep(0))
 
     client = await manager.get_or_login_client("001", "password", force_reauth=True)
@@ -115,8 +115,8 @@ def test_mobile_authentication_error_is_strictly_classified():
 def _vault_fakes(monkeypatch, fake_client_cls):
     monkeypatch.setattr("app.automation.utcms_mobile_client.UtcmsMobileClient", fake_client_cls)
     monkeypatch.setattr(manager, "_get_redis", lambda: asyncio.sleep(0, result=None))
-    monkeypatch.setattr(manager, "get_cached_token", lambda _: asyncio.sleep(0, result=None))
-    monkeypatch.setattr(manager, "get_cached_refresh_token", lambda _: asyncio.sleep(0, result=None))
+    monkeypatch.setattr(manager, "get_cached_token", lambda _nc, **_kw: asyncio.sleep(0, result=None))
+    monkeypatch.setattr(manager, "get_cached_refresh_token", lambda _nc, **_kw: asyncio.sleep(0, result=None))
     monkeypatch.setattr(manager, "cache_token", lambda *args, **kwargs: asyncio.sleep(0))
 
 
@@ -228,13 +228,15 @@ async def test_get_or_login_client_invalidates_broken_refresh_token(monkeypatch)
             return SimpleNamespace(token=self.token, refresh_token="new-refresh-token", expires_at=None)
 
     _vault_fakes(monkeypatch, FakeClient)
-    monkeypatch.setattr(manager, "get_cached_refresh_token", lambda _: asyncio.sleep(0, result="broken-refresh"))
+    monkeypatch.setattr(
+        manager, "get_cached_refresh_token", lambda _nc, **_kw: asyncio.sleep(0, result="broken-refresh")
+    )
 
     orig_invalidate = manager.invalidate_cached_session
 
-    async def mock_invalidate(nc):
+    async def mock_invalidate(nc, **_kw):
         invalidated_codes.append(nc)
-        await orig_invalidate(nc)
+        await orig_invalidate(nc, **_kw)
 
     monkeypatch.setattr(manager, "invalidate_cached_session", mock_invalidate)
 
@@ -278,7 +280,93 @@ async def test_get_or_login_client_allows_dummy_pwd_if_cached_token_exists(monke
     """If a valid bearer token is already cached in Redis, get_or_login_client reuses it
     and does not raise ValueError because no login is attempted."""
     monkeypatch.setattr(manager, "_get_redis", lambda: asyncio.sleep(0, result=None))
-    monkeypatch.setattr(manager, "get_cached_token", lambda _: asyncio.sleep(0, result="already-cached-token"))
+    monkeypatch.setattr(manager, "get_cached_token", lambda _nc, **_kw: asyncio.sleep(0, result="already-cached-token"))
 
     client = await manager.get_or_login_client("007", "dummy")
     assert client.token == "already-cached-token"
+
+
+# ── C3 (batch C): tenant-scoped vault keys ────────────────────────────────────
+
+
+class _FakeVaultRedis:
+    """Dict-backed async Redis double supporting the vault's key shapes."""
+
+    def __init__(self):
+        self.values: dict[str, str] = {}
+
+    async def get(self, key):
+        return self.values.get(key)
+
+    async def set(self, key, value, **kwargs):
+        if kwargs.get("nx") and key in self.values:
+            return False
+        self.values[key] = value
+        return True
+
+    async def delete(self, *keys):
+        for key in keys:
+            self.values.pop(key, None)
+        return len(keys)
+
+
+@pytest.mark.asyncio
+async def test_c3_vault_uses_scoped_key_when_client_id_provided(monkeypatch):
+    """cache_token/get_cached_token must use the tenant-scoped key with client_id.
+
+    A different tenant (or no tenant) must NOT read the entry back: scoped
+    lookups never fall back to the legacy unscoped key.
+    """
+    fake = _FakeVaultRedis()
+    monkeypatch.setattr(manager, "_get_redis", lambda: asyncio.sleep(0, result=fake))
+
+    await manager.cache_token("0012345678", "tok-tenant-7", client_id=7)
+
+    assert fake.values.get("utcms:driver:token:7:0012345678") == "tok-tenant-7"
+    assert await manager.get_cached_token("0012345678", client_id=7) == "tok-tenant-7"
+    # Another tenant sharing the national code sees nothing.
+    assert await manager.get_cached_token("0012345678", client_id=8) is None
+    # The legacy unscoped key was never written and is never consulted.
+    assert "utcms:driver:token:0012345678" not in fake.values
+    assert await manager.get_cached_token("0012345678") is None
+
+
+@pytest.mark.asyncio
+async def test_c3_get_or_login_client_scopes_vault_to_tenant(monkeypatch):
+    """get_or_login_client(client_id=7) must hit the scoped key, not the legacy one."""
+    fake = _FakeVaultRedis()
+    fake.values["utcms:driver:token:0012345678"] = "tok-legacy-unscoped"
+    fake.values["utcms:driver:token:7:0012345678"] = "tok-tenant-7"
+    monkeypatch.setattr(manager, "_get_redis", lambda: asyncio.sleep(0, result=fake))
+
+    client = await manager.get_or_login_client("0012345678", "some-password", client_id=7)
+
+    assert client.token == "tok-tenant-7"
+
+
+@pytest.mark.asyncio
+async def test_c3_get_or_login_client_without_client_id_keeps_legacy_key(monkeypatch):
+    """Without client_id the legacy unscoped behavior is preserved (explicit opt-out)."""
+    fake = _FakeVaultRedis()
+    fake.values["utcms:driver:token:0012345678"] = "tok-legacy-unscoped"
+    monkeypatch.setattr(manager, "_get_redis", lambda: asyncio.sleep(0, result=fake))
+
+    client = await manager.get_or_login_client("0012345678", "some-password")
+
+    assert client.token == "tok-legacy-unscoped"
+
+
+@pytest.mark.asyncio
+async def test_c3_invalidate_cached_session_is_tenant_scoped(monkeypatch):
+    """Invalidation with client_id must not wipe another tenant's session."""
+    fake = _FakeVaultRedis()
+    fake.values["utcms:driver:token:7:0012345678"] = "tok-7"
+    fake.values["utcms:driver:refresh:7:0012345678"] = "ref-7"
+    fake.values["utcms:driver:token:8:0012345678"] = "tok-8"
+    monkeypatch.setattr(manager, "_get_redis", lambda: asyncio.sleep(0, result=fake))
+
+    await manager.invalidate_cached_session("0012345678", client_id=7)
+
+    assert "utcms:driver:token:7:0012345678" not in fake.values
+    assert "utcms:driver:refresh:7:0012345678" not in fake.values
+    assert fake.values.get("utcms:driver:token:8:0012345678") == "tok-8"
