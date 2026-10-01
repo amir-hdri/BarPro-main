@@ -215,9 +215,25 @@ async def test_apply_location_fails_if_mock_not_registered():
             ("shell", "dumpsys", "location"): "Last Known Locations: provider=network\n",
         }
     )
-    controller = AndroidShippingController(config(), runner=runner)
+    # Small retry budget: the point is exhaustion behavior, not timing.
+    controller = AndroidShippingController(
+        config(),
+        runner=runner,
+        apply_attempts=2,
+        apply_retry_delay=0.01,
+        apply_verify_timeout=0.05,
+        apply_poll_interval=0.01,
+    )
     with pytest.raises(BridgeError, match="mock_location_not_registered"):
         await controller.apply_location(35.7, 51.4)
+
+    # Both attempts must have triggered the apply action before giving up.
+    taps = [
+        call.args[0]
+        for call in runner.await_args_list
+        if len(call.args[0]) > 5 and call.args[0][5] == "tap"
+    ]
+    assert len(taps) == 2
 
 
 async def test_apply_location_with_layout_finds_and_taps_button():
@@ -237,6 +253,83 @@ async def test_apply_location_with_layout_finds_and_taps_button():
     expected_tap = ("adb", "-s", "127.0.0.1:5555", "shell", "input", "tap", "200", "300")
     calls = [call.args[0] for call in runner.await_args_list]
     assert expected_tap in calls
+
+
+async def test_layout_tap_is_default_strategy():
+    """Without an explicit use_layout flag, the resource-id tap must win over hard-coded coords."""
+    runner = make_mock_runner()
+    bridge = AndroidBridge(config(), runner=runner)
+    layout_json = (
+        '[{"resourceId": "cl.coders.faketraveler:id/button_applyStop", '
+        '"text": "Apply", "bounds": "[100,200][300,400]", '
+        '"interactions": ["clickable"], "state": [], "off-screen": false, "enabled": true}]'
+    )
+    bridge.layout = AsyncMock(return_value=parse_layout(layout_json))
+
+    controller = AndroidShippingController(bridge=bridge)
+    await controller.apply_location(35.7, 51.4)
+
+    calls = [call.args[0] for call in runner.await_args_list]
+    assert ("adb", "-s", "127.0.0.1:5555", "shell", "input", "tap", "200", "300") in calls
+    assert ("adb", "-s", "127.0.0.1:5555", "shell", "input", "tap", "487", "189") not in calls
+
+
+async def test_apply_location_retries_then_succeeds():
+    """A missed first tap must not fail the operation: retry then verify success.
+
+    Deterministic by construction: the mock provider appears only after the
+    second Apply tap, so attempt 1 must fail its verify window and attempt 2
+    must succeed.
+    """
+    state = {"taps": 0}
+    base = make_mock_runner()
+
+    async def flaky_runner(argv: tuple[str, ...], *, timeout: float) -> str:
+        sub_args = argv[3:]
+        if sub_args[:2] == ("shell", "input"):
+            state["taps"] += 1
+        if sub_args[:4] == ("shell", "dumpsys", "activity", "services"):
+            if state["taps"] >= 2:
+                return "ServiceRecord{421abc0 u0 cl.coders.faketraveler/.MockedLocationService}\n"
+            return "No services\n"
+        if sub_args[:2] == ("shell", "dumpsys"):
+            return "No locations\n"
+        return await base.side_effect(argv, timeout=timeout)
+
+    runner = AsyncMock(side_effect=flaky_runner)
+    controller = AndroidShippingController(
+        config(),
+        runner=runner,
+        use_layout=False,
+        apply_attempts=3,
+        apply_retry_delay=0.01,
+        apply_verify_timeout=0.2,
+        apply_poll_interval=0.01,
+    )
+
+    await controller.apply_location(35.7, 51.4)  # must not raise
+
+    assert state["taps"] == 2  # exactly one retry happened before success
+
+
+@pytest.mark.parametrize("kwargs", [{"apply_attempts": 0}, {"apply_attempts": -2}])
+def test_invalid_apply_attempts_rejected(kwargs):
+    with pytest.raises(ValueError, match="apply_attempts"):
+        AndroidShippingController(config(), runner=make_mock_runner(), **kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"apply_retry_delay": 0},
+        {"apply_retry_delay": -1.0},
+        {"apply_verify_timeout": float("inf")},
+        {"apply_poll_interval": float("nan")},
+    ],
+)
+def test_invalid_apply_timing_rejected(kwargs):
+    with pytest.raises(ValueError, match="apply_"):
+        AndroidShippingController(config(), runner=make_mock_runner(), **kwargs)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import time
 from datetime import datetime
 
 try:
@@ -44,7 +45,11 @@ class AndroidShippingController:
         bridge: AndroidBridge | None = None,
         runner: CommandRunner = _run_command,
         apply_button_coords: tuple[int, int] = (487, 189),
-        use_layout: bool = False,
+        use_layout: bool = True,
+        apply_attempts: int = 3,
+        apply_retry_delay: float = 1.0,
+        apply_verify_timeout: float = 5.0,
+        apply_poll_interval: float = 0.5,
     ) -> None:
         if bridge is not None:
             self.bridge = bridge
@@ -61,6 +66,20 @@ class AndroidShippingController:
 
         self.apply_button_coords = apply_button_coords
         self._use_layout = use_layout
+
+        if not isinstance(apply_attempts, int) or isinstance(apply_attempts, bool) or apply_attempts < 1:
+            raise ValueError("apply_attempts must be an integer >= 1")
+        for name, value in (
+            ("apply_retry_delay", apply_retry_delay),
+            ("apply_verify_timeout", apply_verify_timeout),
+            ("apply_poll_interval", apply_poll_interval),
+        ):
+            if not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 < float(value) <= 300:
+                raise ValueError(f"{name} must be a finite number in (0, 300] seconds")
+        self.apply_attempts = apply_attempts
+        self.apply_retry_delay = float(apply_retry_delay)
+        self.apply_verify_timeout = float(apply_verify_timeout)
+        self.apply_poll_interval = float(apply_poll_interval)
 
     def _require_enabled(self) -> None:
         if not self.config.enabled:
@@ -95,7 +114,13 @@ class AndroidShippingController:
             raise ValueError(f"Altitude must be a finite number, got: {altitude}")
 
     async def _trigger_apply_action(self) -> None:
-        """Trigger location update/apply button in FakeTraveler."""
+        """Trigger location update/apply button in FakeTraveler.
+
+        Preferred path is the layout node ``button_applyStop`` (resolution
+        independent; ``require_unique`` rejects off-screen/disabled/ambiguous
+        nodes). The hard-coded ``apply_button_coords`` tap is a last-resort
+        fallback only, kept for hosts where UI dumps are unavailable.
+        """
         if self._use_layout:
             try:
                 obs = await self.bridge.layout()
@@ -127,8 +152,31 @@ class AndroidShippingController:
             return
         raise BridgeError("mock_location_not_registered")
 
+    async def _wait_until_mock_registered(self) -> None:
+        """Poll mock-registration verification until it succeeds or the timeout expires.
+
+        Replaces fixed sleeps with bounded polling: FakeTraveler's
+        MockedLocationService may take a moment to appear after the Apply tap,
+        and a single immediate check would report a false negative under load.
+        """
+        deadline = time.monotonic() + self.apply_verify_timeout
+        while True:
+            try:
+                await self._verify_mock_location_registered()
+                return
+            except BridgeError:
+                if time.monotonic() >= deadline:
+                    raise
+                await asyncio.sleep(self.apply_poll_interval)
+
     async def apply_location(self, lat: float, lon: float, altitude: float = 1200.0) -> None:
-        """Send geo intent to FakeTraveler, trigger Apply, and verify mock location is registered."""
+        """Send geo intent to FakeTraveler, trigger Apply, and verify mock location is registered.
+
+        The Apply trigger + verification is retried up to ``apply_attempts``
+        times: a tap can be missed while the activity is still rendering, so a
+        single attempt is not conclusive. The final attempt's verification
+        error propagates unchanged (fail-closed).
+        """
         self._validate_coordinates(lat, lon, altitude)
         await self.verify_device_ready()
         logger.info("applying_location lat=%.6f lon=%.6f altitude=%.1f", lat, lon, altitude)
@@ -143,12 +191,26 @@ class AndroidShippingController:
             f"geo:{lat},{lon}",
             f"{LOCATION_PACKAGE}/.MainActivity",
         )
-        await asyncio.sleep(0.5)
-        # 2. Trigger apply button
-        await self._trigger_apply_action()
-        await asyncio.sleep(0.5)
-        # 3. Verify mock location registration
-        await self._verify_mock_location_registered()
+        # 2-3. Trigger apply button, then verify with retries.
+        for attempt in range(1, self.apply_attempts + 1):
+            await self._trigger_apply_action()
+            try:
+                await self._wait_until_mock_registered()
+            except BridgeError as exc:
+                if attempt >= self.apply_attempts:
+                    raise
+                logger.warning(
+                    "apply_location attempt %d/%d failed (%s); retrying in %.1fs",
+                    attempt,
+                    self.apply_attempts,
+                    exc,
+                    self.apply_retry_delay,
+                )
+                await asyncio.sleep(self.apply_retry_delay)
+            else:
+                if attempt > 1:
+                    logger.info("apply_location succeeded on attempt %d/%d", attempt, self.apply_attempts)
+                return
 
     async def stop_location_mock(self) -> None:
         """Stop mock location provider in FakeTraveler."""
