@@ -2,6 +2,44 @@
    
   All notable changes to the UTCMS Automation System.
 
+  ## [2.9.16] - 2026-10-01
+
+  ### Fixed — mypy strict pay-down (540 errors → 0), tenant-isolation gaps, Android bridge verification
+
+  - **mypy pay-down to strict-clean (`pyproject.toml`, `jdatetime.pyi`, 60+ files)**:
+    Baseline was 540 unique errors across 83 files (measured after the typecheck
+    venv was completed — the earlier 0-error figure was a broken-venv artifact).
+    Removed all broad `ignore_errors` overrides; optional dependencies (Playwright,
+    Celery, Redis, SQLModel, Alembic, torch, keras, tensorflow) are now centrally
+    declared, and `jdatetime` is covered by a minimal `jdatetime.pyi` stub instead
+    of an import ignore. Strict mypy: **206 files, 0 issues**.
+  - **Real runtime bugs found by the pay-down**: Playwright 1.63 `add_init_script`
+    arity (WebGL spoof never applied), `timeout=` kwarg on `_goto_with_retry`
+    (cookie probe never navigated), dead branches in `waybill_enhanced.py`,
+    `WaybillJob`/`task_id` AttributeError in `task_service._extract_correlation_id`.
+  - **Tenant isolation — GAP-1 (`app/api/routes/otp_forwarder.py`)**:
+    `GET /api/v1/otp/latest` is now admin-only (`get_current_admin`); the global
+    Redis key `rpa:otp:latest` carries every tenant's live OTP codes.
+  - **Tenant isolation — GAP-2 (`app/api/routes/otp_forwarder.py`)**:
+    `POST /api/v1/otp/submit-manual` now requires `job_id` for clients and
+    verifies `(WaybillJob.client_id == client.id) AND job_id` before writing the
+    job OTP key; foreign/missing jobs → 404, missing job_id → 403. Admins keep
+    the global submission path.
+  - **Tenant isolation — GAP-3 (`app/api/routes/waybill_map.py`, `app/services/task_service.py`)**:
+    `GET /waybill/tasks/{task_id}` moved from `require_sensitive_auth` (no tenant
+    identity) to `get_current_user_or_admin`; `get_task_status()` takes
+    `client_id` and scopes the `WaybillJob` query; legacy non-`job_*` IDs return
+    404 for clients.
+  - **10 new regression tests** in `tests/test_tenant_isolation_gaps.py` covering
+    cross-tenant negatives, owner positives, and admin positives — all passing.
+  - **Android bridge verification (`app/android_bridge/`)**: feature flag
+    (`ANDROID_BRIDGE_ENABLED`, default False, fail-closed), import independence
+    (stdlib only), and `_require_enabled` gating on all public methods verified;
+    113 bridge unit tests pass. Live Redroid dry-run remains blocked on
+    infrastructure + user approval.
+  - **Verification**: pytest **1841 passed / 0 failed**; ruff clean; black clean;
+    strict mypy 206 files 0 issues.
+
   ## [2.9.15] - 2026-09-27
 
   ### Fixed — Map Grey-Tile Race, Real Tile Fallback & Frontend Performance Plan

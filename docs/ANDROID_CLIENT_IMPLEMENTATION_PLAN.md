@@ -89,6 +89,18 @@ JavaScript، اعمال GPS یا رسیدن ترافیک به UTCMS را ثاب�
 - [x] پیاده‌سازی `AndroidShippingController` در `app/android_bridge/controller.py` با گاردهای ایمنی اعتبارسنجی مختصات، بررسی پراکسی و کنترل وضعیت بوت.
 - [x] پوشش کامل تست‌های واحد در `tests/test_android_bridge_controller.py`.
 
+## راستی‌آزمایی استاتیک (به‌روزرسانی ۲۰۲۶-۱۰-۰۱)
+
+- Feature flag راستی‌آزمایی شد: `ANDROID_BRIDGE_ENABLED` پیش‌فرض False،
+  fail-closed از طریق `_require_enabled()` (خطای `BridgeError` هنگام غیرفعال بودن).
+- استقلال import تأیید شد: `client.py` فقط stdlib، `controller.py` فقط
+  `app.android_bridge.client` — بدون وابستگی به API/DB/ML.
+- همه متدهای عمومی (مستقیم یا از طریق `verify_device_ready`/`_adb`) gated هستند.
+- ۱۱۳ تست واحد bridge سبز (`test_android_bridge.py`،
+  `test_android_bridge_controller.py`، `test_android_anchor_gate.py`).
+- اجرای زنده (dry-run روی Redroid، سوییچ runtime از GPS/HTTP، rollout) همچنان
+  مسدود است: نیاز به زیرساخت زنده + تأیید صریح کاربر.
+
 ## اجرای ابزار observation روی سرور Android
 
 این دستورات برای **instance از قبل provision‌شدهٔ Redroid** هستند و provisioning
