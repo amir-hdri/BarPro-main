@@ -284,3 +284,92 @@ async def test_webhook_valid_signature_resolved(async_db: AsyncSession):
         assert db_alert is not None
         assert db_alert.is_acknowledged is True
         assert db_alert.acknowledged_by == 0  # 0 indicates system resolved
+
+
+@pytest.mark.asyncio
+async def test_manual_reconcile_endpoint_audits_tracking_received_job_without_early_return(
+    async_db: AsyncSession,
+):
+    """POST /api/v1/admin/alerts/reconcile/{job_id} must run the read-only
+    History audit on a tracking-received job (audit_only=True) instead of
+    early-returning — otherwise acknowledged jobs keep their operator success
+    badge while the third witness is never attached."""
+    import os
+    from unittest.mock import MagicMock
+
+    from app.api.routes.admin_alerts import reconcile_job_manually
+    from app.models_multitenant import Client, WaybillJob
+    from app.orchestrator.reconciliation_service import ReconciliationService, reconciliation_service
+    from app.orchestrator.state_machine import JobStatus
+    from app.orchestrator.utcms_reconciliation_scraper import ReconciliationResult, ScraperOutcome
+
+    with patch.dict(os.environ, {"ENVIRONMENT": "development"}):
+        async_db.add(
+            Client(
+                id=1,
+                client_code="ep_client",
+                name="EP Client",
+                username="epclient",
+                full_name="EP Client",
+                email="ep@client.com",
+                hashed_password="x",
+            )
+        )
+        job = WaybillJob(
+            job_id="ep_tracking_audit",
+            idempotency_key="idem_ep_tracking_audit",
+            client_id=1,
+            driver_id=None,
+            payload_json={"origin_city_id": 1, "destination_city_id": 2},
+            status=JobStatus.UNKNOWN,
+            mutation_status="dispatched",
+            result_json={
+                "tracking_code": "UTC-EP-1",
+                "confirmation_status": "tracking_received",
+                "operator_acknowledged": True,
+            },
+        )
+        async_db.add(job)
+        await async_db.commit()
+        await async_db.refresh(job)
+
+        audit_flags: dict = {}
+        real_reconcile = ReconciliationService.reconcile_job
+
+        async def spy_reconcile(*, session, job_id, browser_manager=None, audit_only=False):
+            audit_flags["audit_only"] = audit_only
+            return await real_reconcile(
+                reconciliation_service,
+                session=session,
+                job_id=job_id,
+                browser_manager=browser_manager,
+                audit_only=audit_only,
+            )
+
+        mock_bm = MagicMock()
+        mock_bm.create_context = AsyncMock(return_value=("session-a", AsyncMock()))
+        mock_bm.new_page = AsyncMock(return_value=AsyncMock())
+        mock_bm.close_context = AsyncMock()
+        mock_res = ReconciliationResult(outcome=ScraperOutcome.REGISTERED, tracking_code="UTC-EP-1")
+
+        with (
+            patch.object(reconciliation_service, "reconcile_job", new=AsyncMock(side_effect=spy_reconcile)),
+            patch("app.orchestrator.reconciliation_service.BrowserManager", return_value=mock_bm),
+            patch(
+                "app.orchestrator.reconciliation_service.reconciliation_scraper.query_waybill_status",
+                new_callable=AsyncMock,
+            ) as mock_query,
+        ):
+            mock_query.return_value = mock_res
+            resp = await reconcile_job_manually(job_id=job.id, session=async_db)
+
+        # The endpoint forced the audit path — no early-return skip.
+        assert audit_flags.get("audit_only") is True
+        mock_query.assert_awaited()
+
+        assert resp["status"] == "success"
+        assert resp["current_status"] == JobStatus.SUCCESS
+
+        await async_db.refresh(job)
+        assert job.status == JobStatus.SUCCESS
+        assert (job.result_json or {}).get("confirmation_status") == "confirmed_by_history"

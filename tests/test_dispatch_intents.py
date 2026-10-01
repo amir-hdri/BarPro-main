@@ -265,3 +265,101 @@ async def test_scheduler_skips_tracking_acknowledged_job():
         assert intent_db is None
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_audit_intent_dispatched_not_expired_as_unknown_operation():
+    """A pending reconciliation_audit intent for a tracking-received job must be
+    claimed and routed to the audit worker task — NOT expired as
+    unknown_operation. The job keeps its UNKNOWN status (unknown -> claimed
+    is not a legal transition); the audit worker drives it."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
+    async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+
+    async with async_session() as session:
+        session.add(
+            Client(
+                id=1,
+                client_code="tenant-audit",
+                name="Tenant Audit",
+                email="audit@example.com",
+                hashed_password="x",
+                username="tenant_audit",
+                full_name="Tenant Audit Admin",
+            )
+        )
+        session.add(
+            Driver(
+                id=1,
+                client_id=1,
+                driver_national_code="1234567890",
+                full_name="Driver Audit",
+                phone="09123456789",
+                utcms_username="drv",
+                utcms_password_encrypted="pwd",
+            )
+        )
+        session.add(DriverRuntimeState(client_id=1, driver_id=1, state="active", active_execution_id=None))
+
+        session.add(
+            WaybillJob(
+                job_id="job-audit-1",
+                idempotency_key="idem-audit-1",
+                client_id=1,
+                driver_id=1,
+                status=TaskStatus.UNKNOWN.value,
+                mutation_status="dispatched",
+                payload_json={},
+                priority=5,
+                attempt_count=0,
+                result_json={
+                    "tracking_code": "UTC-AUDIT-1",
+                    "confirmation_status": "tracking_received",
+                    "operator_acknowledged": True,
+                },
+            )
+        )
+        session.add(
+            DispatchIntent(
+                intent_id="intent-audit-1",
+                client_id=1,
+                job_id="job-audit-1",
+                attempt_no=1,
+                operation="reconciliation_audit",
+                fencing_token=7,
+                status="pending",
+            )
+        )
+        await session.commit()
+
+    dispatcher = DispatcherService()
+    mock_send_task = MagicMock()
+    with (
+        patch("app.orchestrator.dispatcher_service.async_session_factory", new=async_session),
+        patch("app.orchestrator.dispatcher_service.celery_app") as mock_celery,
+        patch("app.core.circuit_breaker.get_routed_queue", side_effect=lambda q: q),
+    ):
+        mock_celery.send_task = mock_send_task
+        dispatched = await dispatcher.run()
+        assert dispatched == 1
+        mock_send_task.assert_called_once_with(
+            "barpro.waybill.reconcile_audit", args=["intent-audit-1"], queue="reconciliation_tasks", priority=5
+        )
+
+    async with async_session() as session:
+        intent_db = (
+            await session.exec(select(DispatchIntent).where(DispatchIntent.intent_id == "intent-audit-1"))
+        ).first()
+        assert intent_db is not None
+        assert intent_db.status == "claimed", intent_db.status
+
+        job_db = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-audit-1"))).first()
+        assert job_db is not None
+        # The dispatcher must not force unknown -> claimed; the audit worker
+        # drives unknown -> reconciling itself.
+        assert job_db.status == TaskStatus.UNKNOWN.value
+
+    await engine.dispose()

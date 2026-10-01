@@ -156,6 +156,18 @@ def _build_beat_schedule() -> dict:
                     "expires": 55,
                 },
             },
+            # Tracking-received audit sweep: attaches the UTCMS History/Search
+            # witness to jobs acknowledged with a tracking code but still
+            # unwitnessed (audit E1, 2026-10-02). Never declares success
+            # without the History witness; never resubmits.
+            "orchestrator-reconciliation-audit": {
+                "task": "orchestrator.reconciliation.audit_tracking_received",
+                "schedule": crontab(minute="*/10"),
+                "options": {
+                    "queue": utcms_config.CELERY_RECONCILIATION_TASKS_QUEUE,
+                    "expires": 540,
+                },
+            },
             "fuel-inquiry-cleanup-stale": {
                 "task": "fuel.cleanup_stale_inquiries",
                 "schedule": crontab(minute="*/10"),

@@ -660,6 +660,7 @@ class WaybillJobService:
                 national_code=login_user,
                 password=plain_password,
                 proxy_url=proxy_url,
+                client_id=getattr(job, "client_id", None),
             )
 
         # 4. Call IssueDocumentByOtp

@@ -213,6 +213,54 @@ def reconcile_dispatched_intent(self, intent_id: str):
         raise
 
 
+@celery_app.task(
+    bind=True,
+    base=WaybillTask,
+    name="barpro.waybill.reconcile_audit",
+    queue="reconciliation_tasks",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def reconcile_audit_dispatched_intent(self, intent_id: str):
+    """
+    Claim and execute a dispatched reconciliation-audit intent.
+
+    Unlike the regular reconcile intent, this task MUST NOT cancel
+    tracking-received jobs: attaching the UTCMS History witness to those
+    jobs is exactly what the audit path exists for.
+    """
+    try:
+        result = _run(_claim_and_audit(self, intent_id))
+        return result
+    except Exception as e:
+        logger.error(f"Reconciliation-audit intent {intent_id} failed with exception: {e}", exc_info=True)
+        from app.core.circuit_breaker import check_and_report_failure
+
+        try:
+            _run(check_and_report_failure(str(e)))
+        except Exception as cb_err:
+            logger.warning("circuit_breaker_report_failed", extra={"extra_fields": {"error": str(cb_err)}})
+        raise
+
+
+@celery_app.task(name="orchestrator.reconciliation.audit_tracking_received")
+def audit_tracking_received():
+    """
+    Periodic sweep (wired in the Celery Beat schedule): run the
+    tracking-received audit over jobs that carry a persisted tracking code
+    but no UTCMS History witness, attaching the third witness where the
+    portal confirms the document.
+    """
+    from app.core.database import async_session_factory
+    from app.orchestrator.reconciliation_service import reconciliation_service
+
+    async def _run_audit():
+        async with async_session_factory() as session:
+            return await reconciliation_service.reconcile_tracking_received_jobs(session)
+
+    return _run(_run_audit())
+
+
 async def _assert_still_valid(execution_id: str, fencing_token: int) -> None:
     async with async_session_factory() as session:
         stmt = select(Execution).where(Execution.execution_id == execution_id).with_for_update()
@@ -721,6 +769,194 @@ async def _claim_and_reconcile(task: Any, intent_id: str):
             await _finalize_execution(execution_id, intent_id, "failed", {"error": str(err)})
         except Exception as final_err:
             logger.warning(f"Skipping finalize as failed for reconciliation execution {execution_id}: {final_err}")
+        raise
+    finally:
+        stop_event.set()
+        renewal_thread.join(timeout=5)
+
+
+async def _claim_and_audit(task: Any, intent_id: str):
+    """Claim and execute a reconciliation-audit intent.
+
+    Mirrors ``_claim_and_reconcile`` but runs the audit-only reconciliation
+    path (``reconcile_job(audit_only=True)``), which is the ONLY path allowed
+    to attach the UTCMS History witness to tracking-received jobs. The
+    tracking-received cancel guard from ``_claim_and_reconcile`` is
+    deliberately absent here: auditing those jobs is the point of this task.
+
+    Fail-closed notes:
+    - Pre-flight failures (worker draining, proxy unavailable) fail the
+      intent and release the driver slot WITHOUT touching the job: the job
+      stays UNKNOWN and the periodic audit sweep picks it up later.
+    - The audit never declares SUCCESS without a History witness match
+      (enforced inside ``reconcile_job``), and it never resubmits.
+    """
+    import os
+    import socket
+
+    worker_id = os.environ.get("WORKER_ID", socket.gethostname())
+
+    from app.automation.worker_proxy import (
+        ProxyUnavailableError,
+        check_proxy_health,
+        drain_worker_consumers,
+        get_worker_proxy_url,
+        is_worker_draining,
+    )
+
+    async with async_session_factory() as session:
+        try:
+            # Get and lock intent first
+            statement = select(DispatchIntent).where(DispatchIntent.intent_id == intent_id).with_for_update()
+            res = await session.exec(statement)
+            intent = res.first()
+
+            if intent is None:
+                raise ValueError(f"Intent {intent_id} not found")
+
+            if intent.status != "claimed":
+                logger.warning(f"Intent {intent_id} has invalid status {intent.status}, skipping")
+                return {"status": "skipped", "reason": f"invalid_intent_status_{intent.status}"}
+
+            # Pre-flight draining check: fail the intent, free the slot, and
+            # leave the job in UNKNOWN — the audit sweep will retry later.
+            if await is_worker_draining(worker_id):
+                logger.warning(f"Worker {worker_id} is draining, refusing to audit intent {intent_id}")
+                drain_worker_consumers(task)
+
+                intent.status = "failed"
+                intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                session.add(intent)
+
+                job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
+                job_res = await session.exec(job_statement)
+                job = job_res.first()
+                # Pre-execution failure (no Execution yet): free the driver slot
+                # so the audit can be re-driven later via a fresh intent.
+                if job and job.driver_id:
+                    await release_driver_execution_slot(session, driver_id=job.driver_id, expected_intent_id=intent_id)
+                await session.commit()
+                raise ConnectionError(f"Worker {worker_id} is currently draining")
+
+            # Pre-flight proxy check (fail-closed): the History query needs
+            # UTCMS egress. On failure, fail the intent and free the slot;
+            # the job keeps its UNKNOWN status for the next audit pass.
+            try:
+                proxy_url = get_worker_proxy_url()
+            except ProxyUnavailableError as proxy_exc:
+                logger.error(f"{proxy_exc} (worker_id={worker_id})")
+                intent.status = "failed"
+                intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                session.add(intent)
+
+                job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
+                job_res = await session.exec(job_statement)
+                job = job_res.first()
+                if job and job.driver_id:
+                    await release_driver_execution_slot(session, driver_id=job.driver_id, expected_intent_id=intent_id)
+                await session.commit()
+                raise ConnectionError(f"Proxy unavailable: {proxy_exc}") from proxy_exc
+            if proxy_url:
+                is_healthy = await check_proxy_health(proxy_url)
+                if not is_healthy:
+                    logger.error(f"Proxy health check failed for {proxy_url}. Incrementing failures.")
+                    await _evict_unhealthy_proxy(proxy_url)
+
+                    intent.status = "failed"
+                    intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                    session.add(intent)
+
+                    job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
+                    job_res = await session.exec(job_statement)
+                    job = job_res.first()
+                    if job and job.driver_id:
+                        await release_driver_execution_slot(
+                            session, driver_id=job.driver_id, expected_intent_id=intent_id
+                        )
+                    await session.commit()
+                    raise ConnectionError(f"Proxy {proxy_url} is unhealthy")
+
+            # Transition intent status to running
+            intent.status = "running"
+            intent.updated_at = datetime.now(UTC).replace(tzinfo=None)
+            session.add(intent)
+
+            # Get job
+            job_statement = select(WaybillJob).where(WaybillJob.job_id == intent.job_id).with_for_update()
+            job_res = await session.exec(job_statement)
+            job = job_res.first()
+            if not job:
+                raise ValueError(f"Job {intent.job_id} not found for intent {intent_id}")
+
+            # Create unique execution ID
+            execution_id = str(uuid.uuid4())
+
+            # Create Execution lease slot
+            lease_duration = getattr(utcms_config, "WORKER_STALL_TIMEOUT_SECONDS", 90)
+            lease_expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=lease_duration)
+
+            execution = Execution(
+                execution_id=execution_id,
+                intent_id=intent_id,
+                job_id=intent.job_id,
+                attempt_no=intent.attempt_no,
+                operation=intent.operation,
+                worker_id=worker_id,
+                fencing_token=intent.fencing_token,
+                lease_expires_at=lease_expires_at,
+                status="running",
+            )
+            session.add(execution)
+
+            # The audit path drives unknown -> reconciling itself inside
+            # reconcile_job (audit_only=True); no job claim transition here
+            # (unknown -> claimed is not a legal state-machine edge).
+            await session.commit()
+
+        except Exception as e:
+            logger.error(f"Error claiming reconciliation-audit intent {intent_id}: {e}", exc_info=True)
+            await session.rollback()
+            raise
+
+    # Lease renewal loop
+    main_loop = asyncio.get_running_loop()
+    stop_event = threading.Event()
+    renewal_thread = threading.Thread(
+        target=_renew_lease_sync_loop, args=(execution_id, intent.fencing_token, stop_event, main_loop), daemon=True
+    )
+    renewal_thread.start()
+
+    try:
+        # Run the audit-only reconciliation path: attaches the UTCMS History
+        # witness for tracking-received jobs; never resubmits.
+        from app.orchestrator.reconciliation_service import reconciliation_service
+
+        async with async_session_factory() as run_session:
+            reconciled_job = await reconciliation_service.reconcile_job(
+                session=run_session,
+                job_id=job.id,
+                audit_only=True,
+            )
+            if reconciled_job:
+                result = {
+                    "status": reconciled_job.status,
+                    "last_error": reconciled_job.last_error,
+                    "result_json": reconciled_job.result_json,
+                }
+            else:
+                result = {"status": "unknown", "error": "Reconciliation audit returned None"}
+
+        await _assert_still_valid(execution_id, intent.fencing_token)
+        status_str = "completed"
+        await _finalize_execution(execution_id, intent_id, status_str, result)
+        return result
+    except Exception as err:
+        logger.error(f"Reconciliation audit failed for job {intent.job_id}: {err}", exc_info=True)
+        try:
+            await _assert_still_valid(execution_id, intent.fencing_token)
+            await _finalize_execution(execution_id, intent_id, "failed", {"error": str(err)})
+        except Exception as final_err:
+            logger.warning(f"Skipping finalize as failed for audit execution {execution_id}: {final_err}")
         raise
     finally:
         stop_event.set()

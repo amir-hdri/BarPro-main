@@ -199,6 +199,7 @@ class ReconciliationService:
                     client = await get_or_login_client(
                         national_code=driver_obj.utcms_username,
                         password=raw_password,
+                        client_id=getattr(job, "client_id", None),
                     )
                     doc_id_to_check = job.document_id or res_json.get("document_id")
                     if doc_id_to_check:
@@ -550,6 +551,82 @@ class ReconciliationService:
                 logger.error("Error during batch reconciliation of job #%s: %s", jid, exc)
                 results["errors"] += 1
 
+        return results
+
+    async def reconcile_tracking_received_jobs(
+        self,
+        session: AsyncSession,
+        browser_manager: BrowserManager | None = None,
+    ) -> dict[str, int]:
+        """Audit sweep: attach the UTCMS History witness to tracking-received jobs.
+
+        Tracking-first acknowledgement moves a job to UNKNOWN with
+        ``confirmation_status="tracking_received"`` and shows the operator a
+        success badge, but neither ``reconcile_job`` (non-audit mode) nor
+        ``reconcile_orphaned_jobs`` ever touches such rows — the third
+        witness (UTCMS History/Search record) was never attached and these
+        jobs sat in UNKNOWN forever.
+
+        This sweep runs ``reconcile_job(audit_only=True)`` over jobs that
+        carry a persisted tracking code but no History witness. The audit
+        only ever moves ``unknown -> reconciling -> success/needs_review``
+        and can only declare SUCCESS when the History lookup returns
+        REGISTERED with a matching code (the witness match). A job whose
+        History lookup stays NOT_FOUND through the bounded retry window
+        lands in NEEDS_REVIEW, never SUCCESS. Nothing here resubmits.
+
+        Operator-OTP-pending jobs are excluded: they are waiting on the
+        operator's OTP and must stay out of automatic History reconciliation.
+        """
+        stmt = (
+            select(_job_id_col)
+            .where(
+                _job_status_col.in_([JobStatus.UNKNOWN, JobStatus.RECONCILING]),
+            )
+            .with_for_update(skip_locked=True)
+        )
+        job_ids = (await session.execute(stmt)).scalars().all()
+
+        audit_ids: list[int] = []
+        for jid in job_ids:
+            # id is the non-nullable primary key; the assert only narrows the type.
+            assert jid is not None
+            audit_job = await session.get(WaybillJob, jid)
+            if audit_job is None:
+                continue
+            if not is_tracking_received(audit_job):
+                continue
+            if _is_operator_otp_pending(audit_job):
+                continue
+            res_json = _result_json_dict(getattr(audit_job, "result_json", None))
+            if str(res_json.get("confirmation_status") or "").strip() == "confirmed_by_history":
+                # Witness already attached (e.g. by a manual audit); nothing to do.
+                continue
+            audit_ids.append(jid)
+
+        results = {"total": len(audit_ids), "success": 0, "failed": 0, "needs_review": 0, "errors": 0}
+
+        for jid in audit_ids:
+            try:
+                updated_job = await self.reconcile_job(
+                    session=session, job_id=jid, browser_manager=browser_manager, audit_only=True
+                )
+                if updated_job:
+                    if updated_job.status == JobStatus.SUCCESS:
+                        results["success"] += 1
+                    elif updated_job.status == JobStatus.FAILED:
+                        results["failed"] += 1
+                    elif updated_job.status == JobStatus.NEEDS_REVIEW:
+                        results["needs_review"] += 1
+            except Exception as exc:
+                logger.error("Error during tracking-received audit of job #%s: %s", jid, exc)
+                results["errors"] += 1
+
+        if audit_ids:
+            logger.info(
+                "tracking_received_audit_sweep_complete",
+                extra={"extra_fields": results},
+            )
         return results
 
 

@@ -374,3 +374,139 @@ async def test_tracking_received_job_in_reconciling_heals_to_unknown(async_db: A
         assert reconciled_job.status == JobStatus.UNKNOWN
         assert (reconciled_job.result_json or {}).get("tracking_code") == "UTC-ACK-3"
         assert (reconciled_job.result_json or {}).get("confirmation_status") == "tracking_received"
+
+
+def _tracking_received_job(job_id: str, idem: str, tracking_code: str, **overrides):
+    """Build a tracking-received (acknowledged) UNKNOWN job, mirroring the
+    tracking-first acknowledgement written by waybill_worker."""
+    attrs = {
+        "job_id": job_id,
+        "idempotency_key": idem,
+        "client_id": 1,
+        "driver_id": 1,
+        "payload_json": {"origin_city_id": 1, "destination_city_id": 2},
+        "status": JobStatus.UNKNOWN,
+        "mutation_status": "dispatched",
+        "result_json": {
+            "tracking_code": tracking_code,
+            "confirmation_status": "tracking_received",
+            "operator_acknowledged": True,
+        },
+    }
+    attrs.update(overrides)
+    return WaybillJob(**attrs)
+
+
+def _mock_browser_manager():
+    mock_bm = MagicMock()
+    mock_bm.create_context = AsyncMock(return_value=("session-a", AsyncMock()))
+    mock_bm.new_page = AsyncMock(return_value=AsyncMock())
+    return mock_bm
+
+
+@pytest.mark.asyncio
+async def test_tracking_received_audit_sweep_picks_up_jobs_lacking_history_witness(async_db: AsyncSession):
+    """The tracking-received audit sweep must pick up acknowledged UNKNOWN jobs
+    that lack the History witness, audit them, and declare SUCCESS only when
+    the History lookup matches — while leaving already-witnessed,
+    untracked, and operator-OTP-pending jobs untouched."""
+    audited = _tracking_received_job("sweep_audit_1", "idem_sweep_audit_1", "UTC-SWEEP-1")
+    already_witnessed = _tracking_received_job(
+        "sweep_audit_2",
+        "idem_sweep_audit_2",
+        "UTC-SWEEP-2",
+        result_json={
+            "tracking_code": "UTC-SWEEP-2",
+            "confirmation_status": "confirmed_by_history",
+            "operator_acknowledged": True,
+        },
+    )
+    untracked = WaybillJob(
+        job_id="sweep_audit_3",
+        idempotency_key="idem_sweep_audit_3",
+        client_id=1,
+        driver_id=1,
+        payload_json={"origin_city_id": 1, "destination_city_id": 2},
+        status=JobStatus.UNKNOWN,
+        mutation_status="ambiguous",
+    )
+    otp_pending = _tracking_received_job(
+        "sweep_audit_4",
+        "idem_sweep_audit_4",
+        "UTC-SWEEP-4",
+        result_json={
+            "tracking_code": "UTC-SWEEP-4",
+            "confirmation_status": "tracking_received",
+            "operator_acknowledged": True,
+            "requires_operator_otp": True,
+        },
+    )
+    for job in (audited, already_witnessed, untracked, otp_pending):
+        async_db.add(job)
+    await async_db.commit()
+    for job in (audited, already_witnessed, untracked, otp_pending):
+        await async_db.refresh(job)
+
+    mock_res = ReconciliationResult(outcome=ScraperOutcome.REGISTERED, tracking_code="UTC-SWEEP-1")
+
+    with patch(
+        "app.orchestrator.reconciliation_service.reconciliation_scraper.query_waybill_status", new_callable=AsyncMock
+    ) as mock_query:
+        mock_query.return_value = mock_res
+        rec_service = ReconciliationService()
+        results = await rec_service.reconcile_tracking_received_jobs(
+            session=async_db, browser_manager=_mock_browser_manager()
+        )
+
+    assert results["total"] == 1
+    assert results["success"] == 1
+    assert results["errors"] == 0
+    mock_query.assert_awaited_once()
+
+    await async_db.refresh(audited)
+    assert audited.status == JobStatus.SUCCESS
+    assert (audited.result_json or {}).get("confirmation_status") == "confirmed_by_history"
+    assert (audited.result_json or {}).get("tracking_code") == "UTC-SWEEP-1"
+    assert audited.mutation_status == "confirmed"
+    assert audited.reconciled_at is not None
+
+    # The rest must be untouched by the sweep.
+    for job, expected_status in (
+        (already_witnessed, JobStatus.UNKNOWN),
+        (untracked, JobStatus.UNKNOWN),
+        (otp_pending, JobStatus.UNKNOWN),
+    ):
+        await async_db.refresh(job)
+        assert job.status == expected_status
+
+
+@pytest.mark.asyncio
+async def test_tracking_received_audit_sweep_never_declares_success_without_history_witness(
+    async_db: AsyncSession,
+):
+    """CRITICAL: when the History lookup does not find the document, the audit
+    sweep must NOT declare SUCCESS — the job stays out of success (bounded
+    eventual-consistency retries, then NEEDS_REVIEW), never success."""
+    job = _tracking_received_job("sweep_nowitness_1", "idem_sweep_nowitness_1", "UTC-SWEEP-NW")
+    async_db.add(job)
+    await async_db.commit()
+    await async_db.refresh(job)
+
+    mock_res = ReconciliationResult(outcome=ScraperOutcome.NOT_FOUND)
+
+    with patch(
+        "app.orchestrator.reconciliation_service.reconciliation_scraper.query_waybill_status", new_callable=AsyncMock
+    ) as mock_query:
+        mock_query.return_value = mock_res
+        rec_service = ReconciliationService()
+        results = await rec_service.reconcile_tracking_received_jobs(
+            session=async_db, browser_manager=_mock_browser_manager()
+        )
+
+    mock_query.assert_awaited_once()
+    assert results["success"] == 0
+
+    await async_db.refresh(job)
+    assert job.status != JobStatus.SUCCESS
+    assert job.mutation_status != "confirmed"
+    assert (job.result_json or {}).get("confirmation_status") == "tracking_received"

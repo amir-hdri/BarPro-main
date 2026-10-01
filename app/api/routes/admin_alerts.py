@@ -136,8 +136,13 @@ async def reconcile_job_manually(
     job_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    """Trigger manual status reconciliation for a specific job."""
-    job = await reconciliation_service.reconcile_job(session=session, job_id=job_id)
+    """Trigger manual status reconciliation for a specific job.
+
+    audit_only=True forces the read-only UTCMS History audit even for a
+    tracking-received (acknowledged) job: without it, reconcile_job
+    early-returns on such rows and the third witness is never attached.
+    """
+    job = await reconciliation_service.reconcile_job(session=session, job_id=job_id, audit_only=True)
 
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")

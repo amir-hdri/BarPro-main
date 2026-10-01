@@ -243,7 +243,11 @@ class SchedulerService:
                                 expires=5,
                             )
                     except Exception:
-                        pass
+                        logger.warning(
+                            "scheduler_dispatcher_kick_failed",
+                            extra={"extra_fields": {"scheduled_count": scheduled_count}},
+                            exc_info=True,
+                        )
                 return scheduled_count
 
             except Exception as e:

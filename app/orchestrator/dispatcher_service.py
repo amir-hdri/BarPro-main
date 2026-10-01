@@ -76,6 +76,17 @@ class DispatcherService:
                 TaskStatus.CLAIMED.value,
             }
         ),
+        # Audit-only History witness attachment for tracking-received jobs
+        # (e.g. created by the periodic tracking-received audit sweep). The
+        # audit worker drives unknown -> reconciling itself, exactly like the
+        # reconciliation worker, so the claimable set mirrors it.
+        "reconciliation_audit": frozenset(
+            {
+                TaskStatus.UNKNOWN.value,
+                TaskStatus.RECONCILING.value,
+                TaskStatus.CLAIMED.value,
+            }
+        ),
     }
 
     async def run(self) -> int:
@@ -187,10 +198,11 @@ class DispatcherService:
         session.add(intent)
 
         # Transition job for submit intents (queued/claimed -> claimed is the
-        # only path the execute worker understands). Reconciliation intents
-        # leave the job to the reconcile worker, which moves unknown ->
-        # reconciling itself.
-        if operation != "reconciliation":
+        # only path the execute worker understands). Reconciliation and
+        # reconciliation_audit intents leave the job to the reconcile worker,
+        # which moves unknown -> reconciling itself (unknown -> claimed is not
+        # a legal state-machine edge).
+        if operation not in ("reconciliation", "reconciliation_audit"):
             try:
                 JobStateMachine.transition(session, job, TaskStatus.CLAIMED.value)
             except StateTransitionError:
@@ -202,6 +214,9 @@ class DispatcherService:
         if celery_app is not None:
             if operation == "reconciliation":
                 task_name = "barpro.waybill.reconcile"
+                base_queue = "reconciliation_tasks"
+            elif operation == "reconciliation_audit":
+                task_name = "barpro.waybill.reconcile_audit"
                 base_queue = "reconciliation_tasks"
             else:
                 task_name = "barpro.waybill.execute"
