@@ -1,5 +1,8 @@
+import logging
 import os
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def _load_dotenv_if_exists(path: str = ".env") -> None:
@@ -197,6 +200,15 @@ class UTCMSConfig:
         self.UTCMS_CAPTCHA_POW_MAX_NONCE = int(os.getenv("UTCMS_CAPTCHA_POW_MAX_NONCE", "10000000"))
 
         self.API_AUTH_MODE = os.getenv("API_AUTH_MODE", "api_key_or_jwt").lower()
+        # F7: "off"/"none"/"disabled" silently de-authenticates the legacy surface
+        # (security.require_sensitive_auth returns early). Documented behavior —
+        # no behavior change — but shout about it loudly at startup.
+        if self.API_AUTH_MODE in ("off", "none", "disabled"):
+            logger.warning(
+                "SECURITY: API_AUTH_MODE=%r disables authentication on the legacy API surface — "
+                "protected endpoints will accept unauthenticated requests. Never use this in production.",
+                self.API_AUTH_MODE,
+            )
         self.API_KEY_HEADER = os.getenv("API_KEY_HEADER", "X-API-Key")
         self.API_KEY = os.getenv("API_KEY", "")
         self.JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
@@ -408,6 +420,19 @@ class UTCMSConfig:
                 "JWT_SECRET is not set or using an insecure default. "
                 "This is a critical security risk. Please configure a secure JWT_SECRET in your environment "
                 'or .env file. Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"',
+                error_code=ErrorCode.INTERNAL_CONFIG_ERROR,
+                status_code=500,
+            )
+
+        # CRITICAL_RULES §1: a JWT_SECRET shorter than 32 characters is never
+        # acceptable — fail fast instead of running with a weak signing key.
+        if len(self.JWT_SECRET) < 32:
+            from app.core.exceptions import ErrorCode, UTCMSException
+
+            raise UTCMSException(
+                "JWT_SECRET must be at least 32 characters long. "
+                "This is a critical security risk. Generate a secure value with: "
+                'python3 -c "import secrets; print(secrets.token_hex(32))"',
                 error_code=ErrorCode.INTERNAL_CONFIG_ERROR,
                 status_code=500,
             )

@@ -306,7 +306,7 @@ def main():
             run_cmd(
                 ssh,
                 f"cd {REMOTE_DIR} && bash scripts/render_squid_configs.sh {DEFAULT_IP} "
-                f"{os.environ.get('SECONDARY_IP', '')}",
+                f"{os.environ.get('SECONDARY_EGRESS_IP', os.environ.get('SECONDARY_IP', ''))}",
                 check=False,
             )
 

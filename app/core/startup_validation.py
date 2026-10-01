@@ -26,6 +26,12 @@ def validate_environment() -> tuple[bool, list[str]]:
         errors.append(
             'JWT_SECRET must be set. Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"'
         )
+    # CRITICAL_RULES §1: fail fast on short signing keys, not just empty/deny-listed ones.
+    elif len(jwt_secret) < 32:
+        errors.append(
+            "JWT_SECRET must be at least 32 characters long. "
+            'Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"'
+        )
 
     driver_key = os.getenv("DRIVER_ENCRYPTION_KEY", "")
     if not driver_key or driver_key in [
@@ -80,6 +86,17 @@ def validate_environment() -> tuple[bool, list[str]]:
     if allow_live == "true":
         logger.warning("⚠️  ALLOW_LIVE_SUBMIT is enabled - submissions will be sent to production UTCMS")
 
+    # F7: API_AUTH_MODE=off (also "none"/"disabled") silently de-authenticates the
+    # legacy surface in app/core/security.py. Documented behavior, no behavior
+    # change here — but it must be loud at startup, never a silent default.
+    auth_mode = os.getenv("API_AUTH_MODE", "api_key_or_jwt").strip().lower()
+    if auth_mode in ("off", "none", "disabled"):
+        logger.warning(
+            "🔓 SECURITY: API_AUTH_MODE=%r disables authentication on the legacy API surface — "
+            "protected endpoints will accept unauthenticated requests. Never use this in production.",
+            auth_mode,
+        )
+
     # Log results
     if errors:
         logger.error("❌ Configuration validation failed:")
@@ -95,13 +112,3 @@ def validate_environment() -> tuple[bool, list[str]]:
         logger.info("✅ Configuration validation passed")
 
     return len(errors) == 0, errors
-
-
-def validate_or_exit() -> None:
-    """Validate environment and exit if critical errors found."""
-    is_valid, errors = validate_environment()
-    if not is_valid:
-        logger.critical("Cannot start application due to configuration errors")
-        import sys
-
-        sys.exit(1)

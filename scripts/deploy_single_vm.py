@@ -38,7 +38,10 @@ from scp import SCPClient
 # ═══════════════════════════════════════════════════════════════════
 
 PRIMARY_IP = os.environ.get("CENTRAL_IP", "<YOUR_CENTRAL_SERVER_IP>")  # IP اصلی (eth0) — ورودی ترافیک + egress 1
-SECONDARY_IP = os.environ.get("SECONDARY_IP", "<YOUR_SECONDARY_EGRESS_IP>")  # IP ثانویه (eth1) — egress 2
+# IP ثانویه (eth1) — egress 2. Canonical env name is SECONDARY_EGRESS_IP
+# (matches .env.example and scripts/render_squid_configs.sh); SECONDARY_IP is
+# kept as a legacy fallback only.
+SECONDARY_IP = os.environ.get("SECONDARY_EGRESS_IP", os.environ.get("SECONDARY_IP", "<YOUR_SECONDARY_EGRESS_IP>"))
 
 # Gateway پیش‌فرض هر اینترفیس در آروان‌کلود
 PRIMARY_GW = "188.121.120.1"
