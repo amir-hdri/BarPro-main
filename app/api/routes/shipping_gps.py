@@ -149,6 +149,45 @@ async def _get_job_and_driver(
         return payload, driver
 
 
+def _caller_client_id(user_context: dict[str, Any]) -> int | None:
+    """Tenant id of the authenticated caller, or None for master_admin.
+
+    master_admin has no tenant of its own; admin-triggered vault calls keep
+    the legacy unscoped key path rather than guessing a tenant id.
+    """
+    if user_context.get("role") == "client":
+        client = user_context.get("user")
+        client_id = getattr(client, "id", None)
+        return int(client_id) if client_id is not None else None
+    return None
+
+
+async def _login_driver_client(
+    driver: Any,
+    proxy_url: str | None,
+    *,
+    user_context: dict[str, Any],
+    force_reauth: bool = False,
+) -> Any:
+    """Authenticate the driver's UTCMS mobile client via the session vault.
+
+    Tenant-isolation (C3): the vault lookup is scoped to the authenticated
+    caller's tenant, so two tenants sharing a driver national code never
+    share a UTCMS session. master_admin callers have no tenant context and
+    keep the legacy unscoped path (reported, not guessed).
+    """
+    from app.auth_multitenant import decrypt_driver_password
+
+    pwd = decrypt_driver_password(driver.utcms_password_encrypted)
+    return await get_or_login_client(
+        national_code=driver.driver_national_code,
+        password=pwd,
+        proxy_url=proxy_url,
+        force_reauth=force_reauth,
+        client_id=_caller_client_id(user_context),
+    )
+
+
 async def _load_state_or_503(job_id: str):
     try:
         return await load_shipping_state(job_id)
@@ -175,6 +214,12 @@ def _shipping_mutation_lock(handler):
     async def wrapped(req, user_context):
         if not utcms_config.ALLOW_LIVE_SUBMIT:
             raise HTTPException(status_code=409, detail="ثبت زنده GPS غیرفعال است")
+        # Tenant-isolation (C4): ownership is verified BEFORE the mutation
+        # lock is acquired. A caller that cannot see the job (unknown id or
+        # another tenant's job) gets 404 here and never holds
+        # lock:shipping:{job_id}, so it cannot squat the lock and block the
+        # owning tenant's mutation for the TTL.
+        await _get_job_and_driver(req.job_id, user_context)
         key = f"lock:shipping:{req.job_id}"
         try:
             acquired = await rpa_runtime.acquire_lock(key, max(int(utcms_config.RPA_LOCK_TTL_SECONDS), 900))
@@ -262,11 +307,14 @@ async def start_shipping(
                 state.origin_lng,
             )
         except Exception as exc:
-            state.status = "failed"
-            try:
-                await save_shipping_state(state)
-            except Exception:
-                logger.error("shipping_start_apply_state_persist_failed", exc_info=True)
+            # B1: a transient FakeTraveler/ADB hiccup must NOT brick the
+            # waybill. Persisting status="failed" here would make every later
+            # /start 409 (existing.status != "ready") with no reset endpoint,
+            # bricking a paid waybill. Nothing has been mutated in UTCMS yet
+            # and the mock-location write is idempotent on retry, so the
+            # persisted state is left retryable ("ready" or absent) while the
+            # request still fails closed with 503.
+            logger.error("shipping_start_apply_transient job=%s", req.job_id, exc_info=True)
             raise HTTPException(
                 status_code=503,
                 detail=f"اعمال موقعیت مبدأ در FakeTraveler ناموفق بود: {exc}",
@@ -274,13 +322,18 @@ async def start_shipping(
 
         from app.services.shipping_travel_service import verify_android_anchor
 
-        check = await verify_android_anchor(expected_lat=req.latitude, expected_lng=req.longitude)
+        # B2: readback must verify what was actually applied to the device
+        # (the waybill's stored origin), not the operator's request anchor.
+        # The request anchor already passed the 0.0002° (~22 m) route gate
+        # above, while readback uses a 5 m tolerance — comparing the request
+        # anchor would deterministically fail readback for any legitimately
+        # gated 5–22 m offset. Comparing the stored origin aligns the gates.
+        check = await verify_android_anchor(expected_lat=state.origin_lat, expected_lng=state.origin_lng)
         if not check.get("verified"):
-            state.status = "failed"
-            try:
-                await save_shipping_state(state)
-            except Exception:
-                logger.error("shipping_start_readback_state_persist_failed", exc_info=True)
+            # Same B1 reasoning as the apply branch: readback runs before any
+            # UTCMS mutation, so a transient failure stays retryable (503)
+            # instead of persisting a terminal "failed".
+            logger.error("shipping_start_readback_transient job=%s", req.job_id, exc_info=True)
             raise HTTPException(
                 status_code=503,
                 detail=f"تأیید GPS اندروید برای مبدأ ناموفق بود: {check.get('reason', 'readback_unavailable')}",
@@ -308,9 +361,6 @@ async def start_shipping(
     utcms_result = None
     mutation_attempted = False
     try:
-        from app.auth_multitenant import decrypt_driver_password
-
-        pwd = decrypt_driver_password(driver.utcms_password_encrypted)
         # ── Session Vault: reuse cached token → refresh → login only as last resort ──
         # Previous code solved CAPTCHA and logged in on EVERY request, causing
         # auth spam and 429 risk.  get_or_login_client() caches the driver bearer
@@ -323,11 +373,7 @@ async def start_shipping(
             or os.environ.get("PROXY_FAIL_CLOSED", "").lower() == "true"
         ):
             raise ProxyUnavailableError("ارتباط مستقیم با UTCMS بدون پراکسی در پروداکشن مجاز نیست")
-        client = await get_or_login_client(
-            national_code=driver.driver_national_code,
-            password=pwd,
-            proxy_url=proxy_url,
-        )
+        client = await _login_driver_client(driver, proxy_url, user_context=user_context)
         # ── StartShippingWithGps is the V2 GPS-aware endpoint that supersedes
         # the legacy RegisterStartOfShipping.  Unlike the finish flow (which
         # calls BOTH FinishShippingWithGps + RegisterEndOfShipping to submit
@@ -350,12 +396,7 @@ async def start_shipping(
         except Exception as exc:
             if not is_mobile_authentication_error(exc):
                 raise
-            client = await get_or_login_client(
-                national_code=driver.driver_national_code,
-                password=pwd,
-                proxy_url=proxy_url,
-                force_reauth=True,
-            )
+            client = await _login_driver_client(driver, proxy_url, user_context=user_context, force_reauth=True)
             utcms_result = await client.register_start_of_shipping(
                 document_id=target_doc_id,
                 speed=req.speed,
@@ -471,7 +512,11 @@ async def finish_shipping(
 
         from app.services.shipping_travel_service import verify_android_anchor
 
-        check = await verify_android_anchor(expected_lat=req.latitude, expected_lng=req.longitude)
+        # B2: same alignment as /start — verify what was applied to the device
+        # (the waybill's stored destination), not the operator's request
+        # anchor, so a legitimately-gated 5–22 m offset can never fail
+        # the 5 m readback deterministically.
+        check = await verify_android_anchor(expected_lat=state.dest_lat, expected_lng=state.dest_lng)
         if not check.get("verified"):
             raise HTTPException(
                 status_code=503,
@@ -525,9 +570,6 @@ async def finish_shipping(
         raise HTTPException(status_code=409, detail="اعتبارنامه راننده برای GPS موجود نیست")
     mutation_attempted = False
     try:
-        from app.auth_multitenant import decrypt_driver_password
-
-        pwd = decrypt_driver_password(driver.utcms_password_encrypted)
         # ── Session Vault: reuse cached token (same rationale as /start) ──
         proxy_url = get_worker_proxy_url()
         if proxy_url is None and (
@@ -535,11 +577,7 @@ async def finish_shipping(
             or os.environ.get("PROXY_FAIL_CLOSED", "").lower() == "true"
         ):
             raise ProxyUnavailableError("ارتباط مستقیم با UTCMS بدون پراکسی در پروداکشن مجاز نیست")
-        client = await get_or_login_client(
-            national_code=driver.driver_national_code,
-            password=pwd,
-            proxy_url=proxy_url,
-        )
+        client = await _login_driver_client(driver, proxy_url, user_context=user_context)
         # ── Dual-endpoint finish is intentional and NOT a bug ──
         # 1. FinishShippingWithGps → records the terminal GPS point + distance
         # 2. RegisterEndOfShipping → submits the full gps_list history
@@ -569,12 +607,7 @@ async def finish_shipping(
         except Exception as exc:
             if not is_mobile_authentication_error(exc):
                 raise
-            client = await get_or_login_client(
-                national_code=driver.driver_national_code,
-                password=pwd,
-                proxy_url=proxy_url,
-                force_reauth=True,
-            )
+            client = await _login_driver_client(driver, proxy_url, user_context=user_context, force_reauth=True)
             history_result = await client.register_end_of_shipping(
                 document_id=target_doc_id,
                 gps_list=state.gps_list,

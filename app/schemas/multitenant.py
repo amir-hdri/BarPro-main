@@ -205,6 +205,14 @@ class DriverCreateRequest(BaseModel):
     plate_number: str = Field(..., min_length=2, max_length=50, description="پلاک یکتای خودرو")
     vehicle_type: str | None = Field("کامیون", max_length=50)
     default_payload: dict[str, Any] | None = Field(None)
+    client_id: int | None = Field(
+        None,
+        description=(
+            "Owning tenant id. REQUIRED when the caller is master_admin "
+            "(no silent fallback to another tenant). For client callers the "
+            "tenant is derived from the caller; if provided it must match."
+        ),
+    )
 
     @field_validator("plate_number")
     @classmethod

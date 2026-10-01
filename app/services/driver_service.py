@@ -61,18 +61,33 @@ class DriverService:
         client: Client | None = None
         if isinstance(user_context, Client):
             client = user_context
-        elif isinstance(user_context, dict) and user_context.get("role") == "master_admin":
-            # For master admin, associate with the first active client or find one
-            client = (await session.exec(select(Client).where(Client.status == "active"))).first()
-            if not client:
-                client = (await session.exec(select(Client))).first()
-            if not client:
+            if request.client_id is not None and request.client_id != client.id:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="No client account found to associate driver with.",
+                    detail="client_id does not match the authenticated client.",
+                )
+        elif isinstance(user_context, dict) and user_context.get("role") == "master_admin":
+            # Tenant-isolation (C5): a master_admin MUST name the owning
+            # tenant explicitly. The old first-active-client fallback
+            # silently misattributed the driver to an arbitrary tenant.
+            if request.client_id is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="client_id is required when creating a driver as master_admin.",
+                )
+            client = (await session.exec(select(Client).where(Client.id == request.client_id))).first()
+            if not client:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Client {request.client_id} not found.",
                 )
         else:
             client = user_context.get("user") if isinstance(user_context, dict) else user_context
+            if request.client_id is not None and (client is None or request.client_id != client.id):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="client_id does not match the authenticated client.",
+                )
         # Invariant: every accepted user_context shape resolves to a persisted Client.
         assert client is not None, "user_context must resolve to a Client"
         assert client.id is not None, "persisted Client must have an id"
@@ -247,7 +262,11 @@ class DriverService:
             if active_plate_row and hasattr(active_plate_row, "plate_number"):
                 active_plate_str = str(active_plate_row.plate_number)
         except Exception:
-            pass
+            logger.warning(
+                "driver_active_plate_lookup_failed",
+                extra={"extra_fields": {"driver_id": driver.id}},
+                exc_info=True,
+            )
 
         resp = DriverResponse.model_validate(driver)
         resp.active_plate = active_plate_str

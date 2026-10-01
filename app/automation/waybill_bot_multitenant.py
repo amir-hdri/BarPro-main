@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 
 try:
     from datetime import UTC, datetime
@@ -23,6 +22,7 @@ from app.automation.multitenant_payload_adapter import (
     build_enhanced_waybill_payload,
     validate_live_waybill_payload,
 )
+from app.automation.otp_keys import otp_lookup_keys
 from app.automation.waybill_enhanced import EnhancedWaybillManager
 from app.core.config import utcms_config
 from app.core.exceptions import WaybillError
@@ -477,6 +477,10 @@ class WaybillAutomationBot:
                             national_code=username,
                             password=password,
                             proxy_url=proxy_url or self.proxy_url,
+                            # Tenant-isolation (C3): scope the driver session
+                            # vault to this job's tenant; two tenants sharing a
+                            # driver national code never share a UTCMS session.
+                            client_id=client_id,
                         )
                         auth = MobileAuthResult(token=client.token, refresh_token=None, expires_at=None, raw={})
                         result["steps"].append({"step": "mobile_login", "status": "success"})
@@ -797,13 +801,10 @@ class WaybillAutomationBot:
 
                         if not otp_code:
                             driver_phone = str(normalized_payload.get("vehicle", {}).get("driver_mobile") or "").strip()
-                            keys_to_check = ["rpa:otp:latest"]
-                            if job_id:
-                                keys_to_check.insert(0, f"rpa:otp:job:{job_id}")
-                            if driver_phone:
-                                clean_dp = re.sub(r"[^\d]", "", driver_phone)
-                                if clean_dp:
-                                    keys_to_check.append(f"rpa:otp:phone:{clean_dp}")
+                            # Tenant-isolation (C1): scoped keys only — job-scoped,
+                            # then phone-scoped. The unscoped global key is retired;
+                            # without job/phone context we fail closed (no OTP).
+                            keys_to_check = otp_lookup_keys(job_id, driver_phone)
 
                             for _ in range(8):
                                 for k in keys_to_check:

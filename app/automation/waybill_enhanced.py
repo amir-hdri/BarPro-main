@@ -21,6 +21,7 @@ from app.automation.browser import PageInteractor
 from app.automation.captcha import captcha_engine, get_captcha_provider
 from app.automation.location_selector import LocationSelector, RouteCalculator
 from app.automation.map_controller import GeoCoordinate, MapController
+from app.automation.otp_keys import otp_lookup_keys
 from app.automation.selectors import AuthSelectors
 from app.bot.core.smart_locator import SmartLocator
 from app.core.config import utcms_config
@@ -36,6 +37,43 @@ logger = logging.getLogger(__name__)
 # Captcha inputs carry OTP-like wording ("کد امنیتی"), so every placeholder-based
 # OTP probe has to exclude them or it reports a challenge on every run.
 _NOT_CAPTCHA = ":not([name*='captcha' i]):not([id*='captcha' i])"
+
+
+async def fetch_scoped_otp(
+    redis: Any,
+    *,
+    job_id: str | None,
+    driver_phone: str | None,
+    wait_start: float,
+) -> tuple[str, str, dict[str, Any]] | None:
+    """Fetch an OTP from the tenant-scoped Redis keys.
+
+    Lookup order is job-scoped then phone-scoped (see
+    :mod:`app.automation.otp_keys`). Only entries received within 15s before
+    ``wait_start`` or later are accepted, so a stale code from an earlier job
+    is never consumed. The retired unscoped global key is never read: without
+    job/phone context this returns None — fail closed.
+
+    Returns ``(code, key, entry)`` for the first acceptable OTP, else None.
+    Never returns the code in logs; callers must not log it either.
+    """
+    for key in otp_lookup_keys(job_id, driver_phone):
+        try:
+            raw_data = await redis.get(key)
+            if not raw_data:
+                continue
+            otp_entry = json.loads(raw_data)
+            recv_at = float(otp_entry.get("received_at", 0) or 0)
+        except Exception as redis_err:
+            logger.warning("redis_otp_check_failed: %s", redis_err)
+            continue
+        # Accept OTP if received within 15s before wait_start or during waiting
+        if recv_at < (wait_start - 15.0):
+            continue
+        candidate_code = str(otp_entry.get("code", "")).strip()
+        if candidate_code:
+            return candidate_code, key, otp_entry
+    return None
 
 
 class EnhancedWaybillManager:
@@ -2245,7 +2283,12 @@ class EnhancedWaybillManager:
                     result["message"] = "کنترل ثبت نهایی در مرحله آخر مشاهده نشد؛ هیچ mutation یا پیامکی ارسال نشد"
             else:
                 # ثبت و دریافت کد رهگیری
-                result = await self._submit_waybill(otp_value=otp_val, job_id=job_id)
+                vehicle = data.get("vehicle", {})
+                result = await self._submit_waybill(
+                    otp_value=otp_val,
+                    job_id=job_id,
+                    driver_phone=str(vehicle.get("driver_phone") or ""),
+                )
 
             # افزودن اطلاعات مسیر به نتیجه
             if route_info:
@@ -5232,10 +5275,17 @@ class EnhancedWaybillManager:
         self,
         otp_value: str | None = None,
         submit_state: dict[str, Any] | None = None,
+        job_id: str | None = None,
+        driver_phone: str | None = None,
     ) -> dict[str, Any]:
         """
         مدیریت OTP در صورت نیاز.
         اگر otp_value داده شده باشد آن را وارد می‌کند؛ در غیر این صورت منتظر ورود دستی می‌ماند.
+
+        Tenant-isolation (C1): the forwarder OTP is read only from
+        tenant-scoped keys (job-scoped, then phone-scoped). Without job/phone
+        context the lookup fails closed (no OTP) — the retired unscoped
+        global key is never read.
         """
         if not await self._detect_otp_required(submit_state=submit_state):
             return {"success": True, "handled": False, "document_id": (submit_state or {}).get("document_id")}
@@ -5287,32 +5337,26 @@ class EnhancedWaybillManager:
             r = await redis_manager.get()
 
             while time.time() < deadline:
-                # 1. Check Redis for OTP from SecureSMS Forwarder / Webhook
+                # 1. Check Redis for OTP from SecureSMS Forwarder / Webhook.
+                # Tenant-scoped keys only — the retired unscoped global key is
+                # never read, so another tenant's code cannot be consumed.
                 if r:
-                    try:
-                        raw_data = await r.get("rpa:otp:latest")
-                        if raw_data:
-                            otp_entry = json.loads(raw_data)
-                            recv_at = float(otp_entry.get("received_at", 0))
-                            # Accept OTP if received within 15s before wait_start or during waiting
-                            if recv_at >= (wait_start - 15.0):
-                                candidate_code = str(otp_entry.get("code", "")).strip()
-                                if candidate_code:
-                                    otp_value = candidate_code
-                                    logger.info(
-                                        "otp_acquired_from_forwarder",
-                                        extra={
-                                            "extra_fields": {
-                                                # Never log the OTP value itself (replayable for ~5 min).
-                                                "length": len(otp_value),
-                                                "elapsed": round(time.time() - wait_start, 1),
-                                                "sender": otp_entry.get("sender"),
-                                            }
-                                        },
-                                    )
-                                    break
-                    except Exception as redis_err:
-                        logger.warning("redis_otp_check_failed: %s", redis_err)
+                    found = await fetch_scoped_otp(r, job_id=job_id, driver_phone=driver_phone, wait_start=wait_start)
+                    if found:
+                        otp_value, otp_key, otp_entry = found
+                        logger.info(
+                            "otp_acquired_from_forwarder",
+                            extra={
+                                "extra_fields": {
+                                    # Never log the OTP value itself (replayable for ~5 min).
+                                    "length": len(otp_value),
+                                    "elapsed": round(time.time() - wait_start, 1),
+                                    "sender": otp_entry.get("sender"),
+                                    "key": otp_key,
+                                }
+                            },
+                        )
+                        break
 
                 # 2. Check if manually typed into DOM
                 if otp_selector:
@@ -5448,7 +5492,9 @@ class EnhancedWaybillManager:
             "message": f"سامانه پس از dispatch کد OTP خواست؛ کد پیامکی ظرف {wait_timeout} ثانیه از فورواردر دریافت نشد",
         }
 
-    async def _submit_waybill(self, otp_value: str | None = None, job_id: str | None = None) -> dict[str, Any]:
+    async def _submit_waybill(
+        self, otp_value: str | None = None, job_id: str | None = None, driver_phone: str | None = None
+    ) -> dict[str, Any]:
         """ثبت فرم بارنامه (با پشتیبانی OTP و captcha + Self-Healing)"""
 
         # ── Self-Healing wrapper for critical interactions ──
@@ -5811,7 +5857,9 @@ class EnhancedWaybillManager:
                     }
 
                 # ── Step 4: OTP Handling ──
-                otp_state = await self._handle_otp_if_required(otp_value, submit_state=submit_state)
+                otp_state = await self._handle_otp_if_required(
+                    otp_value, submit_state=submit_state, job_id=job_id, driver_phone=driver_phone
+                )
                 if not otp_state["success"]:
                     if otp_state.get("mutation_status") == "ambiguous":
                         return otp_state

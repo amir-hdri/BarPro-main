@@ -78,7 +78,16 @@ def _is_retryable_exception(error: Exception) -> bool:
 
 
 class WaybillService:
-    async def create_waybill_with_map(self, request: WaybillMapRequest) -> dict[str, Any]:
+    async def create_waybill_with_map(
+        self, request: WaybillMapRequest, auth_scope: str | None = None
+    ) -> dict[str, Any]:
+        """Create a waybill via the map flow.
+
+        ``auth_scope`` scopes the Playwright auth-state file (and the Redis
+        session-vault key derived from it) to a tenant — e.g. ``"client-7"``
+        — or to ``"infra"`` for API-key-only callers. ``None`` keeps the
+        legacy unscoped path (only for rows whose tenant is unknown).
+        """
         request_id = str(uuid.uuid4())
         correlation_id = (request.correlation_id or generate_correlation_id()).strip()
         batch_id = (request.batch_id or request.session_id or correlation_id).strip()
@@ -134,7 +143,7 @@ class WaybillService:
 
                 try:
                     async with waybill_traffic_controller.slot(mode=mode):
-                        session = await self._create_browser_session(request)
+                        session = await self._create_browser_session(request, auth_scope=auth_scope)
                         waybill_payload = self._build_waybill_payload(request)
 
                         manager_result = await self._solve_waybill_captcha(
@@ -260,7 +269,9 @@ class WaybillService:
                 metadata=metadata,
             )
 
-    async def _create_browser_session(self, request: WaybillMapRequest) -> BrowserSession:
+    async def _create_browser_session(
+        self, request: WaybillMapRequest, auth_scope: str | None = None
+    ) -> BrowserSession:
         await browser_manager.initialize()
         request_auth = request.utcms_auth
         auth_state_key = session_vault.build_account_key(
@@ -272,6 +283,11 @@ class WaybillService:
             username=request_auth.username if request_auth else None,
             national_code=request.vehicle.driver_national_code,
             fallback=getattr(request.vehicle, "plate", None),
+            # Tenant-isolation (C2): scope the auth-state file per tenant so
+            # one tenant's UTCMS session can never be reused by another
+            # tenant's submission. The Redis session-vault key is derived
+            # from this path, so it is scoped as well.
+            scope=auth_scope,
         )
         proxy_info = await get_proxy_rotator().get_next()
         proxy_dict = proxy_info.to_playwright_proxy() if proxy_info else None

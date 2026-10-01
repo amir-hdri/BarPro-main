@@ -14,6 +14,11 @@ from pydantic import BaseModel, Field
 from sqlmodel import select
 
 from app.auth_multitenant import get_current_admin, get_current_user_or_admin
+from app.automation.otp_keys import (
+    normalize_phone_for_otp_key,
+    otp_job_key,
+    otp_phone_key,
+)
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.core.redis_client import redis_manager
@@ -23,8 +28,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/otp", tags=["OTP Forwarder"])
 
+# RETIRED (tenant-isolation C1): the unscoped global key ``rpa:otp:latest`` is
+# no longer written — concurrent OTPs from two tenants could be consumed
+# cross-tenant. The constant stays only so the admin-only /latest endpoint can
+# read (and report the absence of) legacy keys. All automation readers use the
+# job-scoped / phone-scoped keys from app.automation.otp_keys.
 REDIS_OTP_LATEST_KEY = "rpa:otp:latest"
-REDIS_OTP_PHONE_PREFIX = "rpa:otp:phone:"
 REDIS_OTP_CHANNEL = "rpa:otp:channel"
 DEFAULT_OTP_TTL = 300  # 5 minutes
 
@@ -106,17 +115,23 @@ def extract_otp_code(text: str) -> str | None:
 
 
 def clean_phone_number(raw_phone: str) -> str:
-    """Normalize phone number to standard format (e.g. 0912xxxxxxx or 20007777)."""
-    if not raw_phone:
-        return ""
-    digits = re.sub(r"[^\d]", "", normalize_to_english_digits(raw_phone))
-    if digits.startswith("98") and len(digits) > 10:
-        digits = "0" + digits[2:]
-    return digits
+    """Normalize phone number to standard format (e.g. 0912xxxxxxx or 20007777).
+
+    Canonical implementation lives in :mod:`app.automation.otp_keys` so the
+    writer and the automation readers always derive identical Redis keys.
+    """
+    return normalize_phone_for_otp_key(raw_phone)
 
 
 async def store_otp_in_redis(code: str, sender: str, text: str, phone: str = "") -> dict[str, Any]:
-    """Store the extracted OTP in Redis and publish to the pub/sub channel."""
+    """Store the extracted OTP in Redis and publish to the pub/sub channel.
+
+    Tenant-isolation (C1): only tenant-scoped keys are written — the
+    phone-scoped key here and the job-scoped key written by
+    ``submit_manual_otp``. The unscoped global key ``rpa:otp:latest`` is
+    retired and never written, so one tenant's OTP can never be consumed by
+    another tenant's job.
+    """
     now = time.time()
     payload = {
         "code": code,
@@ -131,15 +146,13 @@ async def store_otp_in_redis(code: str, sender: str, text: str, phone: str = "")
     r = await redis_manager.get()
     if r:
         try:
-            await r.set(REDIS_OTP_LATEST_KEY, payload_json, ex=DEFAULT_OTP_TTL)
-            if phone:
-                clean_p = clean_phone_number(phone)
-                if clean_p:
-                    await r.set(f"{REDIS_OTP_PHONE_PREFIX}{clean_p}", payload_json, ex=DEFAULT_OTP_TTL)
+            phone_key = otp_phone_key(phone)
+            if phone_key:
+                await r.set(phone_key, payload_json, ex=DEFAULT_OTP_TTL)
             if sender:
-                clean_s = clean_phone_number(sender)
-                if clean_s:
-                    await r.set(f"{REDIS_OTP_PHONE_PREFIX}{clean_s}", payload_json, ex=DEFAULT_OTP_TTL)
+                sender_key = otp_phone_key(sender)
+                if sender_key:
+                    await r.set(sender_key, payload_json, ex=DEFAULT_OTP_TTL)
             # Publish event for listening subscribers
             await r.publish(REDIS_OTP_CHANNEL, payload_json)
         except Exception as exc:
@@ -186,8 +199,9 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
                 if key in json_data and isinstance(json_data[key], (str, int)):
                     phone = str(json_data[key])
                     break
-    except Exception:
-        pass
+    except Exception as exc:
+        # Never log the body: it may contain the OTP code itself.
+        logger.debug("otp_webhook_json_parse_failed", extra={"extra_fields": {"error": str(exc)}})
 
     # 2. Try form data if not found in JSON
     if not content:
@@ -201,8 +215,8 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
                 if key in form_data:
                     sender = str(form_data[key])
                     break
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("otp_webhook_form_parse_failed", extra={"extra_fields": {"error": str(exc)}})
 
     # 3. Check query parameters
     if not content and request.query_params:
@@ -220,8 +234,9 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
         try:
             raw_body = await request.body()
             content = raw_body.decode("utf-8", errors="ignore").strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            # Never log the body: it may contain the OTP code itself.
+            logger.debug("otp_webhook_raw_body_read_failed", extra={"extra_fields": {"error": str(exc)}})
 
     if not content:
         logger.warning("SMS webhook received with empty content")
@@ -267,8 +282,9 @@ async def submit_manual_otp(
     """Allows an operator or admin to manually submit an OTP code (auth required).
 
     Tenant-isolation (GAP-2): a client may only target a job they own; a
-    client submission without a job_id is rejected (only admins may write
-    the global OTP keys).
+    client submission without a job_id is rejected. Admin submissions without
+    a job_id write only the phone-scoped key (the unscoped global OTP key is
+    retired — see C1).
     """
     code = normalize_to_english_digits(req.code.strip())
     if not code or not (4 <= len(code) <= 8):
@@ -305,7 +321,7 @@ async def submit_manual_otp(
         r = await redis_manager.get()
         if r:
             payload_json = json.dumps(stored, ensure_ascii=False)
-            await r.set(f"rpa:otp:job:{req.job_id}", payload_json, ex=DEFAULT_OTP_TTL)
+            await r.set(otp_job_key(req.job_id), payload_json, ex=DEFAULT_OTP_TTL)
 
     logger.info(
         "manual_otp_submitted",
@@ -324,10 +340,12 @@ async def submit_manual_otp(
 async def get_latest_otp(
     _admin: dict[str, Any] = Depends(get_current_admin),  # noqa: B008
 ) -> dict[str, Any]:
-    """Check the latest OTP received in the last 5 minutes.
+    """Check the legacy global OTP key (admin only).
 
-    Admin-only: the global OTP key carries codes from every tenant's drivers,
-    so it must not be exposed to tenant clients (tenant-isolation GAP-1).
+    The unscoped global key is retired (C1) and no longer written, so this
+    normally reports ``none``; it exists only to observe stray legacy keys.
+    Admin-only: OTP codes belong to tenant drivers and must never be exposed
+    to tenant clients (tenant-isolation GAP-1).
     """
     r = await redis_manager.get()
     if not r:
