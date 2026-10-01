@@ -253,16 +253,16 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
           maxZoom,
           attribution: isGoogle ? "© Google Maps" : "© OpenStreetMap contributors, © CARTO",
         });
-        // Real fallback: Google -> voyager (CARTO) -> dark_all -> OSM (de).
+        // Real fallback: voyager (CARTO) -> dark_all -> OSM (de) -> Google (google sanctioned/blocked in Iran, last resort).
         layer.on("tileerror", () => {
           if (tileLayerRef.current !== layer) return;
           tileErrors.current += 1;
           if (tileErrors.current < 3) return;
           const order = [
-            "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}",
             "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
             "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
             "https://tile.openstreetmap.de/{z}/{x}/{y}.png",
+            "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}",
           ];
           const next = order[order.indexOf(url) + 1] || order[0];
           if (next && next !== url && leafletMap.current === map) addTileLayer(next, 19);
@@ -270,7 +270,7 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
         layer.addTo(map);
         tileLayerRef.current = layer;
       };
-      addTileLayer("https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}");
+      addTileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png");
 
       // Staged size recalculation to prevent blank/grey tiles on conditional mount.
       [50, 200, 500].forEach((delayMs) => {

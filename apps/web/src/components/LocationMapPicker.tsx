@@ -73,7 +73,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
   const geocodeControllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(false);
 
-  const [mapTheme, setMapTheme] = useState<"google" | "voyager" | "dark" | "osm">("google");
+  const [mapTheme, setMapTheme] = useState<"google" | "voyager" | "dark" | "osm">("voyager");
   const [loadingGeocode, setLoadingGeocode] = useState(false);
   const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lng: number }>({
     lat: initialLat,
@@ -159,10 +159,10 @@ export const LocationMapPicker = memo(function LocationMapPicker({
     }
   }, [initialLat, initialLng]);
 
-  // Tile fallback chain: google -> voyager -> dark -> osm
+  // Tile fallback chain: voyager -> dark -> osm -> google (google is sanctioned/blocked in Iran)
   const tileErrorCount = useRef(0);
   const applyTileLayer = useCallback(
-    (L: typeof LType, map: LType.Map, theme: "google" | "voyager" | "dark" | "osm" = "google") => {
+    (L: typeof LType, map: LType.Map, theme: "google" | "voyager" | "dark" | "osm" = "voyager") => {
       if (currentTileLayer.current) {
         currentTileLayer.current.remove();
         currentTileLayer.current = null;
@@ -181,7 +181,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
         if (layer !== currentTileLayer.current) return;
         tileErrorCount.current += 1;
         if (tileErrorCount.current < 3) return;
-        const order: Array<"google" | "voyager" | "dark" | "osm"> = ["google", "voyager", "dark", "osm"];
+        const order: Array<"google" | "voyager" | "dark" | "osm"> = ["voyager", "dark", "osm", "google"];
         const next = order[order.indexOf(theme) + 1] || order[0];
         if (!next || next === theme) return;
         if (process.env.NODE_ENV !== "production") {
@@ -309,7 +309,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
   }, []);
 
   const toggleTheme = async () => {
-    const order: Array<"google" | "voyager" | "dark" | "osm"> = ["google", "voyager", "dark", "osm"];
+    const order: Array<"google" | "voyager" | "dark" | "osm"> = ["voyager", "dark", "osm", "google"];
     const newTheme = order[(order.indexOf(mapTheme) + 1) % order.length];
     setMapTheme(newTheme);
     if (leafletMap.current) {

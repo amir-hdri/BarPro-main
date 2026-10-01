@@ -245,6 +245,33 @@ async def start_shipping(
     except Exception:
         bridge_enabled = False
     if bridge_enabled:
+        # Phase 11: apply the waybill's own origin coordinates via FakeTraveler
+        # BEFORE readback — the mock location must be exactly what the user
+        # pinned on the map for this waybill (state.origin_lat/lng come from
+        # the stored payload). apply_location is fail-closed and verifies the
+        # mock provider registered before returning.
+        from app.android_bridge.controller import AndroidShippingController
+
+        try:
+            controller = AndroidShippingController()
+            await controller.apply_location(state.origin_lat, state.origin_lng)
+            logger.info(
+                "shipping_start_faketraveler_applied job=%s lat=%.6f lng=%.6f",
+                req.job_id,
+                state.origin_lat,
+                state.origin_lng,
+            )
+        except Exception as exc:
+            state.status = "failed"
+            try:
+                await save_shipping_state(state)
+            except Exception:
+                logger.error("shipping_start_apply_state_persist_failed", exc_info=True)
+            raise HTTPException(
+                status_code=503,
+                detail=f"اعمال موقعیت مبدأ در FakeTraveler ناموفق بود: {exc}",
+            ) from exc
+
         from app.services.shipping_travel_service import verify_android_anchor
 
         check = await verify_android_anchor(expected_lat=req.latitude, expected_lng=req.longitude)
@@ -422,6 +449,26 @@ async def finish_shipping(
     except Exception:
         bridge_enabled = False
     if bridge_enabled:
+        # Apply the waybill's own destination coordinates via FakeTraveler
+        # BEFORE readback — the mock location must be exactly what the user
+        # pinned on the map for this waybill.
+        from app.android_bridge.controller import AndroidShippingController
+
+        try:
+            controller = AndroidShippingController()
+            await controller.apply_location(state.dest_lat, state.dest_lng)
+            logger.info(
+                "shipping_finish_faketraveler_applied job=%s lat=%.6f lng=%.6f",
+                req.job_id,
+                state.dest_lat,
+                state.dest_lng,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"اعمال موقعیت مقصد در FakeTraveler ناموفق بود: {exc}",
+            ) from exc
+
         from app.services.shipping_travel_service import verify_android_anchor
 
         check = await verify_android_anchor(expected_lat=req.latitude, expected_lng=req.longitude)
