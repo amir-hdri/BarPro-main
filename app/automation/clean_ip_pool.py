@@ -72,7 +72,7 @@ MAX_PROBE_WORKERS = 35
 CLEAN_IP_SOURCE_MAX_AGE_SECONDS = float(os.getenv("CLEAN_IP_SOURCE_MAX_AGE_SECONDS", "21600"))
 
 USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 )
 
 # Runtime paths for atomic fallback files
@@ -413,29 +413,44 @@ def fetch_geonode_api() -> list[dict[str, Any]]:
 
 
 def fetch_monosans_geojson() -> list[dict[str, Any]]:
-    """Source 5: monosans GeoJSON proxy list on GitHub."""
+    """Source 5: monosans GeoJSON / proxies.json proxy list on GitHub."""
     results: list[dict[str, Any]] = []
-    url = "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies_geolocation/all.json"
-    raw = _safe_fetch(url, timeout=7.0)
+    urls = [
+        "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies.json",
+        "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies_pretty.json",
+    ]
+    raw = None
+    for u in urls:
+        raw = _safe_fetch(u, timeout=7.0)
+        if raw:
+            break
     if not raw:
         return results
     try:
         data = json.loads(raw)
-        for item in data:
-            if item.get("country") == "IR":
-                ip = item.get("ip", "")
-                port = item.get("port", "")
-                if is_valid_public_ip(ip) and is_valid_port(port):
-                    results.append(
-                        {
-                            "protocol": item.get("protocol", "http").lower(),
-                            "ip": ip,
-                            "port": int(port),
-                            "isp": item.get("org", item.get("asn", "monosans IR")),
-                            "city": item.get("city", "Iran"),
-                            "source": "monosans",
-                        }
-                    )
+        if isinstance(data, list):
+            for item in data:
+                geo = item.get("geolocation") or {}
+                country_code = (geo.get("country") or {}).get("iso_code") or item.get("country")
+                if country_code == "IR":
+                    ip = item.get("host") or item.get("ip", "")
+                    port = item.get("port", "")
+                    protocol = item.get("protocol", "http").lower()
+                    asn = item.get("asn") or {}
+                    isp = asn.get("autonomous_system_organization") or item.get("org") or "monosans IR"
+                    city = (geo.get("city") or {}).get("names", {}).get("en") or item.get("city") or "Iran"
+                    if is_valid_public_ip(ip) and is_valid_port(port):
+                        results.append(
+                            {
+                                "protocol": protocol,
+                                "ip": ip,
+                                "port": int(port),
+                                "isp": isp,
+                                "city": city,
+                                "country": "IR",
+                                "source": "monosans",
+                            }
+                        )
     except Exception:
         pass
     return results
@@ -447,49 +462,71 @@ def fetch_proxylist_download() -> list[dict[str, Any]]:
     for ptype in ["http", "https", "socks4", "socks5"]:
         url = f"https://www.proxy-list.download/api/v1/get?type={ptype}&country=IR"
         raw = _safe_fetch(url, timeout=4.0)
-        if raw:
-            for line in raw.splitlines():
-                line = line.strip()
-                if ":" in line:
-                    ip, port = line.split(":", 1)
-                    if is_valid_public_ip(ip) and is_valid_port(port):
-                        results.append(
-                            {
-                                "protocol": ptype,
-                                "ip": ip,
-                                "port": int(port),
-                                "isp": "Proxy-List.download",
-                                "city": "Iran",
-                                "source": "proxy_list_download",
-                            }
-                        )
+        if not raw or "502" in raw or "503" in raw or "<html>" in raw.lower():
+            continue
+        for line in raw.splitlines():
+            line = line.strip()
+            if ":" in line:
+                ip, port = line.split(":", 1)
+                if is_valid_public_ip(ip) and is_valid_port(port):
+                    results.append(
+                        {
+                            "protocol": ptype,
+                            "ip": ip,
+                            "port": int(port),
+                            "isp": "Proxy-List.download",
+                            "city": "Iran",
+                            "country": "IR",
+                            "source": "proxy_list_download",
+                        }
+                    )
     return results
 
 
 def fetch_vakhov_github() -> list[dict[str, Any]]:
     """Source 7: vakhov fresh-proxy-list repository."""
     results: list[dict[str, Any]] = []
-    url = "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/master/proxies.json"
-    raw = _safe_fetch(url, timeout=6.0)
+    urls = [
+        "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/master/proxylist.json",
+        "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/master/proxies.json",
+    ]
+    raw = None
+    for u in urls:
+        raw = _safe_fetch(u, timeout=6.0)
+        if raw:
+            break
     if not raw:
         return results
     try:
         data = json.loads(raw)
-        for item in data:
-            if item.get("code") == "IR" or item.get("country") == "Iran":
-                ip = item.get("ip", "")
-                port = item.get("port", "")
-                if is_valid_public_ip(ip) and is_valid_port(port):
-                    results.append(
-                        {
-                            "protocol": item.get("type", "http").lower(),
-                            "ip": ip,
-                            "port": int(port),
-                            "isp": "vakhov GitHub",
-                            "city": "Iran",
-                            "source": "vakhov",
-                        }
-                    )
+        if isinstance(data, list):
+            for item in data:
+                country_code = (item.get("country_code") or item.get("code") or "").upper()
+                country_name = (item.get("country_name") or item.get("country") or "").lower()
+                if country_code == "IR" or "iran" in country_name:
+                    ip = item.get("ip") or item.get("host", "")
+                    port = item.get("port", "")
+                    if item.get("socks5") == "1":
+                        protocol = "socks5"
+                    elif item.get("socks4") == "1":
+                        protocol = "socks4"
+                    elif isinstance(item.get("type"), str):
+                        protocol = item.get("type", "http").lower()
+                    else:
+                        protocol = "http"
+                    city = item.get("city") or "Iran"
+                    if is_valid_public_ip(ip) and is_valid_port(port):
+                        results.append(
+                            {
+                                "protocol": protocol,
+                                "ip": ip,
+                                "port": int(port),
+                                "isp": "vakhov GitHub",
+                                "city": city,
+                                "country": "IR",
+                                "source": "vakhov",
+                            }
+                        )
     except Exception:
         pass
     return results
@@ -679,21 +716,36 @@ def _parse_source_feed(raw: str, origin: str, isp: str, source: str) -> list[dic
 
 
 def fetch_file_or_env_sources() -> list[dict[str, Any]]:
-    """Load proxies from configured local file (RPA_PROXY_LIST_FILE / CLEAN_IP_SOURCE_FILE).
-
-    On an Iranian node this is the ONLY harvester that can actually produce
-    candidates: every JSON feed host resolves to the 10.10.34.36 filtering
-    sinkhole and is rejected upstream by ``_is_safe_source_url``. See
-    ``.env.example`` for the harvester-publishes / worker-consumes wiring.
-    """
+    """Load proxies from configured local file (RPA_PROXY_LIST_FILE / CLEAN_IP_SOURCE_FILE),
+    or standard local verified proxy outputs."""
     results = []
     source_file = os.getenv("CLEAN_IP_SOURCE_FILE") or os.getenv("RPA_PROXY_LIST_FILE")
-    if source_file and os.path.isfile(source_file):
-        try:
-            with open(source_file, encoding="utf-8") as f:
-                results.extend(_parse_source_feed(f.read(), source_file, "Configured File", "file_source"))
-        except Exception as exc:
-            logger.debug(f"Could not read clean proxy source file {source_file}: {exc}")
+    candidate_paths: list[str] = []
+    if source_file:
+        candidate_paths.append(source_file)
+    else:
+        # Fallback to search standard locations only when no explicit env file is configured
+        candidate_paths.extend(
+            [
+                FILE_WORKING_TXT,
+                os.path.join(PROXIES_RUNTIME_DIR, "working_iran_proxies.txt"),
+                os.path.join(os.path.dirname(BASE_RUNTIME_DIR), "data", "verified_iran_proxies.txt"),
+                os.path.join(
+                    os.path.expanduser("~"), "GitHub", "free-proxy-list", "barpro", "verified_iran_proxies.txt"
+                ),
+            ]
+        )
+
+    seen_files: set[str] = set()
+    for fpath in candidate_paths:
+        if fpath and fpath not in seen_files and os.path.isfile(fpath):
+            seen_files.add(fpath)
+            try:
+                with open(fpath, encoding="utf-8") as f:
+                    feed_results = _parse_source_feed(f.read(), fpath, "Configured File", "file_source")
+                    results.extend(feed_results)
+            except Exception as exc:
+                logger.debug(f"Could not read clean proxy source file {fpath}: {exc}")
 
     # Also check custom URL source if defined
     custom_url = os.getenv("CLEAN_IP_SOURCE_URL")
@@ -749,9 +801,32 @@ def _dedupe_candidates(items: list[dict[str, Any]]) -> dict[str, CleanIPRecord]:
     return candidates_map
 
 
-def aggregate_all_candidates() -> list[CleanIPRecord]:
+# Per-provider harvest cache and TTLs (seconds)
+PROVIDER_HARVEST_TTLS: dict[str, float] = {
+    "File/Env Sources": 180.0,  # 3 minutes: pickup local harvester updates quickly
+    "ProxyScrape APIs": 600.0,  # 10 minutes: avoid API rate limit
+    "Geonode API": 900.0,  # 15 minutes: avoid 429 quota exhaustion
+    "Proxy-List.download": 900.0,  # 15 minutes: backoff/avoid Cloudflare 502
+    "FreeProxy.World": 1200.0,  # 20 minutes: HTML scraping, prevents Cloudflare captcha
+    "vakhov GitHub": 1800.0,  # 30 minutes: hourly upstream commits
+    "Spys Sources": 1800.0,  # 30 minutes: upstream updates every 4-6h
+    "monosans GeoJSON": 3600.0,  # 60 minutes: large JSON payload, hourly commits
+    "GitHub Mirrors": 3600.0,  # 60 minutes: daily/hourly upstream commits
+}
+
+_provider_harvest_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+_harvest_cache_lock = threading.Lock()
+
+
+def clear_harvest_cache() -> None:
+    """Clear in-memory harvester provider cache to force fresh fetches."""
+    with _harvest_cache_lock:
+        _provider_harvest_cache.clear()
+
+
+def aggregate_all_candidates(force_refresh_all: bool = False) -> list[CleanIPRecord]:
     """
-    Run all harvesters in parallel, enforce SSRF security checks,
+    Run harvesters honoring per-provider TTLs, enforce SSRF security checks,
     deduplicate, and return candidate CleanIPRecords.
     """
     harvesters = [
@@ -766,14 +841,34 @@ def aggregate_all_candidates() -> list[CleanIPRecord]:
         ("File/Env Sources", fetch_file_or_env_sources),
     ]
 
+    now = time.time()
+    to_fetch: list[tuple[str, Any]] = []
     raw_items: list[dict[str, Any]] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(harvesters)) as executor:
-        futures = {executor.submit(fn): name for name, fn in harvesters}
-        for fut in concurrent.futures.as_completed(futures):
-            try:
-                raw_items.extend(fut.result())
-            except Exception as exc:
-                logger.debug(f"Harvester error: {futures[fut]}: {exc}")
+
+    with _harvest_cache_lock:
+        for name, fn in harvesters:
+            ttl = PROVIDER_HARVEST_TTLS.get(name, 900.0)
+            cached_entry = _provider_harvest_cache.get(name)
+            if not force_refresh_all and cached_entry and (now - cached_entry[0]) < ttl:
+                raw_items.extend(cached_entry[1])
+            else:
+                to_fetch.append((name, fn))
+
+    if to_fetch:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(to_fetch)) as executor:
+            futures = {executor.submit(fn): name for name, fn in to_fetch}
+            for fut in concurrent.futures.as_completed(futures):
+                name = futures[fut]
+                try:
+                    items = fut.result()
+                    with _harvest_cache_lock:
+                        _provider_harvest_cache[name] = (time.time(), items)
+                    raw_items.extend(items)
+                except Exception as exc:
+                    logger.debug(f"Harvester error: {name}: {exc}")
+                    with _harvest_cache_lock:
+                        if name in _provider_harvest_cache:
+                            raw_items.extend(_provider_harvest_cache[name][1])
 
     return list(_dedupe_candidates(raw_items).values())
 
@@ -1039,6 +1134,7 @@ def _verify_egress_country(candidate: CleanIPRecord, timeout: float = 8.0) -> st
             # therefore treated as weaker evidence by the caller's ranking.
             for endpoint, field_name in (
                 ("https://api.country.is/", "country"),
+                ("https://ipwho.is/", "country_code"),
                 ("http://ip-api.com/json/?fields=countryCode,status", "countryCode"),
             ):
                 try:
@@ -1064,6 +1160,7 @@ def run_screening_cycle(
     max_workers: int = MAX_PROBE_WORKERS,
     max_pool_size: int = 50,
     max_candidates: int = 1000,
+    force_refresh_all: bool = False,
 ) -> list[CleanIPRecord]:
     """
     Perform a complete aggregation → probe → egress-verify → rank cycle.
@@ -1076,10 +1173,37 @@ def run_screening_cycle(
     Updates runtime files and returns sorted verified proxies.
     """
     start_time = time.time()
-    candidates = aggregate_all_candidates()[: max(1, min(max_candidates, 5000))]
-    ir_declared = sum(1 for c in candidates if c.country == "IR")
+    all_candidates = aggregate_all_candidates(force_refresh_all=force_refresh_all)
+
+    # Prioritize candidates: explicit Iranian declarations and verified local sources first,
+    # followed by country-scoped providers, then higher scores.
+    def _candidate_rank(c: CleanIPRecord) -> tuple[int, float]:
+        is_ir = (c.country == "IR") or (bool(c.city and "iran" in c.city.lower()))
+        is_file_source = c.source in ("file_source", "custom_url")
+        is_ir_source = c.source in (
+            "freeproxy_world",
+            "geonode",
+            "spys",
+            "proxyscrape_v4",
+            "proxyscrape_v2",
+            "vakhov",
+            "monosans",
+        )
+        if is_file_source:
+            tier = 0
+        elif is_ir and is_ir_source:
+            tier = 1
+        elif is_ir:
+            tier = 2
+        else:
+            tier = 3
+        return (tier, -c.score)
+
+    all_candidates.sort(key=_candidate_rank)
+    candidates = all_candidates[: max(1, min(max_candidates, 5000))]
+    ir_declared = sum(1 for c in candidates if c.country == "IR" or (c.city and "iran" in c.city.lower()))
     logger.info(
-        f"CleanIPPool: harvested {len(candidates)} unique proxy candidates "
+        f"CleanIPPool: harvested {len(all_candidates)} candidates, screening {len(candidates)} prioritized "
         f"({ir_declared} declared IR by their sources)."
     )
 
@@ -1264,6 +1388,7 @@ class CleanIPPoolManager:
         self._local_cache_time = 0.0
         self._rr_async = 0
         self._rr_sync = 0
+        clear_harvest_cache()
 
     @staticmethod
     def _protocol_filter(allowed_protocols: Iterable[str] | None) -> set[str] | None:
@@ -1536,6 +1661,7 @@ class CleanIPPoolManager:
                 getattr(utcms_config, "CLEAN_IP_MAX_PROBE_WORKERS", MAX_PROBE_WORKERS),
                 getattr(utcms_config, "CLEAN_IP_MAX_POOL", 50),
                 getattr(utcms_config, "CLEAN_IP_MAX_CANDIDATES", 1000),
+                force,
             )
 
             # Store in Redis

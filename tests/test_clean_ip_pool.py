@@ -1127,3 +1127,94 @@ def test_probe_sessions_verify_tls_certificates():
         cip._probe_via_curl_cffi(candidate, cip.LOGIN_PROBE_URL, 20.0)
 
     assert captured["verify"] is True
+
+
+def test_provider_harvest_caching_honors_ttls():
+    """Providers must be cached per-provider according to their TTL, unless force_refresh_all is True."""
+    cip.clear_harvest_cache()
+    mock_spys = MagicMock(return_value=[{"protocol": "http", "ip": "185.100.47.106", "port": 8080, "country": "IR"}])
+    empty_mock = MagicMock(return_value=[])
+
+    with (
+        patch.object(cip, "fetch_spys_sources", mock_spys),
+        patch.object(cip, "fetch_freeproxy_world", empty_mock),
+        patch.object(cip, "fetch_geonode_api", empty_mock),
+        patch.object(cip, "fetch_monosans_geojson", empty_mock),
+        patch.object(cip, "fetch_proxylist_download", empty_mock),
+        patch.object(cip, "fetch_vakhov_github", empty_mock),
+        patch.object(cip, "fetch_proxyscrape_apis", empty_mock),
+        patch.object(cip, "fetch_github_sources", empty_mock),
+        patch.object(cip, "fetch_file_or_env_sources", empty_mock),
+    ):
+        # 1st call: fetches and caches
+        res1 = cip.aggregate_all_candidates()
+        assert mock_spys.call_count == 1
+        assert any(c.ip == "185.100.47.106" for c in res1)
+
+        # 2nd call: within TTL, reuses cache without re-invoking fetch_spys_sources
+        res2 = cip.aggregate_all_candidates(force_refresh_all=False)
+        assert mock_spys.call_count == 1
+        assert any(c.ip == "185.100.47.106" for c in res2)
+
+        # 3rd call with force_refresh_all=True: forces re-fetching
+        res3 = cip.aggregate_all_candidates(force_refresh_all=True)
+        assert mock_spys.call_count == 2
+        assert any(c.ip == "185.100.47.106" for c in res3)
+
+    cip.clear_harvest_cache()
+
+
+def test_run_screening_cycle_prioritizes_iranian_candidates():
+    """Iranian candidates must be screened before generic global mirror candidates."""
+    cip.clear_harvest_cache()
+    global_cand = CleanIPRecord(url="http://1.1.1.1:8080", ip="1.1.1.1", port=8080, source="github_mirror", country="")
+    ir_cand = CleanIPRecord(
+        url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080, source="geonode", country="IR"
+    )
+
+    probed = []
+
+    def mock_probe(c, target, timeout):
+        probed.append(c)
+        return c
+
+    with (
+        patch.object(cip, "aggregate_all_candidates", return_value=[global_cand, ir_cand]),
+        patch.object(cip, "probe_single_proxy", side_effect=mock_probe),
+        patch.object(cip, "_verify_egress_country", return_value="IR"),
+        patch.object(cip, "atomic_write"),
+    ):
+        # With max_candidates=1, only the top priority candidate is probed
+        verified = cip.run_screening_cycle(max_candidates=1, max_pool_size=10)
+        assert len(probed) == 1
+        assert probed[0].ip == "185.100.47.106"  # Iranian candidate got the single screening slot
+        assert len(verified) == 1
+
+
+def test_verify_egress_country_uses_ipwho_is_fallback():
+    """If api.country.is fails or times out, ipwho.is is used to verify Iranian egress."""
+    candidate = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080)
+
+    class _MockSession:
+        def __init__(self, **kwargs):
+            self.headers = {}
+
+        def get(self, url):
+            if "api.country.is" in url:
+                raise TimeoutError("api.country.is timed out")
+            if "ipwho.is" in url:
+                mock_resp = MagicMock()
+                mock_resp.json.return_value = {"country_code": "IR", "country": "Iran"}
+                return mock_resp
+            raise ValueError(f"Unexpected url {url}")
+
+        def close(self):
+            pass
+
+    fake_module = MagicMock()
+    fake_module.requests.Session = _MockSession
+
+    with patch.dict("sys.modules", {"curl_cffi": fake_module, "curl_cffi.requests": fake_module.requests}):
+        country = cip._verify_egress_country(candidate, timeout=5.0)
+
+    assert country == "IR"
