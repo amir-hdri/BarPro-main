@@ -41,6 +41,7 @@ from app.schemas.multitenant import (
     DriverScheduleCreateRequest,
     DriverScheduleResponse,
     DriverScheduleUpdateRequest,
+    DriverTrackingResponse,
     DriverUpdateRequest,
     FuelInquiryCreateRequest,
     FuelInquiryListResponse,
@@ -62,6 +63,7 @@ from app.schemas.multitenant import (
 from app.services.client_service import ClientService
 from app.services.driver_schedule_service import DriverScheduleService
 from app.services.driver_service import DriverService
+from app.services.driver_tracking_service import DriverTrackingService
 from app.services.excel_upload_service import LEGACY_EXCEL_UPLOAD_DISABLED_DETAIL, ExcelUploadService
 from app.services.fuel_inquiry_service import fuel_inquiry_service
 from app.services.plate_service import PlateService
@@ -434,6 +436,15 @@ async def delete_plate(
 ):
     await PlateService.delete_plate(user_context, plate_id, session)
     return None
+
+
+@router.get("/driver-tracking", response_model=DriverTrackingResponse)
+async def get_driver_tracking(
+    user_context: dict = Depends(get_current_user_or_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Per-plate registration tracking for the current 15-day Jalali period."""
+    return await DriverTrackingService.get_driver_tracking(user_context, session)
 
 
 @router.post("/driver-schedules", response_model=DriverScheduleResponse, status_code=status.HTTP_201_CREATED)

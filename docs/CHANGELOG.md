@@ -4,6 +4,20 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### Added
+
+- **Driver tracking — پیگیری راننده‌ها**: new `GET /api/v1/driver-tracking` endpoint and a
+  dedicated tab on the drivers page. Each plate shows ثبت امروز (today's registrations),
+  تعداد هدف ثبت (per-period target), and کل ثبت (period total). Totals are computed over
+  repeating 15-day Jalali periods anchored at ۹ مهر (phase 1: ۹–۲۳ مهر، phase 2: ۲۴ مهر–۸ آبان، …),
+  so کل ثبت returns to zero automatically when a period ends — no scheduled reset needed.
+  Plate controls under each plate: فعال/غیرفعال (status), رفت و برگشت, حمل, plus an editable
+  target count (all via `PUT /api/v1/plates/{id}`). «ثبت» counts jobs with status
+  `success`/`issued`/`in_transit`/`delivered`. New columns on `driver_plates`
+  (`target_count`, `round_trip`, `in_transport`) via Alembic `041_driver_plate_tracking_fields`.
+  Evidence: `tests/test_driver_tracking.py` (10 tests: conversion references, phase boundaries,
+  automatic rollover, today counts, tenant isolation, toggle persistence).
+
 ### Fixed
 
 - **C1 verification follow-up**: retired the last residual write to the legacy

@@ -231,6 +231,11 @@ class DriverPlate(SQLModel, table=True):
     vehicle_type: str | None = Field(default=None, max_length=100)
     status: str = Field(default=DriverStatus.ACTIVE.value, max_length=50, index=True)
     notes: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    # Driver tracking (plate section): per-period registration target and
+    # operational toggles shown under each plate in the tracking view.
+    target_count: int = Field(default=0, sa_column=Column(Integer, nullable=False, default=0))
+    round_trip: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, default=False))
+    in_transport: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, default=False))
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),

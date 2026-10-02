@@ -340,6 +340,7 @@ prefix اصلی app/api/routes/multitenant.py برابر /api/v1 است:
 | Admin clients | GET/POST /admin/clients، PUT/DELETE /admin/clients/{id} |
 | Drivers | POST/GET /drivers، GET/PUT/DELETE /drivers/{id} |
 | Plates | POST/GET /plates، PUT/DELETE /plates/{id} |
+| Driver tracking | GET /driver-tracking — آمار ثبت هر پلاک (ثبت امروز / هدف ثبت / کل ثبت) در دوره ۱۵روزه جلالی جاری |
 | Schedules | POST/GET /driver-schedules، PUT/DELETE by id، POST /driver-schedules/run-due |
 | Waybill jobs | POST/GET /waybill-jobs، GET/PATCH/DELETE by job_id |
 | Job actions | POST retry، POST requeue، GET timeline/logs/screenshot |
@@ -425,7 +426,7 @@ ITMB یک زیرسیستم واقعی و مستقل است و نباید از kn
 |---|---|
 | Client | tenant identity، status، quotas؛ parent راننده/پلاک/job/fuel/batch |
 | Driver | client_id، credential رمزنگاری‌شده، UTCMS identity، status |
-| DriverPlate | client_id، driver_id، plate_number، vehicle_type، active state |
+| DriverPlate | client_id، driver_id، plate_number، vehicle_type، active state، target_count، round_trip، in_transport |
 | DriverSchedule | client_id، driver_id، schedule و execution metadata |
 | WaybillJob | job_id، idempotency_key، client_id، driver_id، status، payload_json، result_json |
 | WaybillTaskLog | job_id و step/status/message برای audit |

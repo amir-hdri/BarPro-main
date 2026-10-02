@@ -77,6 +77,9 @@ class PlateService:
             vehicle_type=request.vehicle_type,
             status=request.status,
             notes=request.notes,
+            target_count=request.target_count or 0,
+            round_trip=bool(request.round_trip),
+            in_transport=bool(request.in_transport),
         )
         session.add(plate)
         await session.commit()

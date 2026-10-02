@@ -6,6 +6,7 @@ import { PlusIcon, TruckIcon, UserCircleIcon } from '@heroicons/react/24/outline
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
+import { DriverTrackingPanel } from '@/components/DriverTrackingPanel';
 import { PlateInput } from '@/components/PlateInput';
 import { toast } from 'react-hot-toast';
 import { api } from '@/lib/api';
@@ -72,7 +73,7 @@ export default function DriversPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'list' | 'add' | 'plates_schedules'>('list');
+  const [activeTab, setActiveTab] = useState<'list' | 'add' | 'plates_schedules' | 'tracking'>('list');
   const dataLoadControllerRef = useRef<AbortController | null>(null);
 
   const { data: drivers = [], isLoading: driversLoading, refetch: refetchDrivers } = useQuery({
@@ -366,6 +367,16 @@ export default function DriversPage() {
                aria-label="پلاک و زمان‌بندی"
              >
                پلاک و زمان‌بندی
+             </button>
+             <button
+               type="button"
+               onClick={() => setActiveTab('tracking')}
+               className={`flex-1 min-w-[130px] shrink-0 rounded-xl py-4 text-xs font-black transition-all touch-target ${
+                 activeTab === 'tracking' ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg' : 'text-slate-400 hover:text-slate-200'
+               }`}
+               aria-label="پیگیری راننده‌ها"
+             >
+               پیگیری راننده‌ها
              </button>
            </div>
 
@@ -749,6 +760,10 @@ export default function DriversPage() {
                 </div>
               </form>
             </section>
+          </div>
+
+          <div className={`${activeTab === 'tracking' ? 'block animate-in fade-in duration-300' : 'hidden xl:block'} xl:order-4 xl:col-start-1`}>
+            <DriverTrackingPanel role={role} />
           </div>
 
         </section>

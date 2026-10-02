@@ -286,6 +286,9 @@ class PlateCreateRequest(BaseModel):
     vehicle_type: str | None = Field(None, max_length=100)
     status: str = Field(default="active", max_length=20)
     notes: str | None = Field(None, max_length=2000)
+    target_count: int = Field(default=0, ge=0, description="تعداد هدف ثبت در هر دوره ۱۵ روزه")
+    round_trip: bool = Field(default=False, description="رفت و برگشت")
+    in_transport: bool = Field(default=False, description="حمل")
 
     @field_validator("plate_number", mode="before")
     @classmethod
@@ -301,6 +304,9 @@ class PlateUpdateRequest(BaseModel):
     vehicle_type: str | None = Field(None, max_length=100)
     status: str | None = Field(None, max_length=20)
     notes: str | None = Field(None, max_length=2000)
+    target_count: int | None = Field(None, ge=0, description="تعداد هدف ثبت در هر دوره ۱۵ روزه")
+    round_trip: bool | None = Field(None, description="رفت و برگشت")
+    in_transport: bool | None = Field(None, description="حمل")
 
     @field_validator("plate_number", mode="before")
     @classmethod
@@ -321,10 +327,47 @@ class PlateResponse(BaseModel):
     vehicle_type: str | None
     status: str
     notes: str | None
+    target_count: int = 0
+    round_trip: bool = False
+    in_transport: bool = False
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TrackingPeriodResponse(BaseModel):
+    """The 15-day Jalali period currently in effect (1-based phase)."""
+
+    phase: int
+    label: str
+    start_jalali: str
+    end_jalali: str
+    start_at: datetime
+    end_at: datetime
+
+
+class DriverTrackingItem(BaseModel):
+    """Per-plate registration tracking for the current 15-day period."""
+
+    plate_id: int
+    plate_number: str
+    driver_id: int
+    driver_name: str
+    vehicle_type: str | None
+    status: str
+    target_count: int
+    round_trip: bool
+    in_transport: bool
+    today_count: int = Field(description="ثبت امروز")
+    period_total: int = Field(description="کل ثبت در دوره جاری")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DriverTrackingResponse(BaseModel):
+    period: TrackingPeriodResponse
+    items: list[DriverTrackingItem]
 
 
 def _normalize_persian_schedule_date(v: str | None) -> str | None:

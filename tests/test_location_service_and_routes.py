@@ -101,3 +101,42 @@ def test_location_favorite_model():
     assert fav.title == "انبار مرکزی"
     assert fav.is_origin is True
     assert fav.is_destination is True
+
+
+@pytest.mark.asyncio
+async def test_reverse_geocode_map_autofill_contract():
+    """Regression for map click auto-fill (item 1).
+
+    ``LocationMapPicker`` calls ``GET /api/v1/locations/reverse-geocode`` and the
+    ``/new`` page fills origin/destination fields from the ``province`` / ``city``
+    / ``district`` / ``address`` keys. Pin that contract on the offline fallback
+    path (no network in tests): a Tehran click must resolve to Tehran with all
+    four keys present.
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    dead_rotator = MagicMock()
+    dead_rotator.get_next = AsyncMock(return_value=None)
+
+    with (
+        patch(
+            "app.services.location_service.aiohttp.ClientSession",
+            side_effect=RuntimeError("no network in tests"),
+        ),
+        patch("app.services.location_service.get_proxy_rotator", return_value=dead_rotator),
+    ):
+        result = await location_service.reverse_geocode(35.6892, 51.3890)
+
+    for key in ("province", "city", "district", "address"):
+        assert key in result, f"map auto-fill needs key: {key}"
+    assert result["province"] == "تهران"
+    assert result["city"] == "تهران"
+    assert result["source"] == "offline_dataset"
+
+
+def test_reverse_geocode_route_registered():
+    """The picker's fetch URL must resolve to a real backend route."""
+    from app.api.routes import location
+
+    paths = [route.path for route in location.router.routes if hasattr(route, "path")]
+    assert "/api/v1/locations/reverse-geocode" in paths

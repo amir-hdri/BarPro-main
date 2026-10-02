@@ -132,6 +132,9 @@ export interface Plate {
   vehicle_type?: string | null;
   status: string;
   notes?: string | null;
+  target_count: number;
+  round_trip: boolean;
+  in_transport: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -142,6 +145,9 @@ export interface PlateCreateRequest {
   vehicle_type?: string;
   status?: string;
   notes?: string;
+  target_count?: number;
+  round_trip?: boolean;
+  in_transport?: boolean;
 }
 
 export interface PlateUpdateRequest {
@@ -149,6 +155,37 @@ export interface PlateUpdateRequest {
   vehicle_type?: string;
   status?: string;
   notes?: string;
+  target_count?: number;
+  round_trip?: boolean;
+  in_transport?: boolean;
+}
+
+export interface TrackingPeriod {
+  phase: number;
+  label: string;
+  start_jalali: string;
+  end_jalali: string;
+  start_at: string;
+  end_at: string;
+}
+
+export interface DriverTrackingItem {
+  plate_id: number;
+  plate_number: string;
+  driver_id: number;
+  driver_name: string;
+  vehicle_type?: string | null;
+  status: string;
+  target_count: number;
+  round_trip: boolean;
+  in_transport: boolean;
+  today_count: number;
+  period_total: number;
+}
+
+export interface DriverTrackingResponse {
+  period: TrackingPeriod;
+  items: DriverTrackingItem[];
 }
 
 export interface DriverSchedule {
