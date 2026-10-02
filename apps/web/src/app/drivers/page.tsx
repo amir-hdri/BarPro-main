@@ -337,11 +337,11 @@ export default function DriversPage() {
       <AppShell>
         <section className="flex flex-col gap-6 md:gap-10 xl:grid xl:grid-cols-[1fr_1.3fr] xl:grid-rows-[auto_auto] xl:items-start">
           
-           <div className="flex xl:hidden rounded-2xl bg-slate-900/60 p-1 border border-white/5 mb-2 shadow-inner backdrop-blur-md overflow-x-auto scrollbar-none flex-nowrap shrink-0">
+           <div className="flex xl:hidden rounded-2xl bg-slate-900/60 p-1 border border-white/5 mb-2 shadow-inner backdrop-blur-md shrink-0">
              <button
                type="button"
                onClick={() => setActiveTab('list')}
-               className={`flex-1 min-w-[110px] shrink-0 rounded-xl py-4 text-xs font-black transition-all touch-target ${
+               className={`flex-1 min-w-0 rounded-xl py-3.5 text-[11px] font-black transition-all touch-target whitespace-nowrap overflow-hidden ${
                  activeTab === 'list' ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg' : 'text-slate-400 hover:text-slate-200'
                }`}
                aria-label="رانندگان ناوگان"
@@ -351,7 +351,7 @@ export default function DriversPage() {
              <button
                type="button"
                onClick={() => setActiveTab('add')}
-               className={`flex-1 min-w-[110px] shrink-0 rounded-xl py-4 text-xs font-black transition-all touch-target ${
+               className={`flex-1 min-w-0 rounded-xl py-3.5 text-[11px] font-black transition-all touch-target whitespace-nowrap overflow-hidden ${
                  activeTab === 'add' ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg' : 'text-slate-400 hover:text-slate-200'
                }`}
                aria-label="ثبت راننده"
@@ -361,7 +361,7 @@ export default function DriversPage() {
              <button
                type="button"
                onClick={() => setActiveTab('plates_schedules')}
-               className={`flex-1 min-w-[130px] shrink-0 rounded-xl py-4 text-xs font-black transition-all touch-target ${
+               className={`flex-1 min-w-0 rounded-xl py-3.5 text-[11px] font-black transition-all touch-target whitespace-nowrap overflow-hidden ${
                  activeTab === 'plates_schedules' ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg' : 'text-slate-400 hover:text-slate-200'
                }`}
                aria-label="پلاک و زمان‌بندی"
@@ -371,7 +371,7 @@ export default function DriversPage() {
              <button
                type="button"
                onClick={() => setActiveTab('tracking')}
-               className={`flex-1 min-w-[130px] shrink-0 rounded-xl py-4 text-xs font-black transition-all touch-target ${
+               className={`flex-1 min-w-0 rounded-xl py-3.5 text-[11px] font-black transition-all touch-target whitespace-nowrap overflow-hidden ${
                  activeTab === 'tracking' ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg' : 'text-slate-400 hover:text-slate-200'
                }`}
                aria-label="پیگیری راننده‌ها"

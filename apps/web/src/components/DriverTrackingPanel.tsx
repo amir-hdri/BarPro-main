@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 
@@ -11,6 +11,14 @@ import type {
   DriverTrackingResponse,
   PlateUpdateRequest,
 } from '@/lib/types';
+
+/** Days left until the period ends; backend sends naive UTC, so parse as UTC. */
+function remainingDaysLabel(endAt: string): string | null {
+  const end = new Date(endAt.endsWith('Z') ? endAt : `${endAt}Z`);
+  const ms = end.getTime() - Date.now();
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  return `${toPersianDigits(Math.ceil(ms / 86400000))} روز مانده به پایان دوره`;
+}
 
 function Toggle({
   label,
@@ -32,6 +40,7 @@ function Toggle({
       type="button"
       onClick={onToggle}
       disabled={disabled}
+      aria-pressed={checked}
       className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold transition touch-target disabled:opacity-50 ${
         checked
           ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
@@ -55,8 +64,13 @@ function TrackingCard({
   onUpdate: (plateId: number, patch: PlateUpdateRequest) => Promise<void>;
   saving: boolean;
 }) {
-  const [targetDraft, setTargetDraft] = useState<string>(String(item.target_count ?? 0));
   const target = item.target_count ?? 0;
+  const [targetDraft, setTargetDraft] = useState<string>(String(target));
+  // Keep the draft in sync when the server-side target changes (save +
+  // refetch); while typing, no refetch is in flight so the draft is safe.
+  useEffect(() => {
+    setTargetDraft(String(item.target_count ?? 0));
+  }, [item.target_count]);
   const progress = target > 0 ? Math.min(100, Math.round((item.period_total / target) * 100)) : 0;
 
   const stats = [
@@ -145,15 +159,18 @@ function TrackingCard({
         }}
       >
         <label className="text-xs font-bold text-slate-400">تعداد هدف ثبت (دوره):</label>
-        <input
-          type="number"
-          min={0}
-          value={targetDraft}
-          onChange={(event) => setTargetDraft(event.target.value)}
-          disabled={saving}
-          className="field w-24 !py-2 text-center"
-          dir="ltr"
-        />
+        <div className="w-24 shrink-0">
+          <input
+            type="number"
+            min={0}
+            value={targetDraft}
+            onChange={(event) => setTargetDraft(event.target.value)}
+            disabled={saving}
+            className="field !py-2 text-center"
+            dir="ltr"
+            aria-label="تعداد هدف ثبت دوره"
+          />
+        </div>
         <button
           type="submit"
           disabled={saving}
@@ -218,13 +235,25 @@ export function DriverTrackingPanel({ role }: { role: string | null }) {
       </div>
 
       {isLoading ? (
-        <p className="mt-6 text-sm text-slate-400">در حال بارگذاری آمار پیگیری…</p>
+        <div className="mt-4 grid gap-4" aria-label="در حال بارگذاری">
+          {[1, 2].map((item) => (
+            <div key={item} className="h-48 skeleton rounded-2xl" />
+          ))}
+        </div>
       ) : isError || !tracking ? (
         <p className="mt-6 text-sm text-rose-400">خطا در دریافت اطلاعات پیگیری. دوباره تلاش کنید.</p>
       ) : (
         <>
           <div className="mt-4 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3">
-            <div className="text-sm font-black text-cyan-300">{tracking.period.label}</div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-black text-cyan-300">{tracking.period.label}</div>
+              {(() => {
+                const remaining = remainingDaysLabel(tracking.period.end_at);
+                return remaining ? (
+                  <div className="text-xs font-bold text-slate-400">{remaining}</div>
+                ) : null;
+              })()}
+            </div>
             <div className="mt-1 text-xs text-slate-400">
               کل ثبت در پایان هر دوره ۱۵ روزه به‌صورت خودکار صفر می‌شود.
             </div>
