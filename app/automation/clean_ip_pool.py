@@ -351,6 +351,7 @@ def fetch_spys_sources() -> list[dict[str, Any]]:
                                 "port": int(port),
                                 "isp": "Spys.one / Spys.me",
                                 "city": "Iran",
+                                "country": "IR",
                                 "source": "spys",
                             }
                         )
@@ -375,6 +376,7 @@ def fetch_freeproxy_world() -> list[dict[str, Any]]:
                         "port": int(port),
                         "isp": "FreeProxy.World",
                         "city": "Iran",
+                        "country": "IR",
                         "source": "freeproxy_world",
                     }
                 )
@@ -404,6 +406,7 @@ def fetch_geonode_api() -> list[dict[str, Any]]:
                         "port": int(port),
                         "isp": isp,
                         "city": city,
+                        "country": "IR",
                         "source": "geonode",
                     }
                 )
@@ -555,6 +558,7 @@ def fetch_proxyscrape_apis() -> list[dict[str, Any]]:
                             "port": int(port),
                             "isp": (p.get("ip_data") or {}).get("isp", "ProxyScrape v4"),
                             "city": (p.get("ip_data") or {}).get("city", "Tehran"),
+                            "country": "IR",
                             "source": "proxyscrape_v4",
                         }
                     )
@@ -580,6 +584,7 @@ def fetch_proxyscrape_apis() -> list[dict[str, Any]]:
                             "port": int(port),
                             "isp": "ProxyScrape v2",
                             "city": "Iran",
+                            "country": "IR",
                             "source": "proxyscrape_v2",
                         }
                     )
@@ -666,6 +671,7 @@ def _parse_proxy_line(line: str) -> dict[str, Any] | None:
         "ip": ip,
         "port": int(port),
         "city": "Iran",
+        "country": "IR",
     }
 
 
