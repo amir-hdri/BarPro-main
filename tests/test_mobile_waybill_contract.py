@@ -1,1 +1,0 @@
-test_mobile_waybill_bot.py

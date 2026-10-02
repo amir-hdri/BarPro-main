@@ -1,7 +1,10 @@
+from datetime import UTC, datetime
+
 import pytest
 from playwright.async_api import async_playwright
 
 from app.automation.fuel_scraper import get_current_jalali, parse_plate
+from app.core.jalali import gregorian_to_jalali
 
 
 def test_parse_plate():
@@ -28,8 +31,13 @@ def test_parse_plate():
 
 def test_get_current_jalali():
     year, month = get_current_jalali()
-    assert 1397 <= year <= 1405
+    assert 1397 <= year
     assert 1 <= month <= 12
+    # No hardcoded upper year bound (the old `<= 1405` would start failing on
+    # 1406-01-01): cross-check against today's date instead. ±1 tolerates the
+    # Tehran-midnight boundary between the two clock reads.
+    expected_year, _, _ = gregorian_to_jalali(*datetime.now(UTC).timetuple()[:3])
+    assert abs(year - expected_year) <= 1
 
 
 @pytest.mark.asyncio
