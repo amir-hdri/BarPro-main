@@ -15,8 +15,9 @@ All notable changes to the UTCMS Automation System.
   target count (all via `PUT /api/v1/plates/{id}`). «ثبت» counts jobs with status
   `success`/`issued`/`in_transit`/`delivered`. New columns on `driver_plates`
   (`target_count`, `round_trip`, `in_transport`) via Alembic `041_driver_plate_tracking_fields`.
-  Evidence: `tests/test_driver_tracking.py` (10 tests: conversion references, phase boundaries,
-  automatic rollover, today counts, tenant isolation, toggle persistence).
+  Evidence: `tests/test_driver_tracking.py` (12 tests: conversion references, phase boundaries,
+  exact Tehran-midnight edges, Jalali new-year crossover, automatic rollover,
+  today counts, tenant isolation, toggle persistence).
 
 ### Fixed
 
