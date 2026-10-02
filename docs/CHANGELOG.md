@@ -4,6 +4,17 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### Fixed — Offline audit follow-up
+
+- Replaced the enterprise example's removed exception and workflow helpers with
+  `UTCMSException`, `ErrorCode`, `WorkflowState`, and `resilient_step`. Its executable
+  demo now uses `httpx.MockTransport` for a read-only job lookup; it never submits
+  a waybill or treats an observed status as independent registration evidence.
+- Aligned OpenAPI with the existing `2.9.17-unreleased` development label and
+  refreshed current migration references to `041_driver_plate_tracking_fields`.
+  Removed fixed current-suite count assertions; dated historical runs remain
+  snapshots, and deployment status still requires separate runtime verification.
+
 ### Added
 
 - **Driver tracking — پیگیری راننده‌ها**: new `GET /api/v1/driver-tracking` endpoint and a
@@ -233,7 +244,10 @@ All notable changes to the UTCMS Automation System.
 - **GPS Target Architecture Migration Plan (`docs/ANDROID_CLIENT_IMPLEMENTATION_PLAN.md`)**:
   Documented the future migration of GPS shipping from Python HTTP emulation to FakeTraveler location injection (`cl.coders.faketraveler` via `geo:` Intent) driven by official UTCMS app in Redroid. Enforced security boundary: no `privileged: true` in containers.
 - **Test Suite Pass**:
-  Full test regression snapshot at release time: 100/100 in the release subset locally and in CI. Per-checkout counts are authoritative — current full suite: 1373 passed, 3 skipped (measured 2026-09-16, `tests/test_e2e_bot.py` excluded).
+  Historical regression snapshots: 100/100 in the release subset locally and in CI;
+  1373 passed, 3 skipped on 2026-09-16 with `tests/test_e2e_bot.py` excluded.
+  These counts are not a current full-suite or deployment gate; re-run the required
+  checks on the checkout being evaluated and record exclusions explicitly.
 
 ## [2.9.13] - 2026-09-14
 

@@ -6,12 +6,11 @@ import asyncio
 import hashlib
 import json
 import logging
-import math
 import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -676,7 +675,7 @@ class UtcmsMobileClient:
         document_id: str | int,
         *,
         speed: Any = 0,
-        altitude: Any = 0,
+        altitude: Any = 1000,
         longitude: Any,
         latitude: Any,
         start_date: str,
@@ -684,6 +683,13 @@ class UtcmsMobileClient:
     ) -> dict[str, Any]:
         if not allow_live_submit:
             raise PermissionError("ALLOW_LIVE_SUBMIT must be explicitly enabled for mobile shipping mutation")
+        from app.automation.shipping_contract import shipping_number, utc_shipping_timestamp
+
+        start_date = utc_shipping_timestamp(start_date)
+        latitude = shipping_number(latitude, -90, 90, "latitude")
+        longitude = shipping_number(longitude, -180, 180, "longitude")
+        speed = shipping_number(speed, 0, 400, "speed")
+        altitude = shipping_number(altitude, -500, 10000, "altitude")
         parsed_doc_id = int(str(document_id).strip()) if str(document_id).strip().isdigit() else document_id
         return await self._post(
             "/Document/RegisterStartOfShipping",
@@ -704,124 +710,12 @@ class UtcmsMobileClient:
         if not allow_live_submit:
             raise PermissionError("ALLOW_LIVE_SUBMIT must be explicitly enabled for mobile shipping mutation")
         parsed_doc_id = int(str(document_id).strip()) if str(document_id).strip().isdigit() else document_id
-        # Heterogeneous GPS point dicts: values are floats, strings and ints.
-        formatted_list: list[dict[str, Any]] = []
-        if isinstance(gps_list, list):
-            for pt in gps_list:
-                if isinstance(pt, dict):
-                    # gps_list is untyped input: extracted coordinates are dynamic.
-                    lat: Any = pt.get("Latitude") if pt.get("Latitude") is not None else pt.get("lat")
-                    lon: Any = (
-                        pt.get("Longitude") if pt.get("Longitude") is not None else (pt.get("lon") or pt.get("lng"))
-                    )
-                    spd: Any = pt.get("Speed") if pt.get("Speed") is not None else pt.get("speed", 0)
-                    alt: Any = pt.get("Altitude") if pt.get("Altitude") is not None else pt.get("alt", 0)
-                    fallback_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                    dt = pt.get("Date") or pt.get("date") or pt.get("DateTime") or pt.get("ts") or fallback_ts
-                    pt_type = (
-                        pt.get("Type") if pt.get("Type") is not None else (pt.get("type") or pt.get("waypoint_type"))
-                    )
-                    # UTCMS gpsList only accepts Type 2 (intermediate waypoint) and Type 3 (destination).
-                    # If Type 1 is passed, map it to Type 2 so it is treated as a valid waypoint.
-                    if pt_type == 1 or str(pt_type) == "1":
-                        resolved_type = 2
-                    elif pt_type is not None:
-                        resolved_type = int(pt_type)
-                    else:
-                        resolved_type = 3
-                    item = {
-                        "Latitude": float(lat) if lat is not None else 0.0,
-                        "Longitude": float(lon) if lon is not None else 0.0,
-                        "latitude": float(lat) if lat is not None else 0.0,
-                        "longitude": float(lon) if lon is not None else 0.0,
-                        "Speed": float(spd),
-                        "speed": float(spd),
-                        "Altitude": float(alt),
-                        "altitude": float(alt),
-                        "Date": str(dt),
-                        "date": str(dt),
-                        "DateTime": str(dt),
-                        "Type": resolved_type,
-                        "type": resolved_type,
-                    }
-                    formatted_list.append(item)
+        from app.automation.shipping_contract import prepare_shipping_trace
 
-        # UTCMS Rule 4012: Minimum required shipping distance is strictly 2.0 km.
-        # ('برای ثبت پایان حمل، شما حداقل باید 2 کیلومتر طی کرده باشید')
-        # If the provided points sum to less than 2.05 km, inject a realistic intermediate waypoint
-        # with Type 2 to ensure the cumulative GPS track meets UTCMS's physical threshold.
-        if len(formatted_list) >= 2:
-            total_dist = 0.0
-            for i in range(len(formatted_list) - 1):
-                p1 = formatted_list[i]
-                p2 = formatted_list[i + 1]
-                lat1, lon1 = p1["Latitude"], p1["Longitude"]
-                lat2, lon2 = p2["Latitude"], p2["Longitude"]
-                rlat1, rlat2 = math.radians(lat1), math.radians(lat2)
-                dlat = math.radians(lat2 - lat1)
-                dlon = math.radians(lon2 - lon1)
-                a = math.sin(dlat / 2) ** 2 + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlon / 2) ** 2
-                total_dist += 6371.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-            if total_dist < 2.05:
-                p_first = formatted_list[0]
-                p_last = formatted_list[-1]
-                lat1, lon1 = p_first["Latitude"], p_first["Longitude"]
-                lat2, lon2 = p_last["Latitude"], p_last["Longitude"]
-                rlat1, rlat2 = math.radians(lat1), math.radians(lat2)
-                dlat = math.radians(lat2 - lat1)
-                dlon = math.radians(lon2 - lon1)
-                a = math.sin(dlat / 2) ** 2 + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlon / 2) ** 2
-                d = 6371.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-                target_l = 2.15
-                h = math.sqrt(max(0.01, (target_l / 2) ** 2 - (d / 2) ** 2))
-                lat_m = (lat1 + lat2) / 2
-                lon_m = (lon1 + lon2) / 2
-                cos_lat = math.cos(math.radians(lat_m))
-                vy = (lat2 - lat1) * 111.0
-                vx = (lon2 - lon1) * 111.0 * cos_lat
-                norm = math.sqrt(vx * vx + vy * vy)
-                if norm < 1e-6:
-                    lat_w = lat1 + 0.01
-                    lon_w = lon1 + 0.01
-                else:
-                    ny = -vx / norm
-                    nx = vy / norm
-                    dlat_deg = (h * ny) / 111.0
-                    dlon_deg = (h * nx) / (111.0 * (cos_lat if abs(cos_lat) > 1e-4 else 1.0))
-                    lat_w = lat_m + dlat_deg
-                    lon_w = lon_m + dlon_deg
-
-                t1_str = p_first.get("Date") or p_first.get("date")
-                t2_str = p_last.get("Date") or p_last.get("date")
-                try:
-                    t1 = datetime.fromisoformat(str(t1_str).replace("Z", "+00:00"))
-                    t2 = datetime.fromisoformat(str(t2_str).replace("Z", "+00:00"))
-                    t_mid = t1 + (t2 - t1) / 2
-                    mid_iso = t_mid.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                except Exception:
-                    mid_iso = (datetime.now(UTC) - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-
-                detour_point = {
-                    "Latitude": float(lat_w),
-                    "Longitude": float(lon_w),
-                    "latitude": float(lat_w),
-                    "longitude": float(lon_w),
-                    "Speed": 35.0,
-                    "speed": 35.0,
-                    "Altitude": 1000.0,
-                    "altitude": 1000.0,
-                    "Date": mid_iso,
-                    "date": mid_iso,
-                    "DateTime": mid_iso,
-                    "Type": 2,
-                    "type": 2,
-                }
-                formatted_list.insert(-1, detour_point)
-
+        formatted_list = prepare_shipping_trace(gps_list)
         return await self._post(
             "/Document/RegisterEndOfShipping",
-            {"DocId": parsed_doc_id, "docId": parsed_doc_id, "gpsList": formatted_list or gps_list},
+            {"DocId": parsed_doc_id, "docId": parsed_doc_id, "gpsList": formatted_list},
         )
 
     async def start_shipping_with_gps(
@@ -853,7 +747,7 @@ class UtcmsMobileClient:
         try:
             return await self._post("/Document/StartShippingWithGps", body)
         except UtcmsMobileApiError as exc:
-            if getattr(exc, "status_code", None) == 404 or "404" in str(exc):
+            if getattr(exc, "status_code", None) == 404:
                 logger.info("StartShippingWithGps 404; falling back to RegisterStartOfShipping")
                 # UTCMS-bound timestamps are strictly UTC ISO (CRITICAL_RULES):
                 # Tehran-local-naive here would shift StartDate 3.5h into the
@@ -900,7 +794,7 @@ class UtcmsMobileClient:
         try:
             return await self._post("/Document/FinishShippingWithGps", body)
         except UtcmsMobileApiError as exc:
-            if getattr(exc, "status_code", None) == 404 or "404" in str(exc):
+            if getattr(exc, "status_code", None) == 404:
                 logger.info("FinishShippingWithGps 404 (endpoint removed on UTCMS); returning success stub")
                 return {"resultCode": 200, "resultMessage": "FinishShippingWithGps bypassed", "obj": {"success": True}}
             raise

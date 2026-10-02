@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.android_bridge.client import AndroidBridge, BridgeConfig, BridgeError, CommandRunner, _run_command
@@ -81,7 +81,7 @@ class AdbLocationObserver:
         state = await self._adb("get-state")
         if state != "device":
             raise BridgeError("device_not_ready")
-        observed_at = datetime.now(UTC)
+        read_started_at = datetime.now(UTC)
         dump = await self._adb("shell", "dumpsys", "location")
         if not dump or "location" not in dump.lower():
             raise BridgeError("location_readback_unavailable")
@@ -89,7 +89,9 @@ class AdbLocationObserver:
         if parsed is None:
             raise BridgeError("location_readback_unavailable")
         provider, lat, lon, is_mock, age_s = parsed
-        if age_s is not None and age_s > self._max_age_s:
+        if age_s is None:
+            raise BridgeError("location_fix_timestamp_missing")
+        if age_s > self._max_age_s:
             raise BridgeError("location_readback_stale")
         # sampled_at == observed_at when the dump carries no fix timestamp:
         # documented approximation, never back-dated.
@@ -99,8 +101,8 @@ class AdbLocationObserver:
             serial=self.config.serial,
             provider=provider,
             is_mock=is_mock,
-            sampled_at=observed_at,
-            observed_at=observed_at,
+            sampled_at=read_started_at - timedelta(seconds=age_s),
+            observed_at=datetime.now(UTC),
         )
 
     @staticmethod
@@ -112,40 +114,31 @@ class AdbLocationObserver:
         last bare ``lat,lon`` pair. Age is extracted from ``age=…s`` / ``elapsed=…``
         hints when present.
         """
-        candidates: list[tuple[str, float, float]] = []
-        for match in _LOCATION_LINE.finditer(dump):
-            try:
-                candidates.append((match.group("provider"), float(match.group("lat")), float(match.group("lon"))))
-            except ValueError:
+        candidates: list[tuple[str, float, float, bool, float | None]] = []
+        # A mock/FakeTraveler marker often appears on its OWN line (dumpsys prints
+        # "Mocked by <pkg>" as a separate section, not on the fix line), so a
+        # dump-level hint must also count — otherwise a legitimately mocked fix
+        # reads is_mock=False and the fail-closed anchor read-back wrongly rejects it.
+        dump_mock = bool(_MOCK_HINT.search(dump))
+        for line in dump.splitlines():
+            # Coordinates, mock marker and age must come from the same fix.
+            match = _LOCATION_LINE.search(line)
+            if match:
+                provider = match.group("provider")
+                lat, lon = float(match.group("lat")), float(match.group("lon"))
+            else:
+                pair = _LATLON_PAIR.search(line)
+                if pair is None or "Location[" not in line:
+                    continue
+                provider_match = re.search(r"Location\[(\w+)", line)
+                provider = provider_match.group(1) if provider_match else "unknown"
+                lat, lon = float(pair.group("lat")), float(pair.group("lon"))
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
                 continue
-        provider = "fused"
-        lat: float | None = None
-        lon: float | None = None
-        if candidates:
-            provider, lat, lon = candidates[-1]
-        else:
-            pairs = list(_LATLON_PAIR.finditer(dump))
-            if not pairs:
-                return None
-            try:
-                lat, lon = float(pairs[-1].group("lat")), float(pairs[-1].group("lon"))
-            except ValueError:
-                return None
-        # lat/lon are float (not None) on every path that reaches here:
-        # the candidates branch assigns floats, the pairs branch returns
-        # None instead of leaving them unset.
-        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
-            return None
-        is_mock = bool(_MOCK_HINT.search(dump))
-        age_s: float | None = None
-        age_matches = re.findall(r"age[=:]\s*(\d+(?:\.\d+)?)\s*s", dump, re.IGNORECASE)
-        if age_matches:
-            try:
-                # Age belongs to the chosen (last) fix, not the first line.
-                age_s = float(age_matches[-1])
-            except ValueError:
-                age_s = None
-        return provider, lat, lon, is_mock, age_s
+            age = re.search(r"age[=:]\s*(\d+(?:\.\d+)?)\s*s", line, re.IGNORECASE)
+            age_s = float(age.group(1)) if age else None
+            candidates.append((provider, lat, lon, bool(_MOCK_HINT.search(line)) or dump_mock, age_s))
+        return candidates[-1] if candidates else None
 
     def as_callable(self) -> Any:
         """Return ``observe`` as the ``location_observer`` callable providers expect."""

@@ -113,6 +113,7 @@ async def test_auto_complete_shipping_4013_sets_backoff():
         status="in_transit",
         dest_lat=35.23,
         dest_lng=58.47,
+        created_at="2026-09-28T15:50:00+00:00",
         estimated_end_at="2026-09-28T15:55:00+00:00",
     )
 
@@ -125,6 +126,7 @@ async def test_auto_complete_shipping_4013_sets_backoff():
         job_id="job-4013",
         driver_id=6,
         status="in_transit",
+        document_id="228000000",
         result_json={},
     )
 
@@ -141,6 +143,9 @@ async def test_auto_complete_shipping_4013_sets_backoff():
     mock_session.get.return_value = mock_driver
 
     with (
+        patch("app.automation.gps_shipping_manager._acquire_completion_claim", AsyncMock(return_value="claim-token")),
+        patch("app.automation.gps_shipping_manager._release_completion_claim", AsyncMock()),
+        patch("app.core.config.utcms_config.ALLOW_LIVE_SUBMIT", True),
         patch("app.automation.gps_shipping_manager.load_shipping_state", AsyncMock(return_value=state)),
         patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()) as mock_save,
         patch("app.automation.gps_shipping_manager.get_or_login_client", AsyncMock(return_value=mock_client)),
@@ -167,6 +172,7 @@ async def test_auto_complete_shipping_429_sets_rate_limit_backoff():
         status="in_transit",
         dest_lat=35.23,
         dest_lng=58.47,
+        created_at="2026-09-28T15:50:00+00:00",
         estimated_end_at="2026-09-28T15:55:00+00:00",
     )
 
@@ -179,6 +185,7 @@ async def test_auto_complete_shipping_429_sets_rate_limit_backoff():
         job_id="job-429",
         driver_id=6,
         status="in_transit",
+        document_id="228000000",
         result_json={},
     )
 
@@ -195,6 +202,9 @@ async def test_auto_complete_shipping_429_sets_rate_limit_backoff():
     mock_session.get.return_value = mock_driver
 
     with (
+        patch("app.automation.gps_shipping_manager._acquire_completion_claim", AsyncMock(return_value="claim-token")),
+        patch("app.automation.gps_shipping_manager._release_completion_claim", AsyncMock()),
+        patch("app.core.config.utcms_config.ALLOW_LIVE_SUBMIT", True),
         patch("app.automation.gps_shipping_manager.load_shipping_state", AsyncMock(return_value=state)),
         patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()),
         patch("app.automation.gps_shipping_manager.get_or_login_client", AsyncMock(return_value=mock_client)),
@@ -311,6 +321,7 @@ async def test_auto_complete_shipping_4012_sets_backoff():
         status="in_transit",
         dest_lat=35.23,
         dest_lng=58.47,
+        created_at="2026-09-28T15:50:00+00:00",
         estimated_end_at="2026-09-28T15:55:00+00:00",
     )
 
@@ -323,6 +334,7 @@ async def test_auto_complete_shipping_4012_sets_backoff():
         job_id="job-4012",
         driver_id=6,
         status="in_transit",
+        document_id="228000000",
         result_json={},
     )
 
@@ -339,6 +351,9 @@ async def test_auto_complete_shipping_4012_sets_backoff():
     mock_session.get.return_value = mock_driver
 
     with (
+        patch("app.automation.gps_shipping_manager._acquire_completion_claim", AsyncMock(return_value="claim-token")),
+        patch("app.automation.gps_shipping_manager._release_completion_claim", AsyncMock()),
+        patch("app.core.config.utcms_config.ALLOW_LIVE_SUBMIT", True),
         patch("app.automation.gps_shipping_manager.load_shipping_state", AsyncMock(return_value=state)),
         patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()) as mock_save,
         patch("app.automation.gps_shipping_manager.get_or_login_client", AsyncMock(return_value=mock_client)),

@@ -329,16 +329,17 @@ async def test_c3_shipping_login_admin_keeps_unscoped_vault(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_c4_other_tenant_cannot_squat_shipping_lock(monkeypatch):
-    """Ownership failure (404) -> the mutation lock is never acquired."""
+    """Ownership failure (404) -> the mutation (completion-claim) lock is never acquired."""
     monkeypatch.setattr(sg_mod.utcms_config, "ALLOW_LIVE_SUBMIT", True)
 
     async def fake_ownership(job_id, user_context):
         raise _HTTPException(status_code=404, detail="not found")
 
     monkeypatch.setattr(sg_mod, "_get_job_and_driver", fake_ownership)
-    acquire = AsyncMock(return_value=True)
+    acquire = AsyncMock(return_value="tok")
     release = AsyncMock()
-    monkeypatch.setattr(sg_mod, "rpa_runtime", SimpleNamespace(acquire_lock=acquire, release_lock=release))
+    monkeypatch.setattr(sg_mod, "_acquire_completion_claim", acquire)
+    monkeypatch.setattr(sg_mod, "_release_completion_claim", release)
 
     handler = AsyncMock(return_value={"ok": True})
     wrapped = sg_mod._shipping_mutation_lock(handler)
@@ -353,7 +354,7 @@ async def test_c4_other_tenant_cannot_squat_shipping_lock(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_c4_owner_acquires_lock_only_after_ownership_check(monkeypatch):
-    """Happy path: ownership check -> lock acquire -> handler -> lock release."""
+    """Happy path: ownership check -> completion-claim acquire -> handler -> release."""
     monkeypatch.setattr(sg_mod.utcms_config, "ALLOW_LIVE_SUBMIT", True)
     order: list[str] = []
 
@@ -361,21 +362,23 @@ async def test_c4_owner_acquires_lock_only_after_ownership_check(monkeypatch):
         order.append("ownership")
         return ({}, None)
 
-    async def fake_acquire(key, ttl):
+    async def fake_acquire(job_id):
         order.append("acquire")
-        assert key == "lock:shipping:job_x"
-        return True
+        assert job_id == "job_x"
+        return "tok"
 
-    async def fake_release(key):
+    async def fake_release(job_id, token):
         order.append("release")
-        assert key == "lock:shipping:job_x"
+        assert job_id == "job_x"
+        assert token == "tok"
 
     async def fake_handler(req, user_context):
         order.append("handler")
         return {"ok": True}
 
     monkeypatch.setattr(sg_mod, "_get_job_and_driver", fake_ownership)
-    monkeypatch.setattr(sg_mod, "rpa_runtime", SimpleNamespace(acquire_lock=fake_acquire, release_lock=fake_release))
+    monkeypatch.setattr(sg_mod, "_acquire_completion_claim", fake_acquire)
+    monkeypatch.setattr(sg_mod, "_release_completion_claim", fake_release)
 
     wrapped = sg_mod._shipping_mutation_lock(fake_handler)
     result = await wrapped(SimpleNamespace(job_id="job_x"), {"role": "client"})
@@ -386,18 +389,15 @@ async def test_c4_owner_acquires_lock_only_after_ownership_check(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_c4_lock_contention_still_rejected_for_owner(monkeypatch):
-    """The mutex semantics are unchanged: a second owner call gets 409."""
+    """The mutex semantics are unchanged: a second owner call (claim held) gets 409."""
     monkeypatch.setattr(sg_mod.utcms_config, "ALLOW_LIVE_SUBMIT", True)
 
     async def fake_ownership(job_id, user_context):
         return ({}, None)
 
     monkeypatch.setattr(sg_mod, "_get_job_and_driver", fake_ownership)
-    monkeypatch.setattr(
-        sg_mod,
-        "rpa_runtime",
-        SimpleNamespace(acquire_lock=AsyncMock(return_value=False), release_lock=AsyncMock()),
-    )
+    monkeypatch.setattr(sg_mod, "_acquire_completion_claim", AsyncMock(return_value=None))
+    monkeypatch.setattr(sg_mod, "_release_completion_claim", AsyncMock())
 
     wrapped = sg_mod._shipping_mutation_lock(AsyncMock(return_value={"ok": True}))
     with pytest.raises(_HTTPException) as exc_info:

@@ -124,8 +124,10 @@ def test_shipping_routes_fail_closed_guard_when_proxy_none() -> None:
 
     assert "proxy_url is None" in start_fn_src, "/start must explicitly guard against proxy_url is None in production"
     assert "proxy_url is None" in finish_fn_src, "/finish must explicitly guard against proxy_url is None in production"
-    assert "force_reauth=True" in start_fn_src
-    assert "force_reauth=True" in finish_fn_src
+    # Shipping mutations intentionally REUSE the Session Vault (force_reauth=False)
+    # to avoid UTCMS HTTP 429 login lockouts — see
+    # test_real_start_handler_uses_vault_and_only_start_endpoint. A fresh login per
+    # mutation was the pre-vault behavior and must not be reintroduced here.
 
 
 def test_location_coordinates_never_fall_back_to_tehran_for_unknown_city() -> None:

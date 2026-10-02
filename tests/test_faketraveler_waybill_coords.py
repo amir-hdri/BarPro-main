@@ -32,6 +32,25 @@ def faketraveler_runtime(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         dest_lng=50.90000,
         distance_km=70,
         waypoints=[],
+        # The finish tests flip status to "in_transit"; a real in_transit trip
+        # already carries a past physical ETA (shipping_wait_reason passes) and
+        # the origin Type-2 witness /start persisted, so prepare_shipping_trace
+        # reaches 2 points once the Type-3 destination is appended. Harmless for
+        # the start tests, which append their own origin.
+        estimated_end_at="2020-01-01T00:00:00+00:00",
+        gps_list=[
+            {
+                "Type": 2,
+                "Latitude": 35.70000,
+                "Longitude": 51.40000,
+                "Speed": 0,
+                "Altitude": 1000,
+                "Date": "2020-01-01T00:00:00.000Z",
+                "DateTime": "2020-01-01T00:00:00.000Z",
+                "Provider": "android_faketraveler_applied",
+                "Provenance": "android_verified",
+            }
+        ],
     )
     driver = SimpleNamespace(driver_national_code="test-driver", utcms_password_encrypted="test-encrypted")
     transport = Mock()
@@ -44,10 +63,16 @@ def faketraveler_runtime(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     monkeypatch.setattr(routes, "load_shipping_state", AsyncMock(return_value=None))
     monkeypatch.setattr(routes, "init_shipping", AsyncMock(return_value=state))
     monkeypatch.setattr(routes, "save_shipping_state", AsyncMock())
+    # record_shipping_rejection() persists via gps_shipping_manager's own
+    # save_shipping_state global (not the routes alias); isolate it so any
+    # rejection-path test here never writes to the tableless test DB.
+    monkeypatch.setattr("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock())
     monkeypatch.setattr(routes, "get_worker_proxy_url", Mock(return_value="http://squid:3128"))
     monkeypatch.setattr(routes, "get_or_login_client", AsyncMock(return_value=transport))
-    monkeypatch.setattr(routes.rpa_runtime, "acquire_lock", AsyncMock(return_value=True))
-    monkeypatch.setattr(routes.rpa_runtime, "release_lock", AsyncMock())
+    # Mutation lock is the Redis SET-NX completion claim imported into the route
+    # module (shared with Beat auto-complete), not an rpa_runtime driver lock.
+    monkeypatch.setattr(routes, "_acquire_completion_claim", AsyncMock(return_value="test-claim-token"))
+    monkeypatch.setattr(routes, "_release_completion_claim", AsyncMock())
     monkeypatch.setattr("app.auth_multitenant.decrypt_driver_password", Mock(return_value="test-password"))
     # Bridge enabled
     monkeypatch.setattr(

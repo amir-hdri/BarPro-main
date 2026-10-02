@@ -33,10 +33,7 @@ def provider_kind_for_env() -> str:
     """Select provider without ever silently downgrading an enabled bridge."""
     from app.android_bridge.client import BridgeConfig
 
-    try:
-        cfg = BridgeConfig.from_env()
-    except Exception:
-        return "operator_anchor"
+    cfg = BridgeConfig.from_env()
     if cfg.enabled and cfg.serial:
         return "redroid"
     requested = (os.environ.get("SHIPPING_GPS_PROVIDER") or "auto").strip().lower()
@@ -176,6 +173,16 @@ async def verify_android_anchor(
         observation = await observer.observe()
     except Exception as exc:  # noqa: BLE001 — fail closed, reason only
         return {"verified": False, "reason": str(exc) or "readback_unavailable"}
+    if observation.is_mock is not True:
+        return {"verified": False, "reason": "location_is_not_virtual"}
+    now = datetime.now(UTC)
+    if (
+        observation.sampled_at.tzinfo is None
+        or observation.observed_at.tzinfo is None
+        or not observation.sampled_at <= observation.observed_at <= now
+        or (now - observation.sampled_at).total_seconds() > 30
+    ):
+        return {"verified": False, "reason": "location_readback_stale"}
     gap_km = haversine_km(observation.latitude, observation.longitude, expected_lat, expected_lng)
     if gap_km > tolerance_km:
         return {

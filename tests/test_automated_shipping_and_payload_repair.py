@@ -136,7 +136,7 @@ async def test_auto_complete_shipping_calls_register_end_of_shipping():
         driver_national_code="4929889601",
         utcms_password_encrypted="encrypted-pwd",
     )
-    mock_job = SimpleNamespace(job_id="test-job-finish", driver_id=1)
+    mock_job = SimpleNamespace(job_id="test-job-finish", driver_id=1, document_id="226164459", result_json={})
 
     mock_client = AsyncMock(spec=UtcmsMobileClient)
     mock_client.register_end_of_shipping.return_value = {"resultCode": 200, "resultMessage": "پایان حمل ثبت شد"}
@@ -148,6 +148,9 @@ async def test_auto_complete_shipping_calls_register_end_of_shipping():
     mock_session.get.return_value = mock_driver
 
     with (
+        patch("app.automation.gps_shipping_manager._acquire_completion_claim", AsyncMock(return_value="claim-token")),
+        patch("app.automation.gps_shipping_manager._release_completion_claim", AsyncMock()),
+        patch("app.core.config.utcms_config.ALLOW_LIVE_SUBMIT", True),
         patch("app.automation.gps_shipping_manager.load_shipping_state", AsyncMock(return_value=state)),
         patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()),
         patch("app.automation.gps_shipping_manager.get_or_login_client", AsyncMock(return_value=mock_client)),

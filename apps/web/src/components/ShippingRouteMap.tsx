@@ -85,6 +85,7 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
   const leafletMap = useRef<LType.Map | null>(null);
   const markersRef = useRef<LType.Marker[]>([]);
   const polylineRef = useRef<LType.Polyline | null>(null);
+  const actualPolylineRef = useRef<LType.Polyline | null>(null);
   const truckMarkerRef = useRef<LType.Marker | null>(null);
 
   const [status, setStatus] = useState<ShippingStatus | null>(null);
@@ -129,6 +130,7 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
     polylineRef.current?.remove();
+    actualPolylineRef.current?.remove();
     truckMarkerRef.current?.remove();
 
     if (!st.waypoints || st.waypoints.length === 0) return;
@@ -180,7 +182,7 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
       })
       .map((point) => [point.Latitude, point.Longitude] as [number, number]);
     if (actualPoints.length > 1) {
-      L.polyline(actualPoints, { color: "#0891b2", weight: 5, opacity: 0.9 }).addTo(map);
+      actualPolylineRef.current = L.polyline(actualPoints, { color: "#0891b2", weight: 5, opacity: 0.9 }).addTo(map);
     }
 
     // Truck marker at current position
@@ -308,7 +310,7 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
           .bindPopup(`<b>مقصد</b><br/>${destAddress || "نقطه پایان"}`);
         markersRef.current = [m1, m2];
 
-        L.polyline(
+        polylineRef.current = L.polyline(
           [
             [originLat, originLng],
             [destLat, destLng],
@@ -346,6 +348,7 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
       }
       markersRef.current = [];
       polylineRef.current = null;
+      actualPolylineRef.current = null;
       truckMarkerRef.current = null;
     };
   }, [jobId, originLat, originLng, destLat, destLng, originAddress, destAddress, fetchStatus, renderRoute, scheduleInvalidate]);

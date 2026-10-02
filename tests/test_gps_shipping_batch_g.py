@@ -155,12 +155,13 @@ async def test_failed_4011_recovery_never_marks_success():
         idempotency_key="idem-a2-recovery",
         client_id=7,
         driver_id=1,
+        document_id="226164459",
         payload_json={},
         status="success",  # waybill issuance already succeeded
         result_json={"tracking_code": "1349757758"},
         mutation_status="dispatched",
     )
-    driver = SimpleNamespace(id=1, driver_national_code="4929889601", utcms_password_encrypted="enc")
+    driver = SimpleNamespace(id=1, client_id=7, driver_national_code="4929889601", utcms_password_encrypted="enc")
 
     mock_client = AsyncMock()
     # UTCMS says "start of shipping was never registered" (4011 variant) ...
@@ -175,6 +176,7 @@ async def test_failed_4011_recovery_never_marks_success():
     session = make_fake_session(job, driver)
 
     with (
+        patch("app.core.config.utcms_config.ALLOW_LIVE_SUBMIT", True),
         patch("app.automation.gps_shipping_manager.load_shipping_state", AsyncMock(return_value=state)),
         patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()),
         patch("app.automation.gps_shipping_manager._get_redis", AsyncMock(return_value=redis)),
@@ -222,11 +224,12 @@ async def test_structured_4011_exception_still_self_declares():
         job_id="job-a2-4011exc",
         driver_id=1,
         client_id=7,
+        document_id="226164459",
         status="in_transit",
         result_json={"tracking_code": "1349757758"},
         updated_at=None,
     )
-    driver = SimpleNamespace(id=1, driver_national_code="4929889601", utcms_password_encrypted="enc")
+    driver = SimpleNamespace(id=1, client_id=7, driver_national_code="4929889601", utcms_password_encrypted="enc")
 
     mock_client = AsyncMock()
     mock_client.register_end_of_shipping.side_effect = UtcmsMobileApiError(
@@ -238,6 +241,7 @@ async def test_structured_4011_exception_still_self_declares():
     session = make_fake_session(job, driver)
 
     with (
+        patch("app.core.config.utcms_config.ALLOW_LIVE_SUBMIT", True),
         patch("app.automation.gps_shipping_manager.load_shipping_state", AsyncMock(return_value=state)),
         patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()),
         patch("app.automation.gps_shipping_manager._get_redis", AsyncMock(return_value=redis)),
@@ -476,7 +480,7 @@ async def test_completion_claim_is_released_after_completion():
         # Claim released: a subsequent run is not blocked.
         second = await manager.auto_complete_shipping("job-f5-release")
         assert second["status"] == "delivered"
-    assert "utcms:shipping:claim:job-f5-release" not in redis.values
+    assert manager.COMPLETION_CLAIM_KEY.format(job_id="job-f5-release") not in redis.values
 
 
 @pytest.mark.asyncio
@@ -484,7 +488,7 @@ async def test_completion_claim_manually_held_blocks_completion():
     """A claim held by another worker/run (present in Redis) blocks completion."""
     state = ShippingState(job_id="job-f5-held", status="in_transit")
     redis = FakeRedis()
-    redis.values["utcms:shipping:claim:job-f5-held"] = "other-worker-token"
+    redis.values[manager.COMPLETION_CLAIM_KEY.format(job_id="job-f5-held")] = "other-worker-token"
     inner_calls: list[str] = []
 
     async def counting_inner(job_id, force=False):

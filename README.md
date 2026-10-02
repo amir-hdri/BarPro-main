@@ -205,6 +205,11 @@ docker compose -f compose/monitoring.yml up -d  # Prometheus
 
 ## 📋 Current Status
 
+The current development version is `2.9.17-unreleased`, matching OpenAPI and the
+unreleased changelog entry. The latest dated release entry is `2.9.16`
+(2026-10-01); these labels do not establish what is deployed on the servers.
+The private frontend package's `0.1.0` is separate package metadata.
+
 ### Tests
 ```
 Run the backend suite with: pytest tests/ (see docs for the required environment).
@@ -215,7 +220,7 @@ release gate.
 
 ### Alembic Migration Head
 ```
-040_add_route_template_polyline
+041_driver_plate_tracking_fields
 ```
 
 ### Required ML Assets
@@ -265,7 +270,7 @@ BarPro/
 ├── compose/                # Docker Compose layered files
 ├── infra/                  # Nginx, Squid, Prometheus configs
 ├── alembic/                # Database migrations
-├── tests/                  # Pytest test suite (989 tests)
+├── tests/                  # Pytest test suite; report counts from the current run
 ├── scripts/                # Utility and deploy scripts
 ├── CRITICAL_RULES.md       # ⚠️ خطوط قرمز و قوانین حیاتی
 ├── AGENTS.md               # AI agent guide

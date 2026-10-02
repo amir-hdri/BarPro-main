@@ -5,6 +5,31 @@ import pytest
 from app.monitoring.event_bridge import MonitoringEventBridge
 
 
+async def test_active_selector_audit_logs_summary_and_reaches_timeline() -> None:
+    """The enhanced waybill manager still emits this event in its finalizer."""
+    bridge = MonitoringEventBridge()
+    payload = {"items": [{"status": "filled"}, {"status": "failed"}, {"status": "unsupported"}]}
+
+    with (
+        patch("app.monitoring.event_bridge.event_hub.publish", new_callable=AsyncMock) as publish,
+        patch("app.monitoring.event_bridge.logger.info") as log,
+    ):
+        await bridge.emit("waybill_selector_inventory_audit", payload, task_id="job-1", tags={"item_count": "3"})
+
+    log.assert_called_once_with(
+        "selector_audit_summary", extra={"extra_fields": {"total_fields": 3, "filled": 1, "failed": 2}}
+    )
+    publish.assert_awaited_once_with(
+        {
+            "event_type": "waybill_selector_inventory_audit",
+            "payload": payload,
+            "task_id": "job-1",
+            "correlation_id": None,
+            "tags": {"item_count": "3"},
+        }
+    )
+
+
 @pytest.mark.asyncio
 async def test_publish_to_timeline_failure():
     """Test that event publishing failures are logged appropriately."""

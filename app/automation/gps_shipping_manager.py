@@ -566,10 +566,10 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 # provide a tenant; scoped lookups NEVER fall back to it, so a tenant can
 # never read another tenant's cached session.
 SHIPPING_STATE_KEY = "utcms:shipping:job:{job_id}"
-COMPLETION_CLAIM_KEY = "utcms:shipping:claim:{job_id}"
+COMPLETION_CLAIM_KEY = "lock:shipping:{job_id}"
 # Beat cadence is 120s; a 10-minute claim TTL bounds a claim left behind by a
 # crashed worker while still covering the slowest UTCMS round-trips.
-COMPLETION_CLAIM_TTL_SECONDS = 600
+COMPLETION_CLAIM_TTL_SECONDS = 900
 
 # Loop-aware per-driver auth locks, keyed (loop id, tenant scope, national code).
 # asyncio.Lock binds to the loop that first awaits it; awaiting the same lock
@@ -1185,135 +1185,96 @@ async def init_shipping(
     return state
 
 
+def shipping_wait_reason(state: ShippingState, now: datetime | None = None) -> dict[str, Any] | None:
+    """Enforce persisted cooldown and physical ETA on every entry point."""
+    stamp = now or datetime.now(UTC)
+    for field_name, status in (("backoff_until", "backoff"), ("estimated_end_at", "waiting_eta")):
+        raw = getattr(state, field_name)
+        # Empty cooldown OR empty ETA means "no wait": a trip with no persisted
+        # ETA is still swept as a failsafe (fail-closed auto_complete + the UTCMS
+        # 4013 backstop downstream), never dead-ended as invalid_estimated_end_at.
+        if not raw:
+            continue
+        try:
+            deadline = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=UTC)  # legacy persisted times were UTC
+        except (TypeError, ValueError):
+            # A corrupt cooldown/ETA is logged WITH context and treated as "no
+            # wait" (the trip stays eligible), never silently swallowed and never
+            # a permanent dead-end; the fail-closed mutation gates + UTCMS 4013
+            # are the real backstops.
+            event = "shipping_backoff_parse_failed" if field_name == "backoff_until" else "shipping_eta_parse_failed"
+            logger.warning("%s job=%s field=%s value=%r", event, state.job_id, field_name, raw)
+            continue
+        if stamp < deadline:
+            return {
+                "status": status,
+                "remaining_seconds": math.ceil((deadline - stamp).total_seconds()),
+                field_name: raw,
+            }
+    return None
+
+
 async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[ShippingState]:
-    """Retrieve all active shipping states that are due for destination completion."""
+    """Find due envelopes, with Redis decisions taking precedence over stale DB mirrors."""
     now = now_dt or datetime.now(UTC)
     if now.tzinfo is None:
         now = now.replace(tzinfo=UTC)
+    due: list[ShippingState] = []
+    seen: set[str] = set()
 
-    due_jobs: list[ShippingState] = []
-    seen_job_ids: set[str] = set()
+    def consider(raw: Any) -> None:
+        state = ShippingState.from_dict(raw)
+        if not state.job_id or state.job_id in seen:
+            return
+        seen.add(state.job_id)
+        if state.status == "in_transit" and shipping_wait_reason(state, now) is None:
+            due.append(state)
 
-    # 1. Scan Redis keys
-    r = await _get_redis()
-    if r is not None:
+    redis = await _get_redis()
+    if redis is not None:
         try:
-            keys: list[str] = []
             cursor = 0
             while True:
-                cursor, partial_keys = await r.scan(cursor=cursor, match="utcms:shipping:job:*", count=100)
-                keys.extend(partial_keys)
-                if cursor == 0:
-                    break
-            for key in keys:
-                raw = await r.get(key)
-                if raw:
+                cursor, keys = await redis.scan(cursor=cursor, match="utcms:shipping:job:*", count=100)
+                for key in keys:
                     try:
-                        st = ShippingState.from_dict(json.loads(raw))
-                        if st.status == "in_transit" and st.job_id not in seen_job_ids:
-                            # Skip if job is currently in backoff cooldown
-                            if st.backoff_until:
-                                try:
-                                    backoff_dt = datetime.fromisoformat(st.backoff_until)
-                                    if backoff_dt.tzinfo is None:
-                                        backoff_dt = backoff_dt.replace(tzinfo=UTC)
-                                    if now < backoff_dt:
-                                        continue
-                                except Exception as exc:
-                                    # Corrupt backoff_until: keep the job eligible
-                                    # (no backoff) but log — silent acceptance
-                                    # would hide persisted-state corruption.
-                                    logger.warning(
-                                        "shipping_backoff_parse_failed job=%s backoff_until=%r err=%s",
-                                        st.job_id,
-                                        st.backoff_until,
-                                        exc,
-                                    )
-
-                            is_due = True
-                            if st.estimated_end_at:
-                                try:
-                                    end_dt = datetime.fromisoformat(st.estimated_end_at)
-                                    if end_dt.tzinfo is None:
-                                        end_dt = end_dt.replace(tzinfo=UTC)
-                                    is_due = now >= end_dt
-                                except Exception as exc:
-                                    # Corrupt estimated_end_at: treat as due (do not
-                                    # strand the trip) but log the corruption.
-                                    logger.warning(
-                                        "shipping_eta_parse_failed job=%s estimated_end_at=%r err=%s",
-                                        st.job_id,
-                                        st.estimated_end_at,
-                                        exc,
-                                    )
-                                    is_due = True
-                            if is_due:
-                                due_jobs.append(st)
-                                seen_job_ids.add(st.job_id)
-                    except Exception as exc:
-                        logger.warning("shipping_state_decode_failed key=%s err=%s", key, exc)
-        except Exception as exc:
-            logger.warning("get_due_in_transit_jobs_redis_scan_failed: %s", exc)
-
-    # 2. Check DB for active jobs that might have missed Redis
+                        raw = await redis.get(key)
+                        if raw:
+                            consider(json.loads(raw))
+                    except (ValueError, TypeError, AttributeError):
+                        logger.warning("shipping_state_decode_failed key=%s", key, exc_info=True)
+                if int(cursor) == 0:
+                    break
+        except Exception:
+            logger.warning("shipping_due_redis_scan_failed", exc_info=True)
     try:
+        from sqlalchemy import cast
+        from sqlalchemy.dialects.postgresql import JSONB
         from sqlmodel import select
 
         from app.core.database import async_session_factory
         from app.models_multitenant import WaybillJob
 
         async with async_session_factory() as session:
-            stmt = select(WaybillJob).where(WaybillJob.status == "in_transit").limit(50)
-            jobs = (await session.exec(stmt)).all()
+            # Issuance can already be SUCCESS while its shipping envelope is in transit.
+            query = select(WaybillJob).where(
+                cast(WaybillJob.result_json, JSONB)["_shipping_state"]["status"].astext == "in_transit"
+            )
+            jobs = (await session.exec(query)).all()
             for job in jobs:
-                if job.job_id not in seen_job_ids:
+                if job.job_id in seen:
+                    continue
+                try:
                     stored = (job.result_json or {}).get("_shipping_state")
-                    if isinstance(stored, dict):
-                        st = ShippingState.from_dict(stored)
-                        if st.status == "in_transit":
-                            # Skip if job is currently in backoff cooldown
-                            if st.backoff_until:
-                                try:
-                                    backoff_dt = datetime.fromisoformat(st.backoff_until)
-                                    if backoff_dt.tzinfo is None:
-                                        backoff_dt = backoff_dt.replace(tzinfo=UTC)
-                                    if now < backoff_dt:
-                                        continue
-                                except Exception as exc:
-                                    # Corrupt backoff_until: keep the job eligible
-                                    # (no backoff) but log — silent acceptance
-                                    # would hide persisted-state corruption.
-                                    logger.warning(
-                                        "shipping_backoff_parse_failed job=%s backoff_until=%r err=%s",
-                                        st.job_id,
-                                        st.backoff_until,
-                                        exc,
-                                    )
-
-                            is_due = True
-                            if st.estimated_end_at:
-                                try:
-                                    end_dt = datetime.fromisoformat(st.estimated_end_at)
-                                    if end_dt.tzinfo is None:
-                                        end_dt = end_dt.replace(tzinfo=UTC)
-                                    is_due = now >= end_dt
-                                except Exception as exc:
-                                    # Corrupt estimated_end_at: treat as due (do not
-                                    # strand the trip) but log the corruption.
-                                    logger.warning(
-                                        "shipping_eta_parse_failed job=%s estimated_end_at=%r err=%s",
-                                        st.job_id,
-                                        st.estimated_end_at,
-                                        exc,
-                                    )
-                                    is_due = True
-                            if is_due:
-                                due_jobs.append(st)
-                                seen_job_ids.add(st.job_id)
-    except Exception as exc:
-        logger.warning("get_due_in_transit_jobs_db_scan_failed: %s", exc)
-
-    return due_jobs
+                    if isinstance(stored, dict) and stored.get("job_id") == job.job_id:
+                        consider(stored)
+                except (ValueError, TypeError, AttributeError):
+                    logger.warning("shipping_state_decode_failed job=%s", job.job_id, exc_info=True)
+    except Exception:
+        logger.warning("shipping_due_db_scan_failed", exc_info=True)
+    return due
 
 
 _UTCM_RULE_CODE_RE = re.compile(r"\(code:\s*(\d{3,5})\)")
@@ -1444,18 +1405,10 @@ async def _route_shipping_job_to_reconciliation(
 
 
 async def _acquire_completion_claim(job_id: str) -> str | None:
-    """Best-effort per-trip completion claim (Redis SET NX with TTL).
-
-    Returns the claim token when this caller owns the claim, None when another
-    Beat run/worker already holds it (caller must skip). When Redis is
-    unavailable the claim cannot be coordinated: log loudly and return "" so
-    the caller proceeds exactly as before (no new fail-closed outage is
-    introduced by a coordination primitive).
-    """
+    """Acquire the same distributed lock used by manual start/finish; fail closed."""
     r = await _get_redis()
-    if r is None:
-        logger.warning("completion_claim_redis_unavailable job=%s; proceeding without claim", job_id)
-        return ""
+    if not r:
+        raise ShippingStatePersistenceError("shipping mutation lock unavailable")
     token = secrets.token_urlsafe(16)
     try:
         acquired = await r.set(
@@ -1465,8 +1418,7 @@ async def _acquire_completion_claim(job_id: str) -> str | None:
             nx=True,
         )
     except Exception as exc:
-        logger.warning("completion_claim_acquire_failed job=%s err=%s; proceeding without claim", job_id, exc)
-        return ""
+        raise ShippingStatePersistenceError("shipping mutation lock unavailable") from exc
     if not acquired:
         logger.info("completion_claim_held job=%s; skipping duplicate completion attempt", job_id)
         return None
@@ -1491,6 +1443,14 @@ async def _release_completion_claim(job_id: str, token: str) -> None:
         logger.warning("completion_claim_release_failed job=%s err=%s", job_id, exc)
 
 
+def _is_missing_start_rejection(result: dict[str, Any]) -> bool:
+    """Rule 4011 variant where the self-declared start was never registered upstream."""
+    if result.get("resultCode") != 4011:
+        return False
+    message = str(result.get("resultMessage") or "").replace("‌", "").replace("ي", "ی")
+    return "شروع حمل" in message and "ثبت نشده" in message
+
+
 async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, Any]:
     """Arrival-driven terminal registration (ETA is watchdog, not trigger).
 
@@ -1512,56 +1472,27 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
 
 
 async def _auto_complete_shipping_inner(job_id: str, force: bool = False) -> dict[str, Any]:
-    """Arrival-driven terminal registration (ETA is watchdog, not trigger)."""
+    """Complete one trip while holding its distributed mutation lease."""
+    from app.automation.shipping_contract import prepare_shipping_trace, shipping_acknowledged, shipping_response
+    from app.automation.worker_proxy import get_worker_proxy_url
+    from app.core.config import utcms_config
+
+    if not utcms_config.ALLOW_LIVE_SUBMIT:
+        return {"status": "skipped", "reason": "live_submit_disabled"}
     state = await load_shipping_state(job_id)
     if not state or state.status != "in_transit":
         return {"status": "skipped", "reason": "not_in_transit"}
-
-    # Advance the persisted travel execution so ARRIVED/progress are current.
-    try:
-        from app.services.shipping_travel_service import advance_travel_execution, is_arrival_reached
-
-        advance_travel_execution(state)
-        await save_shipping_state(state)
-        has_snapshot = bool(state.route_snapshot and state.route_snapshot.get("polyline"))
-        if has_snapshot and not force and not is_arrival_reached(state):
-            return {
-                "status": "waiting_arrival",
-                "reason": "travel_not_arrived",
-                "travel_status": state.travel_status,
-                "travel_progress": state.travel_progress,
-                "estimated_end_at": state.estimated_end_at,
-            }
-    except Exception:
-        logger.warning("auto_complete_travel_advance_failed job=%s", job_id, exc_info=True)
-
-    if state.estimated_end_at and not force:
-        try:
-            now = datetime.now(UTC)
-            end_dt = datetime.fromisoformat(state.estimated_end_at)
-            if end_dt.tzinfo is None:
-                end_dt = end_dt.replace(tzinfo=UTC)
-            if now < end_dt:
-                remaining = int((end_dt - now).total_seconds())
-                return {
-                    "status": "waiting_eta",
-                    "remaining_seconds": remaining,
-                    "estimated_end_at": state.estimated_end_at,
-                }
-        except Exception as exc:
-            # Corrupt estimated_end_at: proceed to the completion attempt rather
-            # than stranding the trip, but log the corruption.
-            logger.warning(
-                "auto_complete_eta_parse_failed job=%s estimated_end_at=%r err=%s",
-                job_id,
-                state.estimated_end_at,
-                exc,
-            )
-
-    target_doc_id = state.doc_id or state.doc_no
-    if not target_doc_id:
+    if not force:
+        # force is an explicit operator override (manual/script completion): it
+        # bypasses only the ETA/backoff wait, never the fail-closed mutation gates.
+        wait = shipping_wait_reason(state)
+        if wait:
+            return wait
+    # Fail-closed integrity guards before the terminal POST (held under the claim):
+    # never submit a trip with no document id, or a (0,0) destination that must
+    # never reach UTCMS.
+    if not (state.doc_id or state.doc_no):
         return {"status": "skipped", "reason": "missing_doc_id"}
-
     if not state.dest_lat or not state.dest_lng:
         return {"status": "skipped", "reason": "missing_dest_coordinates"}
 
@@ -1571,292 +1502,184 @@ async def _auto_complete_shipping_inner(job_id: str, force: bool = False) -> dic
     from app.core.database import async_session_factory
     from app.models_multitenant import Driver, WaybillJob
 
-    driver = None
-    tenant_client_id: int | None = None
     async with async_session_factory() as session:
         job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == job_id))).first()
         if not job or not job.driver_id:
             return {"status": "skipped", "reason": "job_or_driver_not_found"}
-        tenant_client_id = getattr(job, "client_id", None)
         driver = await session.get(Driver, job.driver_id)
+        tenant_id = getattr(job, "client_id", None)
+        if not driver or getattr(driver, "client_id", None) != tenant_id:
+            return {"status": "needs_review", "reason": "driver_ownership_mismatch"}
+        from app.api.routes.shipping_gps import _document_ids
 
-    if not driver or not driver.utcms_password_encrypted:
+        document_ids = _document_ids(job, dict(getattr(job, "payload_json", None) or {}))
+        target_doc_id = state.doc_id or state.doc_no
+        if not target_doc_id or target_doc_id not in document_ids:
+            return {"status": "needs_review", "reason": "document_ownership_mismatch"}
+    if not driver.utcms_password_encrypted:
         return {"status": "skipped", "reason": "driver_credentials_missing"}
 
-    # Fail-closed Android destination gate for auto-complete when bridge enabled.
-    try:
-        from app.android_bridge.client import BridgeConfig
+    from app.android_bridge.client import BridgeConfig
+    from app.services.shipping_travel_service import advance_travel_execution, verify_android_anchor
 
-        if BridgeConfig.from_env().enabled:
-            from app.services.shipping_travel_service import verify_android_anchor
+    bridge = BridgeConfig.from_env()  # invalid enabled config must never downgrade to direct transport
+    if bridge.enabled:
+        from app.android_bridge.controller import AndroidShippingController
 
-            check = await verify_android_anchor(expected_lat=state.dest_lat, expected_lng=state.dest_lng)
-            if not check.get("verified"):
-                logger.warning("auto_complete_android_gate_blocked job=%s reason=%s", job_id, check.get("reason"))
-                return {
-                    "status": "waiting_readback",
-                    "reason": check.get("reason", "readback_unavailable"),
-                    "travel_status": state.travel_status,
-                }
-    except Exception as exc:
-        # verify_android_anchor already returns dicts; this guards import/env errors.
-        logger.warning("auto_complete_android_gate_error job=%s err=%s", job_id, exc)
-        return {"status": "waiting_readback", "reason": "readback_check_failed"}
-
-    pwd = decrypt_driver_password(driver.utcms_password_encrypted)
-    proxy_url = None
-    try:
-        from app.automation.worker_proxy import get_worker_proxy_url
-
-        proxy_url = get_worker_proxy_url()
-    except Exception as exc:
-        logger.warning("Could not derive worker proxy url: %s", exc)
-
+        await AndroidShippingController(bridge).apply_location(state.dest_lat, state.dest_lng)
+        check = await verify_android_anchor(expected_lat=state.dest_lat, expected_lng=state.dest_lng)
+        if not check.get("verified"):
+            return {"status": "waiting_readback", "reason": check.get("reason", "readback_unavailable")}
+    advance_travel_execution(state)
+    proxy_url = get_worker_proxy_url()  # propagate fail-closed egress failures
     client = await get_or_login_client(
         national_code=driver.driver_national_code,
-        password=pwd,
+        password=decrypt_driver_password(driver.utcms_password_encrypted),
         proxy_url=proxy_url,
-        client_id=tenant_client_id,
+        client_id=tenant_id,
     )
-
     now = datetime.now(UTC)
-    now_iso = now.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    dest_point = {
-        "Latitude": state.dest_lat,
-        "Longitude": state.dest_lng,
-        "latitude": state.dest_lat,
-        "longitude": state.dest_lng,
-        "Speed": 0.0,
-        "speed": 0.0,
-        "Altitude": 1000.0,
-        "altitude": 1000.0,
-        "Date": now_iso,
-        "date": now_iso,
-        "DateTime": now_iso,
-        "Type": 3,
-        "type": 3,
-    }
-    # UTCMS RegisterEndOfShipping gpsList accepts Type 2 (intermediate/waypoint) and Type 3 (destination).
-    # Prepend origin point as Type 2 waypoint if no intermediate points were recorded.
-    gps_evidence = list(state.gps_list or [])
-    if not gps_evidence and state.origin_lat and state.origin_lng:
-        start_iso = (
-            state.created_at
-            if state.created_at
-            else (datetime.now(UTC) - timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-        )
-        gps_evidence.append(
+    from app.automation.shipping_contract import utc_shipping_timestamp
+
+    # Recover a legacy origin only from its recorded start time, never backdate it.
+    evidence = [dict(point) for point in state.gps_list if point.get("Type") != 3]
+    if not evidence:
+        evidence.append(
             {
                 "Latitude": state.origin_lat,
                 "Longitude": state.origin_lng,
-                "latitude": state.origin_lat,
-                "longitude": state.origin_lng,
-                "Speed": 0.0,
-                "speed": 0.0,
-                "Altitude": 1000.0,
-                "altitude": 1000.0,
-                "Date": start_iso,
-                "date": start_iso,
-                "DateTime": start_iso,
                 "Type": 2,
-                "type": 2,
+                "Date": state.created_at or utc_shipping_timestamp(now),
+                "Provider": "operator_anchor",
+                "Provenance": "route_anchor",
             }
         )
-    gps_evidence.append(dest_point)
-
+    evidence.append(
+        {
+            "Latitude": state.dest_lat,
+            "Longitude": state.dest_lng,
+            "Type": 3,
+            "Date": utc_shipping_timestamp(now),
+            "Speed": 0,
+            "Altitude": 1000,
+            "Provider": "android_faketraveler_applied" if bridge.enabled else "operator_anchor",
+            "Provenance": "virtual_observation" if bridge.enabled else "route_anchor",
+        }
+    )
+    evidence = prepare_shipping_trace(evidence)
+    state.gps_list = evidence
     state.completion_attempts += 1
     state.last_attempt_at = now.isoformat()
-
+    state.status = "finishing"
+    await save_shipping_state(state)  # durable fence before the only terminal POST
     try:
-        res = await client.register_end_of_shipping(
-            document_id=target_doc_id,
-            gps_list=gps_evidence,
-            allow_live_submit=True,
+        result = await client.register_end_of_shipping(
+            document_id=target_doc_id, gps_list=evidence, allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT
         )
     except Exception as exc:
-        # Structural rule-code extraction: a raw "4011" substring of free
-        # exception text can false-positive on a doc/tracking number or prose.
-        # Only the structured result_code (or the strict "(code: NNNN)"
-        # envelope pattern) counts as business rule 4011.
-        rule_code = _extract_utcms_rule_code(exc)
-        if rule_code == "4011":
-            logger.info(
-                "register_end_of_shipping raised business rule 4011 for job %s: %s",
-                job_id,
-                exc,
-            )
-            res = {
-                "resultCode": 4011,
-                "resultMessage": "پایان حمل بر اساس خوداظهاری تایید شد (قاعده ۴۰۱۱)",
-                "mode": "self_declared_auto_complete",
-            }
+        # Classify STRUCTURALLY (never by free-text substring): a genuine
+        # business-rule 4011 is the self-declared-end outcome handled below; any
+        # other terminal-POST exception is ambiguous -> fail closed to unknown.
+        if _extract_utcms_rule_code(exc) == "4011":
+            result = {"resultCode": 4011, "resultMessage": str(exc)}
         else:
-            logger.error("register_end_of_shipping failed for job %s: %s", job_id, exc)
-            state.last_error_message = str(exc)[:200]
-            backoff_min = min(60, 5 * (2 ** min(state.completion_attempts - 1, 4)))
-            state.backoff_until = (now + timedelta(minutes=backoff_min)).isoformat()
-            await save_shipping_state(state)
-            raise
-
-    is_success = False
-    if isinstance(res, dict):
-        rc = res.get("resultCode")
-        rm = str(res.get("resultMessage") or "")
-        state.last_error_code = rc
-        state.last_error_message = rm
-
-        if rc in (200, 0):
-            is_success = True
-            state.backoff_until = ""
-        elif rc == 4011 and "خوداظهاری" in rm:
-            res["mode"] = "self_declared_auto_complete"
-            is_success = True
-            state.backoff_until = ""
-        elif rc == 4011 and "شروع حمل ثبت نشده است" in rm:
-            # Code 4011 variant: start of shipping was never registered.
-            # Attempt to register start of shipping now, then retry end of shipping immediately.
-            logger.info(
-                "register_end_of_shipping returned 4011 ('شروع حمل ثبت نشده است') for job %s. Registering start first...",
-                job_id,
-            )
-            try:
-                start_iso = (
-                    state.created_at
-                    if state.created_at
-                    else (datetime.now(UTC) - timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                )
-                start_res = await client.register_start_of_shipping(
-                    document_id=target_doc_id,
-                    longitude=state.origin_lng,
-                    latitude=state.origin_lat,
-                    start_date=start_iso,
-                    allow_live_submit=True,
-                )
-                logger.info("register_start_of_shipping result for job %s: %s", job_id, start_res)
-                # Retry end of shipping
-                retry_end = await client.register_end_of_shipping(
-                    document_id=target_doc_id,
-                    gps_list=gps_evidence,
-                    allow_live_submit=True,
-                )
-                if isinstance(retry_end, dict) and retry_end.get("resultCode") in (200, 0, 4011):
-                    res = retry_end
-                    if retry_end.get("resultCode") == 4011 and "mode" not in res:
-                        res["mode"] = "self_declared_auto_complete"
-                    is_success = True
-                    state.backoff_until = ""
-                else:
-                    res = retry_end
-            except Exception as start_exc:
-                # FAIL-CLOSED: the 4011 recovery (register start, then retry
-                # end) failed — the end-of-shipping outcome is genuinely
-                # UNKNOWN. Never declare success here: a failed recovery
-                # (auth/network/portal error) must not mark the trip
-                # delivered. Route the job through the JobStateMachine into
-                # reconciling and back off for a bounded retry.
-                logger.error(
-                    "shipping_completion_recovery_failed job=%s err=%s",
-                    job_id,
-                    start_exc,
-                )
+            result = shipping_response(exc)
+            if result is None:
                 state.status = "unknown"
-                state.last_error_code = "4011_recovery_failed"
-                state.last_error_message = str(start_exc)[:200]
-                backoff_min = min(60, 5 * (2 ** min(state.completion_attempts - 1, 4)))
-                state.backoff_until = (now + timedelta(minutes=backoff_min)).isoformat()
+                state.last_error_message = str(exc)[:200]
                 await save_shipping_state(state)
-                routed_to = await _route_shipping_job_to_reconciliation(
-                    job_id,
-                    reason="completion_recovery_failed",
-                    error=str(start_exc),
-                )
-                return {
-                    "status": "unknown",
-                    "reason": "completion_recovery_failed",
-                    "error": str(start_exc)[:200],
-                    "routed_to": routed_to,
-                    "backoff_until": state.backoff_until,
-                }
-        elif rc == 4012:
-            # Code 4012: "برای ثبت پایان حمل، شما حداقل باید 2 کیلومتر طی کرده باشید."
-            backoff_min = 5
-            state.backoff_until = (now + timedelta(minutes=backoff_min)).isoformat()
-            await save_shipping_state(state)
-            logger.warning(
-                "register_end_of_shipping 4012 (minimum 2km required) for job %s: %s; backing off %d min until %s",
-                job_id,
-                rm,
-                backoff_min,
-                state.backoff_until,
-            )
-            return {"status": "waiting_distance_requirement", "result": res, "backoff_until": state.backoff_until}
-        elif rc == 4013:
-            # Code 4013: "زمان مورد نیاز برای پایان حمل نگذشته است."
-            # Back off for 5 minutes before checking again
-            backoff_min = 5
-            state.backoff_until = (now + timedelta(minutes=backoff_min)).isoformat()
-            await save_shipping_state(state)
-            logger.info(
-                "register_end_of_shipping 4013 (time not elapsed) for job %s; backing off for %d min until %s",
-                job_id,
-                backoff_min,
-                state.backoff_until,
-            )
-            return {"status": "waiting_elapsed_time", "result": res, "backoff_until": state.backoff_until}
-        elif rc == 429:
-            # Code 429: Rate limited by UTCMS. Back off 10m, 20m, 30m
-            backoff_min = min(30, 10 * max(1, state.completion_attempts))
-            state.backoff_until = (now + timedelta(minutes=backoff_min)).isoformat()
-            await save_shipping_state(state)
-            logger.warning(
-                "register_end_of_shipping rate limited (429) for job %s, backing off %d min until %s",
-                job_id,
-                backoff_min,
-                state.backoff_until,
-            )
-            return {"status": "rate_limited", "result": res, "backoff_until": state.backoff_until}
-        else:
-            # Other rejections (e.g. 4006, 4004): exponential backoff 5m, 15m, 30m, capped at 60m
-            backoff_min = min(60, 5 * (2 ** min(state.completion_attempts - 1, 4)))
-            state.backoff_until = (now + timedelta(minutes=backoff_min)).isoformat()
-            await save_shipping_state(state)
-            logger.warning(
-                "register_end_of_shipping returned non-success for job %s: code=%s msg=%s; backing off until %s",
-                job_id,
-                rc,
-                rm,
-                state.backoff_until,
-            )
-            return {"status": "rejected", "result": res, "backoff_until": state.backoff_until}
-
-    if not is_success:
-        state.backoff_until = (now + timedelta(minutes=10)).isoformat()
+                return {"status": "unknown", "reason": "completion_unconfirmed"}
+    result = shipping_response(result)
+    if result is None or result.get("resultCode") is None:
+        state.status = "unknown"
         await save_shipping_state(state)
-        return {"status": "failed", "result": res, "backoff_until": state.backoff_until}
-
+        return {"status": "unknown", "reason": "completion_unconfirmed"}
+    if _is_missing_start_rejection(result):
+        # Rule 4011 "شروع حمل ثبت نشده": the self-declared start was never
+        # recorded upstream. Register start once from the origin witness, then
+        # retry the single terminal POST. If recovery does not settle (start
+        # fails, or the retry is unconfirmed / still no-start), route the job
+        # through JobStateMachine into reconciling — never success (fail-closed).
+        recovery_error: str | None = None
+        retry: dict[str, Any] | None = None
+        try:
+            await client.register_start_of_shipping(
+                target_doc_id,
+                longitude=state.origin_lng,
+                latitude=state.origin_lat,
+                start_date=state.created_at or utc_shipping_timestamp(now),
+                allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
+            )
+            retry = shipping_response(
+                await client.register_end_of_shipping(
+                    document_id=target_doc_id, gps_list=evidence, allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT
+                )
+            )
+        except Exception as exc:
+            recovery_error = str(exc)
+        if (
+            recovery_error is not None
+            or retry is None
+            or retry.get("resultCode") is None
+            or _is_missing_start_rejection(retry)
+        ):
+            routed = await _route_shipping_job_to_reconciliation(
+                job_id, reason="completion_recovery_failed", error=recovery_error or f"recovery did not settle: {retry}"
+            )
+            state.status = "unknown"
+            state.last_error_message = (recovery_error or "recovery did not settle")[:200]
+            state.backoff_until = (now + timedelta(seconds=300)).isoformat()
+            await save_shipping_state(state)
+            return {"status": "unknown", "reason": "completion_recovery_failed", "routed_to": routed}
+        result = retry
+    # A structured 4011 that is NOT the no-start variant is the self-declared-end
+    # business rule -> delivered; the strict message match in shipping_acknowledged
+    # only needs to guard the non-4011 outcomes.
+    if result.get("resultCode") != 4011 and not shipping_acknowledged(result):
+        return await record_shipping_rejection(state, result, now=now)
+    if result.get("resultCode") == 4011:
+        result["mode"] = "self_declared_auto_complete"
     state.status = "delivered"
-    state.current_step = len(state.waypoints) - 1 if state.waypoints else 1
+    state.backoff_until = ""
+    state.current_step = max(1, len(state.waypoints) - 1)
     state.traveled_km = state.distance_km
-    state.gps_list = gps_evidence
     await save_shipping_state(state)
+    async with async_session_factory() as session:
+        job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == job_id))).first()
+        if job:
+            res_json = dict(job.result_json or {})
+            res_json.update(end_shipping=result, completed_at=now.isoformat())
+            job.result_json = res_json
+            # Shipping evidence does not promote or invalidate issuance witnesses.
+            job.updated_at = now.replace(tzinfo=None)
+            session.add(job)
+            await session.commit()
+    return {"status": "delivered", "result": result}
 
-    try:
-        async with async_session_factory() as session:
-            job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == job_id))).first()
-            if job:
-                res_json = dict(job.result_json or {})
-                res_json["end_shipping"] = res
-                res_json["completed_at"] = datetime.now(UTC).isoformat()
-                job.result_json = res_json
-                job.status = "success"
-                job.updated_at = datetime.now(UTC).replace(tzinfo=None)
-                session.add(job)
-                await session.commit()
-    except Exception as db_exc:
-        logger.warning("auto_complete_shipping_db_update_warning: %s", db_exc)
 
-    logger.info("Auto completed shipping for job %s: %s", job_id, res)
-    return {"status": "delivered", "result": res}
+async def record_shipping_rejection(
+    state: ShippingState, result: dict[str, Any], *, now: datetime | None = None
+) -> dict[str, Any]:
+    """Known rejections are retryable after cooldown; a missing-start result needs review."""
+    stamp = now or datetime.now(UTC)
+    code = result.get("resultCode")
+    state.last_error_code = code
+    state.last_error_message = str(result.get("resultMessage") or "")[:200]
+    state.status = "in_transit"
+    if code == 4011:
+        state.status = "unknown"
+        status, seconds = "needs_review", 0
+    elif code == 4012:
+        status, seconds = "waiting_distance_requirement", 300
+    elif code == 4013:
+        status, seconds = "waiting_elapsed_time", 300
+    elif code == 429:
+        status, seconds = "rate_limited", min(1800, 600 * max(1, state.completion_attempts))
+    else:
+        status, seconds = "rejected", min(3600, 300 * 2 ** min(max(0, state.completion_attempts - 1), 4))
+    state.backoff_until = (stamp + timedelta(seconds=seconds)).isoformat() if seconds else ""
+    await save_shipping_state(state)
+    return {"status": status, "result": result, "backoff_until": state.backoff_until}
 
 
 __all__ = [

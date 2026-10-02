@@ -366,7 +366,7 @@ BarPro/
 │   ├── squid/squid_*.conf
 │   ├── prometheus/prometheus.yml
 │   └── logging/logrotate.conf
-├── alembic/                # Database migrations; current head 040_add_route_template_polyline
+├── alembic/                # Database migrations; current head 041_driver_plate_tracking_fields
 ├── tests/                  # Pytest test suite
 ├── scripts/                # Utility and deploy scripts
 └── deploy/                 # Deployment configs
@@ -1015,6 +1015,6 @@ current runtime evidence.*
 
 > **Verification:** `uvx ruff check` clean on touched files; proxy health tests pass (28 tests in proxy/rotator/system health/readyz suites); scheduler subquery logic tested.
 
-*Historical release snapshot dated 2026-08-20. Re-run tests and runtime
-verification for the current commit; Alembic head documented for this checkout:
-038_add_multiroute_batch_distance.*
+*Historical release snapshot dated 2026-08-20, when the Alembic head was
+038_add_multiroute_batch_distance. Re-run tests and runtime verification for
+the current commit; the current repository head is listed in Project Structure.*

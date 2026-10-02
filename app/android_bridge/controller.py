@@ -10,7 +10,7 @@ import asyncio
 import logging
 import math
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 try:
     from datetime import UTC
@@ -102,11 +102,21 @@ class AndroidShippingController:
     @staticmethod
     def _validate_coordinates(lat: float, lon: float, altitude: float = 0.0) -> None:
         """Validate latitude and longitude bounds."""
-        if not isinstance(lat, (int, float)) or not math.isfinite(lat) or not -90.0 <= float(lat) <= 90.0:
+        if (
+            isinstance(lat, bool)
+            or not isinstance(lat, (int, float))
+            or not math.isfinite(lat)
+            or not -90.0 <= float(lat) <= 90.0
+        ):
             raise ValueError(f"Latitude must be a finite number between -90 and 90, got: {lat}")
-        if not isinstance(lon, (int, float)) or not math.isfinite(lon) or not -180.0 <= float(lon) <= 180.0:
+        if (
+            isinstance(lon, bool)
+            or not isinstance(lon, (int, float))
+            or not math.isfinite(lon)
+            or not -180.0 <= float(lon) <= 180.0
+        ):
             raise ValueError(f"Longitude must be a finite number between -180 and 180, got: {lon}")
-        if not isinstance(altitude, (int, float)) or not math.isfinite(altitude):
+        if isinstance(altitude, bool) or not isinstance(altitude, (int, float)) or not math.isfinite(altitude):
             raise ValueError(f"Altitude must be a finite number, got: {altitude}")
 
     async def _read_apply_button_state(self) -> str | None:
@@ -230,10 +240,28 @@ class AndroidShippingController:
             await rpa_runtime.release_lock(ANDROID_DEVICE_MUTATION_LOCK_KEY)
 
     async def _apply_location_locked(self, lat: float, lon: float, altitude: float = 1200.0) -> None:
-        """Device-mutating half of apply_location; the caller must hold the device lock."""
+        """Apply once, then prove a fresh matching mock fix while holding the device lease."""
+        from app.travel.android_observer import AdbLocationObserver
+        from app.travel.geometry import haversine_km
+
         await self.verify_device_ready()
-        logger.info("applying_location lat=%.6f lon=%.6f altitude=%.1f", lat, lon, altitude)
-        # 1. Send geo:{lat},{lon} intent
+        for package in (LOCATION_PACKAGE, TARGET_PACKAGE):
+            if not (await self._adb("shell", "pm", "path", package)).startswith("package:"):
+                raise BridgeError("required_android_package_missing")
+        # Foreground FakeTraveler first so the toggle can be read before filling.
+        await self._adb("shell", "am", "start", "-n", f"{LOCATION_PACKAGE}/.MainActivity")
+        state = await self._read_apply_button_state()
+        if state == "stop":
+            observation = await self.bridge.layout()
+            node = observation.require_unique(resource_id=f"{LOCATION_PACKAGE}:id/button_applyStop")
+            if (node.text or "").lower() != "stop" or node.bounds is None:
+                raise BridgeError("apply_button_state_changed")
+            left, top, right, bottom = node.bounds
+            await self._adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+            if await self._read_apply_button_state() != "apply":
+                raise BridgeError("stop_button_postcondition_failed")
+        elif state != "apply":
+            raise BridgeError("apply_button_state_unknown")
         await self._adb(
             "shell",
             "am",
@@ -244,45 +272,24 @@ class AndroidShippingController:
             f"geo:{lat},{lon}",
             f"{LOCATION_PACKAGE}/.MainActivity",
         )
-        # 2-3. State-gated apply trigger, then verify, with retries.
-        for attempt in range(1, self.apply_attempts + 1):
-            state = await self._read_apply_button_state()
-            if state == "stop":
-                logger.info(
-                    "apply button already Stop; verifying without tap (attempt %d/%d)",
-                    attempt,
-                    self.apply_attempts,
-                )
-            elif state == "apply":
-                await self._trigger_apply_action()
-            else:
-                if attempt >= self.apply_attempts:
-                    raise BridgeError("apply_button_state_unknown")
-                logger.warning(
-                    "apply button state unknown (attempt %d/%d); retrying in %.1fs",
-                    attempt,
-                    self.apply_attempts,
-                    self.apply_retry_delay,
-                )
-                await asyncio.sleep(self.apply_retry_delay)
-                continue
+        applied_at = datetime.now(UTC)
+        await self._trigger_apply_action()
+        observer = AdbLocationObserver(self.config, bridge=self.bridge, runner=self._runner)
+        deadline = time.monotonic() + self.apply_verify_timeout
+        while True:
             try:
-                await self._wait_until_mock_registered()
-            except BridgeError as exc:
-                if attempt >= self.apply_attempts:
-                    raise
-                logger.warning(
-                    "apply_location attempt %d/%d failed (%s); retrying in %.1fs",
-                    attempt,
-                    self.apply_attempts,
-                    exc,
-                    self.apply_retry_delay,
-                )
-                await asyncio.sleep(self.apply_retry_delay)
-            else:
-                if attempt > 1:
-                    logger.info("apply_location succeeded on attempt %d/%d", attempt, self.apply_attempts)
+                fix = await observer.observe()
+                if not fix.is_mock or fix.serial != self.config.serial:
+                    raise BridgeError("location_readback_invalid")
+                if fix.sampled_at < applied_at - timedelta(seconds=1.5):
+                    raise BridgeError("location_readback_stale")
+                if haversine_km(fix.latitude, fix.longitude, lat, lon) > 0.005:
+                    raise BridgeError("location_readback_mismatch")
                 return
+            except BridgeError:
+                if time.monotonic() >= deadline:
+                    raise
+                await asyncio.sleep(min(self.apply_poll_interval, max(0.0, deadline - time.monotonic())))
 
     async def stop_location_mock(self) -> None:
         """Stop mock location provider in FakeTraveler."""
@@ -297,23 +304,8 @@ class AndroidShippingController:
         await self._adb("shell", "am", "start", "-n", f"{TARGET_PACKAGE}/.MainActivity")
 
     async def _perform_transport_action(self, action: str, doc_no: str) -> dict[str, Any]:
-        """Send action intent to the transport app and check response."""
-        output = await self._adb(
-            "shell",
-            "am",
-            "start",
-            "-n",
-            f"{TARGET_PACKAGE}/.MainActivity",
-            "--es",
-            "action",
-            f"{action}_shipping",
-            "--es",
-            "doc_no",
-            doc_no,
-        )
-        if "error" in output.lower():
-            raise BridgeError("transport_action_failed")
-        return {"action": action, "doc_no": doc_no, "result": "ok"}
+        """The APK has no verified shipping intent contract or result read-back."""
+        raise BridgeError("android_shipping_action_contract_unverified")
 
     async def start_shipping(
         self,
@@ -333,8 +325,6 @@ class AndroidShippingController:
         sanitized_doc = str(doc_no).strip()
         logger.info("start_shipping doc_no=%s", sanitized_doc)
         try:
-            await self.apply_location(origin_lat, origin_lon, altitude=altitude)
-            await self.launch_transport_app()
             action_res = await self._perform_transport_action("start", sanitized_doc)
             return {
                 "status": "started",
@@ -373,10 +363,7 @@ class AndroidShippingController:
         sanitized_doc = str(doc_no).strip()
         logger.info("finish_shipping doc_no=%s", sanitized_doc)
         try:
-            await self.apply_location(dest_lat, dest_lon, altitude=altitude)
-            await self.launch_transport_app()
             action_res = await self._perform_transport_action("finish", sanitized_doc)
-            await self.stop_location_mock()
             return {
                 "status": "delivered",
                 "finished": True,

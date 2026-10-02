@@ -1,6 +1,7 @@
 """Unit tests for AndroidShippingController in app/android_bridge/controller.py."""
 
 import asyncio
+import re
 from dataclasses import replace
 from unittest.mock import AsyncMock
 
@@ -30,25 +31,55 @@ def config(**changes) -> BridgeConfig:
 
 
 def make_mock_runner(overrides: dict[tuple[str, ...], str] | None = None) -> AsyncMock:
-    """Create a mock runner that returns standard successful ADB outputs unless overridden."""
+    """Create a stateful mock ADB runner for the controller's apply/observe flow.
+
+    It satisfies the exact device calls the authoritative controller + observer
+    make:
+
+    * ``verify_device_ready`` → get-state / boot / proxy,
+    * the fail-closed package gate → ``pm path`` for BOTH packages returns a
+      ``package:`` line (missing this is why the old runner tripped
+      ``required_android_package_missing`` before any button logic ran),
+    * the geo VIEW intent → the applied ``geo:lat,lon`` coordinates are
+      captured, and
+    * ``dumpsys location`` → echoes those exact coordinates back as a fresh mock
+      fix (``age=0.0s``) so ``AdbLocationObserver`` reads them back and the apply
+      verification succeeds (haversine 0 ≤ 5 m, is_mock=True, fresh).
+
+    ``overrides`` (checked first, exact prefix match) let an individual test
+    force a specific response — e.g. an unreadable ``dumpsys location``.
+    """
     default_handlers = {
         ("get-state",): "device\n",
         ("shell", "getprop", "sys.boot_completed"): "1\n",
         ("shell", "settings", "get", "global", "http_proxy"): "squid:3128\n",
-        ("shell", "dumpsys", "activity", "services", LOCATION_PACKAGE): (
-            "ServiceRecord{421abc0 u0 cl.coders.faketraveler/.MockedLocationService}\n"
-        ),
-        ("shell", "dumpsys", "location"): "Last Known Locations: provider=fused, mock=true\n",
+        ("shell", "pm", "path", LOCATION_PACKAGE): f"package:/data/app/{LOCATION_PACKAGE}-1/base.apk\n",
+        ("shell", "pm", "path", TARGET_PACKAGE): f"package:/data/app/{TARGET_PACKAGE}-1/base.apk\n",
         ("shell", "am", "force-stop", LOCATION_PACKAGE): "\n",
     }
     custom = overrides or {}
+    applied: dict[str, str] = {}
 
     async def runner_impl(argv: tuple[str, ...], *, timeout: float) -> str:
         # argv begins with (adb_binary, "-s", serial, ...)
         sub_args = argv[3:]
-        for pattern, response in custom.items():
+        for pattern, response in custom.items():  # explicit overrides win first
             if sub_args[: len(pattern)] == pattern:
                 return response
+        # Capture the applied coordinates from the geo VIEW intent so the dumpsys
+        # readback can echo back exactly what was "set" on the device.
+        if sub_args[:3] == ("shell", "am", "start") and "-d" in sub_args:
+            target = sub_args[sub_args.index("-d") + 1]
+            geo = re.match(r"geo:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)", target)
+            if geo:
+                applied["lat"], applied["lon"] = geo.group(1), geo.group(2)
+        if sub_args[:3] == ("shell", "dumpsys", "location"):
+            if applied:
+                return (
+                    "Last Known Locations:\n"
+                    f"  Location[fused {applied['lat']},{applied['lon']} mock age=0.0s]\n"
+                )
+            return "Last Known Locations: provider=fused\n"
         for pattern, response in default_handlers.items():
             if sub_args[: len(pattern)] == pattern:
                 return response
@@ -228,44 +259,47 @@ async def test_apply_location_intent_command_formatting():
     taps = [c for c in calls if len(c) > 5 and c[5] == "tap"]
     assert len(taps) == 1
 
-    # Check mock location verification query
+    # The observer reads the applied fix back via `dumpsys location` (no
+    # longer the old `dumpsys activity services` service-record probe).
     expected_verify_call = (
         "adb",
         "-s",
         "127.0.0.1:5555",
         "shell",
         "dumpsys",
-        "activity",
-        "services",
-        LOCATION_PACKAGE,
+        "location",
     )
     assert expected_verify_call in calls
 
 
 async def test_apply_location_fails_if_mock_not_registered():
+    """If the device never reports a parseable mock fix, apply fails closed.
+
+    The controller taps Apply exactly once, then POLLS `dumpsys location` via
+    AdbLocationObserver. An unparseable readback (no Location[...] line) means
+    the mock was never confirmed, so apply_location raises after the verify
+    window — without ever re-tapping the Apply/Stop toggle.
+    """
     runner = make_mock_runner(
         {
-            ("shell", "dumpsys", "activity", "services", LOCATION_PACKAGE): "No services\n",
             ("shell", "dumpsys", "location"): "Last Known Locations: provider=network\n",
         }
     )
-    # Small retry budget: the point is exhaustion behavior, not timing.
+    # Tight verify window: the point is the readback-exhaustion behavior, not timing.
     controller = mock_apply_button(
         AndroidShippingController(
             config(),
             runner=runner,
-            apply_attempts=2,
-            apply_retry_delay=0.01,
             apply_verify_timeout=0.05,
             apply_poll_interval=0.01,
         )
     )
-    with pytest.raises(BridgeError, match="mock_location_not_registered"):
+    with pytest.raises(BridgeError, match="location_readback_unavailable"):
         await controller.apply_location(35.7, 51.4)
 
-    # Both attempts must have triggered the apply action before giving up.
+    # Exactly one Apply tap — the poll-based verify must never blind-retap.
     taps = [call.args[0] for call in runner.await_args_list if len(call.args[0]) > 5 and call.args[0][5] == "tap"]
-    assert len(taps) == 2
+    assert len(taps) == 1
 
 
 async def test_apply_location_with_layout_finds_and_taps_button():
@@ -342,15 +376,31 @@ async def test_unexpected_button_text_fails_closed_without_any_tap():
     assert taps == []
 
 
-async def test_stop_state_skips_tap_and_verifies():
-    """When the button already shows Stop, no tap may be issued at all."""
+async def test_stop_state_resets_toggle_then_applies():
+    """When the button already shows Stop, the controller must RESET the toggle.
+
+    A live Stop means a stale provider is active, so the controller taps once to
+    flip Stop→Apply, re-reads to confirm the reset, then performs the normal
+    apply tap. Net: exactly two taps, and the postcondition read must see Apply.
+    Layout reads, in order: state-read (Stop) → reset re-read (Stop) →
+    postcondition (Apply) → apply-action re-read (Apply).
+    """
     runner = make_mock_runner()
-    controller = mock_apply_button(AndroidShippingController(config(), runner=runner), text="Stop")
+    bridge = AndroidBridge(config(), runner=runner)
+    bridge.layout = AsyncMock(
+        side_effect=[
+            parse_layout(APPLY_BUTTON_LAYOUT % "Stop"),
+            parse_layout(APPLY_BUTTON_LAYOUT % "Stop"),
+            parse_layout(APPLY_BUTTON_LAYOUT % "Apply"),
+            parse_layout(APPLY_BUTTON_LAYOUT % "Apply"),
+        ]
+    )
+    controller = AndroidShippingController(bridge=bridge)
 
     await controller.apply_location(35.7, 51.4)  # must not raise
 
     taps = [call.args[0] for call in runner.await_args_list if len(call.args[0]) > 5 and call.args[0][5] == "tap"]
-    assert taps == []
+    assert len(taps) == 2  # one reset tap (Stop→Apply) + one apply tap
 
 
 async def test_no_blind_retap_when_layout_unreadable():
@@ -405,26 +455,32 @@ async def test_apply_button_lost_between_state_read_and_tap():
     assert taps == []
 
 
-async def test_apply_location_retries_then_succeeds():
-    """A missed first tap must not fail the operation: retry then verify success.
+async def test_apply_location_polls_readback_until_fix_appears():
+    """A readback fix that arrives slightly late must not fail the apply.
 
-    Deterministic by construction: the mock provider appears only after the
-    second Apply tap, so attempt 1 must fail its verify window and attempt 2
-    must succeed. The button reports Apply on every state read.
+    The authoritative flow taps Apply exactly ONCE, then POLLS `dumpsys
+    location` via AdbLocationObserver until a fresh matching mock fix appears
+    or the verify window expires. A device that reports no parseable fix on the
+    first read but the correct fix on a later read must still succeed — and the
+    single apply tap must never be repeated (re-tapping an Apply/Stop toggle
+    could switch the provider off).
     """
-    state = {"taps": 0}
+    state = {"taps": 0, "loc_reads": 0}
     base = make_mock_runner()
 
     async def flaky_runner(argv: tuple[str, ...], *, timeout: float) -> str:
         sub_args = argv[3:]
         if sub_args[:2] == ("shell", "input"):
             state["taps"] += 1
-        if sub_args[:4] == ("shell", "dumpsys", "activity", "services"):
-            if state["taps"] >= 2:
-                return "ServiceRecord{421abc0 u0 cl.coders.faketraveler/.MockedLocationService}\n"
-            return "No services\n"
-        if sub_args[:2] == ("shell", "dumpsys"):
-            return "No locations\n"
+        if sub_args[:3] == ("shell", "dumpsys", "location"):
+            state["loc_reads"] += 1
+            if state["loc_reads"] == 1:
+                # Provider not registered yet: no parseable Location[...] line,
+                # so the observer raises location_readback_unavailable and the
+                # poll loop retries the READBACK (never the tap).
+                return "Last Known Locations: (acquiring fix)\n"
+            # Later reads delegate to the base runner, which echoes the exact
+            # applied coordinates back as a fresh mock fix.
         return await base.side_effect(argv, timeout=timeout)
 
     runner = AsyncMock(side_effect=flaky_runner)
@@ -432,15 +488,14 @@ async def test_apply_location_retries_then_succeeds():
     bridge.layout = AsyncMock(return_value=parse_layout(APPLY_BUTTON_LAYOUT % "Apply"))
     controller = AndroidShippingController(
         bridge=bridge,
-        apply_attempts=3,
-        apply_retry_delay=0.01,
-        apply_verify_timeout=0.2,
+        apply_verify_timeout=0.3,
         apply_poll_interval=0.01,
     )
 
     await controller.apply_location(35.7, 51.4)  # must not raise
 
-    assert state["taps"] == 2  # exactly one retry happened before success
+    assert state["taps"] == 1, "the single apply tap must never be repeated"
+    assert state["loc_reads"] >= 2, "readback must have polled past the first empty read"
 
 
 @pytest.mark.parametrize("kwargs", [{"apply_attempts": 0}, {"apply_attempts": -2}])
@@ -495,48 +550,40 @@ async def test_launch_transport_app():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-async def test_start_shipping_success_response():
+async def test_start_shipping_returns_contract_unverified_error():
+    """The official APK has no verified shipping-intent contract, so the
+    transport action is a hard fail-closed stub. The default
+    (raise_on_error=False) path must surface a sanitized error dict — never a
+    fabricated 'started' result that would misreport an unproven mutation."""
     runner = make_mock_runner()
-    controller = mock_apply_button(AndroidShippingController(config(), runner=runner))
+    controller = AndroidShippingController(config(), runner=runner)
 
-    result = await controller.start_shipping("DOC-12345", 35.6892, 51.3890)
-
-    assert result["status"] == "started"
-    assert result["doc_no"] == "DOC-12345"
-    assert result["origin_lat"] == 35.6892
-    assert result["origin_lon"] == 51.3890
-    assert "timestamp" in result
-    assert result["action_result"]["result"] == "ok"
-
-
-async def test_start_shipping_error_response_when_transport_action_fails():
-    runner = make_mock_runner(
-        {
-            ("shell", "am", "start", "-n", f"{TARGET_PACKAGE}/.MainActivity", "--es", "action", "start_shipping"): (
-                "Error: Activity class does not exist\n"
-            )
-        }
-    )
-    controller = mock_apply_button(AndroidShippingController(config(), runner=runner))
-
-    # By default, error during execution returns sanitized error response dict
     result = await controller.start_shipping("DOC-12345", 35.6892, 51.3890)
 
     assert result["status"] == "error"
-    assert result["reason"] == "transport_action_failed"
+    assert result["reason"] == "android_shipping_action_contract_unverified"
+    assert result["doc_no"] == "DOC-12345"
+
+
+async def test_start_shipping_error_sanitizes_doc_no():
+    """The fail-closed error dict must still normalize its inputs: a doc_no with
+    surrounding whitespace is echoed back stripped."""
+    runner = make_mock_runner()
+    controller = AndroidShippingController(config(), runner=runner)
+
+    result = await controller.start_shipping("  DOC-12345  ", 35.6892, 51.3890)
+
+    assert result["status"] == "error"
+    assert result["reason"] == "android_shipping_action_contract_unverified"
     assert result["doc_no"] == "DOC-12345"
 
 
 async def test_start_shipping_raises_when_raise_on_error_requested():
-    runner = make_mock_runner(
-        {
-            ("shell", "am", "start", "-n", f"{TARGET_PACKAGE}/.MainActivity", "--es", "action", "start_shipping"): (
-                "Error: crash\n"
-            )
-        }
-    )
-    controller = mock_apply_button(AndroidShippingController(config(), runner=runner))
-    with pytest.raises(BridgeError, match="transport_action_failed"):
+    """With raise_on_error=True the fail-closed stub propagates the BridgeError
+    instead of swallowing it into the error dict."""
+    runner = make_mock_runner()
+    controller = AndroidShippingController(config(), runner=runner)
+    with pytest.raises(BridgeError, match="android_shipping_action_contract_unverified"):
         await controller.start_shipping("DOC-12345", 35.6892, 51.3890, raise_on_error=True)
 
 
@@ -547,41 +594,25 @@ async def test_start_shipping_rejects_invalid_doc_no(doc_no):
         await controller.start_shipping(doc_no, 35.7, 51.4)
 
 
-async def test_finish_shipping_success_response():
+async def test_finish_shipping_returns_contract_unverified_error():
+    """finish_shipping shares the fail-closed transport stub: by default it
+    returns the sanitized error dict, never a delivered/finished success."""
     runner = make_mock_runner()
-    controller = mock_apply_button(AndroidShippingController(config(), runner=runner))
-
-    result = await controller.finish_shipping("DOC-12345", 35.7500, 51.4500)
-
-    assert result["status"] == "delivered"
-    assert result["finished"] is True
-    assert result["doc_no"] == "DOC-12345"
-    assert result["dest_lat"] == 35.7500
-    assert result["dest_lon"] == 51.4500
-    assert result["mock_stopped"] is True
-    assert "timestamp" in result
-
-    # Verify force-stop was called to stop mock location after delivery
-    expected_stop = ("adb", "-s", "127.0.0.1:5555", "shell", "am", "force-stop", LOCATION_PACKAGE)
-    calls = [call.args[0] for call in runner.await_args_list]
-    assert expected_stop in calls
-
-
-async def test_finish_shipping_error_response():
-    runner = make_mock_runner(
-        {
-            ("shell", "am", "start", "-n", f"{TARGET_PACKAGE}/.MainActivity", "--es", "action", "finish_shipping"): (
-                "Error: document not in transit\n"
-            )
-        }
-    )
-    controller = mock_apply_button(AndroidShippingController(config(), runner=runner))
+    controller = AndroidShippingController(config(), runner=runner)
 
     result = await controller.finish_shipping("DOC-12345", 35.7500, 51.4500)
 
     assert result["status"] == "error"
-    assert result["reason"] == "transport_action_failed"
+    assert result["reason"] == "android_shipping_action_contract_unverified"
     assert result["doc_no"] == "DOC-12345"
+
+
+async def test_finish_shipping_raises_when_raise_on_error_requested():
+    """With raise_on_error=True finish propagates the BridgeError like start."""
+    runner = make_mock_runner()
+    controller = AndroidShippingController(config(), runner=runner)
+    with pytest.raises(BridgeError, match="android_shipping_action_contract_unverified"):
+        await controller.finish_shipping("DOC-12345", 35.7500, 51.4500, raise_on_error=True)
 
 
 @pytest.mark.parametrize("doc_no", ["", "   ", None])

@@ -250,7 +250,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="سیستم اتوماسیون UTCMS",
     description="ربات هوشمند صدور بارنامه با قابلیت انتخاب مسیر و گزارش‌گیری",
-    version="2.9.16",
+    version="2.9.17-unreleased",
     lifespan=lifespan,
     # /docs, /redoc and /openapi.json are disabled in production unless
     # ENABLE_DOCS=true is set explicitly (see utcms_config.docs_enabled).

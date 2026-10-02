@@ -19,18 +19,25 @@ from pydantic import BaseModel, Field
 from app.auth_multitenant import get_current_user_or_admin
 from app.automation.gps_shipping_manager import (
     ShippingStatePersistenceError,
+    _acquire_completion_claim,
+    _release_completion_claim,
     extract_coordinates_from_payload,
     get_or_login_client,
     init_shipping,
-    is_mobile_authentication_error,
     load_shipping_state,
+    record_shipping_rejection,
     save_shipping_state,
+    shipping_wait_reason,
 )
-from app.automation.utcms_mobile_client import require_successful_mutation
+from app.automation.shipping_contract import (
+    prepare_shipping_trace,
+    shipping_acknowledged,
+    shipping_response,
+    utc_shipping_timestamp,
+)
 from app.automation.worker_proxy import ProxyUnavailableError, get_worker_proxy_url
 from app.core.config import utcms_config
 from app.core.security import require_sensitive_auth
-from app.services.rpa_runtime_service import rpa_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +153,8 @@ async def _get_job_and_driver(
         driver = None
         if job.driver_id:
             driver = (await session.exec(select(Driver).where(Driver.id == job.driver_id))).first()
+            if driver is not None and driver.client_id != job.client_id:
+                raise HTTPException(status_code=409, detail="مالکیت راننده با بارنامه مطابقت ندارد")
         return payload, driver
 
 
@@ -184,7 +193,7 @@ async def _login_driver_client(
         password=pwd,
         proxy_url=proxy_url,
         force_reauth=force_reauth,
-        client_id=_caller_client_id(user_context),
+        client_id=getattr(driver, "client_id", None) or _caller_client_id(user_context),
     )
 
 
@@ -220,9 +229,8 @@ def _shipping_mutation_lock(handler):
         # lock:shipping:{job_id}, so it cannot squat the lock and block the
         # owning tenant's mutation for the TTL.
         await _get_job_and_driver(req.job_id, user_context)
-        key = f"lock:shipping:{req.job_id}"
         try:
-            acquired = await rpa_runtime.acquire_lock(key, max(int(utcms_config.RPA_LOCK_TTL_SECONDS), 900))
+            acquired = await _acquire_completion_claim(req.job_id)
         except Exception as exc:
             logger.error("shipping_mutation_lock_unavailable", exc_info=True)
             raise HTTPException(status_code=503, detail="قفل ثبت GPS در دسترس نیست") from exc
@@ -231,7 +239,7 @@ def _shipping_mutation_lock(handler):
         try:
             return await handler(req, user_context)
         finally:
-            await rpa_runtime.release_lock(key)
+            await _release_completion_claim(req.job_id, acquired)
 
     return wrapped
 
@@ -287,8 +295,8 @@ async def start_shipping(
         from app.android_bridge.client import BridgeConfig
 
         bridge_enabled = BridgeConfig.from_env().enabled
-    except Exception:
-        bridge_enabled = False
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="تنظیمات GPS اندروید معتبر نیست") from exc
     if bridge_enabled:
         # Phase 11: apply the waybill's own origin coordinates via FakeTraveler
         # BEFORE readback — the mock location must be exactly what the user
@@ -340,15 +348,16 @@ async def start_shipping(
             )
         android_verified = True
     # Build the origin witness, but persist local state only after UTCMS confirms.
-    observed_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    observed_at = utc_shipping_timestamp(datetime.now(UTC))
     state.gps_list.append(
         {
-            "Type": 1,
+            "Type": 2,
             "Longitude": req.longitude,
             "Latitude": req.latitude,
             "Altitude": req.altitude,
             "Speed": req.speed,
             "Date": observed_at,
+            "DateTime": observed_at,
             "ObservedAt": observed_at,
             "Provider": "android_faketraveler_applied" if android_verified else "operator_anchor",
             "Provenance": "android_verified" if android_verified else "operator_confirmed",
@@ -374,45 +383,37 @@ async def start_shipping(
         ):
             raise ProxyUnavailableError("ارتباط مستقیم با UTCMS بدون پراکسی در پروداکشن مجاز نیست")
         client = await _login_driver_client(driver, proxy_url, user_context=user_context)
-        # ── StartShippingWithGps is the V2 GPS-aware endpoint that supersedes
-        # the legacy RegisterStartOfShipping.  Unlike the finish flow (which
-        # calls BOTH FinishShippingWithGps + RegisterEndOfShipping to submit
-        # the full GPS history list), start has no history to submit — so
-        # StartShippingWithGps alone is correct and symmetric.
-        # RegisterStartOfShipping is the verified mobile API endpoint
-        start_date_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        start_date_iso = utc_shipping_timestamp(datetime.now(UTC))
         target_doc_id = state.doc_id or state.doc_no
+        state.status = "starting"
+        await save_shipping_state(state)  # durable fence before the first POST
+        mutation_attempted = True
         try:
-            mutation_attempted = True
             utcms_result = await client.register_start_of_shipping(
                 document_id=target_doc_id,
                 speed=req.speed,
                 altitude=req.altitude,
-                longitude=req.longitude,
-                latitude=req.latitude,
+                longitude=state.origin_lng,
+                latitude=state.origin_lat,
                 start_date=start_date_iso,
                 allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
             )
         except Exception as exc:
-            if not is_mobile_authentication_error(exc):
+            utcms_result = shipping_response(exc)
+            if utcms_result is None:
                 raise
-            client = await _login_driver_client(driver, proxy_url, user_context=user_context, force_reauth=True)
-            utcms_result = await client.register_start_of_shipping(
-                document_id=target_doc_id,
-                speed=req.speed,
-                altitude=req.altitude,
-                longitude=req.longitude,
-                latitude=req.latitude,
-                start_date=start_date_iso,
-                allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
-            )
-        utcms_result = require_successful_mutation(utcms_result, "شروع GPS")
+        utcms_result = shipping_response(utcms_result)
+        if utcms_result is None or not shipping_acknowledged(utcms_result, start=True):
+            if utcms_result is not None and utcms_result.get("resultCode") is not None:
+                mutation_attempted = False  # explicit rejection, no accepted start
+            raise RuntimeError("shipping start was not acknowledged")
+
     except ProxyUnavailableError as exc:
         logger.error("utcms_live_start_shipping_proxy_unavailable", exc_info=True)
         raise HTTPException(status_code=503, detail="پراکسی UTCMS در دسترس نیست — IP سرور محافظت شد") from exc
     except Exception as exc:
         logger.error("utcms_live_start_shipping_failed", exc_info=True)
-        state.status = "unknown" if mutation_attempted else "failed"
+        state.status = "unknown" if mutation_attempted else "ready"
         try:
             await save_shipping_state(state)
         except Exception:
@@ -474,6 +475,9 @@ async def finish_shipping(
         expected_lng=state.dest_lng,
         label="مقصد",
     )
+    wait = shipping_wait_reason(state)
+    if wait:
+        raise HTTPException(status_code=409, detail=wait)
     # ── Route snapshot recovery (Phase 5): old jobs may predate snapshots ──
     try:
         from app.services.shipping_travel_service import ensure_route_snapshot
@@ -487,8 +491,8 @@ async def finish_shipping(
         from app.android_bridge.client import BridgeConfig
 
         bridge_enabled = BridgeConfig.from_env().enabled
-    except Exception:
-        bridge_enabled = False
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="تنظیمات GPS اندروید معتبر نیست") from exc
     if bridge_enabled:
         # Apply the waybill's own destination coordinates via FakeTraveler
         # BEFORE readback — the mock location must be exactly what the user
@@ -541,7 +545,7 @@ async def finish_shipping(
 
     # Add the confirmed route destination anchor; no interpolated
     # telemetry is ever submitted to UTCMS.
-    observed_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    observed_at = utc_shipping_timestamp(datetime.now(UTC))
     if not state.gps_list or state.gps_list[-1].get("Type") != 3:
         state.gps_list.append(
             {
@@ -551,26 +555,18 @@ async def finish_shipping(
                 "Altitude": req.altitude,
                 "Speed": req.speed,
                 "Date": observed_at,
+                "DateTime": observed_at,
                 "ObservedAt": observed_at,
                 "Provider": "android_faketraveler_applied" if android_verified else "operator_anchor",
                 "Provenance": "android_verified" if android_verified else "operator_confirmed",
             }
         )
 
-    # Fence the two UTCMS mutations.  A timeout after the first mutation must
-    # never be retried as a fresh finish request.
-    state.status = "finishing"
-    try:
-        await save_shipping_state(state)
-    except ShippingStatePersistenceError as exc:
-        raise HTTPException(status_code=503, detail="وضعیت پایان حمل پایدار نشد") from exc
     if not driver or not driver.utcms_password_encrypted:
-        state.status = "failed"
-        await save_shipping_state(state)
         raise HTTPException(status_code=409, detail="اعتبارنامه راننده برای GPS موجود نیست")
+    state.gps_list = prepare_shipping_trace(state.gps_list)
     mutation_attempted = False
     try:
-        # ── Session Vault: reuse cached token (same rationale as /start) ──
         proxy_url = get_worker_proxy_url()
         if proxy_url is None and (
             (os.environ.get("ENVIRONMENT") or "").lower() == "production"
@@ -578,55 +574,42 @@ async def finish_shipping(
         ):
             raise ProxyUnavailableError("ارتباط مستقیم با UTCMS بدون پراکسی در پروداکشن مجاز نیست")
         client = await _login_driver_client(driver, proxy_url, user_context=user_context)
-        # ── Dual-endpoint finish is intentional and NOT a bug ──
-        # 1. FinishShippingWithGps → records the terminal GPS point + distance
-        # 2. RegisterEndOfShipping → submits the full gps_list history
-        # The start flow only calls StartShippingWithGps because there is no
-        finish_result: dict[str, Any] = {}
-        try:
-            finish_result = await client.finish_shipping_with_gps(
-                doc_no=state.doc_no,
-                lat=req.latitude,
-                lon=req.longitude,
-                alt=req.altitude,
-                speed=req.speed,
-                total_distance_km=measured_km,
-                allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
-            )
-            finish_result = require_successful_mutation(finish_result, "پایان GPS")
-        except Exception as exc:
-            logger.warning("finish_shipping_with_gps non_critical_blip: %s", exc)
-        target_doc_id = state.doc_id or state.doc_no
-        try:
-            mutation_attempted = True
-            history_result = await client.register_end_of_shipping(
-                document_id=target_doc_id,
-                gps_list=state.gps_list,
-                allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
-            )
-        except Exception as exc:
-            if not is_mobile_authentication_error(exc):
-                raise
-            client = await _login_driver_client(driver, proxy_url, user_context=user_context, force_reauth=True)
-            history_result = await client.register_end_of_shipping(
-                document_id=target_doc_id,
-                gps_list=state.gps_list,
-                allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
-            )
-        history_result = require_successful_mutation(history_result, "ثبت تاریخچه GPS")
-        utcms_result = {"finish": finish_result, "history": history_result}
-    except ProxyUnavailableError as exc:
-        logger.error("utcms_live_end_shipping_proxy_unavailable", exc_info=True)
-        state.status = "unknown" if mutation_attempted else "failed"
+        state.status = "finishing"
+        state.completion_attempts += 1
+        state.last_attempt_at = datetime.now(UTC).isoformat()
         await save_shipping_state(state)
+        mutation_attempted = True
+        try:
+            history_result = await client.register_end_of_shipping(
+                document_id=state.doc_id or state.doc_no,
+                gps_list=state.gps_list,
+                allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
+            )
+        except Exception as exc:
+            history_result = shipping_response(exc)
+            if history_result is None:
+                raise
+        history_result = shipping_response(history_result)
+        if history_result is None or history_result.get("resultCode") is None:
+            raise RuntimeError("shipping completion was not acknowledged")
+        if not shipping_acknowledged(history_result):
+            rejection = await record_shipping_rejection(state, history_result)
+            raise HTTPException(status_code=409, detail=rejection)
+        if history_result.get("resultCode") == 4011:
+            history_result["mode"] = "self_declared_auto_complete"
+        utcms_result = {"history": history_result}
+    except HTTPException:
+        raise
+    except ProxyUnavailableError as exc:
         raise HTTPException(status_code=503, detail="پراکسی UTCMS در دسترس نیست — IP سرور محافظت شد") from exc
     except Exception as exc:
         logger.error("utcms_live_end_shipping_failed", exc_info=True)
-        state.status = "unknown" if mutation_attempted else "failed"
+        state.status = "unknown" if mutation_attempted else "in_transit"
         await save_shipping_state(state)
         raise HTTPException(status_code=502, detail="UTCMS پایان حمل را تأیید نکرد") from exc
 
     state.status = "delivered"
+    state.backoff_until = ""
     state.current_step = len(state.waypoints) - 1
     state.traveled_km = measured_km
     state.measured_distance_km = measured_km

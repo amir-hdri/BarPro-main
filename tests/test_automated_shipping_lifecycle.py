@@ -37,6 +37,28 @@ class FakeAsyncSessionContext:
         return None
 
 
+@pytest.fixture(autouse=True)
+def _isolate_claim_and_live_submit(monkeypatch):
+    """Isolate the two cross-cutting gates that are NOT the subject of these
+    lifecycle tests:
+
+    * the Redis SET-NX completion claim (``_acquire_completion_claim``), which
+      now fails CLOSED when Redis is unreachable; and
+    * ``ALLOW_LIVE_SUBMIT`` (default False), the unconditional live-submit gate.
+
+    Granting the claim and enabling live submit for every test here is harmless
+    for the ``init_shipping``/``get_due`` tests (which never reach either) and
+    lets the ``auto_complete_shipping`` tests exercise their real intent. Tests
+    that specifically target the claim live in ``test_gps_shipping_batch_g.py``.
+    """
+    monkeypatch.setattr(
+        "app.automation.gps_shipping_manager._acquire_completion_claim",
+        AsyncMock(return_value="claim-token"),
+    )
+    monkeypatch.setattr("app.automation.gps_shipping_manager._release_completion_claim", AsyncMock())
+    monkeypatch.setattr("app.core.config.utcms_config.ALLOW_LIVE_SUBMIT", True)
+
+
 # ==============================================================================
 # 1. Tests for init_shipping created_at & estimated_end_at calculation
 # ==============================================================================
@@ -361,6 +383,7 @@ async def test_auto_complete_shipping_with_force_true_sends_two_point_gps():
         job_id="job-force-test",
         driver_id=1,
         status="in_transit",
+        document_id="226164459",
         result_json={},
     )
 
@@ -440,6 +463,7 @@ async def test_auto_complete_shipping_when_past_eta_sends_two_point_gps():
         job_id="job-past-eta-test",
         driver_id=2,
         status="in_transit",
+        document_id="226164459",
         result_json={},
     )
 
@@ -478,10 +502,10 @@ async def test_auto_complete_shipping_when_past_eta_sends_two_point_gps():
 
 @pytest.mark.asyncio
 async def test_auto_complete_shipping_handles_4011_exception_and_updates_db():
-    """Verify a free-text "4011" mention in an exception is NOT treated as UTCMS
-    business rule 4011 (only a structured result_code counts). Fail-closed:
-    the error is logged, a bounded backoff is persisted, the exception
-    propagates, and neither the trip nor the DB job is marked delivered/success.
+    """A free-text "4011" mention in an exception is NOT UTCMS business rule 4011
+    (only a structured result_code counts). The terminal POST may have landed, so
+    the flow fails CLOSED to 'unknown' for manual reconciliation — logged, never
+    auto-retried, and neither the trip nor the DB job marked delivered/success.
     """
     state = ShippingState(
         job_id="job-4011-exc-test",
@@ -503,6 +527,7 @@ async def test_auto_complete_shipping_handles_4011_exception_and_updates_db():
         job_id="job-4011-exc-test",
         driver_id=1,
         status="in_transit",
+        document_id="226164459",
         result_json={"tracking_code": "1349757758"},
         updated_at=None,
     )
@@ -526,12 +551,14 @@ async def test_auto_complete_shipping_handles_4011_exception_and_updates_db():
         patch("app.auth_multitenant.decrypt_driver_password", return_value="plain-pwd"),
         patch("app.core.database.async_session_factory", lambda: FakeAsyncSessionContext(mock_session)),
     ):
-        with pytest.raises(Exception, match="UTCMS 4011"):
-            await auto_complete_shipping("job-4011-exc-test", force=True)
+        result = await auto_complete_shipping("job-4011-exc-test", force=True)
 
-    # 1. Trip is NOT marked delivered; a bounded backoff is persisted instead.
+    # Free-text "4011" is NOT business-rule 4011; a register_end exception is
+    # ambiguous (may have landed), so the flow fails CLOSED to 'unknown' for
+    # manual reconciliation rather than propagating or auto-retrying.
+    assert result["status"] == "unknown"
+    assert state.status == "unknown"
     assert state.status != "delivered"
-    assert state.backoff_until
     assert state.last_error_message
 
     # 2. Database WaybillJob is NOT marked success.
@@ -562,6 +589,7 @@ async def test_auto_complete_shipping_handles_4011_dict_response():
         job_id="job-4011-dict-test",
         driver_id=1,
         status="in_transit",
+        document_id="226164459",
         result_json={},
         updated_at=None,
     )
@@ -590,14 +618,18 @@ async def test_auto_complete_shipping_handles_4011_dict_response():
 
     assert result["status"] == "delivered"
     assert result["result"]["mode"] == "self_declared_auto_complete"
-    assert mock_job.status == "success"
+    # Shipping records delivery via the end_shipping witness + ShippingState;
+    # it deliberately does NOT mutate the WaybillJob issuance status.
+    assert mock_job.status == "in_transit"
     assert mock_job.result_json["end_shipping"]["resultCode"] == 4011
     assert state.status == "delivered"
 
 
 @pytest.mark.asyncio
 async def test_auto_complete_shipping_raises_on_non_4011_exception():
-    """Verify auto_complete_shipping re-raises genuine errors (e.g. 500 server error) and does not mark delivered."""
+    """A genuine transport error during the terminal POST is ambiguous (it may
+    have landed), so the flow fails CLOSED to 'unknown' for reconciliation and
+    never marks the trip delivered — it does not propagate or auto-retry."""
     state = ShippingState(
         job_id="job-err-test",
         doc_no="1349757758",
@@ -618,6 +650,7 @@ async def test_auto_complete_shipping_raises_on_non_4011_exception():
         job_id="job-err-test",
         driver_id=1,
         status="in_transit",
+        document_id="226164459",
         result_json={},
     )
 
@@ -637,10 +670,12 @@ async def test_auto_complete_shipping_raises_on_non_4011_exception():
         patch("app.auth_multitenant.decrypt_driver_password", return_value="plain-pwd"),
         patch("app.core.database.async_session_factory", lambda: FakeAsyncSessionContext(mock_session)),
     ):
-        with pytest.raises(RuntimeError, match="Fatal network error 500"):
-            await auto_complete_shipping("job-err-test", force=True)
+        result = await auto_complete_shipping("job-err-test", force=True)
 
-    assert state.status == "in_transit"
+    # Ambiguous terminal-POST error → fail CLOSED to 'unknown', never delivered.
+    assert result["status"] == "unknown"
+    assert state.status == "unknown"
+    assert state.status != "delivered"
 
 
 @pytest.mark.asyncio
@@ -666,6 +701,7 @@ async def test_auto_complete_shipping_handles_4011_no_start_shipping():
         job_id="job-4011-no-start-test",
         driver_id=6,
         status="in_transit",
+        document_id="229468123",
         result_json={},
         updated_at=None,
     )
@@ -694,6 +730,8 @@ async def test_auto_complete_shipping_handles_4011_no_start_shipping():
         result = await auto_complete_shipping("job-4011-no-start-test", force=True)
 
     assert result["status"] == "delivered"
-    assert mock_job.status == "success"
+    # Delivery is recorded on the shipping envelope, not the issuance status.
+    assert mock_job.status == "in_transit"
+    assert mock_job.result_json["end_shipping"]["resultCode"] == 200
     assert state.status == "delivered"
     mock_client.register_start_of_shipping.assert_awaited_once()
