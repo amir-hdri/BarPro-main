@@ -278,3 +278,30 @@ async def test_plate_toggles_and_target_update(session_factory):
         assert item.round_trip is False
         assert item.in_transport is True
         assert item.status == "inactive"
+
+
+def test_tracking_period_exact_boundaries():
+    """Pin the exact Tehran-midnight edges of phase 1/2 (regression)."""
+    # 8 Mehr 23:59 Tehran -> last period of the previous cycle
+    p = get_tracking_period(datetime(2026, 9, 30, 20, 29, tzinfo=UTC))
+    assert p["phase"] == 25
+    assert p["start_jalali"] == (1405, 7, 4)
+    # 9 Mehr 00:00 Tehran -> phase 1 begins
+    p = get_tracking_period(datetime(2026, 9, 30, 20, 30, tzinfo=UTC))
+    assert p["phase"] == 1
+    assert p["label"] == "دوره ۱ (۹ مهر تا ۲۳ مهر)"
+    # 23 Mehr 23:59 Tehran -> still phase 1
+    p = get_tracking_period(datetime(2026, 10, 15, 20, 29, tzinfo=UTC))
+    assert p["phase"] == 1
+    # 24 Mehr 00:00 Tehran -> phase 2 begins
+    p = get_tracking_period(datetime(2026, 10, 15, 20, 30, tzinfo=UTC))
+    assert p["phase"] == 2
+    assert p["label"] == "دوره ۲ (۲۴ مهر تا ۸ آبان)"
+
+
+def test_tracking_period_crosses_jalali_new_year():
+    """Cycles continue seamlessly across the Jalali year boundary."""
+    p = get_tracking_period(datetime(2026, 3, 21, 8, 0, tzinfo=UTC))  # 1 Farvardin 1405
+    assert p["start_jalali"] == (1404, 12, 24)
+    assert p["end_jalali"] == (1405, 1, 10)
+    assert p["label"] == "دوره ۱۲ (۲۴ اسفند تا ۹ فروردین)"
