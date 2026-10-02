@@ -219,8 +219,11 @@ class FuelInquiryService:
             statement = statement.where(FuelInquiry.created_at >= date_from)
             count_stmt = count_stmt.where(FuelInquiry.created_at >= date_from)
         if date_to:
-            statement = statement.where(FuelInquiry.created_at <= date_to)
-            count_stmt = count_stmt.where(FuelInquiry.created_at <= date_to)
+            # Exclusive end bound: callers pass the start of the day *after*
+            # the selected end day (Tehran day in UTC), so the whole end day
+            # is included.
+            statement = statement.where(FuelInquiry.created_at < date_to)
+            count_stmt = count_stmt.where(FuelInquiry.created_at < date_to)
 
         # Get total count
         count_result = await session.exec(count_stmt)

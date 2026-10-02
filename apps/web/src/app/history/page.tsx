@@ -9,6 +9,7 @@ import { ErrorState } from '@/components/layout/States';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useSession } from '@/hooks/useSession';
 import { api } from '@/lib/api';
+import { normalizeDigits } from '@/lib/plate';
 import dynamic from 'next/dynamic';
 
 const ShippingRouteMap = dynamic(
@@ -470,7 +471,7 @@ export default function HistoryPage() {
     const params: Record<string, string> = { page: String(currentPage), page_size: '20' };
     if (statusFilter) params.status = statusFilter;
     if (driverNameFilter.trim()) params.driver_name = driverNameFilter.trim();
-    if (plateFilter.trim()) params.plate_number = plateFilter.trim();
+    if (plateFilter.trim()) params.plate_number = normalizeDigits(plateFilter.trim());
     if (dateFromFilter) params.date_from = dateFromFilter;
     if (dateToFilter) params.date_to = dateToFilter;
 
@@ -497,9 +498,11 @@ export default function HistoryPage() {
     setLoadingFuel(true);
     setFuelError(null);
     const params: Record<string, string> = { page: String(currentPage), page_size: '20' };
-    if (statusFilter) params.status = statusFilter;
+    // "registered" is a waybill-only aggregate (tracking-panel «ثبت» set);
+    // fuel inquiries have their own status vocabulary.
+    if (statusFilter && statusFilter !== 'registered') params.status = statusFilter;
     if (driverNameFilter.trim()) params.driver_name = driverNameFilter.trim();
-    if (plateFilter.trim()) params.plate_number = plateFilter.trim();
+    if (plateFilter.trim()) params.plate_number = normalizeDigits(plateFilter.trim());
     if (dateFromFilter) params.date_from = dateFromFilter;
     if (dateToFilter) params.date_to = dateToFilter;
 
@@ -865,6 +868,7 @@ export default function HistoryPage() {
                   className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3.5 py-2.5 text-xs text-white outline-none focus:border-cyan-400 transition"
                 >
                   <option value="">همه وضعیت‌ها</option>
+                  <option value="registered" className="bg-slate-950">ثبت‌شده (موفق / صادرشده / در حال حمل / تحویل‌شده)</option>
                   <option value="success" className="bg-slate-950">موفق (Completed)</option>
                   <option value="pending" className="bg-slate-950">در صف (Pending)</option>
                   <option value="queued" className="bg-slate-950">صف‌شده (Queued)</option>

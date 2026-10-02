@@ -342,7 +342,7 @@ prefix اصلی app/api/routes/multitenant.py برابر /api/v1 است:
 | Plates | POST/GET /plates، PUT/DELETE /plates/{id} |
 | Driver tracking | GET /driver-tracking — آمار ثبت هر پلاک (ثبت امروز / هدف ثبت / کل ثبت) در دوره ۱۵روزه جلالی جاری |
 | Schedules | POST/GET /driver-schedules، PUT/DELETE by id، POST /driver-schedules/run-due |
-| Waybill jobs | POST/GET /waybill-jobs، GET/PATCH/DELETE by job_id |
+| Waybill jobs | POST/GET /waybill-jobs، GET/PATCH/DELETE by job_id — فیلترهای تاریخ (date_from/date_to) روزهای کامل تقویم تهران‌اند (شامل کل روز پایانی)؛ `date_to` به‌صورت bound انحصاری اعمال می‌شود؛ تاریخ نامعتبر → HTTP 400 (تست: tests/test_history_date_filters.py) |
 | Job actions | POST retry، POST requeue، GET timeline/logs/screenshot |
 | Route templates | GET/POST /route-templates، PUT/DELETE /route-templates/{id}، POST /route-templates/{id}/favorite |
 | Multi-route batches | POST/GET /batches، GET /batches/{id}/progress |

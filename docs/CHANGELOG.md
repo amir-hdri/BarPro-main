@@ -21,9 +21,32 @@ All notable changes to the UTCMS Automation System.
 
 ### Fixed
 
+- **History date filters excluded the selected end day**: `date_from`/`date_to`
+  were parsed to UTC midnights and `created_at <= date_to` was applied, so
+  filtering a single day (`from=X to=X`) returned virtually nothing. Both
+  `GET /api/v1/waybill-jobs` and `GET /api/v1/fuel-inquiries` now convert the
+  `YYYY-MM-DD` pickers to Tehran-calendar-day UTC bounds
+  (`app/core/jalali.py::tehran_day_bounds_utc`) and treat `date_to` as an
+  exclusive end bound — the entire selected end day is included. Invalid
+  dates now return HTTP 400 with a Persian message instead of 500.
+  Evidence: `tests/test_history_date_filters.py` (10 tests: Tehran bounds,
+  single-day waybill + fuel inclusion, open ranges, invalid-date 400,
+  route-level end-to-end regression, «ثبت‌شده» aggregate; 8/9 date tests
+  fail on the old code).
+- **New «ثبت‌شده» status filter in history**: the status dropdown filtered only
+  exact `success` as «موفق», while the tracking panel counts a registration
+  as `success`/`issued`/`in_transit`/`delivered`. Passing
+  `status=registered` now matches that same set (reuses
+  `driver_tracking_service.REGISTERED_STATUSES`), so per-driver/per-plate
+  daily registrations are viewable in one click. Exact statuses still work.
 - **C1 verification follow-up**: retired the last residual write to the legacy
   global `rpa:otp:latest` key (`submit_otp` in `app/services/waybill_job_service.py`);
   OTPs are now stored under the job-scoped key only (`rpa:otp:job:{job_id}`).
+- **History plate filter missed Persian digits**: the plate input accepts
+  Persian digits (example shows them) but the backend only stored/normalized
+  Latin digits, so a Persian-digit search missed matching jobs. The frontend
+  now normalizes with `normalizeDigits` before sending.
+  Evidence: code-verified in `apps/web/src/app/history/page.tsx`.
 
 ### Changed
 

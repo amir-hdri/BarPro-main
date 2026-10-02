@@ -27,6 +27,7 @@ from app.auth_multitenant import get_current_admin, get_current_client, get_curr
 from app.automation.fuel_scraper import FUEL_SCREENSHOTS_DIR
 from app.core.config import utcms_config
 from app.core.database import get_session
+from app.core.jalali import tehran_day_bounds_utc
 from app.models_multitenant import Client, TaskSource
 from app.schemas.multitenant import (
     AdminClientUpdateRequest,
@@ -84,6 +85,34 @@ _SAFE_JOB_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 def _auth_cookie_secure() -> bool:
     """Keep HTTP deployments working while allowing HTTPS hardening via env."""
     return utcms_config.AUTH_COOKIE_SECURE
+
+
+def _parse_history_date_bounds(date_from: str | None, date_to: str | None) -> tuple[datetime | None, datetime | None]:
+    """Convert ``YYYY-MM-DD`` history filters to naive-UTC ``[start, end)`` bounds.
+
+    The frontend date pickers select whole calendar days in the user's (Tehran)
+    timezone while ``created_at`` is stored as naive UTC, so each day is
+    shifted by the Tehran offset. ``date_to`` is inclusive of the entire
+    selected day (previously ``created_at <= <midnight>`` silently excluded
+    everything registered on that day).
+
+    Raises:
+        HTTPException: 400 if a value is not a valid ``YYYY-MM-DD`` date.
+    """
+
+    def _parse(value: str, name: str) -> tuple[int, int, int]:
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"قالب تاریخ {name} نامعتبر است (YYYY-MM-DD)",
+            ) from None
+        return parsed.year, parsed.month, parsed.day
+
+    dt_from = tehran_day_bounds_utc(*_parse(date_from, "شروع"))[0] if date_from else None
+    dt_to = tehran_day_bounds_utc(*_parse(date_to, "پایان"))[1] if date_to else None
+    return dt_from, dt_to
 
 
 # ==================== AUTH ENDPOINTS ====================
@@ -532,9 +561,10 @@ async def list_waybill_jobs(
     List waybill jobs for the client or admin.
 
     Supports filtering by status, driver, plate number, and date range.
+    ``date_from``/``date_to`` are whole Tehran calendar days (YYYY-MM-DD);
+    ``date_to`` includes the entire selected day.
     """
-    dt_from = datetime.fromisoformat(date_from) if date_from else None
-    dt_to = datetime.fromisoformat(date_to) if date_to else None
+    dt_from, dt_to = _parse_history_date_bounds(date_from, date_to)
     filters = TaskFilterRequest(
         status=status,
         driver_id=driver_id,
@@ -830,8 +860,7 @@ async def list_fuel_inquiries(
     """
     دریافت لیست تاریخچه استعلام‌های سوخت مربوط به مشتری یا تمام استعلام‌ها برای ادمین همراه با فیلترهای پیشرفته.
     """
-    dt_from = datetime.fromisoformat(date_from) if date_from else None
-    dt_to = datetime.fromisoformat(date_to) if date_to else None
+    dt_from, dt_to = _parse_history_date_bounds(date_from, date_to)
     return await fuel_inquiry_service.list_inquiries(
         user_context,
         page,

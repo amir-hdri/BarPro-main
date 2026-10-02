@@ -49,6 +49,7 @@ from app.services._helpers import (
     _safe_json_payload,
     _timeline_matches_query,
 )
+from app.services.driver_tracking_service import REGISTERED_STATUSES
 from app.services.rpa_runtime_service import rpa_runtime
 from app.services.rpa_scheduler_service import rpa_scheduler_service
 
@@ -266,8 +267,14 @@ class WaybillJobService:
             count_stmt = select(func.count(col(WaybillJob.id))).where(WaybillJob.client_id == client.id)
 
         if filters.status:
-            statement = statement.where(WaybillJob.status == filters.status)
-            count_stmt = count_stmt.where(WaybillJob.status == filters.status)
+            if filters.status == "registered":
+                # Aggregate filter: every job that counts as «ثبت» (same set
+                # as the driver-tracking panel), i.e. not just "success".
+                statement = statement.where(col(WaybillJob.status).in_(REGISTERED_STATUSES))
+                count_stmt = count_stmt.where(col(WaybillJob.status).in_(REGISTERED_STATUSES))
+            else:
+                statement = statement.where(WaybillJob.status == filters.status)
+                count_stmt = count_stmt.where(WaybillJob.status == filters.status)
         if filters.driver_id:
             statement = statement.where(WaybillJob.driver_id == filters.driver_id)
             count_stmt = count_stmt.where(WaybillJob.driver_id == filters.driver_id)
@@ -288,8 +295,11 @@ class WaybillJobService:
             statement = statement.where(WaybillJob.created_at >= filters.date_from)
             count_stmt = count_stmt.where(WaybillJob.created_at >= filters.date_from)
         if filters.date_to:
-            statement = statement.where(WaybillJob.created_at <= filters.date_to)
-            count_stmt = count_stmt.where(WaybillJob.created_at <= filters.date_to)
+            # Exclusive end bound: callers pass the start of the day *after*
+            # the selected end day (Tehran day in UTC), so the whole end day
+            # is included.
+            statement = statement.where(WaybillJob.created_at < filters.date_to)
+            count_stmt = count_stmt.where(WaybillJob.created_at < filters.date_to)
 
         # Get total count
         count_result = await session.exec(count_stmt)

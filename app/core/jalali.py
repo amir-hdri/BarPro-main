@@ -117,6 +117,17 @@ def jalali_day_bounds_utc(jy: int, jm: int, jd: int) -> tuple[datetime, datetime
     return start_utc, start_utc + timedelta(days=1)
 
 
+def tehran_day_bounds_utc(gy: int, gm: int, gd: int) -> tuple[datetime, datetime]:
+    """Return naive-UTC [start, end) datetimes for a Gregorian day in Tehran.
+
+    The history-page date filters send Gregorian ``YYYY-MM-DD`` days picked in
+    the user's (Tehran) timezone; ``created_at`` is stored as naive UTC, so the
+    day must be shifted by the Tehran offset before comparing.
+    """
+    start_utc = datetime(gy, gm, gd) - TEHRAN_UTC_OFFSET
+    return start_utc, start_utc + timedelta(days=1)
+
+
 # ---------------------------------------------------------------------------
 # 15-day driver registration periods, anchored at 9 Mehr of the Jalali year.
 #

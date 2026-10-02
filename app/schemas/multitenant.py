@@ -940,10 +940,14 @@ class TaskFilterRequest(BaseModel):
     """Filter tasks by various criteria."""
 
     status: str | None = None
+    """Exact job status, or the virtual value ``"registered"`` for all
+    registration-counted statuses (success/issued/in_transit/delivered)."""
     driver_id: int | None = None
     driver_name: str | None = None
     plate_number: str | None = None
     date_from: datetime | None = None
+    # Exclusive end bound: the start of the day *after* the selected end day
+    # (Tehran day expressed in UTC), so the whole end day is included.
     date_to: datetime | None = None
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=1000)
