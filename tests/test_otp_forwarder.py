@@ -60,7 +60,8 @@ async def test_submit_manual_otp_stores_redis():
     assert "code" not in res  # codes must not be echoed back in API responses
     assert res["job_id"] == "job-test-123"
     # Verify set called for rpa:otp:latest and rpa:otp:job:job-test-123
-    assert mock_redis.set.await_count >= 2
+    assert mock_redis.set.await_count == 1
+    assert mock_redis.set.call_args.args[0] == "rpa:otp:job:job-test-123"
 
 
 # ── Webhook authentication (C2 fix) ────────────────────────────────────────────
@@ -80,7 +81,9 @@ def _make_request(headers: dict | None = None, body: bytes = b"") -> _Request:
 
 
 def _webhook_body() -> bytes:
-    return _json.dumps({"content": "کد تایید صدور بارنامه: 54321", "from": "20007777"}).encode()
+    return _json.dumps(
+        {"content": "کد تایید صدور بارنامه: 54321", "from": "20007777", "driver_phone": "09120000001"}
+    ).encode()
 
 
 @pytest.mark.asyncio
@@ -137,7 +140,7 @@ async def test_webhook_accepts_valid_token_and_never_logs_code(monkeypatch, capl
 
     assert res["status"] == "success"
     assert "code" not in res  # codes must not be echoed back in API responses
-    assert mock_redis.set.await_count >= 1
+    assert mock_redis.eval.await_count == 1
     # H2: the OTP code must never appear in logs.
     assert "54321" not in caplog.text
 

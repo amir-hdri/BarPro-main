@@ -137,8 +137,8 @@ async def test_c1_store_otp_never_writes_global_key(monkeypatch):
 
     assert "rpa:otp:latest" not in fake.store
     assert fake.store.get("rpa:otp:phone:09121234567") is not None
-    # Sender-scoped key is still written (same normalization as readers use).
-    assert fake.store.get("rpa:otp:phone:20007777") is not None
+    # A gateway shortcode is shared by all drivers and must never become a routing key.
+    assert fake.store.get("rpa:otp:phone:20007777") is None
 
 
 def test_c1_otp_lookup_keys_scoped_order_and_no_global():

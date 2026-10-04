@@ -23,6 +23,7 @@ from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.core.redis_client import redis_manager
 from app.models_multitenant import WaybillJob
+from app.services.otp_delivery import accept_forwarded_otp, recipient_phone
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ def _require_webhook_auth(request: Request) -> None:
         logger.error("otp_webhook_rejected: OTP_WEBHOOK_SECRET is not configured")
         raise HTTPException(status_code=503, detail="OTP webhook is not configured")
     token = request.headers.get(WEBHOOK_TOKEN_HEADER, "")
-    if not token or not hmac.compare_digest(token, secret):
+    if not token or not hmac.compare_digest(token.encode(), secret.encode()):
         logger.warning("otp_webhook_rejected: invalid or missing webhook token")
         raise HTTPException(status_code=401, detail="Invalid webhook token")
 
@@ -71,46 +72,32 @@ def normalize_to_english_digits(text: str) -> str:
 
 
 def extract_otp_code(text: str) -> str | None:
-    """
-    Extract 4-8 digit OTP code from SMS message text.
-    Prioritizes 5 or 6 digit codes commonly sent by UTCMS / Iranian government portals.
-    """
-    if not text:
+    """Extract a bounded OTP, never a prefix of a phone/tracking number."""
+    clean = normalize_to_english_digits(text).replace("\u200c", " ").replace("\u200f", "")
+    if not clean:
         return None
-
-    clean_text = normalize_to_english_digits(text)
-
-    # 1. Look for patterns near keywords: کد, تایید, تأیید, رمز, بارنامه, شهرداری
-    keyword_patterns = [
-        r"(?:کد\s*(?:تایید|تأیید|فعالسازی|ورود)?|رمز\s*یکبار\s*مصرف|بارنامه|شهرداری)[^\d]{0,25}[:\-=\s]?\s*(\d{4,8})",
-        r"(\d{4,8})[^\d]{0,25}(?:کد\s*(?:تایید|تأیید)|رمز)",
-    ]
-    for pattern in keyword_patterns:
-        match = re.search(pattern, clean_text, re.IGNORECASE)
+    if any(phrase in clean for phrase in ("رمز دوم", "کد تخفیف", "برداشت از حساب", "خرید اینترنتی")):
+        return None
+    keyword = (
+        r"کد\s*(?:تایید|تأیید|ورود|فعالسازی|فعال\s*سازی|احراز|اعتبار)"
+        r"|رمز\s*(?:یک\s*بار\s*مصرف|ورود|موقت|اعتبار)"
+        r"|(?:verification|security|login)\s*(?:otp\s*)?code|otp(?:\s*code)?"
+    )
+    for pattern in (
+        rf"(?:{keyword})[^0-9]{{0,60}}(?<![0-9])([0-9]{{4,8}})(?![0-9])",
+        rf"(?<![0-9])([0-9]{{4,8}})(?![0-9])[^0-9]{{0,25}}(?:{keyword})",
+    ):
+        match = re.search(pattern, clean, re.IGNORECASE)
         if match:
-            code = match.group(1).strip()
-            if 4 <= len(code) <= 8:
-                return code
-
-    # 2. Look for standalone 5 or 6 digit numbers (UTCMS standard)
-    # NOTE: re.findall with a str pattern always returns list[str] at runtime;
-    # the annotation pins down typeshed's imprecise list[Any].
-    matches_5_6: list[str] = re.findall(r"\b(\d{5,6})\b", clean_text)
-    if matches_5_6:
-        # Ignore common Iranian year representations like 1403, 1404, 1405
-        filtered = [m for m in matches_5_6 if not m.startswith("140")]
-        if filtered:
-            return filtered[0]
-        return matches_5_6[0]
-
-    # 3. Look for standalone 4 to 8 digit numbers
-    matches_any: list[str] = re.findall(r"\b(\d{4,8})\b", clean_text)
-    if matches_any:
-        filtered = [m for m in matches_any if not (len(m) == 4 and m.startswith("140"))]
-        if filtered:
-            return filtered[0]
-        return matches_any[0]
-
+            return match.group(1)
+    if any(word in clean for word in ("رهگیری", "ردیابی", "شماره بارنامه", "ثبت شد", "صادر شد", "ثبت گردید")):
+        return None
+    # Short templates sent by older forwarders: "کد: 12345" or just the code.
+    match = re.search(r"کد\s*[:=]\s*([0-9]{4,8})(?![0-9])", clean)
+    if match:
+        return match.group(1)
+    if re.fullmatch(r"\s*[0-9]{4,8}\s*", clean):
+        return clean.strip()
     return None
 
 
@@ -143,20 +130,19 @@ async def store_otp_in_redis(code: str, sender: str, text: str, phone: str = "")
     }
     payload_json = json.dumps(payload, ensure_ascii=False)
 
-    r = await redis_manager.get()
-    if r:
-        try:
+    try:
+        r = await redis_manager.get()
+        if r is None:
+            raise ConnectionError("Redis unavailable")
+        if r:
             phone_key = otp_phone_key(phone)
             if phone_key:
                 await r.set(phone_key, payload_json, ex=DEFAULT_OTP_TTL)
-            if sender:
-                sender_key = otp_phone_key(sender)
-                if sender_key:
-                    await r.set(sender_key, payload_json, ex=DEFAULT_OTP_TTL)
             # Publish event for listening subscribers
             await r.publish(REDIS_OTP_CHANNEL, payload_json)
-        except Exception as exc:
-            logger.error("Failed to store OTP in Redis: %s", exc)
+    except Exception as exc:
+        logger.error("Failed to store OTP in Redis (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="OTP storage unavailable") from exc
 
     return payload
 
@@ -165,6 +151,35 @@ class ManualOtpRequest(BaseModel):
     code: str = Field(..., description="The OTP verification code (e.g. 12345)")
     phone: str | None = Field(default=None, description="Optional associated phone number")
     job_id: str | None = Field(default=None, description="Optional associated waybill job ID")
+
+
+@router.post("/sms-gateway", summary="Authenticated inbound GSM relay for offline OTP delivery")
+async def receive_sms_gateway(request: Request) -> dict[str, Any]:
+    _require_webhook_auth(request)
+    raw_body = await request.body()
+    if len(raw_body) > 2048:
+        raise HTTPException(status_code=413, detail="Gateway payload is too large")
+    try:
+        data = await request.json()
+        origin = recipient_phone(str(data["from"]))
+        text = data["text"]
+        if not isinstance(text, str):
+            raise ValueError("Invalid envelope")
+        parts = text.strip().split("#")
+        if len(parts) != 5 or parts[0] != "BP1":
+            raise ValueError("Invalid envelope")
+        _, phone, timestamp, code, signature = parts
+        if phone != origin or not re.fullmatch(r"[0-9]{4,8}", code):
+            raise ValueError("Sender mismatch or invalid code")
+        secret = utcms_config.OTP_WEBHOOK_SECRET.strip()
+        expected = hmac.new(secret.encode(), "#".join(parts[:4]).encode("ascii"), "sha256").hexdigest()[:32]
+        if not hmac.compare_digest(signature.encode(), expected.encode()):
+            raise HTTPException(status_code=401, detail="Invalid SMS signature")
+    except HTTPException:
+        raise
+    except (ValueError, KeyError, TypeError, UnicodeError) as exc:
+        raise HTTPException(status_code=422, detail="Invalid signed SMS envelope") from exc
+    return await accept_forwarded_otp(code=code, phone=phone, sender=origin, text="", timestamp=timestamp)
 
 
 @router.post("/sms-forwarder", summary="Webhook for SecureSMS Forwarder / SMS Forwarder Android Apps")
@@ -181,11 +196,28 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
     sender = ""
     content = ""
     phone = ""
+    timestamp = None
+
+    body = await request.body()
+    if len(body) > 16_384:
+        raise HTTPException(status_code=413, detail="SMS payload is too large")
 
     # 1. Try parsing JSON
     try:
         json_data = await request.json()
         if isinstance(json_data, dict):
+            event = json_data.get("event", "SMS_RECEIVED")
+            if event == "HEALTH_CHECK":
+                try:
+                    redis = await redis_manager.get()
+                    if redis is None or not await redis.ping():
+                        raise ConnectionError("Redis unavailable")
+                except Exception as exc:
+                    raise HTTPException(status_code=503, detail="OTP storage unavailable") from exc
+                return {"success": True, "status": "ready", "protocol": "barpro-otp-v1"}
+            if event != "SMS_RECEIVED" or json_data.get("encrypted") is True:
+                raise HTTPException(status_code=422, detail="Unsupported OTP event or encrypted envelope")
+            timestamp = json_data.get("timestamp")
             # Check various possible field names used by forwarders
             for key in ("content", "text", "msg", "message", "body", "sms", "data"):
                 if key in json_data and isinstance(json_data[key], str):
@@ -195,10 +227,12 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
                 if key in json_data and isinstance(json_data[key], (str, int)):
                     sender = str(json_data[key])
                     break
-            for key in ("target", "phone_number", "driver_phone"):
+            for key in ("driver_phone", "target", "phone", "phone_number"):
                 if key in json_data and isinstance(json_data[key], (str, int)):
                     phone = str(json_data[key])
                     break
+    except HTTPException:
+        raise
     except Exception as exc:
         # Never log the body: it may contain the OTP code itself.
         logger.debug("otp_webhook_json_parse_failed", extra={"extra_fields": {"error": str(exc)}})
@@ -215,6 +249,8 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
                 if key in form_data:
                     sender = str(form_data[key])
                     break
+            phone = str(form_data.get("driver_phone") or form_data.get("target") or "")
+            timestamp = form_data.get("timestamp")
         except Exception as exc:
             logger.debug("otp_webhook_form_parse_failed", extra={"extra_fields": {"error": str(exc)}})
 
@@ -228,9 +264,11 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
             if key in request.query_params:
                 sender = request.query_params[key]
                 break
+        phone = request.query_params.get("driver_phone") or request.query_params.get("target") or ""
+        timestamp = request.query_params.get("timestamp")
 
     # 4. Fallback to raw body text
-    if not content:
+    if not content and request.headers.get("content-type", "").split(";")[0] == "text/plain":
         try:
             raw_body = await request.body()
             content = raw_body.decode("utf-8", errors="ignore").strip()
@@ -247,17 +285,20 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
         # Never log message content: it may contain the OTP code itself.
         logger.warning("Could not extract OTP code from SMS content (content_len=%d)", len(content))
         return {
+            "success": False,
             "status": "ignored",
+            "otp_detected": False,
             "message": "No valid OTP code found in SMS text",
             "sender": sender,
             "content_length": len(content),
         }
 
-    stored = await store_otp_in_redis(
+    stored = await accept_forwarded_otp(
         code=otp_code,
         sender=sender,
         text=content,
-        phone=phone or sender,
+        phone=phone,
+        timestamp=timestamp,
     )
 
     # Log metadata only — never the code itself.
@@ -266,12 +307,7 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
         extra={"extra_fields": {"code_len": len(otp_code), "sender": sender, "phone": phone}},
     )
 
-    return {
-        "status": "success",
-        "message": "OTP code extracted and queued for waybill verification",
-        "sender": sender,
-        "received_at": stored.get("received_at"),
-    }
+    return stored
 
 
 @router.post("/submit-manual", summary="Manually submit OTP code via API/Admin")
@@ -287,7 +323,7 @@ async def submit_manual_otp(
     retired — see C1).
     """
     code = normalize_to_english_digits(req.code.strip())
-    if not code or not (4 <= len(code) <= 8):
+    if not re.fullmatch(r"[0-9]{4,8}", code):
         raise HTTPException(status_code=400, detail="Invalid OTP code format (must be 4 to 8 digits)")
 
     role = user_context.get("role")
@@ -314,7 +350,8 @@ async def submit_manual_otp(
         code=code,
         sender="manual_operator",
         text=f"Manual OTP submission: {code}",
-        phone=req.phone or "",
+        # A job submission must never also target a caller-supplied phone belonging to another tenant.
+        phone=(req.phone or "") if not req.job_id else "",
     )
 
     if req.job_id:
@@ -400,7 +437,12 @@ async def get_securesms_forwarder_config() -> dict[str, Any]:
             "Content-Type": "application/json",
             "X-OTP-Webhook-Token": "<OTP_WEBHOOK_SECRET from server .env>",
         },
-        "payload_template": {"from": "[from]", "content": "[content]", "timestamp": "[timestamp]"},
+        "payload_template": {
+            "sender": "[from]",
+            "text": "[content]",
+            "timestamp": "[timestamp]",
+            "driver_phone": "<recipient driver mobile in 09xxxxxxxxx format>",
+        },
         "recommended_rules": [
             {
                 "rule_name": "UTCMS OTP Rule",
